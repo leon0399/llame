@@ -50,6 +50,17 @@
     "fixture_search": {
       "type": "streamable-http",
       "url": "{env:E2E_MCP_URL:-http://localhost:4304/mcp}"
+    },
+    // Local stdio server. The interpolated secret must be redacted out of both
+    // the child's diagnostics and its tool result; the literal script path must
+    // not be, or every call naming it would be refused.
+    "fixture_local": {
+      "type": "stdio",
+      "command": "{env:E2E_NODE_PATH:-node}",
+      "args": ["./e2e/support/mcp-stdio-server.mjs"],
+      "env": {
+        "E2E_STDIO_MCP_SECRET": "{env:E2E_STDIO_MCP_SECRET:-stdio-e2e-secret}"
+      }
     }
   },
   // Tool-calling loop (openspec/changes/tool-calling-loop): the e2e tool-loop
@@ -57,7 +68,11 @@
   // through the mock model server — it must be allowlisted for those tests
   // to see any tool activity at all.
   "tools": {
-    "allowed": ["search_conversations", "mcp__fixture_search__search"]
+    "allowed": [
+      "search_conversations",
+      "mcp__fixture_search__search",
+      "mcp__fixture_local__lookup"
+    ]
   },
   // fullyParallel browser workers need real `runs` concurrency (the default
   // profile's 1 backs up past assertion timeouts); poolSize >= concurrency

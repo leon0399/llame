@@ -56,10 +56,12 @@ pnpm --filter api db:studio    # drizzle-kit studio (also db:push / db:check)
   Read-only classification is therefore load-bearing: the first write-capable
   tool must ship checkpoint-or-dedupe semantics, not merely an approval gate.
 
-## Remote MCP tools
+## MCP tools
 
-The top-level `mcpServers` config is a restart-applied, instance-scoped map of
-exact `{ type, url, headers? }` entries. `http` and `streamable-http` are aliases
+The top-level `mcpServers` config is a restart-applied, instance-scoped map with
+two transport variants, discriminated on a required `type`. A local entry is
+`{ type: "stdio", command, args?, env?, cwd? }`, run as a child process with no
+shell. A remote entry is exactly `{ type, url, headers? }`. `http` and `streamable-http` are aliases
 for Streamable HTTP. Header values may use `{env:...}` / `{path:...}` secret
 interpolation; resolved values and MCP session ids are transport-only. URL
 userinfo is rejected. `tools.allowed` accepts exact namespaced ids or only
@@ -69,6 +71,20 @@ admitted tool from that server, so it can silently authorize a newly added
 remote tool; use it only for an entirely read-only server. Remote metadata does
 not classify or authorize tools. Write, send, delete, execute, financial, and
 administrative MCP tools remain prohibited.
+
+**stdio specifics.** The child's environment is the declared `env` merged over
+the MCP SDK's base allowlist (POSIX `HOME`, `LOGNAME`, `PATH`, `SHELL`, `TERM`,
+`USER`, and only where llame itself defines them) and nothing else — llame's own
+environment is not passed through, so `POSTGRES_URL` and provider keys stay out
+unless an entry names them. Protected values come only from resolved
+`{env:…}`/`{path:…}` tokens in `command`/`args`/`env`, never from literal text,
+and only the substituted segment: protecting a low-entropy literal would refuse
+tool calls naming it and corrupt results containing it. The child's stderr is
+captured (`stderr: 'pipe'`, never inherited), bounded, sanitized, and logged
+with the server id. Retry differs from remote on purpose: a stdio server gets a
+bounded burst of fast attempts then settles, staying on the periodic occasion so
+a transient host condition still recovers without a restart — remote reconnect
+is unchanged and unbounded. A stdio child runs unsandboxed as the llame user.
 
 Exact and wildcard entries are raw filters over each process's safely admitted
 exact inventory; neither creates an identity. A fresh offline process has no

@@ -1,9 +1,14 @@
-# Remote MCP tools
+# MCP tools
 
 llame can connect to operator-managed Model Context Protocol (MCP) servers and
-offer selected remote read operations to the model. This is an instance-scoped,
+offer selected read operations to the model. This is an instance-scoped,
 restart-applied integration: it is not user-configurable, and every API and
 worker process owns its own connections.
+
+Two transports are supported. A **remote** server is reached over Streamable
+HTTP at a URL you supply. A **local** server is an executable llame runs as a
+child process and speaks to over stdin and stdout — the shape most of the MCP
+ecosystem ships, including servers with no HTTP mode at all.
 
 ## Configure a server
 
@@ -28,7 +33,7 @@ Add the portable `.mcp.json`-compatible `mcpServers` map to
 ```
 
 `"http"` and `"streamable-http"` are aliases for the same Streamable HTTP
-transport. Static header values support llame's existing `{env:NAME}`,
+transport; `"stdio"` selects a local child process (see below). Static header values support llame's existing `{env:NAME}`,
 `{env:NAME:-default}`, and `{path:LOCATION}` interpolation. An interpolated
 `Authorization` header is the normal authentication path. Resolved header
 values and MCP session ids remain transport-only: they are never included in
@@ -45,13 +50,102 @@ dedicated worker process. The allowlist decision is bound when a Run is
 accepted, so a later config removal affects new Runs but does not rebind an
 already accepted Run or its queue retry.
 
+## Configure a local stdio server
+
+```jsonc
+{
+  "mcpServers": {
+    "github": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--init",
+        "-e",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "ghcr.io/github/github-mcp-server",
+        "--read-only",
+      ],
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "{env:GITHUB_MCP_PAT}" },
+    },
+  },
+  "tools": {
+    "allowed": ["mcp__github__search_issues"],
+  },
+}
+```
+
+An entry is exactly `{ type, command, args?, env?, cwd? }`. `command` and each
+element of `args` are passed to the operating system verbatim — there is no
+shell, so metacharacters are literal text and there is no field that accepts a
+whole command line as one string.
+
+**The child's environment is only what you declare.** llame does not pass its
+own environment through. The MCP client library copies a small fixed set so a
+child can find its executable — on POSIX `HOME`, `LOGNAME`, `PATH`, `SHELL`,
+`TERM`, `USER`, and only when llame itself has them — and your `env` merges over
+that. Nothing else reaches the child, so llame's datastore URL and provider keys
+stay out unless an entry names them.
+
+That is why the `docker run -e NAME` idiom above also declares `NAME` in `env`:
+the bare flag tells docker to forward a variable from its own environment, and
+without the declaration there is nothing there to forward.
+
+**Interpolating a value marks it as a secret.** The resolved value of every
+`{env:…}` / `{path:…}` token in `command`, `args`, or `env` becomes a protected
+value: it is redacted from that server's diagnostic output, from tool results,
+and from errors. Literal text is never protected. Two consequences follow, and
+both bite in practice:
+
+- **Do not interpolate a non-secret.** Protected values are matched as
+  substrings across all tool traffic. Interpolating a per-deployment directory
+  makes that path protected everywhere, so a tool call naming a file under it is
+  refused and a listing that returns it comes back redacted. Write such values
+  literally.
+- **Do not inline a secret.** A credential written directly into the file rather
+  than interpolated is not protected, so llame cannot redact it if the server
+  echoes it back. Always use `{env:…}` or `{path:…}` for credentials.
+
+`cwd` sets the child's working directory. Without it the child inherits llame's,
+which depends on how llame was started — set it if the server resolves relative
+paths.
+
+### Running a local server well
+
+- **Pin versions.** `npx -y pkg@latest` re-fetches on every launch in every
+  process, so the tool catalog can change between two restarts of an unchanged
+  config, and a host without network access fails to start the server at all.
+  Prefer a pinned version or a pre-installed binary.
+- **Prefer a direct binary or `docker run` over `npx`.** When llame stops a
+  server it signals the process it launched. `docker run` forwards that to the
+  container and a direct binary is a single process, but `npx` layers extra
+  processes in between whose children may survive. Pass `--init` and `--rm` to
+  `docker run` so the container reaps its own children and does not accumulate.
+- **First launch must finish within 30 seconds**, the same deadline a remote
+  connection gets. A cold image pull or a first-time package install can exceed
+  it, so pre-pull images and pre-install packages rather than paying that on
+  boot.
+
+### What a local server can do to the host
+
+A configured stdio server runs **as the llame user, with llame's filesystem and
+network access, and is not sandboxed**. llame bounds what it reads from the
+server and what it sends back, not what the program itself does while running.
+Configuring one is the same trust decision as installing software on that host —
+make it with the same care, and only for software you would install anyway.
+
+llame also cannot guarantee it stops processes the server itself spawns. It
+stops the process it launched, escalating if that process ignores the request.
+
 ## Protocol boundary
 
-The supported MCP protocol revisions are the session-capable Streamable HTTP
-revisions `2025-03-26`, `2025-06-18`, and `2025-11-25`. llame does not support
-the sessionless MCP `2026-07-28` wire shape, deprecated HTTP+SSE, stdio, or a
-fallback between transports. A server that supports only an excluded revision
-remains unavailable; unrelated Runs continue.
+The supported MCP protocol revisions are the session-capable `2025-03-26`,
+`2025-06-18`, and `2025-11-25`, on both transports. llame does not support the
+sessionless MCP `2026-07-28` wire shape, deprecated HTTP+SSE, or a fallback
+between transports. A server that supports only an excluded revision remains
+unavailable; unrelated Runs continue.
 
 ## Allow only read operations
 
@@ -140,10 +234,16 @@ case; llame does not apply an IP or DNS denylist. This is not a network sandbox.
   catalog immediately and never wait for discovery or reconnect network I/O.
 - A disconnect withdraws that server's callable tools and declarations
   immediately, but retains the last completely admitted exact-id set as
-  process-local unavailable source inventory. Reconnect uses a fresh client and
-  session with AWS Full Jitter between zero and
-  `min(5 minutes, 1 second * 2^n)`, continuing until complete discovery
-  succeeds. A fresh process has no remembered ids; a successful complete
+  process-local unavailable source inventory. A **remote** server reconnects
+  with AWS Full Jitter between zero and `min(5 minutes, 1 second * 2^n)`,
+  continuing until complete discovery succeeds. A **local** server gets a
+  bounded burst of those fast attempts and then settles as unavailable, because
+  respawning a child process is not free and the usual cause of repeated
+  failure is a configuration error no number of retries fixes. A settled server
+  is not abandoned: it stays on the periodic occasion below, so a host
+  condition that outlives the burst — a dependency that came up late, a
+  registry outage — still recovers without a restart, within that interval
+  rather than immediately. A fresh process has no remembered ids; a successful complete
   discovery atomically replaces the remembered set, so omitted or refused
   identities become absent/`Removed`. No stale executor or declaration is kept.
 - The API and worker can observe different process-local states. A worker
@@ -216,7 +316,9 @@ those migrations.
 | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Startup rejects the config                                    | The entry has only `type`, `url`, and optional `headers`; the type is `http` or `streamable-http`; the URL has no userinfo; the server id follows the grammar above; duplicate server keys and ASCII-case-folded header collisions are absent; transport-owned headers are absent. Config errors intentionally name paths without printing resolved values or credential-bearing URLs. |
 | The instance starts but a server stays offline                | Verify endpoint reachability, TLS, authentication, and secret availability from that specific process. A server outage is isolated and reconnect continues in the background. There is no MCP readiness endpoint in this capability.                                                                                                                                                   |
-| The receipt reports protocol unsupported                      | The server must negotiate `2025-03-26`, `2025-06-18`, or `2025-11-25`. MCP `2026-07-28`, deprecated HTTP+SSE, and stdio have no fallback.                                                                                                                                                                                                                                              |
+| The receipt reports protocol unsupported                      | The server must negotiate `2025-03-26`, `2025-06-18`, or `2025-11-25`, on either transport. MCP `2026-07-28` and deprecated HTTP+SSE have no fallback.                                                                                                                                                                                                                                 |
 | A discovered tool is not advertised                           | Verify its exact `mcp__<server>__<tool>` id is allowlisted or covered by `mcp__<configured-server>__*`. Invalid schemas, unsafe declarations, overlength or colliding normalized names, incomplete pagination, and discovery-budget failures are refused without exposing raw remote declarations.                                                                                     |
 | The API advertises a tool but a worker reports it unavailable | API and worker catalogs are process-local. Confirm every worker has the same restarted config and secret inputs and can reach the endpoint; declaration drift also refuses execution for that bound Run.                                                                                                                                                                               |
+| A local server never starts                                   | Check the executable resolves on the child's `PATH` (which is llame's, not a login shell's), that first launch completes within 30 seconds, and read the server's own diagnostic output in llame's log — it is captured and attributed to the server id. A missing declared secret is the common cause; `docker run -e NAME` needs `NAME` in the entry's `env` too.                    |
+| A local tool refuses calls naming a valid path                | An interpolated low-entropy value became a protected value and is being matched as a substring. Write per-deployment paths literally rather than through `{env:…}`; reserve interpolation for credentials.                                                                                                                                                                             |
 | Secret interpolation fails                                    | Ensure the environment variable or mounted file exists and is readable in every process. Do not move the secret into URL userinfo or logs; resolved values are intentionally absent from errors.                                                                                                                                                                                       |
