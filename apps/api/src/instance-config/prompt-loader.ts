@@ -332,6 +332,24 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
         recentTotal: 1,
         compiledOn: '2000-01-01',
       };
+      // The two collections gate independently of each other, not just of
+      // `user`: an owner with only pinned chats and an owner with only recent
+      // ones are both ordinary production inputs, and each omits one
+      // collection from the context entirely. A template gated
+      // `{{#if chats.pinned}}{{#if chats.recent}}…{{/if}}{{/if}}` renders for
+      // the both-populated probe and empty for either one-sided owner, so
+      // probing only the both-populated shape passes at boot and fails in
+      // production for exactly those people.
+      const probePinnedOnly: PromptChatsInput = {
+        ...probeChats,
+        recent: [],
+        recentShown: 0,
+      };
+      const probeRecentOnly: PromptChatsInput = {
+        ...probeChats,
+        pinned: [],
+        pinnedShown: 0,
+      };
       const probes: readonly (readonly [
         PromptUserInput | undefined,
         PromptChatsInput | undefined,
@@ -340,6 +358,10 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
         [probeUser, undefined],
         [undefined, probeChats],
         [probeUser, probeChats],
+        [undefined, probePinnedOnly],
+        [probeUser, probePinnedOnly],
+        [undefined, probeRecentOnly],
+        [probeUser, probeRecentOnly],
       ];
       if (
         probes.some(
@@ -653,10 +675,15 @@ function chatsContext(chats: PromptChatsInput | undefined) {
   return {
     ...(pinned === undefined ? {} : { pinned }),
     ...(recent === undefined ? {} : { recent }),
-    pinnedShown: promptValue(String(chats.pinnedShown)),
-    pinnedTotal: promptValue(String(chats.pinnedTotal)),
-    recentShown: promptValue(String(chats.recentShown)),
-    recentTotal: promptValue(String(chats.recentTotal)),
+    // Numbers, not strings. `promptValue` wraps its result in a SafeString,
+    // and a SafeString is an object — so a stringified `0` is TRUTHY, and an
+    // operator writing `{{#if chats.pinnedShown}}Showing …{{/if}}` would get
+    // that framing rendered around a zero count. These are server-computed
+    // integers with nothing to escape, so they need no wrapper to be safe.
+    pinnedShown: chats.pinnedShown,
+    pinnedTotal: chats.pinnedTotal,
+    recentShown: chats.recentShown,
+    recentTotal: chats.recentTotal,
     compiledOn: promptValue(chats.compiledOn),
   };
 }

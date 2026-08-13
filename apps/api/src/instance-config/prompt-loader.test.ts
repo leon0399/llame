@@ -631,6 +631,28 @@ describe('bounded chat-digest iteration', () => {
     },
   );
 
+  // A count is a value path, not a gate — but nothing stops an operator using
+  // it as one, and a wrapped `0` used to be truthy because a SafeString is an
+  // object. The framing would then render around a zero count.
+  it('treats a zero count as falsy in a conditional and still renders it', () => {
+    writeFileSync(
+      defaultPromptPath,
+      'base{{#if chats.pinnedShown}}|pinned {{chats.pinnedShown}} of {{chats.pinnedTotal}}{{/if}}|recent {{chats.recentShown}}',
+    );
+    const model = { id: 'm' };
+    const resolved = loader().resolve(model);
+
+    expect(
+      renderResolved(resolved, model, undefined, {
+        ...chats,
+        pinned: [],
+        pinnedShown: 0,
+        pinnedTotal: 0,
+        recentShown: 2,
+      }),
+    ).toBe('base|recent 2');
+  });
+
   it('omits empty collections and the whole chats namespace when nothing renders', () => {
     writeFileSync(
       defaultPromptPath,
@@ -700,6 +722,33 @@ describe('bounded chat-digest iteration', () => {
 });
 
 describe('boot probes the user and chats gate cross product', () => {
+  // The collections gate independently of each other, not only of `user`. An
+  // owner with only pinned chats and an owner with only recent ones are both
+  // ordinary production inputs, and each omits one collection entirely — so a
+  // template requiring both renders for a two-sided probe and empty for those
+  // owners.
+  it('rejects a template that renders only when both collections are populated', () => {
+    writeFileSync(
+      defaultPromptPath,
+      '{{#unless chats}}No digest{{/unless}}{{#if chats.pinned}}{{#if chats.recent}}Both lists{{/if}}{{/if}}',
+    );
+
+    expect(() => loader().resolve({ id: 'm' })).toThrow(
+      /rendered prompt is empty/,
+    );
+  });
+
+  it('rejects a template that renders only for a pinned-only digest', () => {
+    writeFileSync(
+      defaultPromptPath,
+      '{{#unless chats}}No digest{{/unless}}{{#if chats.pinned}}{{#unless chats.recent}}Pinned only{{/unless}}{{/if}}',
+    );
+
+    expect(() => loader().resolve({ id: 'm' })).toThrow(
+      /rendered prompt is empty/,
+    );
+  });
+
   it('rejects a template empty only when chats exist without user context', () => {
     writeFileSync(
       defaultPromptPath,
