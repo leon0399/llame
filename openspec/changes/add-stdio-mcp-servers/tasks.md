@@ -72,7 +72,7 @@ Depends on: `config`. Different reviewer audience; no production code.
 
 - [x] 4.1 `docs/mcp-tools.md`: retitle away from "Remote MCP tools", add a stdio configuration section with the `env`-declaration idiom for `docker run -e VAR`, document the explicit-environment rule and why it exists, the diagnostic-output policy, the interpolation-marks-a-secret rule with both of its documented consequences (a low-entropy interpolated value can refuse tool calls and redact results; an inlined literal secret is not protected), bounded retry, the pinned-version guidance over `npx @latest`, the unsandboxed-execution warning, and the tree-termination limitation; update the two no-stdio statements and the protocol troubleshooting row
 - [x] 4.2 `docs/scaling.md`: record that every process holding an MCP catalog — including `web`-profile API processes — runs one child process per configured stdio server
-- [x] 4.3 `SPEC.md` §99: replace "stdio do not ship" with the shipped two-transport statement
+- [x] 4.3 `SPEC.md` ("Tools and integrations"): replace "stdio do not ship" with the shipped two-transport statement
 - [x] 4.4 `VISION.md:156`: remove local stdio MCP processes from the deliberate deferrals
 - [x] 4.5 `apps/api/AGENTS.md`: extend the Remote MCP tools section with the stdio entry shape, the explicit-environment rule, and the retry difference from HTTP
 - [x] 4.6 `README.md`: document the stdio entry alongside the remote one and soften "`.mcp.json`-compatible" to "`.mcp.json`-shaped"

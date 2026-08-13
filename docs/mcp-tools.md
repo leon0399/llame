@@ -139,8 +139,18 @@ paths.
 ### What a local server can do to the host
 
 A configured stdio server runs **as the llame user, with llame's filesystem and
-network access, and is not sandboxed**. llame bounds what it reads from the
-server and what it sends back, not what the program itself does while running.
+network access, and is not sandboxed**. llame bounds the protocol it speaks with
+the server, not what the program itself does while running.
+
+That bound is also weaker than the remote one in a specific way worth knowing.
+A remote response is capped before it is parsed, so an endpoint cannot force
+llame to buffer without limit. The MCP client library reads a child's output
+without such a cap, and only splits a message once a newline arrives — so a
+local server that writes without ever emitting one can grow that buffer. llame's
+own limits on declaration size and retained catalog apply after a message is
+parsed, and cannot help before then. This is accepted rather than fixed: it is a
+robustness risk from a program the operator chose to install, not an avenue for
+a remote party.
 Configuring one is the same trust decision as installing software on that host —
 make it with the same care, and only for software you would install anyway.
 
