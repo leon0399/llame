@@ -47,21 +47,29 @@ export const Off: Story = {
     await expect(
       canvas.getByRole("switch", { name: "Share my recent chats" }),
     ).not.toBeChecked();
-    await expect(
-      canvas.getByText(
-        "Turning it on covers every chat you already have, including ones from long before you opted in.",
-      ),
-    ).toBeInTheDocument();
-    await expect(
-      canvas.getByText(
-        "Turning it off stops building the list for new chats and stops adding to or refreshing the lists already built — but a chat that already has one keeps sending it.",
-      ),
-    ).toBeInTheDocument();
-    await expect(
-      canvas.getByText(
-        "Deleting a chat does not remove its title or excerpt from lists already built into other chats, from messages already stored, or from receipts already issued.",
-      ),
-    ).toBeInTheDocument();
+
+    // The consent contract, asserted leg by leg. `toHaveTextContent` matches a
+    // substring of the normalized paragraph, so the copy can be re-flowed or
+    // re-worded around these sentences but cannot quietly lose one of them.
+    const disclosure = canvasElement.querySelector(
+      '[data-slot="field-description"]',
+    );
+    // Enabling reaches backwards over everything the owner already has.
+    await expect(disclosure).toHaveTextContent(
+      "Turning it on covers every chat you already have, including ones from long before you opted in.",
+    );
+    // Disabling does not retract what is already bound.
+    await expect(disclosure).toHaveTextContent(
+      "Turning it off stops building the list for new chats and stops adding to or refreshing the lists already built — but a chat that already has one keeps sending it.",
+    );
+    // Deletion is not erasure.
+    await expect(disclosure).toHaveTextContent(
+      "Deleting a chat does not remove its title or excerpt from lists already built into other chats, from messages already stored, or from receipts already issued.",
+    );
+    // And where it goes, which the owner cannot infer from the label.
+    await expect(disclosure).toHaveTextContent(
+      "may be a third party with no relationship to you",
+    );
   },
 };
 

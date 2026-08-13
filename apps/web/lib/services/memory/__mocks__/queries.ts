@@ -2,6 +2,13 @@ import { fn } from "storybook/test";
 
 import type { MemorySettings } from "../types";
 
+/**
+ * Re-declared rather than re-exported from `../queries`, and it has to stay
+ * that way. `sb.mock` redirects that specifier to THIS module, so
+ * `export { memoryQueryKeys } from "../queries"` resolves back to itself and
+ * breaks the Storybook preview. `models/__mocks__/queries.ts` carries the same
+ * duplication for the same reason — it is not an oversight to clean up.
+ */
 export const memoryQueryKeys = {
   all: ["memory"] as const,
   mine: () => [...memoryQueryKeys.all, "me"] as const,
