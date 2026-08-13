@@ -28,12 +28,33 @@ function runtimeServerDefinitions(
     Object.fromEntries(
       entries.map(([serverId, definition]) => [
         serverId,
-        Object.freeze({
-          url: definition.url,
-          ...(definition.headers === undefined
-            ? {}
-            : { headers: Object.freeze({ ...definition.headers }) }),
-        }),
+        Object.freeze(
+          definition.type === 'stdio'
+            ? {
+                transport: 'stdio' as const,
+                command: definition.command,
+                // Passed by reference: the config loader already froze these,
+                // so copying to re-freeze buys nothing.
+                ...(definition.args === undefined
+                  ? {}
+                  : { args: definition.args }),
+                ...(definition.env === undefined
+                  ? {}
+                  : { env: definition.env }),
+                ...(definition.cwd === undefined
+                  ? {}
+                  : { cwd: definition.cwd }),
+                ...(definition.protectedValues === undefined
+                  ? {}
+                  : { protectedValues: definition.protectedValues }),
+              }
+            : {
+                url: definition.url,
+                ...(definition.headers === undefined
+                  ? {}
+                  : { headers: Object.freeze({ ...definition.headers }) }),
+              },
+        ),
       ]),
     ),
   );

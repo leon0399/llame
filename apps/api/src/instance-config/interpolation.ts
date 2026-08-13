@@ -45,6 +45,31 @@ export function interpolateString(
   input: string,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
+  return interpolateStringWithSubstitutions(input, env).value;
+}
+
+export type InterpolationResult = {
+  readonly value: string;
+  /**
+   * Resolved value of each token substituted, in order.
+   *
+   * Callers that treat interpolation as a secret source need the substituted
+   * segments, not the finished string: `--auth "Bearer {env:TOKEN}"` should
+   * contribute the token, not the whole argument, or a server echoing the bare
+   * secret would not be recognized. Empty resolutions are omitted — an empty
+   * string matches everywhere and would redact all output.
+   */
+  readonly substituted: readonly string[];
+};
+
+/**
+ * As {@link interpolateString}, but also reports what each token resolved to.
+ */
+export function interpolateStringWithSubstitutions(
+  input: string,
+  env: NodeJS.ProcessEnv = process.env,
+): InterpolationResult {
+  const substituted: string[] = [];
   let out = '';
   let i = 0;
   while (i < input.length) {
@@ -60,7 +85,9 @@ export function interpolateString(
       const envMatch = ENV_TOKEN.exec(rest);
       if (envMatch) {
         const [full, name, fallback] = envMatch;
-        out += resolveEnvToken(name, fallback, env);
+        const resolved = resolveEnvToken(name, fallback, env);
+        if (resolved.length > 0) substituted.push(resolved);
+        out += resolved;
         i += full.length;
         continue;
       }
@@ -68,7 +95,9 @@ export function interpolateString(
       const pathMatch = PATH_TOKEN.exec(rest);
       if (pathMatch) {
         const [full, location] = pathMatch;
-        out += resolvePathToken(location);
+        const resolved = resolvePathToken(location);
+        if (resolved.length > 0) substituted.push(resolved);
+        out += resolved;
         i += full.length;
         continue;
       }
@@ -77,7 +106,7 @@ export function interpolateString(
     out += input[i];
     i += 1;
   }
-  return out;
+  return { value: out, substituted };
 }
 
 function resolveEnvToken(

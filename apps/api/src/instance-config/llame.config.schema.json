@@ -72,7 +72,7 @@
         "type": {
           "type": "string",
           "enum": ["http", "streamable-http"],
-          "description": "Aliases for MCP Streamable HTTP. No stdio or deprecated HTTP+SSE fallback is supported."
+          "description": "Aliases for MCP Streamable HTTP. Use \"stdio\" for a local child-process server; deprecated HTTP+SSE is not supported."
         },
         "url": {
           "type": "string",
@@ -88,6 +88,36 @@
             "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
           },
           "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "mcpStdioServerEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One operator-managed local MCP server, run as a child process and spoken to over stdin/stdout. The child executes on the llame host as the llame user with llame's filesystem and network access and is not sandboxed: configuring one is a trust decision equivalent to installing software on that host.",
+      "required": ["type", "command"],
+      "properties": {
+        "type": { "type": "string", "enum": ["stdio"] },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Executable to run, resolved against the child's search path or given as a host path. Never shell-interpreted. May use {env:...}/{path:...} interpolation."
+        },
+        "args": {
+          "type": "array",
+          "description": "Ordered arguments. There is no field accepting a whole command line as one shell-interpreted string. Each element may use {env:...}/{path:...} interpolation.",
+          "items": { "type": "string" }
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment for the child, merged over the MCP SDK's small base allowlist (HOME, LOGNAME, PATH, SHELL, TERM, USER on POSIX). llame passes nothing else of its own, so a credential llame holds does not reach the child unless named here. Values may use {env:...}/{path:...} interpolation.",
+          "propertyNames": { "type": "string", "minLength": 1 },
+          "additionalProperties": { "type": "string" }
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Working directory for the child. Absent means it inherits llame's, which is deployment-dependent — set it if the server resolves relative paths."
         }
       }
     },
@@ -187,7 +217,34 @@
         "maxLength": 56,
         "pattern": "^(?!.*__)[A-Za-z0-9_-]+$"
       },
-      "additionalProperties": { "$ref": "#/$defs/mcpServerEntry" }
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["http", "streamable-http", "stdio"]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "type": { "const": "stdio" } },
+              "required": ["type"]
+            },
+            "then": { "$ref": "#/$defs/mcpStdioServerEntry" }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": { "enum": ["http", "streamable-http"] }
+              },
+              "required": ["type"]
+            },
+            "then": { "$ref": "#/$defs/mcpServerEntry" }
+          }
+        ]
+      }
     },
     "runs": {
       "type": "object",

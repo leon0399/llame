@@ -35,11 +35,31 @@ export type ProviderConfig = {
 };
 
 /** Resolved private Streamable HTTP server configuration. */
-export type McpServerConfig = {
+export type McpRemoteServerConfig = {
   type: 'streamable-http';
   url: string;
   headers?: Readonly<Record<string, string>>;
 };
+
+/**
+ * Resolved local stdio server configuration.
+ *
+ * `protectedValues` holds what the entry's `{env:…}` / `{path:…}` tokens
+ * resolved to, across `command`, `args`, and `env`. Literal configuration text
+ * is deliberately absent: protected values are substring-matched across tool
+ * traffic, so protecting a low-entropy literal such as a root directory would
+ * refuse legitimate calls and corrupt legitimate results.
+ */
+export type McpStdioServerConfig = {
+  type: 'stdio';
+  command: string;
+  args?: readonly string[];
+  env?: Readonly<Record<string, string>>;
+  cwd?: string;
+  protectedValues?: readonly string[];
+};
+
+export type McpServerConfig = McpRemoteServerConfig | McpStdioServerConfig;
 /**
  * The fixed set of worker "consumer groups" a profile can reference — one per
  * consumer-owning service (durable-run-workers D2): `runs` (RunsWorkerService,

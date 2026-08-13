@@ -12,13 +12,18 @@ import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
   type McpServerConfig,
+  type McpStdioServerConfig,
   type ProviderConfig,
   type ProviderType,
   type WorkerProfile,
 } from './llame-config';
 import { InstanceConfigError } from './instance-config.error';
 import { getConfigValidator } from './schema';
-import { InterpolationError, interpolateString } from './interpolation';
+import {
+  InterpolationError,
+  interpolateString,
+  interpolateStringWithSubstitutions,
+} from './interpolation';
 import { createModelPromptLoader } from './prompt-loader';
 import { getRegisteredToolIds } from '../tools/registry';
 import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
@@ -456,11 +461,19 @@ function resolveToolAllowlist(opts: {
   return ids;
 }
 
-type RawMcpServerEntry = {
-  type: 'http' | 'streamable-http';
-  url: string;
-  headers?: Record<string, string>;
-};
+type RawMcpServerEntry =
+  | {
+      type: 'http' | 'streamable-http';
+      url: string;
+      headers?: Record<string, string>;
+    }
+  | {
+      type: 'stdio';
+      command: string;
+      args?: string[];
+      env?: Record<string, string>;
+      cwd?: string;
+    };
 
 const TRANSPORT_OWNED_MCP_HEADERS = new Set([
   'accept',
@@ -487,6 +500,11 @@ function resolveMcpServers(
     const serverProbe = createMcpToolId(serverId, 'x');
     if (!serverProbe.success) {
       throw new InstanceConfigError(`${serverPath}: invalid server name`);
+    }
+
+    if (entry.type === 'stdio') {
+      resolved[serverId] = resolveStdioServer(serverPath, entry, env);
+      continue;
     }
 
     const urlPath = `${serverPath}.url`;
@@ -525,14 +543,85 @@ function resolvePrivateMcpString(
   configPath: string,
   env: NodeJS.ProcessEnv,
 ): string {
+  return resolvePrivateMcpValue(raw, configPath, env).value;
+}
+
+/**
+ * Resolves a private MCP string and reports what its tokens resolved to, so a
+ * caller can treat exactly those segments as secrets. Interpolating is how an
+ * operator declares a value sensitive; literal text is never protected.
+ */
+function resolvePrivateMcpValue(
+  raw: string,
+  configPath: string,
+  env: NodeJS.ProcessEnv,
+): { value: string; substituted: readonly string[] } {
   try {
-    return resolveInterpolatedString(raw, configPath, env);
+    return interpolateStringWithSubstitutions(raw, env);
   } catch (error) {
-    if (error instanceof InstanceConfigError) {
+    if (error instanceof InterpolationError) {
+      // Value-free on purpose: the message must not carry a resolved or
+      // partially resolved secret into an operator log.
       throw new InstanceConfigError(`${configPath}: interpolation failed`);
     }
     throw error;
   }
+}
+
+/**
+ * Resolves a local stdio entry.
+ *
+ * Every `{env:…}` / `{path:…}` token across `command`, `args`, and `env`
+ * contributes its resolved value to `protectedValues`; literal text never does.
+ */
+function resolveStdioServer(
+  serverPath: string,
+  entry: Extract<RawMcpServerEntry, { type: 'stdio' }>,
+  env: NodeJS.ProcessEnv,
+): McpStdioServerConfig {
+  const protectedValues: string[] = [];
+  const take = (raw: string, configPath: string): string => {
+    const { value, substituted } = resolvePrivateMcpValue(raw, configPath, env);
+    protectedValues.push(...substituted);
+    return value;
+  };
+
+  // Shape is already guaranteed: `assertValidRaw` ran the closed schema over
+  // this entry before resolution, same as `resolveToolAllowlist` relies on.
+  // Only what the schema cannot see is re-checked below — a token resolving to
+  // empty, which it never gets to observe.
+  const commandPath = `${serverPath}.command`;
+  const command = take(entry.command, commandPath);
+  if (command.length === 0) {
+    throw new InstanceConfigError(`${commandPath}: must be a non-empty string`);
+  }
+
+  const args = entry.args?.map((argument, index) =>
+    take(argument, `${serverPath}.args[${index}]`),
+  );
+
+  let childEnv: Record<string, string> | undefined;
+  if (entry.env !== undefined) {
+    // Null-prototype, as the header path is: the schema accepts any non-empty
+    // variable name, and assigning `__proto__` into a normal object hits
+    // `Object.prototype`'s setter instead of creating an own property, so the
+    // variable would be dropped silently on its way to the child.
+    childEnv = Object.create(null) as Record<string, string>;
+    for (const [name, raw] of Object.entries(entry.env)) {
+      childEnv[name] = take(raw, `${serverPath}.env.${name}`);
+    }
+  }
+
+  return {
+    type: 'stdio',
+    command,
+    ...(args === undefined ? {} : { args: Object.freeze(args) }),
+    ...(childEnv === undefined ? {} : { env: Object.freeze(childEnv) }),
+    ...(entry.cwd === undefined ? {} : { cwd: entry.cwd }),
+    ...(protectedValues.length === 0
+      ? {}
+      : { protectedValues: Object.freeze([...new Set(protectedValues)]) }),
+  };
 }
 
 function resolveMcpHeaders(
