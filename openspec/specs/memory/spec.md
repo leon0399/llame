@@ -70,11 +70,19 @@ Memory settings SHALL live in tenant-owned storage carrying the owner's user id,
 
 The API SHALL expose owner-scoped retrieval and partial update of the authenticated user's own memory settings under the `api/v1/me` namespace the personalization capability established. Identity SHALL come only from the authenticated session and never from client-supplied input, so a caller cannot read or write another user's settings by supplying an identifier. Requests SHALL be validated against a declared schema, responses SHALL use an explicit response type with an egress allowlist, and the endpoints SHALL appear in the generated OpenAPI document.
 
-The `shareRecentChats` control SHALL be documented, in the API contract and in whatever surface presents it, as sending titles and opening excerpts of the owner's other chats to the model provider the operator has configured — which in a multi-user instance may be a third party with no relationship to that user. Three consequences SHALL be disclosed together, and stating fewer produces an incomplete consent contract:
+The `shareRecentChats` control SHALL be documented as sending titles and opening excerpts of the owner's other chats to the model provider the operator has configured — which in a multi-user instance may be a third party with no relationship to that user. Three consequences SHALL be disclosed together **in the API contract and in the product documentation**, and stating fewer there produces an incomplete consent contract:
 
 1. **Enabling is retroactive over the existing corpus.** Chats created long before the setting was turned on become eligible immediately, including their opening excerpts.
 2. **Disabling is not retroactive.** It stops new baselines, re-bakes, and appends; chats that already carry a baseline keep sending it.
 3. **Deleting a chat is not erasure.** Its title and excerpt survive in other chats' already-bound prompts, in persisted appends, and in receipts already issued.
+
+A **presenting UI surface** SHALL state what is sent, that the destination is the model provider the operator configured and may be a third party, and that the setting is off by default. It SHALL NOT be required to reproduce the three consequences inline. This is a deliberate correction to an earlier reading of this requirement: stacking the full contract beside the control produced roughly 570 characters of consent prose against a single toggle, which is not read, and a disclosure that is not read discloses nothing. The consequences are therefore carried where they can be read as prose, and the surface carries the facts needed to answer the control in front of the owner. A surface SHALL NOT state or imply that disabling undoes prior sharing.
+
+#### Scenario: A presenting surface states the destination and the default
+
+- **WHEN** a UI surface renders the `shareRecentChats` control
+- **THEN** it states what is sent, that the destination may be a third party, and that the setting is off by default
+- **AND** it does not claim or imply that turning the setting off retracts what was already shared
 
 #### Scenario: Owner retrieves their memory settings
 
