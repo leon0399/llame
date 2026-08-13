@@ -12,6 +12,7 @@ import { RunsModule } from './runs/runs.module';
 import { SearchModule } from './search/search.module';
 import { IdentityModule } from './identity/identity.module';
 import { AuthModule } from './auth/auth.module';
+import { MemoryModule } from './memory/memory.module';
 import { PersonalizationModule } from './personalization/personalization.module';
 import { SessionAuthGuard } from './auth/session-auth.guard';
 
@@ -47,6 +48,7 @@ const API_RATE_LIMIT_PER_MINUTE = (() => {
     ChatsModule,
     ProjectsModule,
     PinsModule,
+    MemoryModule,
     PersonalizationModule,
     RunsModule,
     SearchModule,
