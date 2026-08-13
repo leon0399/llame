@@ -24,6 +24,7 @@ const chat: Chat = {
   projectId: null,
   recencyDigestBaseline: null,
   recencyDigestTold: null,
+  recencyDigestRebakedFrom: null,
 };
 
 const chatMessages: Message[] = [

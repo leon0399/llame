@@ -9,7 +9,7 @@ import { RunsModule } from '../runs/runs.module';
 import { SearchModule } from '../search/search.module';
 import { SystemPromptsModule } from '../system-prompts/system-prompts.module';
 import { ChatLoopService } from './chat-loop.service';
-import { RecencyDigestService } from './recency-digest.service';
+import { RecencyDigestModule } from './recency-digest.module';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
 import { MeRunsController } from './me-runs.controller';
@@ -35,9 +35,10 @@ import { SharedChatsController } from './shared-chats.controller';
     SearchModule,
     McpRuntimeModule,
     MemoryModule,
+    RecencyDigestModule,
   ],
   controllers: [ChatsController, MeRunsController, SharedChatsController],
-  providers: [ChatsService, ChatLoopService, RecencyDigestService],
+  providers: [ChatsService, ChatLoopService],
   exports: [ChatsService],
 })
 export class ChatsModule {}

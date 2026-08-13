@@ -26,6 +26,7 @@ function chat(id: string, title = id): Chat {
     projectId: null,
     recencyDigestBaseline: null,
     recencyDigestTold: null,
+    recencyDigestRebakedFrom: null,
   };
 }
 

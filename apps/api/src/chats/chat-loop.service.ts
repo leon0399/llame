@@ -61,7 +61,10 @@ import {
   type MemorySettingsBindingResolver,
   type MemorySettingsResolver,
 } from '../memory/memory.service';
-import { createRecencyDigestDeltaPart } from './recency-digest-part';
+import {
+  createRecencyDigestDeltaPart,
+  createRecencyDigestSupersessionPart,
+} from './recency-digest-part';
 import {
   deriveRecencyDigestDelta,
   RecencyDigestService,
@@ -298,9 +301,15 @@ export class ChatLoopService {
       }
 
       const hadDigestBaseline = chat.recencyDigestBaseline !== null;
-      const shareRecentChats = input.digestCandidate
-        ? await this.memory.getForOwnerForBinding(tx, input.userId)
-        : undefined;
+      // Read unconditionally: the supersession marker below is gated on this
+      // setting too, and it must still be checkable when `input.digestCandidate`
+      // is absent because this turn's own candidate resolution failed or was
+      // skipped — that failure is unrelated to whether a *prior* compaction's
+      // re-bake should be disclosed this turn.
+      const shareRecentChats = await this.memory.getForOwnerForBinding(
+        tx,
+        input.userId,
+      );
       if (chat.recencyDigestBaseline == null && input.digestCandidate) {
         // FOR SHARE serializes a consent withdrawal with this accepted binding.
         // The candidate was intentionally read outside this transaction, so a
@@ -375,6 +384,11 @@ export class ChatLoopService {
         (activeCompaction !== undefined &&
           previousRun !== undefined &&
           activeCompaction.createdAt > previousRun.createdAt);
+      const digestRebaked =
+        activeCompaction !== undefined &&
+        previousRun !== undefined &&
+        chat.recencyDigestRebakedFrom === activeCompaction.id &&
+        activeCompaction.createdAt > previousRun.createdAt;
       const availabilityPart = createToolAvailabilityPart({
         runId: input.targetRunId,
         current: effectiveContext.toolAvailabilityManifest,
@@ -397,9 +411,19 @@ export class ChatLoopService {
             pinChanges: digestDelta.pinChanges,
           })
         : undefined;
+      // Compaction is the one context boundary that re-bakes the digest. A
+      // model switch changes only the provider reading unchanged history, so
+      // refreshing there would silently change what the assistant knows.
+      const digestSupersessionPart =
+        digestRebaked &&
+        chat.recencyDigestBaseline !== null &&
+        shareRecentChats?.shareRecentChats === true
+          ? createRecencyDigestSupersessionPart({ runId: input.targetRunId })
+          : undefined;
       const messageParts = [
         ...(modelSwitchPart ? [modelSwitchPart] : []),
         ...(availabilityPart ? [availabilityPart] : []),
+        ...(digestSupersessionPart ? [digestSupersessionPart] : []),
         ...(digestDeltaPart ? [digestDeltaPart] : []),
         ...input.message.parts,
       ];

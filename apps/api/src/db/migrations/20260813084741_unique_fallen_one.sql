@@ -1,0 +1,1 @@
+ALTER TABLE "chats" ADD COLUMN "recency_digest_rebaked_from" uuid;

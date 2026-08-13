@@ -98,6 +98,19 @@ export const chats = pgTable(
     recencyDigestTold: jsonb('recency_digest_told').$type<
       RecencyDigestToldEntry[]
     >(),
+    // Set only when compaction actually re-resolves the baseline. This is the
+    // durable event record for the one-shot supersession marker; compaction
+    // rows themselves exist even when re-resolution is correctly skipped.
+    //
+    // Deliberately carries NO foreign key to `compactions.id`, unlike every
+    // other id-bearing column in this file. `compactions.chat_id` already
+    // references `chats.id` ON DELETE CASCADE, so a reference back would make
+    // the two tables mutually dependent and put a cycle on the shipped
+    // chat-deletion path. The constraint would buy nothing: a dangling id
+    // fails safe, because the only read compares it for equality with the
+    // active compaction's id and a stale value simply never matches, which
+    // withholds the marker rather than asserting a re-bake that did not happen.
+    recencyDigestRebakedFrom: uuid('recency_digest_rebaked_from'),
   },
   (t) => [
     // Matches findByOwner's ORDER BY (recency); pin state now lives in the

@@ -181,6 +181,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
           projectId: string | null;
           recencyDigestBaseline: null;
           recencyDigestTold: null;
+          recencyDigestRebakedFrom: null;
         }
       | undefined
     >,
@@ -204,6 +205,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,
+        recencyDigestRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -230,6 +232,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,
+        recencyDigestRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -252,6 +255,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,
+        recencyDigestRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -281,6 +285,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,
+        recencyDigestRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -306,6 +311,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,
+        recencyDigestRebakedFrom: null,
       }),
     );
     await expect(
@@ -327,6 +333,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,
+        recencyDigestRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -351,6 +358,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,
+        recencyDigestRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
