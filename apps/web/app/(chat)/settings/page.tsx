@@ -32,6 +32,7 @@ import {
   InterfaceFontSwitcher,
   CodeFontSwitcher,
 } from "@/components/font-switcher";
+import { MemorySection } from "./components/memory-section";
 import { PersonalizationSection } from "./components/personalization-section";
 
 export default function SettingsPage() {
@@ -165,6 +166,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
       <PersonalizationSection />
+      <MemorySection />
     </div>
   );
 }

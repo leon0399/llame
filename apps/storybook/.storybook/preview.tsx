@@ -25,6 +25,10 @@ sb.mock(import("../../web/lib/services/chat/fork.ts"));
 //   modelDisplayName/hasModelId helpers are re-exported) so model-picker
 //   stories can drive loading/loaded catalogs without a backend.
 sb.mock(import("../../web/lib/services/models/queries.ts"));
+// - memory queries/mutations: provide controllable settings state and a stable
+// update spy for the Memory settings card without calling an API.
+sb.mock(import("../../web/lib/services/memory/queries.ts"));
+sb.mock(import("../../web/lib/services/memory/mutations.ts"));
 
 // One QueryClient shared across stories (retry off so any mutation/query hook
 // in an apps/web component doesn't hammer a nonexistent backend), cleared
