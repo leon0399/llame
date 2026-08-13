@@ -1,5 +1,13 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-14
+
+- Added the Memory settings card for the opt-in recent-chat digest. It keeps
+  `shareRecentChats` independent from authored-profile personalization,
+  defaults visibly off, and discloses that enabling reaches the existing
+  corpus while disabling or deleting a chat does not retract already-bound
+  context.
+
 # 2026-08-13
 
 - Added the opt-in chat recency digest. `shareRecentChats` defaults false; an
