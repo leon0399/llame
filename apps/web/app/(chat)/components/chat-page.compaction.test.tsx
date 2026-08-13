@@ -398,6 +398,68 @@ describe("ChatPage — model context transparency", () => {
     expect(screen.queryByText(/unsupported part type/i)).toBeNull();
   });
 
+  // Server-authored context parts are persisted on the user message and come
+  // back through the messages API, so the transcript sees every one of them.
+  // A part type with no case falls through to the "unsupported part type"
+  // span — literal debug text in the owner's chat. `data-tool-availability`
+  // shipped in exactly that state, and `data-recency-digest` would have
+  // followed it, because the existing guard was only ever asserted for the
+  // model-switch part. Assert the whole family renders nothing.
+  it("renders no visible content for server-authored context parts", () => {
+    const chatId = "chat-server-parts";
+    const runId = "11111111-2222-4333-8444-555555555555";
+    // These sit in the useChat copy, which is what the TRANSCRIPT renders —
+    // not only in the authoritative copy, which feeds the separate boundary
+    // component. On a page reload the persisted parts arrive exactly here.
+    const serverParts = [
+      {
+        type: "data-model-context",
+        data: {
+          kind: "model_switch",
+          fromModelId: "model-a",
+          toModelId: "model-b",
+          runId,
+        },
+      },
+      { type: "data-tool-availability", data: { runId, entries: [] } },
+      {
+        type: "data-recency-digest",
+        data: {
+          kind: "delta",
+          runId,
+          entries: [
+            {
+              title: "Another chat",
+              date: "2026-08-13",
+              messageCount: 2,
+              pinned: false,
+            },
+          ],
+          pinChanges: [],
+        },
+      },
+    ];
+    useChatMessages = [
+      {
+        id: "m1",
+        role: "user",
+        parts: [...serverParts, { type: "text", text: "Owner question" }],
+        metadata: { seq: 1 },
+      },
+    ];
+
+    renderChatPage(chatId, {
+      messages: useChatMessages,
+      compaction: null,
+    });
+
+    expect(screen.getByText("Owner question")).toBeTruthy();
+    expect(screen.queryByText(/unsupported part type/i)).toBeNull();
+    // The digest's own content is prompt-side only; it must never surface as
+    // chat content the owner reads back.
+    expect(screen.queryByText(/Another chat/)).toBeNull();
+  });
+
   it("shows a run receipt action on a same-model assistant turn without inventing a switch boundary", () => {
     const chatId = "chat-same-model";
     useChatMessages = [
