@@ -127,12 +127,12 @@ packaged prompt — which is precisely why the summarization exclusion sits belo
 
 ## 5. `recency-digest/compaction`
 
-- [ ] 5.1 Re-resolve and overwrite both the baseline and the told-set at compaction, so the new epoch starts with the told-set matching the fresh baseline
-- [ ] 5.2 Emit the supersession marker on the next run after a re-bake
-- [ ] 5.3 Confirm a model switch re-renders the stored baseline unchanged and emits no supersession marker
-- [ ] 5.4 Unit tests: the replayed system prompt is byte-identical to the turn that just ran and the exclusion appears only in the trailing instruction; re-bake changes listed chats while earlier snapshots are unmodified
-- [ ] 5.5 Unit test: a run carrying **both** personalization and a digest excludes both delimiters under full-current **and** transition compaction — the transition instruction is a separate code path and a regression there freezes other chats' excerpts into a permanent checkpoint
-- [ ] 5.6 Unit test: compaction of a chat whose owner has since disabled the setting leaves the baseline and told-set untouched
+- [x] 5.1 Re-resolve and overwrite both the baseline and the told-set at compaction, so the new epoch starts with the told-set matching the fresh baseline
+- [x] 5.2 Emit the supersession marker on the next run after a re-bake
+- [x] 5.3 Confirm a model switch re-renders the stored baseline unchanged and emits no supersession marker
+- [x] 5.4 Unit tests: the replayed system prompt is byte-identical to the turn that just ran and the exclusion appears only in the trailing instruction; re-bake changes listed chats while earlier snapshots are unmodified
+- [x] 5.5 Unit test: a run carrying **both** personalization and a digest excludes both delimiters under full-current **and** transition compaction — the transition instruction is a separate code path and a regression there freezes other chats' excerpts into a permanent checkpoint
+- [x] 5.6 Unit test: compaction of a chat whose owner has since disabled the setting leaves the baseline and told-set untouched
 
 ## 6. `recency-digest/activation`
 
