@@ -911,9 +911,15 @@ export class McpServerClient {
       throw new McpProtocolUnsupportedError();
     }
 
+    // Chain, never replace: `createMCPClient` installs its own `onclose` that
+    // rejects every in-flight request (`mcp-client.ts:407` -> `onClose()`).
+    // Overwriting it would leave a tool call awaiting a child that has already
+    // exited, hanging until something else happened to close the client.
+    const clientOnClose = transport.onclose;
     transport.onclose = () => {
       diagnostics.flush();
       notifyDisconnect();
+      clientOnClose?.();
     };
 
     return McpServerClient.finishConnection(

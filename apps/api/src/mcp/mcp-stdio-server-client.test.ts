@@ -211,6 +211,21 @@ describe('McpServerClient.connectStdio', () => {
     expect(argv).toContain(hostile);
   });
 
+  // Regression: `createMCPClient` installs its own `transport.onclose` to reject
+  // in-flight requests. Replacing rather than chaining it made this call hang.
+  it('rejects an in-flight call when the child exits', async () => {
+    const client = await connect({ tools: [TOOL], exitOnCall: true });
+    const discovery = await client.discover();
+
+    const outcome = await discovery.tools[0].execute(
+      {},
+      { toolCallId: 'c1', messages: [] },
+    );
+    expect(outcome.result.status).toBe('error');
+
+    await client.close();
+  }, 5000);
+
   it('reports child exit through onDisconnect', async () => {
     let signalDisconnected!: () => void;
     const disconnected = new Promise<void>((resolve) => {

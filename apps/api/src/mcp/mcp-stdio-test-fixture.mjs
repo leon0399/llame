@@ -9,6 +9,8 @@
 //   protocolVersion  string   version to report from `initialize`
 //   tools            array    tool declarations, or pages: [[...], [...]]
 //   callResult       object   result payload for `tools/call`
+//   exitOnCall       boolean  exit without answering a `tools/call`, to prove
+//                             an in-flight request rejects instead of hanging
 //   stderr           array    chunks written to stderr, in order
 //   stderrBytes      number   generate one chunk of N bytes internally, so a
 //                             large payload never travels through the env var
@@ -108,6 +110,7 @@ process.stdin.on('data', async (data) => {
     }
 
     if (message.method === 'tools/call') {
+      if (config.exitOnCall) process.exit(5);
       send({
         jsonrpc: '2.0',
         id: message.id,

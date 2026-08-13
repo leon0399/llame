@@ -40,8 +40,20 @@ export class DiagnosticBuffer {
 
     const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     const room = MAX_DIAGNOSTIC_CHARS - this.retained;
-    const accepted = text.length > room ? text.slice(0, room) : text;
-    this.retained += accepted.length;
+    // When the cap forces truncation, cut at a line boundary rather than mid
+    // text. An arbitrary cut can split a protected value in half, and a half
+    // is not a substring match — the surviving fragment of a credential would
+    // then be emitted unredacted by the final flush.
+    let accepted = text;
+    if (text.length > room) {
+      const head = text.slice(0, room);
+      const lastNewline = head.lastIndexOf('\n');
+      accepted = lastNewline === -1 ? '' : head.slice(0, lastNewline + 1);
+      this.retained = MAX_DIAGNOSTIC_CHARS;
+    } else {
+      this.retained += accepted.length;
+    }
+    if (accepted.length === 0) return;
 
     // Scan only the newly appended region: a terminator cannot appear in text
     // already searched, so restarting from index 0 each time would make N
