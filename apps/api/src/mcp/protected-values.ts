@@ -43,7 +43,12 @@ function canonicalJsonScalar(value: unknown): string | undefined {
   return undefined;
 }
 
-function redactProtectedString(
+/**
+ * Redacts every protected value inside a single string, longest match first.
+ * Exported for the stdio diagnostic path, which redacts plain text rather than
+ * a JSON document.
+ */
+export function redactProtectedString(
   value: string,
   protectedValues: readonly string[],
 ): string {
