@@ -56,8 +56,11 @@ Two properties fall out that are rare in combination:
 ## 2. Who else narrates to the model
 
 **Anthropic's Claude API — context editing.** `clear_tool_uses_20250919` and
-`clear_thinking_20251015` drop old tool results and thinking blocks server-side, and **replace them
-with placeholder text so the model knows something was removed**. `compact_20260112` goes further
+`clear_thinking_20251015` drop old tool results and thinking blocks server-side. Only the first
+**replaces what it cleared with placeholder text so the model knows something was removed**; the
+thinking strategy is documented as retaining a configured number of recent thinking turns and says
+nothing about marking the ones it drops, so the narration claim here covers tool results and not
+thinking blocks. `compact_20260112` goes further
 and replaces earlier history with a model-generated summary. This is the same principle as llame's
 compaction checkpoint, standardised at the API layer, and Anthropic now recommends the server-side
 form over client-side compaction.
@@ -87,11 +90,12 @@ is precisely the client-side completion of that protocol signal, and the protoco
 it of anyone.
 
 **OpenAI's `truncation: "auto"` is the counter-example.** It drops input items to fit the window
-with no marker to the model. (Which items it drops is not currently documented on the
-conversation-state page — reports differ between oldest-first and middle-of-conversation, and the
-distinction does not matter here: the defect is that the model is not told either way.) Developers report it as a
-documented-behaviour gap — "silent removal of earlier context can cause critical loss of
-information", exact drop-priority unspecified, and a compliance concern in regulated workflows.
+with no marker to the model. The Responses API reference states which items go — `auto` truncates
+"by dropping input items in the middle of the conversation" — so the position is documented even
+though the drop is not narrated, and it is the narration, not the position, that is missing.
+Developers report it as a documented-behaviour gap — "silent removal of earlier context can cause
+critical loss of information", exact drop-priority unspecified, and a compliance concern in
+regulated workflows.
 An assistant that has silently lost the middle of its own conversation, and does not know it, is
 the failure mode the narration principle exists to prevent.
 
@@ -121,7 +125,8 @@ Ranked by how defensible each is:
    everything else.
 3. **Narration is typed and server-owned**, so an operator cannot edit away the framing that marks
    injected context as data rather than instruction.
-4. **It generalises by construction.** The rail already carries four unrelated mutation kinds. Skills,
+4. **It generalises by construction.** The rail already carries three unrelated mutation kinds, and
+   the digest adds a proposed fourth. Skills,
    agent profiles, knowledge changes, worker enrolment, and configuration edits are the same shape.
 
 What is _not_ distinctive, and should not be claimed: narrating context mutation to a model, keeping

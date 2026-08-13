@@ -6,7 +6,7 @@ A bounded, owner-scoped digest of the owner's pinned and recent chats — each c
 
 ### Requirement: The digest carries four bounded fields per chat and no identifier
 
-The digest SHALL contain, for each listed chat, exactly four fields: its **title**, its **last-activity date**, its **message count**, and an **excerpt** of that chat's first user message truncated to a documented maximum of **200 characters**. The excerpt SHALL be taken from the earliest stored user message by insertion order, independent of whether that chat has since been compacted, so an entry's content is immutable once resolved. Assistant replies, tool output, reasoning, and any message after the first SHALL NOT appear.
+The digest SHALL contain, for each listed chat, at most four fields and no others: its **title**, its **last-activity date**, its **message count**, and an **excerpt** of that chat's first user message truncated to a documented maximum of **200 Unicode code points**, cut on a code-point boundary. The unit SHALL be code points rather than UTF-16 units or bytes, so the cap does not vary by script and cannot split a character. Only the excerpt is omissible, and only in the case named below; the other three SHALL always render. The excerpt SHALL be taken from the earliest stored user message by insertion order, independent of whether that chat has since been compacted, so an entry's content is immutable once resolved. Assistant replies, tool output, reasoning, and any message after the first SHALL NOT appear.
 
 The digest SHALL NOT carry chat identifiers. No shipped tool accepts a chat id, so an identifier would be inert while costing roughly eighteen to twenty tokens per entry — several hundred tokens of unusable text frozen into every chat's prompt. Identifiers belong on transient, requested surfaces that are paid for only when called, not in a standing prompt. Adding one later is a template edit rather than a migration, so the omission SHALL be revisited when a tool consumes one.
 
@@ -14,11 +14,11 @@ The last-activity date SHALL be rendered as an **absolute calendar date** and SH
 
 The message count SHALL be the count of stored messages at the moment the entry was resolved, and SHALL be understood as frozen alongside the rest of the entry rather than tracking the chat.
 
-The 200-character cap SHALL be documented as an **injection and disclosure control rather than a token-budget control**: a first user message frequently contains bulk pasted material, and the cap exists to retain the owner's own leading prose while truncating that payload. Raising it for perceived answer quality is therefore a security decision, not a tuning decision. A chat whose first user message has no text content SHALL render with no excerpt rather than an empty one, and SHALL still render its title.
+The 200-code-point cap SHALL be documented as an **injection and disclosure control rather than a token-budget control**: a first user message frequently contains bulk pasted material, and the cap exists to retain the owner's own leading prose while truncating that payload. Raising it for perceived answer quality is therefore a security decision, not a tuning decision. A chat whose first user message has no text content SHALL render with **no excerpt field at all** rather than an empty one, and SHALL still render its title. Omission rather than an empty value is required, not cosmetic: rendered values are `SafeString`s, and a `SafeString` wrapping `""` is still a truthy object, so an empty-valued excerpt would satisfy the template's own presence check and emit a bare label with nothing after it.
 
 The digest SHALL list at most **10 pinned chats** and at most **10 recent chats**. Pinned chats beyond the cap SHALL be absent from **both** lists, since the recent list is drawn from chats that are not pinned. This is accepted rather than worked around: the stated pinned ratio tells the model that more pinned chats exist, and once owner-controlled pin ordering ships the cut becomes a decision the owner made rather than an arbitrary recency boundary. Until then the cut SHALL be documented as ordered by recency and therefore not owner-chosen. The two lists SHALL be **disjoint**: a chat that is both pinned and recent SHALL appear only under pinned, and the recent list SHALL backfill from the next-most-recent unpinned chats so that it carries a full 10 whenever the owner has that many. Pinned SHALL render before recent. Both lists SHALL be ordered by last activity, most recent first, matching the ordering the chat-listing API already applies.
 
-The rendered digest SHALL state, for each list, **how many entries it shows out of how many exist** — the pinned list against the owner's total pinned chats, and the recent list against the owner's total eligible **unpinned** chats. The recent list is drawn from eligible chats that are not pinned, so counting all eligible chats would describe a population the list is not selected from — with 30 pinned inside 247 eligible, the recent denominator is 217. Each denominator SHALL be the **exact** population its list is drawn from, so the two ratios describe the lists rather than approximating them. A capped read cannot yield an exact total, so the read path SHALL return the count independently of the capped rows — a cap that also truncates the denominator would report `10 of 10` for an owner with 247 chats, inverting the signal the ratio exists to give.
+The rendered digest SHALL state, for each list, **how many entries it shows out of how many exist** — the pinned list against the owner's total **eligible pinned** chats, and the recent list against the owner's total eligible **unpinned** chats. "Eligible" carries the same meaning in both denominators as it does for list selection: the chat being rendered, archived chats, chats with no title or a whitespace-only title, and pins whose item is not a chat SHALL NOT be counted. A pinned chat that is excluded from the list for any of those reasons SHALL likewise be absent from `pinnedTotal`, so the ratio never claims a pinned chat the digest could not have shown. The recent list is drawn from eligible chats that are not pinned, so counting all eligible chats would describe a population the list is not selected from — with 30 pinned inside 247 eligible, the recent denominator is 217. Each denominator SHALL be the **exact** population its list is drawn from, so the two ratios describe the lists rather than approximating them. A capped read cannot yield an exact total, so the read path SHALL return the count independently of the capped rows — a cap that also truncates the denominator would report `10 of 10` for an owner with 247 chats, inverting the signal the ratio exists to give.
 
 Bare prose that entries were omitted is insufficient. A ratio is what tells the model whether the digest is nearly complete or a thin slice of a deep corpus, which is precisely the judgment that should decide whether it retrieves: `10 of 12` and `10 of 247` warrant opposite behavior and identical prose. The counts SHALL be presented as a statement about the owner's corpus, not as usage statistics about the owner, and no derived behavioral measure — message frequency, session depth, activity streaks, model-usage breakdowns — SHALL be included.
 
@@ -33,7 +33,7 @@ The framing SHALL further state that **every entry is a point-in-time record rat
 #### Scenario: Digest lists a chat with a long first message
 
 - **WHEN** an eligible chat's first user message exceeds the documented excerpt maximum
-- **THEN** the rendered entry contains only the first 200 characters of that message
+- **THEN** the rendered entry contains only the first 200 Unicode code points of that message
 - **AND** no later message from that chat appears in the digest
 
 #### Scenario: Digest contains no assistant or tool content
@@ -74,7 +74,7 @@ The framing SHALL further state that **every entry is a point-in-time record rat
 
 #### Scenario: Digest states how much it is showing
 
-- **WHEN** an owner with 247 eligible chats and 30 pinned chats has a digest resolved
+- **WHEN** an owner with 247 eligible chats, 30 of them eligible and pinned, has a digest resolved
 - **THEN** the rendered block states that it shows 10 of 30 pinned and 10 of 217 recent — the recent denominator excluding the 30 pinned, since the recent list is not drawn from them
 - **AND** it carries no message-frequency, session-depth, streak, or model-usage measure
 
@@ -119,6 +119,12 @@ Pinned entries SHALL be drawn only from pins whose item type is `chat`; pins tar
 - **WHEN** the owner has pinned a project as well as chats
 - **THEN** only pinned chats appear in the pinned list
 - **AND** the pinned project contributes no entry
+
+#### Scenario: An ineligible pinned chat is absent from the pinned denominator
+
+- **WHEN** an owner has 12 pinned chats, of which one is archived, one has no title, and one is the chat being rendered
+- **THEN** the rendered pinned ratio counts 9, not 12
+- **AND** the same exclusions that removed those three from the list removed them from the count, so the ratio never names a pinned chat the digest could not have shown
 
 ### Requirement: Per-chat digest state is two fields with different lifecycles
 
