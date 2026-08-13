@@ -31,6 +31,12 @@ type DigestSourceChat = Pick<Chat, 'id' | 'title' | 'updatedAt'> & {
 
 export type RecencyDigestBaseline = StoredRecencyDigestBaseline;
 
+type RecencyDigestCandidate = {
+  chatId: string;
+  pinned: boolean;
+  entry: RecencyDigestBaseline['pinned'][number];
+};
+
 export function truncateRecencyDigestExcerpt(value: string): string {
   return Array.from(value)
     .slice(0, RECENCY_DIGEST_EXCERPT_MAX_CODE_POINTS)
@@ -79,6 +85,8 @@ export function buildRecencyDigestBaseline(input: {
 export type RecencyDigestResolution = {
   baseline: RecencyDigestBaseline;
   told: RecencyDigestToldEntry[];
+  /** Candidate identity and rendered entry are one record, never parallel arrays. */
+  candidates: readonly RecencyDigestCandidate[];
 };
 
 export type RecencyDigestResolver = Pick<
@@ -88,7 +96,7 @@ export type RecencyDigestResolver = Pick<
 
 export type RecencyDigestDelta = {
   entries: Array<RecencyDigestBaseline['pinned'][number] & { pinned: boolean }>;
-  pinChanges: Array<{ pinned: boolean }>;
+  pinChanges: Array<{ title: string; pinned: boolean }>;
   told: RecencyDigestToldEntry[];
 };
 
@@ -105,18 +113,20 @@ export function deriveRecencyDigestDelta(input: {
   const toldByChatId = new Map(
     input.told.map((entry) => [entry.chatId, entry]),
   );
-  const candidateEntries = [
-    ...input.candidate.baseline.pinned,
-    ...input.candidate.baseline.recent,
-  ];
-  const entries = input.candidate.told.flatMap((candidate, index) =>
+  // Pairing separately-built arrays here could announce one chat with another
+  // chat's title/excerpt: an owner-scoped cross-chat content leak.
+  const entries = input.candidate.candidates.flatMap((candidate) =>
     toldByChatId.has(candidate.chatId)
       ? []
-      : [{ ...candidateEntries[index], pinned: candidate.pinned }],
+      : [{ ...candidate.entry, pinned: candidate.pinned }],
   );
   const pinChanges = input.told.flatMap((entry) => {
     const pinned = input.pinnedChatIds.has(entry.chatId);
-    return pinned === entry.pinned ? [] : [{ pinned }];
+    // Baseline may have been persisted before titles were added to the told
+    // JSONB. Fail closed rather than authoring an un-attributable pin event.
+    return pinned === entry.pinned || !entry.title
+      ? []
+      : [{ title: entry.title, pinned }];
   });
   if (entries.length === 0 && pinChanges.length === 0) return null;
 
@@ -124,6 +134,7 @@ export function deriveRecencyDigestDelta(input: {
     ...input.told.map((entry) => ({
       chatId: entry.chatId,
       pinned: input.pinnedChatIds.has(entry.chatId),
+      ...(entry.title ? { title: entry.title } : {}),
     })),
     ...input.candidate.told.filter((entry) => !toldByChatId.has(entry.chatId)),
   ];
@@ -179,9 +190,7 @@ export class RecencyDigestService {
           }),
           // 'exclude', not 'with': the recent list is drawn from eligible chats
           // that are NOT pinned, and a denominator must describe the population
-          // its list comes from. Counting all eligible chats would report a
-          // ratio against a set the list is not selected from — 10 of 247 where
-          // 30 of those are pinned and unreachable by this list.
+          // its list comes from.
           chats.countByOwner(ownerUserId, {
             pinned: 'exclude',
             excludeId: currentChatId,
@@ -204,18 +213,36 @@ export class RecencyDigestService {
         });
         const hydratedPinned = pinned.map(hydrate);
         const hydratedRecent = recent.map(hydrate);
+        const toCandidate = (chat: DigestSourceChat, pinned: boolean) => ({
+          chatId: chat.id,
+          pinned,
+          entry: toDigestEntry(chat),
+        });
+        const candidates = [
+          ...hydratedPinned.map((chat) => toCandidate(chat, true)),
+          ...hydratedRecent.map((chat) => toCandidate(chat, false)),
+        ];
+        const compiledOn = new Date().toISOString().slice(0, 10);
         return {
-          baseline: buildRecencyDigestBaseline({
-            pinned: hydratedPinned,
-            recent: hydratedRecent,
+          baseline: {
+            pinned: candidates
+              .filter((candidate) => candidate.pinned)
+              .map((candidate) => candidate.entry),
+            recent: candidates
+              .filter((candidate) => !candidate.pinned)
+              .map((candidate) => candidate.entry),
+            pinnedShown: hydratedPinned.length,
             pinnedTotal,
+            recentShown: hydratedRecent.length,
             recentTotal,
-            compiledOn: new Date(),
-          }),
-          told: [
-            ...pinned.map(({ id }) => ({ chatId: id, pinned: true })),
-            ...recent.map(({ id }) => ({ chatId: id, pinned: false })),
-          ],
+            compiledOn,
+          },
+          told: candidates.map(({ chatId, pinned, entry }) => ({
+            chatId,
+            pinned,
+            title: entry.title,
+          })),
+          candidates,
         };
       },
       { isolationLevel: 'repeatable read' },

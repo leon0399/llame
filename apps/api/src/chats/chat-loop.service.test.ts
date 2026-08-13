@@ -545,6 +545,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
               compiledOn: '2026-08-12',
             },
             told: [],
+            candidates: [],
           }),
       },
     });
@@ -593,7 +594,25 @@ describe('ChatLoopService effective-context transaction binding', () => {
               recentShown: 1,
               recentTotal: 1,
             },
-            told: [{ chatId: 'resurfaced', pinned: false }],
+            told: [
+              {
+                chatId: 'resurfaced',
+                pinned: false,
+                title: 'Resurfaced through activity',
+              },
+            ],
+            candidates: [
+              {
+                chatId: 'resurfaced',
+                pinned: false,
+                entry: {
+                  title: 'Resurfaced through activity',
+                  date: '2026-08-13',
+                  messageCount: 2,
+                  excerpt: 'opening',
+                },
+              },
+            ],
           }),
       },
     });
@@ -616,7 +635,11 @@ describe('ChatLoopService effective-context transaction binding', () => {
     });
     expect(persisted?.parts[1]).toEqual({ type: 'text', text: 'hello' });
     expect(updateRecencyDigestTold).toHaveBeenCalledWith('chat-id', 'user-id', [
-      { chatId: 'resurfaced', pinned: false },
+      {
+        chatId: 'resurfaced',
+        pinned: false,
+        title: 'Resurfaced through activity',
+      },
     ]);
   });
 
@@ -633,6 +656,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
           compiledOn: '2026-08-13',
         },
         told: [],
+        candidates: [],
       }),
     );
     const { service, updateRecencyDigestTold } = setup({

@@ -9,7 +9,10 @@ export interface RecencyDigestDeltaPart {
     readonly kind: 'delta';
     readonly runId: string;
     readonly entries: readonly RecencyDigestDeltaEntry[];
-    readonly pinChanges: ReadonlyArray<{ readonly pinned: boolean }>;
+    readonly pinChanges: ReadonlyArray<{
+      readonly title: string;
+      readonly pinned: boolean;
+    }>;
   };
 }
 
@@ -91,7 +94,9 @@ export function isRecencyDigestPart(
     !Array.isArray(data['pinChanges']) ||
     !data['pinChanges'].every(
       (change) =>
-        isExactRecord(change, ['pinned']) &&
+        isExactRecord(change, ['pinned', 'title']) &&
+        typeof change['title'] === 'string' &&
+        change['title'].trim().length > 0 &&
         typeof change['pinned'] === 'boolean',
     )
   ) {
@@ -110,7 +115,10 @@ function assertValidPart<T extends RecencyDigestPart>(part: T): T {
 export function createRecencyDigestDeltaPart(input: {
   readonly runId: string;
   readonly entries: readonly RecencyDigestDeltaEntry[];
-  readonly pinChanges: ReadonlyArray<{ readonly pinned: boolean }>;
+  readonly pinChanges: ReadonlyArray<{
+    readonly title: string;
+    readonly pinned: boolean;
+  }>;
 }): RecencyDigestDeltaPart {
   return assertValidPart({
     type: 'data-recency-digest',
@@ -128,7 +136,7 @@ export function createRecencyDigestSupersessionPart(input: {
 }
 
 function renderEntry(entry: RecencyDigestDeltaEntry): string {
-  return `- ${sanitizeAuthoredText(entry.title)} — last activity ${entry.date}; ${entry.messageCount} messages${entry.excerpt ? `; opening: ${sanitizeAuthoredText(entry.excerpt)}` : ''}`;
+  return `- ${sanitizeAuthoredText(entry.title)} — ${entry.pinned ? 'pinned; ' : ''}last activity ${entry.date}; ${entry.messageCount} messages${entry.excerpt ? `; opening: ${sanitizeAuthoredText(entry.excerpt)}` : ''}`;
 }
 
 export function renderRecencyDigestReminder(part: RecencyDigestPart): string {
@@ -154,12 +162,12 @@ export function renderRecencyDigestReminder(part: RecencyDigestPart): string {
       ...part.data.entries.map(renderEntry),
     );
   }
-  for (const { pinned } of part.data.pinChanges) {
+  for (const { title, pinned } of part.data.pinChanges) {
     lines.push(
       '',
       pinned
-        ? 'A previously announced chat is now pinned.'
-        : 'A previously announced chat is no longer pinned.',
+        ? `The previously announced chat "${sanitizeAuthoredText(title)}" is now pinned.`
+        : `The previously announced chat "${sanitizeAuthoredText(title)}" is no longer pinned.`,
     );
   }
   lines.push('</chat-recency-update>');

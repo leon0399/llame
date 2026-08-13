@@ -227,8 +227,8 @@ describe('recency digest baseline', () => {
       recentTotal: 247,
     });
     expect(result.told).toEqual([
-      ...pinned.map(({ id }) => ({ chatId: id, pinned: true })),
-      ...recent.map(({ id }) => ({ chatId: id, pinned: false })),
+      ...pinned.map(({ id, title }) => ({ chatId: id, pinned: true, title })),
+      ...recent.map(({ id, title }) => ({ chatId: id, pinned: false, title })),
     ]);
     expect(new Set(result.told.map(({ chatId }) => chatId)).size).toBe(20);
   });
@@ -340,12 +340,21 @@ describe('recency digest deltas', () => {
         candidate: {
           baseline,
           told: [
-            { chatId: 'pinned', pinned: true },
-            { chatId: 'resurfaced', pinned: false },
-            { chatId: 'new', pinned: false },
+            { chatId: 'pinned', pinned: true, title: 'Pinned' },
+            { chatId: 'resurfaced', pinned: false, title: 'Resurfaced' },
+            { chatId: 'new', pinned: false, title: 'New chat' },
+          ],
+          candidates: [
+            { chatId: 'pinned', pinned: true, entry: baseline.pinned[0] },
+            {
+              chatId: 'resurfaced',
+              pinned: false,
+              entry: baseline.recent[0],
+            },
+            { chatId: 'new', pinned: false, entry: baseline.recent[1] },
           ],
         },
-        told: [{ chatId: 'pinned', pinned: true }],
+        told: [{ chatId: 'pinned', pinned: true, title: 'Pinned' }],
         pinnedChatIds: new Set(['pinned']),
       }),
     ).toEqual({
@@ -355,10 +364,40 @@ describe('recency digest deltas', () => {
       ],
       pinChanges: [],
       told: [
-        { chatId: 'pinned', pinned: true },
-        { chatId: 'resurfaced', pinned: false },
-        { chatId: 'new', pinned: false },
+        { chatId: 'pinned', pinned: true, title: 'Pinned' },
+        { chatId: 'resurfaced', pinned: false, title: 'Resurfaced' },
+        { chatId: 'new', pinned: false, title: 'New chat' },
       ],
+    });
+  });
+
+  it('pairs an untold candidate with its own entry rather than a parallel-array position', () => {
+    expect(
+      deriveRecencyDigestDelta({
+        candidate: {
+          baseline,
+          told: [
+            {
+              chatId: 'resurfaced',
+              pinned: false,
+              title: 'Resurfaced',
+            },
+            { chatId: 'pinned', pinned: true, title: 'Pinned' },
+          ],
+          candidates: [
+            {
+              chatId: 'resurfaced',
+              pinned: false,
+              entry: baseline.recent[0],
+            },
+            { chatId: 'pinned', pinned: true, entry: baseline.pinned[0] },
+          ],
+        },
+        told: [{ chatId: 'pinned', pinned: true, title: 'Pinned' }],
+        pinnedChatIds: new Set(['pinned']),
+      }),
+    ).toMatchObject({
+      entries: [{ ...baseline.recent[0], pinned: false }],
     });
   });
 
@@ -371,6 +410,7 @@ describe('recency digest deltas', () => {
             { chatId: 'pinned', pinned: true },
             { chatId: 'resurfaced', pinned: false },
           ],
+          candidates: [],
         },
         told: [
           { chatId: 'pinned', pinned: true },
@@ -384,7 +424,7 @@ describe('recency digest deltas', () => {
   it('emits nothing for capped-view departures, archival, or deletion alone', () => {
     expect(
       deriveRecencyDigestDelta({
-        candidate: { baseline, told: [] },
+        candidate: { baseline, told: [], candidates: [] },
         told: [{ chatId: 'still-pinned-but-gone', pinned: true }],
         pinnedChatIds: new Set(['still-pinned-but-gone']),
       }),
@@ -394,7 +434,7 @@ describe('recency digest deltas', () => {
   it('does not announce an untold chat merely because it was unpinned', () => {
     expect(
       deriveRecencyDigestDelta({
-        candidate: { baseline, told: [] },
+        candidate: { baseline, told: [], candidates: [] },
         told: [],
         pinnedChatIds: new Set(),
       }),
@@ -404,14 +444,36 @@ describe('recency digest deltas', () => {
   it('batches pin corrections for told chats outside the capped views', () => {
     expect(
       deriveRecencyDigestDelta({
-        candidate: { baseline, told: [] },
-        told: [{ chatId: 'formerly-pinned', pinned: true }],
+        candidate: { baseline, told: [], candidates: [] },
+        told: [
+          {
+            chatId: 'formerly-pinned',
+            pinned: true,
+            title: 'Formerly pinned',
+          },
+        ],
         pinnedChatIds: new Set(),
       }),
     ).toEqual({
       entries: [],
-      pinChanges: [{ pinned: false }],
-      told: [{ chatId: 'formerly-pinned', pinned: false }],
+      pinChanges: [{ title: 'Formerly pinned', pinned: false }],
+      told: [
+        {
+          chatId: 'formerly-pinned',
+          pinned: false,
+          title: 'Formerly pinned',
+        },
+      ],
     });
+  });
+
+  it('silently drops a pin correction from a legacy told entry without its announced title', () => {
+    expect(
+      deriveRecencyDigestDelta({
+        candidate: { baseline, told: [], candidates: [] },
+        told: [{ chatId: 'legacy-entry', pinned: true }],
+        pinnedChatIds: new Set(),
+      }),
+    ).toBeNull();
   });
 });
