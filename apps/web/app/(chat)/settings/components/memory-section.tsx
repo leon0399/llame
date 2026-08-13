@@ -19,6 +19,19 @@ import { Switch } from "@workspace/ui/components/switch";
 import { useUpdateMemoryMutation } from "@/lib/services/memory/mutations";
 import { useMemoryQuery } from "@/lib/services/memory/queries";
 
+/**
+ * MemorySection is the owner's control over whether the assistant is told what
+ * else they have been working on. It is deliberately its own card rather than a
+ * field inside Personalization: that capability governs an authored profile,
+ * this one governs conversation-derived history, and the two are independently
+ * settable in both directions.
+ *
+ * The description beside the switch is not marketing copy — it is the consent
+ * contract, and it is incomplete unless all three consequences appear together.
+ * See the story assertions before shortening any of them.
+ *
+ * @summary for the owner's chat-history sharing consent
+ */
 export function MemorySection() {
   const { data, isPending } = useMemoryQuery();
   const update = useUpdateMemoryMutation();
@@ -61,17 +74,18 @@ export function MemorySection() {
                 relationship to you.
               </span>{" "}
               <span>
-                Enabling applies to your whole existing corpus, including chats
-                and opening excerpts created before you opt in.
+                Turning it on covers every chat you already have, including ones
+                from long before you opted in.
               </span>{" "}
               <span>
-                Turning it off stops new baselines, re-bakes, and appends, but
-                chats that already have a baseline keep sending it.
+                Turning it off stops building the list for new chats and stops
+                adding to or refreshing the lists already built — but a chat
+                that already has one keeps sending it.
               </span>{" "}
               <span>
-                Deleting a chat does not erase its title and excerpt from other
-                chats&apos; already-bound prompts, persisted appends, or
-                receipts already issued.
+                Deleting a chat does not remove its title or excerpt from lists
+                already built into other chats, from messages already stored, or
+                from receipts already issued.
               </span>
             </FieldDescription>
           </FieldContent>

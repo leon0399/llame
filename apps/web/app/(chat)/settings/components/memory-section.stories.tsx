@@ -49,17 +49,17 @@ export const Off: Story = {
     ).not.toBeChecked();
     await expect(
       canvas.getByText(
-        "Enabling applies to your whole existing corpus, including chats and opening excerpts created before you opt in.",
+        "Turning it on covers every chat you already have, including ones from long before you opted in.",
       ),
     ).toBeInTheDocument();
     await expect(
       canvas.getByText(
-        "Turning it off stops new baselines, re-bakes, and appends, but chats that already have a baseline keep sending it.",
+        "Turning it off stops building the list for new chats and stops adding to or refreshing the lists already built — but a chat that already has one keeps sending it.",
       ),
     ).toBeInTheDocument();
     await expect(
       canvas.getByText(
-        "Deleting a chat does not erase its title and excerpt from other chats' already-bound prompts, persisted appends, or receipts already issued.",
+        "Deleting a chat does not remove its title or excerpt from lists already built into other chats, from messages already stored, or from receipts already issued.",
       ),
     ).toBeInTheDocument();
   },
