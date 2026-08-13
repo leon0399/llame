@@ -210,6 +210,17 @@ outbound capacity planning: each process maintains its own connection,
 periodically performs complete discovery after an independently jittered 48–72
 minute delay, and reconnects independently with Full Jitter.
 
+For a **local stdio** server this is not a connection but a child process, so
+replica count multiplies processes rather than sockets: every process holding
+an MCP catalog runs one child per configured stdio server, and the total is
+(API processes + worker processes) x (stdio servers). That includes `web`-profile
+API processes, which never execute a tool — they still need a live catalog to
+author a Run's availability manifest at accept time, and discovery has no
+offline form. In the default co-located topology this is one child per server
+and unremarkable; scaling out is where it becomes a real resource decision, and
+it is worth knowing before adding a replica that a browser-backed MCP server
+means another browser.
+
 One server's failure is isolated. Turns read the latest atomically published
 local catalog and never wait for discovery or reconnect. The API may therefore
 snapshot a declaration while the claiming worker observes that server as

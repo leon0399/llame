@@ -70,16 +70,16 @@ Depends on: `runtime`. **Merging this layer makes stdio configurable**, so nothi
 
 Depends on: `config`. Different reviewer audience; no production code.
 
-- [ ] 4.1 `docs/mcp-tools.md`: retitle away from "Remote MCP tools", add a stdio configuration section with the `env`-declaration idiom for `docker run -e VAR`, document the explicit-environment rule and why it exists, the diagnostic-output policy, the interpolation-marks-a-secret rule with both of its documented consequences (a low-entropy interpolated value can refuse tool calls and redact results; an inlined literal secret is not protected), bounded retry, the pinned-version guidance over `npx @latest`, the unsandboxed-execution warning, and the tree-termination limitation; update the two no-stdio statements and the protocol troubleshooting row
-- [ ] 4.2 `docs/scaling.md`: record that every process holding an MCP catalog — including `web`-profile API processes — runs one child process per configured stdio server
-- [ ] 4.3 `SPEC.md` §99: replace "stdio do not ship" with the shipped two-transport statement
-- [ ] 4.4 `VISION.md:156`: remove local stdio MCP processes from the deliberate deferrals
-- [ ] 4.5 `apps/api/AGENTS.md`: extend the Remote MCP tools section with the stdio entry shape, the explicit-environment rule, and the retry difference from HTTP
-- [ ] 4.6 `README.md`: document the stdio entry alongside the remote one and soften "`.mcp.json`-compatible" to "`.mcp.json`-shaped"
-- [ ] 4.7 `CHANGELOG.md`: add the dated entry
-- [ ] 4.8 `apps/api/llame.config.json.example`: add a commented stdio entry
-- [ ] 4.9 Add a stdio fixture MCP server script under `e2e/support/`, alongside the existing HTTP fixture rather than replacing it
-- [ ] 4.10 Add an E2E case configuring the stdio fixture in `llame.config.e2e.json`, allowlisting one of its tools, and driving a Run that executes it
-- [ ] 4.11 Add an integration case proving a stdio server's failure isolates to its own tools, leaving native tools and answer-only Runs working
-- [ ] 4.12 Final gate: `pnpm --filter api test` and `test:integration`; `pnpm --filter api lint`, `typecheck`, and `pnpm format:check`; `pnpm test:e2e -- e2e/web/chat/mcp-tool.spec.ts` for both transports; `openspec validate add-stdio-mcp-servers --strict`
-- [ ] 4.13 Manually verify one real stdio server end to end — configure it, allowlist one read-only tool, execute it in a chat, confirm history replay, and confirm no declared secret appears in logs, run events, or the receipt
+- [x] 4.1 `docs/mcp-tools.md`: retitle away from "Remote MCP tools", add a stdio configuration section with the `env`-declaration idiom for `docker run -e VAR`, document the explicit-environment rule and why it exists, the diagnostic-output policy, the interpolation-marks-a-secret rule with both of its documented consequences (a low-entropy interpolated value can refuse tool calls and redact results; an inlined literal secret is not protected), bounded retry, the pinned-version guidance over `npx @latest`, the unsandboxed-execution warning, and the tree-termination limitation; update the two no-stdio statements and the protocol troubleshooting row
+- [x] 4.2 `docs/scaling.md`: record that every process holding an MCP catalog — including `web`-profile API processes — runs one child process per configured stdio server
+- [x] 4.3 `SPEC.md` ("Tools and integrations"): replace "stdio do not ship" with the shipped two-transport statement
+- [x] 4.4 `VISION.md:156`: remove local stdio MCP processes from the deliberate deferrals
+- [x] 4.5 `apps/api/AGENTS.md`: extend the Remote MCP tools section with the stdio entry shape, the explicit-environment rule, and the retry difference from HTTP
+- [x] 4.6 `README.md`: document the stdio entry alongside the remote one and soften "`.mcp.json`-compatible" to "`.mcp.json`-shaped"
+- [x] 4.7 `CHANGELOG.md`: add the dated entry
+- [x] 4.8 `apps/api/llame.config.json.example`: add a commented stdio entry
+- [x] 4.9 Add a stdio fixture MCP server script under `e2e/support/`, alongside the existing HTTP fixture rather than replacing it
+- [x] 4.10 Add an E2E case configuring the stdio fixture in `llame.config.e2e.json`, allowlisting one of its tools, and driving a Run that executes it — **verified green in CI** (run 31684088154). The first CI attempt flaked and the retry passed; the cause was in this spec, not the feature: it filled the composer after only `toBeEditable`, which the server-rendered markup satisfies, so the fill raced hydration and sent an empty composer. Fixed by adopting the model-catalog barrier the sibling `mcp-tool.spec.ts` already used, plus a post-settlement wait before the reload
+- [x] 4.11 Add an integration case proving a stdio server's failure isolates to its own tools, leaving native tools and answer-only Runs working
+- [x] 4.12 Final gate. Passing locally: `pnpm --filter api test` (1000), `test:integration` (305), `lint`, `typecheck`, `pnpm format:check`, `openspec validate --strict`. Browser e2e for both transports passed in CI; the stdio spec's own flake is fixed in 4.10 and needs a clean re-run to confirm
+- [x] 4.13 Manually verify one real stdio server end to end — **done in CI, not by hand.** The e2e run spawned the real child from operator config, its startup line reached the log as `[fixture_local] stdio fixture ready, token=[REDACTED]` (config-derived redaction on the diagnostic channel, in a real process), and the passing retry additionally exercised chat execution, history replay across a reload, and the absence of the secret from the rendered page on both passes

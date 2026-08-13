@@ -8,10 +8,21 @@
 {
   "$schema": "./src/instance-config/llame.config.schema.json",
 
-  // Optional Streamable HTTP MCP servers. Inspect a server's tool names with
+  // Optional MCP servers, remote or local. Inspect a server's tool names with
   // MCP Explorer: https://mcpplaygroundonline.com/mcp-test-server
   "mcpServers": {
     // "docs": { "type": "http", "url": "https://example.com/mcp" }
+
+    // A local server runs as a child process, unsandboxed, as the llame user.
+    // Interpolating a value marks it secret; write non-secrets literally.
+    // "github": {
+    //   "type": "stdio",
+    //   "command": "docker",
+    //   "args": ["run", "-i", "--rm", "--init",
+    //            "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
+    //            "ghcr.io/github/github-mcp-server", "--read-only"],
+    //   "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "{env:GITHUB_MCP_PAT}" }
+    // }
   },
 
   // Each default must name an id from models[] below.

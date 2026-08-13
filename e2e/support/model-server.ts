@@ -78,6 +78,19 @@ const TOOL_ANSWER_TOKENS = [
 ];
 
 const MCP_TOOL_ID = "mcp__fixture_search__search";
+const STDIO_TOOL_ID = "mcp__fixture_local__lookup";
+const STDIO_PROMPT_MARKER = "local stdio fixture evidence";
+const STDIO_RESULT_SENTINEL = "FIXTURE_STDIO_SENTINEL";
+const STDIO_ANSWER_TOKENS = [
+  "Local",
+  " stdio",
+  " evidence:",
+  " deterministic",
+  " local",
+  " MCP",
+  " lookup",
+  " succeeded.",
+];
 const MCP_PROMPT_MARKER = "current deterministic operator MCP fixture evidence";
 const MCP_RESULT_SENTINEL = "FIXTURE_EVIDENCE_SENTINEL";
 const MCP_ANSWER_TOKENS = [
@@ -186,6 +199,8 @@ function classify(raw: string): {
       asksMcpFixtureSearch: content.includes(MCP_PROMPT_MARKER),
       hasMcpFixtureTool: hasMcpFixtureTool === true,
       hasMcpFixtureResult: raw.includes(MCP_RESULT_SENTINEL),
+      asksStdioFixture: content.includes(STDIO_PROMPT_MARKER),
+      hasStdioFixtureResult: raw.includes(STDIO_RESULT_SENTINEL),
     };
   } catch {
     return {
@@ -195,6 +210,8 @@ function classify(raw: string): {
       asksMcpFixtureSearch: false,
       hasMcpFixtureTool: false,
       hasMcpFixtureResult: false,
+      asksStdioFixture: false,
+      hasStdioFixtureResult: false,
     };
   }
 }
@@ -234,6 +251,8 @@ const server = http.createServer((req, res) => {
           asksMcpFixtureSearch,
           hasMcpFixtureTool,
           hasMcpFixtureResult,
+          asksStdioFixture,
+          hasStdioFixtureResult,
         } = classify(raw);
 
         res.writeHead(200, {
@@ -259,6 +278,32 @@ const server = http.createServer((req, res) => {
           return;
         }
 
+        // Local stdio acceptance, gated on its own unique marker so it cannot
+        // affect the remote-MCP, native-search, or answer-only cases.
+        if (asksStdioFixture && !hasToolResult) {
+          res.write(
+            toolCallChunk({
+              id: "call_stdio_lookup_e2e",
+              name: STDIO_TOOL_ID,
+              arguments: { query: "local stdio fixture evidence" },
+            }),
+          );
+          res.write(toolFinishChunk());
+          res.write("data: [DONE]\n\n");
+          res.end();
+          return;
+        }
+
+        if (hasStdioFixtureResult) {
+          for (const token of STDIO_ANSWER_TOKENS) {
+            res.write(chunk(token, false));
+          }
+          res.write(chunk(undefined, true));
+          res.write("data: [DONE]\n\n");
+          res.end();
+          return;
+        }
+
         if (hasMcpFixtureResult) {
           for (const token of MCP_ANSWER_TOKENS) {
             res.write(chunk(token, false));
@@ -270,7 +315,13 @@ const server = http.createServer((req, res) => {
         }
 
         // Native tool-loop first turn: the real DB-backed search is unchanged.
-        if (!asksMcpFixtureSearch && hasTools && asksSearch && !hasToolResult) {
+        if (
+          !asksMcpFixtureSearch &&
+          !asksStdioFixture &&
+          hasTools &&
+          asksSearch &&
+          !hasToolResult
+        ) {
           res.write(
             toolCallChunk({
               id: "call_search_e2e",

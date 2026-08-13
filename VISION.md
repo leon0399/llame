@@ -153,7 +153,7 @@ The current release sequence does not include:
 - user-managed provider credentials or managed OAuth connector onboarding;
 - automatic knowledge routing across projects or shared knowledge domains;
 - semantic fact extraction, automatic memory injection, or a knowledge graph;
-- arbitrary write-capable remote MCP tools or local stdio MCP processes;
+- arbitrary write-capable MCP tools, on either transport;
 - model-directed shell execution or a production sandbox fabric;
 - child-agent orchestration, persistent per-agent machines, or remote coding
   harness dispatch;

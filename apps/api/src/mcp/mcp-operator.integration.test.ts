@@ -324,6 +324,53 @@ describe('operator-configured MCP production acceptance', () => {
     }
   });
 
+  // Task 4.11: a local server that cannot launch must degrade only its own
+  // tools. The remote sibling in the same config keeps working, which is the
+  // property that makes a bad stdio entry an inconvenience rather than an
+  // outage.
+  it('isolates a failing stdio server from a healthy remote sibling', async () => {
+    const fixture = await createMcpTestFixture({
+      $get: [{ kind: 'raw', status: 405, body: '' }],
+      initialize: [mcpStreamableHttpInitialize()],
+      'notifications/initialized': [{ kind: 'raw', status: 204, body: '' }],
+      'tools/list': [discoveredSearch()],
+      $delete: [{ kind: 'raw', status: 204, body: '' }],
+    });
+    const random = vi.spyOn(Math, 'random').mockReturnValue(1);
+    let moduleRef: TestingModule | undefined;
+
+    try {
+      const config = {
+        ...BUILT_IN_DEFAULTS,
+        mcpServers: {
+          web: { type: 'streamable-http', url: fixture.url },
+          // An executable that cannot exist, so every spawn fails immediately.
+          broken: {
+            type: 'stdio',
+            command: '/nonexistent/llame-stdio-fixture-does-not-exist',
+          },
+        },
+      } as const;
+      const graph = await startRuntimeGraph(config);
+      moduleRef = graph.moduleRef;
+
+      // The remote sibling still reaches available despite the stdio failure.
+      await waitFor(
+        () => graph.runtime.resolveDynamicTool(TOOL_ID).state === 'available',
+      );
+
+      // And the catalog contains only the healthy server's tool — the broken
+      // one contributes nothing rather than a placeholder or an error entry.
+      expect(graph.runtime.snapshotCandidates()).toEqual([
+        expect.objectContaining({ state: 'available' }),
+      ]);
+    } finally {
+      await moduleRef?.close();
+      random.mockRestore();
+      await fixture.close();
+    }
+  });
+
   it('binds independent API/worker state, persists a redacted result, replays it, and emits disconnect/reconnect deltas', async () => {
     const fixture = await createMcpTestFixture({
       $get: [

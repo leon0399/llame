@@ -54,12 +54,19 @@ surfaces model switches and loads that receipt only on demand; host file paths
 never enter the public model catalog or receipt. The exact authoring surface is
 documented in [apps/api/AGENTS.md](apps/api/AGENTS.md).
 
-Remote MCP servers use a top-level `.mcp.json`-compatible `mcpServers` map in
-`llame.config.json`. Entries are exactly `{ type, url, headers? }`; `http` and
-`streamable-http` select the same Streamable HTTP transport. Authenticated
-static headers may use llame's `{env:...}` and `{path:...}` interpolation, while
-resolved values and session ids are never visible to users or models. Operators
-must explicitly allowlist each namespaced remote tool as read-only. See
+MCP servers use a top-level `.mcp.json`-shaped `mcpServers` map in
+`llame.config.json`, with two transports. A remote entry is exactly
+`{ type, url, headers? }`, where `http` and `streamable-http` both select
+Streamable HTTP. A local entry is `{ type: "stdio", command, args?, env?, cwd? }`
+and llame runs it as a child process — the shape most of the ecosystem ships,
+including servers with no HTTP mode.
+
+Secrets use llame's `{env:...}` and `{path:...}` interpolation, and interpolating
+a value is what marks it secret: resolved values are redacted from diagnostics,
+results, and errors, and are never visible to users or models. A stdio child
+receives only its declared `env` over the MCP SDK's small base allowlist, so
+llame's own credentials do not reach it, and it runs unsandboxed as the llame
+user. Operators must explicitly allowlist each namespaced tool as read-only. See
 [docs/mcp-tools.md](docs/mcp-tools.md) for configuration, supported protocol
 revisions, trust boundaries, rollout, and troubleshooting.
 

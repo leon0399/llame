@@ -28,6 +28,7 @@ None. This extends two shipped capabilities rather than introducing one.
 
 - `mcp-tools`: the transport requirement stops excluding stdio and gains stdio's process lifecycle (spawn, bounded retry, teardown), its diagnostic-output handling, and its secret sources.
 - `instance-config`: the `mcpServers` entry shape becomes a `type`-discriminated union with a stdio variant, and interpolation extends to the new fields.
+- `tool-calling`: the requirement governing what an MCP tool may reach describes only remote execution and operator-configured headers, so it is generalized to both transports — including that a local server runs with the llame process's own host privileges.
 
 ## Impact
 
