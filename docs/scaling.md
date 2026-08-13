@@ -175,6 +175,11 @@ workers later render those parts into model context. Adding a new semantic-part
 schema is therefore not mixed-revision compatible: an old worker can silently
 omit control context authored by a newer API.
 
+`data-recency-digest` follows the same rule without a schema migration: deploy workers
+that render it before any API authors it. Rollback stops digest authoring first, drains
+accepted Runs, and only then rolls binaries back. Persisted digest parts remain durable
+conversation history; deleting them would falsify the context a prior Run received.
+
 For `data-tool-availability`, first apply the backward-compatible preparation
 migration: the new snapshot columns have v0 defaults and both the legacy and
 availability-aware conflict indexes remain, so old API writers continue to

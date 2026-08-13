@@ -666,6 +666,17 @@ function ChatSessionContent({
                           // boundary immediately before this message, never
                           // as message content.
                           return null;
+                        } else if (
+                          part.type === "data-tool-availability" ||
+                          part.type === "data-recency-digest"
+                        ) {
+                          // Server-authored context reminders. They are
+                          // rendered into the MODEL's prompt by the api's
+                          // context-builder and are never visible chat
+                          // content — without this branch they fall through
+                          // to the "unsupported part type" span and print
+                          // debug text into the owner's transcript on reload.
+                          return null;
                         }
 
                         return (

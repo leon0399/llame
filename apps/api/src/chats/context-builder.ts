@@ -26,6 +26,11 @@ import {
   type ToolAvailabilityPart,
 } from './tool-availability-part';
 import {
+  isRecencyDigestPart,
+  renderRecencyDigestReminder,
+  type RecencyDigestPart,
+} from './recency-digest-part';
+import {
   projectCompactionToolObservationLedger,
   projectToolObservations,
   renderToolObservationOmission,
@@ -300,12 +305,15 @@ export function buildContext(
 
     let switchPart: ModelSwitchPart | undefined;
     let availabilityPart: ToolAvailabilityPart | undefined;
+    let recencyDigestPart: RecencyDigestPart | undefined;
     if (m.role === 'user') {
       for (const part of m.parts) {
         if (!switchPart && isModelSwitchPart(part)) {
           switchPart = part;
         } else if (!availabilityPart && isToolAvailabilityPart(part)) {
           availabilityPart = part;
+        } else if (!recencyDigestPart && isRecencyDigestPart(part)) {
+          recencyDigestPart = part;
         }
       }
     }
@@ -313,6 +321,9 @@ export function buildContext(
       ...(switchPart ? [renderModelSwitchReminder(switchPart)] : []),
       ...(availabilityPart
         ? [renderToolAvailabilityReminder(availabilityPart)]
+        : []),
+      ...(recencyDigestPart
+        ? [renderRecencyDigestReminder(recencyDigestPart)]
         : []),
     ];
     const baseContent =

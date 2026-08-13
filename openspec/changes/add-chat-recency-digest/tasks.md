@@ -30,7 +30,7 @@ the packaged prompt.
 | `templating` | Bounded `each` iteration and the top-level `chats` context in the prompt validator. | -         | no         |
 | `settings`   | The owner-scoped `memory` surface carrying `shareRecentChats`.                      | yes       | API only   |
 | `baseline`   | Resolve and store the frozen per-chat digest state.                                 | yes       | no         |
-| `deltas`     | Append digest events derived from the told-set.                                     | yes       | no         |
+| `deltas`     | Append digest events derived from the told-set.                                     | -         | **yes**    |
 | `compaction` | Re-resolve at compaction and exclude the digest from summarization.                 | -         | no         |
 | `activation` | Render the digest into the packaged default prompt.                                 | -         | **yes**    |
 
@@ -114,16 +114,16 @@ packaged prompt — which is precisely why the summarization exclusion sits belo
 
 ## 4. `recency-digest/deltas`
 
-- [ ] 4.1 Add the digest delta part beside `apps/api/src/chats/model-context-part.ts` with strict exact-shape validation on authoring and a server-owned renderer, following `createModelSwitchPart` / `renderModelSwitchReminder`
-- [ ] 4.2 Add the supersession-marker part and renderer for compaction re-bake
-- [ ] 4.3 Derive events from two distinct candidate sets: **new entries** from the freshly resolved capped views (top 10 pinned + top 10 recent) minus the told-set — never from the whole eligible corpus, which would append hundreds of chats for a large owner — and **pin-state changes** over already-told ids only, against `pins` membership rather than the rendered pinned list; batch into a single append; departures (displacement, archival, deletion) emit nothing by construction, not by a rule
-- [ ] 4.4 Advance the told-set in the same transaction as the append it accounts for
-- [ ] 4.5 Author the part on the user message in `chat-loop.service.ts`, gated on `shareRecentChats` **and the existence of a baseline** (per `specs/chat-recency-digest/spec.md`), never on template inspection — a baseline-less chat must not receive an append before its initialization commits
-- [ ] 4.6 Render appends in `context-builder.ts`'s existing reminder slot, alongside the model-switch and tool-availability reminders with no combined or special-cased form
-- [ ] 4.7 Unit tests: a delta and a model switch on the same turn emit both reminders independently; displacement, archival, and deletion emit nothing; batching collapses multiple events into one append
-- [ ] 4.8 Unit tests: an already-told chat never repeats; a chat that resurfaces through ordinary activity alone (no title change, no pin change) does append never repeats; a resurfaced below-cap chat does append; a newly pinned chat displacing a rendered one emits no unpin; unpinning a never-announced chat emits nothing; a failed transaction leaves the told-set unchanged
-- [ ] 4.9 Unit test: with `shareRecentChats` off, no append is emitted on any turn
-- [ ] 4.10 Document the delta event log in `apps/api/AGENTS.md`, and record the coordinated rollout there and in `docs/scaling.md`: this layer adds a server-authored message-part schema, so deploy workers able to render it before any API authors it, and on rollback stop authoring, drain accepted Runs, then roll binaries back
+- [x] 4.1 Add the digest delta part beside `apps/api/src/chats/model-context-part.ts` with strict exact-shape validation on authoring and a server-owned renderer, following `createModelSwitchPart` / `renderModelSwitchReminder`
+- [x] 4.2 Add the supersession-marker part and renderer for compaction re-bake
+- [x] 4.3 Derive events from two distinct candidate sets: **new entries** from the freshly resolved capped views (top 10 pinned + top 10 recent) minus the told-set — never from the whole eligible corpus, which would append hundreds of chats for a large owner — and **pin-state changes** over already-told ids only, against `pins` membership rather than the rendered pinned list; batch into a single append; departures (displacement, archival, deletion) emit nothing by construction, not by a rule
+- [x] 4.4 Advance the told-set in the same transaction as the append it accounts for
+- [x] 4.5 Author the part on the user message in `chat-loop.service.ts`, gated on `shareRecentChats` **and the existence of a baseline** (per `specs/chat-recency-digest/spec.md`), never on template inspection — a baseline-less chat must not receive an append before its initialization commits
+- [x] 4.6 Render appends in `context-builder.ts`'s existing reminder slot, alongside the model-switch and tool-availability reminders with no combined or special-cased form
+- [x] 4.7 Unit tests: a delta and a model switch on the same turn emit both reminders independently; displacement, archival, and deletion emit nothing; batching collapses multiple events into one append
+- [x] 4.8 Unit tests: an already-told chat never repeats; a chat that resurfaces through ordinary activity alone (no title change, no pin change) does append; a resurfaced below-cap chat does append; a newly pinned chat displacing a rendered one emits no unpin; unpinning a never-announced chat emits nothing; a failed transaction leaves the told-set unchanged
+- [x] 4.9 Unit test: with `shareRecentChats` off, no append is emitted on any turn
+- [x] 4.10 Document the delta event log in `apps/api/AGENTS.md`, and record the coordinated rollout there and in `docs/scaling.md`: this layer adds a server-authored message-part schema, so deploy workers able to render it before any API authors it, and on rollback stop authoring, drain accepted Runs, then roll binaries back
 
 ## 5. `recency-digest/compaction`
 

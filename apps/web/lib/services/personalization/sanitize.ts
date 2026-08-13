@@ -39,6 +39,7 @@
  */
 const RESERVED_TAG_NAMES: ReadonlySet<string> = new Set([
   "conversation-checkpoint",
+  "chat-recency-update",
   "runtime-tool-availability",
   "system-reminder",
   "tool-call",

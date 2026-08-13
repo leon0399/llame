@@ -36,8 +36,18 @@ export type RecencyDigestBaseline = {
   compiledOn: string;
 };
 
-/** Internal event bookkeeping; this is never passed to prompt rendering. */
-export type RecencyDigestToldEntry = { chatId: string; pinned: boolean };
+/**
+ * Internal event bookkeeping; this is never passed to prompt rendering.
+ *
+ * `title` is optional only while old JSONB rows from the baseline layer remain
+ * readable. Their pin corrections fail closed instead of emitting anonymous
+ * events, because the model cannot attribute one to a previously announced chat.
+ */
+export type RecencyDigestToldEntry = {
+  chatId: string;
+  pinned: boolean;
+  title?: string;
+};
 
 // DB-enforced visibility values (not just a TS-level varchar union, which Postgres
 // would not constrain).

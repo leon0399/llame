@@ -756,6 +756,51 @@ describeIfDb(
       expect(rolledBack).toBeUndefined();
     });
 
+    it('leaves a pre-existing digest told-set unchanged when its append fails to bind', async () => {
+      await new MemoryService(tenantDb).updateForOwner(userId, {
+        shareRecentChats: true,
+      });
+      const target = await tenantDb.runAs(userId, async (tx) => {
+        const chats = new ChatsRepository(tx);
+        const chat = await chats.create({
+          ownerUserId: userId,
+          title: 'Target',
+        });
+        await chats.setRecencyDigestIfAbsent(
+          chat.id,
+          userId,
+          {
+            pinned: [],
+            recent: [],
+            pinnedShown: 0,
+            pinnedTotal: 0,
+            recentShown: 0,
+            recentTotal: 0,
+            compiledOn: '2026-08-13',
+          },
+          [],
+        );
+        return chat;
+      });
+      await seedEligibleChat(userId, 'Event source', 'opening');
+      const append = vi
+        .spyOn(RunEventsRepository.prototype, 'append')
+        .mockRejectedValueOnce(new Error('forced append failure'));
+
+      try {
+        await expect(
+          send(target.id, crypto.randomUUID(), 'must roll back append'),
+        ).rejects.toThrow('forced append failure');
+      } finally {
+        append.mockRestore();
+      }
+
+      const after = await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).findById(target.id, userId),
+      );
+      expect(after?.recencyDigestTold).toEqual([]);
+    });
+
     it('persists no marker for first/same-model turns and a target-run-bound marker after a failed prior model', async () => {
       const chatId = crypto.randomUUID();
       const modelA = 'system:openai:model-a';
