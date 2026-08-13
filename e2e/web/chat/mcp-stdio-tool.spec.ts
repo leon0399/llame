@@ -8,9 +8,13 @@
  * protected values, the runtime spawns the child, the client speaks JSON-RPC
  * over its pipes, and the answer is persisted and replayed.
  *
- * It also asserts the secret's absence. The fixture writes it to stderr and
- * returns it inside its tool result, so a redaction regression on either
- * channel surfaces here rather than in an operator's logs.
+ * It also asserts the secret's absence, but only on the channel it can see:
+ * the browser DOM, fed by the persisted tool result. The fixture writes the
+ * secret to stderr too, and that path is NOT covered here — the API is
+ * launched with `stdio: "inherit"`, so its log goes to Playwright's own
+ * console where no test can read it. Diagnostic redaction is covered by the
+ * `DiagnosticBuffer` unit tests in `apps/api/src/mcp/`, including a value
+ * spanning several lines; do not read a pass here as evidence for it.
  */
 
 import { expect, test } from "../../support/fixtures";
@@ -51,7 +55,8 @@ test("local stdio MCP tool settles, redacts its secret, and replays from history
   await expect(log.getByText(FIXTURE_ANSWER)).toBeVisible({ timeout: 30_000 });
 
   // The fixture returns the secret inside its tool result, so a redaction
-  // regression on the result path surfaces here.
+  // regression on the result path — the one this test can observe — shows up
+  // here. The stderr path is covered by unit tests, not by this assertion.
   await expect(page.locator("body")).not.toContainText(STDIO_SECRET);
 
   // The composer returns from Stop to Send only after the run stream settles,
