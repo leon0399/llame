@@ -602,7 +602,11 @@ function resolveStdioServer(
 
   let childEnv: Record<string, string> | undefined;
   if (entry.env !== undefined) {
-    childEnv = {};
+    // Null-prototype, as the header path is: the schema accepts any non-empty
+    // variable name, and assigning `__proto__` into a normal object hits
+    // `Object.prototype`'s setter instead of creating an own property, so the
+    // variable would be dropped silently on its way to the child.
+    childEnv = Object.create(null) as Record<string, string>;
     for (const [name, raw] of Object.entries(entry.env)) {
       childEnv[name] = take(raw, `${serverPath}.env.${name}`);
     }

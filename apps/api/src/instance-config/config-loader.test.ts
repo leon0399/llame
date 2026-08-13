@@ -539,6 +539,29 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
     expect(local.protectedValues).toEqual(['ghp_secret_value']);
   });
 
+  it('forwards an env variable named __proto__ instead of dropping it', () => {
+    // The schema permits any non-empty variable name. Assigning this one into
+    // a normal object reaches `Object.prototype`'s setter, so the variable
+    // vanishes with no error anywhere for the operator to see.
+    writeConfig(`{
+      "mcpServers": {
+        "odd": {
+          "type": "stdio",
+          "command": "odd-mcp",
+          "env": { "__proto__": "literal-value" }
+        }
+      }
+    }`);
+
+    const odd = loadInstanceConfig({}).mcpServers.odd;
+    if (odd.type !== 'stdio') expect.unreachable('expected a stdio entry');
+
+    expect(Object.prototype.hasOwnProperty.call(odd.env, '__proto__')).toBe(
+      true,
+    );
+    expect(odd.env?.['__proto__']).toBe('literal-value');
+  });
+
   it('protects only the substituted segment of a partly interpolated field', () => {
     writeConfig(`{
       "mcpServers": {
