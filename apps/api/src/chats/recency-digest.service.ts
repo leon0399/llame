@@ -43,7 +43,7 @@ export function truncateRecencyDigestExcerpt(value: string): string {
     .join('');
 }
 
-function toDigestEntry(
+export function toDigestEntry(
   chat: DigestSourceChat,
 ): StoredRecencyDigestBaseline['pinned'][number] {
   const excerpt = chat.firstUserMessage
@@ -63,16 +63,25 @@ function toDigestEntry(
   };
 }
 
+/**
+ * The single place the rendered baseline shape is assembled.
+ *
+ * Takes already-rendered entries rather than source chats so the resolver can
+ * reuse the very same entry objects for its candidate records — otherwise the
+ * baseline gets assembled in two places that can silently drift on a format or
+ * field change, and this function ends up production-dead while its tests still
+ * claim to cover what ships.
+ */
 export function buildRecencyDigestBaseline(input: {
-  pinned: readonly DigestSourceChat[];
-  recent: readonly DigestSourceChat[];
+  pinned: readonly StoredRecencyDigestBaseline['pinned'][number][];
+  recent: readonly StoredRecencyDigestBaseline['pinned'][number][];
   pinnedTotal: number;
   recentTotal: number;
   compiledOn: Date;
 }): RecencyDigestBaseline {
   return {
-    pinned: input.pinned.map(toDigestEntry),
-    recent: input.recent.map(toDigestEntry),
+    pinned: [...input.pinned],
+    recent: [...input.recent],
     pinnedShown: input.pinned.length,
     pinnedTotal: input.pinnedTotal,
     recentShown: input.recent.length,
@@ -120,22 +129,27 @@ export function deriveRecencyDigestDelta(input: {
       ? []
       : [{ ...candidate.entry, pinned: candidate.pinned }],
   );
-  const pinChanges = input.told.flatMap((entry) => {
+  // One pass over the told-set: current pin state is read once per entry and
+  // used for both the correction it may emit and the state it carries forward.
+  const pinChanges: RecencyDigestDelta['pinChanges'] = [];
+  const carriedForward = input.told.map((entry) => {
     const pinned = input.pinnedChatIds.has(entry.chatId);
-    // Baseline may have been persisted before titles were added to the told
-    // JSONB. Fail closed rather than authoring an un-attributable pin event.
-    return pinned === entry.pinned || !entry.title
-      ? []
-      : [{ title: entry.title, pinned }];
+    // A told entry persisted before titles were recorded cannot name its own
+    // chat. Fail closed — say nothing rather than author an un-attributable
+    // pin event.
+    if (pinned !== entry.pinned && entry.title) {
+      pinChanges.push({ title: entry.title, pinned });
+    }
+    return {
+      chatId: entry.chatId,
+      pinned,
+      ...(entry.title ? { title: entry.title } : {}),
+    };
   });
   if (entries.length === 0 && pinChanges.length === 0) return null;
 
   const told = [
-    ...input.told.map((entry) => ({
-      chatId: entry.chatId,
-      pinned: input.pinnedChatIds.has(entry.chatId),
-      ...(entry.title ? { title: entry.title } : {}),
-    })),
+    ...carriedForward,
     ...input.candidate.told.filter((entry) => !toldByChatId.has(entry.chatId)),
   ];
   return { entries, pinChanges, told };
@@ -156,15 +170,15 @@ export class RecencyDigestService {
     ownerUserId: string,
     currentChatId: string,
   ): Promise<RecencyDigestResolution> {
-    // REPEATABLE READ: the four selection queries below must observe ONE
-    // database snapshot. Under the default READ COMMITTED each statement takes
-    // its own, so a pin added or removed mid-resolution can let the same chat
-    // be picked by the pinned query before the change and the recent query
-    // after it — freezing a duplicate entry into an immutable baseline and a
+    // REPEATABLE READ: the selection queries below must observe ONE database
+    // snapshot. Under the default READ COMMITTED each statement takes its own,
+    // so a pin added or removed mid-resolution can let the same chat be picked
+    // by the pinned query before the change and the recent query after it —
+    // freezing a duplicate entry into an immutable baseline with a
     // contradictory told-set — and can leave the counts disagreeing with the
     // lists they are denominators for. This resolver only reads, so the
     // stricter level costs nothing but a retry on the serialization errors it
-    // is designed to surface.
+    // exists to surface.
     return this.tenantDb.runAs(
       ownerUserId,
       async (tx) => {
@@ -218,25 +232,25 @@ export class RecencyDigestService {
           pinned,
           entry: toDigestEntry(chat),
         });
-        const candidates = [
-          ...hydratedPinned.map((chat) => toCandidate(chat, true)),
-          ...hydratedRecent.map((chat) => toCandidate(chat, false)),
-        ];
-        const compiledOn = new Date().toISOString().slice(0, 10);
+        // Kept as two named lists rather than one merged array re-split by the
+        // `pinned` flag we just assigned: the partition is already known here,
+        // and the same entry objects feed both the baseline and the candidates,
+        // so the two cannot disagree.
+        const pinnedCandidates = hydratedPinned.map((chat) =>
+          toCandidate(chat, true),
+        );
+        const recentCandidates = hydratedRecent.map((chat) =>
+          toCandidate(chat, false),
+        );
+        const candidates = [...pinnedCandidates, ...recentCandidates];
         return {
-          baseline: {
-            pinned: candidates
-              .filter((candidate) => candidate.pinned)
-              .map((candidate) => candidate.entry),
-            recent: candidates
-              .filter((candidate) => !candidate.pinned)
-              .map((candidate) => candidate.entry),
-            pinnedShown: hydratedPinned.length,
+          baseline: buildRecencyDigestBaseline({
+            pinned: pinnedCandidates.map(({ entry }) => entry),
+            recent: recentCandidates.map(({ entry }) => entry),
             pinnedTotal,
-            recentShown: hydratedRecent.length,
             recentTotal,
-            compiledOn,
-          },
+            compiledOn: new Date(),
+          }),
           told: candidates.map(({ chatId, pinned, entry }) => ({
             chatId,
             pinned,
