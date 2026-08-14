@@ -10,7 +10,7 @@ import type { AuthService } from './auth.service';
 
 describe('SessionAuthGuard', () => {
   function makeGuard(
-    validateToken: AuthService['validateToken'] = vi.fn(),
+    validateToken = vi.fn<AuthService['validateToken']>(),
     isPublic = false,
   ) {
     const authService = { validateToken };
@@ -38,7 +38,9 @@ describe('SessionAuthGuard', () => {
       guard.canActivate(new ExecutionContextHost([request])),
     ).resolves.toBe(true);
 
-    expect(authService.validateToken).toHaveBeenCalledWith('bearer-token');
+    expect(authService.validateToken.mock.calls).toContainEqual([
+      'bearer-token',
+    ]);
     expect(request).toHaveProperty('authContext', {
       userId: 'user-1',
       sessionId: 'session-1',
