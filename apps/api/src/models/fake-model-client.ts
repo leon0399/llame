@@ -73,8 +73,10 @@ export function createFakeModelClient(
       );
 
       let resolveCompletion: () => void = () => undefined;
-      const completion = new Promise<void>((resolve) => {
-        resolveCompletion = () => resolve();
+      let rejectCompletion: (reason?: unknown) => void = () => undefined;
+      const completion = new Promise<void>((resolve, reject) => {
+        resolveCompletion = resolve;
+        rejectCompletion = reject;
       });
       const result = streamText({
         model: new MockLanguageModelV3({
@@ -106,8 +108,9 @@ export function createFakeModelClient(
         onError: async (event) => {
           try {
             await input.onError?.(event);
-          } finally {
             resolveCompletion();
+          } catch (error) {
+            rejectCompletion(error);
           }
         },
         onFinish: async (event) => {
@@ -117,8 +120,9 @@ export function createFakeModelClient(
               usage: ZERO_USAGE,
               finishReason: event.finishReason,
             });
-          } finally {
             resolveCompletion();
+          } catch (error) {
+            rejectCompletion(error);
           }
         },
       });

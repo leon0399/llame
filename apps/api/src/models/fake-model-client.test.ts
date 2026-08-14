@@ -104,6 +104,18 @@ describe('createFakeModelClient', () => {
     await expect(textPromise).resolves.toBe('done');
   });
 
+  it('rejects text when an async onFinish rejects', async () => {
+    const client = createFakeModelClient(['done']);
+    const error = new Error('finish failed');
+
+    await expect(
+      client.streamText({
+        messages,
+        onFinish: () => Promise.reject(error),
+      }).text,
+    ).rejects.toBe(error);
+  });
+
   it('cycles through preset responses', async () => {
     const client = createFakeModelClient(['first', 'second']);
 
