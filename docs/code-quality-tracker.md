@@ -50,6 +50,7 @@ required.
 |    19 | #378 | Source-owned service capabilities   |
 |    20 | #379 | Runtime-boundary negative fixtures  |
 |    21 | #380 | Worker database/lifecycle fixtures  |
+|    22 | #381 | Model-context repository coverage   |
 
 ## Inventory
 
