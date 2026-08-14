@@ -12,17 +12,17 @@ required.
 
 ## Active stack
 
-| Order | State       | Layer                                    | Acceptance evidence                                                                                              |
-| ----: | ----------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-|     1 | active      | Tracker and design baseline              | Documents match live configuration, issue #268, and measured debt                                                |
-|     2 | queued      | Transitional double-assertion prevention | New `.ts` and `.tsx` casts fail during migration; this layer is not issue #268 completion                        |
-|     3 | queued      | Complexity ceiling and first extraction  | Oxlint rejects modified complexity over 35; current 53-point function is below the ceiling without behavior loss |
-|     4 | queued      | AI SDK model doubles                     | `model-client.test.ts` and the shared fake use typed SDK test utilities; focused tests/typecheck pass            |
-|     5 | queued      | Remaining cast slices                    | All 113 legacy owned-code matches reach zero; no baselines or allowlists remain                                  |
-|     6 | queued      | Full-tree double-assertion prohibition   | Native ast-grep scan rejects `.ts` and `.tsx` matches across owned code in local hooks and CI                    |
-|     7 | queued      | Semantic Markdown and lint ratchets      | Chosen standard tool rejects invalid owned Markdown without broad disables                                       |
-|     8 | queued      | Mutation-testing pilot                   | Bounded Stryker run completes; runtime and every survivor category recorded                                      |
-|     9 | investigate | Modular/service refactors                | Only measured coupling or responsibility hotspots become layers                                                  |
+| Order | State       | Layer                                   | Acceptance evidence                                                                                              |
+| ----: | ----------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                |
+|     2 | queued      | Web test doubles                        | Web reaches zero matches using Vitest, Storybook, and native Web API types; full web and browser suites pass     |
+|     3 | queued      | Complexity ceiling and first extraction | Oxlint rejects modified complexity over 35; current 53-point function is below the ceiling without behavior loss |
+|     4 | queued      | AI SDK model doubles                    | `model-client.test.ts` and the shared fake use typed SDK test utilities; focused tests/typecheck pass            |
+|     5 | queued      | Remaining cast slices                   | All 113 legacy owned-code matches reach zero; no baselines or allowlists remain                                  |
+|     6 | queued      | Full-tree double-assertion prohibition  | Native ast-grep scan rejects `.ts` and `.tsx` matches across owned code in local hooks and CI                    |
+|     7 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                       |
+|     8 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                      |
+|     9 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                  |
 
 ## Inventory
 

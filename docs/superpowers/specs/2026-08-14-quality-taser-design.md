@@ -94,7 +94,7 @@ stays recorded with its PR or commit so later agents do not rediscover it.
 ### Stack sequence
 
 1. Tracker and design baseline.
-2. Transitional project-wide double-assertion prevention while migrations land.
+2. Web test-double migration using Vitest, Storybook, and native Web API types.
 3. Complexity ceiling at 35 plus refactoring of the current over-ceiling function;
    ratchet toward 30 and then 20 in later slices based on the measured list.
 4. AI SDK model-double migration, eliminating the largest coherent cast cluster.
