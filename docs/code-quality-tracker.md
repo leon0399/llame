@@ -48,6 +48,7 @@ required.
 |    17 | #376 | Instance config test doubles        |
 |    18 | #377 | Tool tenant-context types           |
 |    19 | #378 | Source-owned service capabilities   |
+|    20 | #379 | Runtime-boundary negative fixtures  |
 
 ## Inventory
 
