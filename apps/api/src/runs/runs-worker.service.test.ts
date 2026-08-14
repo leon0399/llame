@@ -10,7 +10,9 @@
  * terminal).
  */
 import { Logger } from '@nestjs/common';
+import { drizzle } from 'drizzle-orm/postgres-js';
 
+import * as schema from '../db/schema';
 import { type QueueConsumer, deadLetterQueue } from '../queue/queue';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
@@ -26,47 +28,9 @@ import { RUNS_QUEUE, type RunJob } from './run-queues';
 
 import type { Mock } from 'vitest';
 
-/**
- * Minimal fake Drizzle tx: every update/insert resolves `returning()` to
- * `returningRow`. `update`/`insert` return deeply-typed builder chains
- * (`PgUpdateBuilder` etc., carrying `table`/`session`/`dialect`/…) that a
- * plain mock can't structurally satisfy at any narrowing — #268's `Pick<>`
- * recipe targets DI-class fakes, not the ORM library boundary, so this cast
- * stays (same bucket as the two production AI-SDK casts it also doesn't
- * cover).
- */
-function makeFakeTx(returningRow: Record<string, unknown> | undefined) {
-  const setSpy = vi.fn();
-  const whereSpy = vi.fn();
-  const valuesSpy = vi.fn();
-  const returning = vi
-    .fn()
-    .mockResolvedValue(returningRow ? [returningRow] : []);
-
-  const update = vi.fn(() => ({
-    set: vi.fn((arg: unknown) => {
-      setSpy(arg);
-      return {
-        where: vi.fn((arg2: unknown) => {
-          whereSpy(arg2);
-          return { returning };
-        }),
-      };
-    }),
-  }));
-  const insert = vi.fn(() => ({
-    values: vi.fn((arg: unknown) => {
-      valuesSpy(arg);
-      return { returning: vi.fn().mockResolvedValue([{}]) };
-    }),
-  }));
-
-  return {
-    tx: { update, insert } as unknown as Db,
-    setSpy,
-    whereSpy,
-    valuesSpy,
-  };
+/** Native Drizzle mock; repository behavior is mocked at its public seam. */
+function makeFakeTx(): Db {
+  return drizzle.mock({ schema });
 }
 
 /** A capability the test never exercises still needs a real (throwing) member — an empty object satisfies no narrowed interface either. */
@@ -188,7 +152,7 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
   });
 
   it('registers a consumer on the runs.dead dead-letter queue at bootstrap', async () => {
-    const { tx } = makeFakeTx({ id: job.runId, status: 'expired' });
+    const tx = makeFakeTx();
     const { service, consumeSpy } = makeService(tx);
     await service.onApplicationBootstrap();
     expect(consumeSpy).toHaveBeenCalledWith(
@@ -199,10 +163,7 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
 
   it('settles a dead-lettered run to a terminal run.expired IN THE OWNER TENANT SCOPE', async () => {
     const warnSpy = vi.spyOn(Logger.prototype, 'warn');
-    const { tx } = makeFakeTx({
-      id: job.runId,
-      status: 'expired',
-    });
+    const tx = makeFakeTx();
     const settleTerminalRun = vi
       .fn()
       .mockResolvedValue({ outcome: 'won' as const });
@@ -242,7 +203,7 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
     const warnSpy = vi.spyOn(Logger.prototype, 'warn');
     // The central finalizer reports a guarded markFinished loss when another
     // terminal writer already won; the dead-letter consumer accepts that no-op.
-    const { tx } = makeFakeTx(undefined);
+    const tx = makeFakeTx();
     const settleTerminalRun = vi.fn().mockResolvedValue({
       outcome: 'lost' as const,
       finalStatus: 'completed',
@@ -309,7 +270,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     const executeRun = vi.fn().mockResolvedValue({ consumeStream });
     const abort = new AbortController();
     const unregister = vi.fn();
-    const { tx } = makeFakeTx(undefined);
+    const tx = makeFakeTx();
     const { service, consumeSpy, runAsSpy } = makeService(tx, {
       models: { createClient: vi.fn().mockReturnValue({}) },
       runExecution: {
@@ -340,7 +301,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     const settleTerminalRun = vi.fn().mockResolvedValue({
       outcome: 'won' as const,
     });
-    const { tx } = makeFakeTx(undefined);
+    const tx = makeFakeTx();
     const { service, consumeSpy } = makeService(tx, {
       runExecution: {
         executeRun: unstubbed('executeRun'),
@@ -372,7 +333,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     });
     const abort = new AbortController();
     const unregister = vi.fn();
-    const { tx } = makeFakeTx(undefined);
+    const tx = makeFakeTx();
     const { service, consumeSpy } = makeService(tx, {
       models: { createClient: vi.fn().mockReturnValue({}) },
       runExecution: {
@@ -444,7 +405,7 @@ describe('RunsWorkerService — durable run-level failures', () => {
       );
     const abort = new AbortController();
     const unregister = vi.fn();
-    const { tx } = makeFakeTx(undefined);
+    const tx = makeFakeTx();
     const { service, consumeSpy } = makeService(tx, {
       models: { createClient },
       runExecution: {
@@ -486,7 +447,7 @@ describe('RunsWorkerService — durable run-level failures', () => {
       'snapshot tool declaration drifted',
     );
     const abort = new AbortController();
-    const { tx } = makeFakeTx(undefined);
+    const tx = makeFakeTx();
     const { service, consumeSpy } = makeService(tx, {
       models: {
         createClient: vi.fn().mockReturnValue({}),

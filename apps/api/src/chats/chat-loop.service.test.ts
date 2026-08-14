@@ -186,9 +186,8 @@ describe('ChatLoopService effective-context transaction binding', () => {
     // `transaction`/`runAs` are typed to accept a `Db` tx (matching
     // production) but this fake only ever hands back itself — the real
     // Drizzle builder chain types are too deep for a plain mock to satisfy
-    // structurally, so the tx value itself stays a cast (#268 doesn't cover
-    // the ORM library boundary, same bucket as the two production AI-SDK
-    // casts it also doesn't reach).
+    // structurally. This remaining boundary moves to real-Postgres coverage
+    // in the next slice rather than being hidden behind a different cast.
     const txHolder = {} as {
       transaction: (
         callback: (inner: Db) => Promise<unknown>,

@@ -28,6 +28,7 @@ import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { sql } from 'drizzle-orm';
 import { streamText as sdkStreamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
+import { type Sql } from 'postgres';
 
 import { WorkerModule } from '../worker.module';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
@@ -291,6 +292,8 @@ export type WorkerHarness = {
   close(): Promise<void>;
 };
 
+type DrizzleWithClient = Db & { $client: Sql };
+
 /**
  * Boots WorkerModule as a headless Nest graph (moduleRef.init(), no HTTP —
  * same shape as `worker.module.integration.test.ts`) against a REAL Postgres, with:
@@ -352,7 +355,7 @@ export async function bootWorkerHarness(overrides?: {
   await moduleRef.init();
 
   const tenantDb = moduleRef.get(TenantDbService, { strict: false });
-  const db = moduleRef.get<Db>('DB_DEV', { strict: false });
+  const db = moduleRef.get<DrizzleWithClient>('DB_DEV', { strict: false });
   const queue = moduleRef.get<Queue>(QUEUE, { strict: false });
   const dispatch = moduleRef.get(RunDispatchService, { strict: false });
 
@@ -368,9 +371,7 @@ export async function bootWorkerHarness(overrides?: {
       // nestjs-pgboss's boss.stop({ graceful }) — stops fetching and awaits
       // in-flight handlers.
       await moduleRef.close();
-      await (
-        db as unknown as { $client: { end: () => Promise<void> } }
-      ).$client.end();
+      await db.$client.end();
     },
   };
 }
