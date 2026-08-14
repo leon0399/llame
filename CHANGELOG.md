@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed all six double assertions from the search-reindex worker tests.
+  Nest's `TestingModule`, public application-bootstrap lifecycle, provider
+  overrides, and `Logger.prototype` spies replace private-method, private-field,
+  queue, service, and worker-profile casts. The focused suite passes 4/4; the
+  full API unit suite passes 1,090/1,090; API typecheck and lint pass.
+  Application/test debt falls from 42 to 36.
+
 - Removed all seven double assertions from the chat-loop real-Postgres
   integration suite. Existing `ModelSelectionValidator`, `RunStreamResponder`,
   `RunDispatcher`, and `InstanceConfigReader` contracts plus complete built-in
