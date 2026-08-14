@@ -72,14 +72,14 @@ Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in pr
 ## Conventions
 
 - TypeScript only across web/api/worker — no second backend language (SPEC.md §23).
-- Double assertions through `unknown` (`as unknown as T`) are prohibited project-wide. Narrow the consumer's required capability or validate the boundary instead.
 - Modified cyclomatic complexity must remain `<= 35` under Oxlint's `modified` variant. Extract only along a real responsibility boundary; arbitrary helper extraction, inline disables, and other metric gaming are prohibited.
 - Drizzle ORM for all DB access; generate migrations with `drizzle-kit`, never hand-write migration SQL.
 - Conventional commits (e.g. `feat(api):`, `docs(spec):`).
-- `as unknown as T` is banned across owned `.ts`, `.tsx`, `.mts`, and `.cts`
-  files. `pnpm check:double-assertions` runs the pinned native ast-grep rules in
-  Lefthook and CI; narrow the boundary, construct a complete value, or validate
-  untrusted input instead of suppressing the compiler.
+- Repository structural rules run through the pinned native ast-grep command
+  `pnpm lint:ast-grep` in Lefthook and CI. `as unknown as T` is banned across
+  owned `.ts`, `.tsx`, `.mts`, and `.cts` files; narrow the boundary, construct
+  a complete value, or validate untrusted input instead of suppressing the
+  compiler.
 - Tests follow [docs/testing.md](docs/testing.md): `*.test.ts(x)` is Vitest everywhere (`.integration` infix = needs real Postgres; root `e2e/` is Playwright's island); component behavior belongs in Storybook stories, not jsdom render tests; DB-backed suites fail loudly, never skip silently.
 - UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).
 

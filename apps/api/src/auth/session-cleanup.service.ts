@@ -29,7 +29,8 @@ export class SessionCleanupService implements OnApplicationBootstrap {
   private readonly logger = new Logger(SessionCleanupService.name);
 
   constructor(
-    @Inject(QUEUE) private readonly queue: Queue,
+    @Inject(QUEUE)
+    private readonly queue: Queue,
     private readonly sessionsRepository: SessionsRepository,
     private readonly workerProfile: WorkerProfileService,
   ) {}

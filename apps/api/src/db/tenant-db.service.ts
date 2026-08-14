@@ -38,7 +38,8 @@ export type TenantRunner = Pick<TenantDbService, 'runAs'>;
 @Injectable()
 export class TenantDbService {
   constructor(
-    @Inject('DB_DEV') private readonly db: TenantTransactionExecutor,
+    @Inject('DB_DEV')
+    private readonly db: TenantTransactionExecutor,
   ) {}
 
   /**

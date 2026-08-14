@@ -17,8 +17,10 @@ export type SessionAuthReflector = Pick<Reflector, 'getAllAndOverride'>;
 @Injectable()
 export class SessionAuthGuard implements CanActivate {
   constructor(
-    @Inject(AuthService) private readonly authService: SessionAuthService,
-    @Inject(Reflector) private readonly reflector: SessionAuthReflector,
+    @Inject(AuthService)
+    private readonly authService: SessionAuthService,
+    @Inject(Reflector)
+    private readonly reflector: SessionAuthReflector,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

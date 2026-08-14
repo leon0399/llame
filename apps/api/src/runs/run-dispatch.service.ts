@@ -21,7 +21,8 @@ export class RunDispatchService {
   private queueReady: Promise<void> | undefined;
 
   constructor(
-    @Inject(QUEUE) private readonly queue: Queue,
+    @Inject(QUEUE)
+    private readonly queue: Queue,
     private readonly instanceConfig: InstanceConfigService,
     private readonly tenantDb: TenantDbService,
   ) {}

@@ -14,10 +14,10 @@ pre-commit:
       glob: "apps/api/**/*.ts"
       run: pnpm --filter api lint
 
-    # Full-tree native ast-grep rule (#268). The same package script runs in
-    # CI; zero legacy debt means no diff scope, baseline, or allowlist.
-    - name: no double assertions
-      run: pnpm check:double-assertions
+    # Full-tree native ast-grep rules (#268, #286). The same package script runs
+    # in CI; no diff scope, baseline, allowlist, or bespoke wrapper.
+    - name: ast-grep structural rules
+      run: pnpm lint:ast-grep
 
     - name: web lint (oxlint)
       glob: "apps/web/**/*.{ts,tsx,js,mjs}"

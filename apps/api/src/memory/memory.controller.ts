@@ -28,7 +28,8 @@ type MemorySettingsApi = Pick<MemoryService, 'getForOwner' | 'updateForOwner'>;
 @Controller('api/v1/me/memory')
 export class MemoryController {
   constructor(
-    @Inject(MemoryService) private readonly memory: MemorySettingsApi,
+    @Inject(MemoryService)
+    private readonly memory: MemorySettingsApi,
   ) {}
 
   @Get()

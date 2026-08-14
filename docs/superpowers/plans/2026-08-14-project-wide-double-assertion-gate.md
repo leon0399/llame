@@ -89,8 +89,8 @@ Issue #268 cannot close before the result is empty.
       and `.cts` files.
 - [x] Validate the rule using ast-grep's native `test` command only if fixture
       coverage is needed; do not build a custom shell test runner.
-- [x] Add the exact root script
-      `"check:double-assertions": "ast-grep scan --error --no-ignore hidden ."`.
+- [x] Add the exact root structural-lint script
+      `"lint:ast-grep": "ast-grep scan --error --no-ignore hidden ."`.
 - [x] Use the native scan against temporary violating `.ts`, `.tsx`, `.mts`, and
       `.cts` files, including root/e2e paths, to prove every supported extension
       is RED. Prove a violation under an owned hidden directory such as
@@ -110,7 +110,7 @@ Issue #268 cannot close before the result is empty.
 - Modify: `docs/code-quality-tracker.md`
 - Modify: `CHANGELOG.md`
 
-- [x] Replace the staged API script with `pnpm check:double-assertions`.
+- [x] Replace the staged API script with `pnpm lint:ast-grep`.
 - [x] Run that same package script in the existing lint workflow so the pinned
       local binary is on `PATH`; no direct binary call, diff base, or
       grandfathered baseline is allowed.
@@ -126,7 +126,7 @@ Issue #268 cannot close before the result is empty.
 Run fresh:
 
 ```bash
-pnpm check:double-assertions
+pnpm lint:ast-grep
 pnpm lint
 pnpm typecheck
 pnpm format:check

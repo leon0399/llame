@@ -63,7 +63,8 @@ export class RunsController {
   private readonly logger = new Logger(RunsController.name);
 
   constructor(
-    @Inject(TenantDbService) private readonly tenantDb: TenantRunner,
+    @Inject(TenantDbService)
+    private readonly tenantDb: TenantRunner,
     private readonly aborts: RunAbortRegistry,
   ) {}
 

@@ -42,7 +42,7 @@ jobs:
       - run: pnpm exec turbo run lint
 
       # Project-wide native ast-grep rules; identical command to Lefthook.
-      - run: pnpm check:double-assertions
+      - run: pnpm lint:ast-grep
 
   format:
     name: Format
