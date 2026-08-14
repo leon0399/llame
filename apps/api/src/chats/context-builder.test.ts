@@ -308,7 +308,7 @@ describe('buildContext', () => {
         null,
         'a bare string',
         { type: 'text', text: 'still here' },
-      ] as unknown as MessagePart[];
+      ];
 
       expect(() => partsToText(malformed)).not.toThrow();
       expect(partsToText(malformed)).toContain('still here');

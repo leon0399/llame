@@ -164,7 +164,7 @@ export function renderConversationCheckpoint(
  * Only canonical visible text is portable across later model requests.
  * Exported for the compaction planner (#57), which renders absorbed turns.
  */
-export function partsToText(parts: MessagePart[]): string {
+export function partsToText(parts: readonly unknown[]): string {
   return parts
     .flatMap((part) => (isTextPart(part) ? [part.text] : []))
     .join('\n');

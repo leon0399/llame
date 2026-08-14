@@ -23,7 +23,7 @@ describe('toPublicUser', () => {
       ...userWithSecret,
       totpSecret: 'TOTP_SECRET',
       apiKey: 'API_KEY',
-    } as unknown as User;
+    };
     const pub = toPublicUser(withFutureSecrets);
     expect(Object.keys(pub).sort()).toEqual([
       'email',

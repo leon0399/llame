@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed three double assertions from negative runtime-boundary fixtures.
+  Future user columns now rely on structural supersets; tool registration
+  accepts unknown classification input only at the boundary that validates
+  the seven allowed values; and `partsToText` accepts `readonly unknown[]`, matching
+  unvalidated JSONB while retaining its text-part guard. Focused units pass
+  81/81; API build, typecheck, and lint pass. Application/test debt falls from
+  8 to 5. The tracker also records issue #286's measured decorator-placement
+  drift (11 inline vs 35 split `@Inject` parameters) and requires maintained
+  enforcement before a one-time codemod.
+
 - Removed the final two concrete-service double assertions from worker
   concurrency coverage and the search-reindex no-op. The bridge fixture now
   uses the existing `RunStreamResponder`; the reindex service owns a shared

@@ -5,18 +5,40 @@ import { type Tool } from './types';
 /** Every tool the harness knows about (design D2: in-code registry). */
 export const TOOLS: readonly Tool[] = [searchConversationsTool];
 
+type ToolRegistrationCandidate = Omit<Tool, 'classification'> & {
+  readonly classification?: unknown;
+};
+
+function isClassifiedTool(
+  candidate: ToolRegistrationCandidate,
+): candidate is Tool {
+  switch (candidate.classification) {
+    case 'read_only':
+    case 'write_low_risk':
+    case 'write_high_risk':
+    case 'execute_code':
+    case 'external_send':
+    case 'financial_or_sensitive':
+    case 'admin':
+      return true;
+    default:
+      return false;
+  }
+}
+
 /**
  * Build the id-keyed registry, validating at import time (fail loud, not at
  * call time — spec scenarios "Unclassified tool cannot register" / "Duplicate
  * tool id cannot register"). An unclassified tool is already unrepresentable
  * in the `Tool` type, but this guard also catches a value that bypassed the
- * type (a future dynamic source, e.g. an MCP-backed adapter per D2) and is
- * exercised directly by tests via an `as Tool` cast. Exported (not just used
+ * type (a future dynamic source, e.g. an MCP-backed adapter per D2). The input
+ * type permits the missing field this runtime boundary validates without
+ * weakening the registered `Tool` type. Exported (not just used
  * to build `TOOL_REGISTRY` below) so `registry.test.ts` tests this exact
  * function rather than a hand-copy that could silently drift from it.
  */
 export function buildRegistry(
-  tools: readonly Tool[],
+  tools: readonly ToolRegistrationCandidate[],
 ): ReadonlyMap<string, Tool> {
   const registry = new Map<string, Tool>();
   for (const tool of tools) {
@@ -29,7 +51,7 @@ export function buildRegistry(
     if (!isToolId(id)) {
       throw new Error(`Tool registration failed: invalid id "${String(id)}".`);
     }
-    if (!tool.classification) {
+    if (!isClassifiedTool(tool)) {
       throw new Error(
         `Tool registration failed: "${id}" has no classification (SPEC §13.5 requires one).`,
       );

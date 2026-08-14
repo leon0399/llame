@@ -18,11 +18,12 @@ required.
 |     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                 |
 |     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction    |
 |     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                       |
-|     5 | active      | Remaining cast slices                   | Standard SDK/framework types remove 72 assertions across adapter, HTTP, controller, integration, and worker tests; 8 remain |
+|     5 | active      | Remaining cast slices                   | Standard SDK/framework types remove 75 assertions across adapter, HTTP, controller, integration, and worker tests; 5 remain |
 |     6 | queued      | Full-tree double-assertion prohibition  | One native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI          |
-|     7 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                                  |
-|     8 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                 |
-|     9 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
+|     7 | investigate | Constructor decorator placement (#286)  | 11 inline vs 35 split `@Inject` parameters measured; select maintained enforcement before one all-split codemod             |
+|     8 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                                  |
+|     9 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                 |
+|    10 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
 
 ## Published stack
 
@@ -75,20 +76,22 @@ required.
 | active      | Instance config consumers removed 2 concrete-service assertions                                          | Existing `InstanceConfigReader`, explicit Nest tokens, and complete built-in config fixtures replace partial config objects; units 15/15  |
 | active      | Tool-context units removed 2 concrete tenant-database assertions                                         | Existing `TenantRunner`, Drizzle's mock DB, and a repository spy exercise the real callback boundary; units 23/23                         |
 | active      | Remaining service fixtures removed 2 concrete-service assertions                                         | Existing `RunStreamResponder` plus source-owned `ChatReindexDispatcher` capabilities replace concrete bridge/dispatch fixtures            |
-| queued      | 8 owned application/test matches remain after the completed slices                                       | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                   |
-| queued      | Next clusters: 8 isolated one-per-file matches                                                           | Group by boundary and remedy; do not chase count mechanically                                                                             |
+| active      | Negative runtime fixtures removed 3 double assertions                                                    | Structural supersets and accurately broad validated inputs replace casts without weakening `User`, registered `Tool`, or `MessagePart`    |
+| queued      | 5 owned application/test matches remain after the completed slices                                       | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                   |
+| queued      | Next clusters: 5 database/lifecycle boundary matches                                                     | Group by boundary and remedy; do not chase count mechanically                                                                             |
 | investigate | Direct `any`, non-null assertions, and stale ESLint disables                                             | Classify production vs test/integration scaffolding before enabling restriction rules                                                     |
 
 ### Lint and formatting
 
-| State  | Finding                                                                                    | Evidence / exit condition                                                                                     |
-| ------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                            |
-| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                            | Workspace `lint` scripts and Turbo                                                                            |
-| queued | API is type-aware; other workspaces are substantially lighter                              | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review           |
-| queued | Semantic Markdown is not linted                                                            | Select a maintained Node-22-compatible linter; define explicit owned/ignored paths; prove bad fixture failure |
-| queued | Unused lint-disable directives are not rejected                                            | Evaluate Oxlint's `--report-unused-disable-directives` repo-wide before enabling                              |
-| queued | Four Vitest rules are disabled in API                                                      | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                      |
+| State       | Finding                                                                                    | Evidence / exit condition                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| done        | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                 |
+| done        | Oxlint runs with warnings denied in API, web, UI, and Storybook                            | Workspace `lint` scripts and Turbo                                                                                 |
+| queued      | API is type-aware; other workspaces are substantially lighter                              | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                |
+| queued      | Semantic Markdown is not linted                                                            | Select a maintained Node-22-compatible linter; define explicit owned/ignored paths; prove bad fixture failure      |
+| queued      | Unused lint-disable directives are not rejected                                            | Evaluate Oxlint's `--report-unused-disable-directives` repo-wide before enabling                                   |
+| queued      | Four Vitest rules are disabled in API                                                      | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                           |
+| investigate | Constructor parameter decorator placement drifts (#286): 11 inline, 35 split `@Inject`     | Prefer a maintained formatter/linter rule; codemod and enforcement ship together; no bespoke gate without evidence |
 
 ### Complexity and structure
 
