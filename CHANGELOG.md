@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Enforced a modified cyclomatic-complexity ceiling of 35 in the four
+  lint-owning TypeScript workspaces using Oxlint's native `complexity` rule.
+  Split the measured chat-loop accepted-turn transaction callback at the
+  context/message-part responsibility boundary, reducing it from 53 to 30;
+  the extracted helper measures 24. The shared `MessagePart` union now names
+  its known server-authored parts. Unit tests pass 83/83, real-Docker
+  integration tests pass 19/19, and forced lint plus API typecheck pass.
+
 - Removed all 19 `as unknown as` assertions from web tests and stories (#268).
   Fetch doubles now use typed Vitest functions and real `Response` objects,
   missing browser APIs use `vi.stubGlobal`, and Storybook controls use
