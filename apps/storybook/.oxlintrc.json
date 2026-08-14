@@ -7,6 +7,7 @@
   },
   "ignorePatterns": ["storybook-static/**"],
   "rules": {
+    "complexity": ["error", { "max": 35, "variant": "modified" }],
     "react/rules-of-hooks": "error",
     "react/exhaustive-deps": "warn",
     // Requires a type parameter on every `vi.fn()` — noisy against our test
