@@ -32,7 +32,7 @@ Lefthook and CI. Delete the bespoke Git-diff parser and its custom shell harness
 Run:
 
 ```bash
-git grep -n -E 'as[[:space:]]+unknown[[:space:]]+as' origin/master -- \
+git grep -n -E 'as[[:space:]]+unknown[[:space:]]+as' 8bca868e -- \
   'apps/**/*.ts' 'apps/**/*.tsx' 'apps/**/*.mts' 'apps/**/*.cts' \
   'packages/**/*.ts' 'packages/**/*.tsx' 'packages/**/*.mts' \
   'packages/**/*.cts'
@@ -89,7 +89,8 @@ Issue #268 cannot close before the result is empty.
       assertion through `unknown` and report an error.
 - [ ] Validate the rule using ast-grep's native `test` command only if fixture
       coverage is needed; do not build a custom shell test runner.
-- [ ] Add a root script that invokes `ast-grep scan` over `apps` and `packages`.
+- [ ] Add the exact root script
+      `"check:double-assertions": "ast-grep scan apps packages --error"`.
 - [ ] Run the scan against a temporary violating source file to prove RED, remove
       the fixture, then prove the owned tree is GREEN.
 
