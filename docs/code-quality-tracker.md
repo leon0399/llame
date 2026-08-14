@@ -39,6 +39,7 @@ required.
 |     9 | #367 | Search worker test doubles          |
 |    10 | #368 | Compaction integration test doubles |
 |    11 | #370 | Pins test doubles                   |
+|    12 | #371 | Worker AI SDK and abort settlement  |
 
 ## Inventory
 
