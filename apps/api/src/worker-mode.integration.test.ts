@@ -23,21 +23,12 @@ import { TenantDbService } from './db/tenant-db.service';
 import { MessagesRepository } from './chats/chats-repository';
 import { RunEventsRepository, RunsRepository } from './runs/runs-repository';
 import { ModelsService } from './models/models.service';
-import { FakeStreamingModelClient } from './testing/support';
+import { cookieOf, FakeStreamingModelClient } from './testing/support';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
 
 vi.setConfig({ testTimeout: 30_000 });
-
-const cookieOf = (res: request.Response): string => {
-  const set = (res.headers['set-cookie'] as unknown as string[]) ?? [];
-  for (const c of set) {
-    const m = /llame_session=([^;]+)/.exec(c);
-    if (m) return `llame_session=${m[1]}`;
-  }
-  return '';
-};
 
 function sseData(body: string): unknown[] {
   return body
