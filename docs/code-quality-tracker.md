@@ -12,18 +12,18 @@ required.
 
 ## Active stack
 
-| Order | State       | Layer                                   | Acceptance evidence                                                                                                          |
-| ----: | ----------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                            |
-|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                  |
-|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction     |
-|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                        |
-|     5 | active      | Remaining cast slices                   | Standard SDK/framework types remove 79 assertions across adapter, HTTP, controller, integration, and worker tests; 1 remains |
-|     6 | queued      | Full-tree double-assertion prohibition  | One native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI           |
-|     7 | investigate | Constructor decorator placement (#286)  | 11 inline vs 35 split `@Inject` parameters measured; select maintained enforcement before one all-split codemod              |
-|     8 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                                   |
-|     9 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                  |
-|    10 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                              |
+| Order | State       | Layer                                   | Acceptance evidence                                                                                                         |
+| ----: | ----------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                           |
+|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                 |
+|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction    |
+|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                       |
+|     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code |
+|     6 | queued      | Full-tree double-assertion prohibition  | One native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI          |
+|     7 | investigate | Constructor decorator placement (#286)  | 11 inline vs 35 split `@Inject` parameters measured; select maintained enforcement before one all-split codemod             |
+|     8 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                                  |
+|     9 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                 |
+|    10 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
 
 ## Published stack
 
@@ -84,8 +84,9 @@ required.
 | active      | Database/lifecycle boundaries removed 2 double assertions                                                | Native Drizzle mock replaces an unused forged chain; typed factory client ownership preserves graceful worker teardown                    |
 | active      | Model-context repository removed 1 forged database assertion                                             | Real Postgres covers five reachable hash-collision branches; impossible simulated source/availability collisions are deleted              |
 | active      | Chats repository removed 1 forged fluent database assertion                                              | Drizzle's native mock and public logger compile real SQL/params; focused units 35/35 and >500-row fork integration 6/6                    |
-| queued      | 1 owned application/test match remains after the completed slices                                        | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                   |
-| queued      | Next: chat-loop transaction coverage                                                                     | Replace the remaining simulated nested transaction with real Postgres coverage                                                            |
+| active      | Chat-loop transaction binding removed the final forged database assertion                                | 17 orchestration cases use the real `TenantDbService`/Drizzle transaction boundary; 3 pre-transaction guards remain fast units            |
+| done        | Zero owned application/test matches remain                                                               | Full-tree inventory reports zero across tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                 |
+| queued      | Next: full-tree double-assertion enforcement                                                             | Replace the interim diff gate with one native ast-grep command wired into package scripts, hooks, and CI                                  |
 | investigate | Direct `any`, non-null assertions, and stale ESLint disables                                             | Classify production vs test/integration scaffolding before enabling restriction rules                                                     |
 
 ### Lint and formatting

@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed the final owned double assertion from chat-loop transaction tests.
+  Seventeen transaction-binding cases now run through the real
+  `TenantDbService`/Drizzle transaction boundary in an integration suite;
+  the three model/input guards that must reject before database access remain
+  fast unit tests. The owned TS/TSX/MTS/CTS inventory is now zero, with the
+  separate full-tree enforcement layer next.
+
 - Replaced the forged chats-repository fluent database with Drizzle's native
   mock and public query logger. The 35 focused tests now assert compiled SQL
   and bound parameters from real Drizzle builders instead of hand-copied

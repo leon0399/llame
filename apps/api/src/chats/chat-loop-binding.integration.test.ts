@@ -1,9 +1,19 @@
-import { type TenantRunner, type Db } from '../db/tenant-db.service';
-import {
-  ModelConfigurationError,
-  ModelNotAvailableError,
-  type ModelSelectionValidator,
-} from '../models/models.service';
+/**
+ * Transaction-bound orchestration checks. These cases use the real
+ * TenantDbService/Drizzle transaction boundary while spying on repository
+ * collaborators to isolate context and message-part composition. The
+ * production nested-transaction path runs against Postgres here;
+ * `chat-loop.integration.test.ts` separately proves real persistence,
+ * savepoint conflicts, rollback, RLS, and single-flight behavior end to end.
+ */
+
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+import { Logger } from '@nestjs/common';
+
+import * as schema from '../db/schema';
+import { TenantDbService } from '../db/tenant-db.service';
+import { type ModelSelectionValidator } from '../models/models.service';
 import { type RunAborter } from '../runs/run-abort-registry';
 import { type PromptUserResolver } from '../personalization/personalization.service';
 import {
@@ -49,8 +59,13 @@ import {
   type TurnToolCandidate,
 } from '../tools/turn-tool-catalog';
 import { type RunJob } from '../runs/run-queues';
-import { BadRequestException } from '@nestjs/common';
-import { Logger } from '@nestjs/common';
+
+const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+if (!TEST_DB_URL) {
+  throw new Error(
+    'TEST_DATABASE_URL is required for chat-loop binding integration tests',
+  );
+}
 
 type RuntimeCatalogSnapshotter = {
   snapshotCandidates(): readonly TurnToolCandidate[];
@@ -72,91 +87,10 @@ function fakeInstanceConfig(
   };
 }
 
-describe('ChatLoopService model selection', () => {
-  function makeService(models?: {
-    validateModelSelection?: ModelSelectionValidator['validateModelSelection'];
-  }) {
-    const runAs = vi.fn();
-    const validateModelSelection =
-      models?.validateModelSelection ??
-      vi.fn((): SystemModelCatalogEntry => {
-        throw new Error('validateModelSelection was not stubbed for this test');
-      });
-    const dispatchRun = vi.fn();
-    const tenantDb: TenantRunner = { runAs };
-    const modelsService: ModelSelectionValidator = { validateModelSelection };
-    const bridge: RunStreamResponder = {
-      createUiMessageStreamResponse: vi.fn(),
-    };
-    const aborts: RunAborter = { abort: vi.fn() };
-    const dispatch: RunDispatcher = { dispatch: dispatchRun };
-    const instanceConfig = fakeInstanceConfig();
-
-    return {
-      service: new ChatLoopService(
-        tenantDb,
-        modelsService,
-        instanceConfig,
-        bridge,
-        aborts,
-        dispatch,
-        personalization,
-        new SystemPromptsService(),
-        { snapshotCandidates: () => [] },
-        memory,
-        recencyDigest,
-      ),
-      tenantDb,
-      modelsService,
-      dispatch,
-      runAs,
-      validateModelSelection,
-      dispatchRun,
-    };
-  }
-
-  const input = {
-    chatId: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
-    userId: 'verified-user',
-    modelId: 'unknown-model',
-    message: {
-      id: '0910fd41-1f2f-49de-b1c2-00ff4b3c7c60',
-      parts: [{ type: 'text' as const, text: 'Hello' }],
-    },
-  };
-
-  it('rejects an unavailable model before any message, run, or queue write', async () => {
-    const validateModelSelection = vi.fn(() => {
-      throw new ModelNotAvailableError('unknown-model');
-    });
-    const { service, runAs, dispatchRun } = makeService({
-      validateModelSelection,
-    });
-
-    await expect(service.createMessageStream(input)).rejects.toBeInstanceOf(
-      ModelNotAvailableError,
-    );
-    expect(validateModelSelection).toHaveBeenCalledWith('unknown-model');
-    expect(runAs).not.toHaveBeenCalled();
-    expect(dispatchRun).not.toHaveBeenCalled();
-  });
-
-  it('rejects model configuration errors before any message, run, or queue write', async () => {
-    const { service, runAs, dispatchRun } = makeService({
-      validateModelSelection: vi.fn(() => {
-        throw new ModelConfigurationError('DEFAULT_MODEL_ID is required.');
-      }),
-    });
-
-    await expect(service.createMessageStream(input)).rejects.toBeInstanceOf(
-      ModelConfigurationError,
-    );
-    expect(runAs).not.toHaveBeenCalled();
-    expect(dispatchRun).not.toHaveBeenCalled();
-  });
-});
-
 describe('ChatLoopService effective-context transaction binding', () => {
+  let sql: ReturnType<typeof postgres>;
+  let tenantDb: TenantDbService;
+
   const model: SystemModelCatalogEntry = {
     id: 'system:openai:gpt-5.4-mini',
     source: 'system',
@@ -167,7 +101,19 @@ describe('ChatLoopService effective-context transaction binding', () => {
     systemPromptSource: 'model_override',
   };
 
+  beforeAll(() => {
+    sql = postgres(TEST_DB_URL, {
+      max: 2,
+      ssl: /sslmode=require/.test(TEST_DB_URL) ? 'require' : false,
+    });
+    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+  });
+
   afterEach(() => vi.restoreAllMocks());
+
+  afterAll(async () => {
+    await sql.end();
+  });
 
   function setup(options?: {
     failRunCreated?: boolean;
@@ -183,22 +129,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     rebakedFrom?: string | null;
     systemPrompts?: SystemPromptsService;
   }) {
-    // `transaction`/`runAs` are typed to accept a `Db` tx (matching
-    // production) but this fake only ever hands back itself — the real
-    // Drizzle builder chain types are too deep for a plain mock to satisfy
-    // structurally. This remaining boundary moves to real-Postgres coverage
-    // in the next slice rather than being hidden behind a different cast.
-    const txHolder = {} as {
-      transaction: (
-        callback: (inner: Db) => Promise<unknown>,
-      ) => Promise<unknown>;
-    };
-    const tx = txHolder as unknown as Db;
-    txHolder.transaction = (callback) => callback(tx);
-    const runAs = vi.fn(
-      (_userId: string, callback: (scoped: Db) => Promise<unknown>) =>
-        callback(tx),
-    );
+    const runAs = vi.spyOn(tenantDb, 'runAs');
     const dispatch = vi.fn(async (_job: RunJob): Promise<void> => {});
 
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
@@ -319,11 +250,6 @@ describe('ChatLoopService effective-context transaction binding', () => {
             }),
       );
 
-    // A mocked generic method infers a concrete T (here `unknown`) that can't
-    // structurally satisfy `runAs`'s own `<T>` — a single narrowing `as`, not
-    // the banned double cast (the mock genuinely implements this signature;
-    // TS just can't verify it generically).
-    const tenantDb: TenantRunner = { runAs: runAs as TenantRunner['runAs'] };
     const modelsService: ModelSelectionValidator = {
       validateModelSelection: vi.fn(() => model),
     };
@@ -753,31 +679,6 @@ describe('ChatLoopService effective-context transaction binding', () => {
         parts: [{ type: 'text', text: 'hello' }],
       }),
     );
-  });
-
-  it('rejects an all-non-text direct-service message before opening a tenant transaction', async () => {
-    const { service, runAs } = setup();
-
-    await expect(
-      service.createMessageStream({
-        ...input,
-        message: {
-          ...input.message,
-          parts: [
-            {
-              type: 'data-model-context',
-              data: {
-                kind: 'model_switch',
-                fromModelId: 'forged-a',
-                toModelId: 'forged-b',
-                runId: '11111111-1111-4111-8111-111111111111',
-              },
-            },
-          ],
-        },
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-    expect(runAs).not.toHaveBeenCalled();
   });
 
   it('prepends a server-authored switch part bound to the exact pre-generated target run after a failed prior run', async () => {
