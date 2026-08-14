@@ -16,14 +16,8 @@
  * the test covers boot behavior without starting an indefinite consumer.
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/require-await */
-
 import { Logger } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { Test, type TestingModule } from '@nestjs/testing';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { WorkerProfileService } from '../instance-config/worker-profile.service';
@@ -32,9 +26,18 @@ import { SearchReindexDispatchService } from './search-reindex-dispatch.service'
 import { SearchReindexWorker } from './search-reindex.worker';
 import { SearchIndexService } from './search-index.service';
 
-async function buildWorker(
-  runAsPublic: (fn: (tx: any) => Promise<any>) => Promise<any>,
-) {
+type ProvisioningRow = { bypass: boolean };
+type ProvisioningTx = { execute: () => Promise<ProvisioningRow[]> };
+type PublicRunner = <T>(fn: (tx: ProvisioningTx) => Promise<T>) => Promise<T>;
+
+const openModules: TestingModule[] = [];
+
+function provisioned(rows: ProvisioningRow[]): PublicRunner {
+  return <T>(fn: (tx: ProvisioningTx) => Promise<T>) =>
+    fn({ execute: () => Promise.resolve(rows) });
+}
+
+async function buildWorker(runAsPublic: PublicRunner) {
   const errorSpy = vi
     .spyOn(Logger.prototype, 'error')
     .mockImplementation(() => {});
@@ -62,17 +65,23 @@ async function buildWorker(
       },
     ],
   }).compile();
+  openModules.push(moduleRef);
   const worker = moduleRef.get(SearchReindexWorker);
   const check = () => worker.onApplicationBootstrap();
   return { check, errorSpy, warnSpy };
 }
 
 describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(async () => {
+    await Promise.all(
+      openModules.splice(0).map((moduleRef) => moduleRef.close()),
+    );
+    vi.restoreAllMocks();
+  });
 
   it('is silent when the function is owned by a BYPASSRLS role', async () => {
-    const { check, errorSpy, warnSpy } = await buildWorker(async (fn) =>
-      fn({ execute: async () => [{ bypass: true }] } as any),
+    const { check, errorSpy, warnSpy } = await buildWorker(
+      provisioned([{ bypass: true }]),
     );
     await check();
     expect(errorSpy).not.toHaveBeenCalled();
@@ -80,8 +89,8 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
   });
 
   it('logs a loud error (and does not throw) when owned by a non-BYPASSRLS role', async () => {
-    const { check, errorSpy, warnSpy } = await buildWorker(async (fn) =>
-      fn({ execute: async () => [{ bypass: false }] } as any),
+    const { check, errorSpy, warnSpy } = await buildWorker(
+      provisioned([{ bypass: false }]),
     );
     await expect(check()).resolves.toBeUndefined();
     expect(errorSpy).toHaveBeenCalledTimes(1);
@@ -92,17 +101,15 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
   it('logs a loud error (and does not throw) when the function is absent', async () => {
     // No row at all — e.g. the migration creating llame_search_stale_chats
     // hasn't run yet.
-    const { check, errorSpy } = await buildWorker(async (fn) =>
-      fn({ execute: async () => [] } as any),
-    );
+    const { check, errorSpy } = await buildWorker(provisioned([]));
     await expect(check()).resolves.toBeUndefined();
     expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 
   it('degrades to a warning (never throws) when the check itself fails to run', async () => {
-    const { check, errorSpy, warnSpy } = await buildWorker(async () => {
-      throw new Error('connection refused');
-    });
+    const { check, errorSpy, warnSpy } = await buildWorker(() =>
+      Promise.reject(new Error('connection refused')),
+    );
     await expect(check()).resolves.toBeUndefined();
     expect(errorSpy).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledTimes(1);
