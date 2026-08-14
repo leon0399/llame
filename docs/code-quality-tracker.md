@@ -28,18 +28,18 @@ required.
 
 ### Typing and assertions
 
-| State       | Finding                                                                                                  | Evidence / exit condition                                                                                  |
-| ----------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| done        | API convention bans `as unknown as T` and gives the `Pick<>` plus explicit Nest injection-token recipe   | `apps/api/AGENTS.md`; PR #285                                                                              |
-| done        | New staged API `.ts` casts are blocked while migration debt remains                                      | Existing interim script and Lefthook job; this is regression protection, not acceptance                    |
-| queued      | The ban is not project-wide                                                                              | Current API-only hook omits root/e2e and TSX/MTS/CTS; full-tree rule lands only after zero debt            |
-| active      | Web test and story doubles contained 19 assertions across 14 files                                       | Zero web matches; 340 web unit tests and 300 Storybook browser tests pass                                  |
-| active      | `MessagePart` explicitly names `ModelSwitchPart`, `ToolAvailabilityPart`, and `RecencyDigestPart`        | Corrects the pre-existing stored-message type gap without an assertion                                     |
-| active      | AI SDK model doubles removed 13 assertions from `model-client.test.ts` and 1 from `fake-model-client.ts` | Partial Vitest mocks, `MockLanguageModelV3`, and real `streamText` with typed provider chunks; units 11/11 |
-| active      | OpenAI adapter tool-loop tests removed 9 assertions without OpenAI-specific doubles                      | Provider-neutral SDK types and full callback contexts; focused units 8/8                                   |
-| queued      | 71 owned application/test matches remain after the web and AI SDK slices                                 | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                    |
-| queued      | Other top clusters: app setup 8; chat-loop integration 7; search worker and chats controller 6 each      | Group by boundary and remedy; do not chase count mechanically                                              |
-| investigate | Direct `any`, non-null assertions, and stale ESLint disables                                             | Classify production vs test/integration scaffolding before enabling restriction rules                      |
+| State       | Finding                                                                                                  | Evidence / exit condition                                                                                     |
+| ----------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| done        | API convention bans `as unknown as T` and gives the `Pick<>` plus explicit Nest injection-token recipe   | `apps/api/AGENTS.md`; PR #285                                                                                 |
+| done        | New staged API `.ts` casts are blocked while migration debt remains                                      | Existing interim script and Lefthook job; this is regression protection, not acceptance                       |
+| queued      | The ban is not project-wide                                                                              | Current API-only hook omits root/e2e and TSX/MTS/CTS; full-tree rule lands only after zero debt               |
+| active      | Web test and story doubles contained 19 assertions across 14 files                                       | Zero web matches; 340 web unit tests and 300 Storybook browser tests pass                                     |
+| active      | `MessagePart` explicitly names `ModelSwitchPart`, `ToolAvailabilityPart`, and `RecencyDigestPart`        | Corrects the pre-existing stored-message type gap without an assertion                                        |
+| active      | AI SDK model doubles removed 13 assertions from `model-client.test.ts` and 1 from `fake-model-client.ts` | Partial Vitest mocks, `MockLanguageModelV3`, and real `streamText` with typed provider chunks; units 11/11    |
+| active      | OpenAI adapter tool-loop tests removed 9 assertions without OpenAI-specific model doubles                | Provider-boundary `MockLanguageModelV3` drives real SDK scheduling, validation, and repair; focused units 8/8 |
+| queued      | 71 owned application/test matches remain after the web and AI SDK slices                                 | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                       |
+| queued      | Other top clusters: app setup 8; chat-loop integration 7; search worker and chats controller 6 each      | Group by boundary and remedy; do not chase count mechanically                                                 |
+| investigate | Direct `any`, non-null assertions, and stale ESLint disables                                             | Classify production vs test/integration scaffolding before enabling restriction rules                         |
 
 ### Lint and formatting
 

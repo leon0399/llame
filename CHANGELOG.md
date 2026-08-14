@@ -4,10 +4,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - Removed the nine remaining double assertions from the OpenAI adapter's
   tool-loop tests while keeping the doubles at the provider-neutral AI SDK
-  boundary: typed `StepResult`, `LanguageModelV3ToolCall`,
-  `MockLanguageModelV3`, and full `prepareStep`/repair callback contexts now
-  replace locally invented callback shapes. The focused suite passes 8/8 and
-  API typecheck and lint pass. Application/test debt falls from 80 to 71.
+  boundary. `MockLanguageModelV3` now drives real `streamText` step scheduling,
+  tool validation, cap enforcement, and repair callbacks instead of manually
+  invoking callbacks captured from a mocked SDK function. The focused suite
+  passes 8/8 and API typecheck and lint pass. Application/test debt falls from
+  80 to 71.
 
 - Replaced 14 AI SDK model-test double assertions (`model-client.test.ts`: 13;
   `fake-model-client.ts`: 1) with partial Vitest mocks, `MockLanguageModelV3`,
