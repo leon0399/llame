@@ -1,0 +1,24 @@
+openspec/specs/memory/spec.md
+  ba939ed20aefcf6f 73,79-86
+openspec/specs/chat-recency-digest/spec.md
+  ba939ed20aefcf6f 194-196,209-210,212-213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "8bca868e62f92d3b38c58a82b0f756327a6501f0",
+  "prompts": {
+    "ba939ed20aefcf6f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90efd617-2a6d-4915-9437-8c0e51a972cf",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 19,
+      "total_deletions": 3,
+      "accepted_lines": 19,
+      "overriden_lines": 0
+    }
+  }
+}
