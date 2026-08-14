@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   UnauthorizedException,
   Logger,
@@ -33,15 +34,38 @@ export type ValidatedSession = {
   sessionId: string;
 };
 
+export type AuthUserDirectory = Pick<
+  UsersService,
+  'getUserByEmail' | 'getUserById' | 'createUser'
+>;
+
+export type AuthSessionStore = Pick<
+  SessionsRepository,
+  | 'create'
+  | 'findActiveAndTouch'
+  | 'deleteStaleByTokenHash'
+  | 'deleteByIdForUser'
+  | 'deleteCurrentForUser'
+  | 'deleteOthersForUser'
+  | 'deleteAllForUser'
+  | 'listForUser'
+  | 'findByIdForUser'
+>;
+
+export type AuthPasswordHasher = Pick<PasswordService, 'hash' | 'compare'>;
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
-    private readonly usersService: UsersService,
-    private readonly sessionsRepository: SessionsRepository,
+    @Inject(UsersService)
+    private readonly usersService: AuthUserDirectory,
+    @Inject(SessionsRepository)
+    private readonly sessionsRepository: AuthSessionStore,
     private readonly sessionTokenService: SessionTokenService,
-    private readonly passwordService: PasswordService,
+    @Inject(PasswordService)
+    private readonly passwordService: AuthPasswordHasher,
   ) {}
 
   async register(

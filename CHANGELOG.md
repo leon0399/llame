@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed all three concrete-class double assertions from the auth service
+  units. `AuthService` now names only the `UsersService`, `SessionsRepository`,
+  and `PasswordService` capabilities it consumes, with explicit Nest injection
+  tokens preserving runtime DI; typed Vitest mocks retain their mock metadata
+  without casts. The focused suite passes 3/3; API typecheck and lint pass.
+  Application/test debt falls from 22 to 19.
+
 - Removed the final four hand-forged AI SDK `streamText` results from shared
   integration support and worker-mode coverage. One shared provider-neutral
   `MockLanguageModelV3` client now supplies real SDK results, usage conversion,
