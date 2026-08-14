@@ -1,4 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
 import { TenantDbService } from '../db/tenant-db.service';
 import { PinsController } from './pins.controller';
 import { PinsService } from './pins.service';
@@ -57,15 +58,23 @@ describe('PinsService.pin — error mapping', () => {
   // runAs just invokes the callback with a stub tx; we drive behavior by making
   // the underlying insert throw / the hydrate return undefined via the repo,
   // which we simulate by stubbing runAs directly.
-  function makeService(runAsImpl: () => Promise<unknown>): PinsService {
-    const tenantDb = {
-      runAs: vi.fn(() => runAsImpl()),
-    } as unknown as TenantDbService;
-    return new PinsService(tenantDb);
+  async function makeService(
+    runAsImpl: () => Promise<unknown>,
+  ): Promise<PinsService> {
+    const module = await Test.createTestingModule({
+      providers: [
+        PinsService,
+        {
+          provide: TenantDbService,
+          useValue: { runAs: vi.fn(() => runAsImpl()) },
+        },
+      ],
+    }).compile();
+    return module.get(PinsService);
   }
 
   it('maps a 42501 (RLS WITH CHECK denial) to 404, not 500', async () => {
-    const svc = makeService(() =>
+    const svc = await makeService(() =>
       Promise.reject(Object.assign(new Error('rls'), { code: '42501' })),
     );
     await expect(svc.pin('u1', 'chat', 'c1')).rejects.toBeInstanceOf(
@@ -74,7 +83,7 @@ describe('PinsService.pin — error mapping', () => {
   });
 
   it('maps a nested cause 42501 to 404', async () => {
-    const svc = makeService(() =>
+    const svc = await makeService(() =>
       Promise.reject(
         Object.assign(new Error('rls'), { cause: { code: '42501' } }),
       ),
@@ -85,7 +94,7 @@ describe('PinsService.pin — error mapping', () => {
   });
 
   it('maps an undefined hydrated row (re-pin of now-inaccessible item) to 404', async () => {
-    const svc = makeService(() => Promise.resolve(undefined));
+    const svc = await makeService(() => Promise.resolve(undefined));
     await expect(svc.pin('u1', 'chat', 'c1')).rejects.toBeInstanceOf(
       NotFoundException,
     );
@@ -99,18 +108,26 @@ describe('PinsService.pin — error mapping', () => {
       title: 'ok',
       archivedAt: null,
     };
-    const svc = makeService(() => Promise.resolve(row));
+    const svc = await makeService(() => Promise.resolve(row));
     await expect(svc.pin('u1', 'chat', 'c1')).resolves.toEqual(row);
   });
 
   it('rethrows an unexpected (non-42501) error unchanged', async () => {
     const boom = Object.assign(new Error('boom'), { code: '08006' });
-    const svc = makeService(() => Promise.reject(boom));
+    const svc = await makeService(() => Promise.reject(boom));
     await expect(svc.pin('u1', 'chat', 'c1')).rejects.toBe(boom);
   });
 });
 
 describe('PinsController', () => {
+  async function makeController(service: object): Promise<PinsController> {
+    const module = await Test.createTestingModule({
+      controllers: [PinsController],
+      providers: [{ provide: PinsService, useValue: service }],
+    }).compile();
+    return module.get(PinsController);
+  }
+
   it('GET /pins maps service rows to PinnedItemResponse[]', async () => {
     const rows: PinnedRow[] = [
       {
@@ -129,8 +146,8 @@ describe('PinsController', () => {
       },
     ];
     const listPins = vi.fn().mockResolvedValue(rows);
-    const service = { listPins } as unknown as PinsService;
-    const controller = new PinsController(service);
+    const service = { listPins };
+    const controller = await makeController(service);
 
     const out = await controller.listPins('u1');
     expect(out).toHaveLength(2);
@@ -148,8 +165,8 @@ describe('PinsController', () => {
       archivedAt: null,
     };
     const pin = vi.fn().mockResolvedValue(row);
-    const service = { pin } as unknown as PinsService;
-    const controller = new PinsController(service);
+    const service = { pin };
+    const controller = await makeController(service);
 
     const out = await controller.pin('u1', 'chat', 'c1');
     expect(out.item).toEqual({ id: 'c1', title: 'C', archivedAt: null });
@@ -158,8 +175,8 @@ describe('PinsController', () => {
 
   it('DELETE delegates to the service and returns void', async () => {
     const unpin = vi.fn().mockResolvedValue(undefined);
-    const service = { unpin } as unknown as PinsService;
-    const controller = new PinsController(service);
+    const service = { unpin };
+    const controller = await makeController(service);
 
     await expect(
       controller.unpin('u1', 'project', 'p1'),
