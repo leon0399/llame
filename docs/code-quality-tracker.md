@@ -41,6 +41,7 @@ required.
 |    11 | #370 | Pins test doubles                   |
 |    12 | #371 | Worker AI SDK and abort settlement  |
 |    13 | #372 | Remaining AI SDK stream doubles     |
+|    14 | #373 | Auth service test doubles           |
 
 ## Inventory
 
