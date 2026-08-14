@@ -10,8 +10,19 @@
  * `stepCountIs`, `tool`) stays real, so the assertions exercise the actual
  * SDK types this code branches on.
  */
-import { streamText, NoSuchToolError, InvalidToolInputError } from 'ai';
-import type { StepResult, ToolSet } from 'ai';
+import {
+  streamText,
+  NoSuchToolError,
+  InvalidToolInputError,
+  tool,
+  type DynamicToolCall,
+  type LanguageModelUsage,
+  type StepResult,
+  type ToolSet,
+} from 'ai';
+import { MockLanguageModelV3 } from 'ai/test';
+import type { LanguageModelV3ToolCall } from '@ai-sdk/provider';
+import { z } from 'zod';
 
 import { createOpenAIModelClient } from './openai-model-client';
 
@@ -20,21 +31,121 @@ vi.mock('ai', async () => ({
   streamText: vi.fn(),
 }));
 
-const streamTextMock = vi.mocked(streamText);
+const streamTextMock = vi.mocked(streamText, { partial: true });
+
+const tools = {
+  echo: tool({ inputSchema: z.object({ value: z.string() }).strict() }),
+};
+
+const ZERO_USAGE: LanguageModelUsage = {
+  inputTokens: 0,
+  inputTokenDetails: {
+    noCacheTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  },
+  outputTokens: 0,
+  outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
+  totalTokens: 0,
+};
+
+const model = new MockLanguageModelV3({
+  provider: 'openai.test',
+  modelId: 'gpt-test',
+});
 
 function fakeToolStep(toolCallCount: number): StepResult<ToolSet> {
+  const toolCalls: DynamicToolCall[] = Array.from(
+    { length: toolCallCount },
+    (_, index) => ({
+      type: 'tool-call',
+      toolCallId: `c${index}`,
+      toolName: 'echo',
+      input: { value: `value-${index}` },
+      dynamic: true,
+    }),
+  );
+
   return {
-    toolCalls: Array.from({ length: toolCallCount }, (_, i) => ({
-      toolCallId: `c${i}`,
-    })),
-  } as unknown as StepResult<ToolSet>;
+    stepNumber: 0,
+    model: { provider: model.provider, modelId: model.modelId },
+    functionId: undefined,
+    metadata: undefined,
+    experimental_context: undefined,
+    content: toolCalls,
+    text: '',
+    reasoning: [],
+    reasoningText: undefined,
+    files: [],
+    sources: [],
+    toolCalls,
+    staticToolCalls: [],
+    dynamicToolCalls: toolCalls,
+    toolResults: [],
+    staticToolResults: [],
+    dynamicToolResults: [],
+    finishReason: 'tool-calls',
+    rawFinishReason: 'tool-calls',
+    usage: ZERO_USAGE,
+    warnings: undefined,
+    request: {},
+    response: {
+      id: 'response-id',
+      timestamp: new Date(0),
+      modelId: model.modelId,
+      messages: [],
+    },
+    providerMetadata: undefined,
+  };
+}
+
+function latestStreamTextOptions() {
+  const options = streamTextMock.mock.lastCall?.[0];
+  if (!options) {
+    throw new Error('Expected streamText to have been called');
+  }
+  return options;
+}
+
+async function prepareToolStep(steps: StepResult<ToolSet>[]) {
+  const prepareStep = latestStreamTextOptions().prepareStep;
+  if (!prepareStep) {
+    throw new Error('Expected prepareStep to be configured');
+  }
+  return prepareStep({
+    steps,
+    stepNumber: steps.length,
+    model,
+    messages: [],
+    experimental_context: undefined,
+  });
+}
+
+function repairToolCall() {
+  const repair = latestStreamTextOptions().experimental_repairToolCall;
+  if (!repair) {
+    throw new Error('Expected experimental_repairToolCall to be configured');
+  }
+  return repair;
+}
+
+function runRepair(
+  toolCall: LanguageModelV3ToolCall,
+  error: NoSuchToolError | InvalidToolInputError,
+) {
+  return repairToolCall()({
+    system: undefined,
+    messages: [],
+    toolCall,
+    tools,
+    inputSchema: () => Promise.resolve({ type: 'object' }),
+    error,
+  });
 }
 
 beforeEach(() => {
   streamTextMock.mockReset();
-  streamTextMock.mockReturnValue({
-    textStream: (async function* () {})(),
-  } as unknown as ReturnType<typeof streamText>);
+  streamTextMock.mockReturnValue({});
 });
 
 function buildClient() {
@@ -51,7 +162,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
 
     client.streamText({
       messages: [],
-      tools: { echo: {} as ToolSet[string] },
+      tools,
       toolChoice: 'none',
     });
 
@@ -65,19 +176,13 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     const onCapReached = vi.fn();
     client.streamText({
       messages: [],
-      tools: { echo: {} as ToolSet[string] },
+      tools,
       maxSteps: 3,
       onCapReached,
     });
 
-    const { prepareStep } = streamTextMock.mock.calls[0][0] as unknown as {
-      prepareStep: (opts: { steps: StepResult<ToolSet>[] }) => unknown;
-    };
-
     // 2 prior tool-calling steps, cap is 3 — tools stay active.
-    const result = await prepareStep({
-      steps: [fakeToolStep(1), fakeToolStep(2)],
-    });
+    const result = await prepareToolStep([fakeToolStep(1), fakeToolStep(2)]);
     expect(result).toEqual({});
     expect(onCapReached).not.toHaveBeenCalled();
   });
@@ -87,14 +192,10 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     const onCapReached = vi.fn();
     client.streamText({
       messages: [],
-      tools: { echo: {} as ToolSet[string] },
+      tools,
       maxSteps: 2,
       onCapReached,
     });
-
-    const { prepareStep } = streamTextMock.mock.calls[0][0] as unknown as {
-      prepareStep: (opts: { steps: StepResult<ToolSet>[] }) => unknown;
-    };
 
     // 2 prior tool-calling steps === maxSteps (2) — cap reached. In a real
     // run the SDK calls prepareStep once per step boundary with strictly
@@ -102,9 +203,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     // can't request another tool and the loop naturally ends after the
     // forced answer-only step — prepareStep is never re-invoked with the
     // SAME steps array the way this single assertion exercises it.
-    const result = await prepareStep({
-      steps: [fakeToolStep(1), fakeToolStep(1)],
-    });
+    const result = await prepareToolStep([fakeToolStep(1), fakeToolStep(1)]);
     expect(result).toEqual({ activeTools: [] });
     expect(onCapReached).toHaveBeenCalledTimes(1);
   });
@@ -114,17 +213,13 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     const onCapReached = vi.fn();
     client.streamText({
       messages: [],
-      tools: { echo: {} as ToolSet[string] },
+      tools,
       maxSteps: 2,
       onCapReached,
     });
 
-    const { prepareStep } = streamTextMock.mock.calls[0][0] as unknown as {
-      prepareStep: (opts: { steps: StepResult<ToolSet>[] }) => unknown;
-    };
-
     // ONE step with 3 parallel tool calls — still only 1 prior tool-step.
-    const result = await prepareStep({ steps: [fakeToolStep(3)] });
+    const result = await prepareToolStep([fakeToolStep(3)]);
     expect(result).toEqual({});
     expect(onCapReached).not.toHaveBeenCalled();
   });
@@ -133,12 +228,10 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     const client = buildClient();
     client.streamText({
       messages: [],
-      tools: { echo: {} as ToolSet[string] },
+      tools,
       maxSteps: 5,
     });
-    const { stopWhen } = streamTextMock.mock.calls[0][0] as unknown as {
-      stopWhen: unknown;
-    };
+    const { stopWhen } = latestStreamTextOptions();
     // stepCountIs returns a function; presence + non-null is what matters —
     // its exact numeric threshold is exercised behaviorally above.
     expect(typeof stopWhen).toBe('function');
@@ -151,24 +244,17 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
     const onUnavailableToolCall = vi.fn();
     client.streamText({
       messages: [],
-      tools: { echo: {} as ToolSet[string] },
+      tools,
       maxSteps: 4,
       onUnavailableToolCall,
     });
-
-    const { experimental_repairToolCall: repair } = streamTextMock.mock
-      .calls[0][0] as unknown as {
-      experimental_repairToolCall: (opts: {
-        toolCall: { toolCallId: string; toolName: string; input: string };
-        error: unknown;
-      }) => Promise<unknown>;
-    };
 
     // `LanguageModelV3ToolCall.input` is ALWAYS a stringified JSON object at
     // this provider layer, never pre-parsed — the fake here matches that
     // real shape rather than a convenient-but-unrealistic plain object
     // (a live-DB integration test caught this exact mismatch).
-    const toolCall = {
+    const toolCall: LanguageModelV3ToolCall = {
+      type: 'tool-call',
       toolCallId: 'call-1',
       toolName: 'not_a_real_tool',
       input: '{"x":1}',
@@ -178,7 +264,7 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
       availableTools: ['echo'],
     });
 
-    await expect(repair({ toolCall, error })).resolves.toBeNull();
+    await expect(runRepair(toolCall, error)).resolves.toBeNull();
     expect(onUnavailableToolCall).toHaveBeenCalledWith({
       toolCallId: 'call-1',
       toolName: 'not_a_real_tool',
@@ -192,20 +278,13 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
     const onUnavailableToolCall = vi.fn();
     client.streamText({
       messages: [],
-      tools: { echo: {} as ToolSet[string] },
+      tools,
       maxSteps: 4,
       onUnavailableToolCall,
     });
 
-    const { experimental_repairToolCall: repair } = streamTextMock.mock
-      .calls[0][0] as unknown as {
-      experimental_repairToolCall: (opts: {
-        toolCall: { toolCallId: string; toolName: string; input: string };
-        error: unknown;
-      }) => Promise<unknown>;
-    };
-
-    const toolCall = {
+    const toolCall: LanguageModelV3ToolCall = {
+      type: 'tool-call',
       toolCallId: 'call-2',
       toolName: 'echo',
       input: '{"bad":true}',
@@ -216,7 +295,7 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
       cause: new Error('schema mismatch'),
     });
 
-    await expect(repair({ toolCall, error })).resolves.toBeNull();
+    await expect(runRepair(toolCall, error)).resolves.toBeNull();
     expect(onUnavailableToolCall).toHaveBeenCalledWith({
       toolCallId: 'call-2',
       toolName: 'echo',
@@ -230,20 +309,13 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
     const onUnavailableToolCall = vi.fn();
     client.streamText({
       messages: [],
-      tools: { echo: {} as ToolSet[string] },
+      tools,
       maxSteps: 4,
       onUnavailableToolCall,
     });
 
-    const { experimental_repairToolCall: repair } = streamTextMock.mock
-      .calls[0][0] as unknown as {
-      experimental_repairToolCall: (opts: {
-        toolCall: { toolCallId: string; toolName: string; input: string };
-        error: unknown;
-      }) => Promise<unknown>;
-    };
-
-    const toolCall = {
+    const toolCall: LanguageModelV3ToolCall = {
+      type: 'tool-call',
       toolCallId: 'call-3',
       toolName: 'not_a_real_tool',
       input: 'not valid json{{{',
@@ -253,7 +325,7 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
       availableTools: ['echo'],
     });
 
-    await expect(repair({ toolCall, error })).resolves.toBeNull();
+    await expect(runRepair(toolCall, error)).resolves.toBeNull();
     expect(onUnavailableToolCall).toHaveBeenCalledWith({
       toolCallId: 'call-3',
       toolName: 'not_a_real_tool',
