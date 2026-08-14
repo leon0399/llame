@@ -1,6 +1,6 @@
 import { type z } from 'zod';
 
-import { type TenantDbService } from '../db/tenant-db.service';
+import { type TenantRunner } from '../db/tenant-db.service';
 
 /**
  * A JSON Schema document used as a tool's input schema. Accepted as-is from
@@ -19,7 +19,7 @@ export type JsonSchemaDocument = Record<string, unknown>;
 export interface ToolContext {
   readonly userId: string;
   readonly chatId: string;
-  readonly tenantDb: TenantDbService;
+  readonly tenantDb: TenantRunner;
   readonly abortSignal?: AbortSignal;
   /** Trusted AI SDK call correlation, never supplied by model arguments. */
   readonly toolCallId?: string;
