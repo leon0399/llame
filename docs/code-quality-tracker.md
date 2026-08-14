@@ -5,7 +5,7 @@ code fail early. This is not a claim that automation creates good code. It recor
 which failure modes are measured, which gates exist, and where judgment is still
 required.
 
-**Baseline:** `master` at `4fa5032b`, measured 2026-08-14.
+**Baseline:** `master` at `8bca868e`, measured 2026-08-14.
 
 **States:** `done` shipped; `active` current stack ownership; `queued` evidence-backed;
 `investigate` measurement needed before implementation.
@@ -15,28 +15,29 @@ required.
 | Order | State       | Layer                                    | Acceptance evidence                                                                                              |
 | ----: | ----------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 |     1 | active      | Tracker and design baseline              | Documents match live configuration, issue #268, and measured debt                                                |
-|     2 | queued      | Project-wide double-assertion prevention | New `.ts` and `.tsx` casts fail; untouched debt does not; root convention documented                             |
+|     2 | queued      | Transitional double-assertion prevention | New `.ts` and `.tsx` casts fail during migration; this layer is not issue #268 completion                        |
 |     3 | queued      | Complexity ceiling and first extraction  | Oxlint rejects modified complexity over 35; current 53-point function is below the ceiling without behavior loss |
 |     4 | queued      | AI SDK model doubles                     | `model-client.test.ts` and the shared fake use typed SDK test utilities; focused tests/typecheck pass            |
-|     5 | queued      | Remaining cast slices                    | Each coherent boundary category reaches zero; issue #268 inventory updated                                       |
-|     6 | queued      | Semantic Markdown and lint ratchets      | Chosen rules reject a known bad fixture and owned files pass without broad disables                              |
-|     7 | queued      | Mutation-testing pilot                   | Bounded Stryker run completes; runtime and every survivor category recorded                                      |
-|     8 | investigate | Modular/service refactors                | Only measured coupling or responsibility hotspots become layers                                                  |
+|     5 | queued      | Remaining cast slices                    | All 113 legacy owned-code matches reach zero; no baselines or allowlists remain                                  |
+|     6 | queued      | Full-tree double-assertion prohibition   | Native ast-grep scan rejects `.ts` and `.tsx` matches across owned code in local hooks and CI                    |
+|     7 | queued      | Semantic Markdown and lint ratchets      | Chosen standard tool rejects invalid owned Markdown without broad disables                                       |
+|     8 | queued      | Mutation-testing pilot                   | Bounded Stryker run completes; runtime and every survivor category recorded                                      |
+|     9 | investigate | Modular/service refactors                | Only measured coupling or responsibility hotspots become layers                                                  |
 
 ## Inventory
 
 ### Typing and assertions
 
-| State       | Finding                                                                                                             | Evidence / exit condition                                                                                 |
-| ----------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| done        | API convention bans `as unknown as T` and gives the `Pick<>` plus explicit Nest injection-token recipe              | `apps/api/AGENTS.md`; PR #285                                                                             |
-| done        | New staged API `.ts` casts are blocked while migration debt remains                                                 | `scripts/check-new-unknown-as-casts.sh`, `lefthook.yml`; issue #287 owns removal of the interim diff gate |
-| queued      | The ban is not project-wide                                                                                         | Lefthook glob is `apps/api/**/*.ts`; web has `.ts` and `.tsx` debt                                        |
-| queued      | TSX needs its own ast-grep parser                                                                                   | `--lang ts` returns no match for JSX containing a double assertion; `--lang tsx` finds it                 |
-| queued      | 118 matched text lines, 113 outside the gate's own examples                                                         | `rg -n --glob '!node_modules' --glob '!*.md' 'as\\s+unknown\\s+as' .`                                     |
-| queued      | Largest file cluster is `apps/api/src/models/model-client.test.ts` with 13                                          | Migrate the AI SDK boundary with `ai/test` instead of narrowing a Nest dependency                         |
-| queued      | Other top clusters: OpenAI tools 9; app setup 8; chat-loop integration 7; search worker and chats controller 6 each | Group by boundary and remedy; do not chase count mechanically                                             |
-| investigate | Direct `any`, non-null assertions, and stale ESLint disables                                                        | Classify production vs test/integration scaffolding before enabling restriction rules                     |
+| State       | Finding                                                                                                             | Evidence / exit condition                                                                 |
+| ----------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| done        | API convention bans `as unknown as T` and gives the `Pick<>` plus explicit Nest injection-token recipe              | `apps/api/AGENTS.md`; PR #285                                                             |
+| done        | New staged API `.ts` casts are blocked while migration debt remains                                                 | Existing interim script and Lefthook job; this is regression protection, not acceptance   |
+| queued      | The ban is not project-wide                                                                                         | Lefthook glob is `apps/api/**/*.ts`; web has `.ts` and `.tsx` debt                        |
+| queued      | TSX needs its own ast-grep parser                                                                                   | `--lang ts` returns no match for JSX containing a double assertion; `--lang tsx` finds it |
+| queued      | 118 matched text lines, 113 across 46 owned application/test files                                                  | Exit condition is zero matches in owned TypeScript/TSX; no grandfathered baseline         |
+| queued      | Largest file cluster is `apps/api/src/models/model-client.test.ts` with 13                                          | Migrate the AI SDK boundary with `ai/test` instead of narrowing a Nest dependency         |
+| queued      | Other top clusters: OpenAI tools 9; app setup 8; chat-loop integration 7; search worker and chats controller 6 each | Group by boundary and remedy; do not chase count mechanically                             |
+| investigate | Direct `any`, non-null assertions, and stale ESLint disables                                                        | Classify production vs test/integration scaffolding before enabling restriction rules     |
 
 ### Lint and formatting
 
@@ -100,7 +101,7 @@ required.
 | ------ | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | done   | Workflow syntax and action-pin validation are shipped and green on the baseline  | Workflow-lint CI owns both gates; `actionlint` and `pinact run --check` re-run locally on 2026-08-14                                            |
 | queued | Pedantic workflow security reports seven findings, concentrated in `git-ai.yaml` | Review broad write permission, installer provenance, concurrency, job naming, and reusable-workflow permissions; rerun actionlint/zizmor/pinact |
-| queued | The local double-assertion hook is bypassable and absent from CI                 | Add a PR-diff CI check while debt remains; replace with a whole-tree rule at zero debt (#287)                                                   |
+| queued | The local double-assertion hook is bypassable and absent from CI                 | Reach zero debt, then run native ast-grep full-tree enforcement in hooks and CI; delete the bespoke diff script (#287)                          |
 
 ## Rejected shortcuts
 
@@ -109,5 +110,9 @@ required.
 - Generate an interface for every service without a second implementation or narrow
   consumer boundary.
 - Add mutation testing to the full monorepo or browser suite before a measured pilot.
-- Convert all 113 cast lines in one PR.
+- Convert all 113 cast lines in one unreviewable PR; use coherent boundary slices,
+  but finish every slice before closing #268.
+- Keep a diff-scoped gate, baseline, or allowlist as the finished state.
+- Build repository-specific parsers or rule-test harnesses when a maintained tool
+  provides native configuration and execution.
 - Treat Prettier as semantic Markdown linting.
