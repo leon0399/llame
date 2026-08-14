@@ -1,7 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 
 import { InstanceConfigError } from './instance-config.error';
-import { InstanceConfigService } from './instance-config.service';
+import {
+  InstanceConfigService,
+  type InstanceConfigReader,
+} from './instance-config.service';
 import { type WorkerGroup } from './llame-config';
 
 /** Env var selecting the active worker profile; default `all` (every group, concurrency 1 — today's co-located behavior). */
@@ -33,7 +36,10 @@ export class WorkerProfileService {
   readonly profileName: string;
   private readonly groups: Readonly<Partial<Record<WorkerGroup, number>>>;
 
-  constructor(instanceConfig: InstanceConfigService) {
+  constructor(
+    @Inject(InstanceConfigService)
+    instanceConfig: InstanceConfigReader,
+  ) {
     const requested = process.env[WORKER_PROFILE_ENV]?.trim();
     this.profileName =
       requested && requested.length > 0 ? requested : DEFAULT_PROFILE;

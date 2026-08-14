@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed the two remaining forged `InstanceConfigService` assertions from
+  worker-profile and model-service units. Both consumers now use the existing
+  `InstanceConfigReader` capability with explicit Nest injection tokens, and
+  their fixtures begin with the complete built-in configuration before
+  applying test-specific overrides. Focused units pass 15/15; API build,
+  typecheck, and lint pass. Application/test debt falls from 14 to 12.
+
 - Removed three forged `set-cookie` header assertions from shared HTTP test
   support and integration coverage. Callers now use Superagent's typed
   `get('Set-Cookie')` overload, and worker-mode coverage reuses the shared
