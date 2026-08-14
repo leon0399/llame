@@ -42,6 +42,7 @@ required.
 |    12 | #371 | Worker AI SDK and abort settlement  |
 |    13 | #372 | Remaining AI SDK stream doubles     |
 |    14 | #373 | Auth service test doubles           |
+|    15 | #374 | Tenant DB service test doubles      |
 
 ## Inventory
 
