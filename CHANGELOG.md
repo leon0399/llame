@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Replaced 14 AI SDK model-test double assertions (`model-client.test.ts`: 13;
+  `fake-model-client.ts`: 1) with partial Vitest mocks, `MockLanguageModelV3`,
+  and typed chunks through real `streamText`. Fake-client behavior tests now
+  run in their own suite, including a regression that keeps `.text` pending
+  until async `onFinish` completes. Focused units pass 11/11, compaction
+  integration passes 17/17, the full API unit suite passes 1090/1090, and API
+  build, typecheck, and lint pass. Application/test debt falls from 94 to 80.
+
 - Enforced a modified cyclomatic-complexity ceiling of 35 in the four
   lint-owning TypeScript workspaces using Oxlint's native `complexity` rule.
   Split the measured chat-loop accepted-turn transaction callback at the

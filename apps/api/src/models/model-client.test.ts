@@ -1,9 +1,8 @@
 import type { ModelMessage } from 'ai';
 import { streamText } from 'ai';
-import type { OpenAIProvider } from '@ai-sdk/openai';
+import { MockLanguageModelV3 } from 'ai/test';
 import { createOpenAI } from '@ai-sdk/openai';
 
-import { createFakeModelClient } from './fake-model-client';
 import {
   MissingModelCredentialError,
   resolveModelCredential,
@@ -13,7 +12,6 @@ import {
   KEYLESS_PLACEHOLDER_API_KEY,
 } from './openai-model-client';
 
-import type { Mock } from 'vitest';
 vi.mock('@ai-sdk/openai', () => ({
   createOpenAI: vi.fn(),
 }));
@@ -22,18 +20,8 @@ vi.mock('ai', () => ({
   streamText: vi.fn(),
 }));
 
-const createOpenAIMock = vi.mocked(createOpenAI);
-const streamTextMock = vi.mocked(streamText);
-
-async function collectText(stream: AsyncIterable<string>): Promise<string> {
-  let text = '';
-
-  for await (const chunk of stream) {
-    text += chunk;
-  }
-
-  return text;
-}
+const createOpenAIMock = vi.mocked(createOpenAI, { partial: true });
+const streamTextMock = vi.mocked(streamText, { partial: true });
 
 const messages = [
   {
@@ -61,16 +49,19 @@ describe('ModelClient', () => {
   });
 
   it('constructs a per-request client from a user-supplied credential', async () => {
-    const providerModel = { provider: 'openai', modelId: 'gpt-test' };
-    const openaiProvider = vi.fn(() => providerModel);
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.chat',
+      modelId: 'gpt-test',
+    });
     // The client uses the /chat/completions API (OpenAI-compatible, #88).
-    (openaiProvider as unknown as { chat: unknown }).chat = openaiProvider;
-    createOpenAIMock.mockReturnValue(
-      openaiProvider as unknown as OpenAIProvider,
+    const openaiProvider = Object.assign(
+      vi.fn(() => providerModel),
+      {
+        chat: vi.fn(() => providerModel),
+      },
     );
-    streamTextMock.mockReturnValue({
-      textStream: (async function* () {})(),
-    } as unknown as ReturnType<typeof streamText>);
+    createOpenAIMock.mockReturnValue(openaiProvider);
+    streamTextMock.mockReturnValue({});
 
     const credential = await resolveModelCredential('user-1', (userId) =>
       userId === 'user-1' ? 'sk-user-supplied' : null,
@@ -100,7 +91,7 @@ describe('ModelClient', () => {
     expect(createOpenAIMock).toHaveBeenCalledWith({
       apiKey: 'sk-user-supplied',
     });
-    expect(openaiProvider).toHaveBeenCalledWith('gpt-test');
+    expect(openaiProvider.chat).toHaveBeenCalledWith('gpt-test');
     expect(streamTextMock).toHaveBeenCalledWith({
       model: providerModel,
       messages,
@@ -118,18 +109,18 @@ describe('ModelClient', () => {
     // unset — see the unmocked regression test below, which is what actually
     // proves loadApiKey doesn't throw; this test only proves OUR code passes
     // the right constructor args.
-    const providerModel = {
-      provider: 'openai',
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.chat',
       modelId: 'gpt-local',
-    };
-    const openaiProvider = vi.fn(() => providerModel);
-    (openaiProvider as unknown as { chat: unknown }).chat = openaiProvider;
-    createOpenAIMock.mockReturnValue(
-      openaiProvider as unknown as OpenAIProvider,
+    });
+    const openaiProvider = Object.assign(
+      vi.fn(() => providerModel),
+      {
+        chat: vi.fn(() => providerModel),
+      },
     );
-    streamTextMock.mockReturnValue({
-      textStream: (async function* () {})(),
-    } as unknown as ReturnType<typeof streamText>);
+    createOpenAIMock.mockReturnValue(openaiProvider);
+    streamTextMock.mockReturnValue({});
 
     const client = createOpenAIModelClient({
       providerModelId: 'gpt-local',
@@ -145,7 +136,7 @@ describe('ModelClient', () => {
     expect(createOpenAIMock).toHaveBeenCalledWith({
       apiKey: KEYLESS_PLACEHOLDER_API_KEY,
     });
-    expect(openaiProvider).toHaveBeenCalledWith('gpt-local');
+    expect(openaiProvider.chat).toHaveBeenCalledWith('gpt-local');
     expect(streamTextMock).toHaveBeenCalledWith({
       model: providerModel,
       messages,
@@ -157,16 +148,19 @@ describe('ModelClient', () => {
   });
 
   it('targets an OpenAI-compatible endpoint when a base URL is provided', () => {
-    const providerModel = { provider: 'openai', modelId: 'gpt-test' };
-    const openaiProvider = vi.fn(() => providerModel);
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.chat',
+      modelId: 'gpt-test',
+    });
     // The client uses the /chat/completions API (OpenAI-compatible, #88).
-    (openaiProvider as unknown as { chat: unknown }).chat = openaiProvider;
-    createOpenAIMock.mockReturnValue(
-      openaiProvider as unknown as OpenAIProvider,
+    const openaiProvider = Object.assign(
+      vi.fn(() => providerModel),
+      {
+        chat: vi.fn(() => providerModel),
+      },
     );
-    streamTextMock.mockReturnValue({
-      textStream: (async function* () {})(),
-    } as unknown as ReturnType<typeof streamText>);
+    createOpenAIMock.mockReturnValue(openaiProvider);
+    streamTextMock.mockReturnValue({});
 
     const client = createOpenAIModelClient({
       credential: 'sk-user-supplied',
@@ -188,15 +182,18 @@ describe('ModelClient', () => {
   });
 
   it('uses native Responses with an automatic displayable reasoning summary when configured for native OpenAI', () => {
-    const providerModel = { provider: 'openai', modelId: 'gpt-test' };
-    const openaiProvider = vi.fn(() => providerModel);
-    (openaiProvider as unknown as { chat: Mock }).chat = vi.fn();
-    createOpenAIMock.mockReturnValue(
-      openaiProvider as unknown as OpenAIProvider,
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.responses',
+      modelId: 'gpt-test',
+    });
+    const openaiProvider = Object.assign(
+      vi.fn(() => providerModel),
+      {
+        chat: vi.fn(() => providerModel),
+      },
     );
-    streamTextMock.mockReturnValue({
-      textStream: (async function* () {})(),
-    } as unknown as ReturnType<typeof streamText>);
+    createOpenAIMock.mockReturnValue(openaiProvider);
+    streamTextMock.mockReturnValue({});
 
     const client = createOpenAIModelClient({
       credential: 'sk-user-supplied',
@@ -208,52 +205,12 @@ describe('ModelClient', () => {
     client.streamText({ messages });
 
     expect(openaiProvider).toHaveBeenCalledWith('gpt-test');
-    expect(
-      (openaiProvider as unknown as { chat: Mock }).chat,
-    ).not.toHaveBeenCalled();
+    expect(openaiProvider.chat).not.toHaveBeenCalled();
     expect(streamTextMock).toHaveBeenCalledWith(
       expect.objectContaining({
         model: providerModel,
         providerOptions: { openai: { reasoningSummary: 'auto' } },
       }),
     );
-  });
-
-  it('passes onFinish through to the fake client', async () => {
-    const client = createFakeModelClient(['done']);
-    const onFinish = vi.fn();
-
-    await collectText(client.streamText({ messages, onFinish }).textStream);
-
-    expect(client).toMatchObject({ model: 'fake-model', provider: 'fake' });
-    expect(onFinish).toHaveBeenCalledWith({
-      text: 'done',
-      usage: {
-        inputTokens: 0,
-        inputTokenDetails: {
-          noCacheTokens: 0,
-          cacheReadTokens: 0,
-          cacheWriteTokens: 0,
-        },
-        outputTokens: 0,
-        outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
-        totalTokens: 0,
-      },
-      finishReason: 'stop',
-    });
-  });
-
-  it('uses a fake client to drive callers without a provider or network', async () => {
-    const client = createFakeModelClient(['first', 'second']);
-
-    await expect(
-      collectText(client.streamText({ messages }).textStream),
-    ).resolves.toBe('first');
-    await expect(
-      collectText(client.streamText({ messages }).textStream),
-    ).resolves.toBe('second');
-    await expect(
-      collectText(client.streamText({ messages }).textStream),
-    ).resolves.toBe('first');
   });
 });
