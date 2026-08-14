@@ -44,6 +44,7 @@ required.
 |    14 | #373 | Auth service test doubles           |
 |    15 | #374 | Tenant DB service test doubles      |
 |    16 | #375 | Session cookie header types         |
+|    17 | #376 | Instance config test doubles        |
 
 ## Inventory
 
