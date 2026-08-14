@@ -9,7 +9,8 @@ import * as memoryQueries from "@/lib/services/memory/queries";
 import type * as memoryQueriesMock from "@/lib/services/memory/__mocks__/queries";
 import { MemorySection } from "./memory-section";
 
-const { useMemoryQuery } = memoryQueries as unknown as typeof memoryQueriesMock;
+const { useMemoryQuery, refetchMemory } =
+  memoryQueries as unknown as typeof memoryQueriesMock;
 const { updateMemoryMutate, useUpdateMemoryMutation } =
   memoryMutations as unknown as typeof memoryMutationsMock;
 
@@ -20,12 +21,15 @@ const meta = {
     useMemoryQuery.mockReturnValue({
       data: { shareRecentChats: false },
       isPending: false,
+      isError: false,
+      refetch: refetchMemory,
     });
     useUpdateMemoryMutation.mockReturnValue({
       isError: false,
       mutate: updateMemoryMutate,
     });
     updateMemoryMutate.mockClear();
+    refetchMemory.mockClear();
   },
   parameters: { layout: "centered" },
 } satisfies Meta<typeof MemorySection>;
@@ -72,6 +76,8 @@ export const On: Story = {
     useMemoryQuery.mockReturnValue({
       data: { shareRecentChats: true },
       isPending: false,
+      isError: false,
+      refetch: refetchMemory,
     });
   },
   play: async ({ canvasElement }) => {
@@ -115,6 +121,8 @@ export const Loading: Story = {
     useMemoryQuery.mockReturnValue({
       data: undefined,
       isPending: true,
+      isError: false,
+      refetch: refetchMemory,
     });
   },
   play: async ({ canvasElement }) => {
@@ -127,5 +135,41 @@ export const Loading: Story = {
     await expect(
       canvas.queryByRole("switch", { name: "Share my recent chats" }),
     ).toBeNull();
+  },
+};
+
+/**
+ * A failed settings read must not present as perpetual loading. React Query
+ * leaves `isPending` false with no data once the query errors, so the owner
+ * would otherwise watch a skeleton forever — and the switch lives inside that
+ * branch, which would make a privacy control unreachable until a full reload.
+ *
+ * @summary failed settings load, with a retry path
+ */
+export const LoadFailed: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    useMemoryQuery.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      refetch: refetchMemory,
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    // Announced, not merely present: this text arrives after the skeleton has
+    // rendered, so without an alert role a screen reader is never told.
+    await expect(canvas.getByRole("alert")).toHaveTextContent(
+      "Could not load your memory settings.",
+    );
+    // Not a skeleton, and not silence.
+    await expect(
+      canvasElement.querySelector('[data-slot="skeleton"]'),
+    ).toBeNull();
+
+    await userEvent.click(canvas.getByRole("button", { name: "Try again" }));
+    await expect(refetchMemory).toHaveBeenCalled();
   },
 };

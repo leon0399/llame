@@ -16,9 +16,18 @@ export const memoryQueryKeys = {
 
 export const fetchMemory = fn().mockName("fetchMemory");
 
+export const refetchMemory = fn().mockName("refetchMemory");
+
 export const useMemoryQuery = fn(
   (): {
     data: MemorySettings | undefined;
     isPending: boolean;
-  } => ({ data: undefined, isPending: true }),
+    isError: boolean;
+    refetch: typeof refetchMemory;
+  } => ({
+    data: undefined,
+    isPending: true,
+    isError: false,
+    refetch: refetchMemory,
+  }),
 ).mockName("useMemoryQuery");

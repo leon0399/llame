@@ -2,6 +2,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Fixed the Memory settings card getting stuck on its loading skeleton when the
+  settings request failed. React Query leaves the query not-pending with no
+  data once it errors, so the card rendered a skeleton indefinitely — and
+  because the switch lives inside that branch, an owner who wanted to turn
+  sharing **off** could not reach the control until they reloaded the page,
+  with nothing telling them that reloading was what was needed. A privacy
+  setting must not become unreachable because a read failed. The card now
+  states that the load failed and offers a retry that refetches in place. Both
+  that message and the save-failure message are alerts rather than styled text,
+  so a failure arriving after the card has already rendered is announced to a
+  screen reader instead of appearing silently.
+
 - Added the Memory settings card for the opt-in recent-chat digest. It keeps
   `shareRecentChats` independent from authored-profile personalization — the
   two are separate axes, so clearing an authored profile does not withdraw a
