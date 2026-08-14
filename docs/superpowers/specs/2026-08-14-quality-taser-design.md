@@ -100,8 +100,9 @@ stays recorded with its PR or commit so later agents do not rediscover it.
 4. AI SDK model-double migration, eliminating the largest coherent cast cluster.
 5. Remaining cast slices grouped by boundary type until all 113 legacy matches are
    removed from owned application and test code.
-6. Native full-tree double-assertion enforcement for TypeScript and TSX; remove the
-   transitional diff gate and close #268 only after the scan is green.
+6. Native full-tree double-assertion enforcement for `.ts`, `.tsx`, `.mts`, and
+   `.cts`, including root and e2e paths; remove the transitional diff gate and
+   close #268 only after the scan is green.
 7. Semantic Markdown and broader lint rules, introduced one rule family at a time.
 8. Workspace-local Stryker/Vitest pilot over a bounded pure-unit target.
 9. Evidence-backed service/module refactors found during the earlier slices.

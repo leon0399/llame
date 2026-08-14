@@ -4,9 +4,10 @@
 > (if subagents are available) or superpowers:executing-plans to implement this
 > plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove every `as unknown as` assertion from owned TypeScript and TSX,
-then make issue #268's prohibition a native full-tree check. The current staged
-API script is transitional regression protection, not completion.
+**Goal:** Remove every `as unknown as` assertion from owned `.ts`, `.tsx`,
+`.mts`, and `.cts` files, then make issue #268's prohibition a native full-tree
+check. The current staged API script is transitional regression protection, not
+completion.
 
 **Architecture:** Migrate the 113 legacy matches in coherent boundary-owned stack
 layers. Prefer real framework and SDK types, narrow consumer contracts, and runtime
@@ -33,9 +34,7 @@ Run:
 
 ```bash
 git grep -n -E 'as[[:space:]]+unknown[[:space:]]+as' 8bca868e -- \
-  'apps/**/*.ts' 'apps/**/*.tsx' 'apps/**/*.mts' 'apps/**/*.cts' \
-  'packages/**/*.ts' 'packages/**/*.tsx' 'packages/**/*.mts' \
-  'packages/**/*.cts'
+  '*.ts' '*.tsx' '*.mts' '*.cts'
 ```
 
 Expected at `8bca868e`: 113 matched lines across 46 files.
@@ -67,7 +66,7 @@ For every slice:
 Continue until this command returns no output:
 
 ```bash
-rg -n --glob '*.{ts,tsx,mts,cts}' 'as\s+unknown\s+as' apps packages
+rg -n --glob '*.{ts,tsx,mts,cts}' 'as\s+unknown\s+as' .
 ```
 
 Issue #268 cannot close before the result is empty.
@@ -86,13 +85,16 @@ Issue #268 cannot close before the result is empty.
 
 - [ ] Pin `@ast-grep/cli@0.44.0` at the workspace root.
 - [ ] Define equivalent native rules for TypeScript and TSX that match an
-      assertion through `unknown` and report an error.
+      assertion through `unknown` and report an error for `.ts`, `.tsx`, `.mts`,
+      and `.cts` files.
 - [ ] Validate the rule using ast-grep's native `test` command only if fixture
       coverage is needed; do not build a custom shell test runner.
 - [ ] Add the exact root script
-      `"check:double-assertions": "ast-grep scan apps packages --error"`.
-- [ ] Run the scan against a temporary violating source file to prove RED, remove
-      the fixture, then prove the owned tree is GREEN.
+      `"check:double-assertions": "ast-grep scan --error ."`.
+- [ ] Use the native scan against temporary violating `.ts`, `.tsx`, `.mts`, and
+      `.cts` files, including root/e2e paths, to prove every supported extension
+      is RED; remove the fixtures, then prove the owned tree is GREEN. Do not add
+      a repository-specific harness.
 
 ### Task 4: Use the same native command locally and in CI
 
@@ -107,8 +109,9 @@ Issue #268 cannot close before the result is empty.
 - Modify: `docs/code-quality-tracker.md`
 - Modify: `CHANGELOG.md`
 
-- [ ] Replace the staged API script with the root native scan command.
-- [ ] Run the same command in the existing lint workflow; no diff base or
+- [ ] Replace the staged API script with `pnpm check:double-assertions`.
+- [ ] Run that same package script in the existing lint workflow so the pinned
+      local binary is on `PATH`; no direct binary call, diff base, or
       grandfathered baseline is allowed.
 - [ ] Document the project-wide ban and retain the API-specific Nest narrowing
       recipe without implying the rule is API-only.
