@@ -18,7 +18,7 @@ required.
 |     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass              |
 |     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction |
 |     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                    |
-|     5 | active      | Remaining cast slices                   | Standard SDK/framework types remove 31 assertions across adapter, HTTP, and chat-controller tests; 49 matches remain     |
+|     5 | active      | Remaining cast slices                   | Standard SDK/framework types remove 38 assertions across adapter, HTTP, controller, and integration tests; 42 remain     |
 |     6 | queued      | Full-tree double-assertion prohibition  | One native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI       |
 |     7 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                               |
 |     8 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                              |
@@ -39,8 +39,9 @@ required.
 | active      | OpenAI adapter tool-loop tests removed 9 assertions without OpenAI-specific model doubles                | Provider-boundary `MockLanguageModelV3` drives real SDK scheduling, validation, and repair; focused units 8/8           |
 | active      | API app-setup, auth, models, and runs tests removed 16 assertions                                        | Narrow Nest capabilities, `ExecutionContextHost`, Express `Pick<>`, and `drizzle.mock`; focused units 29/29             |
 | active      | Chats controller tests removed 6 assertions                                                              | Real Node writable streams, typed Vitest spies, Drizzle mock DB, and provider-neutral AI SDK stream result; units 22/22 |
-| queued      | 49 owned application/test matches remain after the completed slices                                      | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                                 |
-| queued      | Next top clusters: chat-loop integration 7; search worker 6; compaction integration 5                    | Group by boundary and remedy; do not chase count mechanically                                                           |
+| active      | Chat-loop integration tests removed 7 assertions                                                         | Existing narrow service contracts and complete built-in config; real-Postgres integration 19/19                         |
+| queued      | 42 owned application/test matches remain after the completed slices                                      | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                                 |
+| queued      | Next top clusters: search worker 6; compaction integration 5; pins 4                                     | Group by boundary and remedy; do not chase count mechanically                                                           |
 | investigate | Direct `any`, non-null assertions, and stale ESLint disables                                             | Classify production vs test/integration scaffolding before enabling restriction rules                                   |
 
 ### Lint and formatting
