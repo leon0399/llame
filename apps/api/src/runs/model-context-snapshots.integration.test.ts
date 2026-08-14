@@ -20,8 +20,12 @@ import {
   TOOL_AVAILABILITY_UNOBSERVED_HASH,
 } from '../tools/turn-tool-catalog';
 import { RunsRepository } from './runs-repository';
-import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
+import {
+  ModelContextSnapshotConflictError,
+  ModelContextSnapshotsRepository,
+} from './model-context-snapshots.repository';
 import { seedModelContextSnapshot } from './model-context-snapshot.test-fixture';
+import { type EffectiveContextSnapshotInput } from './effective-context-resolver';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -107,6 +111,63 @@ describeIfDb(
         expect(rows).toEqual([]);
       });
     });
+
+    it.each([
+      ['prompt hash', { promptHash: 'stored-prompt-hash' }],
+      ['tool hash', { toolHash: 'stored-tool-hash' }],
+      ['system prompt', { systemPrompt: 'Stored prompt text' }],
+      [
+        'availability manifest',
+        {
+          toolAvailabilityManifest: {
+            version: 1 as const,
+            entries: [
+              {
+                id: 'stored-tool',
+                state: 'available' as const,
+                declarationHash: 'stored-declaration-hash',
+              },
+            ],
+          },
+        },
+      ],
+      [
+        'tool declarations',
+        {
+          toolDeclarations: [
+            {
+              id: 'stored-tool',
+              description: 'Stored declaration',
+              inputSchema: { type: 'object' },
+            },
+          ],
+        },
+      ],
+    ])(
+      'rejects a unique-key collision whose stored %s differs',
+      async (field, difference) => {
+        const input: EffectiveContextSnapshotInput = {
+          availabilityHash: 'collision-availability-hash',
+          contentHash: `collision-${field}`,
+          promptHash: 'requested-prompt-hash',
+          toolHash: 'requested-tool-hash',
+          source: 'model_override',
+          systemPrompt: 'Requested prompt text',
+          toolAvailabilityManifest: { version: 1, entries: [] },
+          toolDeclarations: [],
+        };
+
+        await tenantDb.runAs(userA, async (tx) => {
+          await tx
+            .insert(schema.modelContextSnapshots)
+            .values({ ownerUserId: userA, ...input, ...difference });
+
+          await expect(
+            new ModelContextSnapshotsRepository(tx).createOrReuse(userA, input),
+          ).rejects.toBeInstanceOf(ModelContextSnapshotConflictError);
+        });
+      },
+    );
 
     it('keeps an explicit historical v0 snapshot distinct from a newly authored v1 snapshot', async () => {
       const contentHash = 'same-content-across-availability-epochs';

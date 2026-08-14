@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Replaced the forged model-context repository unit database with real
+  Postgres coverage. Five reachable unique-key collision variants now execute
+  through Drizzle and the database; simulated source/availability mismatch
+  cases are deleted because the real conflict lookup predicates make them
+  unreachable. The consolidated integration passes 10/10, retains reuse,
+  tenancy, immutability, and owned-run binding coverage, and reduces tracked
+  application/test double-assertion debt from 3 to 2.
+
 - Removed two double assertions from worker database/lifecycle test
   infrastructure. Runs-worker units now delete an unused handcrafted query
   chain and use Drizzle's native mock database; the worker harness retrieves
