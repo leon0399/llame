@@ -38,6 +38,7 @@ required.
 |     8 | #366 | Chat-loop integration test doubles  |
 |     9 | #367 | Search worker test doubles          |
 |    10 | #368 | Compaction integration test doubles |
+|    11 | #370 | Pins test doubles                   |
 
 ## Inventory
 
