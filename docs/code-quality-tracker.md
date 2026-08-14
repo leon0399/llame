@@ -54,6 +54,7 @@ required.
 |    23 | #382 | Chats repository query coverage     |
 |    24 | #383 | Chat-loop transaction binding       |
 |    25 | #384 | Full-tree double-assertion gate     |
+|    26 | #385 | Constructor decorator placement     |
 
 ## Inventory
 
