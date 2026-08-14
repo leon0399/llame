@@ -77,7 +77,15 @@ export function createOpenAIModelClient(config: {
       ? { compactionThresholdTokens: config.compactionThresholdTokens }
       : {}),
     streamText(input: ModelStreamInput) {
-      return streamText({
+      let abortSettlement = Promise.resolve();
+      let abortSettlementError: { error: unknown } | undefined;
+      const waitForAbortSettlement = async () => {
+        await abortSettlement;
+        if (abortSettlementError) {
+          throw abortSettlementError.error;
+        }
+      };
+      const result = streamText({
         // Only the configured native OpenAI provider uses Responses. Every
         // compatible endpoint stays on Chat Completions.
         model: config.nativeOpenAI
@@ -156,7 +164,42 @@ export function createOpenAIModelClient(config: {
             }
           : {}),
         onError: input.onError,
+        // AI SDK invokes onAbort without awaiting its return value. Capture the
+        // durable settlement explicitly so consumers cannot observe a drained
+        // result before the run's terminal state is persisted.
+        onAbort: () => {
+          abortSettlement = Promise.resolve(
+            input.onError?.({
+              error:
+                input.abortSignal?.reason ??
+                new DOMException('Aborted', 'AbortError'),
+            }),
+          ).catch((error: unknown) => {
+            abortSettlementError = { error };
+          });
+        },
         onFinish: input.onFinish,
+      });
+
+      return new Proxy(result, {
+        get(target, property, receiver): unknown {
+          if (property === 'consumeStream') {
+            return async (...args: Parameters<typeof target.consumeStream>) => {
+              await target.consumeStream(...args);
+              await waitForAbortSettlement();
+            };
+          }
+          if (property === 'text') {
+            return (async () => {
+              try {
+                return await target.text;
+              } finally {
+                await waitForAbortSettlement();
+              }
+            })();
+          }
+          return Reflect.get(target, property, receiver);
+        },
       });
     },
     async generateObject<OBJECT>(input: ModelObjectInput<OBJECT>) {
