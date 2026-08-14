@@ -52,6 +52,7 @@ required.
 |    21 | #380 | Worker database/lifecycle fixtures  |
 |    22 | #381 | Model-context repository coverage   |
 |    23 | #382 | Chats repository query coverage     |
+|    24 | #383 | Chat-loop transaction binding       |
 
 ## Inventory
 
