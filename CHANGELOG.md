@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed 16 double assertions from API app-setup, authentication, models, and
+  runs controller tests. Narrow `Pick<>` consumer contracts with explicit Nest
+  injection tokens, Nest's `ExecutionContextHost`, Express response
+  capabilities, and Drizzle's native `drizzle.mock` replace hand-forged whole
+  framework/service objects. Focused tests pass 29/29; the full API unit suite
+  passes 1,090/1,090; API build, typecheck, and lint pass. Application/test debt
+  falls from 71 to 55.
+
 - Removed the nine remaining double assertions from the OpenAI adapter's
   tool-loop tests while keeping the doubles at the provider-neutral AI SDK
   boundary. `MockLanguageModelV3` now drives real `streamText` step scheduling,

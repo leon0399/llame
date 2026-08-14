@@ -1,13 +1,12 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
 
-import { ModelsController } from './models.controller';
-import { ModelConfigurationError, ModelsService } from './models.service';
+import { ModelsController, type ModelsReader } from './models.controller';
+import { ModelConfigurationError } from './models.service';
 
-import type { Mocked } from 'vitest';
 describe('ModelsController', () => {
-  function makeController(service?: Partial<ModelsService>): {
+  function makeController(service?: Partial<ModelsReader>): {
     controller: ModelsController;
-    service: Mocked<ModelsService>;
+    service: ModelsReader;
   } {
     const modelsService = {
       getAvailableModels: vi.fn().mockReturnValue({
@@ -26,7 +25,7 @@ describe('ModelsController', () => {
         ],
       }),
       ...service,
-    } as unknown as Mocked<ModelsService>;
+    } satisfies ModelsReader;
 
     return {
       controller: new ModelsController(modelsService),

@@ -1,4 +1,10 @@
-import { Controller, Get, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpException,
+  HttpStatus,
+  Inject,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCookieAuth,
@@ -15,12 +21,14 @@ import {
 } from './dto/models.dto';
 import { ModelConfigurationError, ModelsService } from './models.service';
 
+export type ModelsReader = Pick<ModelsService, 'getAvailableModels'>;
+
 @ApiTags('models')
 @ApiBearerAuth('bearer')
 @ApiCookieAuth('cookie')
 @Controller('api/v1/models')
 export class ModelsController {
-  constructor(private readonly models: ModelsService) {}
+  constructor(@Inject(ModelsService) private readonly models: ModelsReader) {}
 
   @Get()
   @ApiOkResponse({ type: ModelsResponse })

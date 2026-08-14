@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  Inject,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -10,11 +11,14 @@ import { AuthService } from './auth.service';
 import { SESSION_COOKIE_NAME } from './constants';
 import { IS_PUBLIC_KEY } from './public.decorator';
 
+export type SessionAuthService = Pick<AuthService, 'validateToken'>;
+export type SessionAuthReflector = Pick<Reflector, 'getAllAndOverride'>;
+
 @Injectable()
 export class SessionAuthGuard implements CanActivate {
   constructor(
-    private readonly authService: AuthService,
-    private readonly reflector: Reflector,
+    @Inject(AuthService) private readonly authService: SessionAuthService,
+    @Inject(Reflector) private readonly reflector: SessionAuthReflector,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

@@ -1,7 +1,9 @@
 import { NotFoundException } from '@nestjs/common';
+import { drizzle } from 'drizzle-orm/postgres-js';
 
+import * as schema from '../db/schema';
 import { type ModelContextSnapshot, type Run } from '../db/schema';
-import { type TenantDbService } from '../db/tenant-db.service';
+import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunsController } from './runs.controller';
 import { RunsRepository } from './runs-repository';
@@ -61,13 +63,13 @@ describe('RunsController context receipt', () => {
   afterEach(() => vi.restoreAllMocks());
 
   function controller() {
-    const tx = {};
-    const tenantDb = {
-      runAs: vi.fn(
-        (_userId: string, callback: (scoped: unknown) => Promise<unknown>) =>
-          callback(tx),
-      ),
-    } as unknown as TenantDbService;
+    const tx: Db = drizzle.mock({ schema });
+    const runAs: TenantRunner['runAs'] = async <T>(
+      _userId: string,
+      callback: (scoped: Db) => Promise<T>,
+    ) => callback(tx);
+    const tenantDb: TenantRunner = { runAs };
+    vi.spyOn(tenantDb, 'runAs');
 
     return new RunsController(tenantDb, new RunAbortRegistry());
   }
