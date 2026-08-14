@@ -18,7 +18,7 @@ required.
 |     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                  |
 |     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction     |
 |     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                        |
-|     5 | active      | Remaining cast slices                   | Standard SDK/framework types remove 61 assertions across adapter, HTTP, controller, integration, and worker tests; 19 remain |
+|     5 | active      | Remaining cast slices                   | Standard SDK/framework types remove 63 assertions across adapter, HTTP, controller, integration, and worker tests; 17 remain |
 |     6 | queued      | Full-tree double-assertion prohibition  | One native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI           |
 |     7 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                                   |
 |     8 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                  |
@@ -65,8 +65,9 @@ required.
 | active      | Worker harness removed 1 forged AI SDK result                                                            | Provider-neutral `MockLanguageModelV3` drives real `streamText`; worker integration 10/10 and model units 15/15                           |
 | active      | Shared and worker-mode integration fakes removed 4 forged AI SDK results                                 | One shared provider-neutral `MockLanguageModelV3` client drives real `streamText`; support unit 1/1 and affected integration suites 24/24 |
 | active      | Auth service tests removed 3 concrete-class double assertions                                            | Exported `Pick<>` capabilities plus explicit Nest injection tokens preserve mock metadata and runtime DI; units 3/3                       |
-| queued      | 19 owned application/test matches remain after the completed slices                                      | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                   |
-| queued      | Next clusters: tenant DB 2 and 17 isolated one-per-file matches                                          | Group by boundary and remedy; do not chase count mechanically                                                                             |
+| active      | Tenant DB service tests removed 2 forged Drizzle database assertions                                     | Narrow transaction capability, Drizzle's mock driver, and typed Vitest spies replace partial database objects; units 6/6                  |
+| queued      | 17 owned application/test matches remain after the completed slices                                      | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                   |
+| queued      | Next clusters: 17 isolated one-per-file matches                                                          | Group by boundary and remedy; do not chase count mechanically                                                                             |
 | investigate | Direct `any`, non-null assertions, and stale ESLint disables                                             | Classify production vs test/integration scaffolding before enabling restriction rules                                                     |
 
 ### Lint and formatting

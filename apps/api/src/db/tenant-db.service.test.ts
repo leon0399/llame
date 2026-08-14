@@ -14,22 +14,29 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { TenantDbService, type Db } from './tenant-db.service';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import {
+  TenantDbService,
+  type Db,
+  type TenantTransactionExecutor,
+} from './tenant-db.service';
+import * as schema from './schema';
 
 function makeFakeDb() {
-  const executeSpy = vi.fn().mockResolvedValue([]);
-
-  const fakeTx = {
-    execute: executeSpy,
-  } as unknown as Db;
-
-  const transactionSpy = vi.fn((fn: (tx: Db) => Promise<unknown>) =>
-    fn(fakeTx),
+  const fakeTx: Db = drizzle.mock({ schema });
+  const executeSpy = vi.spyOn(fakeTx, 'execute').mockResolvedValue(
+    Object.assign([], {
+      columns: [],
+      count: 0,
+      command: 'SELECT',
+      statement: { name: '', string: '', types: [], columns: [] },
+      state: { status: 'I', pid: 0, secret: 0 },
+    }),
   );
-
-  const db = {
-    transaction: transactionSpy,
-  } as unknown as Db;
+  const db: TenantTransactionExecutor = {
+    transaction: <T>(fn: (tx: Db) => Promise<T>) => fn(fakeTx),
+  };
+  const transactionSpy = vi.spyOn(db, 'transaction');
 
   return { db, fakeTx, executeSpy, transactionSpy };
 }
