@@ -51,6 +51,7 @@ required.
 |    20 | #379 | Runtime-boundary negative fixtures  |
 |    21 | #380 | Worker database/lifecycle fixtures  |
 |    22 | #381 | Model-context repository coverage   |
+|    23 | #382 | Chats repository query coverage     |
 
 ## Inventory
 
