@@ -14,19 +14,10 @@ pre-commit:
       glob: "apps/api/**/*.ts"
       run: pnpm --filter api lint
 
-    # Blocks NEW `as unknown as` casts (apps/api/AGENTS.md, #268) — checks only
-    # lines this commit adds, so a touched file's pre-existing casts (migrated
-    # in slices) don't block unrelated commits.
-    #
-    # TODO(#287): interim gate — a hand-rolled bash+ast-grep script instead of
-    # a real lint rule, because oxlint has none for this. Remove once #268's
-    # migration is complete and replace with an ast-grep project rule
-    # (severity: error) or an oxlint rule, run directly with no diff-scoping
-    # needed.
-    - name: api no new unknown-as casts
-      glob: "apps/api/**/*.ts"
-      files: git diff --name-only --cached --diff-filter=ACMR
-      run: ./scripts/check-new-unknown-as-casts.sh {files}
+    # Full-tree native ast-grep rule (#268). The same package script runs in
+    # CI; zero legacy debt means no diff scope, baseline, or allowlist.
+    - name: no double assertions
+      run: pnpm check:double-assertions
 
     - name: web lint (oxlint)
       glob: "apps/web/**/*.{ts,tsx,js,mjs}"

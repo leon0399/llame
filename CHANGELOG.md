@@ -1,5 +1,15 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-15
+
+- Replaced the API-only, diff-scoped double-assertion shell gate with pinned
+  `@ast-grep/cli` 0.44.0 native TypeScript/TSX rules. One root package command
+  now scans the full owned `.ts`, `.tsx`, `.mts`, and `.cts` tree—including
+  hidden source directories such as `.storybook`—in both Lefthook and CI, with
+  no legacy baseline or allowlist; the bespoke parser is deleted. Agent
+  verification is now explicitly resource-bounded to sequential workspace
+  builds (or Turbo concurrency 1 for an aggregate).
+
 # 2026-08-14
 
 - Removed the final owned double assertion from chat-loop transaction tests.
