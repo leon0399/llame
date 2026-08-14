@@ -31,6 +31,7 @@ import {
 } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
+import { type ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { z } from 'zod';
 
@@ -44,7 +45,6 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { type MessagePart } from './context-builder';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import {
-  type ChatReindexDispatcher,
   type ChatSearchIndexer,
   RunExecutionService,
 } from '../runs/run-execution.service';

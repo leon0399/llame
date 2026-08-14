@@ -18,7 +18,7 @@ import postgres from 'postgres';
 
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
-import { RunStreamBridgeService } from './run-stream-bridge';
+import { type RunStreamResponder } from './run-stream-bridge';
 import {
   ChatLoopService,
   isInflightUniqueViolation,
@@ -350,9 +350,9 @@ describeIfDb(
         const aborts = harness.moduleRef.get(RunAbortRegistry, {
           strict: false,
         });
-        const bridge = {
+        const bridge: RunStreamResponder = {
           createUiMessageStreamResponse: vi.fn(),
-        } as unknown as RunStreamBridgeService;
+        };
         const instanceConfig = harness.moduleRef.get(InstanceConfigService, {
           strict: false,
         });
