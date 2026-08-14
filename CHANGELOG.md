@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed all 19 `as unknown as` assertions from web tests and stories (#268).
+  Fetch doubles now use typed Vitest functions and real `Response` objects,
+  missing browser APIs use `vi.stubGlobal`, and Storybook controls use
+  `vi.mocked` hooks with explicit stable spies. The full web unit suite and
+  Storybook browser project pass with no repository-specific mock helper.
+
 - Added the Code Quality Taser design, execution plan, and living tracker. The
   baseline records 113 double-assertion debt lines across 46 owned TypeScript
   files, measured complexity hotspots, lint/formatting gaps, and a bounded

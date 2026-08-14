@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
 import { SidebarMenu, SidebarProvider } from "@workspace/ui/components/sidebar";
 import { expect, fn, screen, userEvent, within } from "storybook/test";
+import { vi } from "vitest";
 
 // Import the mocked context via the REAL specifier (not the __mocks__ file
 // directly): sb.mock (preview.tsx) redirects it to the mock, so overriding
@@ -10,22 +11,22 @@ import { expect, fn, screen, userEvent, within } from "storybook/test";
 // component reads (a direct __mocks__ import is a separate module instance, so
 // the override would never reach the component and the status dot never shows).
 import * as activeRunsContext from "@/contexts/active-runs-context";
-import type * as activeRunsContextMock from "@/contexts/__mocks__/active-runs-context";
-// Import the pins mutations via the REAL specifier: sb.mock (preview.tsx)
-// redirects it to the __mocks__ module, so this is the SAME stable `pinMutate`
-// spy the component's `usePinItem().mutate` returns (a direct __mocks__ import
-// would be a separate module instance and never see the component's calls).
+import { emptyActiveRuns } from "@/contexts/__mocks__/active-runs-context";
+// Import the pins hook via the REAL specifier: sb.mock (preview.tsx) redirects
+// it to the __mocks__ module. The stable `pinMutate` control is imported from
+// that manual mock and injected into the redirected hook in `beforeEach`.
 import * as pinsMutations from "@/lib/services/pins/mutations";
-import type * as pinsMutationsMock from "@/lib/services/pins/__mocks__/mutations";
+import { pinMutate } from "@/lib/services/pins/__mocks__/mutations";
 import type { ChatResponse } from "@/lib/services/chat/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import { ChatItem } from "./chat-item";
 
-// Runtime values are the redirected mock modules; type them as the mocks so
-// the spies carry their assertion/reset methods and the mock-only helper.
-const { pinMutate } = pinsMutations as unknown as typeof pinsMutationsMock;
-const { useActiveRuns, emptyActiveRuns } =
-  activeRunsContext as unknown as typeof activeRunsContextMock;
+// The real-specifier hooks are redirected to Storybook mocks. Injecting the
+// typed control spy keeps the component and story on the same call instance.
+const usePinItem = vi.mocked(pinsMutations.usePinItem, { partial: true });
+const useActiveRuns = vi.mocked(activeRunsContext.useActiveRuns, {
+  partial: true,
+});
 
 const baseChat: ChatResponse = {
   id: "chat-1",
@@ -87,6 +88,7 @@ const meta = {
       activeChatIds: new Set(["chat-processing"]),
       completedChats: new Set(["chat-unread"]),
     });
+    usePinItem.mockReturnValue({ mutate: pinMutate, isPending: false });
     pinMutate.mockClear();
   },
   decorators: [

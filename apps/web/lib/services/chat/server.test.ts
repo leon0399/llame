@@ -76,15 +76,15 @@ describe("fetchInitialChatMessages", () => {
           });
         }),
     );
-    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      requestSignal = init?.signal ?? undefined;
+    const fetchMock = vi.fn<typeof fetch>(
+      (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestSignal = init?.signal ?? undefined;
 
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: readBody,
-      } as unknown as Response);
-    });
+        const response = new Response(null, { status: 200 });
+        vi.spyOn(response, "json").mockImplementation(readBody);
+        return Promise.resolve(response);
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const result = fetchInitialChatMessages("chat-1").then(

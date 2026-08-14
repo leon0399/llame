@@ -1,15 +1,17 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
+import { vi } from "vitest";
 
 import { ChatProvider } from "@/contexts/chat-context";
 // Import via the REAL specifier: sb.mock (preview.tsx) redirects it to the
 // __mocks__ module, so this is the SAME hook instance the component reads.
 import * as modelQueries from "@/lib/services/models/queries";
 import type { AvailableModel } from "@/lib/services/models/queries";
-import type * as modelQueriesMock from "@/lib/services/models/__mocks__/queries";
 import { ModelSelector } from "./model-selector";
 
-const { useModelsQuery } = modelQueries as unknown as typeof modelQueriesMock;
+const useModelsQuery = vi.mocked(modelQueries.useModelsQuery, {
+  partial: true,
+});
 
 const CATALOG: {
   defaultModelId: string;

@@ -1,18 +1,22 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
+import { vi } from "vitest";
 
 // Import through the real specifiers: sb.mock redirects these to their
 // controllable mocks, so the component and these stories use the same hooks.
 import * as memoryMutations from "@/lib/services/memory/mutations";
-import type * as memoryMutationsMock from "@/lib/services/memory/__mocks__/mutations";
+import { updateMemoryMutate } from "@/lib/services/memory/__mocks__/mutations";
 import * as memoryQueries from "@/lib/services/memory/queries";
-import type * as memoryQueriesMock from "@/lib/services/memory/__mocks__/queries";
+import { refetchMemory } from "@/lib/services/memory/__mocks__/queries";
 import { MemorySection } from "./memory-section";
 
-const { useMemoryQuery, refetchMemory } =
-  memoryQueries as unknown as typeof memoryQueriesMock;
-const { updateMemoryMutate, useUpdateMemoryMutation } =
-  memoryMutations as unknown as typeof memoryMutationsMock;
+const useMemoryQuery = vi.mocked(memoryQueries.useMemoryQuery, {
+  partial: true,
+});
+const useUpdateMemoryMutation = vi.mocked(
+  memoryMutations.useUpdateMemoryMutation,
+  { partial: true },
+);
 
 const meta = {
   component: MemorySection,

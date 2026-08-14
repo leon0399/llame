@@ -2,7 +2,7 @@
 
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { toChatUiMessages } from "@/lib/services/chat/history";
 
@@ -26,13 +26,19 @@ const MODELS = [
 // jsdom has no ResizeObserver; Base UI's Popper-based HoverCard content
 // measures itself on mount and throws without one. A minimal no-op stub is
 // enough — this component doesn't assert on measured size.
-class ResizeObserverStub {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-globalThis.ResizeObserver ??=
-  ResizeObserverStub as unknown as typeof ResizeObserver;
+beforeAll(() => {
+  if (!("ResizeObserver" in globalThis)) {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class ResizeObserverStub {
+        constructor(_callback: ResizeObserverCallback) {}
+        observe(_target: Element, _options?: ResizeObserverOptions): void {}
+        unobserve(_target: Element): void {}
+        disconnect(): void {}
+      },
+    );
+  }
+});
 
 afterEach(() => {
   cleanup();

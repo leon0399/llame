@@ -1,15 +1,17 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, within } from "storybook/test";
+import { vi } from "vitest";
 
 // Import via the REAL specifier: sb.mock (preview.tsx) redirects it to the
 // __mocks__ module, so overriding `useRunContextReceipt.mockReturnValue(...)`
 // here reaches the SAME instance the component reads (a direct __mocks__
 // import would be a separate module instance).
 import * as runs from "@/lib/services/chat/runs";
-import type * as runsMock from "@/lib/services/chat/__mocks__/runs";
 import { EffectiveContextInspector } from "./effective-context-inspector";
 
-const { useRunContextReceipt } = runs as unknown as typeof runsMock;
+const useRunContextReceipt = vi.mocked(runs.useRunContextReceipt, {
+  partial: true,
+});
 
 const RECEIPT = {
   modelId: "custom:anthropic:sonnet",
