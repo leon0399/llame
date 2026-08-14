@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed all five double assertions from the compaction continuity integration
+  suite. The provider-neutral AI SDK `MockLanguageModelV3` now drives real
+  `streamText` results for immediate, deferred, rejected, and tool-calling
+  responses; `asSchema` inspects the declared tool through the public SDK API.
+  The focused real-Postgres suite passes 17/17; the full API unit suite passes
+  1,090/1,090; API build, typecheck, and lint pass. Application/test debt falls
+  from 36 to 31.
+
 - Removed all six double assertions from the search-reindex worker tests.
   Nest's `TestingModule`, public application-bootstrap lifecycle, provider
   overrides, and `Logger.prototype` spies replace private-method, private-field,

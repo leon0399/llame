@@ -18,7 +18,7 @@ required.
 |     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                  |
 |     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction     |
 |     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                        |
-|     5 | active      | Remaining cast slices                   | Standard SDK/framework types remove 44 assertions across adapter, HTTP, controller, integration, and worker tests; 36 remain |
+|     5 | active      | Remaining cast slices                   | Standard SDK/framework types remove 49 assertions across adapter, HTTP, controller, integration, and worker tests; 31 remain |
 |     6 | queued      | Full-tree double-assertion prohibition  | One native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI           |
 |     7 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                                   |
 |     8 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                  |
@@ -55,8 +55,9 @@ required.
 | active      | Chats controller tests removed 6 assertions                                                              | Real Node writable streams, typed Vitest spies, Drizzle mock DB, and provider-neutral AI SDK stream result; units 22/22 |
 | active      | Chat-loop integration tests removed 7 assertions                                                         | Existing narrow service contracts and complete built-in config; real-Postgres integration 19/19                         |
 | active      | Search worker tests removed 6 assertions                                                                 | Nest `TestingModule`, public bootstrap lifecycle, provider overrides, and prototype logger spies; units 4/4             |
-| queued      | 36 owned application/test matches remain after the completed slices                                      | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                                 |
-| queued      | Next top clusters: compaction integration 5; pins 4; worker mode and auth service 3 each                 | Group by boundary and remedy; do not chase count mechanically                                                           |
+| active      | Compaction continuity integration removed 5 assertions                                                   | AI SDK `MockLanguageModelV3`, real `streamText`, typed provider chunks, and public `asSchema`; integration 17/17        |
+| queued      | 31 owned application/test matches remain after the completed slices                                      | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                                 |
+| queued      | Next top clusters: pins 4; worker mode and auth service 3 each                                           | Group by boundary and remedy; do not chase count mechanically                                                           |
 | investigate | Direct `any`, non-null assertions, and stale ESLint disables                                             | Classify production vs test/integration scaffolding before enabling restriction rules                                   |
 
 ### Lint and formatting
@@ -84,13 +85,15 @@ required.
 
 ### Test quality
 
-| State  | Finding                                                                                          | Evidence / exit condition                                                          |
-| ------ | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| done   | Unit, real-Postgres integration, Storybook browser, and product E2E are separate enforced layers | `docs/testing.md`, CI workflow                                                     |
-| queued | No mutation-testing command or configuration exists                                              | Bounded `apps/api` pilot only; no broad CI gate initially                          |
-| queued | First pilot candidate: three pure MCP utilities with direct unit tests                           | Dry run, then full mutation run; record time, score, survivors, equivalent mutants |
-| queued | `apps/api/README.md` names a nonexistent `test:cov` script                                       | Remove or restore intentionally; do not leave executable docs false                |
-| queued | Source-regex tests and disabled Vitest rules remain known follow-ups                             | Existing `docs/testing.md` list; convert when owning files are touched             |
+| State       | Finding                                                                                          | Evidence / exit condition                                                                                                                                               |
+| ----------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done        | Unit, real-Postgres integration, Storybook browser, and product E2E are separate enforced layers | `docs/testing.md`, CI workflow                                                                                                                                          |
+| queued      | No mutation-testing command or configuration exists                                              | Bounded `apps/api` pilot only; no broad CI gate initially                                                                                                               |
+| queued      | First pilot candidate: three pure MCP utilities with direct unit tests                           | Dry run, then full mutation run; record time, score, survivors, equivalent mutants                                                                                      |
+| queued      | `apps/api/README.md` names a nonexistent `test:cov` script                                       | Remove or restore intentionally; do not leave executable docs false                                                                                                     |
+| queued      | Source-regex tests and disabled Vitest rules remain known follow-ups                             | Existing `docs/testing.md` list; convert when owning files are touched                                                                                                  |
+| investigate | The chat-message single-flight integration test flakes only under suite load                     | Timed out on PR #361 and locally in the full 329-test run; isolated rerun passes 1/1; diagnose scheduling/state coupling before changing timeouts                       |
+| investigate | Product E2E auth navigation and session fixtures flake under concurrent Next dev load            | PR #361 rerun flaked in two auth cases; PR #367 hit `ERR_ABORTED`; logs show Next `ECONNRESET`/aborts; diagnose server lifecycle rather than adding retries or timeouts |
 
 ### Conventions and governance
 

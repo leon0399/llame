@@ -6,7 +6,9 @@
 
 import path from 'node:path';
 
-import type { streamText } from 'ai';
+import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { asSchema, streamText } from 'ai';
+import { MockLanguageModelV3 } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
@@ -17,7 +19,7 @@ import {
   createModelPromptLoader,
   renderSystemPromptTemplate,
 } from '../instance-config/prompt-loader';
-import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
+import { createFakeModelClient } from '../models/fake-model-client';
 import {
   type ModelClient,
   type ModelStreamInput,
@@ -73,10 +75,11 @@ const unexercisedModels: ModelClientFactory = {
 function compactionClient(input: {
   model: string;
   calls: ModelStreamInput[];
-  response?: string;
-  toolCalls?: unknown[];
+  response?: string | Promise<string>;
+  toolCalls?: Array<{ toolName: string; input: unknown }>;
   error?: Error;
   contextWindowTokens?: number;
+  onStart?: () => void;
 }): ModelClient {
   return {
     model: input.model,
@@ -88,12 +91,92 @@ function compactionClient(input: {
       if (input.error) {
         throw input.error;
       }
-      return {
-        text: Promise.resolve(input.response ?? '## Objective\nContinue.'),
-        toolCalls: Promise.resolve(input.toolCalls ?? []),
-        usage: Promise.resolve(ZERO_USAGE),
-        finishReason: Promise.resolve('stop'),
-      } as unknown as ReturnType<typeof streamText>;
+      const response = Promise.resolve(
+        input.response ?? '## Objective\nContinue.',
+      );
+      const toolCalls = input.toolCalls ?? [];
+      const model = new MockLanguageModelV3({
+        provider: 'fake',
+        modelId: input.model,
+        doStream: ({ abortSignal }) => {
+          input.onStart?.();
+          return Promise.resolve({
+            stream: new ReadableStream<LanguageModelV3StreamPart>({
+              async start(controller) {
+                let aborted = false;
+                const onAbort = () => {
+                  aborted = true;
+                  controller.error(abortSignal?.reason);
+                };
+                if (abortSignal?.aborted) {
+                  onAbort();
+                  return;
+                }
+                abortSignal?.addEventListener('abort', onAbort, { once: true });
+                try {
+                  const text = await response;
+                  if (aborted) {
+                    return;
+                  }
+                  controller.enqueue({ type: 'stream-start', warnings: [] });
+                  controller.enqueue({ type: 'text-start', id: 'summary' });
+                  if (text.length > 0) {
+                    controller.enqueue({
+                      type: 'text-delta',
+                      id: 'summary',
+                      delta: text,
+                    });
+                  }
+                  controller.enqueue({ type: 'text-end', id: 'summary' });
+                  for (const [index, toolCall] of toolCalls.entries()) {
+                    controller.enqueue({
+                      type: 'tool-call',
+                      toolCallId: `compaction-tool-${index}`,
+                      toolName: toolCall.toolName,
+                      input: JSON.stringify(toolCall.input),
+                    });
+                  }
+                  controller.enqueue({
+                    type: 'finish',
+                    finishReason: {
+                      unified: toolCalls.length > 0 ? 'tool-calls' : 'stop',
+                      raw: undefined,
+                    },
+                    usage: {
+                      inputTokens: {
+                        total: 0,
+                        noCache: 0,
+                        cacheRead: 0,
+                        cacheWrite: 0,
+                      },
+                      outputTokens: { total: 0, text: 0, reasoning: 0 },
+                    },
+                  });
+                  controller.close();
+                } catch (error) {
+                  controller.error(error);
+                } finally {
+                  abortSignal?.removeEventListener('abort', onAbort);
+                }
+              },
+            }),
+          });
+        },
+      });
+      return streamText({
+        model,
+        messages: request.messages,
+        system: request.system,
+        abortSignal: request.abortSignal,
+        ...(request.tools
+          ? {
+              tools: request.tools,
+              ...(request.toolChoice !== undefined
+                ? { toolChoice: request.toolChoice }
+                : {}),
+            }
+          : {}),
+      });
     },
   };
 }
@@ -219,16 +302,14 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     expect(COMPACTION_INSTRUCTION).toContain('<user_chat_history>');
     expect(calls[0].toolChoice).toBe('none');
     expect(Object.keys(calls[0].tools ?? {})).toEqual(['lookup']);
-    expect(
-      (calls[0].tools?.['lookup'] as { execute?: unknown }).execute,
-    ).toBeUndefined();
-    expect(
-      await (
-        calls[0].tools?.['lookup'] as unknown as {
-          inputSchema: { jsonSchema: Promise<unknown> };
-        }
-      ).inputSchema.jsonSchema,
-    ).toEqual(declarations[0].inputSchema);
+    const lookupTool = calls[0].tools?.['lookup'];
+    if (!lookupTool) {
+      throw new Error('Expected compaction request to declare lookup');
+    }
+    expect(lookupTool.execute).toBeUndefined();
+    expect(await asSchema(lookupTool.inputSchema).jsonSchema).toEqual(
+      declarations[0].inputSchema,
+    );
 
     const persisted = await tenantDb.runAs(userId, (tx) =>
       new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
@@ -1008,27 +1089,17 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const seeded = await seedSwitch();
     const sourceCalls: ModelStreamInput[] = [];
     const targetCalls: ModelStreamInput[] = [];
-    let rejectSummary!: (error: Error) => void;
     let sourceStarted!: () => void;
     const sourceStartedPromise = new Promise<void>((resolve) => {
       sourceStarted = resolve;
     });
-    const summaryPromise = new Promise<string>((_resolve, reject) => {
-      rejectSummary = reject;
+    const summaryPromise = new Promise<string>(() => undefined);
+    const sourceClient = compactionClient({
+      model: 'source-model',
+      calls: sourceCalls,
+      response: summaryPromise,
+      onStart: sourceStarted,
     });
-    const sourceClient: ModelClient = {
-      ...compactionClient({ model: 'source-model', calls: [] }),
-      streamText(request) {
-        sourceCalls.push(request);
-        sourceStarted();
-        return {
-          text: summaryPromise,
-          toolCalls: Promise.resolve([]),
-          usage: Promise.resolve(ZERO_USAGE),
-          finishReason: Promise.resolve('stop'),
-        } as unknown as ReturnType<typeof streamText>;
-      },
-    };
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
@@ -1057,7 +1128,6 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     });
     await sourceStartedPromise;
     abort.abort(RUN_TIMEOUT_ABORT_REASON);
-    rejectSummary(new Error('source request aborted'));
 
     await expect(execution).rejects.toBeInstanceOf(RunNotRunnableError);
     expect(sourceCalls[0]?.abortSignal).toBe(abort.signal);
@@ -1093,18 +1163,12 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const summaryPromise = new Promise<string>((resolve) => {
       resolveSummary = resolve;
     });
-    const sourceClient: ModelClient = {
-      ...compactionClient({ model: 'source-model', calls: [] }),
-      streamText() {
-        sourceStarted();
-        return {
-          text: summaryPromise,
-          toolCalls: Promise.resolve([]),
-          usage: Promise.resolve(ZERO_USAGE),
-          finishReason: Promise.resolve('stop'),
-        } as unknown as ReturnType<typeof streamText>;
-      },
-    };
+    const sourceClient = compactionClient({
+      model: 'source-model',
+      calls: [],
+      response: summaryPromise,
+      onStart: sourceStarted,
+    });
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
@@ -1171,18 +1235,12 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const summaryPromise = new Promise<string>((resolve) => {
       resolveSummary = resolve;
     });
-    const sourceClient: ModelClient = {
-      ...compactionClient({ model: 'source-model', calls: [] }),
-      streamText() {
-        sourceStarted();
-        return {
-          text: summaryPromise,
-          toolCalls: Promise.resolve([]),
-          usage: Promise.resolve(ZERO_USAGE),
-          finishReason: Promise.resolve('stop'),
-        } as unknown as ReturnType<typeof streamText>;
-      },
-    };
+    const sourceClient = compactionClient({
+      model: 'source-model',
+      calls: [],
+      response: summaryPromise,
+      onStart: sourceStarted,
+    });
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
