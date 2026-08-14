@@ -6,7 +6,16 @@
  */
 
 import type request from 'supertest';
-import type { LanguageModelUsage, ModelMessage, streamText } from 'ai';
+import type {
+  LanguageModelV3StreamPart,
+  LanguageModelV3Usage,
+} from '@ai-sdk/provider';
+import {
+  streamText as sdkStreamText,
+  type LanguageModelUsage,
+  type ModelMessage,
+} from 'ai';
+import { MockLanguageModelV3 } from 'ai/test';
 
 import { TITLE_SYSTEM_PROMPT } from '../titles/title';
 import {
@@ -76,6 +85,27 @@ export type FakeTurn = {
   aborted: boolean;
 };
 
+function toProviderUsage(usage: LanguageModelUsage): LanguageModelV3Usage {
+  return {
+    inputTokens: {
+      total: usage.inputTokens,
+      noCache: usage.inputTokenDetails.noCacheTokens,
+      cacheRead: usage.inputTokenDetails.cacheReadTokens,
+      cacheWrite: usage.inputTokenDetails.cacheWriteTokens,
+    },
+    outputTokens: {
+      total: usage.outputTokens,
+      text: usage.outputTokenDetails.textTokens,
+      reasoning: usage.outputTokenDetails.reasoningTokens,
+    },
+  };
+}
+
+const PROVIDER_ZERO_USAGE: LanguageModelV3Usage = {
+  inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
+  outputTokens: { total: 0, text: 0, reasoning: 0 },
+};
+
 export class FakeStreamingModelClient {
   readonly turns: FakeTurn[] = [];
   // Title-generation calls (#78) are tracked separately: they are async post-turn
@@ -112,169 +142,213 @@ export class FakeStreamingModelClient {
     totalTokens: 8,
     reasoningTokens: 1,
   };
-  shouldFinish = true;
   delayMs = 0;
   onFinishCalls = 0;
 
-  streamText(input: ModelStreamInput): ReturnType<typeof streamText> {
+  streamText(input: ModelStreamInput): ReturnType<typeof sdkStreamText> {
     if (input.system === TITLE_SYSTEM_PROMPT) {
       this.titleTurns.push(input.messages);
-      return {
-        text: Promise.resolve(this.titleResponse),
-      } as unknown as ReturnType<typeof streamText>;
+      const titleResponse = this.titleResponse;
+      return sdkStreamText({
+        model: new MockLanguageModelV3({
+          provider: 'fake',
+          modelId: this.model,
+          doStream: ({ abortSignal }) =>
+            Promise.resolve({
+              stream: new ReadableStream<LanguageModelV3StreamPart>({
+                start(controller) {
+                  const onAbort = () => {
+                    controller.error(new DOMException('Aborted', 'AbortError'));
+                  };
+                  if (abortSignal?.aborted) {
+                    onAbort();
+                    return;
+                  }
+                  abortSignal?.addEventListener('abort', onAbort, {
+                    once: true,
+                  });
+
+                  void Promise.resolve(titleResponse)
+                    .then((title) => {
+                      if (abortSignal?.aborted) {
+                        return;
+                      }
+                      controller.enqueue({
+                        type: 'stream-start',
+                        warnings: [],
+                      });
+                      controller.enqueue({ type: 'text-start', id: 'title' });
+                      controller.enqueue({
+                        type: 'text-delta',
+                        id: 'title',
+                        delta: title,
+                      });
+                      controller.enqueue({ type: 'text-end', id: 'title' });
+                      controller.enqueue({
+                        type: 'finish',
+                        finishReason: { unified: 'stop', raw: undefined },
+                        usage: PROVIDER_ZERO_USAGE,
+                      });
+                      controller.close();
+                    })
+                    .catch((error: unknown) => {
+                      if (!abortSignal?.aborted) {
+                        controller.error(error);
+                      }
+                    })
+                    .finally(() => {
+                      abortSignal?.removeEventListener('abort', onAbort);
+                    });
+                },
+              }),
+            }),
+        }),
+        messages: input.messages,
+        system: input.system,
+        abortSignal: input.abortSignal,
+      });
     }
 
     const response =
       this.responses[this.turns.length] ?? this.responses[0] ?? '';
+    const delayMs = this.delayMs;
+    const usage = this.usage;
     const turn: FakeTurn = {
       messages: input.messages,
       abortSignal: input.abortSignal,
       aborted: false,
     };
     this.turns.push(turn);
+    let abortSettlement = Promise.resolve();
+    let abortSettlementError: { error: unknown } | undefined;
+    const waitForAbortSettlement = async () => {
+      await abortSettlement;
+      if (abortSettlementError) {
+        throw abortSettlementError.error;
+      }
+    };
+    const model = new MockLanguageModelV3({
+      provider: 'fake',
+      modelId: this.model,
+      doStream: ({ abortSignal }) =>
+        Promise.resolve({
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            async start(controller) {
+              let delayTimer: ReturnType<typeof setTimeout> | undefined;
+              let unblock: () => void = () => undefined;
+              const onAbort = () => {
+                turn.aborted = true;
+                if (delayTimer) {
+                  clearTimeout(delayTimer);
+                }
+                controller.error(new DOMException('Aborted', 'AbortError'));
+                unblock();
+              };
+              if (abortSignal?.aborted) {
+                onAbort();
+                return;
+              }
+              abortSignal?.addEventListener('abort', onAbort, { once: true });
 
-    input.abortSignal?.addEventListener('abort', () => {
-      turn.aborted = true;
+              try {
+                if (delayMs > 0) {
+                  await new Promise<void>((resolve) => {
+                    unblock = resolve;
+                    delayTimer = setTimeout(resolve, delayMs);
+                  });
+                }
+                if (abortSignal?.aborted) {
+                  return;
+                }
+                controller.enqueue({ type: 'stream-start', warnings: [] });
+                controller.enqueue({ type: 'text-start', id: 'answer' });
+                if (response.length > 0) {
+                  controller.enqueue({
+                    type: 'text-delta',
+                    id: 'answer',
+                    delta: response,
+                  });
+                }
+                controller.enqueue({ type: 'text-end', id: 'answer' });
+                controller.enqueue({
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: undefined },
+                  usage: toProviderUsage(usage),
+                });
+                controller.close();
+              } catch (error) {
+                controller.error(error);
+              } finally {
+                abortSignal?.removeEventListener('abort', onAbort);
+              }
+            },
+          }),
+        }),
     });
-
-    // Resolves when generation (incl. onFinish/onError side effects) is done —
-    // consumeStream must not return early, or the worker unregisters aborts
-    // and stops heartbeating while the fake is still 'streaming'.
-    let resolveGeneration!: () => void;
-    const generationDone = new Promise<void>((resolve) => {
-      resolveGeneration = resolve;
-    });
-    const stream = new ReadableStream({
-      start: async (controller) => {
-        try {
-          await this.generate(controller, input, turn, response);
-        } finally {
-          resolveGeneration();
+    const result = sdkStreamText({
+      model,
+      messages: input.messages,
+      system: input.system,
+      abortSignal: input.abortSignal,
+      ...(input.tools
+        ? {
+            tools: input.tools,
+            ...(input.toolChoice !== undefined
+              ? { toolChoice: input.toolChoice }
+              : {}),
+          }
+        : {}),
+      onChunk: ({ chunk }) => {
+        if (chunk.type === 'text-delta') {
+          input.onTextDelta?.(chunk.text);
+        } else if (chunk.type === 'reasoning-delta') {
+          input.onReasoningDelta?.(chunk.text);
         }
       },
-    });
-
-    const toResponse = () => {
-      const sse = stream.pipeThrough(
-        new TransformStream({
-          transform(part, controller) {
-            controller.enqueue(`data: ${JSON.stringify(part)}\n\n`);
-          },
-          flush(controller) {
-            controller.enqueue('data: [DONE]\n\n');
-          },
-        }),
-      );
-      return new Response(sse.pipeThrough(new TextEncoderStream()), {
-        headers: {
-          'content-type': 'text/event-stream',
-          'cache-control': 'no-cache',
-          connection: 'keep-alive',
-          'x-vercel-ai-ui-message-stream': 'v1',
-        },
-      });
-    };
-
-    return {
-      // Lazy: only created when read, so tests that never await .text don't
-      // trip unhandled-rejection noise on aborted turns.
-      get text() {
-        return generationDone.then(() => {
-          if (turn.aborted) {
-            throw new Error('aborted');
-          }
-          return response;
+      onError: (event) => {
+        if (!input.abortSignal?.aborted) {
+          return input.onError?.(event);
+        }
+      },
+      onAbort: () => {
+        abortSettlement = Promise.resolve(
+          input.onError?.({
+            error: input.abortSignal?.reason ?? new Error('aborted'),
+          }),
+        ).catch((error: unknown) => {
+          abortSettlementError = { error };
         });
       },
-      textStream: new ReadableStream({
-        start(controller) {
-          controller.enqueue(response);
-          controller.close();
-        },
-      }) as never,
-      fullStream: new ReadableStream() as never,
-      consumeStream: async () => {
-        await generationDone;
+      onFinish: async ({ text, usage: actualUsage, finishReason }) => {
+        this.onFinishCalls += 1;
+        await input.onFinish?.({
+          text,
+          usage: actualUsage,
+          finishReason,
+        });
       },
-      toUIMessageStreamResponse: toResponse,
-    } as unknown as ReturnType<typeof streamText>;
-  }
-
-  private async generate(
-    controller: ReadableStreamDefaultController,
-    input: ModelStreamInput,
-    turn: FakeTurn,
-    response: string,
-  ): Promise<void> {
-    controller.enqueue({
-      type: 'start',
-      messageId: `fake-${this.turns.length}`,
     });
-    controller.enqueue({ type: 'text-start', id: 'text-1' });
 
-    if (this.delayMs > 0) {
-      // Event-driven abort fidelity (#73): the delay races the 'abort'
-      // EVENT, mirroring how the real AI SDK interrupts an in-flight
-      // request — not a post-hoc `.aborted` poll.
-      const abortedDuringDelay = await new Promise<boolean>((resolve) => {
-        const timer = setTimeout(() => {
-          input.abortSignal?.removeEventListener('abort', onAbort);
-          resolve(false);
-        }, this.delayMs);
-        const onAbort = () => {
-          clearTimeout(timer);
-          resolve(true);
-        };
-        if (input.abortSignal?.aborted) {
-          onAbort();
-          return;
+    return new Proxy(result, {
+      get(target, property, receiver): unknown {
+        if (property === 'consumeStream') {
+          return async (...args: Parameters<typeof target.consumeStream>) => {
+            await target.consumeStream(...args);
+            await waitForAbortSettlement();
+          };
         }
-        input.abortSignal?.addEventListener('abort', onAbort, { once: true });
-      });
-      if (abortedDuringDelay) {
-        turn.aborted = true;
-        const error = new Error('aborted');
-        await input.onError?.({ error });
-        controller.error(error);
-        return;
-      }
-    }
-
-    if (input.abortSignal?.aborted) {
-      turn.aborted = true;
-      const error = new Error('aborted');
-      await input.onError?.({ error });
-      controller.error(error);
-      return;
-    }
-
-    input.onTextDelta?.(response);
-    controller.enqueue({
-      type: 'text-delta',
-      id: 'text-1',
-      delta: response,
+        if (property === 'text') {
+          return (async () => {
+            try {
+              return await target.text;
+            } finally {
+              await waitForAbortSettlement();
+            }
+          })();
+        }
+        return Reflect.get(target, property, receiver);
+      },
     });
-    controller.enqueue({ type: 'text-end', id: 'text-1' });
-
-    if (input.abortSignal?.aborted) {
-      turn.aborted = true;
-      const error = new Error('aborted');
-      await input.onError?.({ error });
-      controller.error(error);
-      return;
-    }
-
-    if (this.shouldFinish) {
-      this.onFinishCalls += 1;
-      await input.onFinish?.({
-        text: response,
-        usage: this.usage,
-        finishReason: 'stop',
-      });
-      controller.enqueue({ type: 'finish' });
-    }
-
-    controller.close();
   }
 }
 

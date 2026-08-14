@@ -164,7 +164,6 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       totalTokens: 8,
       reasoningTokens: 1,
     };
-    models.client.shouldFinish = true;
     models.client.delayMs = 0;
   });
 
@@ -689,7 +688,6 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     models.client.delayMs = 0;
 
     const turnsAfterCancel = models.client.turns.length;
-    models.client.shouldFinish = true;
     models.client.responses = ['retry answer'];
     const retried = await request(http)
       .post(`/api/v1/chats/${chatA}/messages`)
