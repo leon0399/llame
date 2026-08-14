@@ -26,17 +26,18 @@ required.
 
 ## Published stack
 
-| Order | PR   | Layer                              |
-| ----: | ---- | ---------------------------------- |
-|     1 | #359 | Tracker and design baseline        |
-|     2 | #360 | Web test doubles                   |
-|     3 | #361 | Native complexity ceiling          |
-|     4 | #362 | AI SDK model doubles               |
-|     5 | #363 | AI SDK tool-callback types         |
-|     6 | #364 | API HTTP/framework test doubles    |
-|     7 | #365 | Chats controller test doubles      |
-|     8 | #366 | Chat-loop integration test doubles |
-|     9 | #367 | Search worker test doubles         |
+| Order | PR   | Layer                               |
+| ----: | ---- | ----------------------------------- |
+|     1 | #359 | Tracker and design baseline         |
+|     2 | #360 | Web test doubles                    |
+|     3 | #361 | Native complexity ceiling           |
+|     4 | #362 | AI SDK model doubles                |
+|     5 | #363 | AI SDK tool-callback types          |
+|     6 | #364 | API HTTP/framework test doubles     |
+|     7 | #365 | Chats controller test doubles       |
+|     8 | #366 | Chat-loop integration test doubles  |
+|     9 | #367 | Search worker test doubles          |
+|    10 | #368 | Compaction integration test doubles |
 
 ## Inventory
 
