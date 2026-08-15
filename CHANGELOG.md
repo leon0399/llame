@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Removed five unsafe assertions from MCP declaration-schema canonicalization and
+  its direct tests. `canonicalize` now truthfully preserves only the outer record
+  boundary while unconstrained values remain `unknown`; typed prototype-shaped
+  fixtures keep schema admission behavior explicit. The native one-thread API
+  inventory falls from 274 diagnostics across 81 files to 269 across 79.
+
 - Replaced seven unsafe narrowing assertions in persisted tool-observation replay
   and compaction-ledger writes with the shared runtime record guard and a local
   non-negative safe-integer guard. Malformed tool parts, cancellation metadata,

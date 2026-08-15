@@ -19,7 +19,7 @@
 - Modify: `apps/api/src/mcp/declaration-admission.test.ts`
 - Verify: `apps/api/src/mcp/declaration-admission.ts`
 
-- [ ] **Step 1: Capture the native failing assertion baseline**
+- [x] **Step 1: Capture the native failing assertion baseline**
 
   From `apps/api`, run:
 
@@ -29,7 +29,7 @@
 
   Expected: exit 1 with exactly five diagnostics: one production canonicalization assertion and four direct-test assertions.
 
-- [ ] **Step 2: Run the unchanged direct suite**
+- [x] **Step 2: Run the unchanged direct suite**
 
   From the repository root, run:
 
@@ -39,7 +39,7 @@
 
   Expected: 26/26 pass before edits. This behavior-preserving refactor uses the native rule in Step 1 as its RED gate.
 
-- [ ] **Step 3: Replace the test fixture assertions before production changes**
+- [x] **Step 3: Replace the test fixture assertions before production changes**
 
   In `declaration-admission.test.ts`:
 
@@ -49,7 +49,7 @@
 
   Do not add `any`, another assertion, a suppression, or a custom test helper.
 
-- [ ] **Step 4: Re-run the direct suite before production changes**
+- [x] **Step 4: Re-run the direct suite before production changes**
 
   Run the Step 2 command. Expected: 26/26 pass, preserving schema admission and prototype-shaped key behavior.
 
@@ -60,7 +60,7 @@
 - Modify: `apps/api/src/canonical-json.ts`
 - Modify: `apps/api/src/mcp/declaration-admission.ts`
 
-- [ ] **Step 1: Add a record-specific overload without widening the generic contract**
+- [x] **Step 1: Add a record-specific overload without widening the generic contract**
 
   Add these overload signatures immediately before the existing implementation:
 
@@ -73,11 +73,11 @@
 
   Keep the implementation body and its runtime behavior unchanged. Do not use a generic `<T>(value: T): T` overload: canonicalization does not preserve arbitrary class prototypes or unconstrained inner types.
 
-- [ ] **Step 2: Consume the overload at declaration admission**
+- [x] **Step 2: Consume the overload at declaration admission**
 
   Replace the production cast with an explicitly typed assignment or object field whose value is `canonicalize(schemaAdmission.inputSchema)`. The input is already a validated `Record<string, unknown>`, so overload resolution supplies the exact `JsonSchemaDocument` alias without an assertion.
 
-- [ ] **Step 3: Run focused GREEN checks**
+- [x] **Step 3: Run focused GREEN checks**
 
   Run the Step 2 direct Vitest command, then:
 
@@ -87,7 +87,7 @@
 
   Expected: 26/26 tests pass and typecheck exits 0.
 
-- [ ] **Step 4: Prove both owned files have zero native findings**
+- [x] **Step 4: Prove both owned files have zero native findings**
 
   Re-run the Step 1 Oxlint command. Expected: exit 0 and zero diagnostics across both files.
 
@@ -99,7 +99,7 @@
 - Modify: `CHANGELOG.md`
 - Modify: `docs/superpowers/plans/2026-08-15-unsafe-assertion-mcp-schema.md`
 
-- [ ] **Step 1: Run the full native inventory**
+- [x] **Step 1: Run the full native inventory**
 
   From `apps/api`, run:
 
@@ -112,7 +112,7 @@
   no unrelated drift occurred. The current unique-file projection is 79 because
   both owned files should leave the inventory, but observed JSON is authoritative.
 
-- [ ] **Step 2: Run exact scoped repository verification sequentially**
+- [x] **Step 2: Run exact scoped repository verification sequentially**
 
   From the repository root, run `free -h` and `vmstat 1 2` first. Proceed only
   when `free` reports at least 2 GiB available and the second `vmstat` sample
@@ -131,11 +131,11 @@
 
   Do not run the root aggregate build, mutation testing, parallel workers, or a custom checker.
 
-- [ ] **Step 3: Obtain independent reviews**
+- [x] **Step 3: Obtain independent reviews**
 
   Require specification-compliance and code-quality reviews of the implementation, then a final whole-layer review including tracker/changelog truthfulness. Fix and re-review any P0/P1 finding.
 
-- [ ] **Step 4: Update canonical evidence**
+- [x] **Step 4: Update canonical evidence**
 
   Record the five-finding reduction, direct-test count, final native inventory, and separate deferral of the SDK executable-binding assertion. Keep the native rule diagnostic until the full API inventory reaches zero.
 
