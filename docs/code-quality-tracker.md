@@ -13,68 +13,69 @@ measurement needed before implementation.
 
 ## Active stack
 
-| Order | State       | Layer                                   | Acceptance evidence                                                                                                            |
-| ----: | ----------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                              |
-|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                    |
-|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction       |
-|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                          |
-|     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code    |
-|     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI      |
-|     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                        |
-|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 200 product-owned files with zero findings through the same local/CI command                    |
-|     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces                  |
-|    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                     |
-|    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification           |
-|    12 | active      | Mutation-testing pilot                  | PR #390 carries the native baseline; PRs #391–#392 repair two child slices; layer 3 is ready and 16 useful layer-4 gaps remain |
-|    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                                |
+| Order | State       | Layer                                   | Acceptance evidence                                                                                                         |
+| ----: | ----------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                           |
+|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                 |
+|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction    |
+|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                       |
+|     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code |
+|     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI   |
+|     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                     |
+|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 200 product-owned files with zero findings through the same local/CI command                 |
+|     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces               |
+|    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                  |
+|    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification        |
+|    12 | active      | Mutation-testing pilot                  | PR #390 carries the native baseline; PRs #391–#393 repair three child slices; 16 useful layer-4 gaps remain                 |
+|    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
 
 ## Published PR stack
 
 Publication here means the PR exists in the remote stack; it does not mean the
 layer is merged or shipped. Layer state remains active until merge.
 
-| Order | PR   | Layer                               |
-| ----: | ---- | ----------------------------------- |
-|     1 | #359 | Tracker and design baseline         |
-|     2 | #360 | Web test doubles                    |
-|     3 | #361 | Native complexity ceiling           |
-|     4 | #362 | AI SDK model doubles                |
-|     5 | #363 | AI SDK tool-callback types          |
-|     6 | #364 | API HTTP/framework test doubles     |
-|     7 | #365 | Chats controller test doubles       |
-|     8 | #366 | Chat-loop integration test doubles  |
-|     9 | #367 | Search worker test doubles          |
-|    10 | #368 | Compaction integration test doubles |
-|    11 | #370 | Pins test doubles                   |
-|    12 | #371 | Worker AI SDK and abort settlement  |
-|    13 | #372 | Remaining AI SDK stream doubles     |
-|    14 | #373 | Auth service test doubles           |
-|    15 | #374 | Tenant DB service test doubles      |
-|    16 | #375 | Session cookie header types         |
-|    17 | #376 | Instance config test doubles        |
-|    18 | #377 | Tool tenant-context types           |
-|    19 | #378 | Source-owned service capabilities   |
-|    20 | #379 | Runtime-boundary negative fixtures  |
-|    21 | #380 | Worker database/lifecycle fixtures  |
-|    22 | #381 | Model-context repository coverage   |
-|    23 | #382 | Chats repository query coverage     |
-|    24 | #383 | Chat-loop transaction binding       |
-|    25 | #384 | Full-tree double-assertion gate     |
-|    26 | #385 | Constructor decorator placement     |
-|    27 | #386 | Semantic Markdown lint              |
-|    28 | #387 | Unused lint-disable ratchet         |
-|    29 | #388 | Contributor documentation contracts |
-|    30 | #389 | Shared TypeScript config ownership  |
-|    31 | #390 | Bounded mutation-testing pilot      |
-|    32 | #391 | MCP tool-ID mutation repairs        |
-|    33 | #392 | Protected-value mutation repairs    |
+| Order | PR   | Layer                                |
+| ----: | ---- | ------------------------------------ |
+|     1 | #359 | Tracker and design baseline          |
+|     2 | #360 | Web test doubles                     |
+|     3 | #361 | Native complexity ceiling            |
+|     4 | #362 | AI SDK model doubles                 |
+|     5 | #363 | AI SDK tool-callback types           |
+|     6 | #364 | API HTTP/framework test doubles      |
+|     7 | #365 | Chats controller test doubles        |
+|     8 | #366 | Chat-loop integration test doubles   |
+|     9 | #367 | Search worker test doubles           |
+|    10 | #368 | Compaction integration test doubles  |
+|    11 | #370 | Pins test doubles                    |
+|    12 | #371 | Worker AI SDK and abort settlement   |
+|    13 | #372 | Remaining AI SDK stream doubles      |
+|    14 | #373 | Auth service test doubles            |
+|    15 | #374 | Tenant DB service test doubles       |
+|    16 | #375 | Session cookie header types          |
+|    17 | #376 | Instance config test doubles         |
+|    18 | #377 | Tool tenant-context types            |
+|    19 | #378 | Source-owned service capabilities    |
+|    20 | #379 | Runtime-boundary negative fixtures   |
+|    21 | #380 | Worker database/lifecycle fixtures   |
+|    22 | #381 | Model-context repository coverage    |
+|    23 | #382 | Chats repository query coverage      |
+|    24 | #383 | Chat-loop transaction binding        |
+|    25 | #384 | Full-tree double-assertion gate      |
+|    26 | #385 | Constructor decorator placement      |
+|    27 | #386 | Semantic Markdown lint               |
+|    28 | #387 | Unused lint-disable ratchet          |
+|    29 | #388 | Contributor documentation contracts  |
+|    30 | #389 | Shared TypeScript config ownership   |
+|    31 | #390 | Bounded mutation-testing pilot       |
+|    32 | #391 | MCP tool-ID mutation repairs         |
+|    33 | #392 | Protected-value mutation repairs     |
+|    34 | #393 | Bounded-fetch limit mutation repairs |
 
 ## Current submission
 
-| State     | Layer                                       | Commit evidence                                                                                                              | PR   |
-| --------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---- |
-| submitted | Protected-value mutation repair child layer | `affbdf5f` adds seven behavior tests and records the 166-mutant 86.14% result with all 24 baseline useful gaps accounted for | #392 |
+| State     | Layer                                     | Commit evidence                                                                                                                   | PR   |
+| --------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| submitted | Bounded-fetch limit mutation repair layer | `6fc62a80`–`235a5180` add 27 behavior cases; `259fc4e0` records the 169-mutant 80.47% result and accounts for all 42 layer-3 gaps | #393 |
 
 ## Inventory
 
@@ -144,7 +145,7 @@ layer is merged or shipped. Layer state remains active until merge.
 | active      | First pilot candidate: three pure MCP utilities with direct unit tests                           | PR #390: 33 tests and 425 mutants; the 2026-08-15 baseline is 69.41% with 101 survivors, 29 no-coverage mutants, and 6 timeouts; disposition inventory follows below                                                              |
 | active      | Child layer 1: tool-id canonicalization/parser                                                   | PR #391: three behavior assertions cover invalid-format parsing, edge trimming, and the exact 64-character boundary; six baseline `U` gaps are repaired and 12 baseline survivors are reclassified `R` with exact manual evidence |
 | active      | Child layer 2: protected-values normalization/propagation                                        | PR #392: 17 baseline `U` gaps are killed, marker `S169` is reclassified `R` with an exact manual failure, and comparator/tie mutants `S191`–`S195` plus `S255` are reclassified `E`; no useful protected-values gap remains       |
-| active      | Child layer 3: bounded-fetch request parsing/body sizing/response byte-limit semantics           | PR pending: 39 baseline `U` gaps are killed and `S12`, `S16`, and `NC58` are reclassified `E` for the supported `BodyInit` domain; no useful layer-3 gap remains                                                                  |
+| active      | Child layer 3: bounded-fetch request parsing/body sizing/response byte-limit semantics           | PR #393: 39 baseline `U` gaps are killed and `S12`, `S16`, and `NC58` are reclassified `E` for the supported `BodyInit` domain; no useful layer-3 gap remains                                                                     |
 | queued      | Child layer 4: bounded-fetch SSE recognition/framing plus wrapper cancellation/metadata          | Exactly 16 useful `U` mutants remain queued: `S85`, `S113`, `S136`, `S137`, `S139`, `S140`, `S146`, `S149`, `S151`, `S153`, `S163`, `S164`, `S165`, `S166`, `S167`, `S168`; no gaps marked repaired                               |
 | done        | API README command inventory                                                                     | The workspace README lists executable commands only; it does not document a nonexistent coverage script or invent coverage tooling                                                                                                |
 | queued      | Source-regex tests and disabled Vitest rules remain known follow-ups                             | Existing `docs/testing.md` list; convert when owning files are touched                                                                                                                                                            |
@@ -251,7 +252,7 @@ backlog entries.
 | S164                         | 161 (`ObjectLiteral`)                                             | U           | The wrapper must preserve response status, status text, and headers; add metadata assertions.                                                              |
 | S165, S166, S167, S168       | 166-169 (`ObjectLiteral`)                                         | U           | `redirected`, `type`, and `url` are fetch response metadata; add a transparent-wrapper metadata case.                                                      |
 
-#### Child layer 3 repair result (2026-08-15; PR pending)
+#### Child layer 3 repair result (2026-08-15; PR #393 active)
 
 The baseline inventory above remains historical. This active child layer adds
 request-context, request-size, session, and non-SSE response-limit assertions

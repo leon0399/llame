@@ -96,8 +96,8 @@
 
 ### Task 6: Verify and publish
 
-- [ ] Run sequentially: direct Vitest, `pnpm --filter api lint`, `pnpm --filter api typecheck`, `pnpm lint:ast-grep`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
-- [ ] Do not run the aggregate root build.
-- [ ] Review the layer diff for production changes, generated reports, custom infrastructure, issue-closing claims, and accidental layer-4 scope.
-- [ ] Commit with the required co-author trailer.
-- [ ] Link the branch to stack #369, publish a non-draft PR based on #392, update the tracker with its PR number, push, and verify `needsRebase: false`.
+- [x] Run sequentially: direct Vitest, `pnpm --filter api lint`, `pnpm --filter api typecheck`, `pnpm lint:ast-grep`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+- [x] Do not run the aggregate root build.
+- [x] Review the layer diff for production changes, generated reports, custom infrastructure, issue-closing claims, and accidental layer-4 scope.
+- [x] Commit with the required co-author trailer.
+- [x] Link the branch to stack #369, publish a non-draft PR based on #392, update the tracker with its PR number, push, and verify `needsRebase: false`.
