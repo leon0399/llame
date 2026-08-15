@@ -61,6 +61,7 @@ required.
 |    27 | #386 | Semantic Markdown lint              |
 |    28 | #387 | Unused lint-disable ratchet         |
 |    29 | #388 | Contributor documentation contracts |
+|    30 | #389 | Shared TypeScript config ownership  |
 
 ## Inventory
 
