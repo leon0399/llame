@@ -14,8 +14,10 @@
     // tsconfig extends nothing shared) — the edge is cheap insurance so the
     // cached verdict stays honest the day one does.
     "lint": {
-      "dependsOn": ["transit"]
+      "dependsOn": ["transit", "//#lint:root"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/tools/oxlint/anti-slop/**"]
     },
+    "//#lint:root": {},
     // Transit node: a scriptless graph edge that folds a dependency's SOURCE
     // into a task's hash without forcing the dependency's task to run first.
     // Used by the cached lint/typecheck tasks so they run in parallel yet

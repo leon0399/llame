@@ -4,6 +4,12 @@
     "typeAware": true
   },
   "plugins": ["typescript", "unicorn", "oxc", "vitest"],
+  "jsPlugins": [
+    {
+      "name": "anti-slop",
+      "specifier": "../../tools/oxlint/anti-slop/index.ts"
+    }
+  ],
   "categories": {
     "correctness": "error"
   },
@@ -30,6 +36,9 @@
     }
   ],
   "rules": {
+    "anti-slop/no-chained-type-assertions": "error",
+    "anti-slop/no-unknown-type-aliases": "error",
+    "anti-slop/no-widen-then-assert": "error",
     "complexity": ["error", { "max": 35, "variant": "modified" }],
     // Requires a type parameter on every `vi.fn()` — noisy against our test
     // style, which relies on inference/assertion at the call site instead.

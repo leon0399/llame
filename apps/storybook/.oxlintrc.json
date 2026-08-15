@@ -1,12 +1,21 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "unicorn", "oxc", "react", "vitest"],
+  "jsPlugins": [
+    {
+      "name": "anti-slop",
+      "specifier": "../../tools/oxlint/anti-slop/index.ts"
+    }
+  ],
   "env": {
     "browser": true,
     "node": true
   },
   "ignorePatterns": ["storybook-static/**"],
   "rules": {
+    "anti-slop/no-chained-type-assertions": "error",
+    "anti-slop/no-unknown-type-aliases": "error",
+    "anti-slop/no-widen-then-assert": "error",
     "complexity": ["error", { "max": 35, "variant": "modified" }],
     "react/rules-of-hooks": "error",
     "react/exhaustive-deps": "warn",

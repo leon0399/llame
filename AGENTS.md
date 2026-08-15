@@ -78,9 +78,10 @@ Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in pr
   step only when it is recorded in the [API migration exception ledger](apps/api/AGENTS.md#gotchas)
   with its regeneration and verification requirements.
 - Conventional commits (e.g. `feat(api):`, `docs(spec):`).
-- Repository structural rules run through the pinned native ast-grep command
-  `pnpm lint:ast-grep` in Lefthook and CI. `as unknown as T` is banned across
-  owned `.ts`, `.tsx`, `.mts`, and `.cts` files; narrow the boundary, construct
+- The constructor-decorator placement rule runs through the pinned native
+  `pnpm lint:ast-grep` command in Lefthook and CI. Chained type assertions,
+  including `as unknown as T`, are banned across the root E2E and four workspace
+  Oxlint scopes by the vendored anti-slop plugin; narrow the boundary, construct
   a complete value, or validate untrusted input instead of suppressing the
   compiler.
 - Product-owned Markdown must pass `pnpm lint:markdown` using the pinned

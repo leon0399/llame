@@ -31,3 +31,5 @@ pnpm-lock.yaml
 
 # Vendored from shadcn CLI (upstream serialization).
 packages/ui/src/styles/shadcn.css
+# Vendored Oxlint plugin; update from its pinned upstream source, not Prettier.
+tools/oxlint/anti-slop/
