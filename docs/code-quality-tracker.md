@@ -55,6 +55,7 @@ required.
 |    24 | #383 | Chat-loop transaction binding       |
 |    25 | #384 | Full-tree double-assertion gate     |
 |    26 | #385 | Constructor decorator placement     |
+|    27 | #386 | Semantic Markdown lint              |
 
 ## Inventory
 
