@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  admitToolInputSchema,
   buildJsonSchemaValidator,
   safeParseArgs,
   resolveJsonSchema,
@@ -132,6 +133,35 @@ describe('safeParseArgs', () => {
     };
     const result = safeParseArgs(schema, { count: -5 });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('admitToolInputSchema', () => {
+  it('admits a Zod object schema as a record-shaped JSON Schema', async () => {
+    const result = await admitToolInputSchema(z.object({ query: z.string() }));
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.inputSchema).toMatchObject({
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+      },
+    });
+  });
+
+  it('returns a raw JSON Schema document by identity', async () => {
+    const schema: JsonSchemaDocument = {
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      type: 'object',
+      properties: { query: { type: 'string' } },
+    };
+
+    const result = await admitToolInputSchema(schema);
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.inputSchema).toBe(schema);
   });
 });
 
