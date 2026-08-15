@@ -88,10 +88,14 @@ pnpm --filter api test:mutation
 The scope is exactly three pure MCP production modules and their direct unit
 tests: `tool-id.ts` / `tool-id.test.ts`, `protected-values.ts` /
 `protected-values.test.ts`, and `mcp-bounded-fetch.ts` /
-`mcp-bounded-fetch.test.ts`. Stryker runs one worker and the installed Vitest
-runner forces one Vitest worker; do not increase concurrency without new
-measured peak-memory evidence. The native clear-text summary is emitted by the
-foreground command. Native HTML and JSON reports are written to
+`mcp-bounded-fetch.test.ts`. Stryker runs one worker (`concurrency: 1`). The
+repository pins `@stryker-mutator/vitest-runner@9.6.1` in the package and
+lockfile; its installed 9.6.1 runner source's runtime options force
+`maxThreads`, `maxWorkers`, and `maxConcurrency` to 1. This pin plus installed
+source is repo-reproducible evidence. Do not increase concurrency without new
+measured peak-memory evidence; any runner upgrade must reverify those three
+options and the peak-memory budget. The native clear-text summary is emitted by
+the foreground command. Native HTML and JSON reports are written to
 `apps/api/reports/mutation/mutation.html` and
 `apps/api/reports/mutation/mutation.json` under the ignored
 `apps/api/reports/mutation/` directory. Do not add a bespoke wrapper, reporter,

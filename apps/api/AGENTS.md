@@ -44,9 +44,14 @@ it is not a coverage substitute and is not a CI gate. It targets only
 integration, Docker, browser, or product-e2e suites.
 
 Run both commands in the foreground from the repository root. Stryker is limited
-to one worker (`concurrency: 1`), and the installed Vitest runner also forces one
-Vitest worker. Do not increase either concurrency setting without new measured
-peak-memory evidence; the pilot is deliberately resource-bounded.
+to one worker (`concurrency: 1`). The repository pins
+`@stryker-mutator/vitest-runner@9.6.1` in `apps/api/package.json` and the
+lockfile; the installed 9.6.1 runner source's runtime options force
+`maxThreads`, `maxWorkers`, and `maxConcurrency` to 1. This pin plus installed
+source is the repo-reproducible evidence. Do not increase either concurrency
+setting without new measured peak-memory evidence; any runner upgrade must
+reverify those three options and the peak-memory budget before it can change the
+pilot's limit.
 
 Stryker's native clear-text summary is emitted by the command. Native HTML and
 JSON reports are written to `apps/api/reports/mutation/mutation.html` and
