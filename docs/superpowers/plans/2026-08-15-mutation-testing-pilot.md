@@ -39,7 +39,7 @@
       `pnpm --filter api exec vitest run --project unit src/mcp/tool-id.test.ts src/mcp/protected-values.test.ts src/mcp/mcp-bounded-fetch.test.ts`.
 - [ ] Check host memory headroom, then run `/usr/bin/time -v pnpm --filter api test:mutation` in the foreground with the configured single worker.
 - [ ] Record runtime, peak RSS, mutation score, killed/survived/no-coverage/timeout/compile-error counts, and every survivor location from the native JSON report.
-- [ ] Classify each survivor as a useful behavior gap, likely equivalent mutant, or intentionally untested implementation detail. Do not suppress or game mutants to inflate the score.
+- [ ] Classify each survivor as a useful behavior gap, likely equivalent mutant, intentionally untested implementation detail, or (only with exact-replacement manual evidence) a narrowly evidenced runner/static-mutant activation artifact. The last category is not a test gap, equivalent mutant, ignored mutant, waiver, or score-inflation bucket; do not suppress or game mutants.
 
 ## Task 3: Repair evidence-backed test gaps
 
