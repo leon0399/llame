@@ -21,11 +21,12 @@ required.
 |     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code |
 |     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI   |
 |     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                     |
-|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 199 product-owned files with zero findings through the same local/CI command                 |
+|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 200 product-owned files with zero findings through the same local/CI command                 |
 |     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces               |
 |    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                  |
-|    11 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                 |
-|    12 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
+|    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification        |
+|    12 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                 |
+|    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
 
 ## Published stack
 
@@ -103,7 +104,7 @@ required.
 | done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                           |
 | done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                            | Workspace `lint` scripts and Turbo                                                                                           |
 | queued | API is type-aware; other workspaces are substantially lighter                              | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                          |
-| active | Semantic Markdown is linted across 199 product-owned files                                 | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded |
+| active | Semantic Markdown is linted across 200 product-owned files                                 | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded |
 | active | Unused lint-disable directives are rejected in every lint-owning workspace                 | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                          |
 | queued | Four Vitest rules are disabled in API                                                      | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                     |
 | active | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline    | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness           |
@@ -149,17 +150,17 @@ required.
 
 ### Documentation, specification, and ownership drift
 
-| State  | Finding                                                                                       | Evidence / exit condition                                                                                                    |
-| ------ | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| active | Runtime floor is consistently documented as Node 22.19+                                       | `package.json`, `.npmrc`, `pnpm-workspace.yaml`, and runtime decision doc agree; `.node-version` pins 22.23.1                |
-| active | Root migration policy matches the API's reviewed exception ledger                             | Drizzle generation remains the default; security/data-transition exceptions require documented regeneration and verification |
-| active | Test documentation matches uncached execution                                                 | `docs/testing.md` now reflects `turbo.json` for unit/Storybook and direct non-Turbo integration/eval/e2e gates               |
-| active | Root formatting command documents its real owned surface                                      | `pnpm format` is described as ignore-pruned repository-wide Prettier with cache, matching `package.json`                     |
-| queued | `SPEC.md` links an archived OpenSpec change as if it were active authority                    | Retarget canonical behavior to `openspec/specs` and provenance to the archive; add link validation                           |
-| queued | OpenSpec project rules and strict CI validation are absent                                    | Define project context/rules, measure current validation failures, then add an authoritative check                           |
-| queued | API and security-sensitive paths have no CODEOWNER                                            | Assign explicit owners for backend, migrations, auth/security configuration, and workflows                                   |
-| queued | Story provenance and documentation conventions are advisory only                              | Add an AST/static metadata guard with an explicit exception manifest                                                         |
-| queued | Root claims every workspace has child instructions, but `packages/config-typescript` has none | Add a focused guide or qualify the root statement                                                                            |
+| State  | Finding                                                                    | Evidence / exit condition                                                                                                    |
+| ------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| active | Runtime floor is consistently documented as Node 22.19+                    | `package.json`, `.npmrc`, `pnpm-workspace.yaml`, and runtime decision doc agree; `.node-version` pins 22.23.1                |
+| active | Root migration policy matches the API's reviewed exception ledger          | Drizzle generation remains the default; security/data-transition exceptions require documented regeneration and verification |
+| active | Test documentation matches uncached execution                              | `docs/testing.md` now reflects `turbo.json` for unit/Storybook and direct non-Turbo integration/eval/e2e gates               |
+| active | Root formatting command documents its real owned surface                   | `pnpm format` is described as ignore-pruned repository-wide Prettier with cache, matching `package.json`                     |
+| queued | `SPEC.md` links an archived OpenSpec change as if it were active authority | Retarget canonical behavior to `openspec/specs` and provenance to the archive; add link validation                           |
+| queued | OpenSpec project rules and strict CI validation are absent                 | Define project context/rules, measure current validation failures, then add an authoritative check                           |
+| queued | API and security-sensitive paths have no CODEOWNER                         | Assign explicit owners for backend, migrations, auth/security configuration, and workflows                                   |
+| queued | Story provenance and documentation conventions are advisory only           | Add an AST/static metadata guard with an explicit exception manifest                                                         |
+| active | Every workspace has focused child instructions                             | `packages/config-typescript/AGENTS.md` names preset consumers, config-only boundaries, and sequential verification           |
 
 ### Generated API and queue contracts
 
