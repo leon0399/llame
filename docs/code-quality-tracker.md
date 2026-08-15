@@ -36,50 +36,51 @@ measurement needed before implementation.
 Publication here means the PR exists in the remote stack; it does not mean the
 layer is merged or shipped. Layer state remains active until merge.
 
-| Order | PR   | Layer                                |
-| ----: | ---- | ------------------------------------ |
-|     1 | #359 | Tracker and design baseline          |
-|     2 | #360 | Web test doubles                     |
-|     3 | #361 | Native complexity ceiling            |
-|     4 | #362 | AI SDK model doubles                 |
-|     5 | #363 | AI SDK tool-callback types           |
-|     6 | #364 | API HTTP/framework test doubles      |
-|     7 | #365 | Chats controller test doubles        |
-|     8 | #366 | Chat-loop integration test doubles   |
-|     9 | #367 | Search worker test doubles           |
-|    10 | #368 | Compaction integration test doubles  |
-|    11 | #370 | Pins test doubles                    |
-|    12 | #371 | Worker AI SDK and abort settlement   |
-|    13 | #372 | Remaining AI SDK stream doubles      |
-|    14 | #373 | Auth service test doubles            |
-|    15 | #374 | Tenant DB service test doubles       |
-|    16 | #375 | Session cookie header types          |
-|    17 | #376 | Instance config test doubles         |
-|    18 | #377 | Tool tenant-context types            |
-|    19 | #378 | Source-owned service capabilities    |
-|    20 | #379 | Runtime-boundary negative fixtures   |
-|    21 | #380 | Worker database/lifecycle fixtures   |
-|    22 | #381 | Model-context repository coverage    |
-|    23 | #382 | Chats repository query coverage      |
-|    24 | #383 | Chat-loop transaction binding        |
-|    25 | #384 | Full-tree double-assertion gate      |
-|    26 | #385 | Constructor decorator placement      |
-|    27 | #386 | Semantic Markdown lint               |
-|    28 | #387 | Unused lint-disable ratchet          |
-|    29 | #388 | Contributor documentation contracts  |
-|    30 | #389 | Shared TypeScript config ownership   |
-|    31 | #390 | Bounded mutation-testing pilot       |
-|    32 | #391 | MCP tool-ID mutation repairs         |
-|    33 | #392 | Protected-value mutation repairs     |
-|    34 | #393 | Bounded-fetch limit mutation repairs |
-|    35 | #394 | Bounded-fetch SSE mutation repairs   |
-|    36 | #395 | Unsafe assertion boundary foundation |
+| Order | PR   | Layer                                 |
+| ----: | ---- | ------------------------------------- |
+|     1 | #359 | Tracker and design baseline           |
+|     2 | #360 | Web test doubles                      |
+|     3 | #361 | Native complexity ceiling             |
+|     4 | #362 | AI SDK model doubles                  |
+|     5 | #363 | AI SDK tool-callback types            |
+|     6 | #364 | API HTTP/framework test doubles       |
+|     7 | #365 | Chats controller test doubles         |
+|     8 | #366 | Chat-loop integration test doubles    |
+|     9 | #367 | Search worker test doubles            |
+|    10 | #368 | Compaction integration test doubles   |
+|    11 | #370 | Pins test doubles                     |
+|    12 | #371 | Worker AI SDK and abort settlement    |
+|    13 | #372 | Remaining AI SDK stream doubles       |
+|    14 | #373 | Auth service test doubles             |
+|    15 | #374 | Tenant DB service test doubles        |
+|    16 | #375 | Session cookie header types           |
+|    17 | #376 | Instance config test doubles          |
+|    18 | #377 | Tool tenant-context types             |
+|    19 | #378 | Source-owned service capabilities     |
+|    20 | #379 | Runtime-boundary negative fixtures    |
+|    21 | #380 | Worker database/lifecycle fixtures    |
+|    22 | #381 | Model-context repository coverage     |
+|    23 | #382 | Chats repository query coverage       |
+|    24 | #383 | Chat-loop transaction binding         |
+|    25 | #384 | Full-tree double-assertion gate       |
+|    26 | #385 | Constructor decorator placement       |
+|    27 | #386 | Semantic Markdown lint                |
+|    28 | #387 | Unused lint-disable ratchet           |
+|    29 | #388 | Contributor documentation contracts   |
+|    30 | #389 | Shared TypeScript config ownership    |
+|    31 | #390 | Bounded mutation-testing pilot        |
+|    32 | #391 | MCP tool-ID mutation repairs          |
+|    33 | #392 | Protected-value mutation repairs      |
+|    34 | #393 | Bounded-fetch limit mutation repairs  |
+|    35 | #394 | Bounded-fetch SSE mutation repairs    |
+|    36 | #395 | Unsafe assertion boundary foundation  |
+|    37 | #396 | Persisted tool-observation validation |
 
 ## Current submission
 
-| State | Layer                                 | Commit evidence                                                                                                                             | PR  |
-| ----- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --- |
-| ready | Persisted tool-observation validation | `2c8f4ed` removes seven unsafe assertions; malformed replay and checkpoint writes fail closed; native inventory falls from 281/82 to 274/81 | —   |
+| State     | Layer                                 | Commit evidence                                                                                                                             | PR   |
+| --------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| submitted | Persisted tool-observation validation | `2c8f4ed` removes seven unsafe assertions; malformed replay and checkpoint writes fail closed; native inventory falls from 281/82 to 274/81 | #396 |
 
 ## Inventory
 

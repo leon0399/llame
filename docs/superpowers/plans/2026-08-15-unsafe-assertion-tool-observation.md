@@ -123,6 +123,6 @@
 
   Add the stacked layer, before/after native counts, test evidence, and maintained-tool decision to `docs/code-quality-tracker.md`. Add a dated `CHANGELOG.md` entry describing the assertion-free persisted tool-observation validation. Keep the rule diagnostic until the full API inventory reaches zero.
 
-- [ ] **Step 5: Commit and publish the stacked PR**
+- [x] **Step 5: Commit and publish the stacked PR**
 
   Commit with a conventional message and the required co-author trailer. Submit the current branch above PR #395, open a non-draft PR, reference any applicable issues with `Closes #...`, and include a `Verification` section but no `Test plan` section. Monitor CI and repair failures; do not merge.
