@@ -54,12 +54,12 @@ The current pilot can be published before any of these repairs. The baseline has
 stack layer and must be reviewed, verified, and submitted independently. Do not
 batch the four layers into one local repair commit.
 
-| Child layer                                                | Useful `U` mutants | Boundary                                                                                         |
-| ---------------------------------------------------------- | -----------------: | ------------------------------------------------------------------------------------------------ |
-| 1. Tool-id canonicalization/parser                         |                 18 | Invalid-format parsing, canonical server/tool IDs, separators, and the 64-character boundary     |
-| 2. Protected-values normalization/propagation              |                 24 | Normalization, longest-match ordering and ties, scalar detection, and nested failure propagation |
-| 3. Bounded-fetch request and response byte limits/metadata |                 42 | Request parsing and byte budgets, response limits/content types, and response metadata           |
-| 4. Bounded-fetch SSE framing/cancellation                  |                 16 | Line/event framing, blank-line boundaries, consumer cancellation, and upstream response handling |
+| Child layer                                                                 | Useful `U` mutants | Boundary                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------------------------------------------------- | -----------------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Tool-id canonicalization/parser                                          |                 18 | Invalid-format parsing, canonical server/tool IDs, separators, and the 64-character boundary                                                                                                                                                                                                                                     |
+| 2. Protected-values normalization/propagation                               |                 24 | Normalization, longest-match ordering and ties, scalar detection, and nested failure propagation                                                                                                                                                                                                                                 |
+| 3. Bounded-fetch request parsing/body sizing/response byte-limit semantics  |                 42 | Exact IDs: `S7`, `S10`, `S12`, `S16`, `S17`, `S33`, `NC37`, `NC38`, `S39`, `NC51`, `NC52`, `NC53`, `NC54`, `NC55`, `NC56`, `NC57`, `NC58`, `NC59`, `S41`, `S42`, `S43`, `S45`, `S47`, `S48`, `S49`, `S50`, `S65`, `S66`, `S68`, `S70`, `S71`, `S73`, `S79`, `S81`, `S89`, `S101`, `S102`, `S103`, `S106`, `S109`, `S111`, `S123` |
+| 4. Bounded-fetch SSE recognition/framing plus wrapper cancellation/metadata |                 16 | Exact IDs: `S85`, `S113`, `S136`, `S137`, `S139`, `S140`, `S146`, `S149`, `S151`, `S153`, `S163`, `S164`, `S165`, `S166`, `S167`, `S168`                                                                                                                                                                                         |
 
 - [ ] For each child layer, add behavior-focused assertions for its `U` rows and prove the relevant survived behavior fails when the assertion is absent.
 - [ ] Make the smallest test or implementation change that expresses the real contract; avoid mutant-specific assertions and production-code test seams.
@@ -78,7 +78,7 @@ batch the four layers into one local repair commit.
 - Modify: `CHANGELOG.md`
 
 - [x] Document the exact commands, exact pilot scope, one-Stryker-worker plus one-Vitest-worker safety limit, foreground-only execution, diagnostic/non-CI status, native report locations, sandbox logging-server caveat, and rule against replacing Stryker with bespoke mutation infrastructure.
-- [x] Update the tracker with the actual baseline measurements, survivor disposition, current commit evidence, four queued child layers, and the explicit no-go against local batching or expanding mutation scope before runtime and peak-memory budgets are established.
+- [x] Update the tracker with the actual baseline measurements, survivor disposition, commit evidence (`8d5c0023` for implementation/baseline and `00f7ceb4` for operating docs), four queued child layers with exact mutant-ID membership, and the explicit no-go against local batching or expanding mutation scope before runtime and peak-memory budgets are established.
 - [x] Remove the stale API coverage command reference without inventing coverage tooling.
 - [x] Add the dated changelog entry for the diagnostic pilot.
 
