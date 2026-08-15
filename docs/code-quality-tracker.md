@@ -76,12 +76,13 @@ layer is merged or shipped. Layer state remains active until merge.
 |    35 | #394 | Bounded-fetch SSE mutation repairs    |
 |    36 | #395 | Unsafe assertion boundary foundation  |
 |    37 | #396 | Persisted tool-observation validation |
+|    38 | #397 | MCP schema canonicalization           |
 
 ## Current submission
 
-| State | Layer                                   | Commit evidence                                                                                                                       | PR  |
-| ----- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | --- |
-| ready | MCP declaration-schema canonicalization | `0bf5468` removes five schema-boundary assertions with a truthful record overload and typed fixtures; native inventory reaches 269/79 | —   |
+| State     | Layer                                   | Commit evidence                                                                                                                       | PR   |
+| --------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| submitted | MCP declaration-schema canonicalization | `0bf5468` removes five schema-boundary assertions with a truthful record overload and typed fixtures; native inventory reaches 269/79 | #397 |
 
 ## Inventory
 

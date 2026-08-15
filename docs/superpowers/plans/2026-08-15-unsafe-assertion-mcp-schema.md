@@ -139,7 +139,7 @@
 
   Record the five-finding reduction, direct-test count, final native inventory, and separate deferral of the SDK executable-binding assertion. Keep the native rule diagnostic until the full API inventory reaches zero.
 
-- [ ] **Step 5: Commit and publish the stacked PR**
+- [x] **Step 5: Commit and publish the stacked PR**
 
   Commit with conventional messages and the required co-author trailer. Before
   publication, run `gh stack view --json` and require the current branch base to
