@@ -35,9 +35,10 @@ measurement needed before implementation.
 |    18 | active      | Tool schema admission                   | Three production assertions removed; structural Zod evidence and owned generated schemas; focused 89/89; inventory 264/76                                            |
 |    19 | active      | MCP HTTP test fixture                   | Four assertions removed through shared record evidence and native address narrowing; focused 76/76; inventory 260/75                                                 |
 |    20 | active      | Tool-result truncation boundary         | Seventeen assertions removed through parsed success-record evidence and Zod-backed tests; focused 46/46; inventory 243/72                                            |
-|    21 | active      | Anti-slop foundation                    | Base `446268e` + documented non-null-wrapper patch; four rules enforced; 1,122 findings remain across eleven layers                                                  |
+|    21 | active      | Anti-slop foundation                    | Base `446268e` + documented non-null-wrapper patch; five rules enforced; 1,117 findings remain across ten layers                                                     |
 |    22 | active      | Product E2E deterministic readiness     | Owned production boot, mounted-chat foreground ownership, and browser-initiated revoked-session navigation; run 31905421872 passed 21/21 without retries; issue #403 |
 |    23 | active      | Owned object-parameter contracts        | Five lint scopes enforce `no-object-parameters`; three helpers use endpoint DTO variants or exact service capabilities; PR #404                                      |
+|    24 | active      | Domain-owned symbol names               | Five structural placeholder references now name prompt scenarios, rendered conversation nodes, or admitted MCP payloads; PR #405                                     |
 
 ## Published PR stack
 
@@ -90,6 +91,7 @@ layer is merged or shipped. Layer state remains active until merge.
 |    42 | #401 | Tool-result truncation boundary       |
 |    43 | #402 | Anti-slop foundation + E2E readiness  |
 |    44 | #404 | Owned object-parameter contracts      |
+|    45 | #405 | Domain-owned symbol names             |
 
 ## Current submission
 
@@ -103,6 +105,7 @@ layer is merged or shipped. Layer state remains active until merge.
 | submitted | Anti-slop foundation                    | `6bd13fdb` starts three zero-baseline rules; a documented patch + standard `RuleTester` close the non-null bypass; twelve total 1,125               | #402 |
 | submitted | Product E2E deterministic readiness     | `b3837fd1`, `2fcb54a6`, and `eba9eefa` close boot, stream, foreground-chat, and revoked-session races; run 31905421872 passed 21/21 without retries | #402 |
 | submitted | Owned object-parameter contracts        | `e527e817` replaces all three broad helper inputs with DTO-derived or capability-derived contracts; zero findings across five lint scopes           | #404 |
+| submitted | Domain-owned symbol names               | `6ba7cfba` renames all five structural placeholders by domain role; zero findings across five lint scopes                                           | #405 |
 
 ## Inventory
 
@@ -185,16 +188,16 @@ reports 243 diagnostics across 72 files.
 
 ### Lint and formatting
 
-| State  | Finding                                                                                    | Evidence / exit condition                                                                                                                                                       |
-| ------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                                                                              |
-| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                            | Workspace `lint` scripts and Turbo                                                                                                                                              |
-| queued | API is type-aware; other workspaces are substantially lighter                              | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                                                                             |
-| active | Semantic Markdown is linted across 200 product-owned files                                 | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded                                                    |
-| active | Unused lint-disable directives are rejected in every lint-owning workspace                 | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                                                                             |
-| queued | Four Vitest rules are disabled in API                                                      | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                                                                        |
-| active | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline    | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness                                                              |
-| active | All 15 `dmmulroy/anti-slop` Oxlint rules are adoption targets                              | Four zero-baseline rules use base `446268e` plus one documented correctness patch; eleven rules require remediation; only validated `unknown` inputs may carry local exceptions |
+| State  | Finding                                                                                    | Evidence / exit condition                                                                                                                                                    |
+| ------ | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                                                                           |
+| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                            | Workspace `lint` scripts and Turbo                                                                                                                                           |
+| queued | API is type-aware; other workspaces are substantially lighter                              | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                                                                          |
+| active | Semantic Markdown is linted across 200 product-owned files                                 | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded                                                 |
+| active | Unused lint-disable directives are rejected in every lint-owning workspace                 | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                                                                          |
+| queued | Four Vitest rules are disabled in API                                                      | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                                                                     |
+| active | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline    | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness                                                           |
+| active | All 15 `dmmulroy/anti-slop` Oxlint rules are adoption targets                              | Five zero-baseline rules use base `446268e` plus one documented correctness patch; ten rules require remediation; only validated `unknown` inputs may carry local exceptions |
 
 #### `anti-slop` rule qualification (2026-08-15)
 
@@ -220,7 +223,7 @@ override is acceptable.
 | queued | `no-reflect-apply`                          | Two diagnostics in one file; replace dynamic dispatch with typed calls/interfaces.                                                     |
 | queued | `no-reflect-get`                            | Four diagnostics/four files; parse boundaries or use typed property access.                                                            |
 | queued | `no-runtime-typeof`                         | 202 diagnostics/77 files; replace ad hoc representation narrowing with boundary schemas and parsed domain values.                      |
-| queued | `no-shape-in-symbol-names`                  | Five diagnostics/three files; rename structural placeholders to their domain roles.                                                    |
+| active | `no-shape-in-symbol-names`                  | Zero across five scopes; prompt scenarios, rendered conversation nodes, and admitted MCP payloads now carry their domain roles.        |
 | queued | `no-unknown-parameters`                     | 142 diagnostics/64 files; only immediate validation may retain a local suppression with a specific explanation.                        |
 | queued | `no-unknown-returns`                        | 18 diagnostics/15 files; parse where the producing layer owns the contract instead of exporting raw `unknown`.                         |
 | active | `no-unknown-type-aliases`                   | Zero across five owned scopes and enforced through root plus workspace Oxlint.                                                         |
@@ -228,7 +231,7 @@ override is acceptable.
 | active | `no-widen-then-assert`                      | Zero across five owned scopes; blocks local evidence erasure before it becomes unsafe-assertion debt.                                  |
 | queued | `require-safety-comment-for-type-assertion` | 386 diagnostics/142 files; enable after unsafe assertions reach zero, documenting only rare unexpressible invariants.                  |
 
-The remaining 1,122 diagnostics are remediation inventory, not a tolerated
+The remaining 1,117 diagnostics are remediation inventory, not a tolerated
 baseline. Adopt rules in reviewable layers rather than enabling the all-on preset
 over unrepaired source; newness is not a rejection criterion.
 
