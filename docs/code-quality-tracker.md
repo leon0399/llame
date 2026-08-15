@@ -57,6 +57,7 @@ required.
 |    25 | #384 | Full-tree double-assertion gate     |
 |    26 | #385 | Constructor decorator placement     |
 |    27 | #386 | Semantic Markdown lint              |
+|    28 | #387 | Unused lint-disable ratchet         |
 
 ## Inventory
 
