@@ -82,6 +82,77 @@ describe('MCP byte-bounded fetch', () => {
     expect(await response.json()).toEqual({});
   });
 
+  it('does not call onSessionId when the response omits the session header', async () => {
+    const onSessionId = vi.fn();
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () => Promise.resolve(new Response('{}')),
+      maxResponseBytes: 16,
+      onSessionId,
+    });
+
+    await boundedFetch('https://example.invalid');
+
+    expect(onSessionId).not.toHaveBeenCalled();
+  });
+
+  it('returns a consumable response when a session header has no callback', async () => {
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () =>
+        Promise.resolve(
+          new Response('{"ok":true}', {
+            headers: { 'mcp-session-id': 'session-sentinel' },
+          }),
+        ),
+      maxResponseBytes: 16,
+    });
+
+    const response = await boundedFetch('https://example.invalid');
+
+    await expect(response.json()).resolves.toEqual({ ok: true });
+  });
+
+  it('preserves a streamed application/json body at the exact byte limit', async () => {
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () =>
+        Promise.resolve(
+          responseFromChunks([bytes('{"ok'), bytes('":true}')], {
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+      maxResponseBytes: 11,
+    });
+
+    const response = await boundedFetch('https://example.invalid');
+
+    await expect(response.text()).resolves.toBe('{"ok":true}');
+  });
+
+  it('rejects an oversized Content-Length claim on a bodyless response', async () => {
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () =>
+        Promise.resolve(
+          new Response(null, { headers: { 'content-length': '17' } }),
+        ),
+      maxResponseBytes: 16,
+    });
+
+    await expect(
+      boundedFetch('https://example.invalid'),
+    ).rejects.toBeInstanceOf(McpBodyLimitError);
+  });
+
+  it('returns the original bodyless response when no oversized claim exists', async () => {
+    const original = new Response(null);
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () => Promise.resolve(original),
+      maxResponseBytes: 16,
+    });
+
+    await expect(boundedFetch('https://example.invalid')).resolves.toBe(
+      original,
+    );
+  });
+
   it('caps a non-2xx body while response.text consumes it and cancels upstream', async () => {
     const cancelled = vi.fn();
     const boundedFetch = createMcpBoundedFetch({
