@@ -13,21 +13,21 @@ measurement needed before implementation.
 
 ## Active stack
 
-| Order | State       | Layer                                   | Acceptance evidence                                                                                                          |
-| ----: | ----------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                            |
-|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                  |
-|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction     |
-|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                        |
-|     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code  |
-|     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI    |
-|     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                      |
-|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 200 product-owned files with zero findings through the same local/CI command                  |
-|     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces                |
-|    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                   |
-|    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification         |
-|    12 | active      | Mutation-testing pilot                  | PR #390 carries the native config/baseline; child layer 1 is ready locally (PR pending); 82 useful gaps remain in layers 2–4 |
-|    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                              |
+| Order | State       | Layer                                   | Acceptance evidence                                                                                                         |
+| ----: | ----------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                           |
+|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                 |
+|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction    |
+|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                       |
+|     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code |
+|     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI   |
+|     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                     |
+|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 200 product-owned files with zero findings through the same local/CI command                 |
+|     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces               |
+|    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                  |
+|    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification        |
+|    12 | active      | Mutation-testing pilot                  | PR #390 carries the native config/baseline; PR #391 repairs tool-ID gaps; 82 useful gaps remain in layers 2–4               |
+|    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
 
 ## Published PR stack
 
@@ -67,12 +67,13 @@ layer is merged or shipped. Layer state remains active until merge.
 |    29 | #388 | Contributor documentation contracts |
 |    30 | #389 | Shared TypeScript config ownership  |
 |    31 | #390 | Bounded mutation-testing pilot      |
+|    32 | #391 | MCP tool-ID mutation repairs        |
 
 ## Current submission
 
-| State     | Layer                                                 | Commit evidence                                                                                                                                           | PR   |
-| --------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
-| submitted | Mutation-testing pilot: native config, baseline, docs | `8d5c0023` contains the pilot implementation and measured baseline; `00f7ceb4` contains the operating docs; `7e5b13d0` closes generated-report formatting | #390 |
+| State     | Layer                                   | Commit evidence                                                                                                                   | PR   |
+| --------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| submitted | MCP tool-ID mutation repair child layer | `170d217a` adds three behavior assertions and records the 90-mutant 86.67% result plus exact evidence for all 12 runner artifacts | #391 |
 
 ## Inventory
 
@@ -140,7 +141,7 @@ layer is merged or shipped. Layer state remains active until merge.
 | done        | Unit, real-Postgres integration, Storybook browser, and product E2E are separate enforced layers | `docs/testing.md`, CI workflow                                                                                                                                                                                                                                                                                                                                                              |
 | done        | Bounded mutation-testing command and configuration                                               | `apps/api/stryker.config.json` limits mutation to three pure MCP utilities, uses pinned `@stryker-mutator/vitest-runner@9.6.1`, keeps Stryker and Vitest at one worker, and emits native reports; no broad CI gate initially                                                                                                                                                                |
 | active      | First pilot candidate: three pure MCP utilities with direct unit tests                           | PR #390: 33 tests and 425 mutants; the 2026-08-15 baseline is 69.41% with 101 survivors, 29 no-coverage mutants, and 6 timeouts; disposition inventory follows below                                                                                                                                                                                                                        |
-| ready       | Child layer 1: tool-id canonicalization/parser                                                   | Repair is complete locally and PR is pending: three behavior assertions cover invalid-format parsing, edge trimming, and the exact 64-character boundary; six baseline `U` gaps are repaired and 12 baseline survivors are reclassified `R` with exact manual evidence                                                                                                                      |
+| active      | Child layer 1: tool-id canonicalization/parser                                                   | PR #391: three behavior assertions cover invalid-format parsing, edge trimming, and the exact 64-character boundary; six baseline `U` gaps are repaired and 12 baseline survivors are reclassified `R` with exact manual evidence                                                                                                                                                           |
 | queued      | Child layer 2: protected-values normalization/propagation                                        | 24 useful `U` mutants remain queued for normalization, ordering/ties, scalar detection, and nested failure propagation; no gaps marked repaired                                                                                                                                                                                                                                             |
 | queued      | Child layer 3: bounded-fetch request parsing/body sizing/response byte-limit semantics           | Exactly 42 useful `U` mutants remain queued: `S7`, `S10`, `S12`, `S16`, `S17`, `S33`, `NC37`, `NC38`, `S39`, `NC51`, `NC52`, `NC53`, `NC54`, `NC55`, `NC56`, `NC57`, `NC58`, `NC59`, `S41`, `S42`, `S43`, `S45`, `S47`, `S48`, `S49`, `S50`, `S65`, `S66`, `S68`, `S70`, `S71`, `S73`, `S79`, `S81`, `S89`, `S101`, `S102`, `S103`, `S106`, `S109`, `S111`, `S123`; no gaps marked repaired |
 | queued      | Child layer 4: bounded-fetch SSE recognition/framing plus wrapper cancellation/metadata          | Exactly 16 useful `U` mutants remain queued: `S85`, `S113`, `S136`, `S137`, `S139`, `S140`, `S146`, `S149`, `S151`, `S153`, `S163`, `S164`, `S165`, `S166`, `S167`, `S168`; no gaps marked repaired                                                                                                                                                                                         |
@@ -281,7 +282,7 @@ backlog entries.
 | S374                       | 46 (`EqualityOperator`)                                                      | U           | The 64-character boundary is not tested; add exactly-at-limit and one-over-limit cases.                                                              |
 | S385                       | 55 (`ConditionalExpression`)                                                 | U           | Noncanonical parser inputs need a direct invalid-format branch assertion.                                                                            |
 
-#### Child layer 1 repair result (2026-08-15; ready, PR pending)
+#### Child layer 1 repair result (2026-08-15; PR #391 active)
 
 The baseline inventory above is historical and remains unchanged. This child
 layer is complete locally but is not merged or shipped. The source file was

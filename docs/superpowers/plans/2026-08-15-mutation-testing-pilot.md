@@ -73,9 +73,9 @@ not duplicate the ID lists in this plan.
 
 ### Child layer status (2026-08-15)
 
-- [x] Child layer 1 (tool-id canonicalization/parser) is ready locally: three behavior-focused assertions, direct Vitest 17/17, API lint/typecheck green, and the targeted native mutation result recorded in the tracker; PR pending.
+- [x] Child layer 1 (tool-id canonicalization/parser) is submitted as PR #391: three behavior-focused assertions, direct Vitest 17/17, API lint/typecheck green, and the targeted native mutation result recorded in the tracker.
 - [ ] Child layers 2–4 remain queued for their own evidence-backed repair slices.
-- [ ] Submit child layer 1 as its own stack layer; do not mark it merged or shipped from this plan.
+- [x] Submit child layer 1 as its own stack layer; it remains active until merge and is not marked shipped from this plan.
 
 ## Task 4: Complete current-pilot documentation for publication
 
