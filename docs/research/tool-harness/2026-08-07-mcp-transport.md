@@ -5,8 +5,8 @@ Streamable HTTP MCP tools), transport half only. The contract half — tool id f
 `tools.allowed` boot-validation split, drift-withdraws-the-tool, payload redaction,
 description neutralization — is **already decided** in
 `openspec/changes/add-dynamic-tool-catalog/design.md` ("Decided now, implemented in
-#215") and `docs/research/tool-harness/2026-08-07-214-harness-audit.md` ("Handoff to
-#215"). This document does not re-litigate either; it cites them where the transport
+issue #215") and `docs/research/tool-harness/2026-08-07-214-harness-audit.md`
+("Handoff to issue #215"). This document does not re-litigate either; it cites them where the transport
 findings touch them and flags anywhere a transport fact would force a reopen.
 
 Method: read the current MCP specification (2025-11-25 revision, the latest
@@ -52,7 +52,7 @@ all. Dropped from the comparison table below rather than forced into it.
 
 Verified by grepping the installed package, not by reading docs:
 
-```
+```text
 node_modules/.pnpm/ai@6.0.217_zod@3.25.76/node_modules/ai/dist/{index,internal/index,test/index}.{d.ts,d.mts,js,mjs}
 ```
 
@@ -227,10 +227,10 @@ notification) is fed straight to `this.onError(new MCPClientError({ message:
 an indistinguishable generic error for _every_ server-pushed notification, list-changed
 or otherwise. **There is no way to react to a server's own change signal at the
 `MCPClient` level** — you'd have to bypass the client and wrap `HttpMCPTransport`
-directly to inspect `onmessage` before the client discards the method name. #215's
+directly to inspect `onmessage` before the client discards the method name. Issue #215's
 "when to (re)discover" question therefore has one real answer with this library:
 **poll or re-discover on your own cadence** (e.g., once per run bind — matching
-#214's already-decided "drift can only mean a redeploy landed mid-run" framing, D2 in
+issue #214's already-decided "drift can only mean a redeploy landed mid-run" framing, D2 in
 design.md), not "subscribe and get pushed updates." This does not conflict with
 anything #214 decided; it just forecloses an option nobody had assumed was available.
 

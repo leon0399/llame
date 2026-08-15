@@ -1,6 +1,6 @@
 ## 1. Schema + config types
 
-- [x] 1.1 Extend `llame.config.schema.json` with a `providers` array: items `{ id (non-empty string), type (enum: exactly `["openai"]`), key? (string), baseUrl? (string) }`, `additionalProperties: false`; add a shared provider-`type` `$def`. Descriptions double as hover docs.
+- [x] 1.1 Extend `llame.config.schema.json` with a `providers` array: items `{ id (non-empty string), type (enum), key? (string), baseUrl? (string) }`, where the `type` enum has the sole value `["openai"]`; set `additionalProperties: false`; add a shared provider-`type` `$def`. Descriptions double as hover docs.
 - [x] 1.2 Extend the schema with a `models` array: items `{ id, provider, providerModelId, contextWindowTokens (integer ≥ 1), pricingUsdPer1M?, compactionThresholdTokens? (integer ≥ 1), + optional display fields mirroring the public model contract }`, `additionalProperties: false`. Use the numeric-or-token `$defs` where interpolation must stay editor-valid.
 - [x] 1.3 Add `providers` / `models` to the `LlameConfig` type in `llame-config.ts` (new `ProviderConfig` / `ModelConfig` types) and to `BUILT_IN_DEFAULTS` (empty arrays). Keep the type and schema co-edited (they must not drift).
 - [x] 1.4 Update the schema's top-level `description` and the `defaults`/`First-slice` prose to reflect that `models` now holds the catalog and provider connections live in `providers[]` (no longer "reserved"/"env-only").

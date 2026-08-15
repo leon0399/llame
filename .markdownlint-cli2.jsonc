@@ -1,0 +1,47 @@
+{
+  "$schema": "node_modules/markdownlint-cli2/schema/markdownlint-cli2-config-schema.json",
+  "gitignore": ".gitignore",
+  "globs": ["**/*.md"],
+  "ignores": [
+    // Installed/generated agent integrations are maintained upstream.
+    ".agents/skills/**",
+    ".claude/commands/opsx/**",
+    ".claude/skills/**",
+    ".codex/skills/**",
+    ".opencode/commands/**",
+    ".opencode/skills/**",
+    // Loader aliases are symlinks to the authoritative AGENTS.md files.
+    "**/CLAUDE.md",
+    "**/GEMINI.md",
+  ],
+  "config": {
+    // Prettier owns wrapping; specification tables and code often exceed 80 columns.
+    "MD013": false,
+    // Prettier owns table layout; MD060 disagrees on wide Unicode cell widths.
+    "MD060": false,
+    "MD024": { "allow_different_nesting": true },
+    // Front-matter metadata complements, rather than replaces, the rendered H1.
+    "MD025": { "front_matter_title": "" },
+    "MD041": { "allow_preamble": true, "front_matter_title": "" },
+  },
+  "overrides": [
+    {
+      // OpenSpec artifacts are schema fragments whose canonical sections begin at H2.
+      "filter": ["openspec/changes/**/*.md"],
+      "combine": "merge",
+      "config": { "MD041": false },
+    },
+    {
+      // Research reports deliberately use bold decision labels inside prose sections.
+      "filter": ["docs/research/**/*.md"],
+      "combine": "merge",
+      "config": { "MD036": false },
+    },
+    {
+      // GitHub issue templates use angle-bracket placeholders as authoring controls.
+      "filter": [".github/ISSUE_TEMPLATE/**/*.md"],
+      "combine": "merge",
+      "config": { "MD033": false, "MD041": false },
+    },
+  ],
+}

@@ -65,7 +65,7 @@ of `apps/api`.
   Every entry is a decision; unlisted packages are blocked.
 - **`enableGlobalVirtualStore` is deliberately off** — it would make
   per-worktree installs near-instant for the multi-agent worktree workflow
-  (https://pnpm.io/git-worktrees), but tsgo resolves through the
+  (<https://pnpm.io/git-worktrees>), but tsgo resolves through the
   global-store realpaths and `@types` identities split, failing the web
   typecheck on identical dependency versions. Revisit when tsgo/TS support
   the layout.

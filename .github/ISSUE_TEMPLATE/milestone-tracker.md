@@ -40,12 +40,12 @@ Foundations first; the track that consumes them last. Mark shipped items [x], an
 Use one ### per track. An emoji prefix is optional but makes the rendered tracker scannable.
 -->
 
-### <emoji> <Track A name> — <one-line purpose>
+### Track A: <emoji> <name> — <one-line purpose>
 
 - [ ] #XX — <child issue title> _(requires #YY)_
 - [ ] #XX — <child issue title>
 
-### <emoji> <Track B name> — <one-line purpose>
+### Track B: <emoji> <name> — <one-line purpose>
 
 - [x] #XX — <child issue title> _(shipped)_
 - [ ] #XX — <child issue title> _(requires #XX)_

@@ -44,6 +44,10 @@ jobs:
       # Project-wide native ast-grep rules; identical command to Lefthook.
       - run: pnpm lint:ast-grep
 
+      # Product-owned Markdown; generated integrations and symlink aliases are
+      # excluded explicitly in the shared markdownlint-cli2 configuration.
+      - run: pnpm lint:markdown
+
   format:
     name: Format
     runs-on: ubuntu-latest

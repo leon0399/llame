@@ -64,7 +64,7 @@ A user bio or preferences block is **tenant data**, per-user, mutable at any tim
 
 This maps cleanly onto llame's existing two-concerns split: **operator settings are config-as-code; tenant state is DB + RLS.** So:
 
-```
+```text
                      ┌─────────────────────────────────────────┐
    OPERATOR RAIL     │  llame.config.json → models[].prompt    │
    (config-as-code)  │  one complete prompt, boot-resolved,    │
@@ -148,7 +148,7 @@ The discipline in one sentence: **inject cheap invariants and pointers; retrieve
 
 Resulting assembly order (extending what `model-system-prompts` already specifies — the new element is one slot, not a new layer):
 
-```
+```text
   system   │ model's boot-resolved effective prompt        (operator, unchanged)
            │ portable prior user/assistant history
            │ conversation-checkpoint, if compacted         (typed, framed as data)
@@ -236,7 +236,7 @@ Industry vocabulary agrees: ChatGPT's UI section is "Personalization", Anthropic
 
 The one durable design rule the sweep argues for, given ChatGPT's documented failure:
 
-```
+```text
   operator system prompt          ← highest; never overridable by user content
   tool permissions / safety       ← never overridable by user content
   in-conversation instructions    ← wins within its conversation

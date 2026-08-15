@@ -11,7 +11,7 @@ decision_cutoff: 2026-07-15
 > **Status:** Working research synthesis. This records decisions agreed through
 > 2026-07-15 and separates them from recommendations and open questions. It is
 > not the canonical product vision, architecture specification, or roadmap.
-
+>
 > **Promotion note (2026-07-15):** This file is retained as noncanonical dated
 > evidence and decision provenance. [VISION.md](../../../../VISION.md) now owns
 > direction, [SPEC.md](../../../../SPEC.md) the current cross-cutting contract,

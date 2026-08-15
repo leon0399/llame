@@ -58,7 +58,7 @@ So the context is constructed field by field from explicitly chosen values, and 
 
 Verified against handlebars 4.7.9. Default escaping is more aggressive than HTML-safety framing suggests:
 
-```
+```text
 input   don't <tag> "q" & x = y ` z
 default don&#x27;t &lt;tag&gt; &quot;q&quot; &amp; x &#x3D; y &#x60; z
 ```
@@ -79,7 +79,7 @@ The working approach is idiomatic: the **context projection applies llame's own 
 
 Handlebars' standalone-tag handling already removes lines containing only a block tag, so the readable multi-line form needs no tilde. Verified with `A\n{{#if x}}\n## Heading\n\n{{x}}\n{{/if}}\nB`:
 
-```
+```text
 x set     "A\n## Heading\n\nVAL\nB"
 x absent  "A\nB"
 ```
