@@ -6,6 +6,10 @@ import { PinsService } from './pins.service';
 import { type PinnedRow } from './pins-repository';
 import { toPinnedItemResponse } from './dto/pins.dto';
 
+type PinsControllerServiceDouble = Partial<
+  Pick<PinsService, 'listPins' | 'pin' | 'unpin'>
+>;
+
 describe('toPinnedItemResponse', () => {
   it('maps a chat row to a ChatRefCard item ({id, title})', () => {
     const row: PinnedRow = {
@@ -120,7 +124,9 @@ describe('PinsService.pin — error mapping', () => {
 });
 
 describe('PinsController', () => {
-  async function makeController(service: object): Promise<PinsController> {
+  async function makeController(
+    service: PinsControllerServiceDouble,
+  ): Promise<PinsController> {
     const module = await Test.createTestingModule({
       controllers: [PinsController],
       providers: [{ provide: PinsService, useValue: service }],

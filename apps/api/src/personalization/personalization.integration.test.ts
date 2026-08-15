@@ -14,7 +14,12 @@ import request from 'supertest';
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
 import { cookieOf } from '../testing/support';
+import { type UpdatePersonalizationDto } from './dto/personalization.dto';
 import { PERSONALIZATION_CAPS } from './personalization.constants';
+
+type PersonalizationPatchBody =
+  | UpdatePersonalizationDto
+  | (UpdatePersonalizationDto & { userId: string });
 
 describe('/api/v1/me/personalization (HTTP)', () => {
   let app: INestApplication;
@@ -39,7 +44,7 @@ describe('/api/v1/me/personalization (HTTP)', () => {
   const get = (cookie: string) =>
     request(http).get('/api/v1/me/personalization').set('Cookie', cookie);
 
-  const patch = (cookie: string, body: object) =>
+  const patch = (cookie: string, body: PersonalizationPatchBody) =>
     request(http)
       .patch('/api/v1/me/personalization')
       .set('Cookie', cookie)
