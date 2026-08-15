@@ -24,10 +24,12 @@ validated schema, a narrower dependency contract, or a test fixture's constructi
 ## Decision
 
 Adopt all fifteen `dmmulroy/anti-slop` rules sequentially, never through its
-all-on preset over unrepaired source. The rule source is provenance-pinned at
-commit `446268e` and vendored unmodified because the exact Git package exports
-TypeScript from `node_modules`, which Node refuses to type-strip. Compiling a
-private package fork would add more ownership than the reviewed vendor.
+all-on preset over unrepaired source. The vendor base is provenance-pinned at
+commit `446268e` because the exact Git package exports TypeScript from
+`node_modules`, which Node refuses to type-strip. Reviewed correctness patches
+must be enumerated in `UPSTREAM.md`, protected by Oxlint's standard `RuleTester`,
+and removed when upstream carries the equivalent fix; the current patch closes
+the transparent non-null-wrapper bypass in `no-chained-type-assertions`.
 
 This complements rather than replaces the maintained type-aware
 `typescript/no-unsafe-type-assertion` migration. Three anti-slop rules already
@@ -114,8 +116,8 @@ specification and code-quality reviews.
 
 ## Rejected shortcuts
 
-- Compile or maintain a private anti-slop package fork instead of retaining the
-  reviewed upstream source and provenance.
+- Hide local divergence behind an upstream pin, or compile and maintain a broad
+  private anti-slop package fork instead of retaining reviewed provenance.
 - Enable all 15 rules and suppress or baseline the fallout.
 - Replace assertions with `any`, `Reflect.get`, assertion functions that do no
   validation, or schema parsing where ordinary control-flow narrowing suffices.

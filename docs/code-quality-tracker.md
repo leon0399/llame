@@ -35,7 +35,7 @@ measurement needed before implementation.
 |    18 | active      | Tool schema admission                   | Three production assertions removed; structural Zod evidence and owned generated schemas; focused 89/89; inventory 264/76                    |
 |    19 | active      | MCP HTTP test fixture                   | Four assertions removed through shared record evidence and native address narrowing; focused 76/76; inventory 260/75                         |
 |    20 | active      | Tool-result truncation boundary         | Seventeen assertions removed through parsed success-record evidence and Zod-backed tests; focused 46/46; inventory 243/72                    |
-|    21 | active      | Anti-slop foundation                    | Vendored upstream at `446268e`; three clean rules enforced; 1,125 findings measured for twelve remediation layers                            |
+|    21 | active      | Anti-slop foundation                    | Base `446268e` + documented non-null-wrapper patch; three rules enforced; 1,125 findings measured for twelve layers                          |
 |    22 | active      | Product E2E deterministic readiness     | Owned production boot + post-settlement MCP UI; run 31902894988 passed 21/21 without retries; issue #403                                     |
 
 ## Published PR stack
@@ -98,7 +98,7 @@ layer is merged or shipped. Layer state remains active until merge.
 | submitted | Tool schema admission                   | `24905194` removes three production assertions while preserving raw schema identity and dialects; inventory 264/76                    | #399 |
 | submitted | MCP HTTP test fixture                   | `6b4daa8a` removes four fixture assertions while preserving request summaries and loopback cleanup; inventory 260/75                  | #400 |
 | submitted | Tool-result truncation boundary         | `7e7d2bff` removes 17 assertions and rejects malformed oversized projections; focused 46/46; inventory 243/72                         | #401 |
-| submitted | Anti-slop foundation                    | `6bd13fdb` replaces the bespoke double-assertion gate with three zero-baseline rules; the remaining twelve total 1,125 diagnostics    | #402 |
+| submitted | Anti-slop foundation                    | `6bd13fdb` starts three zero-baseline rules; a documented patch + standard `RuleTester` close the non-null bypass; twelve total 1,125 | #402 |
 | submitted | Product E2E deterministic readiness     | `b3837fd1` owns production readiness and orders streamed UI after settlement; run 31902894988 passed 21/21 without retries            | #402 |
 
 ## Inventory
@@ -182,46 +182,48 @@ reports 243 diagnostics across 72 files.
 
 ### Lint and formatting
 
-| State  | Finding                                                                                    | Evidence / exit condition                                                                                                                                                             |
-| ------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                                                                                    |
-| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                            | Workspace `lint` scripts and Turbo                                                                                                                                                    |
-| queued | API is type-aware; other workspaces are substantially lighter                              | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                                                                                   |
-| active | Semantic Markdown is linted across 200 product-owned files                                 | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded                                                          |
-| active | Unused lint-disable directives are rejected in every lint-owning workspace                 | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                                                                                   |
-| queued | Four Vitest rules are disabled in API                                                      | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                                                                              |
-| active | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline    | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness                                                                    |
-| active | All 15 `dmmulroy/anti-slop` Oxlint rules are adoption targets                              | Three zero-baseline rules are enforced from upstream `446268e`; twelve measured rules require repository-wide remediation; only validated `unknown` inputs may carry local exceptions |
+| State  | Finding                                                                                    | Evidence / exit condition                                                                                                                                                        |
+| ------ | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                                                                               |
+| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                            | Workspace `lint` scripts and Turbo                                                                                                                                               |
+| queued | API is type-aware; other workspaces are substantially lighter                              | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                                                                              |
+| active | Semantic Markdown is linted across 200 product-owned files                                 | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded                                                     |
+| active | Unused lint-disable directives are rejected in every lint-owning workspace                 | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                                                                              |
+| queued | Four Vitest rules are disabled in API                                                      | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                                                                         |
+| active | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline    | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness                                                               |
+| active | All 15 `dmmulroy/anti-slop` Oxlint rules are adoption targets                              | Three zero-baseline rules use base `446268e` plus one documented correctness patch; twelve rules require remediation; only validated `unknown` inputs may carry local exceptions |
 
 #### `anti-slop` rule qualification (2026-08-15)
 
-Source review and the vendored rule source are pinned to
+Source review and the vendor base are pinned to
 `dmmulroy/anti-slop@446268e`. A Git dependency is not viable because Node refuses
 to strip the package's exported TypeScript under `node_modules`; compiling a
 private package fork would add needless ownership. The provenance-pinned vendor
-therefore remains unmodified, while llame owns configuration outside it. Oxlint
-and `@oxlint/plugins` are paired at mature 1.77.0, with type-aware
-`oxlint-tsgolint` 7.0.2001; this avoids bypassing the seven-day release-age gate
-for 1.78.0. A rule becomes an error only in the PR that removes every existing
-owned finding; no baseline, allowlist, or file-level override is acceptable.
+carries one enumerated correctness patch: transparent non-null expressions cannot
+split a chained assertion. Oxlint's standard `RuleTester` protects the bypass,
+and `UPSTREAM.md` owns reconciliation. Oxlint and `@oxlint/plugins` are paired at
+mature 1.77.0, with type-aware `oxlint-tsgolint` 7.0.2001; this avoids bypassing
+the seven-day release-age gate for 1.78.0. A rule becomes an error only in the PR
+that removes every existing owned finding; no baseline, allowlist, or file-level
+override is acceptable.
 
-| State  | Upstream rule                               | llame disposition                                                                                                              |
-| ------ | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| active | `no-chained-type-assertions`                | Zero across five owned scopes; replaces the two narrower bespoke ast-grep rules and remains enforced by standard Oxlint paths. |
-| queued | `no-conditional-empty-object-spread`        | 147 diagnostics/50 files; preserve exact omission semantics rather than replacing omission with unconditional `undefined`.     |
-| queued | `no-known-value-widening`                   | 47 diagnostics/30 files; repair with inference, `satisfies`, or named owner contracts.                                         |
-| queued | `no-module-mocking`                         | 81 diagnostics/34 files; replace module mocks with real dependency seams or faithful implementations, never overrides.         |
-| queued | `no-object-parameters`                      | Three diagnostics/three files; replace broad `object` inputs with owner types or boundary parsers.                             |
-| queued | `no-reflect-apply`                          | Two diagnostics in one file; replace dynamic dispatch with typed calls/interfaces.                                             |
-| queued | `no-reflect-get`                            | Four diagnostics/four files; parse boundaries or use typed property access.                                                    |
-| queued | `no-runtime-typeof`                         | 202 diagnostics/77 files; replace ad hoc representation narrowing with boundary schemas and parsed domain values.              |
-| queued | `no-shape-in-symbol-names`                  | Five diagnostics/three files; rename structural placeholders to their domain roles.                                            |
-| queued | `no-unknown-parameters`                     | 142 diagnostics/64 files; only immediate validation may retain a local suppression with a specific explanation.                |
-| queued | `no-unknown-returns`                        | 18 diagnostics/15 files; parse where the producing layer owns the contract instead of exporting raw `unknown`.                 |
-| active | `no-unknown-type-aliases`                   | Zero across five owned scopes and enforced through root plus workspace Oxlint.                                                 |
-| queued | `no-unsafe-dictionary-type`                 | 88 diagnostics/50 files; replace open top-type dictionaries with schema/owner-derived contracts, never `any`.                  |
-| active | `no-widen-then-assert`                      | Zero across five owned scopes; blocks local evidence erasure before it becomes unsafe-assertion debt.                          |
-| queued | `require-safety-comment-for-type-assertion` | 386 diagnostics/142 files; enable after unsafe assertions reach zero, documenting only rare unexpressible invariants.          |
+| State  | Upstream rule                               | llame disposition                                                                                                          |
+| ------ | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| active | `no-chained-type-assertions`                | Zero across five scopes; standard `RuleTester` covers parentheses, non-null wrappers, and angle/`as` chains.               |
+| queued | `no-conditional-empty-object-spread`        | 147 diagnostics/50 files; preserve exact omission semantics rather than replacing omission with unconditional `undefined`. |
+| queued | `no-known-value-widening`                   | 47 diagnostics/30 files; repair with inference, `satisfies`, or named owner contracts.                                     |
+| queued | `no-module-mocking`                         | 81 diagnostics/34 files; replace module mocks with real dependency seams or faithful implementations, never overrides.     |
+| queued | `no-object-parameters`                      | Three diagnostics/three files; replace broad `object` inputs with owner types or boundary parsers.                         |
+| queued | `no-reflect-apply`                          | Two diagnostics in one file; replace dynamic dispatch with typed calls/interfaces.                                         |
+| queued | `no-reflect-get`                            | Four diagnostics/four files; parse boundaries or use typed property access.                                                |
+| queued | `no-runtime-typeof`                         | 202 diagnostics/77 files; replace ad hoc representation narrowing with boundary schemas and parsed domain values.          |
+| queued | `no-shape-in-symbol-names`                  | Five diagnostics/three files; rename structural placeholders to their domain roles.                                        |
+| queued | `no-unknown-parameters`                     | 142 diagnostics/64 files; only immediate validation may retain a local suppression with a specific explanation.            |
+| queued | `no-unknown-returns`                        | 18 diagnostics/15 files; parse where the producing layer owns the contract instead of exporting raw `unknown`.             |
+| active | `no-unknown-type-aliases`                   | Zero across five owned scopes and enforced through root plus workspace Oxlint.                                             |
+| queued | `no-unsafe-dictionary-type`                 | 88 diagnostics/50 files; replace open top-type dictionaries with schema/owner-derived contracts, never `any`.              |
+| active | `no-widen-then-assert`                      | Zero across five owned scopes; blocks local evidence erasure before it becomes unsafe-assertion debt.                      |
+| queued | `require-safety-comment-for-type-assertion` | 386 diagnostics/142 files; enable after unsafe assertions reach zero, documenting only rare unexpressible invariants.      |
 
 The remaining 1,125 diagnostics are remediation inventory, not a tolerated
 baseline. Adopt rules in reviewable layers rather than enabling the all-on preset
@@ -566,6 +568,7 @@ replacement and manual failure proof, and never use it as a waiver or ignore buc
 | active | **No-go: trade reviewable delivery for local batching or further polish**                                    | Publish the ready current pilot without waiting for repairs, then submit the four queued child layers independently; do not batch the 100 useful gaps into one local-only repair commit |
 | active | **No-go: run resource-unbounded aggregate builds on agent workstations**                                     | Build affected workspaces sequentially; if the aggregate is required, use Turbo `--concurrency=1` and keep it foreground/observable                                                     |
 | active | **No-go: make flaky E2E green through timeout/retry inflation, forced actions, or rerun luck**               | Remove infrastructure work from assertion clocks and order interactions behind observable application readiness; retain `failOnFlakyTests` and diagnostic retries                       |
+| active | **No-go: claim a vendored dependency is unmodified while carrying local patches**                            | Enumerate each patch and regression in `UPSTREAM.md`, reconcile it on every upstream refresh, and delete it once upstream carries the equivalent fix                                    |
 | active | Existing conventions are defaults, not immunity from architectural review                                    | Replace a convention when evidence shows material quality, readability, or architecture gains; document and migrate the owned scope, never create a silent one-off divergence           |
 | active | Keep this tracker current in every quality stack layer                                                       | Layer changes state and adds PR/evidence before submission                                                                                                                              |
 | active | Modified cyclomatic complexity must stay at `<= 35` and refactors must follow real responsibility boundaries | `AGENTS.md`; arbitrary helper extraction, inline disables, and other metric gaming are prohibited; active until remote merge                                                            |

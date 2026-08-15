@@ -6,8 +6,9 @@
 
 ## Scope and decisions
 
-- Pin the vendored rule source to `dmmulroy/anti-slop@446268e` and retain its
-  MIT license plus explicit provenance.
+- Pin the vendor base to `dmmulroy/anti-slop@446268e`, retain its MIT license,
+  and enumerate any reviewed correctness patch in `UPSTREAM.md` with native
+  `RuleTester` coverage.
 - Vendor the source instead of installing the Git package. The exact-SHA
   package probe failed with Node's
   `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING` because upstream exports
@@ -26,7 +27,8 @@
   its constructor-decorator rule; that rule still owns a distinct syntax
   convention.
 - Do not add a baseline, file-level override, generated report, custom wrapper,
-  or repository-specific rule-test harness.
+  or repository-specific rule-test harness. Use Oxlint's standard `RuleTester`
+  for a documented vendor correctness patch.
 
 ## Measured follow-up inventory
 
@@ -58,7 +60,7 @@ tooling layer.
       `@oxlint/plugins`, update the shared Oxlint catalog and API tsgolint peer, and
       regenerate the pnpm lockfile with the repository's package manager.
 - [x] Verify the vendored plugin loads under Node 22 and Oxlint 1.77.0 using the
-      standard Oxlint CLI; do not add a custom test runner.
+      standard Oxlint CLI and `RuleTester`; do not add a custom test runner.
 
 ## Task 2: Enforce the zero-baseline rules everywhere
 
@@ -88,6 +90,6 @@ tooling layer.
       gate to ast-grep or rejects the now-proven vendor route.
 - [x] Obtain specification-compliance and code-quality review; repair every
       factual or P0/P1 defect.
-- [ ] Commit with conventional messages and the required co-author trailer,
+- [x] Commit with conventional messages and the required co-author trailer,
       publish a non-draft stacked PR above #401, reference applicable issues, and
       monitor its final head to green without merging.

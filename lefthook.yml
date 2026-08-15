@@ -15,7 +15,7 @@ pre-commit:
       run: pnpm --filter api lint
 
     - name: root lint (oxlint)
-      glob: "{e2e/**/*.{ts,tsx,js,mjs},playwright.config.ts,.oxlintrc.json,tools/oxlint/anti-slop/**/*.ts}"
+      glob: "{e2e/**/*.{ts,tsx,js,mjs},playwright.config.ts,.oxlintrc.json,package.json,tools/oxlint/anti-slop/**/*.{ts,json}}"
       run: pnpm lint:root
 
     # Constructor-decorator placement (#286). The same native ast-grep command

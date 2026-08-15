@@ -14,9 +14,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   its three repository-wide zero-baseline rules through Oxlint: chained type
   assertions, unknown-only aliases, and widen-then-assert flows. The maintained
   chained-assertion rule replaces two bespoke ast-grep rules; root E2E joins the
-  four workspace lint scopes through Turbo and Lefthook. The remaining twelve
-  anti-slop rules produce 1,125 measured diagnostics and stay queued for
-  complete remediation, not suppression.
+  four workspace lint scopes through Turbo and Lefthook. A documented local
+  correctness patch closes the transparent non-null-wrapper bypass and is
+  covered by Oxlint's standard `RuleTester`. The remaining twelve anti-slop rules
+  produce 1,125 measured diagnostics and stay queued for complete remediation,
+  not suppression.
 
 - Removed seventeen unsafe assertions from tool-result truncation and its direct
   runner tests. Oversized serialized results must remain success records before
