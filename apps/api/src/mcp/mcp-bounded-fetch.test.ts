@@ -31,6 +31,29 @@ function responseFromChunks(
 
 const bytes = (value: string): Uint8Array => new TextEncoder().encode(value);
 
+const requestBodyCases = [
+  {
+    label: 'URLSearchParams',
+    body: new URLSearchParams({ value: 'é' }),
+    byteLength: 12,
+  },
+  {
+    label: 'ArrayBuffer',
+    body: new Uint8Array([0, 1, 2, 3]).buffer,
+    byteLength: 4,
+  },
+  {
+    label: 'Uint8Array view',
+    body: new Uint8Array([0, 1, 2, 3, 4]).subarray(1, 4),
+    byteLength: 3,
+  },
+  {
+    label: 'Blob',
+    body: new Blob([new Uint8Array([0xc3, 0xa9])]),
+    byteLength: 2,
+  },
+] as const;
+
 describe('MCP byte-bounded fetch', () => {
   it('forces redirect error and captures the session before returning the response', async () => {
     const seen: RequestInit[] = [];
@@ -401,4 +424,39 @@ describe('MCP byte-bounded fetch', () => {
     ).rejects.toBeInstanceOf(McpRequestLimitError);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it.each(requestBodyCases)(
+    'enforces the request byte limit for $label bodies',
+    async ({ body, byteLength }) => {
+      const exactFetch = vi.fn(() => Promise.resolve(new Response('{}')));
+      const exactBoundedFetch = createMcpBoundedFetch({
+        fetch: exactFetch,
+        maxRequestBytes: byteLength,
+        maxResponseBytes: 16,
+      });
+
+      await expect(
+        exactBoundedFetch('https://example.invalid', {
+          method: 'POST',
+          body,
+        }),
+      ).resolves.toBeInstanceOf(Response);
+      expect(exactFetch).toHaveBeenCalledOnce();
+
+      const belowFetch = vi.fn(() => Promise.resolve(new Response('{}')));
+      const belowBoundedFetch = createMcpBoundedFetch({
+        fetch: belowFetch,
+        maxRequestBytes: byteLength - 1,
+        maxResponseBytes: 16,
+      });
+
+      await expect(
+        belowBoundedFetch('https://example.invalid', {
+          method: 'POST',
+          body,
+        }),
+      ).rejects.toBeInstanceOf(McpRequestLimitError);
+      expect(belowFetch).not.toHaveBeenCalled();
+    },
+  );
 });
