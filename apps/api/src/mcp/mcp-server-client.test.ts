@@ -14,6 +14,7 @@ import {
   mcpStreamableHttpInitialize,
   type McpFixtureResponse,
 } from './mcp-test-fixture';
+import { isRecord } from '../unknown-record';
 
 const emptyToolSchema = { type: 'object' as const, properties: {} };
 const ONE_MIB = 1024 * 1024;
@@ -60,10 +61,24 @@ function requestBody(init: RequestInit | undefined): {
   if (typeof init?.body !== 'string') {
     throw new TypeError('expected a string MCP request body');
   }
-  return JSON.parse(init.body) as {
-    readonly id?: number;
-    readonly method: string;
-  };
+  let body: unknown;
+  try {
+    body = JSON.parse(init.body);
+  } catch {
+    throw new TypeError('expected a valid MCP request body');
+  }
+  if (!isRecord(body)) {
+    throw new TypeError('expected a valid MCP request body');
+  }
+  const method = body['method'];
+  const id = body['id'];
+  if (
+    typeof method !== 'string' ||
+    (id !== undefined && typeof id !== 'number')
+  ) {
+    throw new TypeError('expected a valid MCP request body');
+  }
+  return id === undefined ? { method } : { id, method };
 }
 
 function jsonRpcResult(
@@ -1381,6 +1396,22 @@ describe('McpServerClient', () => {
       }
     },
   );
+
+  it('retains a constructor name when the package creates an own executor', async () => {
+    const { fixture, client } = await connectFixture({
+      listResponses: [jsonRpcResult(1, { tools: [tool('constructor')] })],
+    });
+
+    try {
+      const catalog = await client.discover();
+      expect(catalog.tools.map(({ definition }) => definition.id)).toEqual([
+        'mcp__web__constructor',
+      ]);
+      expect(catalog.refused).toEqual([]);
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
 
   it('isolates a raw name for which the package cannot create an own executor', async () => {
     const { fixture, client } = await connectFixture({
