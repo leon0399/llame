@@ -5,6 +5,8 @@ import {
   type MCPTransport,
 } from '@ai-sdk/mcp';
 
+import { type ToolResult } from '../tools/types';
+import { isRecord } from '../unknown-record';
 import {
   admitMcpToolDefinitions,
   type AdmittedMcpToolDefinition,
@@ -32,7 +34,6 @@ import {
   type McpStdioTransportConfig,
 } from './mcp-stdio-transport';
 import { createMcpToolId } from './tool-id';
-import { type ToolResult } from '../tools/types';
 
 const ONE_MIB = 1024 * 1024;
 const MAX_TOOLS_PER_PAGE = 256;
@@ -175,9 +176,6 @@ class McpMatchingResponseError extends Error {
     this.name = 'McpMatchingResponseError';
   }
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function rpcRequest(init: RequestInit | undefined): {
   readonly id?: string | number;

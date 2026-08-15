@@ -2,6 +2,7 @@ import { canonicalize } from '../canonical-json';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { admitToolInputSchema } from '../tools/schema-utils';
 import { type JsonSchemaDocument } from '../tools/types';
+import { isRecord } from '../unknown-record';
 import {
   createMcpToolId,
   findAsciiCaseFoldedCollisionIndexes,
@@ -44,9 +45,6 @@ export type McpDeclarationAdmissionResult = {
     readonly reason: McpDeclarationRefusalReason;
   }[];
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function safeRefusalId(
   serverId: string,

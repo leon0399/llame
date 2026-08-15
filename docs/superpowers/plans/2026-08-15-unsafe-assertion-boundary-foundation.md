@@ -20,19 +20,19 @@
 - Create: `apps/api/src/unknown-record.ts`
 - Verify: `apps/api/src/mcp/mcp-bounded-fetch.ts`
 
-- [ ] From `apps/api`, run
+- [x] From `apps/api`, run
       `pnpm exec oxlint --threads=1 --type-aware -D typescript/no-unsafe-type-assertion --format=json src/mcp/mcp-bounded-fetch.ts`
       and verify exactly one diagnostic at the parsed request body.
-- [ ] Add a Vitest test importing `isRecord` from the not-yet-created module and specifying the boundary: accept plain and null-prototype records; reject `null`, arrays, primitives, and functions.
-- [ ] Run `pnpm --filter api exec vitest run src/unknown-record.test.ts` and verify RED because `./unknown-record` does not exist.
-- [ ] Add `apps/api/src/unknown-record.ts` with only:
+- [x] Add a Vitest test importing `isRecord` from the not-yet-created module and specifying the boundary: accept plain and null-prototype records; reject `null`, arrays, primitives, and functions.
+- [x] Run `pnpm --filter api exec vitest run src/unknown-record.test.ts` and verify RED because `./unknown-record` does not exist.
+- [x] Add `apps/api/src/unknown-record.ts` with only:
 
 ```ts
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 ```
 
-- [ ] Run the focused test and verify GREEN.
+- [x] Run the focused test and verify GREEN.
 
 ### Task 2: Consolidate existing MCP/tool predicates
 
@@ -43,9 +43,9 @@ export const isRecord = (value: unknown): value is Record<string, unknown> =>
 - Modify: `apps/api/src/mcp/mcp-server-client.ts`
 - Modify: `apps/api/src/tools/turn-tool-catalog.ts`
 
-- [ ] Import `isRecord` from `../unknown-record` in each owner and delete only the byte-identical local predicate.
-- [ ] Do not move exact-key, protocol, schema, redaction, or domain validators into the shared module.
-- [ ] Run the direct suites sequentially:
+- [x] Import `isRecord` from `../unknown-record` in each owner and delete only the byte-identical local predicate.
+- [x] Do not move exact-key, protocol, schema, redaction, or domain validators into the shared module.
+- [x] Run the direct suites sequentially:
       `src/mcp/declaration-admission.test.ts`,
       `src/mcp/protected-values.test.ts`,
       `src/mcp/mcp-server-client.test.ts`, and
@@ -58,13 +58,18 @@ export const isRecord = (value: unknown): value is Record<string, unknown> =>
 - Modify: `apps/api/src/mcp/mcp-bounded-fetch.ts`
 - Verify: `apps/api/src/mcp/mcp-bounded-fetch.test.ts`
 
-- [ ] Import `isRecord` and replace the manual object/array condition plus `as Record<string, unknown>` with `if (!isRecord(body))` and direct indexed access.
-- [ ] Preserve malformed JSON fallback, non-string method fallback, HTTP-method normalization, and all request/response byte behavior.
-- [ ] Run `pnpm --filter api exec vitest run src/mcp/mcp-bounded-fetch.test.ts`; all 46 existing tests must pass.
-- [ ] From `apps/api`, run
+- [x] Import `isRecord` and replace the manual object/array condition plus `as Record<string, unknown>` with `if (!isRecord(body))` and direct indexed access.
+- [x] Preserve malformed JSON fallback, non-string method fallback, HTTP-method normalization, and all request/response byte behavior.
+- [x] Run `pnpm --filter api exec vitest run src/mcp/mcp-bounded-fetch.test.ts`; all 46 existing tests must pass.
+- [x] From `apps/api`, run
       `pnpm exec oxlint --threads=1 --type-aware -D typescript/no-unsafe-type-assertion --format=json src/unknown-record.ts src/mcp/declaration-admission.ts src/mcp/protected-values.ts src/mcp/mcp-server-client.ts src/mcp/mcp-bounded-fetch.ts src/tools/turn-tool-catalog.ts`
-      and verify zero diagnostics.
-- [ ] From `apps/api`, run
+      and verify that `unknown-record.ts`, `protected-values.ts`, and
+      `mcp-bounded-fetch.ts` report zero diagnostics. The consolidation-only owners
+      retain exactly four pre-existing findings for later domain slices:
+      `turn-tool-catalog.ts` lines 145 and 332, `declaration-admission.ts` line 342,
+      and `mcp-server-client.ts` line 1082. Do not broaden this foundation layer to
+      repair them.
+- [x] From `apps/api`, run
       `pnpm exec oxlint --threads=1 --type-aware -D typescript/no-unsafe-type-assertion --format=json .`
       and verify 281 diagnostics. Record the observed unique-file count from native JSON rather than making it a brittle acceptance target. If the diagnostic count differs, inspect the native JSON rather than editing the target to fit the expected number.
 
@@ -78,19 +83,22 @@ export const isRecord = (value: unknown): value is Record<string, unknown> =>
 - Modify: `CHANGELOG.md`
 - Modify: `docs/superpowers/plans/2026-08-15-unsafe-assertion-boundary-foundation.md`
 
-- [ ] Add the boundary-foundation layer to the tracker, preserving the 282/83 historical baseline and recording the new 281 count plus the observed unique-file count.
-- [ ] Record the anti-slop no-go: do not vendor its rule source or install the all-on preset while maintained native rules cover the useful defect class.
-- [ ] Add a dated changelog entry describing the shared guard, five migrated owners, one removed unsafe assertion, and non-blocking migration status.
-- [ ] Mark only completed plan steps checked; do not claim the native rule is enabled or the 281 remaining diagnostics are resolved.
+- [x] Add the boundary-foundation layer to the tracker, preserving the 282/83 historical baseline and recording the new 281 count plus the observed unique-file count.
+- [x] Record the anti-slop no-go: do not vendor its rule source or install the all-on preset while maintained native rules cover the useful defect class.
+- [x] Add a dated changelog entry describing the shared guard, five migrated owners, one removed unsafe assertion, and non-blocking migration status.
+- [x] Mark only completed plan steps checked; do not claim the native rule is enabled or the 281 remaining diagnostics are resolved.
 
 ### Task 5: Verify, review, and publish
 
-- [ ] Run sequentially: the six focused Vitest files, `pnpm --filter api lint`, `pnpm --filter api typecheck`, `pnpm lint:ast-grep`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
-- [ ] Do not run a root aggregate build, background command, or multi-threaded type-aware pilot.
-- [ ] Receive independent specification-compliance review, then independent code-quality review; repair and re-review every P0/P1 finding.
+- [x] Run sequentially: the six focused Vitest files, `pnpm --filter api lint`, `pnpm --filter api typecheck`, `pnpm lint:ast-grep`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+- [x] Do not run a root aggregate build, background command, or multi-threaded type-aware pilot.
+- [x] Receive independent specification-compliance review, then independent code-quality review; repair and re-review every P0/P1 finding.
 - [ ] Commit implementation and documentation with the required co-author trailer.
 - [ ] Submit a non-draft stacked PR based on #394, update the tracker with the actual PR number, commit the bookkeeping, push, and verify `needsRebase: false`.
 
 ## Revision history
 
+- **v2 (2026-08-15):** Corrected the modified-file acceptance check to preserve
+  four measured, pre-existing domain assertions while the full inventory still
+  falls by exactly one.
 - **v1 (2026-08-15):** Initial plan from the approved unsafe-assertion migration design and the 282-diagnostic native baseline.
