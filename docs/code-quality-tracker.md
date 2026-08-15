@@ -13,23 +13,26 @@ measurement needed before implementation.
 
 ## Active stack
 
-| Order | State       | Layer                                   | Acceptance evidence                                                                                                                             |
-| ----: | ----------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                                               |
-|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                                     |
-|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction                        |
-|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                                           |
-|     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code                     |
-|     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI                       |
-|     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                                         |
-|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 200 product-owned files with zero findings through the same local/CI command                                     |
-|     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces                                   |
-|    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                                      |
-|    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification                            |
-|    12 | ready       | Mutation-testing pilot                  | Native config and 2026-08-15 baseline are at `8d5c0023`; operating docs are at `00f7ceb4`; PR number pending; all 100 useful gaps remain queued |
-|    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                                                 |
+| Order | State       | Layer                                   | Acceptance evidence                                                                                                                    |
+| ----: | ----------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                                      |
+|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                            |
+|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction               |
+|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                                  |
+|     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code            |
+|     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI              |
+|     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                                |
+|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 200 product-owned files with zero findings through the same local/CI command                            |
+|     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces                          |
+|    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                             |
+|    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification                   |
+|    12 | active      | Mutation-testing pilot                  | PR #390 carries the native config, measured 2026-08-15 baseline, and operating docs; all 100 useful gaps remain queued in child layers |
+|    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                                        |
 
-## Published stack
+## Published PR stack
+
+Publication here means the PR exists in the remote stack; it does not mean the
+layer is merged or shipped. Layer state remains active until merge.
 
 | Order | PR   | Layer                               |
 | ----: | ---- | ----------------------------------- |
@@ -63,12 +66,13 @@ measurement needed before implementation.
 |    28 | #387 | Unused lint-disable ratchet         |
 |    29 | #388 | Contributor documentation contracts |
 |    30 | #389 | Shared TypeScript config ownership  |
+|    31 | #390 | Bounded mutation-testing pilot      |
 
 ## Current submission
 
-| State | Layer                                                 | Commit evidence                                                                                                                                   | PR      |
-| ----- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| ready | Mutation-testing pilot: native config, baseline, docs | `8d5c0023` contains the pilot implementation and measured baseline; `00f7ceb4` contains the operating docs; this layer is prepared for submission | pending |
+| State     | Layer                                                 | Commit evidence                                                                                                                                           | PR   |
+| --------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| submitted | Mutation-testing pilot: native config, baseline, docs | `8d5c0023` contains the pilot implementation and measured baseline; `00f7ceb4` contains the operating docs; `7e5b13d0` closes generated-report formatting | #390 |
 
 ## Inventory
 
@@ -135,7 +139,7 @@ measurement needed before implementation.
 | ----------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | done        | Unit, real-Postgres integration, Storybook browser, and product E2E are separate enforced layers | `docs/testing.md`, CI workflow                                                                                                                                                                                                                                                                                                                                                              |
 | done        | Bounded mutation-testing command and configuration                                               | `apps/api/stryker.config.json` limits mutation to three pure MCP utilities, uses pinned `@stryker-mutator/vitest-runner@9.6.1`, keeps Stryker and Vitest at one worker, and emits native reports; no broad CI gate initially                                                                                                                                                                |
-| ready       | First pilot candidate: three pure MCP utilities with direct unit tests                           | 33 tests and 425 mutants; the 2026-08-15 baseline is 69.41% with 101 survivors, 29 no-coverage mutants, and 6 timeouts; disposition inventory follows below; PR number pending                                                                                                                                                                                                              |
+| active      | First pilot candidate: three pure MCP utilities with direct unit tests                           | PR #390: 33 tests and 425 mutants; the 2026-08-15 baseline is 69.41% with 101 survivors, 29 no-coverage mutants, and 6 timeouts; disposition inventory follows below                                                                                                                                                                                                                        |
 | queued      | Child layer 1: tool-id canonicalization/parser                                                   | 18 useful `U` mutants remain queued for invalid-format parsing, canonicalization, separators, and the 64-character boundary; no gaps marked repaired                                                                                                                                                                                                                                        |
 | queued      | Child layer 2: protected-values normalization/propagation                                        | 24 useful `U` mutants remain queued for normalization, ordering/ties, scalar detection, and nested failure propagation; no gaps marked repaired                                                                                                                                                                                                                                             |
 | queued      | Child layer 3: bounded-fetch request parsing/body sizing/response byte-limit semantics           | Exactly 42 useful `U` mutants remain queued: `S7`, `S10`, `S12`, `S16`, `S17`, `S33`, `NC37`, `NC38`, `S39`, `NC51`, `NC52`, `NC53`, `NC54`, `NC55`, `NC56`, `NC57`, `NC58`, `NC59`, `S41`, `S42`, `S43`, `S45`, `S47`, `S48`, `S49`, `S50`, `S65`, `S66`, `S68`, `S70`, `S71`, `S73`, `S79`, `S81`, `S89`, `S101`, `S102`, `S103`, `S106`, `S109`, `S111`, `S123`; no gaps marked repaired |
