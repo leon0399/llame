@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Removed three unsafe assertions from the production tool-schema admission
+  boundary. Structural runtime evidence now distinguishes Zod schemas, and
+  AI SDK-generated JSON Schemas become owned records by construction; raw JSON
+  Schema documents retain identity and draft-07, 2019-09, and 2020-12 behavior.
+  Four focused suites pass 89/89, and the one-thread native API inventory falls
+  from 267 diagnostics across 77 files to 264 across 76.
+
 - Removed the final unsafe narrowing assertion from MCP production code and the
   paired assertion from its direct test fixture. SDK executors are now bound only
   after proving an own data property with no accessor; `constructor` remains a
