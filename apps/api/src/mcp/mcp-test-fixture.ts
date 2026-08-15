@@ -4,7 +4,8 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from 'node:http';
-import { type AddressInfo } from 'node:net';
+
+import { isRecord } from '../unknown-record';
 
 type FixtureResponseBase = {
   readonly status?: number;
@@ -114,22 +115,16 @@ async function readRequestBody(request: IncomingMessage): Promise<unknown> {
 }
 
 function readRpcMethod(body: unknown): string | null {
-  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-    return null;
-  }
-  const method = (body as Record<string, unknown>)['method'];
+  if (!isRecord(body)) return null;
+  const method = body['method'];
   return typeof method === 'string' ? method : null;
 }
 
 function readCursor(body: unknown): string | null {
-  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-    return null;
-  }
-  const params = (body as Record<string, unknown>)['params'];
-  if (params === null || typeof params !== 'object' || Array.isArray(params)) {
-    return null;
-  }
-  const cursor = (params as Record<string, unknown>)['cursor'];
+  if (!isRecord(body)) return null;
+  const params = body['params'];
+  if (!isRecord(params)) return null;
+  const cursor = params['cursor'];
   return typeof cursor === 'string' ? cursor : null;
 }
 
@@ -241,7 +236,19 @@ export async function createMcpTestFixture(
       resolve();
     });
   });
-  const address = server.address() as AddressInfo;
+  const address = server.address();
+  if (address === null) {
+    throw new TypeError('MCP fixture server did not start listening.');
+  }
+  if (typeof address === 'string') {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
+    throw new TypeError('MCP fixture server did not start listening.');
+  }
   let closePromise: Promise<void> | undefined;
 
   const hasHeader = (
