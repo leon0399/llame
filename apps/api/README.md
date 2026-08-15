@@ -21,12 +21,25 @@ pnpm --filter api build
 pnpm --filter api lint
 pnpm --filter api typecheck
 pnpm --filter api test
+pnpm --filter api test:mutation:dry
+pnpm --filter api test:mutation
 pnpm --filter api test:integration
 ```
 
 The integration suite provisions its own PostgreSQL container unless
 `TEST_DATABASE_URL` is supplied. The workspace-scoped build regenerates the
 committed OpenAPI document.
+
+The two mutation commands are a bounded, foreground-only diagnostic for the
+three pure MCP utilities and their direct unit tests. They are not a coverage
+substitute or a CI gate. Stryker and the installed Vitest runner each use one
+worker; do not raise concurrency without new peak-memory evidence. The native
+clear-text summary is printed by the run, while HTML and JSON reports are
+written under the ignored `apps/api/reports/mutation/` directory. The full run
+may need scoped sandbox permission for Stryker's internal Node logging-server
+bind; it does not require external network access, and the dry run may not
+reach that bind. Keep the native configuration—no bespoke wrapper, reporter, or
+checker.
 
 ## Documentation
 

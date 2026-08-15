@@ -71,6 +71,40 @@ turbo run test:storybook             # browser component tests (needs Playwright
 pnpm --filter api test:evals         # opt-in, model-graded — bring model credentials; DB self-provisions (TEST_DATABASE_URL overrides)
 ```
 
+## API mutation-testing pilot (diagnostic)
+
+Mutation testing is a bounded diagnostic follow-up to direct unit tests. It is
+not a coverage substitute and is not a CI gate. This pilot is API-only; it does
+not add mutation testing to the monorepo pyramid or apply it to integration,
+Docker, browser, or product-e2e suites.
+
+Run the exact commands in the foreground:
+
+```bash
+pnpm --filter api test:mutation:dry
+pnpm --filter api test:mutation
+```
+
+The scope is exactly three pure MCP production modules and their direct unit
+tests: `tool-id.ts` / `tool-id.test.ts`, `protected-values.ts` /
+`protected-values.test.ts`, and `mcp-bounded-fetch.ts` /
+`mcp-bounded-fetch.test.ts`. Stryker runs one worker and the installed Vitest
+runner forces one Vitest worker; do not increase concurrency without new
+measured peak-memory evidence. The native clear-text summary is emitted by the
+foreground command. Native HTML and JSON reports are written to
+`apps/api/reports/mutation/mutation.html` and
+`apps/api/reports/mutation/mutation.json` under the ignored
+`apps/api/reports/mutation/` directory. Do not add a bespoke wrapper, reporter,
+checker, or CI threshold gate.
+
+The 2026-08-15 baseline is 2:30.62 wall time, 250388 kB peak RSS, and a 69.41%
+mutation score across 425 mutants. Full Stryker opens an internal logging server
+with Node `listen`; a restricted sandbox may need narrowly scoped network
+permission for that local bind. This does not mean the product or tests need
+external network access, and the dry run may not hit the logging server. See
+the [tracker baseline and provenance](code-quality-tracker.md#mutation-testing-pilot-baseline-2026-08-15)
+for the measured counts and source of each observation.
+
 ## CI mapping
 
 Three test-pipeline workflows, one job per concern (`.github/workflows/` —

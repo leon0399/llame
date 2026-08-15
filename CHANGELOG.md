@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Added a bounded API mutation-testing pilot for three pure MCP utilities and
+  their direct Vitest tests. The native Stryker commands run in the foreground
+  with one Stryker worker and one Vitest worker, emit clear-text/HTML/JSON
+  reports under ignored `apps/api/reports/mutation/`, and remain diagnostic
+  rather than a coverage substitute or CI gate. The measured baseline is 425
+  mutants at 69.41% in 2:30.62 with 250388 kB peak RSS; useful survivors remain
+  queued as separate behavior slices.
+
 - Added the missing `packages/config-typescript` workspace guide, completing
   the root documentation contract that every workspace owns focused
   instructions. The guide records preset consumers, prevents app-specific

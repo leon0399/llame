@@ -7,26 +7,27 @@ required.
 
 **Baseline:** `master` at `8bca868e`, measured 2026-08-14.
 
-**States:** `done` shipped; `active` current stack ownership; `queued` evidence-backed;
-`investigate` measurement needed before implementation.
+**States:** `done` shipped; `ready` complete locally and awaiting submission;
+`active` current stack ownership; `queued` evidence-backed; `investigate`
+measurement needed before implementation.
 
 ## Active stack
 
-| Order | State       | Layer                                   | Acceptance evidence                                                                                                             |
-| ----: | ----------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                               |
-|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                     |
-|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction        |
-|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                           |
-|     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code     |
-|     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI       |
-|     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                         |
-|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 200 product-owned files with zero findings through the same local/CI command                     |
-|     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces                   |
-|    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                      |
-|    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification            |
-|    12 | active      | Mutation-testing pilot                  | Bounded Stryker baseline records 425 mutants, runtime/resource use, and a disposition for every survivor and no-coverage mutant |
-|    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                                 |
+| Order | State       | Layer                                   | Acceptance evidence                                                                                                                         |
+| ----: | ----------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                                           |
+|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                                 |
+|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction                    |
+|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                                       |
+|     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code                 |
+|     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI                   |
+|     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                                     |
+|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 200 product-owned files with zero findings through the same local/CI command                                 |
+|     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces                               |
+|    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                                  |
+|    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification                        |
+|    12 | ready       | Mutation-testing pilot                  | Native config, 2026-08-15 baseline, and operating docs are ready at commit `8d5c0023`; PR number pending; all 100 useful gaps remain queued |
+|    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                                             |
 
 ## Published stack
 
@@ -62,6 +63,12 @@ required.
 |    28 | #387 | Unused lint-disable ratchet         |
 |    29 | #388 | Contributor documentation contracts |
 |    30 | #389 | Shared TypeScript config ownership  |
+
+## Current submission
+
+| State | Layer                                                 | Commit evidence                                                                                           | PR      |
+| ----- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------- |
+| ready | Mutation-testing pilot: native config, baseline, docs | `8d5c0023` contains the pilot implementation and measured baseline; this layer is prepared for submission | pending |
 
 ## Inventory
 
@@ -127,10 +134,13 @@ required.
 | State       | Finding                                                                                          | Evidence / exit condition                                                                                                                                                           |
 | ----------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | done        | Unit, real-Postgres integration, Storybook browser, and product E2E are separate enforced layers | `docs/testing.md`, CI workflow                                                                                                                                                      |
-| done        | Bounded mutation-testing command and configuration                                               | `apps/api/stryker.config.json` limits mutation to three pure MCP utilities, uses Vitest, and keeps concurrency at 1; no broad CI gate initially                                     |
-| active      | First pilot candidate: three pure MCP utilities with direct unit tests                           | 33 tests and 425 mutants; the 2026-08-15 baseline is 69.41% with 101 survivors, 29 no-coverage mutants, and 6 timeouts; disposition inventory follows below                         |
-| queued      | Evidence-backed mutation repairs remain                                                          | Prioritize request/response boundaries, SSE framing, secret-redaction branches, and tool-id canonicalization; do not gate until repaired scores are measured again                  |
-| queued      | `apps/api/README.md` names a nonexistent `test:cov` script                                       | Remove or restore intentionally; do not leave executable docs false                                                                                                                 |
+| done        | Bounded mutation-testing command and configuration                                               | `apps/api/stryker.config.json` limits mutation to three pure MCP utilities, uses Vitest, keeps both runners at one worker, and emits native reports; no broad CI gate initially     |
+| ready       | First pilot candidate: three pure MCP utilities with direct unit tests                           | 33 tests and 425 mutants; the 2026-08-15 baseline is 69.41% with 101 survivors, 29 no-coverage mutants, and 6 timeouts; disposition inventory follows below; PR number pending      |
+| queued      | Child layer 1: tool-id canonicalization/parser                                                   | 18 useful `U` mutants remain queued for invalid-format parsing, canonicalization, separators, and the 64-character boundary; no gaps marked repaired                                |
+| queued      | Child layer 2: protected-values normalization/propagation                                        | 24 useful `U` mutants remain queued for normalization, ordering/ties, scalar detection, and nested failure propagation; no gaps marked repaired                                     |
+| queued      | Child layer 3: bounded-fetch request and response byte limits/metadata                           | 42 useful `U` mutants remain queued for request parsing/byte budgets, response limits, content types, and response metadata; no gaps marked repaired                                |
+| queued      | Child layer 4: bounded-fetch SSE framing/cancellation                                            | 16 useful `U` mutants remain queued for line framing, event boundaries, cancellation, and upstream response handling; no gaps marked repaired                                       |
+| done        | API README command inventory                                                                     | The workspace README lists executable commands only; it does not document a nonexistent coverage script or invent coverage tooling                                                  |
 | queued      | Source-regex tests and disabled Vitest rules remain known follow-ups                             | Existing `docs/testing.md` list; convert when owning files are touched                                                                                                              |
 | investigate | The committed OpenAPI contract has no generated property-based conformance run                   | Pilot Schemathesis against the throwaway API/Postgres environment; measure auth and tenant setup, status/schema findings, replayability, runtime, and false positives before gating |
 | investigate | The chat-message single-flight integration test flakes only under suite load                     | Timed out on PR #361 and locally in the full 329-test run; isolated rerun passes 1/1; diagnose scheduling/state coupling before changing timeouts                                   |
@@ -277,17 +287,17 @@ replacement and manual failure proof, and never use it as a waiver or ignore buc
 
 ### Conventions and governance
 
-| State  | Finding                                                                                                      | Evidence / exit condition                                                                                                                                                     |
-| ------ | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| active | **No-go: trade reviewable delivery for local batching or further polish**                                    | Submit each independently verified layer as a stacked PR before starting the next; local-only commits are inventory, not delivered progress                                   |
-| active | **No-go: run resource-unbounded aggregate builds on agent workstations**                                     | Build affected workspaces sequentially; if the aggregate is required, use Turbo `--concurrency=1` and keep it foreground/observable                                           |
-| active | Existing conventions are defaults, not immunity from architectural review                                    | Replace a convention when evidence shows material quality, readability, or architecture gains; document and migrate the owned scope, never create a silent one-off divergence |
-| active | Keep this tracker current in every quality stack layer                                                       | Layer changes state and adds PR/evidence before submission                                                                                                                    |
-| active | Modified cyclomatic complexity must stay at `<= 35` and refactors must follow real responsibility boundaries | `AGENTS.md`; arbitrary helper extraction, inline disables, and other metric gaming are prohibited; active until remote merge                                                  |
-| queued | Root convention must distinguish capability interfaces from interface ceremony                               | State the four valid boundary reasons and reject one-interface-per-service cargo culting                                                                                      |
-| queued | Complexity exceptions need local rationale and owner                                                         | No directory-wide exemption; temporary exception names issue and measured value                                                                                               |
-| queued | Gate runtime budgets are unrecorded                                                                          | Record local and CI duration before making mutation or expensive analysis blocking                                                                                            |
-| queued | Quality work must update `CHANGELOG.md`; roadmap entries are removed only when shipped                       | Follow root documentation contract in implementation layers                                                                                                                   |
+| State  | Finding                                                                                                      | Evidence / exit condition                                                                                                                                                               |
+| ------ | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| active | **No-go: trade reviewable delivery for local batching or further polish**                                    | Publish the ready current pilot without waiting for repairs, then submit the four queued child layers independently; do not batch the 100 useful gaps into one local-only repair commit |
+| active | **No-go: run resource-unbounded aggregate builds on agent workstations**                                     | Build affected workspaces sequentially; if the aggregate is required, use Turbo `--concurrency=1` and keep it foreground/observable                                                     |
+| active | Existing conventions are defaults, not immunity from architectural review                                    | Replace a convention when evidence shows material quality, readability, or architecture gains; document and migrate the owned scope, never create a silent one-off divergence           |
+| active | Keep this tracker current in every quality stack layer                                                       | Layer changes state and adds PR/evidence before submission                                                                                                                              |
+| active | Modified cyclomatic complexity must stay at `<= 35` and refactors must follow real responsibility boundaries | `AGENTS.md`; arbitrary helper extraction, inline disables, and other metric gaming are prohibited; active until remote merge                                                            |
+| queued | Root convention must distinguish capability interfaces from interface ceremony                               | State the four valid boundary reasons and reject one-interface-per-service cargo culting                                                                                                |
+| queued | Complexity exceptions need local rationale and owner                                                         | No directory-wide exemption; temporary exception names issue and measured value                                                                                                         |
+| queued | Gate runtime budgets are unrecorded                                                                          | Record local and CI duration before making mutation or expensive analysis blocking                                                                                                      |
+| queued | Quality work must update `CHANGELOG.md`; roadmap entries are removed only when shipped                       | Follow root documentation contract in implementation layers                                                                                                                             |
 
 ### Documentation, specification, and ownership drift
 

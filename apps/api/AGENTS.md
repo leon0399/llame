@@ -24,12 +24,41 @@ pnpm --filter api build        # nest build  (start:prod -> node dist/main)
 pnpm --filter api lint         # oxlint --deny-warnings --report-unused-disable-directives; type-aware via tsgolint (lint:fix to autofix)
 pnpm --filter api typecheck    # tsgo --noEmit — full program incl. specs (nest build excludes them)
 pnpm --filter api test              # vitest unit project — zero external deps, always safe
+pnpm --filter api test:mutation:dry # bounded Stryker pilot preflight; diagnostic, foreground only
+pnpm --filter api test:mutation     # bounded Stryker pilot; diagnostic, foreground only
 pnpm --filter api test:integration  # everything needing real Postgres incl. RLS proof + HTTP suites; self-provisions via Testcontainers (docker), TEST_DATABASE_URL overrides
 pnpm --filter api test:evals        # opt-in model-graded evals — bring model credentials; DB self-provisions (TEST_DATABASE_URL overrides)
 pnpm --filter api db:generate  # drizzle-kit generate from src/db/schema
 pnpm --filter api db:migrate   # tsx src/db/migrate.ts
 pnpm --filter api db:studio    # drizzle-kit studio (also db:push / db:check)
 ```
+
+### Mutation-testing pilot
+
+The mutation pilot is a bounded API diagnostic that follows the direct unit tests;
+it is not a coverage substitute and is not a CI gate. It targets only
+`src/mcp/tool-id.ts`, `src/mcp/protected-values.ts`, and
+`src/mcp/mcp-bounded-fetch.ts`, with only their direct unit tests:
+`src/mcp/tool-id.test.ts`, `src/mcp/protected-values.test.ts`, and
+`src/mcp/mcp-bounded-fetch.test.ts`. It does not expand to the monorepo,
+integration, Docker, browser, or product-e2e suites.
+
+Run both commands in the foreground from the repository root. Stryker is limited
+to one worker (`concurrency: 1`), and the installed Vitest runner also forces one
+Vitest worker. Do not increase either concurrency setting without new measured
+peak-memory evidence; the pilot is deliberately resource-bounded.
+
+Stryker's native clear-text summary is emitted by the command. Native HTML and
+JSON reports are written to `apps/api/reports/mutation/mutation.html` and
+`apps/api/reports/mutation/mutation.json`; the entire directory is ignored. Do
+not replace this configuration with a bespoke wrapper, reporter, checker, or
+threshold gate.
+
+The full mutation run opens Stryker's internal logging server with Node `listen`.
+In a restricted sandbox, that local bind may need a narrowly scoped network
+permission. This is a sandbox execution detail only: neither llame nor these
+tests require external network access. The dry run may not open the logging
+server at all.
 
 ## Tool input schemas
 
