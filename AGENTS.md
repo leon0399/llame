@@ -84,6 +84,9 @@ Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in pr
   markdownlint-cli2 configuration. Fix violations in the source; do not add
   inline disables or ignore paths unless the content is generated, maintained
   upstream, or a symlink alias, and document that boundary in the root config.
+- Every workspace `lint` command rejects unused disable directives. Delete stale
+  suppressions; do not retain a directive for a rule that is not active in that
+  workspace.
 - Tests follow [docs/testing.md](docs/testing.md): `*.test.ts(x)` is Vitest everywhere (`.integration` infix = needs real Postgres; root `e2e/` is Playwright's island); component behavior belongs in Storybook stories, not jsdom render tests; DB-backed suites fail loudly, never skip silently.
 - UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).
 

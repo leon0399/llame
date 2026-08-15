@@ -11,8 +11,6 @@
  * Uses a spy/mock fake db — no real Postgres connection required.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import {

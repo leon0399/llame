@@ -25,7 +25,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 // Make this file a module so its top-level `TEST_DB_URL`/`describeIfDb`/
 // `SqlClient` are module-scoped, not globals that collide with the sibling
@@ -57,7 +56,6 @@ describeIfDb('RLS integration — personalization tenancy', () => {
     });
 
   beforeAll(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const postgres = require('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;

@@ -77,7 +77,8 @@ Three test-pipeline workflows, one job per concern (`.github/workflows/` —
 
 **Lint** — source checks, independent of everything, so they report in seconds:
 
-- **Lint** — `turbo run lint` · **Format** — `format:check`
+- **Lint** — `turbo run lint` (including unused-disable rejection in every
+  Oxlint workspace) · **Format** — `format:check`
 - **Structural lint** — `pnpm lint:ast-grep` (native ast-grep rules for the full
   owned TypeScript tree)
 - **Markdown lint** — `pnpm lint:markdown` (semantic Markdown rules across the

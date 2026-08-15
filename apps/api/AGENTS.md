@@ -21,7 +21,7 @@ NestJS 11 backend: HTTP API, application services, sole owner of the database sc
 ```bash
 pnpm --filter api dev          # nest start --watch
 pnpm --filter api build        # nest build  (start:prod -> node dist/main)
-pnpm --filter api lint         # oxlint --deny-warnings; type-aware rules via tsgolint (tsgo)  (lint:fix to autofix)
+pnpm --filter api lint         # oxlint --deny-warnings --report-unused-disable-directives; type-aware via tsgolint (lint:fix to autofix)
 pnpm --filter api typecheck    # tsgo --noEmit — full program incl. specs (nest build excludes them)
 pnpm --filter api test              # vitest unit project — zero external deps, always safe
 pnpm --filter api test:integration  # everything needing real Postgres incl. RLS proof + HTTP suites; self-provisions via Testcontainers (docker), TEST_DATABASE_URL overrides

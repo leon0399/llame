@@ -42,7 +42,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -68,7 +67,6 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
 
   beforeAll(async () => {
     // Dynamic import to avoid connecting at module load time.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const postgres = require('postgres');
     const connect = postgres.default ?? postgres;
     // Local test databases (docker) have no TLS; only require it if the URL asks.
