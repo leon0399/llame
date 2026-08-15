@@ -2,6 +2,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Removed seventeen unsafe assertions from tool-result truncation and its direct
+  runner tests. Oversized serialized results must remain success records before
+  recursive truncation, malformed projections fail closed through the runner's
+  static execution error, and Zod validates dynamic test shapes without casts.
+  The focused suites pass 46/46, and the one-thread native API inventory falls
+  from 260 diagnostics across 75 files to 243 across 72.
+
+- Qualified all fifteen `dmmulroy/anti-slop` Oxlint rules at upstream commit
+  `446268e` as sequential adoption targets. Each rule requires measured
+  repository-wide remediation before enablement; only `no-unknown-parameters`
+  may retain a local, explanatory suppression where the function immediately
+  validates the unknown input. File-level exemptions and inherited baselines
+  remain prohibited.
+
 - Removed four unsafe assertions from the shared MCP HTTP test fixture. Parsed
   JSON now uses the existing record guard, native server addresses are narrowed
   through control flow with string-socket cleanup, and malformed/non-record

@@ -34,6 +34,7 @@ measurement needed before implementation.
 |    17 | active      | MCP SDK executor binding                | Two assertions removed; direct 59/59; `constructor` accepted; accessors/prototype-only names refused; inventory 267/77                       |
 |    18 | active      | Tool schema admission                   | Three production assertions removed; structural Zod evidence and owned generated schemas; focused 89/89; inventory 264/76                    |
 |    19 | active      | MCP HTTP test fixture                   | Four assertions removed through shared record evidence and native address narrowing; focused 76/76; inventory 260/75                         |
+|    20 | ready       | Tool-result truncation boundary         | Seventeen assertions removed through parsed success-record evidence and Zod-backed tests; focused 46/46; inventory 243/72                    |
 
 ## Published PR stack
 
@@ -92,42 +93,43 @@ layer is merged or shipped. Layer state remains active until merge.
 | submitted | MCP SDK executor binding                | `d9c96cb6` removes the final MCP production and paired test assertions; inventory 267/77                                              | #398 |
 | submitted | Tool schema admission                   | `24905194` removes three production assertions while preserving raw schema identity and dialects; inventory 264/76                    | #399 |
 | submitted | MCP HTTP test fixture                   | `6b4daa8a` removes four fixture assertions while preserving request summaries and loopback cleanup; inventory 260/75                  | #400 |
+| ready     | Tool-result truncation boundary         | `7e7d2bff` removes 17 assertions and rejects malformed oversized projections; focused 46/46; inventory 243/72                         | —    |
 
 ## Inventory
 
 ### Typing and assertions
 
-| State       | Finding                                                                                                  | Evidence / exit condition                                                                                                                                  |
-| ----------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| done        | API convention bans `as unknown as T` and gives the `Pick<>` plus explicit Nest injection-token recipe   | `apps/api/AGENTS.md`; PR #285                                                                                                                              |
-| active      | Double assertions are prohibited across the full owned TypeScript tree                                   | Pinned native ast-grep rules scan TS/TSX/MTS/CTS, including hidden owned directories, through one root command in Lefthook and CI                          |
-| active      | Web test and story doubles contained 19 assertions across 14 files                                       | Zero web matches; 340 web unit tests and 300 Storybook browser tests pass                                                                                  |
-| active      | `MessagePart` explicitly names `ModelSwitchPart`, `ToolAvailabilityPart`, and `RecencyDigestPart`        | Corrects the pre-existing stored-message type gap without an assertion                                                                                     |
-| active      | AI SDK model doubles removed 13 assertions from `model-client.test.ts` and 1 from `fake-model-client.ts` | Partial Vitest mocks, `MockLanguageModelV3`, and real `streamText` with typed provider chunks; units 11/11                                                 |
-| active      | OpenAI adapter tool-loop tests removed 9 assertions without OpenAI-specific model doubles                | Provider-boundary `MockLanguageModelV3` drives real SDK scheduling, validation, and repair; focused units 8/8                                              |
-| active      | API app-setup, auth, models, and runs tests removed 16 assertions                                        | Narrow Nest capabilities, `ExecutionContextHost`, Express `Pick<>`, and `drizzle.mock`; focused units 29/29                                                |
-| active      | Chats controller tests removed 6 assertions                                                              | Real Node writable streams, typed Vitest spies, Drizzle mock DB, and provider-neutral AI SDK stream result; units 22/22                                    |
-| active      | Chat-loop integration tests removed 7 assertions                                                         | Existing narrow service contracts and complete built-in config; real-Postgres integration 19/19                                                            |
-| active      | Search worker tests removed 6 assertions                                                                 | Nest `TestingModule`, public bootstrap lifecycle, provider overrides, and prototype logger spies; units 4/4                                                |
-| active      | Compaction continuity integration removed 5 assertions                                                   | AI SDK `MockLanguageModelV3`, real `streamText`, typed provider chunks, and public `asSchema`; integration 17/17                                           |
-| active      | Pins tests removed 4 assertions                                                                          | Nest `TestingModule` provider overrides replace forged concrete service and tenant DB instances; units 11/11                                               |
-| active      | Worker harness removed 1 forged AI SDK result                                                            | Provider-neutral `MockLanguageModelV3` drives real `streamText`; worker integration 10/10 and model units 15/15                                            |
-| active      | Shared and worker-mode integration fakes removed 4 forged AI SDK results                                 | One shared provider-neutral `MockLanguageModelV3` client drives real `streamText`; support unit 1/1 and affected integration suites 24/24                  |
-| active      | Auth service tests removed 3 concrete-class double assertions                                            | Exported `Pick<>` capabilities plus explicit Nest injection tokens preserve mock metadata and runtime DI; units 3/3                                        |
-| active      | Tenant DB service tests removed 2 forged Drizzle database assertions                                     | Narrow transaction capability, Drizzle's mock driver, and typed Vitest spies replace partial database objects; units 6/6                                   |
-| active      | HTTP integration support removed 3 `set-cookie` header assertions                                        | Superagent's typed `get('Set-Cookie')` overload and the shared cookie extractor replace direct header-map coercions; integrations 15/15                    |
-| active      | Instance config consumers removed 2 concrete-service assertions                                          | Existing `InstanceConfigReader`, explicit Nest tokens, and complete built-in config fixtures replace partial config objects; units 15/15                   |
-| active      | Tool-context units removed 2 concrete tenant-database assertions                                         | Existing `TenantRunner`, Drizzle's mock DB, and a repository spy exercise the real callback boundary; units 23/23                                          |
-| active      | Remaining service fixtures removed 2 concrete-service assertions                                         | Existing `RunStreamResponder` plus source-owned `ChatReindexDispatcher` capabilities replace concrete bridge/dispatch fixtures                             |
-| active      | Negative runtime fixtures removed 3 double assertions                                                    | Structural supersets and accurately broad validated inputs replace casts without weakening `User`, registered `Tool`, or `MessagePart`                     |
-| active      | Database/lifecycle boundaries removed 2 double assertions                                                | Native Drizzle mock replaces an unused forged chain; typed factory client ownership preserves graceful worker teardown                                     |
-| active      | Model-context repository removed 1 forged database assertion                                             | Real Postgres covers five reachable hash-collision branches; impossible simulated source/availability collisions are deleted                               |
-| active      | Chats repository removed 1 forged fluent database assertion                                              | Drizzle's native mock and public logger compile real SQL/params; focused units 35/35 and >500-row fork integration 6/6                                     |
-| active      | Chat-loop transaction binding removed the final forged database assertion                                | 17 orchestration cases use the real `TenantDbService`/Drizzle transaction boundary; 3 pre-transaction guards remain fast units                             |
-| done        | Zero owned application/test matches remain                                                               | Full-tree inventory reports zero across tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                                  |
-| active      | Full-tree double-assertion enforcement                                                                   | Pinned native rules include owned hidden directories and run through the same package script in Lefthook/CI; the diff script is deleted                    |
-| active      | API unsafe narrowing assertions are measured for zero-baseline migration                                 | Native type-aware Oxlint fell from 282/83 to 281/82, 274/81, 269/79, 267/77, 264/76, then 260/75; coherent slices must reach zero before rule's enablement |
-| investigate | Direct `any` and non-null assertions                                                                     | Classify production vs test/integration scaffolding before enabling restriction rules                                                                      |
+| State       | Finding                                                                                                  | Evidence / exit condition                                                                                                                               |
+| ----------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done        | API convention bans `as unknown as T` and gives the `Pick<>` plus explicit Nest injection-token recipe   | `apps/api/AGENTS.md`; PR #285                                                                                                                           |
+| active      | Double assertions are prohibited across the full owned TypeScript tree                                   | Pinned native ast-grep rules scan TS/TSX/MTS/CTS, including hidden owned directories, through one root command in Lefthook and CI                       |
+| active      | Web test and story doubles contained 19 assertions across 14 files                                       | Zero web matches; 340 web unit tests and 300 Storybook browser tests pass                                                                               |
+| active      | `MessagePart` explicitly names `ModelSwitchPart`, `ToolAvailabilityPart`, and `RecencyDigestPart`        | Corrects the pre-existing stored-message type gap without an assertion                                                                                  |
+| active      | AI SDK model doubles removed 13 assertions from `model-client.test.ts` and 1 from `fake-model-client.ts` | Partial Vitest mocks, `MockLanguageModelV3`, and real `streamText` with typed provider chunks; units 11/11                                              |
+| active      | OpenAI adapter tool-loop tests removed 9 assertions without OpenAI-specific model doubles                | Provider-boundary `MockLanguageModelV3` drives real SDK scheduling, validation, and repair; focused units 8/8                                           |
+| active      | API app-setup, auth, models, and runs tests removed 16 assertions                                        | Narrow Nest capabilities, `ExecutionContextHost`, Express `Pick<>`, and `drizzle.mock`; focused units 29/29                                             |
+| active      | Chats controller tests removed 6 assertions                                                              | Real Node writable streams, typed Vitest spies, Drizzle mock DB, and provider-neutral AI SDK stream result; units 22/22                                 |
+| active      | Chat-loop integration tests removed 7 assertions                                                         | Existing narrow service contracts and complete built-in config; real-Postgres integration 19/19                                                         |
+| active      | Search worker tests removed 6 assertions                                                                 | Nest `TestingModule`, public bootstrap lifecycle, provider overrides, and prototype logger spies; units 4/4                                             |
+| active      | Compaction continuity integration removed 5 assertions                                                   | AI SDK `MockLanguageModelV3`, real `streamText`, typed provider chunks, and public `asSchema`; integration 17/17                                        |
+| active      | Pins tests removed 4 assertions                                                                          | Nest `TestingModule` provider overrides replace forged concrete service and tenant DB instances; units 11/11                                            |
+| active      | Worker harness removed 1 forged AI SDK result                                                            | Provider-neutral `MockLanguageModelV3` drives real `streamText`; worker integration 10/10 and model units 15/15                                         |
+| active      | Shared and worker-mode integration fakes removed 4 forged AI SDK results                                 | One shared provider-neutral `MockLanguageModelV3` client drives real `streamText`; support unit 1/1 and affected integration suites 24/24               |
+| active      | Auth service tests removed 3 concrete-class double assertions                                            | Exported `Pick<>` capabilities plus explicit Nest injection tokens preserve mock metadata and runtime DI; units 3/3                                     |
+| active      | Tenant DB service tests removed 2 forged Drizzle database assertions                                     | Narrow transaction capability, Drizzle's mock driver, and typed Vitest spies replace partial database objects; units 6/6                                |
+| active      | HTTP integration support removed 3 `set-cookie` header assertions                                        | Superagent's typed `get('Set-Cookie')` overload and the shared cookie extractor replace direct header-map coercions; integrations 15/15                 |
+| active      | Instance config consumers removed 2 concrete-service assertions                                          | Existing `InstanceConfigReader`, explicit Nest tokens, and complete built-in config fixtures replace partial config objects; units 15/15                |
+| active      | Tool-context units removed 2 concrete tenant-database assertions                                         | Existing `TenantRunner`, Drizzle's mock DB, and a repository spy exercise the real callback boundary; units 23/23                                       |
+| active      | Remaining service fixtures removed 2 concrete-service assertions                                         | Existing `RunStreamResponder` plus source-owned `ChatReindexDispatcher` capabilities replace concrete bridge/dispatch fixtures                          |
+| active      | Negative runtime fixtures removed 3 double assertions                                                    | Structural supersets and accurately broad validated inputs replace casts without weakening `User`, registered `Tool`, or `MessagePart`                  |
+| active      | Database/lifecycle boundaries removed 2 double assertions                                                | Native Drizzle mock replaces an unused forged chain; typed factory client ownership preserves graceful worker teardown                                  |
+| active      | Model-context repository removed 1 forged database assertion                                             | Real Postgres covers five reachable hash-collision branches; impossible simulated source/availability collisions are deleted                            |
+| active      | Chats repository removed 1 forged fluent database assertion                                              | Drizzle's native mock and public logger compile real SQL/params; focused units 35/35 and >500-row fork integration 6/6                                  |
+| active      | Chat-loop transaction binding removed the final forged database assertion                                | 17 orchestration cases use the real `TenantDbService`/Drizzle transaction boundary; 3 pre-transaction guards remain fast units                          |
+| done        | Zero owned application/test matches remain                                                               | Full-tree inventory reports zero across tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                               |
+| active      | Full-tree double-assertion enforcement                                                                   | Pinned native rules include owned hidden directories and run through the same package script in Lefthook/CI; the diff script is deleted                 |
+| active      | API unsafe narrowing assertions are measured for zero-baseline migration                                 | Native type-aware Oxlint fell from 282/83 through 281/82, 274/81, 269/79, 267/77, 264/76, 260/75, then 243/72; slices must reach zero before enablement |
+| investigate | Direct `any` and non-null assertions                                                                     | Classify production vs test/integration scaffolding before enabling restriction rules                                                                   |
 
 The unsafe-assertion baseline was measured from
 `quality-taser/mutation-bounded-fetch-sse` at
@@ -165,18 +167,58 @@ control-flow narrowing. Malformed and non-record request bodies retain their
 summary behavior, string socket addresses are closed before rejection, and the
 inventory now reports 260 diagnostics across 75 files. Remaining MCP assertion
 debt is confined to later test and integration slices.
+The tool-result truncation layer then removes two production and fifteen test
+assertions. Parsed oversized results must still be success records before
+recursive truncation; malformed array, string, missing-status, and wrong-status
+projections fail closed through the runner's static execution error. Zod-backed
+tests inspect dynamic output without assertions, and the same inventory now
+reports 243 diagnostics across 72 files.
 
 ### Lint and formatting
 
-| State  | Finding                                                                                    | Evidence / exit condition                                                                                                    |
-| ------ | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                           |
-| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                            | Workspace `lint` scripts and Turbo                                                                                           |
-| queued | API is type-aware; other workspaces are substantially lighter                              | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                          |
-| active | Semantic Markdown is linted across 200 product-owned files                                 | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded |
-| active | Unused lint-disable directives are rejected in every lint-owning workspace                 | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                          |
-| queued | Four Vitest rules are disabled in API                                                      | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                     |
-| active | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline    | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness           |
+| State  | Finding                                                                                    | Evidence / exit condition                                                                                                                          |
+| ------ | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                                                 |
+| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                            | Workspace `lint` scripts and Turbo                                                                                                                 |
+| queued | API is type-aware; other workspaces are substantially lighter                              | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                                                |
+| active | Semantic Markdown is linted across 200 product-owned files                                 | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded                       |
+| active | Unused lint-disable directives are rejected in every lint-owning workspace                 | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                                                |
+| queued | Four Vitest rules are disabled in API                                                      | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                                           |
+| active | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline    | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness                                 |
+| queued | All 15 `dmmulroy/anti-slop` Oxlint rules are adoption targets                              | Measure at upstream `446268e`, then enable each only after repository-wide remediation; only validated `unknown` inputs may carry local exceptions |
+
+#### `anti-slop` rule qualification (2026-08-15)
+
+Source review is pinned to `dmmulroy/anti-slop@446268e`. The upstream plugin and
+current registry both use Oxlint and `@oxlint/plugins` 1.78.0; llame currently
+pins Oxlint 1.72.0 and has no JavaScript-plugin dependency. Compatibility,
+installation ownership, and runtime cost therefore belong in the first layer,
+not in an unreviewed configuration edit. All 15 rules are adoption targets. A
+rule becomes an error only in the PR that removes every existing owned finding;
+no baseline, allowlist, or file-level override is an acceptable migration.
+
+| State  | Upstream rule                               | llame disposition                                                                                                                                       |
+| ------ | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| queued | `no-chained-type-assertions`                | Measure against the broader native unsafe-assertion migration and the existing double-assertion ast-grep gate; retain both only where coverage differs. |
+| queued | `no-conditional-empty-object-spread`        | Refactor every conditional empty spread while preserving exact omission semantics; do not replace it with unconditional `undefined` properties.         |
+| queued | `no-known-value-widening`                   | Adopt after exact diagnostics are repaired with inference, `satisfies`, or named owner contracts.                                                       |
+| queued | `no-module-mocking`                         | Adopt after module mocks are replaced by real dependency seams or faithful implementations; do not hide existing mocks behind overrides.                |
+| queued | `no-object-parameters`                      | Adopt after broad `object` inputs are replaced by owner types or boundary parsers.                                                                      |
+| queued | `no-reflect-apply`                          | Adopt if measurement confirms zero or a bounded set of dynamic-dispatch sites; use typed calls/interfaces.                                              |
+| queued | `no-reflect-get`                            | Adopt if measurement confirms zero or a bounded set of reflective reads; parse boundaries or use typed property access.                                 |
+| queued | `no-runtime-typeof`                         | Replace ad hoc representation narrowing with boundary schemas and parsed domain values across the owned tree.                                           |
+| queued | `no-shape-in-symbol-names`                  | Rename structural placeholder vocabulary to the symbol's domain role across the owned tree.                                                             |
+| queued | `no-unknown-parameters`                     | Parse at the boundary; only a function that immediately validates the value may use an inline suppression with a specific explanation.                  |
+| queued | `no-unknown-returns`                        | Parse where the producing layer owns the contract; move caller-owned decoding behind a named boundary instead of exporting raw `unknown`.               |
+| queued | `no-unknown-type-aliases`                   | Adopt if measurement confirms aliases only conceal the top type; named recursive JSON/domain unions remain legitimate concrete contracts.               |
+| queued | `no-unsafe-dictionary-type`                 | Replace open top-type dictionaries with schema/owner-derived value contracts; do not launder findings through `any`.                                    |
+| queued | `no-widen-then-assert`                      | Adopt after exact local evidence-erasure flows are repaired; this complements the broader native unsafe-assertion rule.                                 |
+| queued | `require-safety-comment-for-type-assertion` | Enable after unsafe assertions reach zero; comments explain rare unexpressible invariants and never legalize avoidable assertions.                      |
+
+The implementation route remains undecided deliberately: compare an immutable
+Git dependency with a provenance-pinned vendor before choosing ownership. Adopt
+rules in reviewable layers rather than enabling the all-on preset over an
+unrepaired baseline; newness is not a rejection criterion.
 
 ### Complexity and structure
 
@@ -568,7 +610,7 @@ replacement and manual failure proof, and never use it as a waiver or ignore buc
 - Keep a diff-scoped gate, baseline, or allowlist as the finished state.
 - Build repository-specific parsers or rule-test harnesses when a maintained tool
   provides native configuration and execution.
-- Vendor the all-on anti-slop Oxlint preset or copy its rule implementation into
-  this repository while maintained native rules cover the useful defect class;
-  qualify any remaining rule independently against real boundary code first.
+- Enable all 15 anti-slop rules at once, or reject the whole project because it is
+  new; qualify each rule against real llame code, prefer native coverage where it
+  is equivalent, and migrate every adopted rule to a zero baseline.
 - Treat Prettier as semantic Markdown linting.
