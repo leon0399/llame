@@ -606,7 +606,7 @@ describe('MCP byte-bounded fetch', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('allows an unsupported ReadableStream request body without a request limit', async () => {
+  it('delegates an unsupported ReadableStream request body when the request limit is omitted', async () => {
     const sentinel = new Error('underlying fetch sentinel');
     const fetchSpy = vi.fn(() => Promise.reject(sentinel));
     const boundedFetch = createMcpBoundedFetch({
