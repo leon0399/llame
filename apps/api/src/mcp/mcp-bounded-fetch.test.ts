@@ -214,6 +214,52 @@ describe('MCP byte-bounded fetch', () => {
     expect(cancelled).toHaveBeenCalledOnce();
   });
 
+  it.each(['9x', 'x9'])(
+    'ignores malformed Content-Length claim %s and consumes a safe body',
+    async (contentLength) => {
+      const boundedFetch = createMcpBoundedFetch({
+        fetch: () =>
+          Promise.resolve(
+            new Response('safe', {
+              headers: { 'content-length': contentLength },
+            }),
+          ),
+        maxResponseBytes: 8,
+      });
+
+      const response = await boundedFetch('https://example.invalid');
+      await expect(response.text()).resolves.toBe('safe');
+    },
+  );
+
+  it('rejects a multi-digit oversized Content-Length claim before returning', async () => {
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () =>
+        Promise.resolve(
+          new Response('safe', { headers: { 'content-length': '10' } }),
+        ),
+      maxResponseBytes: 8,
+    });
+
+    await expect(
+      boundedFetch('https://example.invalid'),
+    ).rejects.toBeInstanceOf(McpBodyLimitError);
+  });
+
+  it('allows an exact-limit Content-Length claim and consumes the body', async () => {
+    const body = '12345678';
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () =>
+        Promise.resolve(
+          new Response(body, { headers: { 'content-length': '8' } }),
+        ),
+      maxResponseBytes: 8,
+    });
+
+    const response = await boundedFetch('https://example.invalid');
+    await expect(response.text()).resolves.toBe(body);
+  });
+
   it('caps each SSE event independently instead of the whole stream', async () => {
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
