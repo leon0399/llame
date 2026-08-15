@@ -277,6 +277,57 @@ describe('MCP byte-bounded fetch', () => {
     expect(await response.text()).toBe('data: 1\n\ndata: 2\n\n');
   });
 
+  it('recognizes a parameterized SSE content type', async () => {
+    const body = 'data: 1\n\ndata: 2\n\n';
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () =>
+        Promise.resolve(
+          responseFromChunks([bytes(body)], {
+            headers: {
+              'content-length': String(bytes(body).byteLength),
+              'content-type': 'Text/Event-Stream; Charset=UTF-8',
+            },
+          }),
+        ),
+      maxResponseBytes: 9,
+    });
+
+    const response = await boundedFetch('https://example.invalid');
+    await expect(response.text()).resolves.toBe(body);
+  });
+
+  it('resets the SSE event budget for a leading LF blank line', async () => {
+    const body = '\ndata: 1\n\n';
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () =>
+        Promise.resolve(
+          responseFromChunks([bytes(body)], {
+            headers: { 'content-type': 'text/event-stream' },
+          }),
+        ),
+      maxResponseBytes: 9,
+    });
+
+    const response = await boundedFetch('https://example.invalid');
+    await expect(response.text()).resolves.toBe(body);
+  });
+
+  it('resets the SSE event budget for bare-CR blank lines', async () => {
+    const body = 'data: 1\r\rdata: 2\r\r';
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () =>
+        Promise.resolve(
+          responseFromChunks([bytes(body)], {
+            headers: { 'content-type': 'text/event-stream' },
+          }),
+        ),
+      maxResponseBytes: 9,
+    });
+
+    const response = await boundedFetch('https://example.invalid');
+    await expect(response.text()).resolves.toBe(body);
+  });
+
   it('caps a non-2xx SSE-labeled body across events and cancels upstream', async () => {
     const cancelled = vi.fn();
     const boundedFetch = createMcpBoundedFetch({
@@ -313,6 +364,66 @@ describe('MCP byte-bounded fetch', () => {
 
     const response = await boundedFetch('https://example.invalid');
     expect(await response.text()).toBe(body);
+  });
+
+  it('does not reset an SSE event at a bare-CR nonblank line', async () => {
+    const cancelled = vi.fn();
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () =>
+        Promise.resolve(
+          responseFromChunks(
+            [bytes('data: a\rdata: b\r\r')],
+            { headers: { 'content-type': 'text/event-stream' } },
+            cancelled,
+            true,
+          ),
+        ),
+      maxResponseBytes: 9,
+    });
+
+    const response = await boundedFetch('https://example.invalid');
+    await expect(response.text()).rejects.toBeInstanceOf(McpBodyLimitError);
+    expect(cancelled).toHaveBeenCalledOnce();
+  });
+
+  it('does not reset an SSE event at a CRLF nonblank line', async () => {
+    const cancelled = vi.fn();
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () =>
+        Promise.resolve(
+          responseFromChunks(
+            [bytes('data: a\r\ndata: b\r\n\r\n')],
+            { headers: { 'content-type': 'text/event-stream' } },
+            cancelled,
+            true,
+          ),
+        ),
+      maxResponseBytes: 9,
+    });
+
+    const response = await boundedFetch('https://example.invalid');
+    await expect(response.text()).rejects.toBeInstanceOf(McpBodyLimitError);
+    expect(cancelled).toHaveBeenCalledOnce();
+  });
+
+  it('does not reset an SSE event at an LF nonblank line', async () => {
+    const cancelled = vi.fn();
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () =>
+        Promise.resolve(
+          responseFromChunks(
+            [bytes('data: a\ndata: b\n\n')],
+            { headers: { 'content-type': 'text/event-stream' } },
+            cancelled,
+            true,
+          ),
+        ),
+      maxResponseBytes: 8,
+    });
+
+    const response = await boundedFetch('https://example.invalid');
+    await expect(response.text()).rejects.toBeInstanceOf(McpBodyLimitError);
+    expect(cancelled).toHaveBeenCalledOnce();
   });
 
   it('rejects one oversized SSE event across chunk boundaries', async () => {
@@ -358,6 +469,57 @@ describe('MCP byte-bounded fetch', () => {
     const response = await boundedFetch('https://example.invalid');
     await expect(response.text()).rejects.toThrow('aggregate limit');
     expect(cancelled).toHaveBeenCalledOnce();
+  });
+
+  it('forwards explicit consumer cancellation to the upstream reader', async () => {
+    const cancelled = vi.fn();
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () =>
+        Promise.resolve(
+          responseFromChunks([bytes('1234')], {}, cancelled, true),
+        ),
+      maxResponseBytes: 16,
+    });
+
+    const response = await boundedFetch('https://example.invalid');
+    const reader = response.body?.getReader();
+    const reason = new Error('consumer stopped');
+
+    await expect(reader?.read()).resolves.toEqual({
+      done: false,
+      value: bytes('1234'),
+    });
+    await reader?.cancel(reason);
+
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect(cancelled).toHaveBeenCalledWith(reason);
+  });
+
+  it('preserves response metadata through the bounded wrapper', async () => {
+    const upstream = responseFromChunks([bytes('body')], {
+      status: 202,
+      statusText: 'Accepted sentinel',
+      headers: { 'x-sentinel': 'preserved' },
+    });
+    Object.defineProperties(upstream, {
+      redirected: { value: true },
+      type: { value: 'cors' },
+      url: { value: 'https://upstream.example/sentinel' },
+    });
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: () => Promise.resolve(upstream),
+      maxResponseBytes: 16,
+    });
+
+    const response = await boundedFetch('https://example.invalid');
+
+    expect(response.status).toBe(202);
+    expect(response.statusText).toBe('Accepted sentinel');
+    expect(response.headers.get('x-sentinel')).toBe('preserved');
+    expect(response.redirected).toBe(true);
+    expect(response.type).toBe('cors');
+    expect(response.url).toBe('https://upstream.example/sentinel');
+    await expect(response.text()).resolves.toBe('body');
   });
 
   it('identifies the trusted outbound RPC method for aggregate accounting', async () => {
