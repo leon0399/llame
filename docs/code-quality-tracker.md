@@ -142,7 +142,7 @@ layer is merged or shipped. Layer state remains active until merge.
 | done        | Bounded mutation-testing command and configuration                                               | `apps/api/stryker.config.json` limits mutation to three pure MCP utilities, uses pinned `@stryker-mutator/vitest-runner@9.6.1`, keeps Stryker and Vitest at one worker, and emits native reports; no broad CI gate initially                                                                                                                                                                |
 | active      | First pilot candidate: three pure MCP utilities with direct unit tests                           | PR #390: 33 tests and 425 mutants; the 2026-08-15 baseline is 69.41% with 101 survivors, 29 no-coverage mutants, and 6 timeouts; disposition inventory follows below                                                                                                                                                                                                                        |
 | active      | Child layer 1: tool-id canonicalization/parser                                                   | PR #391: three behavior assertions cover invalid-format parsing, edge trimming, and the exact 64-character boundary; six baseline `U` gaps are repaired and 12 baseline survivors are reclassified `R` with exact manual evidence                                                                                                                                                           |
-| queued      | Child layer 2: protected-values normalization/propagation                                        | 24 useful `U` mutants remain queued for normalization, ordering/ties, scalar detection, and nested failure propagation; no gaps marked repaired                                                                                                                                                                                                                                             |
+| active      | Child layer 2: protected-values normalization/propagation                                        | PR pending: 17 baseline `U` gaps are killed, marker `S169` is reclassified `R` with an exact manual failure, and comparator/tie mutants `S191`–`S195` plus `S255` are reclassified `E`; no useful protected-values gap remains                                                                                                                                                              |
 | queued      | Child layer 3: bounded-fetch request parsing/body sizing/response byte-limit semantics           | Exactly 42 useful `U` mutants remain queued: `S7`, `S10`, `S12`, `S16`, `S17`, `S33`, `NC37`, `NC38`, `S39`, `NC51`, `NC52`, `NC53`, `NC54`, `NC55`, `NC56`, `NC57`, `NC58`, `NC59`, `S41`, `S42`, `S43`, `S45`, `S47`, `S48`, `S49`, `S50`, `S65`, `S66`, `S68`, `S70`, `S71`, `S73`, `S79`, `S81`, `S89`, `S101`, `S102`, `S103`, `S106`, `S109`, `S111`, `S123`; no gaps marked repaired |
 | queued      | Child layer 4: bounded-fetch SSE recognition/framing plus wrapper cancellation/metadata          | Exactly 16 useful `U` mutants remain queued: `S85`, `S113`, `S136`, `S137`, `S139`, `S140`, `S146`, `S149`, `S151`, `S153`, `S163`, `S164`, `S165`, `S166`, `S167`, `S168`; no gaps marked repaired                                                                                                                                                                                         |
 | done        | API README command inventory                                                                     | The workspace README lists executable commands only; it does not document a nonexistent coverage script or invent coverage tooling                                                                                                                                                                                                                                                          |
@@ -195,7 +195,7 @@ the supported input domain, `I` is an intentionally untested implementation deta
 outside the current contract, and `R` is a narrowly evidenced runner/static-mutant
 activation artifact disproven by applying the exact replacement. `R` is not a test
 gap, equivalent mutant, ignored mutant, or waiver. Grouped rows retain every ID and
-its file:line/mutator location. S170 is the only current `R`.
+its file:line/mutator location. At baseline, S170 was the only `R`.
 
 The disposition count is 100 useful behavior gaps, 20 likely equivalent mutants,
 9 intentionally untested implementation details, and 1 runner/static-mutant
@@ -269,6 +269,40 @@ backlog entries.
 | S313                                                          | 173 (`ConditionalExpression`)                                                               | U           | A nested protected object key inside an array must propagate failure instead of being retained; add the nested-array case.                                                                                                                                                              |
 | NC319, NC320, S318                                            | 179 (`ObjectLiteral`, `BooleanLiteral`, `ConditionalExpression`)                            | I           | The fallback handles non-JSON unknown values such as `undefined` or functions; those are not current persistence inputs.                                                                                                                                                                |
 | S331                                                          | 187 (`ConditionalExpression`)                                                               | U           | Nested object-key failures must propagate without returning a successful payload; add a nested-object case.                                                                                                                                                                             |
+
+#### Child layer 2 repair result (2026-08-15; PR pending)
+
+The baseline inventory above remains historical. This active child layer adds
+behavior assertions only; `protected-values.ts` is unchanged
+(`sha256 127ef3c429c59645907d18c8ee49f73a43fbac5fe0f2a8e3801cff20ecc3e652`).
+The direct suite is 16/16. It now fixes the literal marker contract, all six
+equal-length input permutations, longest-first normalization, direct redactor
+same-position and earlier-position precedence, scalar and existential-array
+detection, and nested protected-key failure propagation through arrays and
+objects.
+
+- `NC196`–`NC204`, `S183`, `S250`, `S252`, `S253`, `S275`, `S280`, `S313`,
+  and `S331` are killed or covered by the focused behavior assertions: 17
+  baseline useful gaps repaired.
+- `S169` remains a native survivor because the runner does not activate the
+  static exported marker mutation. Applying its exact `''` replacement made
+  the literal marker assertion fail while the other 15 tests passed; the
+  source was restored. It is `R`, not a waived or equivalent gap.
+- `S191`–`S195` are reclassified `E`. `Set` removes duplicate strings before
+  sorting, so `<=`/`>=` equal-operand variants cannot diverge. For distinct
+  equal-length strings, the remaining comparator variants preserve the only
+  observable contract—ascending lexical order—and survived assertions over all
+  six three-value permutations.
+- `S255` is reclassified `E`: changing `>` to `>=` can only switch between
+  equal-length protected strings starting at the same index, which must be the
+  same string; normalized callers also deduplicate it.
+
+The final native one-file command was
+`/usr/bin/time -v pnpm --filter api exec stryker run --mutate src/mcp/protected-values.ts --testFiles src/mcp/protected-values.test.ts`.
+It measured 166 mutants: 137 killed, 20 survived, 3 no coverage, 6 timeout, and
+0 errors; mutation score 86.14% (covered-mutant rate 87.73%), 28.19 seconds
+wall time, 226028 kB peak RSS, and 0 swaps. The six timeouts remain the baseline
+cursor-loop nontermination cases. No useful `U` mutant remains in this file.
 
 ##### `src/mcp/tool-id.ts`
 
