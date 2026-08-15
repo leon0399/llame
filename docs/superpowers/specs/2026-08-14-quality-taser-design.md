@@ -114,9 +114,11 @@ tracker must state why.
 
 Use StrykerJS only inside `apps/api`. The first candidate set is the pure MCP unit
 surface: `tool-id.ts`, `protected-values.ts`, and `mcp-bounded-fetch.ts`, with only
-their direct Vitest unit tests. Start with two workers, clear-text/HTML/JSON reports,
-and no breaking score. Inspect survivors manually before choosing a threshold or CI
-schedule. Browser mode, integration tests, Docker, and product E2E are excluded.
+their direct Vitest unit tests. Start with one worker, clear-text/HTML/JSON reports,
+and no breaking score. The one-worker limit is a machine-safety constraint after an
+unbounded aggregate command exhausted host RAM and swap; increasing it requires new
+measured peak-memory evidence. Inspect survivors manually before choosing a threshold
+or CI schedule. Browser mode, integration tests, Docker, and product E2E are excluded.
 
 ## Verification
 
