@@ -19,7 +19,7 @@
 - Modify: `apps/api/src/chats/context-builder.test.ts`
 - Modify: `apps/api/src/compaction/compaction.test.ts`
 
-- [ ] **Step 1: Capture the native failing assertion baseline**
+- [x] **Step 1: Capture the native failing assertion baseline**
 
   Run from `apps/api`:
 
@@ -29,15 +29,15 @@
 
   Expected: exit 1 with exactly seven diagnostics in `tool-observation-part.ts` at the tool-part, cancellation-metadata, observation, ledger, and omitted-count narrowings.
 
-- [ ] **Step 2: Add malformed tool-part characterization cases**
+- [x] **Step 2: Add malformed tool-part characterization cases**
 
   In `context-builder.test.ts`, exercise `projectToolObservations` with record-shaped persisted parts that have invalid required fields and assert they produce no projection. Exercise malformed cancellation metadata through `buildContext`: use a matched error part whose `resultProviderMetadata.llame` is an array or primitive, then assert the integrated replay still emits one matched `tool-call`/`tool-result` pair with `Outcome: error`, does not throw, and does not become `cancelled`.
 
-- [ ] **Step 3: Add malformed ledger characterization cases**
+- [x] **Step 3: Add malformed ledger characterization cases**
 
   In `context-builder.test.ts`, pass ledgers whose `omittedCount` is negative, fractional, nonnumeric, or greater than `Number.MAX_SAFE_INTEGER`. Assert the persisted ledger fails closed: no replayed observation and no omission marker. In `compaction.test.ts`, pass one hostile `previous` ledger to `buildNextCompactionToolObservationLedger` with no absorbed observations and assert the write path resets it to `{ version: 1, omittedCount: 0, observations: [] }`. Keep the existing maximal-safe-integer preservation case green.
 
-- [ ] **Step 4: Run the characterization tests before production changes**
+- [x] **Step 4: Run the characterization tests before production changes**
 
   Run sequentially with one worker:
 
@@ -55,11 +55,11 @@
 - Modify: `apps/api/src/chats/tool-observation-part.ts`
 - Reuse: `apps/api/src/unknown-record.ts`
 
-- [ ] **Step 1: Replace generic object assertions with the shared guard**
+- [x] **Step 1: Replace generic object assertions with the shared guard**
 
   Import `isRecord` from `../unknown-record`. Use it in `isToolActivityPart`, `isCancelledMetadata`, `isCompactionObservation`, and `parseCompactionToolObservationLedger`. Preserve the existing non-array object contract and all existing field validation.
 
-- [ ] **Step 2: Add the local omitted-count predicate**
+- [x] **Step 2: Add the local omitted-count predicate**
 
   Add a non-exported `isNonNegativeSafeInteger(value: unknown): value is number` beside the ledger parser:
 
@@ -73,11 +73,11 @@
 
   Use it once to validate `ledger.omittedCount`; after that guard, pass the narrowed number directly to `boundCandidates`. Do not move domain validation into `unknown-record.ts`.
 
-- [ ] **Step 3: Run focused tests after the refactor**
+- [x] **Step 3: Run focused tests after the refactor**
 
   Run the two commands from Task 1 Step 4 sequentially. Expected: both pass with no failures or warnings.
 
-- [ ] **Step 4: Prove the owned file has zero native findings**
+- [x] **Step 4: Prove the owned file has zero native findings**
 
   Re-run the Step 1 Oxlint command. Expected: exit 0 and zero diagnostics for `tool-observation-part.ts`.
 
@@ -89,7 +89,7 @@
 - Modify: `CHANGELOG.md`
 - Modify: `docs/superpowers/plans/2026-08-15-unsafe-assertion-tool-observation.md`
 
-- [ ] **Step 1: Run the full native inventory**
+- [x] **Step 1: Run the full native inventory**
 
   From `apps/api`, run:
 
@@ -99,7 +99,7 @@
 
   Expected: 274 diagnostics if no unrelated drift occurred. Record the observed unique-file count from native JSON; do not encode that file count as a brittle gate.
 
-- [ ] **Step 2: Run scoped repository verification sequentially**
+- [x] **Step 2: Run scoped repository verification sequentially**
 
   Check host memory first. From the repository root, run these exact commands sequentially:
 
@@ -115,11 +115,11 @@
 
   `pnpm --filter api build` is the repository-owned scoped command that couples the Nest build, built-runtime contract, OpenAPI regeneration, and OpenAPI formatting. After it exits, require `git diff --exit-code -- apps/api/openapi.json` so generated contract drift cannot hide in the working tree. Do not substitute `nest build`, run the root aggregate build, run mutation testing, or use parallel workers.
 
-- [ ] **Step 3: Obtain independent reviews**
+- [x] **Step 3: Obtain independent reviews**
 
   Dispatch a specification-compliance reviewer against the approved design and this plan, then a code-quality reviewer against the resulting diff. Fix and re-review any P0/P1 finding. Dispatch a final whole-diff reviewer before publication.
 
-- [ ] **Step 4: Update canonical evidence**
+- [x] **Step 4: Update canonical evidence**
 
   Add the stacked layer, before/after native counts, test evidence, and maintained-tool decision to `docs/code-quality-tracker.md`. Add a dated `CHANGELOG.md` entry describing the assertion-free persisted tool-observation validation. Keep the rule diagnostic until the full API inventory reaches zero.
 
