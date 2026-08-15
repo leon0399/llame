@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Reconciled contributor documentation with executable configuration: the Node
+  floor is consistently 22.19+ (with 22.23.1 pinned for development), tests are
+  correctly documented as uncached, root Prettier is repository-wide after its
+  ignore boundary, and Drizzle generation remains the migration default while
+  reviewed security/data exceptions link to the API ledger.
+
 - Enabled Oxlint's native unused-disable reporting in API, web, UI, and
   Storybook lint commands, so the existing Turbo, Lefthook, and CI paths reject
   stale suppressions without a custom checker. Removed all 48 pre-existing

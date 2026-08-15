@@ -7,7 +7,7 @@ test lives, what it is named, and what runs it.
 
 | Layer        | Proves                                                                                                   | Runner                          | Naming / location                                                     | Runs via                                   |
 | ------------ | -------------------------------------------------------------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------- | ------------------------------------------ |
-| Unit         | pure logic, hooks — no I/O                                                                               | Vitest (node / jsdom)           | `*.test.ts(x)`, co-located next to source                             | `turbo run test` — always, cached          |
+| Unit         | pure logic, hooks — no I/O                                                                               | Vitest (node / jsdom)           | `*.test.ts(x)`, co-located next to source                             | `turbo run test` — always, uncached        |
 | Integration  | anything needing a real Postgres: RLS isolation, queries, queue semantics, the HTTP boundary (supertest) | Vitest (`integration` project)  | `*.integration.test.ts`, co-located next to the owning feature module | `pnpm --filter api test:integration`       |
 | UI component | component behavior, interaction, visuals in a real browser                                               | Storybook play fns + storyproof | `*.stories.tsx`, co-located next to the component                     | `turbo run test:storybook`                 |
 | Product e2e  | whole-product flows through a user surface (db + api + worker + mock model + client)                     | Playwright                      | `e2e/<surface>/*.spec.ts`; shared boot infra in `e2e/support/`        | root `pnpm test:e2e`                       |
@@ -36,9 +36,10 @@ workspace whose tooling they guard.
    (`docker/postgres/` initdb scripts show the role model). Nothing
    silently skips: no database means a loud failure, not a green zero-test
    run.
-4. **Live-state tasks are never cached.** `test:integration` and `test:evals`
-   are `cache: false` in turbo — their outcome depends on state turbo's hash
-   cannot see.
+4. **Test gates are never cached.** `test` and `test:storybook` set
+   `cache: false` in Turbo; `test:integration`, `test:evals`, and product e2e
+   run directly outside Turbo. Their outcomes can depend on state Turbo's hash
+   cannot see, and a cached success would hide a later failure.
 5. **Component behavior lives in stories.** Renders + asserts DOM/interaction
    ⇒ a play-function test in the component's `.stories.tsx`. Rubric: leaf
    component with ≤2 module mocks migrates; a container mocking ≥3 modules,
@@ -52,7 +53,7 @@ workspace whose tooling they guard.
    cross-tenant negative case (AGENTS.md § Security). App-layer authorization
    gets its own unit test — the two prove different layers.
 8. **A new app inherits the same shape**: co-located unit tests; its own
-   `test:integration` (cache: false, self-provisioning) if it ever owns an
+   direct, uncached, self-provisioning `test:integration` command if it owns an
    external dependency (today only apps/api owns a datastore — SPEC §22.0);
    `e2e/<surface>/` for its product flows.
 9. **A retry is diagnostic evidence, not a pass.** Product e2e keeps two CI
@@ -63,7 +64,7 @@ workspace whose tooling they guard.
 ## Commands
 
 ```bash
-turbo run test                       # unit everywhere — no DB, no docker, cached
+turbo run test                       # unit everywhere — no DB, no docker, uncached
 pnpm --filter api test:integration   # self-provisions Postgres (docker); TEST_DATABASE_URL overrides
 pnpm test:e2e                        # Playwright product suite (boots everything)
 turbo run test:storybook             # browser component tests (needs Playwright browsers)

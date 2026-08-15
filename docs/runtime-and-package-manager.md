@@ -1,6 +1,6 @@
 # Runtime & package manager: Node + pnpm (decision, 2026-07)
 
-llame runs on **Node ≥ 22.12 with pnpm 10.x**. A structured evaluation of
+llame runs on **Node ≥ 22.19 with pnpm 10.x**. A structured evaluation of
 switching to Bun (as package manager, runtime, and/or test runner) concluded:
 **stay**, and revisit only when the trigger conditions below flip. This
 records the reasoning so the question isn't relitigated from scratch.

@@ -51,7 +51,7 @@ catalog:
   # and reports zero tests. Bump both entries in the same change.
   "@playwright/test": 1.55.1
   playwright: 1.55.1
-  # Node floor is 22.12 (engines/.node-version) — types match the runtime.
+  # Node floor is 22.19 (engines); .node-version pins 22.23.1 for development.
   "@types/node": ^22
   "@types/react": ^19
   "@types/react-dom": ^19
