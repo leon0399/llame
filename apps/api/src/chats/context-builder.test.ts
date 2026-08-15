@@ -1081,6 +1081,73 @@ describe('buildContext', () => {
       );
     });
 
+    it.each([
+      [
+        'tool-call id',
+        {
+          type: 'tool-search_conversations',
+          toolCallId: 42,
+          state: 'output-available',
+          input: {},
+        },
+      ],
+      [
+        'state',
+        {
+          type: 'tool-search_conversations',
+          toolCallId: 'call-invalid-state',
+          state: 'running',
+          input: {},
+        },
+      ],
+      [
+        'tool name',
+        {
+          type: 'tool-',
+          toolCallId: 'call-invalid-name',
+          state: 'output-available',
+          input: {},
+        },
+      ],
+    ])(
+      'ignores a record-shaped persisted tool part with an invalid required %s',
+      (_field, part) => {
+        expect(projectToolObservations([part])).toBeNull();
+      },
+    );
+
+    it.each([
+      ['an array', { llame: [] }],
+      ['a primitive', { llame: 'cancelled' }],
+    ])(
+      'replays a matched error call as error when cancellation metadata contains %s',
+      (_description, resultProviderMetadata) => {
+        const assistant = msg({
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-search_conversations',
+              toolCallId: 'call-malformed-metadata',
+              state: 'output-error',
+              input: { query: 'search' },
+              errorText: 'Connection timeout',
+              resultProviderMetadata,
+            },
+          ],
+        });
+
+        const { messages } = buildContext([assistant], { systemPrompt });
+        expect(messages.map(({ role }) => role)).toEqual(['assistant', 'tool']);
+
+        const serialized = JSON.stringify(messages);
+        expect(
+          serialized.match(/"toolCallId":"call-malformed-metadata"/g),
+        ).toHaveLength(2);
+        expect(serialized).toContain('Outcome: error');
+        expect(serialized).not.toContain('Outcome: cancelled');
+      },
+    );
+
     it('preserves persisted text -> tool -> text chronology', () => {
       const assistant = msg({
         role: 'assistant',
@@ -1443,6 +1510,40 @@ describe('buildContext', () => {
       expect(messages).toHaveLength(1);
       expect(JSON.stringify(messages)).not.toContain('FORGED_LEDGER_PAYLOAD');
     });
+
+    it.each([
+      ['negative', -1],
+      ['fractional', 1.5],
+      ['nonnumeric', 'not-a-number'],
+      ['greater than the safe integer limit', Number.MAX_SAFE_INTEGER + 1],
+    ])(
+      'fails closed when a persisted ledger has a hostile omittedCount that is %s',
+      (_description, omittedCount) => {
+        const { messages } = buildContext([], {
+          systemPrompt,
+          compaction: {
+            summary: 'Checkpoint only',
+            uptoSeq: 10,
+            toolObservationLedger: {
+              version: 1,
+              omittedCount,
+              observations: [
+                {
+                  toolCallId: 'hostile-count-call',
+                  toolName: 'search_conversations',
+                  outcome: 'timeout',
+                },
+              ],
+            },
+          },
+        });
+
+        const serialized = JSON.stringify(messages);
+        expect(messages).toHaveLength(1);
+        expect(serialized).not.toContain('hostile-count-call');
+        expect(serialized).not.toContain('tool observations omitted');
+      },
+    );
 
     it.each([
       [

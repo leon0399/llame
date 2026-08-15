@@ -18,6 +18,7 @@ import type {
   CompactionToolObservation,
   CompactionToolObservationLedgerV1,
 } from '../db/schema/chats';
+import { isRecord } from '../unknown-record';
 import type { MessagePart } from './context-builder';
 
 export const TOOL_PART_PREFIX = 'tool-';
@@ -108,8 +109,8 @@ function isToolName(value: unknown): value is string {
 }
 
 function isToolActivityPart(part: unknown): part is StoredToolPart {
-  if (typeof part !== 'object' || part === null) return false;
-  const value = part as Record<string, unknown>;
+  if (!isRecord(part)) return false;
+  const value = part;
   return (
     typeof value.type === 'string' &&
     value.type.startsWith(TOOL_PART_PREFIX) &&
@@ -119,13 +120,8 @@ function isToolActivityPart(part: unknown): part is StoredToolPart {
 }
 
 function isCancelledMetadata(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) return false;
-  const llame = (value as Record<string, unknown>).llame;
-  return (
-    typeof llame === 'object' &&
-    llame !== null &&
-    (llame as Record<string, unknown>).cancelled === true
-  );
+  if (!isRecord(value) || !isRecord(value.llame)) return false;
+  return value.llame.cancelled === true;
 }
 
 function resolveOutcome(part: StoredToolPart): string {
@@ -371,8 +367,8 @@ export function projectToolObservations(
 function isCompactionObservation(
   value: unknown,
 ): value is CompactionToolObservation {
-  if (typeof value !== 'object' || value === null) return false;
-  const observation = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
+  const observation = value;
   return (
     isToolCallId(observation.toolCallId) &&
     isToolName(observation.toolName) &&
@@ -380,17 +376,20 @@ function isCompactionObservation(
   );
 }
 
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
 function parseCompactionToolObservationLedger(
   value: unknown,
 ): CompactionToolObservationLedgerV1 {
-  if (typeof value !== 'object' || value === null) {
+  if (!isRecord(value)) {
     return emptyCompactionToolObservationLedger();
   }
-  const ledger = value as Record<string, unknown>;
+  const ledger = value;
   if (
     ledger.version !== 1 ||
-    !Number.isSafeInteger(ledger.omittedCount) ||
-    (ledger.omittedCount as number) < 0 ||
+    !isNonNegativeSafeInteger(ledger.omittedCount) ||
     !Array.isArray(ledger.observations) ||
     !ledger.observations.every(isCompactionObservation)
   ) {
@@ -410,7 +409,7 @@ function parseCompactionToolObservationLedger(
       ...candidate,
       selected: candidate.cleared,
     })),
-    ledger.omittedCount as number,
+    ledger.omittedCount,
   );
 
   return {

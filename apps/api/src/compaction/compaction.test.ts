@@ -548,6 +548,19 @@ describe('buildCompactionRequest', () => {
 });
 
 describe('compacted tool-observation ledger', () => {
+  it('resets a hostile previous ledger before writing with no absorbed observations', () => {
+    const ledger = buildNextCompactionToolObservationLedger({
+      previous: {
+        version: 1,
+        omittedCount: -1,
+        observations: [],
+      },
+      absorb: [],
+    });
+
+    expect(ledger).toEqual({ version: 1, omittedCount: 0, observations: [] });
+  });
+
   it('keeps the omission count a safe integer when an already-maximal ledger drops another pair', () => {
     const assistant = msg('', 'assistant');
     assistant.parts = [
