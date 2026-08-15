@@ -26,7 +26,7 @@ measurement needed before implementation.
 |     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces               |
 |    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                  |
 |    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification        |
-|    12 | active      | Mutation-testing pilot                  | PR #390 carries the native config/baseline; PR #391 repairs tool-ID gaps; 82 useful gaps remain in layers 2–4               |
+|    12 | active      | Mutation-testing pilot                  | PR #390 carries the native config/baseline; PRs #391–#392 repair two child slices; 58 useful gaps remain in layers 3–4      |
 |    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
 
 ## Published PR stack
@@ -68,12 +68,13 @@ layer is merged or shipped. Layer state remains active until merge.
 |    30 | #389 | Shared TypeScript config ownership  |
 |    31 | #390 | Bounded mutation-testing pilot      |
 |    32 | #391 | MCP tool-ID mutation repairs        |
+|    33 | #392 | Protected-value mutation repairs    |
 
 ## Current submission
 
-| State     | Layer                                   | Commit evidence                                                                                                                   | PR   |
-| --------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---- |
-| submitted | MCP tool-ID mutation repair child layer | `170d217a` adds three behavior assertions and records the 90-mutant 86.67% result plus exact evidence for all 12 runner artifacts | #391 |
+| State     | Layer                                       | Commit evidence                                                                                                              | PR   |
+| --------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---- |
+| submitted | Protected-value mutation repair child layer | `affbdf5f` adds seven behavior tests and records the 166-mutant 86.14% result with all 24 baseline useful gaps accounted for | #392 |
 
 ## Inventory
 
@@ -142,7 +143,7 @@ layer is merged or shipped. Layer state remains active until merge.
 | done        | Bounded mutation-testing command and configuration                                               | `apps/api/stryker.config.json` limits mutation to three pure MCP utilities, uses pinned `@stryker-mutator/vitest-runner@9.6.1`, keeps Stryker and Vitest at one worker, and emits native reports; no broad CI gate initially                                                                                                                                                                |
 | active      | First pilot candidate: three pure MCP utilities with direct unit tests                           | PR #390: 33 tests and 425 mutants; the 2026-08-15 baseline is 69.41% with 101 survivors, 29 no-coverage mutants, and 6 timeouts; disposition inventory follows below                                                                                                                                                                                                                        |
 | active      | Child layer 1: tool-id canonicalization/parser                                                   | PR #391: three behavior assertions cover invalid-format parsing, edge trimming, and the exact 64-character boundary; six baseline `U` gaps are repaired and 12 baseline survivors are reclassified `R` with exact manual evidence                                                                                                                                                           |
-| active      | Child layer 2: protected-values normalization/propagation                                        | PR pending: 17 baseline `U` gaps are killed, marker `S169` is reclassified `R` with an exact manual failure, and comparator/tie mutants `S191`–`S195` plus `S255` are reclassified `E`; no useful protected-values gap remains                                                                                                                                                              |
+| active      | Child layer 2: protected-values normalization/propagation                                        | PR #392: 17 baseline `U` gaps are killed, marker `S169` is reclassified `R` with an exact manual failure, and comparator/tie mutants `S191`–`S195` plus `S255` are reclassified `E`; no useful protected-values gap remains                                                                                                                                                                 |
 | queued      | Child layer 3: bounded-fetch request parsing/body sizing/response byte-limit semantics           | Exactly 42 useful `U` mutants remain queued: `S7`, `S10`, `S12`, `S16`, `S17`, `S33`, `NC37`, `NC38`, `S39`, `NC51`, `NC52`, `NC53`, `NC54`, `NC55`, `NC56`, `NC57`, `NC58`, `NC59`, `S41`, `S42`, `S43`, `S45`, `S47`, `S48`, `S49`, `S50`, `S65`, `S66`, `S68`, `S70`, `S71`, `S73`, `S79`, `S81`, `S89`, `S101`, `S102`, `S103`, `S106`, `S109`, `S111`, `S123`; no gaps marked repaired |
 | queued      | Child layer 4: bounded-fetch SSE recognition/framing plus wrapper cancellation/metadata          | Exactly 16 useful `U` mutants remain queued: `S85`, `S113`, `S136`, `S137`, `S139`, `S140`, `S146`, `S149`, `S151`, `S153`, `S163`, `S164`, `S165`, `S166`, `S167`, `S168`; no gaps marked repaired                                                                                                                                                                                         |
 | done        | API README command inventory                                                                     | The workspace README lists executable commands only; it does not document a nonexistent coverage script or invent coverage tooling                                                                                                                                                                                                                                                          |
@@ -270,7 +271,7 @@ backlog entries.
 | NC319, NC320, S318                                            | 179 (`ObjectLiteral`, `BooleanLiteral`, `ConditionalExpression`)                            | I           | The fallback handles non-JSON unknown values such as `undefined` or functions; those are not current persistence inputs.                                                                                                                                                                |
 | S331                                                          | 187 (`ConditionalExpression`)                                                               | U           | Nested object-key failures must propagate without returning a successful payload; add a nested-object case.                                                                                                                                                                             |
 
-#### Child layer 2 repair result (2026-08-15; PR pending)
+#### Child layer 2 repair result (2026-08-15; PR #392 active)
 
 The baseline inventory above remains historical. This active child layer adds
 behavior assertions only; `protected-values.ts` is unchanged
