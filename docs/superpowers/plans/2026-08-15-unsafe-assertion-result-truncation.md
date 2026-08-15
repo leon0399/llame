@@ -164,7 +164,7 @@ framework, type assertion, lint suppression, or provider-specific type.
   inventory, and remaining assertion debt. Keep the native rule diagnostic until
   the full API inventory reaches zero.
 
-- [ ] **Step 5: Commit and publish the stacked PR**
+- [x] **Step 5: Commit and publish the stacked PR**
 
   Commit with conventional messages and the required co-author trailer. Require
   the current branch base to equal the live head of PR #400 with no rebase need.
