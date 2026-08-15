@@ -65,7 +65,7 @@ batch the four layers into one local repair commit.
 - [x] Make the smallest test or implementation change that expresses the real contract; avoid mutant-specific assertions and production-code test seams.
 - [x] Re-run the affected direct Vitest file after each repair.
 - [x] Re-run the bounded mutation command for the child layer after repairs and update the measured results and classification.
-- [ ] Submit each child layer as its own `gh-stack` layer; do not delay the current pilot publication until all 100 gaps are repaired.
+- [x] Submit each child layer as its own `gh-stack` layer; do not delay the current pilot publication until all 100 gaps are repaired.
 
 The tracker is the single canonical source for child-layer mutant-ID membership
 and repair status. Child layers update that tracker membership/status; they do
@@ -76,10 +76,11 @@ not duplicate the ID lists in this plan.
 - [x] Child layer 1 (tool-id canonicalization/parser) is submitted as PR #391: three behavior-focused assertions, direct Vitest 17/17, API lint/typecheck green, and the targeted native mutation result recorded in the tracker.
 - [x] Child layer 2 (protected-values normalization/propagation) is submitted as PR #392: direct Vitest 16/16 and a 166-mutant one-file result of 86.14%; its tracker evidence accounts for all 24 baseline `U` gaps without production changes.
 - [x] Child layer 3 (bounded-fetch request/response limits) is submitted as PR #393: direct Vitest 38/38 and a 169-mutant one-file result of 80.47%; 39 baseline `U` gaps are killed and three are reclassified `E` without production changes.
-- [x] Child layer 4 (bounded-fetch SSE/cancellation/metadata) is implemented locally: direct Vitest 46/46 and a 169-mutant one-file result of 89.94%; all 16 exact layer-4 `U` gaps are killed without production changes. Publication remains pending.
+- [x] Child layer 4 (bounded-fetch SSE/cancellation/metadata) is submitted as PR #394: direct Vitest 46/46 and a 169-mutant one-file result of 89.94%; all 16 exact layer-4 `U` gaps are killed without production changes.
 - [x] Submit child layer 1 as its own stack layer; it remains active until merge and is not marked shipped from this plan.
 - [x] Submit child layer 2 as its own stack layer; it remains active until merge and is not marked shipped from this plan.
 - [x] Submit child layer 3 as its own stack layer; it remains active until merge and is not marked shipped from this plan.
+- [x] Submit child layer 4 as its own stack layer; it remains active until merge and is not marked shipped from this plan.
 
 ## Task 4: Complete current-pilot documentation for publication
 

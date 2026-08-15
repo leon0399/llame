@@ -75,5 +75,5 @@
 - [x] Run sequentially: focused Vitest, `pnpm --filter api lint`, `pnpm --filter api typecheck`, `pnpm lint:ast-grep`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
 - [x] Do not run the aggregate root build.
 - [x] Review the diff for production changes, generated reports, custom infrastructure, issue-closing claims, and scope creep.
-- [ ] Commit with the required co-author trailer.
+- [x] Commit with the required co-author trailer.
 - [ ] Publish a non-draft stacked PR based on #393, update the tracker with its PR number, push, and verify `needsRebase: false`.
