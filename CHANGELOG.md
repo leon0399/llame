@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Added mutation-testing pilot child layer 1 for tool-id canonicalization and
+  parser behavior. Added focused coverage for non-`mcp__` invalid-format
+  parsing, edge underscore trimming, and the exact
+  64-character boundary. The native one-file run measured 90 mutants with 78
+  killed and 12 surviving (86.67%) in 16.56 seconds at 223048 kB peak RSS; the
+  12 survivors have exact direct-test failure evidence and are reclassified as
+  runner/static-mutant activation artifacts (`R`).
+
 - Added a bounded API mutation-testing pilot for three pure MCP utilities and
   their direct Vitest tests. The native Stryker commands run in the foreground
   with one Stryker worker and one Vitest worker, emit clear-text/HTML/JSON

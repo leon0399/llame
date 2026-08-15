@@ -71,6 +71,12 @@ The tracker is the single canonical source for child-layer mutant-ID membership
 and repair status. Child layers update that tracker membership/status; they do
 not duplicate the ID lists in this plan.
 
+### Child layer status (2026-08-15)
+
+- [x] Child layer 1 (tool-id canonicalization/parser) is ready locally: three behavior-focused assertions, direct Vitest 17/17, API lint/typecheck green, and the targeted native mutation result recorded in the tracker; PR pending.
+- [ ] Child layers 2–4 remain queued for their own evidence-backed repair slices.
+- [ ] Submit child layer 1 as its own stack layer; do not mark it merged or shipped from this plan.
+
 ## Task 4: Complete current-pilot documentation for publication
 
 **Files:**
