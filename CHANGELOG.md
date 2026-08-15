@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Removed four unsafe assertions from the shared MCP HTTP test fixture. Parsed
+  JSON now uses the existing record guard, native server addresses are narrowed
+  through control flow with string-socket cleanup, and malformed/non-record
+  request summaries have direct regression coverage. Three focused suites pass
+  76/76, and the one-thread native API inventory falls from 264 diagnostics
+  across 76 files to 260 across 75.
+
 - Removed three unsafe assertions from the production tool-schema admission
   boundary. Structural runtime evidence now distinguishes Zod schemas, and
   AI SDK-generated JSON Schemas become owned records by construction; raw JSON

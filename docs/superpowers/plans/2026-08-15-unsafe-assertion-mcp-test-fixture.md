@@ -29,7 +29,7 @@ pnpm, gh-stack
 - Verify: `apps/api/src/mcp/mcp-server-client.test.ts`
 - Verify: `apps/api/src/mcp/mcp-package.contract.test.ts`
 
-- [ ] **Step 1: Capture the native failing baseline**
+- [x] **Step 1: Capture the native failing baseline**
 
   From `apps/api`, run:
 
@@ -42,7 +42,7 @@ pnpm, gh-stack
   Expected: exit 1 with exactly four diagnostics: three JSON record assertions
   and one `AddressInfo` assertion.
 
-- [ ] **Step 2: Run the unchanged direct fixture suite**
+- [x] **Step 2: Run the unchanged direct fixture suite**
 
   From the repository root, run with one worker:
 
@@ -55,7 +55,7 @@ pnpm, gh-stack
   local bind, rerun with narrowly scoped loopback permission before interpreting
   the result.
 
-- [ ] **Step 3: Characterize non-record and malformed request bodies**
+- [x] **Step 3: Characterize non-record and malformed request bodies**
 
   Add table-driven direct fixture cases for `{}`, a JSON array, a primitive,
   `null`, a non-string `method`, non-record `params`, and a non-string `cursor`.
@@ -70,14 +70,14 @@ pnpm, gh-stack
 
 - Modify: `apps/api/src/mcp/mcp-test-fixture.ts`
 
-- [ ] **Step 1: Narrow parsed JSON with `isRecord`**
+- [x] **Step 1: Narrow parsed JSON with `isRecord`**
 
   Import `isRecord` from `../unknown-record`. Use it in `readRpcMethod` for the
   request body and in `readCursor` for both the body and nested `params`. Preserve
   the existing string-only method/cursor behavior for object, array, primitive,
   null, and malformed JSON inputs. Do not introduce a fixture-specific validator.
 
-- [ ] **Step 2: Narrow the native server address union**
+- [x] **Step 2: Narrow the native server address union**
 
   Remove the `node:net` `AddressInfo` import. Read `server.address()` without an
   assertion. If it is `null`, throw the fixture-specific `TypeError` directly
@@ -86,7 +86,7 @@ pnpm, gh-stack
   listener is not leaked. Otherwise use the narrowed TCP address port. Do not
   forge an address or use a non-null assertion.
 
-- [ ] **Step 3: Run focused GREEN checks**
+- [x] **Step 3: Run focused GREEN checks**
 
   Run the direct fixture suite, then the three unit consumers sequentially with
   one worker:
@@ -102,7 +102,7 @@ pnpm, gh-stack
   These tests exercise normal JSON-RPC summaries, pagination/cursor extraction,
   real TCP binding, server-client transport, and package-contract discovery.
 
-- [ ] **Step 4: Prove the owned file has zero native findings**
+- [x] **Step 4: Prove the owned file has zero native findings**
 
   Re-run Task 1 Step 1. Expected: exit 0 and zero diagnostics.
 
@@ -114,7 +114,7 @@ pnpm, gh-stack
 - Modify: `CHANGELOG.md`
 - Modify: `docs/superpowers/plans/2026-08-15-unsafe-assertion-mcp-test-fixture.md`
 
-- [ ] **Step 1: Run the full native inventory**
+- [x] **Step 1: Run the full native inventory**
 
   From `apps/api`, run:
 
@@ -124,10 +124,10 @@ pnpm, gh-stack
   ```
 
   Record total diagnostics, unique filenames, and `threads_count` from the native
-  JSON. Expected: 263 diagnostics across 76 files with one thread if no unrelated
+  JSON. Expected: 260 diagnostics across 75 files with one thread if no unrelated
   drift occurred; observed output is authoritative.
 
-- [ ] **Step 2: Run exact bounded repository verification**
+- [x] **Step 2: Run exact bounded repository verification**
 
   Apply the tracker host-safety gate first (`free -h`; second `vmstat 1 2` sample
   must have `si=0`, `so=0`, with at least 2 GiB available), then run sequentially:
@@ -146,12 +146,12 @@ pnpm, gh-stack
   Do not run the root aggregate build, mutation testing, parallel workers, or a
   custom checker.
 
-- [ ] **Step 3: Obtain independent reviews**
+- [x] **Step 3: Obtain independent reviews**
 
   Require specification-compliance, code-quality, and final whole-layer reviews.
   Fix and re-review every P0/P1 finding and any factual documentation defect.
 
-- [ ] **Step 4: Update canonical evidence**
+- [x] **Step 4: Update canonical evidence**
 
   Record the four-finding reduction, focused suite counts, final native inventory,
   and remaining MCP test/integration debt. Keep the native rule diagnostic until
@@ -160,7 +160,7 @@ pnpm, gh-stack
 - [ ] **Step 5: Commit and publish the stacked PR**
 
   Commit with conventional messages and the required co-author trailer. Require
-  the current branch base to equal the live head of PR #398 with
+  the current branch base to equal the live head of PR #399 with
   `needsRebase: false`. Publish a non-draft PR through gh-stack with a
   `Verification` section and no `Test plan` section. Use `Closes #...` only for a
   genuinely applicable issue. Monitor CI, repair failures, and do not merge.
