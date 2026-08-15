@@ -99,6 +99,7 @@ layer is merged or shipped. Layer state remains active until merge.
 | submitted | MCP HTTP test fixture                   | `6b4daa8a` removes four fixture assertions while preserving request summaries and loopback cleanup; inventory 260/75                  | #400 |
 | submitted | Tool-result truncation boundary         | `7e7d2bff` removes 17 assertions and rejects malformed oversized projections; focused 46/46; inventory 243/72                         | #401 |
 | submitted | Anti-slop foundation                    | `6bd13fdb` replaces the bespoke double-assertion gate with three zero-baseline rules; the remaining twelve total 1,125 diagnostics    | #402 |
+| submitted | Product E2E deterministic readiness     | `b3837fd1` replaces dev compilation and stale-process reuse with owned production readiness, then orders streamed UI after settlement | #402 |
 
 ## Inventory
 
