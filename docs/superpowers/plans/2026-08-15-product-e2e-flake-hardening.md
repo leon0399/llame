@@ -47,5 +47,5 @@ hide scheduling races instead of removing them.
       the web build with an explicit foreground memory cap.
 - [x] Obtain independent architecture and code-quality review; repair factual
       or P0/P1 defects.
-- [ ] Push the final #402 head and require first-attempt green Product E2E plus
+- [x] Push the final #402 head and require first-attempt green Product E2E plus
       the full existing CI matrix; do not merge.
