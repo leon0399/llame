@@ -18,6 +18,10 @@ export const compareCodePoints = (left: string, right: string): number => {
   return leftScalars.length - rightScalars.length;
 };
 
+export function canonicalize(
+  value: Record<string, unknown>,
+): Record<string, unknown>;
+export function canonicalize(value: unknown): unknown;
 export function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(canonicalize);

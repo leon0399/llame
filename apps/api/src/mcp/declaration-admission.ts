@@ -339,9 +339,7 @@ export async function admitMcpToolDefinitions(input: {
         definition.description ?? '',
         protectedValues,
       ),
-      inputSchema: canonicalize(
-        schemaAdmission.inputSchema,
-      ) as JsonSchemaDocument,
+      inputSchema: canonicalize(schemaAdmission.inputSchema),
     };
     input.assertActive?.();
     provisional.push({ index, tool });
