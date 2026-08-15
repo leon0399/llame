@@ -76,4 +76,4 @@
 - [x] Do not run the aggregate root build.
 - [x] Review the diff for production changes, generated reports, custom infrastructure, issue-closing claims, and scope creep.
 - [x] Commit with the required co-author trailer.
-- [ ] Publish a non-draft stacked PR based on #393, update the tracker with its PR number, push, and verify `needsRebase: false`.
+- [x] Publish a non-draft stacked PR based on #393, update the tracker with its PR number, push, and verify `needsRebase: false`.
