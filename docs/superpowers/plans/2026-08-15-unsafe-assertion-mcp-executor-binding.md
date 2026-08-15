@@ -19,7 +19,7 @@
 - Modify: `apps/api/src/mcp/mcp-server-client.test.ts`
 - Verify: `apps/api/src/mcp/mcp-server-client.ts`
 
-- [ ] **Step 1: Capture the native failing assertion baseline**
+- [x] **Step 1: Capture the native failing assertion baseline**
 
   From `apps/api`, run:
 
@@ -29,7 +29,7 @@
 
   Expected: exit 1 with exactly two diagnostics: the test JSON parser assertion and the production descriptor-value assertion.
 
-- [ ] **Step 2: Run the unchanged direct suite**
+- [x] **Step 2: Run the unchanged direct suite**
 
   From the repository root, run sequentially with one worker:
 
@@ -43,7 +43,7 @@
   scoped local-bind permission before interpreting any test failure. Only the
   permitted rerun is repository evidence.
 
-- [ ] **Step 3: Replace the test JSON assertion before production changes**
+- [x] **Step 3: Replace the test JSON assertion before production changes**
 
   Import `isRecord` into `mcp-server-client.test.ts`. Parse `init.body` into `unknown`, require a record, require `method` to be a string, and require an optional `id` to be a number before returning the narrow `{ id?, method }` fixture contract. Throw the existing fixture-style `TypeError` when the request body is malformed. Do not add `any`, another assertion, a suppression, or a bespoke parser/helper.
 
@@ -52,9 +52,11 @@
   property is not rejected. Keep the existing `__proto__` case proving that a
   name for which the SDK produces no own data property remains refused.
 
-- [ ] **Step 4: Re-run the direct suite before production changes**
+- [x] **Step 4: Re-run the direct suite before production changes**
 
-  Run the Step 2 command. Expected: the same test count passes, including the existing case that refuses a raw `__proto__` name when the SDK cannot create an own executor.
+  Run the Step 2 command. Expected: the full direct suite passes, including the new
+  `constructor` case and the existing case that refuses a raw `__proto__` name when
+  the SDK cannot create an own executor.
 
 ### Task 2: Bind only own SDK data properties without reading `any`
 
@@ -62,13 +64,13 @@
 
 - Modify: `apps/api/src/mcp/mcp-server-client.ts`
 
-- [ ] **Step 1: Separate descriptor validation from typed map access**
+- [x] **Step 1: Separate descriptor validation from typed map access**
 
   Store `Object.getOwnPropertyDescriptor(packageTools, definition.remoteName)` in a local descriptor. Refuse the declaration unless the descriptor exists and is a data property rather than an accessor (`get` and `set` are absent). After that evidence, read `packageTools[definition.remoteName]` through the SDK return type and keep the existing `packageTool?.execute === undefined` refusal.
 
   Do not read `descriptor.value`, call an accessor, use `Object.assign`, weaken the own-property requirement to an `in` check, or assert `PackageTool`.
 
-- [ ] **Step 2: Run focused GREEN checks**
+- [x] **Step 2: Run focused GREEN checks**
 
   Run the Step 2 direct Vitest command, then:
 
@@ -78,7 +80,7 @@
 
   Expected: the direct suite passes and typecheck exits 0.
 
-- [ ] **Step 3: Prove both owned files have zero native findings**
+- [x] **Step 3: Prove both owned files have zero native findings**
 
   Re-run the Step 1 Oxlint command. Expected: exit 0 and zero diagnostics across both files.
 
@@ -90,7 +92,7 @@
 - Modify: `CHANGELOG.md`
 - Modify: `docs/superpowers/plans/2026-08-15-unsafe-assertion-mcp-executor-binding.md`
 
-- [ ] **Step 1: Run the full native inventory**
+- [x] **Step 1: Run the full native inventory**
 
   From `apps/api`, run:
 
@@ -100,7 +102,7 @@
 
   Record total diagnostics, unique filenames, and `threads_count` from the native JSON. Expected: 267 diagnostics across 77 files if no unrelated drift occurred.
 
-- [ ] **Step 2: Run exact scoped repository verification sequentially**
+- [x] **Step 2: Run exact scoped repository verification sequentially**
 
   From the repository root, run `free -h` and `vmstat 1 2` first. This is an
   agent-host safety pause condition, not repository acceptance evidence. Proceed
@@ -121,11 +123,11 @@
 
   Do not run the root aggregate build, mutation testing, parallel workers, or a custom checker.
 
-- [ ] **Step 3: Obtain independent reviews**
+- [x] **Step 3: Obtain independent reviews**
 
   Require specification-compliance and code-quality reviews of the implementation, then a final whole-layer review including tracker/changelog truthfulness. Fix and re-review any P0/P1 finding.
 
-- [ ] **Step 4: Update canonical evidence**
+- [x] **Step 4: Update canonical evidence**
 
   Record the two-finding reduction, direct-suite count, final native inventory, and completion of all MCP production assertion boundaries. Keep the native rule diagnostic until the full API inventory reaches zero.
 
