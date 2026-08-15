@@ -159,7 +159,7 @@ const GraphNode = ({
   const handleMouseEnter = () => onMouseEnter && onMouseEnter();
   const handleMouseLeave = () => onMouseLeave && onMouseLeave();
 
-  const renderNodeShape = () => {
+  const renderNode = () => {
     const baseProps = {
       onClick,
       onMouseEnter: handleMouseEnter,
@@ -290,7 +290,7 @@ const GraphNode = ({
     }
   };
 
-  return renderNodeShape();
+  return renderNode();
 };
 
 // Branch graph component

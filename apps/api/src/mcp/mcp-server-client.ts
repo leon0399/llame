@@ -382,7 +382,7 @@ function safeFailureResult(kind: McpFailureKind): ToolResult {
   }
 }
 
-function hasPortableMcpResultShape(value: unknown): boolean {
+function hasPortableMcpResultPayload(value: unknown): boolean {
   return (
     isRecord(value) &&
     (Array.isArray(value['content']) ||
@@ -1144,7 +1144,7 @@ export class McpServerClient {
 
       try {
         const rawResult = await execute(args, options);
-        if (!hasPortableMcpResultShape(rawResult)) {
+        if (!hasPortableMcpResultPayload(rawResult)) {
           return {
             disposition: classifyMcpFailure({
               stage: 'call',
