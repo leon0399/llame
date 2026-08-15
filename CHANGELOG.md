@@ -1,5 +1,13 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-16
+
+- Enforced `anti-slop/no-object-parameters` at zero baseline across root E2E and
+  all four workspaces. Three broad test-helper inputs now use endpoint DTO
+  variants or the controller's exact `PinsService` capabilities, preserving
+  deliberate invalid-field coverage without replacing `object` with another
+  top-type escape hatch.
+
 # 2026-08-15
 
 - Replaced Product E2E's `next dev` server with an E2E-owned production build
