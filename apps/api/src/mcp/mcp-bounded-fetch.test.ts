@@ -214,21 +214,20 @@ describe('MCP byte-bounded fetch', () => {
     expect(cancelled).toHaveBeenCalledOnce();
   });
 
-  it.each(['9x', 'x9'])(
-    'ignores malformed Content-Length claim %s and consumes a safe body',
+  it.each(['+9', '9.'])(
+    'ignores malformed Content-Length claim %s and inspects the streamed body',
     async (contentLength) => {
+      const streamedResponse = responseFromChunks([bytes('123456789')], {
+        headers: { 'content-length': contentLength },
+      });
       const boundedFetch = createMcpBoundedFetch({
-        fetch: () =>
-          Promise.resolve(
-            new Response('safe', {
-              headers: { 'content-length': contentLength },
-            }),
-          ),
+        fetch: () => Promise.resolve(streamedResponse),
         maxResponseBytes: 8,
       });
 
       const response = await boundedFetch('https://example.invalid');
-      await expect(response.text()).resolves.toBe('safe');
+      expect(response).toBeInstanceOf(Response);
+      await expect(response.text()).rejects.toBeInstanceOf(McpBodyLimitError);
     },
   );
 
