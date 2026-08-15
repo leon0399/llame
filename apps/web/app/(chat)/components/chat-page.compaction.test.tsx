@@ -36,6 +36,7 @@ vi.mock("@/contexts/active-runs-context", () => ({
   useActiveRuns: () => ({
     trackRun: vi.fn(),
     untrackChat: vi.fn(),
+    registerViewedChat: vi.fn(() => () => {}),
     completedChats: new Set<string>(),
     markChatSeen: vi.fn(),
   }),

@@ -131,6 +131,7 @@ export function ChatPage({
 }: ChatPageProps) {
   const { draftChatId, draftRestored, setActiveChatId, setDraftChatId } =
     useChatContext();
+  const { registerViewedChat } = useActiveRuns();
   // Mint the chat id client-side for a brand-new chat so the first message creates-or-appends
   // in a single POST (#86). Never reaches the DOM (used only as the React key, the useChat id,
   // and the transport target), so an SSR/client mint mismatch causes no hydration error.
@@ -143,6 +144,12 @@ export function ChatPage({
       setDraftChatId(null);
     }
   }, [persistedChatId, setActiveChatId, setDraftChatId]);
+
+  // This page boundary owns foreground presence before any session data loads.
+  // In particular, a rehydrated draft can wait with no ChatSessionContent while
+  // its history query resolves; registering here prevents that loading window
+  // from being misclassified as a background run completion.
+  useEffect(() => registerViewedChat(chatId), [chatId, registerViewedChat]);
 
   // Key by chat id: route changes and "New Chat" remount the AI SDK Chat instance, but adopting
   // the minted id after a successful first send does not interrupt an in-flight stream.

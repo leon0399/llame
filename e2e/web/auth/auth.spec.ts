@@ -138,7 +138,13 @@ test.describe("anonymous auth flows", () => {
     await expectProtectedShell(page, freshAccount);
 
     await revokeAllSessions(request, freshAccount);
-    await page.goto("/settings");
+    // The revoked cookie passes the proxy's presence-only gate, then the
+    // authenticated shell's `/me` request returns 401 and intentionally
+    // supersedes this navigation with a hard redirect. Waiting for `load`
+    // races that redirect and can report net::ERR_ABORTED even though the
+    // login page won. `commit` proves the protected navigation started; the
+    // final-state assertion below owns the redirect contract.
+    await page.goto("/settings", { waitUntil: "commit" });
 
     await expectLoginPage(page);
   });

@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { toast } from "@workspace/ui/components/sonner";
@@ -38,6 +38,9 @@ type ActiveRunsContextValue = {
    *  onFinish/onError), so the poll can't later fire a stale "reply ready" for
    *  something they already saw after they navigate away. */
   untrackChat: (chatId: string) => void;
+  /** Register the chat currently rendered in the foreground. The mounted
+   *  ChatPage is authoritative even while a new chat still has the `/` URL. */
+  registerViewedChat: (chatId: string) => () => void;
   /** Chats with an unseen background completion (drives the sidebar badge). */
   completedChats: ReadonlySet<string>;
   markChatSeen: (chatId: string) => void;
@@ -77,17 +80,25 @@ export function ActiveRunsProvider({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const pathname = usePathname();
   const queryClient = useQueryClient();
   const [active, setActive] = useState<Map<string, TrackedRun>>(new Map());
   const [completedChats, setCompletedChats] = useState<Set<string>>(new Set());
 
-  // Refs so the notify effect below reads live pathname/router without
-  // needing them in its dependency array.
-  const pathnameRef = useRef(pathname);
-  pathnameRef.current = pathname;
+  // Refs so the notify effect reads the current mounted chat/router without
+  // needing them in its dependency array. URL-derived presence is insufficient:
+  // a newly-created chat is already visible while its route is still `/`.
+  const viewedChatIdRef = useRef<string | null>(null);
   const routerRef = useRef(router);
   routerRef.current = router;
+
+  const registerViewedChat = useCallback((chatId: string) => {
+    viewedChatIdRef.current = chatId;
+    return () => {
+      if (viewedChatIdRef.current === chatId) {
+        viewedChatIdRef.current = null;
+      }
+    };
+  }, []);
 
   const drop = useCallback((runId: string) => {
     setActive((prev) => {
@@ -241,7 +252,7 @@ export function ActiveRunsProvider({
       }
       if (!isTerminalRunStatus(run.status)) return;
       handledRunIds.current.add(runId);
-      const viewing = pathnameRef.current === `/chat/${meta.chatId}`;
+      const viewing = viewedChatIdRef.current === meta.chatId;
       const res = resolveTerminalRun(run.status, {
         viewingThisChat: viewing,
         tabHidden: typeof document !== "undefined" ? document.hidden : false,
@@ -277,11 +288,19 @@ export function ActiveRunsProvider({
     () => ({
       trackRun,
       untrackChat,
+      registerViewedChat,
       completedChats,
       markChatSeen,
       activeChatIds,
     }),
-    [trackRun, untrackChat, completedChats, markChatSeen, activeChatIds],
+    [
+      trackRun,
+      untrackChat,
+      registerViewedChat,
+      completedChats,
+      markChatSeen,
+      activeChatIds,
+    ],
   );
 
   return (
