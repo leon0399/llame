@@ -93,8 +93,8 @@ export const isRecord = (value: unknown): value is Record<string, unknown> =>
 - [x] Run sequentially: the six focused Vitest files, `pnpm --filter api lint`, `pnpm --filter api typecheck`, `pnpm lint:ast-grep`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
 - [x] Do not run a root aggregate build, background command, or multi-threaded type-aware pilot.
 - [x] Receive independent specification-compliance review, then independent code-quality review; repair and re-review every P0/P1 finding.
-- [ ] Commit implementation and documentation with the required co-author trailer.
-- [ ] Submit a non-draft stacked PR based on #394, update the tracker with the actual PR number, commit the bookkeeping, push, and verify `needsRebase: false`.
+- [x] Commit implementation and documentation with the required co-author trailer.
+- [x] Submit a non-draft stacked PR based on #394, update the tracker with the actual PR number, commit the bookkeeping, push, and verify `needsRebase: false`.
 
 ## Revision history
 

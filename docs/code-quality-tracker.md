@@ -72,12 +72,13 @@ layer is merged or shipped. Layer state remains active until merge.
 |    33 | #392 | Protected-value mutation repairs     |
 |    34 | #393 | Bounded-fetch limit mutation repairs |
 |    35 | #394 | Bounded-fetch SSE mutation repairs   |
+|    36 | #395 | Unsafe assertion boundary foundation |
 
 ## Current submission
 
-| State     | Layer                                   | Commit evidence                                                                                                              | PR   |
-| --------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---- |
-| submitted | Bounded-fetch SSE mutation repair layer | `e9e8a566` adds eight behavior cases and records the 169-mutant 89.94% result, killing all 16 exact layer-4 useful survivors | #394 |
+| State     | Layer                                      | Commit evidence                                                                                                                        | PR   |
+| --------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| submitted | Unsafe assertion boundary foundation layer | `fe5d1afe` centralizes four record guards and removes one unsafe bounded-fetch assertion; native inventory falls from 282/83 to 281/82 | #395 |
 
 ## Inventory
 
