@@ -1,14 +1,18 @@
 # Product E2E Flake Hardening Implementation Plan
 
 **Goal:** Make Product E2E assertions measure product behavior instead of Next
-development compilation or an actively rerendering stream.
+development compilation or lifecycle races in streamed, navigated, or
+background-tracked UI.
 
 **Architecture:** Playwright continues to own the full stack, retries remain
 diagnostic, and `failOnFlakyTests` remains enabled. The web boundary changes
 from `next dev` to an E2E-owned production build plus `next start`, so route
 compilation completes before Playwright admits the server. The MCP browser
 acceptance waits for the run's existing Send-button settlement signal before
-interacting with streamed result UI.
+interacting with streamed result UI. The mounted `ChatPage`, not its eventual
+URL, owns foreground-run visibility. Revoked-session coverage waits only for
+the browser to initiate the protected navigation before the intentional 401
+redirect owns the final page state.
 
 **No-go:** Do not widen assertion/action timeouts, add retries, force clicks,
 disable `failOnFlakyTests`, or add a bespoke readiness endpoint. Those choices
@@ -24,6 +28,19 @@ hide scheduling races instead of removing them.
   retry after the link-safety modal's close button was unstable and then
   detached during streaming. The test waited for the run-settlement signal only
   after that interaction.
+- PR #402 run 31903943823: the production-start head still recovered two tests
+  on retry. Revoked-session coverage saw `net::ERR_ABORTED` because the expected
+  401 hard redirect superseded the protected navigation while `page.goto`
+  waited for `load`. A persisted-chat second send was covered for ten seconds
+  by a false `Reply ready` toast because the poll derived foreground ownership
+  from `/` before the draft adopted `/chat/:id`.
+- PR #402 run 31904952065: the mounted-chat repair removed the stale toast and
+  every chat case passed first attempt, but the revoked-session case proved
+  that even `waitUntil: "commit"` can lose to the intentional 401 redirect.
+  `page.goto` still owned a request whose correct outcome is supersession.
+- PR #402 run 31905421872 at `eba9eefa`: the full matrix passed. Product E2E
+  passed 21/21 on the first attempt in 1.8 minutes with no retry or flaky
+  marker.
 
 ## Task 1: Remove dev compilation from the product-behavior clock
 
@@ -43,9 +60,24 @@ hide scheduling races instead of removing them.
 
 ## Task 3: Verify and publish
 
-- [x] Run root Oxlint, focused formatting/Markdown, workflow validation, and
-      the web build with an explicit foreground memory cap.
-- [x] Obtain independent architecture and code-quality review; repair factual
-      or P0/P1 defects.
-- [x] Push the final #402 head and require first-attempt green Product E2E plus
+- [x] Run root Oxlint, focused formatting/Markdown, and workflow validation;
+      attempt the web build with an explicit foreground memory cap and retain
+      the remote build gate when the capped local build does not complete.
+- [x] Obtain independent architecture and code-quality review of the original
+      readiness repair; repair factual or P0/P1 defects.
+
+## Task 4: Close the remaining navigation and foreground races
+
+- [x] Register the mounted chat explicitly in `ActiveRunsProvider`; suppress a
+      completion notification only while that chat is actually foreground and
+      visible, including the `/` draft phase.
+- [x] Remove the older compaction E2E's wait-for-toast workaround and cover both
+      registration and cleanup with the provider's standard Vitest suite.
+- [x] Initiate revoked-session navigation from the browser without awaiting the
+      intentionally superseded protected request, then assert the login page as
+      the authoritative final state.
+- [x] Obtain independent architectural review; run focused web test, typecheck,
+      lint, root lint, formatting, and Playwright collection; require the remote
+      build gate because a capped local build did not complete.
+- [x] Push the repaired #402 head and require first-attempt green Product E2E plus
       the full existing CI matrix; do not merge.
