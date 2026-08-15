@@ -59,6 +59,7 @@ required.
 |    26 | #385 | Constructor decorator placement     |
 |    27 | #386 | Semantic Markdown lint              |
 |    28 | #387 | Unused lint-disable ratchet         |
+|    29 | #388 | Contributor documentation contracts |
 
 ## Inventory
 
