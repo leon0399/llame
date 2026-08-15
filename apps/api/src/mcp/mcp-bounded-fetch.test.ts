@@ -425,6 +425,105 @@ describe('MCP byte-bounded fetch', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('counts UTF-8 string request bodies at the exact byte limit', async () => {
+    const fetchSpy = vi.fn(() => Promise.resolve(new Response('{}')));
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: fetchSpy,
+      maxRequestBytes: 2,
+      maxResponseBytes: 16,
+    });
+
+    await expect(
+      boundedFetch('https://example.invalid', {
+        method: 'POST',
+        body: 'é',
+      }),
+    ).resolves.toBeInstanceOf(Response);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it('allows an absent request body at a zero-byte limit', async () => {
+    const fetchSpy = vi.fn(() => Promise.resolve(new Response('{}')));
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: fetchSpy,
+      maxRequestBytes: 0,
+      maxResponseBytes: 16,
+    });
+
+    await expect(
+      boundedFetch('https://example.invalid', { method: 'POST' }),
+    ).resolves.toBeInstanceOf(Response);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it('allows an explicit null request body at a zero-byte limit', async () => {
+    const fetchSpy = vi.fn(() => Promise.resolve(new Response('{}')));
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: fetchSpy,
+      maxRequestBytes: 0,
+      maxResponseBytes: 16,
+    });
+
+    await expect(
+      boundedFetch('https://example.invalid', {
+        method: 'POST',
+        body: null,
+      }),
+    ).resolves.toBeInstanceOf(Response);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an unsupported ReadableStream request body before fetch', async () => {
+    const fetchSpy = vi.fn(() => Promise.resolve(new Response('{}')));
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: fetchSpy,
+      maxRequestBytes: 0,
+      maxResponseBytes: 16,
+    });
+
+    await expect(
+      boundedFetch('https://example.invalid', {
+        method: 'POST',
+        body: new ReadableStream<Uint8Array>(),
+      }),
+    ).rejects.toBeInstanceOf(McpRequestLimitError);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('allows an unsupported ReadableStream request body without a request limit', async () => {
+    const sentinel = new Error('underlying fetch sentinel');
+    const fetchSpy = vi.fn(() => Promise.reject(sentinel));
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: fetchSpy,
+      maxResponseBytes: 16,
+    });
+
+    await expect(
+      boundedFetch('https://example.invalid', {
+        method: 'POST',
+        body: new ReadableStream<Uint8Array>(),
+      }),
+    ).rejects.toBe(sentinel);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it('allows a supported string request body below the byte limit', async () => {
+    const fetchSpy = vi.fn(() => Promise.resolve(new Response('{}')));
+    const boundedFetch = createMcpBoundedFetch({
+      fetch: fetchSpy,
+      maxRequestBytes: 2,
+      maxResponseBytes: 16,
+    });
+
+    await expect(
+      boundedFetch('https://example.invalid', {
+        method: 'POST',
+        body: 'a',
+      }),
+    ).resolves.toBeInstanceOf(Response);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
   it.each(requestBodyCases)(
     'enforces the request byte limit for $label bodies',
     async ({ body, byteLength }) => {
