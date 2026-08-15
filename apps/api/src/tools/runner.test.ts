@@ -41,11 +41,11 @@ describe('runTool', () => {
       },
     };
     const result = await runTool(noIdentityTool, { value: 'x' }, undefined, 15);
-    expect(result).toEqual({
-      status: 'error',
-      type: 'no_context',
-      message: expect.stringContaining('resolvable run owner') as string,
-    });
+    expect(result).toMatchObject({ status: 'error', type: 'no_context' });
+    if (result.status !== 'error') {
+      throw new Error('Expected a no-context error result.');
+    }
+    expect(result.message).toContain('resolvable run owner');
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -260,6 +260,30 @@ describe('runTool', () => {
     // The tool's own field survives the cut (#294) — shape preservation is
     // covered in result-truncation.test.ts; this pins the runner wiring.
     expect(typeof (result as Record<string, unknown>).blob).toBe('string');
+  });
+
+  it('fails closed when truncation receives a malformed oversized projection', async () => {
+    const malformedTool: Tool = {
+      ...echoTool,
+      execute: () => ({
+        status: 'success',
+        toJSON: () =>
+          Array.from({ length: RESULT_TRUNCATE_CHARS }, () => 'malformed'),
+      }),
+    };
+
+    const result = await runTool(
+      malformedTool,
+      { value: 'x' },
+      fakeContext(),
+      15,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'execution_failed',
+      message: 'The tool failed to execute.',
+    });
   });
 
   // The `<=` boundary in truncateOversizedResult (result-truncation.ts) —

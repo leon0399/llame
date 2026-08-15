@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 import {
   cutStringAtCodePointBoundary,
   RESULT_TRUNCATE_CHARS,
@@ -69,6 +71,34 @@ describe('truncateOversizedResult', () => {
     expect(truncateOversizedResult(result)).toBe(result);
   });
 
+  it.each([
+    {
+      name: 'an oversized array root',
+      toJSON: () => Array.from({ length: RESULT_TRUNCATE_CHARS }, () => 'x'),
+    },
+    {
+      name: 'an oversized string root',
+      toJSON: () => 'x'.repeat(RESULT_TRUNCATE_CHARS + 1),
+    },
+    {
+      name: 'an oversized record without status',
+      toJSON: () => ({ payload: 'x'.repeat(RESULT_TRUNCATE_CHARS) }),
+    },
+    {
+      name: 'an oversized record with a non-success status',
+      toJSON: () => ({
+        status: 'error',
+        payload: 'x'.repeat(RESULT_TRUNCATE_CHARS),
+      }),
+    },
+  ])('rejects $name projections', ({ toJSON }) => {
+    expect(() =>
+      truncateOversizedResult({ status: 'success', toJSON }),
+    ).toThrowError(
+      new TypeError('Malformed oversized tool result projection.'),
+    );
+  });
+
   it('keeps the status and every declared field of a truncated result', () => {
     const result = truncateOversizedResult({
       status: 'success',
@@ -85,9 +115,13 @@ describe('truncateOversizedResult', () => {
     });
     // The declared shape survives: `output.content[0]` is still an object with
     // its own `type`/`text`, not a fragment of the result's serialization.
-    const output = (result as Record<string, unknown>).output as {
-      content: { type: string; text: string }[];
-    };
+    const output = z
+      .object({
+        output: z.object({
+          content: z.array(z.object({ type: z.string(), text: z.string() })),
+        }),
+      })
+      .parse(result).output;
     expect(output.content[0].type).toBe('text');
     expect(typeof output.content[0].text).toBe('string');
     expect(output.content[0].text.length).toBeLessThan(60_000);
@@ -115,8 +149,9 @@ describe('truncateOversizedResult', () => {
       text: 'x'.repeat(50_000),
     });
 
-    const notice = (result as Record<string, unknown>)
-      .truncationNotice as string;
+    const notice = z
+      .object({ truncationNotice: z.string() })
+      .parse(result).truncationNotice;
     const omitted = Number(/(\d+) characters omitted/u.exec(notice)?.[1]);
     expect(omitted).toBeGreaterThan(30_000);
     expect(notice).toMatch(/narrower arguments/u);
@@ -126,10 +161,11 @@ describe('truncateOversizedResult', () => {
     const full: ToolResult = { status: 'success', text: 'x'.repeat(50_000) };
     const result = truncateOversizedResult(full);
 
-    const notice = (result as Record<string, unknown>)
-      .truncationNotice as string;
+    const notice = z
+      .object({ truncationNotice: z.string() })
+      .parse(result).truncationNotice;
     const omitted = Number(/(\d+) characters omitted/u.exec(notice)?.[1]);
-    const kept = ((result as Record<string, unknown>).text as string).length;
+    const kept = z.object({ text: z.string() }).parse(result).text.length;
     expect(omitted).toBe(50_000 - kept);
   });
 
@@ -142,10 +178,11 @@ describe('truncateOversizedResult', () => {
       })),
     });
 
-    const rows = (result as Record<string, unknown>).results as {
-      chatId: string;
-      title: string;
-    }[];
+    const rows = z
+      .object({
+        results: z.array(z.object({ chatId: z.string(), title: z.string() })),
+      })
+      .parse(result).results;
     expect(Array.isArray(rows)).toBe(true);
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.length).toBeLessThan(5_000);
@@ -162,9 +199,12 @@ describe('truncateOversizedResult', () => {
       })),
     });
 
-    const rows = (result as Record<string, unknown>).results as unknown[];
-    const notice = (result as Record<string, unknown>)
-      .truncationNotice as string;
+    const rows = z
+      .object({ results: z.array(z.unknown()) })
+      .parse(result).results;
+    const notice = z
+      .object({ truncationNotice: z.string() })
+      .parse(result).truncationNotice;
     expect(notice).toContain(`results kept ${rows.length} of 5000`);
   });
 
@@ -178,8 +218,9 @@ describe('truncateOversizedResult', () => {
       },
     });
 
-    const notice = (result as Record<string, unknown>)
-      .truncationNotice as string;
+    const notice = z
+      .object({ truncationNotice: z.string() })
+      .parse(result).truncationNotice;
     expect(notice).toMatch(/output\.pages\[0\]\.lines kept \d+ of 4000/u);
   });
 
@@ -195,8 +236,9 @@ describe('truncateOversizedResult', () => {
       e: list(5_000),
     });
 
-    const notice = (result as Record<string, unknown>)
-      .truncationNotice as string;
+    const notice = z
+      .object({ truncationNotice: z.string() })
+      .parse(result).truncationNotice;
     // Ranked by how much each list lost, then the tail is counted, not named.
     expect(notice).toMatch(/Lists shortened: a kept \d+ of 9000; b kept/u);
     expect(notice).toContain('(and 2 more)');
@@ -210,8 +252,9 @@ describe('truncateOversizedResult', () => {
       text: 'x'.repeat(50_000),
     });
 
-    const notice = (result as Record<string, unknown>)
-      .truncationNotice as string;
+    const notice = z
+      .object({ truncationNotice: z.string() })
+      .parse(result).truncationNotice;
     expect(notice).not.toContain('Lists shortened');
   });
 
@@ -224,10 +267,16 @@ describe('truncateOversizedResult', () => {
       },
     });
 
-    const output = (result as Record<string, unknown>).output as {
-      page: { section: { paragraphs: string[] } };
-      fetchedAt: string;
-    };
+    const output = z
+      .object({
+        output: z.object({
+          page: z.object({
+            section: z.object({ paragraphs: z.array(z.string()) }),
+          }),
+          fetchedAt: z.string(),
+        }),
+      })
+      .parse(result).output;
     expect(output.fetchedAt).toBe('2026-08-11T00:00:00.000Z');
     expect(typeof output.page.section.paragraphs[0]).toBe('string');
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
@@ -244,7 +293,10 @@ describe('truncateOversizedResult', () => {
     expect(Object.keys(result)).toEqual(
       expect.arrayContaining(['status', 'query', 'blob', 'nextCursor']),
     );
-    expect((result as Record<string, unknown>).nextCursor).toBe('cursor-1');
+    const nextCursor = z
+      .object({ nextCursor: z.string() })
+      .parse(result).nextCursor;
+    expect(nextCursor).toBe('cursor-1');
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
 
@@ -270,8 +322,9 @@ describe('truncateOversizedResult', () => {
 
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
     expect(result).toMatchObject({ status: 'success', truncated: true });
-    const notice = (result as Record<string, unknown>)
-      .truncationNotice as string;
+    const notice = z
+      .object({ truncationNotice: z.string() })
+      .parse(result).truncationNotice;
     expect(notice).toMatch(/\d+ of 4000 result fields omitted entirely/u);
   });
 
@@ -281,8 +334,9 @@ describe('truncateOversizedResult', () => {
       text: 'x'.repeat(50_000),
     });
 
-    const notice = (result as Record<string, unknown>)
-      .truncationNotice as string;
+    const notice = z
+      .object({ truncationNotice: z.string() })
+      .parse(result).truncationNotice;
     expect(notice).not.toContain('result fields omitted');
   });
 
@@ -298,10 +352,11 @@ describe('truncateOversizedResult', () => {
       blob: 'x'.repeat(50_000),
     });
 
-    expect((result as Record<string, unknown>).truncated).toBe(true);
-    expect(
-      (result as Record<string, unknown>).truncationNotice as string,
-    ).toContain('characters omitted');
+    const marker = z
+      .object({ truncated: z.boolean(), truncationNotice: z.string() })
+      .parse(result);
+    expect(marker.truncated).toBe(true);
+    expect(marker.truncationNotice).toContain('characters omitted');
   });
 
   it('truncates a result exactly one character over the cap', () => {
