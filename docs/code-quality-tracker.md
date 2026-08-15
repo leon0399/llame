@@ -141,27 +141,30 @@ required.
 The bounded baseline used the committed `apps/api/stryker.config.json`: three pure MCP
 utilities, their three direct Vitest files, the native Vitest runner, and
 `concurrency: 1`. The native report is `apps/api/reports/mutation/mutation.json`
-(ignored generated output). The successful run exited 0; its score is below the
-configured high threshold of 80%, above the low threshold of 60%, and no break
-threshold is configured.
+(ignored generated output). The mutation counts, scores, per-file totals, and
+survivor inventory below are native JSON report facts. Runtime, memory, and failure
+observations are identified separately as foreground command output. The committed
+thresholds are high 80%, low 60%, with no break threshold.
 
-| Metric               | Result                                                                                                           |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Command              | `/usr/bin/time -v pnpm --filter api test:mutation`                                                               |
-| Test scope           | 3 files, 33 tests; the direct preflight also passed 33/33                                                        |
-| Mutation scope       | 3 source files, 425 instrumented mutants                                                                         |
-| Outcomes             | 289 killed; 101 survived; 29 no coverage; 6 timeout; 0 compile errors; 0 ignored; 0 pending                      |
-| Mutation score       | 69.41% (covered-mutant rate 74.49%)                                                                              |
-| Wall time            | 2:30.62                                                                                                          |
-| Maximum resident set | 250388 kB; 0 swaps                                                                                               |
-| Dry-run reference    | 4.23 s, 279432 kB maximum resident set, 33 tests, 425 mutants                                                    |
-| Memory preflight     | 6.6 GiB available and 34 MiB swap used before the direct tests; 6.7 GiB available and 35 MiB swap used afterward |
-| Process budget       | Stryker `concurrency: 1`; the installed Vitest runner also forces max threads, workers, and concurrency to 1     |
+| Provenance                                      | Metric               | Result                                                                                                           |
+| ----------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Operator-observed foreground Vitest/time output | Command              | `/usr/bin/time -v pnpm --filter api test:mutation`                                                               |
+| Operator-observed foreground Vitest/time output | Exit status          | 0                                                                                                                |
+| Operator-observed foreground Vitest/time output | Test scope           | 3 files, 33 tests; the direct Vitest preflight also passed 33/33                                                 |
+| Native JSON report fact                         | Mutation scope       | 3 source files, 425 instrumented mutants                                                                         |
+| Native JSON report fact                         | Outcomes             | 289 killed; 101 survived; 29 no coverage; 6 timeout; 0 compile errors; 0 ignored; 0 pending                      |
+| Native JSON report fact                         | Mutation score       | 69.41% (covered-mutant rate 74.49%)                                                                              |
+| Operator-observed foreground Vitest/time output | Wall time            | 2:30.62                                                                                                          |
+| Operator-observed foreground Vitest/time output | Maximum resident set | 250388 kB; 0 swaps                                                                                               |
+| Operator-observed foreground Vitest/time output | Dry-run reference    | 4.23 s, 279432 kB maximum resident set, 33 tests, 425 mutants                                                    |
+| Operator-observed foreground Vitest/time output | Memory preflight     | 6.6 GiB available and 34 MiB swap used before the direct tests; 6.7 GiB available and 35 MiB swap used afterward |
+| Committed config / installed runner             | Process budget       | Stryker `concurrency: 1`; the installed Vitest runner also forces max threads, workers, and concurrency to 1     |
 
-The first network-disabled invocation failed before Stryker started because its
-logging server attempted to bind `0.0.0.0` and received `EPERM`; the one authorized
-network-enabled retry above is the only mutation result. No configuration, source,
-or test change was made to obtain it.
+Operator-observed foreground Stryker/time output recorded one network-disabled invocation
+that failed before Stryker started because its logging server attempted to bind
+`0.0.0.0` and received `EPERM`; the one authorized network-enabled retry above is
+the only mutation result. No configuration, source, test change, or custom log
+artifact was made to obtain it.
 
 | Source file            |   Total |  Killed | Survived | No coverage | Timeout | Mutation score |
 | ---------------------- | ------: | ------: | -------: | ----------: | ------: | -------------: |
@@ -170,7 +173,7 @@ or test change was made to obtain it.
 | `tool-id.ts`           |      90 |      72 |       14 |           4 |       0 |         80.00% |
 | **All files**          | **425** | **289** |  **101** |      **29** |   **6** |     **69.41%** |
 
-The native report contains 130 survivor/no-coverage entries. `S` means survived and
+The native JSON report contains 130 survivor/no-coverage entries. `S` means survived and
 `NC` means no coverage; the number is the native Stryker mutant ID. `U` is a useful
 behavior gap to repair with a focused test, `E` is a likely equivalent mutant for
 the supported input domain, and `I` is an intentionally untested implementation
@@ -187,7 +190,8 @@ and 9 intentionally untested implementation details.
 | S1, S2, S4, S5               | 3, 4, 10, 11 (`StringLiteral`)                                    | I           | Error message and `name` spellings are observable labels, but no current contract pins them; keep them out of the first repair slice.                      |
 | S7                           | 29 (`MethodExpression`)                                           | U           | `httpMethod` is exposed to `onBytes`; add uppercase normalization and `Request` fallback assertions.                                                       |
 | S10                          | 30 (`StringLiteral`)                                              | U           | The default `GET` context is untested when the request is a URL or has no method; assert the context.                                                      |
-| S12, S16, S17                | 32 (`ConditionalExpression`, `BlockStatement`, `ObjectLiteral`)   | U           | Non-string request bodies must produce a null RPC method without changing the HTTP context; add a typed-body case.                                         |
+| S12, S16                     | 32 (`ConditionalExpression`, `BlockStatement`)                    | U           | Non-string request bodies must produce a null RPC method without changing the HTTP context; add a typed-body case.                                         |
+| S17                          | 33 (`ObjectLiteral`)                                              | U           | Non-string request bodies must produce a null RPC method without changing the HTTP context; add a typed-body case.                                         |
 | NC29, NC30                   | 37, 38 (`BlockStatement`, `ObjectLiteral`)                        | E           | JSON arrays, primitives, and `null` cannot carry a JSON `method` property; the alternate non-object guard still yields `rpcMethod: null`.                  |
 | S20, S21, S22, S23, S24, S26 | 37 (`ConditionalExpression`, `LogicalOperator`)                   | E           | The parser's non-object alternatives are observationally equivalent for JSON values; only a non-JSON object with custom properties could distinguish them. |
 | S33                          | 43 (`ConditionalExpression`)                                      | U           | A JSON object with a non-string `method` must remain `null`; add number, boolean, and object method cases.                                                 |
