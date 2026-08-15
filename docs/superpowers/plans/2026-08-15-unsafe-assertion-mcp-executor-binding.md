@@ -131,6 +131,6 @@
 
   Record the two-finding reduction, direct-suite count, final native inventory, and completion of all MCP production assertion boundaries. Keep the native rule diagnostic until the full API inventory reaches zero.
 
-- [ ] **Step 5: Commit and publish the stacked PR**
+- [x] **Step 5: Commit and publish the stacked PR**
 
   Commit with conventional messages and the required co-author trailer. Before publication, run `gh stack view --json` and require the current branch base to equal the live head of PR #397 with `needsRebase: false`. Publish a non-draft PR through gh-stack with a `Verification` section and no `Test plan` section. Use `Closes #...` only if a genuinely applicable issue exists. Monitor CI, repair failures, and do not merge.

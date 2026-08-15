@@ -78,13 +78,14 @@ layer is merged or shipped. Layer state remains active until merge.
 |    36 | #395 | Unsafe assertion boundary foundation  |
 |    37 | #396 | Persisted tool-observation validation |
 |    38 | #397 | MCP schema canonicalization           |
+|    39 | #398 | MCP SDK executor binding              |
 
 ## Current submission
 
 | State     | Layer                                   | Commit evidence                                                                                                                       | PR   |
 | --------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---- |
 | submitted | MCP declaration-schema canonicalization | `0bf5468` removes five schema-boundary assertions with a truthful record overload and typed fixtures; native inventory reaches 269/79 | #397 |
-| ready     | MCP SDK executor binding                | `d9c96cb6` removes the final MCP production and paired test assertions; inventory 267/77                                              | —    |
+| submitted | MCP SDK executor binding                | `d9c96cb6` removes the final MCP production and paired test assertions; inventory 267/77                                              | #398 |
 
 ## Inventory
 
