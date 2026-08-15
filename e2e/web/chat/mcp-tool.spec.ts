@@ -51,6 +51,13 @@ test("operator MCP search settles and reconstructs from durable chat history", a
 
   await expect(settledToolActivities).toHaveCount(1, { timeout: 20_000 });
   await expect(log.getByText(FIXTURE_ANSWER)).toBeVisible({ timeout: 20_000 });
+  // The modal is rendered inside the streamed message tree. Wait for the run
+  // to settle before interacting with it so the close button cannot be
+  // replaced by a final stream update between Playwright's actionability
+  // check and click.
+  await expect(page.getByRole("button", { name: "Send message" })).toBeVisible({
+    timeout: 15_000,
+  });
   const fixtureSource = log.getByRole("button", { name: "Fixture source" });
   const linkSafetyModal = page.locator('[data-streamdown="link-safety-modal"]');
   await expect(fixtureSource).toBeVisible();
@@ -61,11 +68,6 @@ test("operator MCP search settles and reconstructs from durable chat history", a
   await linkSafetyModal.getByRole("button", { name: "Close" }).click();
   await expect(linkSafetyModal).toBeHidden();
   await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/, { timeout: 15_000 });
-  // The composer returns from Stop to Send only after the run stream settles;
-  // reload below is deliberately post-settlement, not a timing-sensitive race.
-  await expect(page.getByRole("button", { name: "Send message" })).toBeVisible({
-    timeout: 15_000,
-  });
 
   await expect
     .poll(async () => {

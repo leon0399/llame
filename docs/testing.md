@@ -60,6 +60,12 @@ workspace whose tooling they guard.
    retries so Playwright can capture the failure and compare a warm retry, but
    `failOnFlakyTests` makes any recovered test fail the job. Do not normalize
    timing regressions into green CI by widening timeouts or adding retries.
+10. **Product behavior runs behind a production-ready web boundary.**
+    Playwright builds `apps/web` with the E2E API URL and admits `next start`
+    before tests begin. It also rejects occupied E2E service ports instead of
+    reusing processes whose code and configuration are unknown. Dev compiler
+    latency and hot-reload DOM churn are not product behavior; do not move
+    those races into assertion timeouts or a bespoke readiness endpoint.
 
 ## Commands
 
@@ -135,16 +141,17 @@ that would catch the same breakage:
 
 ```text
 typecheck ─┐
-unit ──────┼─→ build
-           ├─→ storybook        (component tests, real browser)
-           └─→ integration ──→ browser-e2e
+unit ──────┼─→ build ───────────┐
+           ├─→ integration ─────┴─→ browser-e2e
+           └─→ storybook        (component tests, real browser)
 ```
 
 - **Typecheck** / **Unit tests** — cheap gates, run unconditionally in parallel
 - **Build** — `turbo run build` + a `git diff --exit-code` drift check
 - **Integration tests (real Postgres)** — the RLS gate; self-provisions via Testcontainers
 - **Component tests (Storybook)** — runs in the Playwright image (browser preinstalled)
-- **Product e2e (Playwright)** — the only place the browser suite runs
+- **Product e2e (Playwright)** — builds/starts the production web app and is
+  the only place the browser suite runs
 - Evals never run in CI.
 
 ## Follow-ups (deliberate, not forgotten)

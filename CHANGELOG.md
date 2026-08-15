@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Replaced Product E2E's `next dev` server with an E2E-owned production build
+  and `next start`, so behavioral assertions no longer race route compilation.
+  MCP browser acceptance now waits for run settlement before interacting with
+  streamed result UI, preventing the link-safety modal's close button from
+  being replaced mid-click. E2E-owned service ports now reject stale local
+  processes instead of silently reusing them. Diagnostic retries and
+  `failOnFlakyTests` remain.
+
 - Added a provenance-pinned vendor of `dmmulroy/anti-slop@446268e` and enforced
   its three repository-wide zero-baseline rules through Oxlint: chained type
   assertions, unknown-only aliases, and widen-then-assert flows. The maintained
