@@ -12,21 +12,21 @@ required.
 
 ## Active stack
 
-| Order | State       | Layer                                   | Acceptance evidence                                                                                                         |
-| ----: | ----------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                           |
-|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                 |
-|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction    |
-|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                       |
-|     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code |
-|     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI   |
-|     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                     |
-|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 200 product-owned files with zero findings through the same local/CI command                 |
-|     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces               |
-|    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                  |
-|    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification        |
-|    12 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                 |
-|    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
+| Order | State       | Layer                                   | Acceptance evidence                                                                                                             |
+| ----: | ----------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                               |
+|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                     |
+|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction        |
+|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                           |
+|     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code     |
+|     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI       |
+|     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                         |
+|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 200 product-owned files with zero findings through the same local/CI command                     |
+|     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces                   |
+|    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                      |
+|    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification            |
+|    12 | active      | Mutation-testing pilot                  | Bounded Stryker baseline records 425 mutants, runtime/resource use, and a disposition for every survivor and no-coverage mutant |
+|    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                                 |
 
 ## Published stack
 
@@ -127,13 +127,139 @@ required.
 | State       | Finding                                                                                          | Evidence / exit condition                                                                                                                                                           |
 | ----------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | done        | Unit, real-Postgres integration, Storybook browser, and product E2E are separate enforced layers | `docs/testing.md`, CI workflow                                                                                                                                                      |
-| queued      | No mutation-testing command or configuration exists                                              | Bounded `apps/api` pilot only; no broad CI gate initially                                                                                                                           |
-| queued      | First pilot candidate: three pure MCP utilities with direct unit tests                           | Dry run, then full mutation run; record time, score, survivors, equivalent mutants                                                                                                  |
+| done        | Bounded mutation-testing command and configuration                                               | `apps/api/stryker.config.json` limits mutation to three pure MCP utilities, uses Vitest, and keeps concurrency at 1; no broad CI gate initially                                     |
+| active      | First pilot candidate: three pure MCP utilities with direct unit tests                           | 33 tests and 425 mutants; the 2026-08-15 baseline is 69.41% with 101 survivors, 29 no-coverage mutants, and 6 timeouts; disposition inventory follows below                         |
+| queued      | Evidence-backed mutation repairs remain                                                          | Prioritize request/response boundaries, SSE framing, secret-redaction branches, and tool-id canonicalization; do not gate until repaired scores are measured again                  |
 | queued      | `apps/api/README.md` names a nonexistent `test:cov` script                                       | Remove or restore intentionally; do not leave executable docs false                                                                                                                 |
 | queued      | Source-regex tests and disabled Vitest rules remain known follow-ups                             | Existing `docs/testing.md` list; convert when owning files are touched                                                                                                              |
 | investigate | The committed OpenAPI contract has no generated property-based conformance run                   | Pilot Schemathesis against the throwaway API/Postgres environment; measure auth and tenant setup, status/schema findings, replayability, runtime, and false positives before gating |
 | investigate | The chat-message single-flight integration test flakes only under suite load                     | Timed out on PR #361 and locally in the full 329-test run; isolated rerun passes 1/1; diagnose scheduling/state coupling before changing timeouts                                   |
 | investigate | Product E2E auth navigation and session fixtures flake under concurrent Next dev load            | PR #361 rerun flaked in two auth cases; PR #367 hit `ERR_ABORTED`; logs show Next `ECONNRESET`/aborts; diagnose server lifecycle rather than adding retries or timeouts             |
+
+#### Mutation-testing pilot baseline (2026-08-15)
+
+The bounded baseline used the committed `apps/api/stryker.config.json`: three pure MCP
+utilities, their three direct Vitest files, the native Vitest runner, and
+`concurrency: 1`. The native report is `apps/api/reports/mutation/mutation.json`
+(ignored generated output). The successful run exited 0; its score is below the
+configured high threshold of 80%, above the low threshold of 60%, and no break
+threshold is configured.
+
+| Metric               | Result                                                                                                           |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Command              | `/usr/bin/time -v pnpm --filter api test:mutation`                                                               |
+| Test scope           | 3 files, 33 tests; the direct preflight also passed 33/33                                                        |
+| Mutation scope       | 3 source files, 425 instrumented mutants                                                                         |
+| Outcomes             | 289 killed; 101 survived; 29 no coverage; 6 timeout; 0 compile errors; 0 ignored; 0 pending                      |
+| Mutation score       | 69.41% (covered-mutant rate 74.49%)                                                                              |
+| Wall time            | 2:30.62                                                                                                          |
+| Maximum resident set | 250388 kB; 0 swaps                                                                                               |
+| Dry-run reference    | 4.23 s, 279432 kB maximum resident set, 33 tests, 425 mutants                                                    |
+| Memory preflight     | 6.6 GiB available and 34 MiB swap used before the direct tests; 6.7 GiB available and 35 MiB swap used afterward |
+| Process budget       | Stryker `concurrency: 1`; the installed Vitest runner also forces max threads, workers, and concurrency to 1     |
+
+The first network-disabled invocation failed before Stryker started because its
+logging server attempted to bind `0.0.0.0` and received `EPERM`; the one authorized
+network-enabled retry above is the only mutation result. No configuration, source,
+or test change was made to obtain it.
+
+| Source file            |   Total |  Killed | Survived | No coverage | Timeout | Mutation score |
+| ---------------------- | ------: | ------: | -------: | ----------: | ------: | -------------: |
+| `mcp-bounded-fetch.ts` |     169 |      97 |       59 |          13 |       0 |         57.40% |
+| `protected-values.ts`  |     166 |     120 |       28 |          12 |       6 |         75.90% |
+| `tool-id.ts`           |      90 |      72 |       14 |           4 |       0 |         80.00% |
+| **All files**          | **425** | **289** |  **101** |      **29** |   **6** |     **69.41%** |
+
+The native report contains 130 survivor/no-coverage entries. `S` means survived and
+`NC` means no coverage; the number is the native Stryker mutant ID. `U` is a useful
+behavior gap to repair with a focused test, `E` is a likely equivalent mutant for
+the supported input domain, and `I` is an intentionally untested implementation
+detail outside the current contract. Grouped rows retain every ID and its
+file:line/mutator location.
+
+The disposition count is 100 useful behavior gaps, 21 likely equivalent mutants,
+and 9 intentionally untested implementation details.
+
+##### `src/mcp/mcp-bounded-fetch.ts`
+
+| Native IDs                   | File:line (mutator)                                               | Disposition | Evidence-backed reading / next evidence                                                                                                                    |
+| ---------------------------- | ----------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S1, S2, S4, S5               | 3, 4, 10, 11 (`StringLiteral`)                                    | I           | Error message and `name` spellings are observable labels, but no current contract pins them; keep them out of the first repair slice.                      |
+| S7                           | 29 (`MethodExpression`)                                           | U           | `httpMethod` is exposed to `onBytes`; add uppercase normalization and `Request` fallback assertions.                                                       |
+| S10                          | 30 (`StringLiteral`)                                              | U           | The default `GET` context is untested when the request is a URL or has no method; assert the context.                                                      |
+| S12, S16, S17                | 32 (`ConditionalExpression`, `BlockStatement`, `ObjectLiteral`)   | U           | Non-string request bodies must produce a null RPC method without changing the HTTP context; add a typed-body case.                                         |
+| NC29, NC30                   | 37, 38 (`BlockStatement`, `ObjectLiteral`)                        | E           | JSON arrays, primitives, and `null` cannot carry a JSON `method` property; the alternate non-object guard still yields `rpcMethod: null`.                  |
+| S20, S21, S22, S23, S24, S26 | 37 (`ConditionalExpression`, `LogicalOperator`)                   | E           | The parser's non-object alternatives are observationally equivalent for JSON values; only a non-JSON object with custom properties could distinguish them. |
+| S33                          | 43 (`ConditionalExpression`)                                      | U           | A JSON object with a non-string `method` must remain `null`; add number, boolean, and object method cases.                                                 |
+| NC37, NC38                   | 45, 46 (`BlockStatement`, `ObjectLiteral`)                        | U           | Invalid JSON request bodies must not throw or invent an RPC method; add a malformed-body context case.                                                     |
+| S39                          | 52 (`BlockStatement`)                                             | U           | Removing request-size calculation defeats the request budget for supported bodies; add a small-body and no-limit control case.                             |
+| NC51, NC52, NC53             | 56 (`ConditionalExpression`, `BlockStatement`)                    | U           | `URLSearchParams` sizing is an explicit `BodyInit` branch and is not covered; add exact and over-limit byte cases.                                         |
+| NC54, NC55                   | 59 (`ConditionalExpression`)                                      | U           | `ArrayBuffer` request sizing is untested; add an exact and over-limit case.                                                                                |
+| NC56, NC57                   | 60 (`ConditionalExpression`)                                      | U           | Typed-array request sizing is untested; add an exact and over-limit case.                                                                                  |
+| NC58, NC59                   | 61 (`ConditionalExpression`)                                      | U           | `Blob` request sizing is untested; add an exact and over-limit case.                                                                                       |
+| S41, S42, S43, S45           | 53 (`ConditionalExpression`, `LogicalOperator`)                   | U           | `undefined`/`null` must count as zero bytes when a request limit exists; add no-body and null-body cases.                                                  |
+| S47, S48, S49, S50           | 54 (`ConditionalExpression`, `EqualityOperator`, `StringLiteral`) | U           | String byte sizing and UTF-8 behavior need a small-body boundary assertion independent of the existing oversized request.                                  |
+| S65, S66                     | 76 (`LogicalOperator`, `ConditionalExpression`)                   | U           | The limit guard must not reject bounded bodies incorrectly or enforce a missing limit; add below-limit and omitted-limit cases.                            |
+| S68, S70, S71, S73           | 77 (`ConditionalExpression`, `EqualityOperator`)                  | U           | Unsupported bodies and the exact byte boundary are untested; add `undefined` size and exactly-at-limit cases.                                              |
+| S79, S81                     | 86 (`ConditionalExpression`, `OptionalChaining`)                  | U           | An absent session ID must not call an optional callback, and an absent callback must not throw when a session exists.                                      |
+| S85                          | 90 (`MethodExpression`)                                           | U           | `text/event-stream; charset=utf-8` must be recognized; add a parameterized content-type case.                                                              |
+| S89                          | 93 (`StringLiteral`)                                              | U           | Treating every content type as an event stream changes byte accounting; add a successful non-SSE response with a content type.                             |
+| S99                          | 97 (`ConditionalExpression`)                                      | E           | When the header is absent, the following anchored numeric regex still rejects `null`; replacing the null check is observationally redundant.               |
+| S101, S102, S103             | 98 (`Regex`)                                                      | U           | Numeric-prefix, numeric-suffix, and one-digit content-length mutations accept malformed claims; add malformed-header cases.                                |
+| S106                         | 99 (`EqualityOperator`)                                           | U           | A claimed response exactly at the limit should be allowed; add the exact-boundary case.                                                                    |
+| S109                         | 101 (`OptionalChaining`)                                          | U           | A claimed oversized response may have a null body; preserve the custom limit error rather than dereferencing `null`.                                       |
+| S111                         | 104 (`ConditionalExpression`)                                     | U           | Bodyless responses must be returned unchanged; add a null-body response case.                                                                              |
+| S113                         | 110 (`BooleanLiteral`)                                            | U           | An event stream beginning with an LF has a distinct blank-line boundary; add an LF-only framing case.                                                      |
+| S123                         | 116 (`EqualityOperator`)                                          | U           | A non-SSE body exactly at the response limit should not fail; add the exact-size case.                                                                     |
+| S136                         | 127 (`BlockStatement`)                                            | U           | Bare-CR line delimiters are not covered; add a CR-only SSE framing case.                                                                                   |
+| S137, S139                   | 128 (`ConditionalExpression`, `EqualityOperator`)                 | U           | CR blank-line versus nonblank-line event resets need a multi-line event that exceeds the per-event budget.                                                 |
+| S140                         | 130 (`BooleanLiteral`)                                            | U           | Initial CR state affects a leading LF boundary; add a stream beginning with an empty LF line.                                                              |
+| S146                         | 132 (`ConditionalExpression`)                                     | U           | Processing LF after CR would reset every CRLF line instead of only blank lines; add a multi-line CRLF event.                                               |
+| S149, S151                   | 133 (`ConditionalExpression`, `EqualityOperator`)                 | U           | LF blank-line detection needs nonblank and blank lines in the same event; add both boundary forms.                                                         |
+| S153                         | 137 (`BlockStatement`)                                            | U           | Ordinary SSE bytes must advance line state; add a multi-line event with ordinary data.                                                                     |
+| S155                         | 139 (`AssignmentOperator`)                                        | E           | Only zero versus nonzero `lineBytes` is observed, so incrementing or decrementing remains equivalent after a nonempty byte.                                |
+| S163                         | 159 (`ArrowFunction`)                                             | U           | Explicit cancellation of the returned bounded body must cancel the upstream reader; add a direct consumer-cancel assertion.                                |
+| S164                         | 161 (`ObjectLiteral`)                                             | U           | The wrapper must preserve response status, status text, and headers; add metadata assertions.                                                              |
+| S165, S166, S167, S168       | 166-169 (`ObjectLiteral`)                                         | U           | `redirected`, `type`, and `url` are fetch response metadata; add a transparent-wrapper metadata case.                                                      |
+
+##### `src/mcp/protected-values.ts`
+
+| Native IDs                                                    | File:line (mutator)                                                                         | Disposition | Evidence-backed reading / next evidence                                                                                                                    |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| NC196, NC197, NC198, NC199, NC200, NC201, NC202, NC203, NC204 | 22 (`ConditionalExpression`, `EqualityOperator`, `UnaryOperator`)                           | U           | Equal-length protected values are absent; add a tie case that independently asserts deterministic lexical ordering.                                        |
+| S169                                                          | 1 (`StringLiteral`)                                                                         | U           | Tests import the redaction marker for their expected value, so the marker mutation can escape; assert the literal redaction contract independently.        |
+| S170                                                          | 7 (`ArrowFunction`)                                                                         | E           | For supported JSON-like values, strings, scalars, and arrays are handled before `isRecord`; only non-JSON unknowns distinguish this predicate replacement. |
+| S171, S173, S174, S175, S176, S178                            | 8 (`ConditionalExpression`, `LogicalOperator`)                                              | E           | The record predicate is reached only after all supported JSON kinds have been handled; alternate predicates are equivalent on that domain.                 |
+| S183                                                          | 18 (`MethodExpression`)                                                                     | U           | Dropping sorting weakens longest-first replacement and deterministic normalization; add reversed overlapping and equal-length inputs.                      |
+| S191, S192, S193, S194, S195                                  | 19-21 (`BlockStatement`, `ArithmeticOperator`, `ConditionalExpression`, `EqualityOperator`) | U           | The comparator's ordering and tie behavior need direct assertions; current setup coverage does not independently kill these mutations.                     |
+| S220, S221                                                    | 40 (`LogicalOperator`, `ConditionalExpression`)                                             | E           | Non-finite numbers are outside canonical JSON scalar handling; finite JSON numbers take the same branch.                                                   |
+| S228, S232                                                    | 58, 60 (`EqualityOperator`, `StringLiteral`)                                                | E           | With normalized nonempty protected values, the extra terminal loop and initial empty match do not change output.                                           |
+| S250, S252, S253, S255                                        | 68 (`ConditionalExpression`, `EqualityOperator`)                                            | U           | Longest-match tie breaking is security-relevant when callers provide overlapping values; add an unsorted-overlap case.                                     |
+| S275                                                          | 113 (`ConditionalExpression`)                                                               | U           | Direct numeric, boolean, and null protected-value detection is not independently covered; add scalar containment cases.                                    |
+| S280                                                          | 116 (`MethodExpression`)                                                                    | U           | Array detection must be existential, not universal; add a mixed safe/protected array case.                                                                 |
+| NC285, S284                                                   | 121 (`BooleanLiteral`, `ConditionalExpression`)                                             | I           | Unknown non-record inputs are outside the JSON-like contract; retain the fail-closed implementation without a first-slice test.                            |
+| S313                                                          | 173 (`ConditionalExpression`)                                                               | U           | A nested protected object key inside an array must propagate failure instead of being retained; add the nested-array case.                                 |
+| NC319, NC320, S318                                            | 179 (`ObjectLiteral`, `BooleanLiteral`, `ConditionalExpression`)                            | I           | The fallback handles non-JSON unknown values such as `undefined` or functions; those are not current persistence inputs.                                   |
+| S331                                                          | 187 (`ConditionalExpression`)                                                               | U           | Nested object-key failures must propagate without returning a successful payload; add a nested-object case.                                                |
+
+##### `src/mcp/tool-id.ts`
+
+| Native IDs                 | File:line (mutator)                                                          | Disposition | Evidence-backed reading / next evidence                                                                                                              |
+| -------------------------- | ---------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| NC387, NC388, NC389, NC390 | 55-56 (`BlockStatement`, `ObjectLiteral`, `BooleanLiteral`, `StringLiteral`) | U           | A non-`mcp__` input is not tested; add the invalid-format parser case with an independent literal result.                                            |
+| S335, S336, S337, S338     | 1 (`Regex`)                                                                  | U           | Anchoring and complete server-ID validation are core canonicalization behavior; add invalid-prefix, invalid-suffix, and multi-character valid cases. |
+| S339, S340                 | 2 (`Regex`)                                                                  | U           | Unsafe runs must collapse to one underscore and safe runs must remain unchanged; add repeated-separator and mixed-name cases.                        |
+| S341, S342, S343, S344     | 3 (`Regex`)                                                                  | U           | Leading and trailing underscore trimming needs independent edge assertions.                                                                          |
+| S345, S346                 | 5-6 (`StringLiteral`)                                                        | U           | Prefix and separator literals define the persisted tool-ID format; assert them independently of parser reuse.                                        |
+| S374                       | 46 (`EqualityOperator`)                                                      | U           | The 64-character boundary is not tested; add exactly-at-limit and one-over-limit cases.                                                              |
+| S385                       | 55 (`ConditionalExpression`)                                                 | U           | Noncanonical parser inputs need a direct invalid-format branch assertion.                                                                            |
+
+The first repair slice should target the `U` rows that guard byte limits, SSE
+framing, protected-value propagation, and canonical IDs. `E` rows should not be
+suppressed or changed in Stryker configuration; they remain documented hypotheses
+until a supported-input contract changes. `I` rows are deliberately outside the
+pilot's first contract and should not be converted into broad robustness tests
+without an explicit caller requirement.
 
 ### Conventions and governance
 
