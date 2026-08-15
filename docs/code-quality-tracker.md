@@ -82,6 +82,7 @@ layer is merged or shipped. Layer state remains active until merge.
 |    38 | #397 | MCP schema canonicalization           |
 |    39 | #398 | MCP SDK executor binding              |
 |    40 | #399 | Tool schema admission                 |
+|    41 | #400 | MCP HTTP test fixture                 |
 
 ## Current submission
 
@@ -90,7 +91,7 @@ layer is merged or shipped. Layer state remains active until merge.
 | submitted | MCP declaration-schema canonicalization | `0bf5468` removes five schema-boundary assertions with a truthful record overload and typed fixtures; native inventory reaches 269/79 | #397 |
 | submitted | MCP SDK executor binding                | `d9c96cb6` removes the final MCP production and paired test assertions; inventory 267/77                                              | #398 |
 | submitted | Tool schema admission                   | `24905194` removes three production assertions while preserving raw schema identity and dialects; inventory 264/76                    | #399 |
-| ready     | MCP HTTP test fixture                   | `6b4daa8a` removes four fixture assertions while preserving request summaries and loopback cleanup; inventory 260/75                  | —    |
+| submitted | MCP HTTP test fixture                   | `6b4daa8a` removes four fixture assertions while preserving request summaries and loopback cleanup; inventory 260/75                  | #400 |
 
 ## Inventory
 

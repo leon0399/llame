@@ -157,7 +157,7 @@ pnpm, gh-stack
   and remaining MCP test/integration debt. Keep the native rule diagnostic until
   the full API inventory reaches zero.
 
-- [ ] **Step 5: Commit and publish the stacked PR**
+- [x] **Step 5: Commit and publish the stacked PR**
 
   Commit with conventional messages and the required co-author trailer. Require
   the current branch base to equal the live head of PR #399 with
