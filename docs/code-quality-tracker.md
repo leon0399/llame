@@ -35,7 +35,7 @@ measurement needed before implementation.
 |    18 | active      | Tool schema admission                   | Three production assertions removed; structural Zod evidence and owned generated schemas; focused 89/89; inventory 264/76                    |
 |    19 | active      | MCP HTTP test fixture                   | Four assertions removed through shared record evidence and native address narrowing; focused 76/76; inventory 260/75                         |
 |    20 | active      | Tool-result truncation boundary         | Seventeen assertions removed through parsed success-record evidence and Zod-backed tests; focused 46/46; inventory 243/72                    |
-|    21 | ready       | Anti-slop foundation                    | Vendored upstream at `446268e`; three clean rules enforced; 1,125 findings measured for twelve remediation layers                            |
+|    21 | active      | Anti-slop foundation                    | Vendored upstream at `446268e`; three clean rules enforced; 1,125 findings measured for twelve remediation layers                            |
 
 ## Published PR stack
 
@@ -86,6 +86,7 @@ layer is merged or shipped. Layer state remains active until merge.
 |    40 | #399 | Tool schema admission                 |
 |    41 | #400 | MCP HTTP test fixture                 |
 |    42 | #401 | Tool-result truncation boundary       |
+|    43 | #402 | Anti-slop foundation                  |
 
 ## Current submission
 
@@ -96,7 +97,7 @@ layer is merged or shipped. Layer state remains active until merge.
 | submitted | Tool schema admission                   | `24905194` removes three production assertions while preserving raw schema identity and dialects; inventory 264/76                    | #399 |
 | submitted | MCP HTTP test fixture                   | `6b4daa8a` removes four fixture assertions while preserving request summaries and loopback cleanup; inventory 260/75                  | #400 |
 | submitted | Tool-result truncation boundary         | `7e7d2bff` removes 17 assertions and rejects malformed oversized projections; focused 46/46; inventory 243/72                         | #401 |
-| ready     | Anti-slop foundation                    | Three zero-baseline rules replace the bespoke double-assertion gate; the remaining twelve total 1,125 diagnostics                     | —    |
+| submitted | Anti-slop foundation                    | `6bd13fdb` replaces the bespoke double-assertion gate with three zero-baseline rules; the remaining twelve total 1,125 diagnostics    | #402 |
 
 ## Inventory
 
