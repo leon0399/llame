@@ -152,7 +152,7 @@ type-aware rules, pnpm, gh-stack
   and preservation of raw JSON Schema identity/dialect behavior. Keep the rule
   diagnostic until the full API inventory reaches zero.
 
-- [ ] **Step 5: Commit and publish the stacked PR**
+- [x] **Step 5: Commit and publish the stacked PR**
 
   Commit with conventional messages and the required co-author trailer. Require
   the current branch base to equal the live head of PR #398 with
