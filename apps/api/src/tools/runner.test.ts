@@ -1,14 +1,20 @@
 import { Logger } from '@nestjs/common';
+import { z } from 'zod';
+
+import { type TenantRunner } from '../db/tenant-db.service';
 import { RESULT_TRUNCATE_CHARS } from './result-truncation';
 import { runTool } from './runner';
 import { type Tool, type ToolContext } from './types';
-import { z } from 'zod';
 
 function fakeContext(userId = 'user-A'): ToolContext {
+  const tenantDb: TenantRunner = {
+    runAs: <T>() =>
+      Promise.reject<T>(new Error('tenant DB is not used by the echo tool')),
+  };
   return {
     userId,
     chatId: 'chat-1',
-    tenantDb: {} as unknown as ToolContext['tenantDb'],
+    tenantDb,
   };
 }
 

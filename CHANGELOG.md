@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed both forged tenant-database assertions from tool-context units.
+  `ToolContext` now exposes the existing `TenantRunner` capability instead of
+  the concrete service; search coverage uses Drizzle's mock DB to execute the
+  real `runAs` callback and spies only on the repository read, replacing a fake
+  that bypassed the callback entirely. Focused units pass 23/23; API build,
+  typecheck, and lint pass. Application/test debt falls from 12 to 10.
+
 - Removed the two remaining forged `InstanceConfigService` assertions from
   worker-profile and model-service units. Both consumers now use the existing
   `InstanceConfigReader` capability with explicit Nest injection tokens, and
