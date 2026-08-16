@@ -1,6 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 
-import { InstanceConfigService } from '../instance-config/instance-config.service';
+import {
+  InstanceConfigService,
+  type InstanceConfigReader,
+} from '../instance-config/instance-config.service';
 import type { ProviderConfig } from '../instance-config/llame-config';
 import {
   toPublicModel,
@@ -54,7 +57,10 @@ export class ModelsService {
   private readonly modelsById: Map<string, SystemModelCatalogEntry>;
   private readonly providersById: Map<string, ProviderConfig>;
 
-  constructor(private readonly instanceConfig: InstanceConfigService) {
+  constructor(
+    @Inject(InstanceConfigService)
+    private readonly instanceConfig: InstanceConfigReader,
+  ) {
     this.modelsById = new Map(
       this.instanceConfig.config.models.map((model) => [model.id, model]),
     );

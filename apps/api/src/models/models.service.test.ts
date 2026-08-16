@@ -1,8 +1,11 @@
 import path from 'node:path';
 
-import { InstanceConfigService } from '../instance-config/instance-config.service';
+import type { InstanceConfigReader } from '../instance-config/instance-config.service';
 import { loadInstanceConfig } from '../instance-config/config-loader';
-import type { ProviderConfig } from '../instance-config/llame-config';
+import {
+  BUILT_IN_DEFAULTS,
+  type ProviderConfig,
+} from '../instance-config/llame-config';
 import type { SystemModelCatalogEntry } from './model-catalog';
 import { createOpenAIModelClient } from './openai-model-client';
 import {
@@ -106,8 +109,9 @@ function createService(overrides: {
   models?: SystemModelCatalogEntry[];
   providers?: ProviderConfig[];
 }): ModelsService {
-  const instanceConfig = {
+  const instanceConfig: InstanceConfigReader = {
     config: {
+      ...BUILT_IN_DEFAULTS,
       defaults: {
         modelId: overrides.defaultModelId ?? null,
         titleGenerationModelId: overrides.titleGenerationModelId ?? null,
@@ -115,7 +119,7 @@ function createService(overrides: {
       providers: overrides.providers ?? [DEFAULT_PROVIDER],
       models: overrides.models ?? CATALOG,
     },
-  } as unknown as InstanceConfigService;
+  };
 
   return new ModelsService(instanceConfig);
 }

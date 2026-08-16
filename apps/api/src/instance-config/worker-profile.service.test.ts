@@ -7,7 +7,7 @@
  * Pure DI unit test — no queue, no database.
  */
 import { InstanceConfigError } from './instance-config.error';
-import { type InstanceConfigService } from './instance-config.service';
+import { type InstanceConfigReader } from './instance-config.service';
 import { BUILT_IN_DEFAULTS, type WorkerProfile } from './llame-config';
 import { WorkerProfileService } from './worker-profile.service';
 
@@ -27,10 +27,10 @@ afterEach(() => {
 
 function fakeInstanceConfig(
   workers: Record<string, WorkerProfile>,
-): InstanceConfigService {
+): InstanceConfigReader {
   return {
-    config: { workers },
-  } as unknown as InstanceConfigService;
+    config: { ...BUILT_IN_DEFAULTS, workers },
+  };
 }
 
 describe('WorkerProfileService — profile resolution', () => {
