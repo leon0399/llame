@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed both forged Drizzle database assertions from the tenant database
+  service units. `TenantDbService` now names only the transaction capability it
+  consumes, while the test uses Drizzle's mock driver plus typed Vitest spies
+  instead of partial database objects. The focused suite passes 6/6; API build,
+  typecheck, and lint pass. Application/test debt falls from 19 to 17.
+
 - Removed all three concrete-class double assertions from the auth service
   units. `AuthService` now names only the `UsersService`, `SessionsRepository`,
   and `PasswordService` capabilities it consumes, with explicit Nest injection

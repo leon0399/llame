@@ -25,12 +25,21 @@ import * as schema from './schema';
 
 export type Db = PostgresJsDatabase<typeof schema>;
 
+export type TenantTransactionExecutor = {
+  transaction<T>(
+    fn: (tx: Db) => Promise<T>,
+    config?: PgTransactionConfig,
+  ): Promise<T>;
+};
+
 /** The only capability most callers need (#268) — narrower than the whole service. */
 export type TenantRunner = Pick<TenantDbService, 'runAs'>;
 
 @Injectable()
 export class TenantDbService {
-  constructor(@Inject('DB_DEV') private readonly db: Db) {}
+  constructor(
+    @Inject('DB_DEV') private readonly db: TenantTransactionExecutor,
+  ) {}
 
   /**
    * Run `fn` inside a transaction scoped to `userId`.
