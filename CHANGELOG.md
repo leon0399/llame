@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed the final four hand-forged AI SDK `streamText` results from shared
+  integration support and worker-mode coverage. One shared provider-neutral
+  `MockLanguageModelV3` client now supplies real SDK results, usage conversion,
+  abort settlement, and UI-message streaming; the duplicate worker fake and
+  dead `shouldFinish` switch are gone. The affected real-Postgres integration
+  suites pass 24/24 and the title-abort support unit passes 1/1; API typecheck
+  and lint pass. Application/test debt falls from 26 to 22.
+
 - Replaced the worker integration harness's forged AI SDK result with the
   provider-neutral `MockLanguageModelV3` and real `streamText`. Exercising the
   real SDK exposed and fixed an abort-contract bug: AI SDK reports cancellation

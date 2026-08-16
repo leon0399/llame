@@ -17,14 +17,13 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { type ModelMessage, type streamText } from 'ai';
 import { AppModule } from './app.module';
 import { configureApp } from './app.setup';
 import { TenantDbService } from './db/tenant-db.service';
 import { MessagesRepository } from './chats/chats-repository';
 import { RunEventsRepository, RunsRepository } from './runs/runs-repository';
 import { ModelsService } from './models/models.service';
-import { TITLE_SYSTEM_PROMPT } from './titles/title';
+import { FakeStreamingModelClient } from './testing/support';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
@@ -73,80 +72,13 @@ async function waitFor<T>(
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Resolves true when aborted before the delay elapses, false otherwise. */
-function sleepOrAbort(ms: number, signal?: AbortSignal): Promise<boolean> {
-  if (signal?.aborted) {
-    return Promise.resolve(true);
-  }
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve(false);
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      resolve(true);
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
-class FakeWorkerModelClient {
-  readonly model = 'system:openai:gpt-5.4-mini';
-  readonly provider = 'openai';
-  // Honest ModelClient double: compaction reads client.contextWindowTokens to
-  // size its trigger; omitting it makes the threshold NaN (silently swallowed
-  // by maybeCompact's catch, so the gap hides).
-  readonly contextWindowTokens = 128_000;
-  response = 'worker answer';
-  delayMs = 0;
-
-  streamText(input: {
-    system?: string;
-    messages: ModelMessage[];
-    abortSignal?: AbortSignal;
-    onTextDelta?: (text: string) => void;
-    onError?: (event: { error: unknown }) => void | Promise<void>;
-    onFinish?: (event: {
-      text: string;
-      usage: Record<string, number>;
-      finishReason: string;
-    }) => void | Promise<void>;
-  }): ReturnType<typeof streamText> {
-    if (input.system === TITLE_SYSTEM_PROMPT) {
-      return {
-        text: Promise.resolve('Generated Title'),
-      } as unknown as ReturnType<typeof streamText>;
-    }
-
-    const text = this.response;
-    const done = (async () => {
-      if (this.delayMs > 0) {
-        const aborted = await sleepOrAbort(this.delayMs, input.abortSignal);
-        if (aborted) {
-          // Mirror the real client: an aborted call errors instead of finishing.
-          await input.onError?.({ error: new Error('aborted') });
-          return;
-        }
-      }
-      input.onTextDelta?.(text);
-      await input.onFinish?.({
-        text,
-        usage: { inputTokens: 3, outputTokens: 5, totalTokens: 8 },
-        finishReason: 'stop',
-      });
-    })();
-
-    return {
-      text: done.then(() => text),
-      consumeStream: () => done,
-    } as unknown as ReturnType<typeof streamText>;
-  }
-}
-
 class FakeModelsService {
-  readonly client = new FakeWorkerModelClient();
+  readonly client = new FakeStreamingModelClient();
   readonly createClientCalls: unknown[] = [];
+
+  constructor() {
+    this.client.responses = ['worker answer'];
+  }
 
   resolveModelCredential(): string {
     return 'sk-test';
@@ -183,7 +115,7 @@ class FakeModelsService {
       },
       provider: client.provider,
       contextWindowTokens: client.contextWindowTokens,
-      streamText: (input: Parameters<FakeWorkerModelClient['streamText']>[0]) =>
+      streamText: (input: Parameters<typeof client.streamText>[0]) =>
         client.streamText(input),
     };
   }
