@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed all four double assertions from the pins unit tests. Nest's standard
+  `TestingModule` now provides partial `TenantDbService` and `PinsService`
+  doubles through their real injection tokens, avoiding forged concrete class
+  instances without changing production interfaces. The focused suite passes
+  11/11; API typecheck and lint pass. Application/test debt falls from 31 to 27.
+
 - Removed all five double assertions from the compaction continuity integration
   suite. The provider-neutral AI SDK `MockLanguageModelV3` now drives real
   `streamText` results for immediate, deferred, rejected, and tool-calling
