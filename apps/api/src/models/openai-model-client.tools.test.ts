@@ -1,43 +1,106 @@
 /**
- * Tool-calling loop plumbing in `createOpenAIModelClient` (openspec/changes/
- * tool-calling-loop): the step-cap enforcement (`prepareStep` forcing
- * `activeTools: []` once `maxSteps` tool-requesting steps have run,
- * `onCapReached` firing exactly once) and the unavailable/hallucinated-call
- * refusal seam (`experimental_repairToolCall` → `onUnavailableToolCall`,
- * never crashing, always resolving `null` so the SDK's own non-crashing
- * fallback still runs). `streamText` itself is mocked (no network); every
- * OTHER `ai` export (`NoSuchToolError`, `InvalidToolInputError`,
- * `stepCountIs`, `tool`) stays real, so the assertions exercise the actual
- * SDK types this code branches on.
+ * Tool-loop plumbing in `createOpenAIModelClient`. The OpenAI provider factory
+ * is replaced at its provider boundary; AI SDK `streamText`, step scheduling,
+ * tool validation, and repair callbacks remain real.
  */
-import { streamText, NoSuchToolError, InvalidToolInputError } from 'ai';
-import type { StepResult, ToolSet } from 'ai';
+import { createOpenAI, type OpenAIProvider } from '@ai-sdk/openai';
+import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { simulateReadableStream, tool, type ModelMessage } from 'ai';
+import { MockLanguageModelV3 } from 'ai/test';
+import { z } from 'zod';
 
 import { createOpenAIModelClient } from './openai-model-client';
 
-vi.mock('ai', async () => ({
-  ...(await vi.importActual<typeof import('ai')>('ai')),
-  streamText: vi.fn(),
+vi.mock('@ai-sdk/openai', () => ({
+  createOpenAI: vi.fn(),
 }));
 
-const streamTextMock = vi.mocked(streamText);
+const createOpenAIMock = vi.mocked(createOpenAI);
 
-function fakeToolStep(toolCallCount: number): StepResult<ToolSet> {
+const tools = {
+  echo: tool({
+    inputSchema: z.object({ value: z.string() }).strict(),
+    execute: ({ value }) => value,
+  }),
+};
+
+const messages = [
+  { role: 'user', content: 'Use the available tools.' },
+] satisfies ModelMessage[];
+
+const PROVIDER_USAGE = {
+  inputTokens: {
+    total: 0,
+    noCache: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+  },
+  outputTokens: { total: 0, text: 0, reasoning: 0 },
+};
+
+function providerResponse(
+  content: LanguageModelV3StreamPart[],
+  finishReason: 'stop' | 'tool-calls',
+) {
   return {
-    toolCalls: Array.from({ length: toolCallCount }, (_, i) => ({
-      toolCallId: `c${i}`,
-    })),
-  } as unknown as StepResult<ToolSet>;
+    stream: simulateReadableStream<LanguageModelV3StreamPart>({
+      chunks: [
+        { type: 'stream-start', warnings: [] },
+        ...content,
+        {
+          type: 'finish',
+          finishReason: { unified: finishReason, raw: undefined },
+          usage: PROVIDER_USAGE,
+        },
+      ],
+    }),
+  };
 }
 
-beforeEach(() => {
-  streamTextMock.mockReset();
-  streamTextMock.mockReturnValue({
-    textStream: (async function* () {})(),
-  } as unknown as ReturnType<typeof streamText>);
-});
+function textResponse(text = 'done') {
+  return providerResponse(
+    [
+      { type: 'text-start', id: 'answer' },
+      { type: 'text-delta', id: 'answer', delta: text },
+      { type: 'text-end', id: 'answer' },
+    ],
+    'stop',
+  );
+}
 
-function buildClient() {
+function toolResponse(calls: Array<{ toolName: string; input: string }>) {
+  return providerResponse(
+    calls.map((call, index) => ({
+      type: 'tool-call',
+      toolCallId: `call-${index}`,
+      toolName: call.toolName,
+      input: call.input,
+    })),
+    'tool-calls',
+  );
+}
+
+function scriptedModel(responses: Array<ReturnType<typeof providerResponse>>) {
+  let responseIndex = 0;
+  return new MockLanguageModelV3({
+    provider: 'openai.test',
+    modelId: 'gpt-test',
+    doStream: () => {
+      const response = responses[responseIndex++];
+      if (!response) {
+        throw new Error(`Missing provider response ${responseIndex}`);
+      }
+      return Promise.resolve(response);
+    },
+  });
+}
+
+function buildClient(model: MockLanguageModelV3) {
+  const provider = vi.fn<OpenAIProvider>();
+  provider.mockReturnValue(model);
+  provider.chat = vi.fn<OpenAIProvider['chat']>(() => model);
+  createOpenAIMock.mockReturnValue(provider);
+
   return createOpenAIModelClient({
     providerModelId: 'gpt-test',
     modelId: 'system:openai:gpt-test',
@@ -46,219 +109,153 @@ function buildClient() {
 }
 
 describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () => {
-  it('forwards provider-neutral toolChoice to the AI SDK request', () => {
-    const client = buildClient();
+  it('forwards provider-neutral toolChoice to the AI SDK request', async () => {
+    const model = scriptedModel([textResponse()]);
+    const client = buildClient(model);
 
-    client.streamText({
-      messages: [],
-      tools: { echo: {} as ToolSet[string] },
-      toolChoice: 'none',
-    });
+    await expect(
+      client.streamText({ messages, tools, toolChoice: 'none' }).text,
+    ).resolves.toBe('done');
 
-    expect(streamTextMock).toHaveBeenCalledWith(
-      expect.objectContaining({ toolChoice: 'none' }),
-    );
+    expect(model.doStreamCalls[0]?.toolChoice).toEqual({ type: 'none' });
   });
 
   it('leaves tools active while prior tool-requesting steps are under the cap', async () => {
-    const client = buildClient();
+    const model = scriptedModel([
+      toolResponse([{ toolName: 'echo', input: '{"value":"first"}' }]),
+      toolResponse([{ toolName: 'echo', input: '{"value":"second"}' }]),
+      textResponse(),
+    ]);
+    const client = buildClient(model);
     const onCapReached = vi.fn();
-    client.streamText({
-      messages: [],
-      tools: { echo: {} as ToolSet[string] },
-      maxSteps: 3,
-      onCapReached,
-    });
 
-    const { prepareStep } = streamTextMock.mock.calls[0][0] as unknown as {
-      prepareStep: (opts: { steps: StepResult<ToolSet>[] }) => unknown;
-    };
+    await expect(
+      client.streamText({
+        messages,
+        tools,
+        maxSteps: 3,
+        onCapReached,
+      }).text,
+    ).resolves.toBe('done');
 
-    // 2 prior tool-calling steps, cap is 3 — tools stay active.
-    const result = await prepareStep({
-      steps: [fakeToolStep(1), fakeToolStep(2)],
-    });
-    expect(result).toEqual({});
+    expect(model.doStreamCalls).toHaveLength(3);
+    expect(model.doStreamCalls[2]?.tools).toHaveLength(1);
     expect(onCapReached).not.toHaveBeenCalled();
   });
 
   it('disables tools and fires onCapReached when maxSteps prior tool-steps have run', async () => {
-    const client = buildClient();
+    const model = scriptedModel([
+      toolResponse([{ toolName: 'echo', input: '{"value":"first"}' }]),
+      toolResponse([{ toolName: 'echo', input: '{"value":"second"}' }]),
+      textResponse(),
+    ]);
+    const client = buildClient(model);
     const onCapReached = vi.fn();
-    client.streamText({
-      messages: [],
-      tools: { echo: {} as ToolSet[string] },
-      maxSteps: 2,
-      onCapReached,
-    });
 
-    const { prepareStep } = streamTextMock.mock.calls[0][0] as unknown as {
-      prepareStep: (opts: { steps: StepResult<ToolSet>[] }) => unknown;
-    };
+    await expect(
+      client.streamText({
+        messages,
+        tools,
+        maxSteps: 2,
+        onCapReached,
+      }).text,
+    ).resolves.toBe('done');
 
-    // 2 prior tool-calling steps === maxSteps (2) — cap reached. In a real
-    // run the SDK calls prepareStep once per step boundary with strictly
-    // more steps each time, so once activeTools:[] is returned the model
-    // can't request another tool and the loop naturally ends after the
-    // forced answer-only step — prepareStep is never re-invoked with the
-    // SAME steps array the way this single assertion exercises it.
-    const result = await prepareStep({
-      steps: [fakeToolStep(1), fakeToolStep(1)],
-    });
-    expect(result).toEqual({ activeTools: [] });
+    expect(model.doStreamCalls).toHaveLength(3);
+    expect(model.doStreamCalls[2]?.tools).toEqual([]);
     expect(onCapReached).toHaveBeenCalledTimes(1);
   });
 
-  it('counts parallel calls within one step as ONE step toward the cap', async () => {
-    const client = buildClient();
+  it('counts parallel calls within one step as one step toward the cap', async () => {
+    const model = scriptedModel([
+      toolResponse([
+        { toolName: 'echo', input: '{"value":"first"}' },
+        { toolName: 'echo', input: '{"value":"second"}' },
+        { toolName: 'echo', input: '{"value":"third"}' },
+      ]),
+      textResponse(),
+    ]);
+    const client = buildClient(model);
     const onCapReached = vi.fn();
-    client.streamText({
-      messages: [],
-      tools: { echo: {} as ToolSet[string] },
-      maxSteps: 2,
-      onCapReached,
-    });
 
-    const { prepareStep } = streamTextMock.mock.calls[0][0] as unknown as {
-      prepareStep: (opts: { steps: StepResult<ToolSet>[] }) => unknown;
-    };
+    await expect(
+      client.streamText({
+        messages,
+        tools,
+        maxSteps: 2,
+        onCapReached,
+      }).text,
+    ).resolves.toBe('done');
 
-    // ONE step with 3 parallel tool calls — still only 1 prior tool-step.
-    const result = await prepareStep({ steps: [fakeToolStep(3)] });
-    expect(result).toEqual({});
+    expect(model.doStreamCalls).toHaveLength(2);
+    expect(model.doStreamCalls[1]?.tools).toHaveLength(1);
     expect(onCapReached).not.toHaveBeenCalled();
   });
 
-  it('passes a stepCountIs(maxSteps + 1) backstop so a genuinely-forced final step is allowed to run', () => {
-    const client = buildClient();
-    client.streamText({
-      messages: [],
-      tools: { echo: {} as ToolSet[string] },
-      maxSteps: 5,
-    });
-    const { stopWhen } = streamTextMock.mock.calls[0][0] as unknown as {
-      stopWhen: unknown;
-    };
-    // stepCountIs returns a function; presence + non-null is what matters —
-    // its exact numeric threshold is exercised behaviorally above.
-    expect(typeof stopWhen).toBe('function');
+  it('uses maxSteps + 1 as a hard backstop after the forced final step', async () => {
+    const model = scriptedModel(
+      Array.from({ length: 3 }, (_, index) =>
+        toolResponse([{ toolName: 'echo', input: `{"value":"${index}"}` }]),
+      ),
+    );
+    const client = buildClient(model);
+
+    await client.streamText({ messages, tools, maxSteps: 2 }).consumeStream();
+
+    expect(model.doStreamCalls).toHaveLength(3);
+    expect(model.doStreamCalls[2]?.tools).toEqual([]);
   });
 });
 
 describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal', () => {
-  it('reports "not_available" for a call to an undeclared tool and resolves null (never crashes)', async () => {
-    const client = buildClient();
-    const onUnavailableToolCall = vi.fn();
-    client.streamText({
-      messages: [],
-      tools: { echo: {} as ToolSet[string] },
-      maxSteps: 4,
-      onUnavailableToolCall,
-    });
-
-    const { experimental_repairToolCall: repair } = streamTextMock.mock
-      .calls[0][0] as unknown as {
-      experimental_repairToolCall: (opts: {
-        toolCall: { toolCallId: string; toolName: string; input: string };
-        error: unknown;
-      }) => Promise<unknown>;
-    };
-
-    // `LanguageModelV3ToolCall.input` is ALWAYS a stringified JSON object at
-    // this provider layer, never pre-parsed — the fake here matches that
-    // real shape rather than a convenient-but-unrealistic plain object
-    // (a live-DB integration test caught this exact mismatch).
-    const toolCall = {
-      toolCallId: 'call-1',
+  it.each([
+    {
+      name: 'undeclared tool',
       toolName: 'not_a_real_tool',
       input: '{"x":1}',
-    };
-    const error = new NoSuchToolError({
-      toolName: 'not_a_real_tool',
-      availableTools: ['echo'],
-    });
-
-    await expect(repair({ toolCall, error })).resolves.toBeNull();
-    expect(onUnavailableToolCall).toHaveBeenCalledWith({
-      toolCallId: 'call-1',
-      toolName: 'not_a_real_tool',
-      input: { x: 1 },
+      expectedInput: { x: 1 },
       reason: 'not_available',
-    });
-  });
-
-  it('reports "invalid_input" for schema-invalid arguments and resolves null', async () => {
-    const client = buildClient();
-    const onUnavailableToolCall = vi.fn();
-    client.streamText({
-      messages: [],
-      tools: { echo: {} as ToolSet[string] },
-      maxSteps: 4,
-      onUnavailableToolCall,
-    });
-
-    const { experimental_repairToolCall: repair } = streamTextMock.mock
-      .calls[0][0] as unknown as {
-      experimental_repairToolCall: (opts: {
-        toolCall: { toolCallId: string; toolName: string; input: string };
-        error: unknown;
-      }) => Promise<unknown>;
-    };
-
-    const toolCall = {
-      toolCallId: 'call-2',
+    },
+    {
+      name: 'schema-invalid arguments',
       toolName: 'echo',
       input: '{"bad":true}',
-    };
-    const error = new InvalidToolInputError({
-      toolInput: '{"bad":true}',
-      toolName: 'echo',
-      cause: new Error('schema mismatch'),
-    });
-
-    await expect(repair({ toolCall, error })).resolves.toBeNull();
-    expect(onUnavailableToolCall).toHaveBeenCalledWith({
-      toolCallId: 'call-2',
-      toolName: 'echo',
-      input: { bad: true },
+      expectedInput: { bad: true },
       reason: 'invalid_input',
-    });
-  });
-
-  it('falls back to the raw string when the tool call input is not valid JSON (a hallucinating model), never throws', async () => {
-    const client = buildClient();
-    const onUnavailableToolCall = vi.fn();
-    client.streamText({
-      messages: [],
-      tools: { echo: {} as ToolSet[string] },
-      maxSteps: 4,
-      onUnavailableToolCall,
-    });
-
-    const { experimental_repairToolCall: repair } = streamTextMock.mock
-      .calls[0][0] as unknown as {
-      experimental_repairToolCall: (opts: {
-        toolCall: { toolCallId: string; toolName: string; input: string };
-        error: unknown;
-      }) => Promise<unknown>;
-    };
-
-    const toolCall = {
-      toolCallId: 'call-3',
+    },
+    {
+      name: 'malformed JSON',
       toolName: 'not_a_real_tool',
       input: 'not valid json{{{',
-    };
-    const error = new NoSuchToolError({
-      toolName: 'not_a_real_tool',
-      availableTools: ['echo'],
-    });
-
-    await expect(repair({ toolCall, error })).resolves.toBeNull();
-    expect(onUnavailableToolCall).toHaveBeenCalledWith({
-      toolCallId: 'call-3',
-      toolName: 'not_a_real_tool',
-      input: 'not valid json{{{',
+      expectedInput: 'not valid json{{{',
       reason: 'not_available',
-    });
-  });
+    },
+  ] as const)(
+    'reports $reason for $name without crashing',
+    async ({ toolName, input, expectedInput, reason }) => {
+      const model = scriptedModel([
+        toolResponse([{ toolName, input }]),
+        textResponse('fallback'),
+      ]);
+      const client = buildClient(model);
+      const onUnavailableToolCall = vi.fn();
+
+      await expect(
+        client.streamText({
+          messages,
+          tools,
+          maxSteps: 4,
+          onUnavailableToolCall,
+        }).text,
+      ).resolves.toBe('fallback');
+
+      expect(onUnavailableToolCall).toHaveBeenCalledWith({
+        toolCallId: 'call-0',
+        toolName,
+        input: expectedInput,
+        reason,
+      });
+      expect(model.doStreamCalls).toHaveLength(2);
+    },
+  );
 });

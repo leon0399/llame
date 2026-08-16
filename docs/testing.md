@@ -116,16 +116,15 @@ unit ──────┼─→ build
 - The four disabled `vitest/*` style rules in `apps/api/.oxlintrc.json` are a
   ratchet: flip one to "error" and fix its findings when touching the affected
   suites.
-- Migrate the hand-forged `as unknown as ReturnType<typeof streamText>` model
-  doubles (15 sites / 7 files as of #268 slice 1–3: `runs/worker-harness.ts`,
-  `testing/support.ts`, `worker-mode.integration.test.ts`,
-  `compaction/compaction-context.integration.test.ts`,
-  `models/model-client.test.ts`, `models/fake-model-client.ts`,
-  `models/openai-model-client.tools.test.ts`) onto `ai/test`'s
+- Migrate the nine remaining hand-forged
+  `as unknown as ReturnType<typeof streamText>` model doubles in
+  `runs/worker-harness.ts`, `testing/support.ts`,
+  `worker-mode.integration.test.ts`, and
+  `compaction/compaction-context.integration.test.ts` onto `ai/test`'s
   `MockLanguageModelV3` under the REAL `streamText` —
   `run-execution-tools.integration.test.ts` shows the pattern. Overlaps two of
-  #268's `as unknown as` migration targets (`compaction-context.integration.test.ts`,
-  `model-client.test.ts`) — sequence with that issue's remaining slices rather
-  than duplicating the file. The HTTP-level `e2e/support/model-server.ts`
+  #268's `as unknown as` migration targets; sequence with that issue's
+  remaining slices rather than duplicating the file. The HTTP-level
+  `e2e/support/model-server.ts`
   stays (product e2e needs an OpenAI-protocol endpoint, out of `ai/test`'s
   scope).
