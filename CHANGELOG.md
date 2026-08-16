@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-16
 
+- Enforced `anti-slop/no-shape-in-symbol-names` at zero baseline across root
+  E2E and all four workspaces. Five structural placeholder references now name
+  their prompt scenario, rendered conversation node, or admitted MCP result
+  payload without changing runtime behavior or public APIs.
+
 - Enforced `anti-slop/no-object-parameters` at zero baseline across root E2E and
   all four workspaces. Three broad test-helper inputs now use endpoint DTO
   variants or the controller's exact `PinsService` capabilities, preserving

@@ -12,6 +12,7 @@
   "rules": {
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-object-parameters": "error",
+    "anti-slop/no-shape-in-symbol-names": "error",
     "anti-slop/no-unknown-type-aliases": "error",
     "anti-slop/no-widen-then-assert": "error"
   }
