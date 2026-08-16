@@ -26,7 +26,7 @@ measurement needed before implementation.
 |     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces               |
 |    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                  |
 |    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification        |
-|    12 | active      | Mutation-testing pilot                  | PR #390 carries the native baseline; PRs #391–#393 repair three child slices; 16 useful layer-4 gaps remain                 |
+|    12 | active      | Mutation-testing pilot                  | PR #390 carries the native baseline; PRs #391–#394 repair all four child slices; no useful pilot `U` gap remains            |
 |    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
 
 ## Published PR stack
@@ -70,12 +70,13 @@ layer is merged or shipped. Layer state remains active until merge.
 |    32 | #391 | MCP tool-ID mutation repairs         |
 |    33 | #392 | Protected-value mutation repairs     |
 |    34 | #393 | Bounded-fetch limit mutation repairs |
+|    35 | #394 | Bounded-fetch SSE mutation repairs   |
 
 ## Current submission
 
-| State     | Layer                                     | Commit evidence                                                                                                                   | PR   |
-| --------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---- |
-| submitted | Bounded-fetch limit mutation repair layer | `6fc62a80`–`235a5180` add 27 behavior cases; `259fc4e0` records the 169-mutant 80.47% result and accounts for all 42 layer-3 gaps | #393 |
+| State     | Layer                                   | Commit evidence                                                                                                              | PR   |
+| --------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---- |
+| submitted | Bounded-fetch SSE mutation repair layer | `e9e8a566` adds eight behavior cases and records the 169-mutant 89.94% result, killing all 16 exact layer-4 useful survivors | #394 |
 
 ## Inventory
 
@@ -146,7 +147,7 @@ layer is merged or shipped. Layer state remains active until merge.
 | active      | Child layer 1: tool-id canonicalization/parser                                                   | PR #391: three behavior assertions cover invalid-format parsing, edge trimming, and the exact 64-character boundary; six baseline `U` gaps are repaired and 12 baseline survivors are reclassified `R` with exact manual evidence |
 | active      | Child layer 2: protected-values normalization/propagation                                        | PR #392: 17 baseline `U` gaps are killed, marker `S169` is reclassified `R` with an exact manual failure, and comparator/tie mutants `S191`–`S195` plus `S255` are reclassified `E`; no useful protected-values gap remains       |
 | active      | Child layer 3: bounded-fetch request parsing/body sizing/response byte-limit semantics           | PR #393: 39 baseline `U` gaps are killed and `S12`, `S16`, and `NC58` are reclassified `E` for the supported `BodyInit` domain; no useful layer-3 gap remains                                                                     |
-| queued      | Child layer 4: bounded-fetch SSE recognition/framing plus wrapper cancellation/metadata          | Exactly 16 useful `U` mutants remain queued: `S85`, `S113`, `S136`, `S137`, `S139`, `S140`, `S146`, `S149`, `S151`, `S153`, `S163`, `S164`, `S165`, `S166`, `S167`, `S168`; no gaps marked repaired                               |
+| active      | Child layer 4: bounded-fetch SSE recognition/framing plus wrapper cancellation/metadata          | PR #394: eight behavior assertions kill all 16 queued `U` mutants; the native 169-mutant run kills 152 at 89.94%, and no useful layer-4 gap remains                                                                               |
 | done        | API README command inventory                                                                     | The workspace README lists executable commands only; it does not document a nonexistent coverage script or invent coverage tooling                                                                                                |
 | queued      | Source-regex tests and disabled Vitest rules remain known follow-ups                             | Existing `docs/testing.md` list; convert when owning files are touched                                                                                                                                                            |
 | investigate | The committed OpenAPI contract has no generated property-based conformance run                   | Pilot Schemathesis against the throwaway API/Postgres environment; measure auth and tenant setup, status/schema findings, replayability, runtime, and false positives before gating                                               |
@@ -287,6 +288,31 @@ time, 237760 kB peak RSS, and 0 swaps. The memory preflight found 2.0 GiB
 available and no sustained swap traffic before the single-worker foreground
 run. No useful layer-3 `U` mutant remains; the 16 useful survivors are exactly
 the separately scoped layer-4 backlog.
+
+#### Child layer 4 repair result (2026-08-15; PR #394 active)
+
+The baseline inventory above remains historical. This child layer adds eight
+behavior assertions for parameterized SSE recognition, LF/CR/CRLF blank-line
+and multi-line framing, explicit consumer cancellation, and transparent
+response metadata. The direct suite grows from 38 to 46 tests. Production
+`mcp-bounded-fetch.ts` remains unchanged
+(`sha256 8b6a369cfd943073043f393ce4ff4ce67106ba0aad9e6bbb8b0a56af0cb7eeef`).
+
+- Native Stryker kills all 16 exact layer-4 `U` mutants: `S85`, `S113`,
+  `S136`, `S137`, `S139`, `S140`, `S146`, `S149`, `S151`, `S153`, `S163`,
+  `S164`, `S165`, `S166`, `S167`, and `S168`.
+- The remaining 15 survivors are the existing `I` error-label mutants and
+  existing `E` request-context, request-body, absent-header, and SSE line-counter
+  mutants. The two no-coverage mutants are unchanged. This layer adds no
+  suppression, ignore, threshold, or reclassification.
+- The native one-file result is 169 mutants: 152 killed, 15 survived, 2 no
+  coverage, 0 timeout, and 0 errors; mutation score 89.94% and covered-mutant
+  rate 91.02%.
+- The foreground run completed in 2:36.37 at 238988 kB peak RSS and zero
+  swaps, with one Stryker worker after a 2.0 GiB available-memory preflight and
+  no sustained swap growth.
+
+No useful bounded-fetch `U` mutant remains after child layers 3 and 4.
 
 ##### `src/mcp/protected-values.ts`
 
