@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-16
 
+- Dropped all 26 dated `docs/superpowers` working plans and specs from the
+  quality campaign. They were per-layer working documents; the durable
+  contracts live in `docs/code-quality-tracker.md`, `CHANGELOG.md`, and the
+  enforced lint/test configurations themselves.
+
 - Repaired the first-send chat lifecycle defect exposed by Product E2E on PR
   #405. `/` now waits for an actual Next request and redirects before UI mount
   to a per-navigation canonical UUID route, with
