@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Added pinned markdownlint-cli2 0.23.2 semantic linting for 199 product-owned
+  Markdown files in Lefthook and CI, with zero grandfathered findings or custom
+  wrapper. Generated/upstream agent integrations and symlink loader aliases are
+  explicitly excluded. Existing rendering defects were repaired, including
+  bare URLs, ambiguous citation sequences, missing fence languages, malformed
+  issue references, and a stale Nest starter README that did not describe
+  llame's API workspace.
+
 - Standardized all 46 API constructor-parameter `@Inject(...)` decorators on
   their own lines and added a native ast-grep rule that rejects inline
   placement only within constructors. The shared structural-lint command is

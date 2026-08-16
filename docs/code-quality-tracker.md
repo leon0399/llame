@@ -21,7 +21,7 @@ required.
 |     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code |
 |     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI   |
 |     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                     |
-|     8 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                                  |
+|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 199 product-owned files with zero findings through the same local/CI command                 |
 |     9 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                 |
 |    10 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
 
@@ -55,6 +55,7 @@ required.
 |    24 | #383 | Chat-loop transaction binding       |
 |    25 | #384 | Full-tree double-assertion gate     |
 |    26 | #385 | Constructor decorator placement     |
+|    27 | #386 | Semantic Markdown lint              |
 
 ## Inventory
 
@@ -93,15 +94,15 @@ required.
 
 ### Lint and formatting
 
-| State  | Finding                                                                                    | Evidence / exit condition                                                                                          |
-| ------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                 |
-| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                            | Workspace `lint` scripts and Turbo                                                                                 |
-| queued | API is type-aware; other workspaces are substantially lighter                              | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                |
-| queued | Semantic Markdown is not linted                                                            | Select a maintained Node-22-compatible linter; define explicit owned/ignored paths; prove bad fixture failure      |
-| queued | Unused lint-disable directives are not rejected                                            | Evaluate Oxlint's `--report-unused-disable-directives` repo-wide before enabling                                   |
-| queued | Four Vitest rules are disabled in API                                                      | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                           |
-| active | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline    | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness |
+| State  | Finding                                                                                    | Evidence / exit condition                                                                                                    |
+| ------ | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                           |
+| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                            | Workspace `lint` scripts and Turbo                                                                                           |
+| queued | API is type-aware; other workspaces are substantially lighter                              | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                          |
+| active | Semantic Markdown is linted across 199 product-owned files                                 | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded |
+| queued | Unused lint-disable directives are not rejected                                            | Evaluate Oxlint's `--report-unused-disable-directives` repo-wide before enabling                                             |
+| queued | Four Vitest rules are disabled in API                                                      | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                     |
+| active | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline    | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness           |
 
 ### Complexity and structure
 
@@ -171,6 +172,7 @@ required.
 | done   | Workflow syntax and action-pin validation are shipped and green on the baseline  | Workflow-lint CI owns both gates; `actionlint` and `pinact run --check` re-run locally on 2026-08-14                                            |
 | queued | Pedantic workflow security reports seven findings, concentrated in `git-ai.yaml` | Review broad write permission, installer provenance, concurrency, job naming, and reusable-workflow permissions; rerun actionlint/zizmor/pinact |
 | active | Structural ast-grep enforcement is full-tree and shared by local/CI gates        | `pnpm lint:ast-grep` owns double assertions and API decorator placement through native rules; no bespoke wrapper remains (#287, #286)           |
+| active | Semantic Markdown enforcement is shared by local/CI gates                        | `pnpm lint:markdown` owns the explicit product-documentation scope with zero baseline, inline disable, or custom wrapper                        |
 
 ## Rejected shortcuts
 

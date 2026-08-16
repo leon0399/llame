@@ -37,7 +37,7 @@ Selecting a unit SHALL show its roster (user, role badge) with controls to grant
 #### Scenario: Inherited role is visible
 
 - **WHEN** the caller's role on the selected unit is inherited from an ancestor
-- **THEN** the panel shows the role with an "inherited from <unit>" marker
+- **THEN** the panel shows the role with an "inherited from `<unit>`" marker
 
 #### Scenario: Grant from the panel
 

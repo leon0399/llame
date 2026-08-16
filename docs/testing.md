@@ -80,6 +80,8 @@ Three test-pipeline workflows, one job per concern (`.github/workflows/` —
 - **Lint** — `turbo run lint` · **Format** — `format:check`
 - **Structural lint** — `pnpm lint:ast-grep` (native ast-grep rules for the full
   owned TypeScript tree)
+- **Markdown lint** — `pnpm lint:markdown` (semantic Markdown rules across the
+  product-owned documentation tree)
 
 **Workflow lint** — the pipeline checks itself:
 
@@ -90,7 +92,7 @@ Three test-pipeline workflows, one job per concern (`.github/workflows/` —
 **CI** — the pyramid as a job graph, each layer gated on the cheaper layer
 that would catch the same breakage:
 
-```
+```text
 typecheck ─┐
 unit ──────┼─→ build
            ├─→ storybook        (component tests, real browser)

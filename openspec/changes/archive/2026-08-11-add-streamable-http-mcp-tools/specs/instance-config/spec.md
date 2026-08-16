@@ -25,7 +25,7 @@ The schema SHALL cover the shape-stable operator settings and SHALL be extended 
 - **WHEN** the file sets `tools.allowed` to code-owned and namespaced dynamic tool ids
 - **THEN** exactly those eligible tools may become available to Runs under the `tool-calling` capability's gate semantics
 
-#### Scenario: Absent tools namespace means no tools
+#### Scenario: Missing tools namespace empties the allowlist
 
 - **WHEN** the file does not set the `tools` namespace
 - **THEN** the allowlist is empty and no tool is advertised or executable

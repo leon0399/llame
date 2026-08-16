@@ -120,7 +120,7 @@ built-in default. The live file is gitignored (per-deploy, like `.env.local`), r
 `apps/api` by default (override with `LLAME_CONFIG_PATH`), and applies on restart only.
 
 **Providers + the model catalog are config-as-code too** (providers-and-models-as-code,
-#167) — `providers[]` (duplicable `{ id, type, key, baseUrl }`; `type` is `"openai"`
+issue #167) — `providers[]` (duplicable `{ id, type, key, baseUrl }`; `type` is `"openai"`
 only today, covering native OpenAI + any OpenAI-compatible endpoint) and `models[]`
 (the executable catalog, superseding the old hardcoded `models/model-catalog.ts`)
 supersede `OPENAI_API_KEY`/`OPENAI_BASE_URL` as bare reads — those env vars remain valid

@@ -2,7 +2,7 @@
 
 This change ships as a stack of four implementation PRs on top of the planning commits already on `feature/mcp-stdio`. Read bottom to top; each layer merges before the one above it.
 
-```
+```text
 (master) <- planning <- client <- runtime <- config <- docs
 ```
 

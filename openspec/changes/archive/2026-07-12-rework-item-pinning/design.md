@@ -29,7 +29,7 @@ Constraints from the codebase: RLS-in-the-datastore with `FORCE ROW LEVEL SECURI
 
 ### D1 — Single polymorphic `pins` table (not per-type tables)
 
-```
+```text
 pin_item_type = pgEnum('pin_item_type', ['chat','project'])
 
 pins (
@@ -50,7 +50,7 @@ The rail's primary read is one ordered, mixed-type list served by a single index
 
 A pin has no mutable field (only existence + a server-set `pinned_at`), so it is a resource addressed by its natural key `(itemType, itemId)`:
 
-```
+```text
 GET    /api/v1/pins                     → caller's pinned items, mixed, pinned_at DESC
 PUT    /api/v1/pins/:itemType/:itemId   → pin   (idempotent)
 DELETE /api/v1/pins/:itemType/:itemId   → unpin (idempotent)

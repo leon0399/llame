@@ -1,6 +1,6 @@
 ## Context
 
-#166 (PR #165) shipped operator config-as-code: a strict, closed JSONC `llame.config.json`, validated by its own published JSON Schema (the schema **is** the ajv boot validator), with `{env:}`/`{path:}` interpolation resolved once at boot and file→built-in-default precedence. It deliberately deferred the two largest operator surfaces — the provider list and the model catalog — to this follow-up, and left the loader as a **per-leaf scalar** resolver (`readLeaf` + `resolve{NullableString,Numeric,ToolAllowlist,WorkerProfiles}` in `config-loader.ts`).
+Issue #166 (PR #165) shipped operator config-as-code: a strict, closed JSONC `llame.config.json`, validated by its own published JSON Schema (the schema **is** the ajv boot validator), with `{env:}`/`{path:}` interpolation resolved once at boot and file→built-in-default precedence. It deliberately deferred the two largest operator surfaces — the provider list and the model catalog — to this follow-up, and left the loader as a **per-leaf scalar** resolver (`readLeaf` + `resolve{NullableString,Numeric,ToolAllowlist,WorkerProfiles}` in `config-loader.ts`).
 
 Today those two surfaces are hardcoded:
 
