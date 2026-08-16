@@ -1,10 +1,13 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 
-import { AuthService, type SessionMetadata } from './auth.service';
-import type { PasswordService } from './password.service';
+import {
+  AuthService,
+  type AuthPasswordHasher,
+  type AuthSessionStore,
+  type AuthUserDirectory,
+  type SessionMetadata,
+} from './auth.service';
 import { SessionTokenService } from './session-token.service';
-import type { SessionsRepository } from './sessions.repository';
-import type { UsersService } from '../users/users.service';
 import type { User } from '../db/schema';
 
 import type { Mocked } from 'vitest';
@@ -18,18 +21,18 @@ const user: User = {
 };
 
 function makeService(overrides?: {
-  users?: Partial<UsersService>;
-  sessions?: Partial<SessionsRepository>;
-  passwordService?: Partial<PasswordService>;
+  users?: Partial<Mocked<AuthUserDirectory>>;
+  sessions?: Partial<Mocked<AuthSessionStore>>;
+  passwordService?: Partial<Mocked<AuthPasswordHasher>>;
 }) {
-  const users = {
+  const users: Mocked<AuthUserDirectory> = {
     getUserByEmail: vi.fn(),
     getUserById: vi.fn(),
     createUser: vi.fn(),
     ...overrides?.users,
-  } as unknown as Mocked<UsersService>;
+  };
 
-  const sessions = {
+  const sessions: Mocked<AuthSessionStore> = {
     create: vi.fn(),
     findActiveAndTouch: vi.fn(),
     deleteStaleByTokenHash: vi.fn(),
@@ -40,13 +43,13 @@ function makeService(overrides?: {
     listForUser: vi.fn(),
     findByIdForUser: vi.fn(),
     ...overrides?.sessions,
-  } as unknown as Mocked<SessionsRepository>;
+  };
 
-  const passwordService = {
+  const passwordService: Mocked<AuthPasswordHasher> = {
     hash: vi.fn(),
     compare: vi.fn(),
     ...overrides?.passwordService,
-  } as unknown as Mocked<PasswordService>;
+  };
 
   const tokenService = new SessionTokenService();
   const service = new AuthService(
