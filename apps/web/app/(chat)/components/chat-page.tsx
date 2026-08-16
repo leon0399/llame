@@ -83,6 +83,7 @@ import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
 import type { ChatHistory, Compaction } from "@/lib/services/chat/history";
 import {
   mergeTrustedModelContextParts,
+  messageRenderKey,
   modelSwitchPart,
   runIdFromMessageMetadata,
   shouldAdoptServerHistory,
@@ -465,14 +466,14 @@ function ChatSessionContent({
     if (
       !shouldAdoptServerHistory({
         status,
-        serverMessageCount: chatMessages.length,
-        liveMessageCount: messages.length,
+        serverMessages: chatMessages,
+        liveMessages: messages,
       })
     ) {
       return;
     }
     setMessages(chatMessages);
-  }, [chatMessages, messages.length, status, setMessages]);
+  }, [chatMessages, messages, status, setMessages]);
 
   // Register the active run globally so its completion notifies (toast + badge)
   // if the user navigates to another chat before it finishes — the durable
@@ -562,6 +563,7 @@ function ChatSessionContent({
         <Conversation className="h-full">
           <ConversationContent className="mx-auto w-full max-w-3xl space-y-4 px-5 py-12">
             {displayMessages.map((message, index) => {
+              const renderKey = messageRenderKey(message);
               const isUserMessage = message.role === "user";
               const switchPart = isUserMessage
                 ? modelSwitchPart(message)
@@ -596,13 +598,13 @@ function ChatSessionContent({
               ) : null;
 
               return (
-                <React.Fragment key={`message-${message.id}`}>
+                <React.Fragment key={`message-${renderKey}`}>
                   {boundary}
                   {modelBoundary}
                   <Message from={message.role}>
                     <MessageContent>
                       {message.parts.map((part, partIndex) => {
-                        const messagePartKey = `message-part-${message.id}-${partIndex}`;
+                        const messagePartKey = `message-part-${renderKey}-${partIndex}`;
 
                         if (part.type === "reasoning") {
                           return (
