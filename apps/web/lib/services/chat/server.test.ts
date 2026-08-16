@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cookies } from "next/headers";
+import { notFound, redirect } from "next/navigation";
 
-import { fetchInitialChatMessages } from "./server";
+import { draftChatPath, type DraftPhase } from "./draft-route";
+import { fetchDraftChatMessages, fetchInitialChatMessages } from "./server";
 
 vi.mock("next/headers", () => ({
   cookies: vi.fn(),
@@ -98,5 +100,108 @@ describe("fetchInitialChatMessages", () => {
     await expect(
       Promise.race([result, Promise.resolve("pending")]),
     ).resolves.toBe("AbortError");
+  });
+
+  it("calls notFound for a missing initial history page", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response(null, { status: 404 })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchInitialChatMessages("chat-1")).rejects.toThrow(
+      "not-found",
+    );
+    expect(notFound).toHaveBeenCalledOnce();
+  });
+});
+
+describe("fetchDraftChatMessages", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockSessionCookie();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("returns null when the owner-scoped draft history is missing", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response(null, { status: 404 })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchDraftChatMessages("chat-1", "fresh")).resolves.toBe(null);
+  });
+
+  it("calls notFound when a later history page is missing", async () => {
+    const firstPageMessages = Array.from({ length: 100 }, (_, index) => ({
+      id: `message-${index}`,
+      chatId: "chat-1",
+      seq: index + 1,
+      role: "assistant",
+      senderUserId: null,
+      parts: [],
+      attachments: [],
+      usage: null,
+      inReplyTo: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    }));
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ messages: firstPageMessages, compaction: null }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchDraftChatMessages("chat-1", "fresh")).rejects.toThrow(
+      "not-found",
+    );
+    expect(notFound).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["fresh", "sent"] satisfies DraftPhase[])(
+    "preserves the %s draft route in the login callback on 401",
+    async (phase) => {
+      const fetchMock = vi.fn<typeof fetch>(() =>
+        Promise.resolve(new Response(null, { status: 401 })),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const callbackPath = draftChatPath("chat-1", phase);
+      await expect(fetchDraftChatMessages("chat-1", phase)).rejects.toThrow(
+        `redirect:/login?callbackUrl=${encodeURIComponent(callbackPath)}`,
+      );
+      expect(redirect).toHaveBeenCalledWith(
+        `/login?callbackUrl=${encodeURIComponent(callbackPath)}`,
+      );
+    },
+  );
+
+  it("returns an empty history when the draft exists without messages", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ messages: [], compaction: null }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchDraftChatMessages("chat-1", "fresh")).resolves.toEqual({
+      messages: [],
+      compaction: null,
+    });
   });
 });

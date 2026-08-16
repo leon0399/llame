@@ -30,6 +30,10 @@ describe("draftChatPath", () => {
     );
   });
 
+  it("adds the sent draft phase as a query parameter", () => {
+    expect(draftChatPath(CHAT_ID, "sent")).toBe(`/chat/${CHAT_ID}?draft=sent`);
+  });
+
   it("omits the query parameter when there is no draft phase", () => {
     expect(draftChatPath(CHAT_ID, null)).toBe(`/chat/${CHAT_ID}`);
   });
