@@ -67,7 +67,7 @@ d('auth e2e — real HTTP + Postgres', () => {
     expect(typeof userAId).toBe('string');
     expect(typeof tokenA).toBe('string');
     expect(tokenA.length).toBeGreaterThan(20);
-    const setCookie = (res.headers['set-cookie'] as unknown as string[])[0];
+    const setCookie = res.get('Set-Cookie')?.[0];
     expect(setCookie).toMatch(/HttpOnly/i);
     // The cookie carries the RAW token (it's the transport); only the DB copy is hashed.
     // So the cookie value equals the response token.

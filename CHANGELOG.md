@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed three forged `set-cookie` header assertions from shared HTTP test
+  support and integration coverage. Callers now use Superagent's typed
+  `get('Set-Cookie')` overload, and worker-mode coverage reuses the shared
+  cookie extractor instead of carrying a duplicate. The affected real-Postgres
+  integration suites pass 15/15; API build, typecheck, and lint pass.
+  Application/test debt falls from 17 to 14.
+
 - Removed both forged Drizzle database assertions from the tenant database
   service units. `TenantDbService` now names only the transaction capability it
   consumes, while the test uses Drizzle's mock driver plus typed Vitest spies

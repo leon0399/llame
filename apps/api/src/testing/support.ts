@@ -28,7 +28,7 @@ import { ModelNotAvailableError } from '../models/models.service';
 
 /** Extracts the llame session cookie pair from a response, or '' when absent. */
 export const cookieOf = (res: request.Response): string => {
-  const set = (res.headers['set-cookie'] as unknown as string[]) ?? [];
+  const set = res.get('Set-Cookie') ?? [];
   for (const c of set) {
     const m = /llame_session=([^;]+)/.exec(c);
     if (m) return `llame_session=${m[1]}`;
