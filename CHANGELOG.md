@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Replaced seven unsafe narrowing assertions in persisted tool-observation replay
+  and compaction-ledger writes with the shared runtime record guard and a local
+  non-negative safe-integer guard. Malformed tool parts, cancellation metadata,
+  and omission counts now have explicit fail-closed replay and checkpoint-write
+  coverage; the native one-thread API inventory falls from 281 diagnostics across
+  82 files to 274 across 81 while the rule remains diagnostic.
+
 - Began the zero-baseline migration to Oxlint's maintained type-aware
   `typescript/no-unsafe-type-assertion` rule. One root `isRecord` guard now owns
   the recurring JSON-object boundary instead of four duplicate MCP/tool
