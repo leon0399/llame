@@ -32,9 +32,22 @@ describe('registry startup validation (fail loud, not at call time)', () => {
       ...searchConversationsTool,
       id: 'no_classification',
       classification: undefined,
-    } as unknown as Tool;
+    };
     expect(() => buildRegistry([unclassified])).toThrow(/no classification/);
   });
+
+  it.each([null, '', 'not_a_classification'])(
+    'rejects invalid classification %j at startup',
+    (classification) => {
+      const invalid = {
+        ...searchConversationsTool,
+        id: 'invalid_classification',
+        classification,
+      };
+
+      expect(() => buildRegistry([invalid])).toThrow(/classification/);
+    },
+  );
 
   it('rejects a duplicate tool id at startup, naming it', () => {
     const dup = { ...searchConversationsTool };
