@@ -23,7 +23,10 @@ export class SearchReindexDispatchService {
   private readonly logger = new Logger(SearchReindexDispatchService.name);
   private queueReady: Promise<void> | undefined;
 
-  constructor(@Inject(QUEUE) private readonly queue: Queue) {}
+  constructor(
+    @Inject(QUEUE)
+    private readonly queue: Queue,
+  ) {}
 
   async enqueueChatReindex(chatId: string, ownerUserId: string): Promise<void> {
     try {

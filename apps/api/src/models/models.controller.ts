@@ -28,7 +28,10 @@ export type ModelsReader = Pick<ModelsService, 'getAvailableModels'>;
 @ApiCookieAuth('cookie')
 @Controller('api/v1/models')
 export class ModelsController {
-  constructor(@Inject(ModelsService) private readonly models: ModelsReader) {}
+  constructor(
+    @Inject(ModelsService)
+    private readonly models: ModelsReader,
+  ) {}
 
   @Get()
   @ApiOkResponse({ type: ModelsResponse })

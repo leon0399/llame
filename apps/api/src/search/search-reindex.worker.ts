@@ -42,7 +42,8 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
   private readonly logger = new Logger(SearchReindexWorker.name);
 
   constructor(
-    @Inject(QUEUE) private readonly queue: Queue,
+    @Inject(QUEUE)
+    private readonly queue: Queue,
     private readonly tenantDb: TenantDbService,
     private readonly indexService: SearchIndexService,
     private readonly dispatch: SearchReindexDispatchService,

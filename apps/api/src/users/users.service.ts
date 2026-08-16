@@ -28,7 +28,8 @@ export function toPublicUser(user: User): PublicUserResponse {
 @Injectable()
 export class UsersService {
   constructor(
-    @Inject('DB_DEV') private db: PostgresJsDatabase<typeof schema>,
+    @Inject('DB_DEV')
+    private db: PostgresJsDatabase<typeof schema>,
   ) {}
 
   async getUserByEmail(email: string): Promise<User | undefined> {

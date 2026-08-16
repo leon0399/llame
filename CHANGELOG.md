@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Standardized all 46 API constructor-parameter `@Inject(...)` decorators on
+  their own lines and added a native ast-grep rule that rejects inline
+  placement only within constructors. The shared structural-lint command is
+  now named `pnpm lint:ast-grep`, accurately reflecting its multi-rule scope;
+  Lefthook and CI still run the exact same command without a custom wrapper.
+
 - Replaced the API-only, diff-scoped double-assertion shell gate with pinned
   `@ast-grep/cli` 0.44.0 native TypeScript/TSX rules. One root package command
   now scans the full owned `.ts`, `.tsx`, `.mts`, and `.cts` tree—including
