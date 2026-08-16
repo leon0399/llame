@@ -1,3 +1,4 @@
+import { isRecord } from '../unknown-record';
 import { type ToolResult } from './types';
 
 /** ~16KB result cap (D5/D6): oversized tool output is truncated, visibly. */
@@ -60,6 +61,22 @@ const NAMED_LIST_LIMIT = 3;
  * self-evident to a reader, but a list that quietly lost its tail reads as a
  * complete one, so the model is told what it kept of what.
  */
+function capRecord(
+  value: Record<string, unknown>,
+  limit: number,
+  lists: ShortenedList[],
+  path: string,
+  keepAllEntries: boolean,
+): Record<string, unknown> {
+  const entries = Object.entries(value);
+  return Object.fromEntries(
+    (keepAllEntries ? entries : entries.slice(0, limit)).map(([key, entry]) => [
+      key,
+      capValues(entry, limit, lists, path === '' ? key : `${path}.${key}`),
+    ]),
+  );
+}
+
 function capValues(
   value: unknown,
   limit: number,
@@ -83,16 +100,8 @@ function capValues(
       capValues(entry, limit, lists, `${path}[${index}]`),
     );
   }
-  if (typeof value === 'object' && value !== null) {
-    const entries = Object.entries(value);
-    return Object.fromEntries(
-      (keepAllEntries ? entries : entries.slice(0, limit)).map(
-        ([key, entry]) => [
-          key,
-          capValues(entry, limit, lists, path === '' ? key : `${path}.${key}`),
-        ],
-      ),
-    );
+  if (isRecord(value)) {
+    return capRecord(value, limit, lists, path, keepAllEntries);
   }
   // Numbers, booleans and null are already shorter than any useful limit.
   return value;
@@ -159,22 +168,17 @@ export function truncateOversizedResult(result: ToolResult): ToolResult {
   // Work on the result's own JSON projection: `JSON.stringify` has already
   // applied `toJSON`, dropped undefined, and fixed every length, so what is
   // measured below is exactly what the model receives.
-  const { status: _status, ...payload } = JSON.parse(json) as Record<
-    string,
-    unknown
-  >;
+  const parsed: unknown = JSON.parse(json);
+  if (!isRecord(parsed) || parsed.status !== 'success') {
+    throw new TypeError('Malformed oversized tool result projection.');
+  }
+  const { status: _status, ...payload } = parsed;
 
   const totalFields = Object.keys(payload).length;
 
   const build = (limit: number, keepAllFields: boolean): ToolResult => {
     const lists: ShortenedList[] = [];
-    const capped = capValues(
-      payload,
-      limit,
-      lists,
-      '',
-      keepAllFields,
-    ) as Record<string, unknown>;
+    const capped = capRecord(payload, limit, lists, '', keepAllFields);
     const omittedChars =
       json.length - JSON.stringify({ status: 'success', ...capped }).length;
     return {
