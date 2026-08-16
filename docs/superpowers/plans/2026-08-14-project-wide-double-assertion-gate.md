@@ -28,7 +28,7 @@ Lefthook and CI. Delete the bespoke Git-diff parser and its custom shell harness
 
 - Modify: `docs/code-quality-tracker.md`
 
-- [ ] **Step 1: Count matches on the recorded `master` commit**
+- [x] **Step 1: Count matches on the recorded `master` commit**
 
 Run:
 
@@ -39,7 +39,7 @@ git grep -n -E 'as[[:space:]]+unknown[[:space:]]+as' 8bca868e -- \
 
 Expected at `8bca868e`: 113 matched lines across 46 files.
 
-- [ ] **Step 2: Group by real boundary**
+- [x] **Step 2: Group by real boundary**
 
 Record migration slices by ownership and remedy, such as AI SDK models, provider
 tool callbacks, Nest test modules, database fixtures, HTTP mocks, and UI fixtures.
@@ -51,17 +51,17 @@ Do not split by arbitrary line count.
 
 For every slice:
 
-- [ ] Add or preserve a focused behavioral test before changing the fixture or
+- [x] Add or preserve a focused behavioral test before changing the fixture or
       boundary type.
-- [ ] Replace double assertions with the standard library/framework/SDK test
+- [x] Replace double assertions with the standard library/framework/SDK test
       utility when one exists.
-- [ ] Otherwise narrow the consumer to the capability it uses, construct a
+- [x] Otherwise narrow the consumer to the capability it uses, construct a
       complete typed value, or validate an untrusted boundary at runtime.
-- [ ] Do not replace the construct with `as any`, a non-null assertion, an
+- [x] Do not replace the construct with `as any`, a non-null assertion, an
       over-broad interface, or an allowlist entry.
-- [ ] Run the focused test, affected workspace lint/typecheck, Prettier, and
+- [x] Run the focused test, affected workspace lint/typecheck, Prettier, and
       `git diff --check`.
-- [ ] Update the tracker with the remaining count and the stack PR.
+- [x] Update the tracker with the remaining count and the stack PR.
 
 Continue until this command returns no output:
 
