@@ -112,14 +112,12 @@ const CHAT_MENU_GROUPS: {
 export function ChatItem({
   chat,
   isActive = false,
-  onSelect,
   projects = [],
   onNewProject,
   isPinned = false,
 }: {
   chat: ChatResponse;
   isActive?: boolean;
-  onSelect: (chatId: string) => void;
   /** The caller's projects, for the row menu's "Move to project" submenu. */
   projects?: ProjectResponse[];
   /**
@@ -181,12 +179,7 @@ export function ChatItem({
       <SidebarMenuButton
         className="h-auto min-w-0 flex-1 py-1.5 hover:bg-transparent focus-visible:ring-0 active:bg-transparent data-active:bg-transparent"
         isActive={isActive}
-        render={
-          <Link
-            href={`/chat/${chat.id}`}
-            onNavigate={() => onSelect(chat.id)}
-          />
-        }
+        render={<Link href={`/chat/${chat.id}`} />}
       >
         <span
           // Archived rows read as de-emphasized (mock's

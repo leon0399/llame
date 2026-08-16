@@ -145,12 +145,7 @@ export function ChatPage({
   initialChatExists,
   initialDraftPhase,
 }: ChatPageProps) {
-  const { setActiveChatId } = useChatContext();
   const { registerViewedChat } = useActiveRuns();
-
-  useEffect(() => {
-    setActiveChatId(initialDraftPhase === null ? chatId : null);
-  }, [chatId, initialDraftPhase, setActiveChatId]);
 
   // This page boundary owns foreground presence before any session data loads.
   // In particular, a rehydrated draft can wait with no ChatSessionContent while

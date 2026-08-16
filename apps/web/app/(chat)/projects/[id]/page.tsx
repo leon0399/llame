@@ -2,7 +2,6 @@
 
 import * as React from "react";
 
-import { useChatContext } from "@/contexts/chat-context";
 import { useChatsQuery } from "@/lib/services/chat/queries";
 import { selectPinnedChatMap, usePins } from "@/lib/services/pins/queries";
 import { useProjects } from "@/lib/services/project/queries";
@@ -20,7 +19,6 @@ import { SidebarRowSkeletons } from "../../components/sidebar-row-skeletons";
 // Description/stats/todos/knowledge come with later slices of the design.
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
-  const { setActiveChatId } = useChatContext();
 
   const { data: projects, isLoading: projectsLoading } = useProjects();
   const { data, isLoading: chatsLoading } = useChatsQuery({ projectId: id });
@@ -66,7 +64,6 @@ export default function ProjectPage() {
               ) : (
                 <ChatTimeGroups
                   chats={projectChats}
-                  onSelect={setActiveChatId}
                   projects={allProjects}
                   onRequestNewProject={setNewProjectChatId}
                   pinnedAtByChatId={pinnedAtByChatId}

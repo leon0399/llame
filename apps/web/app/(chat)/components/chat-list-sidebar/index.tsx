@@ -15,7 +15,6 @@ import { cn } from "@workspace/ui/lib/utils";
 import { SquarePenIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useStartNewChat } from "@/contexts/chat-context";
 import { topBarClasses } from "@/app/shell/top-bar";
 import { ChatList } from "./chat-list";
 
@@ -24,7 +23,6 @@ import { ChatList } from "./chat-list";
 export function ChatListSidebar() {
   const { isMobile } = useSidebar();
   const pathname = usePathname();
-  const startNewChat = useStartNewChat();
 
   // Unmount on mobile — the sheet owns the chat list there; keeping this
   // subtree mounted would double the list render and query subscriptions.
@@ -47,7 +45,6 @@ export function ChatListSidebar() {
             render={
               <Link
                 href="/"
-                onClick={startNewChat}
                 className={cn(
                   buttonVariants({ variant: "ghost", size: "icon" }),
                   "size-8",

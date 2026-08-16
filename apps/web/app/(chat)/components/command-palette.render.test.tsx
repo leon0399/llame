@@ -46,13 +46,6 @@ vi.mock("@/lib/services/chat/queries", () => ({
   useChatsQuery: () => useChatsQueryMock(),
 }));
 
-vi.mock("@/contexts/chat-context", () => ({
-  useChatContext: () => ({
-    setActiveChatId: vi.fn(),
-    setDraftChatId: vi.fn(),
-  }),
-}));
-
 import { CommandPaletteProvider, useCommandPalette } from "./command-palette";
 
 beforeAll(() => {

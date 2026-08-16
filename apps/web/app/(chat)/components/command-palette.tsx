@@ -36,9 +36,7 @@ import {
   useChatSearchQuery,
 } from "@/lib/services/chat/search";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
-import { useChatContext } from "@/contexts/chat-context";
 import { isPaletteToggle } from "@/lib/command-palette";
-import { safeRandomUUID } from "@/lib/uuid";
 
 // Placeholder for untitled chats (title === null, generation pending or a
 // content-only match) — matches the label used by the chat list itself.
@@ -123,7 +121,6 @@ export function CommandPaletteProvider({
   const router = useRouter();
   const { data: chatsData } = useChatsQuery();
   const chats = chatsData?.pages.flat() ?? [];
-  const { setActiveChatId, setDraftChatId } = useChatContext();
 
   // Controlled input drives both the debounced content search and the server-
   // result item values. Hooks run every render (Rules of Hooks); the query self-
@@ -157,13 +154,7 @@ export function CommandPaletteProvider({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Mint a fresh draft chat (matching the sidebar's New Chat control) — a bare
-  // push('/') would no-op or resume a stale draft from ChatProvider state.
-  const newChat = () => {
-    setActiveChatId(null);
-    setDraftChatId(safeRandomUUID());
-    router.push("/");
-  };
+  const newChat = () => router.push("/");
 
   const openPalette = useCallback(() => setOpen(true), []);
   // Close FIRST, then act — so navigation doesn't leave the dialog's focus

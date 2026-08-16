@@ -2,7 +2,6 @@
 
 import * as React from "react";
 
-import { useChatContext } from "@/contexts/chat-context";
 import { useChatsQuery } from "@/lib/services/chat/queries";
 import { selectPinnedChatMap, usePins } from "@/lib/services/pins/queries";
 import { useProjects } from "@/lib/services/project/queries";
@@ -26,15 +25,9 @@ import { CreateProjectForChatDialog } from "./project-dialogs";
 // section above the time-grouped All, never interleaved.
 export function ChatList() {
   const pathname = usePathname();
-  const { activeChatId, setActiveChatId } = useChatContext();
   const routeChatId = pathname.startsWith("/chat/")
     ? pathname.split("/")[2]
     : undefined;
-  const selectedChatId = routeChatId ?? activeChatId;
-
-  const handleSelect = (chatId: string) => {
-    setActiveChatId(chatId);
-  };
 
   const { data: pinnedData, isLoading: pinnedLoading } = useChatsQuery({
     pinned: "only",
@@ -100,8 +93,7 @@ export function ChatList() {
                 <ChatItem
                   key={chat.id}
                   chat={chat}
-                  isActive={chat.id === selectedChatId}
-                  onSelect={handleSelect}
+                  isActive={chat.id === routeChatId}
                   projects={allProjects}
                   onNewProject={
                     setNewProjectChatId
@@ -119,8 +111,7 @@ export function ChatList() {
       {hasData && (
         <ChatTimeGroups
           chats={allChats}
-          selectedChatId={selectedChatId}
-          onSelect={handleSelect}
+          selectedChatId={routeChatId}
           projects={allProjects}
           onRequestNewProject={setNewProjectChatId}
           pinnedAtByChatId={pinnedAtByChatId}
