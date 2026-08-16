@@ -4,6 +4,7 @@ import {
   PROTECTED_VALUE_REDACTION_MARKER,
   containsProtectedValueJson,
   normalizeProtectedValues,
+  redactProtectedString,
   sanitizeProtectedValueJson,
 } from './protected-values';
 
@@ -19,6 +20,31 @@ describe('protected values', () => {
   it('drops empty duplicates and orders values for deterministic longest replacement', () => {
     expect(protectedValues).toEqual([
       'SESSION-SENTINEL',
+      'AUTH-SENTINEL',
+      'AUTH',
+    ]);
+  });
+
+  it('uses the stable public redaction marker', () => {
+    expect(PROTECTED_VALUE_REDACTION_MARKER).toBe('[REDACTED]');
+  });
+
+  it('orders overlapping values longest first and equal lengths lexically', () => {
+    const expected = ['alpha', 'bravo', 'delta'];
+    const permutations = [
+      ['alpha', 'bravo', 'delta'],
+      ['alpha', 'delta', 'bravo'],
+      ['bravo', 'alpha', 'delta'],
+      ['bravo', 'delta', 'alpha'],
+      ['delta', 'alpha', 'bravo'],
+      ['delta', 'bravo', 'alpha'],
+    ];
+
+    for (const values of permutations) {
+      expect(normalizeProtectedValues(values)).toEqual(expected);
+    }
+
+    expect(normalizeProtectedValues(['AUTH', 'AUTH-SENTINEL'])).toEqual([
       'AUTH-SENTINEL',
       'AUTH',
     ]);
@@ -47,6 +73,23 @@ describe('protected values', () => {
         `prefix ${PROTECTED_VALUE_REDACTION_MARKER} then ` +
         `${PROTECTED_VALUE_REDACTION_MARKER} then ${PROTECTED_VALUE_REDACTION_MARKER}`,
     });
+  });
+
+  it('prefers the longest same-position match in the exported string redactor', () => {
+    expect(
+      redactProtectedString('AUTH-SENTINEL', ['AUTH', 'AUTH-SENTINEL']),
+    ).toBe(PROTECTED_VALUE_REDACTION_MARKER);
+  });
+
+  it('redacts an earlier shorter match before a later longer match', () => {
+    expect(
+      redactProtectedString('AUTH then AUTH-SENTINEL', [
+        'AUTH',
+        'AUTH-SENTINEL',
+      ]),
+    ).toBe(
+      `${PROTECTED_VALUE_REDACTION_MARKER} then ${PROTECTED_VALUE_REDACTION_MARKER}`,
+    );
   });
 
   it('replaces an exact canonical scalar protected value as a whole leaf', () => {
@@ -120,5 +163,34 @@ describe('protected values', () => {
         protectedValues,
       ),
     ).toBe(true);
+  });
+
+  it('detects protected canonical scalars directly', () => {
+    expect(containsProtectedValueJson(410, ['410'])).toBe(true);
+    expect(containsProtectedValueJson(false, ['false'])).toBe(true);
+    expect(containsProtectedValueJson(null, ['null'])).toBe(true);
+    expect(containsProtectedValueJson(411, ['410'])).toBe(false);
+  });
+
+  it('detects a protected item when another array item is safe', () => {
+    expect(containsProtectedValueJson(['safe', 'AUTH'], ['AUTH'])).toBe(true);
+  });
+
+  it('propagates a protected-key failure from an object nested in an array', () => {
+    expect(
+      sanitizeProtectedValueJson(
+        ['safe', { nested: { 'AUTH-key': 'payload' } }],
+        ['AUTH'],
+      ),
+    ).toEqual({ success: false, reason: 'protected_value_key' });
+  });
+
+  it('propagates a protected-key failure from a nested object', () => {
+    expect(
+      sanitizeProtectedValueJson(
+        { safe: { nested: { 'AUTH-key': 'payload' } } },
+        ['AUTH'],
+      ),
+    ).toEqual({ success: false, reason: 'protected_value_key' });
   });
 });

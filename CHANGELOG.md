@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Added mutation-testing pilot child layer 2 for protected-value normalization,
+  precedence, scalar/array detection, and nested fail-closed propagation. The
+  native one-file run measured 166 mutants with 137 killed, 20 surviving, 3
+  without coverage, and 6 timing out (86.14%) in 28.19 seconds at 226028 kB
+  peak RSS and zero swaps; all 24 baseline useful gaps are now killed or
+  evidence-reclassified without changing production code.
+
 - Added mutation-testing pilot child layer 1 for tool-id canonicalization and
   parser behavior. Added focused coverage for non-`mcp__` invalid-format
   parsing, edge underscore trimming, and the exact
