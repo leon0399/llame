@@ -1079,10 +1079,23 @@ export class McpServerClient {
       if (definition === undefined) {
         throw new Error('MCP declaration admission lost index alignment.');
       }
-      const packageTool = Object.getOwnPropertyDescriptor(
+      const descriptor = Object.getOwnPropertyDescriptor(
         packageTools,
         definition.remoteName,
-      )?.value as PackageTool | undefined;
+      );
+      if (
+        descriptor === undefined ||
+        descriptor.get !== undefined ||
+        descriptor.set !== undefined
+      ) {
+        refused.push({
+          index: originalIndexes[boundedIndex],
+          id: definition.id,
+          reason: 'invalid_declaration',
+        });
+        continue;
+      }
+      const packageTool = packageTools[definition.remoteName];
       if (packageTool?.execute === undefined) {
         refused.push({
           index: originalIndexes[boundedIndex],

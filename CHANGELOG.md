@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Removed the final unsafe narrowing assertion from MCP production code and the
+  paired assertion from its direct test fixture. SDK executors are now bound only
+  after proving an own data property with no accessor; `constructor` remains a
+  valid own tool name while prototype-only `__proto__` remains refused. The native
+  one-thread API inventory falls from 269 diagnostics across 79 files to 267
+  across 77, with all MCP production files now clean for this diagnostic rule and
+  the 59-case direct suite green.
+
 - Removed five unsafe assertions from MCP declaration-schema canonicalization and
   its direct tests. `canonicalize` now truthfully preserves only the outer record
   boundary while unconstrained values remain `unknown`; typed prototype-shaped
