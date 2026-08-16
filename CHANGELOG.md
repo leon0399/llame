@@ -2,7 +2,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-16
 
-- Dropped all 26 dated `docs/superpowers` working plans and specs from the
+- Dropped all 27 dated `docs/superpowers` working plans and specs from the
   quality campaign. They were per-layer working documents; the durable
   contracts live in `docs/code-quality-tracker.md`, `CHANGELOG.md`, and the
   enforced lint/test configurations themselves.
