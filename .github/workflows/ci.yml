@@ -1,9 +1,9 @@
 # The test pyramid, as a job graph (docs/testing.md is the contract).
 #
 #   typecheck ─┐
-#   unit ──────┼─→ build
-#              ├─→ storybook        (component tests, real browser)
-#              └─→ integration ──→ browser-e2e
+#   unit ──────┼─→ build ───────────┐
+#              ├─→ integration ─────┴─→ browser-e2e
+#              └─→ storybook        (component tests, real browser)
 #
 # One job per concern, so a red X names what broke instead of hiding inside a
 # grab-bag. Cheap gates run first and unconditionally; each expensive layer
@@ -163,15 +163,14 @@ jobs:
     timeout-minutes: 25
     # The top of the pyramid: everything below it has already passed, so a
     # failure here is a genuine cross-stack defect rather than a unit-level
-    # bug wearing a browser costume. `integration` already needs
-    # [typecheck, unit], so naming them here too would be redundant — and
-    # neither `build` nor `storybook` belongs: this suite runs `next dev`,
-    # not the production build, and component tests are orthogonal to it.
-    needs: [integration]
+    # bug wearing a browser costume. The generic build and real-Postgres
+    # integration gates must both pass first. Playwright then rebuilds the web
+    # app with its E2E API URL; the Storybook component suite is orthogonal.
+    needs: [build, integration]
     env:
       # Node >=21 derives navigator.language from the process locale; with
       # LANG=C/unset it reports an invalid tag and `new Intl.Locale(...)`
-      # throws during SSR (seen via TanStack Query devtools under next dev).
+      # throws during SSR (seen via TanStack Query devtools under Next).
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     steps:
@@ -185,9 +184,9 @@ jobs:
       # Postgres through the Docker CLI, which a container job cannot reach.
       - run: pnpm exec playwright install --with-deps chromium
 
-      # Boots db + api + worker + the mock model server + web, then drives
-      # Chromium against the real stack. The ONLY place the browser suite
-      # runs — keep it green.
+      # Boots db + api + worker + the mock model server, builds and starts the
+      # production web app, then drives Chromium against the real stack. The
+      # ONLY place the browser suite runs — keep it green.
       - run: pnpm test:e2e
 
       # failure() || cancelled(), NOT !cancelled(): a timed-out or cancelled

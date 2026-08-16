@@ -8,6 +8,8 @@
  * layer (fetchActiveRuns/fetchRun) and next/navigation are mocked.
  */
 
+import { useEffect } from "react";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -24,12 +26,7 @@ const { routerPushMock, toastMock, fetchActiveRunsMock, fetchRunMock } =
     fetchRunMock: vi.fn<(runId: string) => Promise<Run | null>>(),
   }));
 
-// Mutable so a test can put the "viewer" on a specific chat's route (the
-// invalidate-on-terminal test below needs viewingThisChat === true).
-let mockPathname = "/";
-
 vi.mock("next/navigation", () => ({
-  usePathname: () => mockPathname,
   useRouter: () => ({ push: routerPushMock }),
 }));
 
@@ -49,10 +46,17 @@ vi.mock("@/lib/services/chat/active-runs", async (importOriginal) => {
 
 import { ActiveRunsProvider, useActiveRuns } from "./active-runs-context";
 
-function Probe({ chatId }: { chatId: string }) {
+function Probe({
+  chatId,
+  viewedChatId,
+}: {
+  chatId: string;
+  viewedChatId?: string;
+}) {
   const { activeChatIds, completedChats, trackRun } = useActiveRuns();
   return (
     <div>
+      {viewedChatId ? <ViewedChatRegistration chatId={viewedChatId} /> : null}
       <span data-testid="processing">{String(activeChatIds.has(chatId))}</span>
       <span data-testid="unread">{String(completedChats.has(chatId))}</span>
       <button onClick={() => trackRun("run-track", chatId, "Tracked chat")}>
@@ -62,16 +66,30 @@ function Probe({ chatId }: { chatId: string }) {
   );
 }
 
-function renderProbe(chatId: string) {
+function ViewedChatRegistration({ chatId }: { chatId: string }) {
+  const { registerViewedChat } = useActiveRuns();
+  useEffect(() => registerViewedChat(chatId), [chatId, registerViewedChat]);
+  return null;
+}
+
+function renderProbe(
+  chatId: string,
+  { viewedChatId }: { viewedChatId?: string } = {},
+) {
   const queryClient = new QueryClient();
-  render(
+  const tree = (nextChatId: string, nextViewedChatId?: string) => (
     <QueryClientProvider client={queryClient}>
       <ActiveRunsProvider>
-        <Probe chatId={chatId} />
+        <Probe chatId={nextChatId} viewedChatId={nextViewedChatId} />
       </ActiveRunsProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  return { queryClient };
+  const rendered = render(tree(chatId, viewedChatId));
+  return {
+    queryClient,
+    rerenderProbe: (nextChatId: string, nextViewedChatId?: string) =>
+      rendered.rerender(tree(nextChatId, nextViewedChatId)),
+  };
 }
 
 afterEach(() => {
@@ -79,7 +97,6 @@ afterEach(() => {
   fetchRunMock.mockReset();
   toastMock.mockReset();
   routerPushMock.mockReset();
-  mockPathname = "/";
   cleanup();
 });
 
@@ -189,20 +206,19 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
     expect(toastMock.mock.calls[0]?.[0]).toContain("Reply ready");
   });
 
-  it("invalidates the chat's messages on ANY terminal completion, even when the toast/badge is suppressed", async () => {
+  it("suppresses a visible chat's completion before its session content loads", async () => {
     fetchActiveRunsMock.mockResolvedValue([]);
     fetchRunMock.mockResolvedValue({
       id: "run-track",
       status: "running_model",
     });
 
-    // Viewing this exact chat — resolveTerminalRun suppresses the toast/badge
-    // (the same-visible-chat case this fix targets: e.g. a transient stream
-    // error kept the run tracked instead of untracking it, so no onFinish
-    // ever refreshes this chat for its real, eventual completion).
-    mockPathname = "/chat/chat-viewed";
-
-    const { queryClient } = renderProbe("chat-viewed");
+    // The rendered chat is authoritative even before a draft adopts its
+    // `/chat/:id` URL. A pathname guess would misclassify that visible draft
+    // as background and emit a stale "Reply ready" toast over its composer.
+    const { queryClient } = renderProbe("chat-viewed", {
+      viewedChatId: "chat-viewed",
+    });
     queryClient.setQueryData(chatQueryKeys.messages("chat-viewed"), {
       messages: [],
       compaction: null,
@@ -229,6 +245,31 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
     // catches up to the true server state.
     expect(toastMock).not.toHaveBeenCalled();
     expect(screen.getByTestId("unread").textContent).toBe("false");
+  });
+
+  it("stops suppressing completion after the viewer moves to another chat", async () => {
+    fetchActiveRunsMock.mockResolvedValue([]);
+    fetchRunMock.mockResolvedValue({
+      id: "run-track",
+      status: "running_model",
+    });
+
+    const { queryClient, rerenderProbe } = renderProbe("chat-viewed", {
+      viewedChatId: "chat-viewed",
+    });
+    screen.getByText("track").click();
+    await waitFor(() =>
+      expect(screen.getByTestId("processing").textContent).toBe("true"),
+    );
+
+    rerenderProbe("chat-other", "chat-other");
+    queryClient.setQueryData(activeRunsQueryKeys.run("run-track"), {
+      id: "run-track",
+      status: "completed",
+    });
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledTimes(1));
+    expect(toastMock.mock.calls[0]?.[0]).toContain("Reply ready");
   });
 
   it("does not notify twice for the same run (handledRunIds guard)", async () => {

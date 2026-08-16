@@ -65,12 +65,6 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
       throw new Error(`Could not extract chat id from URL: ${page.url()}`);
     }
 
-    // The first turn's "Reply ready" toast renders over the composer and
-    // intercepts the send click until it auto-dismisses. It is incidental to
-    // what this test asserts (compaction rendering), so wait it out rather
-    // than racing it — passes immediately when no toast is showing.
-    await expect(page.getByText(/Reply ready/)).toBeHidden({ timeout: 15_000 });
-
     await page
       .getByPlaceholder("What would you like to know?")
       .fill("And what about next steps?");

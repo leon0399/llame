@@ -40,9 +40,9 @@ function webServerEnv(
     // Node >=21 derives navigator.language from the process locale; with LANG
     // unset, C, or C.UTF-8 (the WSL default) it reports an invalid tag and
     // `new Intl.Locale(...)` throws during SSR (seen via TanStack Query
-    // devtools under next dev). CI forces this at the job level — forcing it
-    // here too makes local runs match CI instead of inheriting the shell's
-    // locale. Browser-side locale is pinned separately via `use.locale`.
+    // devtools during server rendering). CI forces this at the job level —
+    // forcing it here too makes local runs match CI instead of inheriting the
+    // shell's locale. Browser-side locale is pinned separately via `use.locale`.
     LANG: "en_US.UTF-8",
     LC_ALL: "en_US.UTF-8",
     ...overrides,
@@ -67,7 +67,7 @@ export default defineConfig({
     baseURL: webUrl,
     // CI Chromium ships an empty navigator.language; anything calling
     // new Intl.Locale(...) with it (e.g. TanStack Query devtools under
-    // next dev) throws RangeError and can wreck hydration for the page.
+    // server rendering) throws RangeError and can wreck hydration for the page.
     locale: "en-US",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
@@ -112,7 +112,7 @@ export default defineConfig({
       env: webServerEnv({ E2E_MCP_PORT: mcpPort }),
       url: `http://localhost:${mcpPort}/ready`,
       timeout: 30_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       stdout: "pipe",
       stderr: "pipe",
     },
@@ -124,7 +124,7 @@ export default defineConfig({
       env: webServerEnv({ E2E_MODEL_PORT: modelPort }),
       url: `http://localhost:${modelPort}/ready`,
       timeout: 30_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       stdout: "pipe",
       stderr: "pipe",
     },
@@ -160,20 +160,23 @@ export default defineConfig({
       }),
       url: apiUrl,
       timeout: 120_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       stdout: "pipe",
       stderr: "pipe",
     },
     {
       name: "web",
-      command: `pnpm --filter web exec next dev --turbopack --hostname localhost --port ${webPort}`,
+      command: `pnpm --filter web build && pnpm --filter web exec next start --hostname localhost --port ${webPort}`,
       env: webServerEnv({
-        NODE_ENV: "development",
+        NODE_ENV: "production",
         NEXT_PUBLIC_API_URL: apiUrl,
       }),
       url: `${webUrl}/login`,
       timeout: 120_000,
-      reuseExistingServer: !process.env.CI,
+      // The build-time public API URL is part of the test boundary. Reusing an
+      // arbitrary local server could silently exercise a build for a different
+      // backend and would reintroduce lifecycle ambiguity.
+      reuseExistingServer: false,
       stdout: "pipe",
       stderr: "pipe",
     },

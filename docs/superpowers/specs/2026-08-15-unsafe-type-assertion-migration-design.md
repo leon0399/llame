@@ -23,24 +23,22 @@ validated schema, a narrower dependency contract, or a test fixture's constructi
 
 ## Decision
 
-Do not vendor `dmmulroy/anti-slop` or enable its preset. Owning copied linter
-implementation in this repository would violate the tracker rule to prefer
-maintained industry tooling over repository-owned rule code. The external project
-was useful as a source of hypotheses; it is not an enforcement dependency.
+Adopt all fifteen `dmmulroy/anti-slop` rules sequentially, never through its
+all-on preset over unrepaired source. The vendor base is provenance-pinned at
+commit `446268e` because the exact Git package exports TypeScript from
+`node_modules`, which Node refuses to type-strip. Reviewed correctness patches
+must be enumerated in `UPSTREAM.md`, protected by Oxlint's standard `RuleTester`,
+and removed when upstream carries the equivalent fix; the current patch closes
+the transparent non-null-wrapper bypass in `no-chained-type-assertions`.
 
-The two promising anti-slop ideas are already covered more directly by the
-maintained `typescript-eslint` rule `no-unsafe-type-assertion`, which Oxlint 1.72.0
-implements through the API's existing `oxlint-tsgolint` type-aware integration:
-
-- `no-widen-then-assert`: the later narrowing assertion is rejected directly;
-- `no-known-value-widening`: loss of evidence matters when it later requires an
-  unchecked narrowing assertion. A blanket ban on explicit object contracts is
-  intentionally not adopted because assigning an object literal to a precise
-  named contract is legitimate boundary ownership, not necessarily evidence loss.
-
-The remaining anti-slop rules stay investigation candidates, not defaults. Global
-bans on `unknown`, `typeof`, dictionary types, module mocking, or identifier names
-would reject legitimate parsing and framework boundaries in the current tree.
+This complements rather than replaces the maintained type-aware
+`typescript/no-unsafe-type-assertion` migration. Three anti-slop rules already
+measure zero across root E2E, API, web, UI, and Storybook and can be enforced
+immediately: chained assertions, unknown-only aliases, and widen-then-assert
+flows. The other twelve become errors only after every owned finding is
+refactored. No baseline, file-level override, or blanket suppression is an
+acceptable migration; only `no-unknown-parameters` may use a local explanatory
+suppression where the function immediately validates its input.
 
 ## Measured baseline
 
@@ -102,22 +100,24 @@ the finished state.
 
 ### Workspace boundary
 
-This design covers `apps/api`, the only workspace currently configured for
-type-aware Oxlint. Web, UI, and Storybook require a separate measured decision about
-type-aware lint cost and framework false positives before the rule can be applied
-there. The existing full-tree double-assertion gate remains cross-workspace.
+The type-aware unsafe-narrowing migration in this design covers `apps/api`, the
+only workspace configured for type-aware Oxlint. The syntax-only anti-slop rules
+are separately measured across root E2E, API, web, UI, and Storybook; the chained
+assertion gate is enforced in all five scopes.
 
 ## Verification
 
 Every slice runs the native one-thread diagnostic on its owned files, focused
-Vitest suites, API lint and typecheck, full-tree ast-grep and Markdown gates,
-Prettier check, and `git diff --check`. Behavior-changing boundary repairs add a
-red test first. Pure control-flow refactors must keep existing focused tests green
-and receive independent specification and code-quality reviews.
+Vitest suites, API lint and typecheck, anti-slop Oxlint, the remaining decorator
+ast-grep rule, and Markdown gates, Prettier check, and `git diff --check`.
+Behavior-changing boundary repairs add a red test first. Pure control-flow
+refactors must keep existing focused tests green and receive independent
+specification and code-quality reviews.
 
 ## Rejected shortcuts
 
-- Vendor the anti-slop plugin or maintain a fork of its rules in this repository.
+- Hide local divergence behind an upstream pin, or compile and maintain a broad
+  private anti-slop package fork instead of retaining reviewed provenance.
 - Enable all 15 rules and suppress or baseline the fallout.
 - Replace assertions with `any`, `Reflect.get`, assertion functions that do no
   validation, or schema parsing where ordinary control-flow narrowing suffices.
@@ -125,6 +125,10 @@ and receive independent specification and code-quality reviews.
 - Convert all 282 diagnostics in one PR.
 
 ## Revision history
+
+- **v3 (2026-08-15):** Superseded the initial anti-slop rejection after explicit
+  project direction, repository-wide measurement, and the package-loader probe;
+  adopted a provenance-pinned vendor plus sequential zero-baseline enforcement.
 
 - **v2 (2026-08-15):** Anchored the baseline to the exact branch head and tracker,
   split MCP transport from persisted chat validation, decomposed the migration into

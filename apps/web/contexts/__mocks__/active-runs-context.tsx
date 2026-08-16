@@ -13,6 +13,7 @@ import { fn } from "storybook/test";
 type ActiveRunsContextValue = {
   trackRun: (runId: string, chatId: string, title: string) => void;
   untrackChat: (chatId: string) => void;
+  registerViewedChat: (chatId: string) => () => void;
   completedChats: ReadonlySet<string>;
   markChatSeen: (chatId: string) => void;
   activeChatIds: ReadonlySet<string>;
@@ -23,6 +24,7 @@ export function emptyActiveRuns(): ActiveRunsContextValue {
   return {
     trackRun: () => {},
     untrackChat: () => {},
+    registerViewedChat: () => () => {},
     completedChats: new Set(),
     markChatSeen: () => {},
     activeChatIds: new Set(),

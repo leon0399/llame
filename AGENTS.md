@@ -54,7 +54,7 @@ Agent verification is resource-bounded: build affected workspaces sequentially
 `pnpm build`, which launches the API, Next, and Storybook builds concurrently.
 
 Scope to one workspace with `pnpm --filter web <script>` (or `--filter api`).
-Install Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, Playwright starts a throwaway Docker Postgres, applies migrations, then starts `apps/api` and `apps/web`; set `POSTGRES_URL` only to use an already-migrated external database instead. Authenticated E2E tests should use the worker-scoped fixture from `e2e/support/fixtures.ts`, which writes per-worker storage state under `.auth/`; destructive session tests should request `freshAccount`. Override `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_DB_PORT`, or `E2E_DB_READY_PORT` only when the default E2E ports (`4300`/`4301`/`55433`/`4302`) conflict. Next.js 16 enforces one dev instance **per project directory**, not per port — `pnpm test:e2e`'s own `next dev --port 4300` refuses to start (and the whole run fails) while a manual `pnpm dev`/`next dev` is running anywhere against `apps/web`, even on a different port; stop the manual dev server first.
+Install Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, Playwright starts a throwaway Docker Postgres, applies migrations, owns the API/model/MCP processes, builds `apps/web` with the E2E API URL, and serves that production build with `next start`; set `POSTGRES_URL` only to use an already-migrated external database instead. Authenticated E2E tests should use the worker-scoped fixture from `e2e/support/fixtures.ts`, which writes per-worker storage state under `.auth/`; destructive session tests should request `freshAccount`. Override `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_DB_PORT`, `E2E_DB_READY_PORT`, `E2E_MODEL_PORT`, or `E2E_MCP_PORT` only when the default E2E ports (`4300`/`4301`/`55433`/`4302`/`4303`/`4304`) conflict. Stop manually started services using the E2E ports and any `pnpm dev`, `next dev`, or `next start` using `apps/web` before E2E: Playwright rejects occupied service ports, and the production build must own `.next` without racing another Next process.
 
 ## Local database (docker)
 
@@ -78,9 +78,10 @@ Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in pr
   step only when it is recorded in the [API migration exception ledger](apps/api/AGENTS.md#gotchas)
   with its regeneration and verification requirements.
 - Conventional commits (e.g. `feat(api):`, `docs(spec):`).
-- Repository structural rules run through the pinned native ast-grep command
-  `pnpm lint:ast-grep` in Lefthook and CI. `as unknown as T` is banned across
-  owned `.ts`, `.tsx`, `.mts`, and `.cts` files; narrow the boundary, construct
+- The constructor-decorator placement rule runs through the pinned native
+  `pnpm lint:ast-grep` command in Lefthook and CI. Chained type assertions,
+  including `as unknown as T`, are banned across the root E2E and four workspace
+  Oxlint scopes by the vendored anti-slop plugin; narrow the boundary, construct
   a complete value, or validate untrusted input instead of suppressing the
   compiler.
 - Product-owned Markdown must pass `pnpm lint:markdown` using the pinned

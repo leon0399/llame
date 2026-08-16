@@ -11,11 +11,15 @@ pre-commit:
   parallel: true
   jobs:
     - name: api lint (oxlint, type-aware)
-      glob: "apps/api/**/*.ts"
+      glob: "{apps/api/**/*.ts,apps/api/.oxlintrc.json}"
       run: pnpm --filter api lint
 
-    # Full-tree native ast-grep rules (#268, #286). The same package script runs
-    # in CI; no diff scope, baseline, allowlist, or bespoke wrapper.
+    - name: root lint (oxlint)
+      glob: "{e2e/**/*.{ts,tsx,js,mjs},playwright.config.ts,.oxlintrc.json,package.json,tools/oxlint/anti-slop/**/*.{ts,json}}"
+      run: pnpm lint:root
+
+    # Constructor-decorator placement (#286). The same native ast-grep command
+    # runs in CI; no diff scope, baseline, allowlist, or bespoke wrapper.
     - name: ast-grep structural rules
       run: pnpm lint:ast-grep
 
@@ -24,15 +28,15 @@ pre-commit:
       run: pnpm lint:markdown
 
     - name: web lint (oxlint)
-      glob: "apps/web/**/*.{ts,tsx,js,mjs}"
+      glob: "{apps/web/**/*.{ts,tsx,js,mjs},apps/web/.oxlintrc.json}"
       run: pnpm --filter web lint
 
     - name: ui lint (oxlint)
-      glob: "packages/ui/**/*.{ts,tsx,js,mjs,cjs}"
+      glob: "{packages/ui/**/*.{ts,tsx,js,mjs,cjs},packages/ui/.oxlintrc.json}"
       run: pnpm --filter @workspace/ui lint
 
     - name: storybook lint (oxlint)
-      glob: "apps/storybook/**/*.{ts,tsx,js,mjs,cjs}"
+      glob: "{apps/storybook/**/*.{ts,tsx,js,mjs,cjs},apps/storybook/.oxlintrc.json}"
       run: pnpm --filter storybook lint
 
     # Repo-wide, matching CI's `format:check` (which now checks the whole repo

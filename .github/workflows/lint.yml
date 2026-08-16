@@ -38,7 +38,8 @@ jobs:
         with:
           turbo-cache: lint
 
-      # oxlint per workspace; type-aware rules via tsgolint in apps/api.
+      # Oxlint across root E2E and every workspace; type-aware rules via
+      # tsgolint in apps/api. The Turbo graph owns the root lint dependency.
       - run: pnpm exec turbo run lint
 
       # Project-wide native ast-grep rules; identical command to Lefthook.

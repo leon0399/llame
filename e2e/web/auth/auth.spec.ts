@@ -138,7 +138,14 @@ test.describe("anonymous auth flows", () => {
     await expectProtectedShell(page, freshAccount);
 
     await revokeAllSessions(request, freshAccount);
-    await page.goto("/settings");
+    // The revoked cookie passes the proxy's presence-only gate, then the
+    // authenticated shell's `/me` request returns 401 and intentionally
+    // supersedes the protected navigation with a hard redirect. Initiate that
+    // navigation from the browser without awaiting the superseded request;
+    // the final-state assertion below owns the redirect contract.
+    await page.evaluate(() => {
+      window.location.assign("/settings");
+    });
 
     await expectLoginPage(page);
   });

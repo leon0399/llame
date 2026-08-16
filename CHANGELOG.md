@@ -2,6 +2,30 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Replaced Product E2E's `next dev` server with an E2E-owned production build
+  and `next start`, so behavioral assertions no longer race route compilation.
+  MCP browser acceptance now waits for run settlement before interacting with
+  streamed result UI, preventing the link-safety modal's close button from
+  being replaced mid-click. E2E-owned service ports now reject stale local
+  processes instead of silently reusing them. Foreground-run notification
+  suppression now follows the mounted chat instead of guessing from its URL,
+  closing the draft-route race that could place a stale `Reply ready` toast
+  over the composer. Revoked-session coverage waits for the protected
+  navigation to start in the browser before asserting the intentional 401
+  redirect, rather than awaiting a navigation that the redirect is meant to
+  supersede.
+  Diagnostic retries and `failOnFlakyTests` remain.
+
+- Added a provenance-pinned vendor of `dmmulroy/anti-slop@446268e` and enforced
+  its three repository-wide zero-baseline rules through Oxlint: chained type
+  assertions, unknown-only aliases, and widen-then-assert flows. The maintained
+  chained-assertion rule replaces two bespoke ast-grep rules; root E2E joins the
+  four workspace lint scopes through Turbo and Lefthook. A documented local
+  correctness patch closes the transparent non-null-wrapper bypass and is
+  covered by Oxlint's standard `RuleTester`. The remaining twelve anti-slop rules
+  produce 1,125 measured diagnostics and stay queued for complete remediation,
+  not suppression.
+
 - Removed seventeen unsafe assertions from tool-result truncation and its direct
   runner tests. Oversized serialized results must remain success records before
   recursive truncation, malformed projections fail closed through the runner's
