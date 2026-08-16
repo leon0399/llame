@@ -71,7 +71,6 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
 
   beforeAll(async () => {
     // Dynamic import to avoid connecting at module load time.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const postgres = require('postgres');
     const connect = postgres.default ?? postgres;
     // Local test databases (docker) have no TLS; only require it if the URL asks.
@@ -453,7 +452,6 @@ describeIfDb(
     let userBId: string;
 
     beforeAll(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const postgres = require('postgres');
       const connect = postgres.default ?? postgres;
       const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;

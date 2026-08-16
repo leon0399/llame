@@ -11,7 +11,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -74,7 +73,6 @@ describeIfDb('personalization binds per run', () => {
     (await boundSnapshot(userId, chatId)).systemPrompt;
 
   beforeAll(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const postgres = require('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;

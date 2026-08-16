@@ -142,7 +142,6 @@ const RegexTesterPanel = ({ pattern, flags }: RegexTesterPanelProps) => {
           {segments.map((segment, index) =>
             segment.matched ? (
               <mark
-                // oxlint-disable-next-line react/no-array-index-key -- order is identity here
                 key={index}
                 // Achromatic, like a text selection (DESIGN.md §10: the
                 // interface stays monochrome, only content and the chart ramp
@@ -153,7 +152,6 @@ const RegexTesterPanel = ({ pattern, flags }: RegexTesterPanelProps) => {
                 {segment.text}
               </mark>
             ) : (
-              // oxlint-disable-next-line react/no-array-index-key -- order is identity here
               <span key={index} className="text-transparent">
                 {segment.text}
               </span>
@@ -194,7 +192,6 @@ const RegexTesterPanel = ({ pattern, flags }: RegexTesterPanelProps) => {
             <>
               <span className="text-muted-foreground">Match</span>
               {result.values.map((value, index) => (
-                // oxlint-disable-next-line react/no-array-index-key -- values may repeat
                 <span key={index} className="truncate">
                   {value}
                 </span>
@@ -275,7 +272,6 @@ export const RegexTesterProvider = ({
     // clicks inside themselves (their outside-click-closes handler), which
     // would silence tokens rendered in fullscreen; React capture still spans
     // portaled children, so scoping stays per-provider.
-    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
     <div style={{ display: "contents" }} onClickCapture={handleClick}>
       {children}
       {activeTarget ? (

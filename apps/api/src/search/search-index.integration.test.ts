@@ -16,7 +16,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
@@ -87,7 +86,6 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
   }
 
   beforeAll(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const postgres = require('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;

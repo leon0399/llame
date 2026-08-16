@@ -108,8 +108,7 @@ export class PgBossQueueService implements Queue {
     await this.boss.updateQueue(queue.name, updatable);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mirrors the
-  // interface's variance-escape bound (see queue.ts).
+  // Mirrors the interface's variance-escape bound (see queue.ts).
   async enqueue<Q extends QueueDefinition<any>>(
     queue: Q,
     data: PayloadOf<Q>,
@@ -139,7 +138,7 @@ export class PgBossQueueService implements Queue {
     });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see enqueue
+  // See enqueue for the variance-escape bound.
   async consume<Q extends QueueDefinition<any>>(
     queue: Q,
     handler: JobHandler<PayloadOf<Q>>,
@@ -178,7 +177,7 @@ export class PgBossQueueService implements Queue {
     );
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see enqueue
+  // See enqueue for the variance-escape bound.
   async schedule<Q extends QueueDefinition<any>>(
     queue: Q,
     cron: string,

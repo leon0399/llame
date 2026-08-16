@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/unbound-method */
-
 import { NotFoundException } from '@nestjs/common';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { streamText } from 'ai';

@@ -17,7 +17,7 @@
     "start:worker": "nest start --entryFile worker",
     "start:worker:dev": "nest start --entryFile worker --watch",
     "start:worker:prod": "node dist/worker",
-    "lint": "oxlint --deny-warnings",
+    "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "lint:fix": "oxlint --fix",
     "typecheck": "tsgo --noEmit",
     "test": "vitest run --project unit",

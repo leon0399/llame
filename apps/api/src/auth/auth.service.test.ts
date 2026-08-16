@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/unbound-method */
-
 import {
   AuthService,
   type AuthPasswordHasher,

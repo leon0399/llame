@@ -42,7 +42,6 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
   };
 
   beforeAll(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const postgres = require('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;

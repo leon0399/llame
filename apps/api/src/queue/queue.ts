@@ -171,9 +171,8 @@ export interface Queue {
    * wrong job shape for the queue is a compile error, never a silent
    * widening.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- `any` here is
-  // the standard variance escape for a generic BOUND: definitions are
-  // deliberately invariant in their payload, so no concrete QueueDefinition<T>
+  // `any` here is the standard variance escape for a generic bound: definitions
+  // are deliberately invariant in their payload, so no concrete QueueDefinition<T>
   // is assignable to QueueDefinition<object>. PayloadOf<Q> still extracts the
   // exact payload type; nothing is weakened at call sites.
   enqueue<Q extends QueueDefinition<any>>(
@@ -191,7 +190,7 @@ export interface Queue {
    * substrate's native graceful stop (see PgBossQueueService) — there is no
    * per-consumer stop method, so nothing needs to hold the returned id.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see enqueue
+  // See enqueue for the variance-escape bound.
   consume<Q extends QueueDefinition<any>>(
     queue: Q,
     handler: JobHandler<PayloadOf<Q>>,
@@ -203,7 +202,7 @@ export interface Queue {
    * pg-boss cron — application-level scheduling with no pg_cron extension
    * (pg_cron runs SQL, not app code — SPEC §24.0.1).
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see enqueue
+  // See enqueue for the variance-escape bound.
   schedule<Q extends QueueDefinition<any>>(
     queue: Q,
     cron: string,

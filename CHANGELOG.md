@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Enabled Oxlint's native unused-disable reporting in API, web, UI, and
+  Storybook lint commands, so the existing Turbo, Lefthook, and CI paths reject
+  stale suppressions without a custom checker. Removed all 48 pre-existing
+  unused directives; each lint-owning workspace now reports zero.
+
 - Added pinned markdownlint-cli2 0.23.2 semantic linting for 199 product-owned
   Markdown files in Lefthook and CI, with zero grandfathered findings or custom
   wrapper. Generated/upstream agent integrations and symlink loader aliases are

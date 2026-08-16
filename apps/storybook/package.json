@@ -9,7 +9,7 @@
     "test": "vitest run --project unit",
     "test:storybook": "vitest run --project storybook",
     "test:storybook:watch": "vitest --project storybook",
-    "lint": "oxlint --deny-warnings",
+    "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "lint:fix": "oxlint --deny-warnings --fix",
     "typecheck": "tsgo --noEmit"
   },

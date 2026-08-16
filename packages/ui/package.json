@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "lint": "oxlint --deny-warnings",
+    "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsgo --noEmit"

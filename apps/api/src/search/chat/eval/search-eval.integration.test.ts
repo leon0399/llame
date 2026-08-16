@@ -14,7 +14,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 
@@ -42,7 +41,6 @@ describeIfDb('chat search — relevance eval', () => {
   const results: EvalQueryResult[] = [];
 
   beforeAll(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const postgres = require('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
@@ -94,7 +92,6 @@ describeIfDb('chat search — relevance eval', () => {
   it('records the relevance baseline (Recall@10, MRR, zero-result-rate)', () => {
     const summary = summarizeEval(results, K);
     if (process.env['RUN_SEARCH_EVAL']) {
-      // eslint-disable-next-line no-console
       console.log(
         '\n[search-eval] baseline\n' + JSON.stringify(summary, null, 2),
       );

@@ -166,7 +166,6 @@ function TreeRowView({
       )}
     >
       {guides.map((kind, i) => (
-        // eslint-disable-next-line react/no-array-index-key -- guide columns are positional, stable per row
         <TreeGuide key={i} kind={kind} />
       ))}
 
