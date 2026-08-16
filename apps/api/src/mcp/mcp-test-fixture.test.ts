@@ -22,6 +22,58 @@ async function rpc(
   });
 }
 
+const requestSummaryCases = [
+  {
+    name: 'an empty object',
+    body: {},
+    responseKey: '$post',
+    rpcMethod: null,
+    cursor: null,
+  },
+  {
+    name: 'a JSON array',
+    body: [],
+    responseKey: '$post',
+    rpcMethod: null,
+    cursor: null,
+  },
+  {
+    name: 'a primitive',
+    body: 'request',
+    responseKey: '$post',
+    rpcMethod: null,
+    cursor: null,
+  },
+  {
+    name: 'null',
+    body: null,
+    responseKey: '$post',
+    rpcMethod: null,
+    cursor: null,
+  },
+  {
+    name: 'a non-string method',
+    body: { method: 42 },
+    responseKey: '$post',
+    rpcMethod: null,
+    cursor: null,
+  },
+  {
+    name: 'non-record params',
+    body: { method: 'tools/list', params: [] },
+    responseKey: 'tools/list',
+    rpcMethod: 'tools/list',
+    cursor: null,
+  },
+  {
+    name: 'a non-string cursor',
+    body: { method: 'tools/list', params: { cursor: 42 } },
+    responseKey: 'tools/list',
+    rpcMethod: 'tools/list',
+    cursor: null,
+  },
+] as const;
+
 describe('MCP Streamable HTTP test fixture', () => {
   it.each(MCP_STREAMABLE_HTTP_PROTOCOL_VERSIONS)(
     'creates an initialize response for supported Streamable HTTP revision %s only',
@@ -49,6 +101,52 @@ describe('MCP Streamable HTTP test fixture', () => {
         protocolVersion: '2024-11-05' as never,
       }),
     ).toThrow('unsupported Streamable HTTP protocol version');
+  });
+
+  it.each(requestSummaryCases)(
+    'records null fields for $name without unsafe assumptions',
+    async ({ body, responseKey, rpcMethod, cursor }) => {
+      const fixture = await createMcpTestFixture({
+        [responseKey]: [{ kind: 'raw', status: 204, body: '' }],
+      });
+
+      try {
+        const response = await fetch(fixture.url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        expect(response.status).toBe(204);
+        expect(fixture.requestSummaries()).toEqual([
+          expect.objectContaining({
+            httpMethod: 'POST',
+            rpcMethod,
+            cursor,
+          }),
+        ]);
+      } finally {
+        await fixture.close();
+      }
+    },
+  );
+
+  it('returns HTTP 400 and records no request for malformed JSON', async () => {
+    const fixture = await createMcpTestFixture({ $post: [] });
+
+    try {
+      const response = await fetch(fixture.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{malformed',
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('invalid request');
+      expect(fixture.requestSummaries()).toEqual([]);
+    } finally {
+      await fixture.close();
+    }
   });
 
   it('scripts Streamable HTTP GET and session DELETE requests', async () => {
