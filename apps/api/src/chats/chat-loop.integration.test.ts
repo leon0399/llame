@@ -32,11 +32,11 @@ import { eq } from 'drizzle-orm';
 import * as schema from '../db/schema';
 import { type ModelToolDeclaration, type Run } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import { type ModelsService } from '../models/models.service';
+import { type ModelSelectionValidator } from '../models/models.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
-import { type RunDispatchService } from '../runs/run-dispatch.service';
+import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { type RunJob } from '../runs/run-queues';
-import { type RunStreamBridgeService } from '../runs/run-stream-bridge';
+import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { ChatLoopService } from './chat-loop.service';
@@ -44,7 +44,8 @@ import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { PersonalizationService } from '../personalization/personalization.service';
 import { MemoryService } from '../memory/memory.service';
 import { RecencyDigestService } from './recency-digest.service';
-import { type InstanceConfigService } from '../instance-config/instance-config.service';
+import { type InstanceConfigReader } from '../instance-config/instance-config.service';
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { createModelPromptLoader } from '../instance-config/prompt-loader';
 import {
   ChatsRepository,
@@ -233,34 +234,45 @@ describeIfDb(
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: false,
       });
-      const models = {
+      const models: ModelSelectionValidator = {
         validateModelSelection: (modelId: string) => ({
           id: modelId,
-          source: 'system' as const,
+          source: 'system',
           contextWindowTokens: 128_000,
           provider: 'openai',
           providerModelId: modelId,
           systemPromptTemplate: systemPrompt,
-          systemPromptSource: 'project_default' as const,
+          systemPromptSource: 'project_default',
         }),
-      } as unknown as ModelsService;
-      const bridge = {
-        createUiMessageStreamResponse: vi.fn(),
-      } as unknown as RunStreamBridgeService;
+      };
+      const bridge: RunStreamResponder = {
+        createUiMessageStreamResponse: vi
+          .fn<RunStreamResponder['createUiMessageStreamResponse']>()
+          .mockReturnValue(new Response()),
+      };
       const aborts = new RunAbortRegistry();
-      const dispatch = {
-        dispatch: vi.fn((job: RunJob) => {
+      const dispatch: RunDispatcher = {
+        dispatch: vi.fn<RunDispatcher['dispatch']>((job) => {
           dispatchCalls.push(job);
           return Promise.resolve();
         }),
-      } as unknown as RunDispatchService;
+      };
 
-      const instanceConfig = {
+      const instanceConfig: InstanceConfigReader = {
         config: {
-          runs: { timeoutSeconds: 300, heartbeatSeconds: 15 },
-          tools: { allowed: allowedTools, callTimeoutSeconds: 15 },
+          ...BUILT_IN_DEFAULTS,
+          runs: {
+            ...BUILT_IN_DEFAULTS.runs,
+            timeoutSeconds: 300,
+            heartbeatSeconds: 15,
+          },
+          tools: {
+            ...BUILT_IN_DEFAULTS.tools,
+            allowed: allowedTools,
+            callTimeoutSeconds: 15,
+          },
         },
-      } as unknown as InstanceConfigService;
+      };
 
       chatLoop = new ChatLoopService(
         tenantDb,
@@ -729,30 +741,42 @@ describeIfDb(
         'private opening',
       );
       const uniquePrompt = `Rollback prompt ${crypto.randomUUID()}`;
-      const models = {
+      const models: ModelSelectionValidator = {
         validateModelSelection: (modelId: string) => ({
           id: modelId,
-          source: 'system' as const,
+          source: 'system',
           contextWindowTokens: 128_000,
           provider: 'openai',
           providerModelId: modelId,
           systemPromptTemplate: uniquePrompt,
-          systemPromptSource: 'model_override' as const,
+          systemPromptSource: 'model_override',
         }),
-      } as unknown as ModelsService;
-      const dispatchRun = vi.fn().mockResolvedValue(undefined);
-      const dispatch = {
+      };
+      const dispatchRun = vi
+        .fn<RunDispatcher['dispatch']>()
+        .mockResolvedValue(undefined);
+      const dispatch: RunDispatcher = {
         dispatch: dispatchRun,
-      } as unknown as RunDispatchService;
+      };
+      const instanceConfig: InstanceConfigReader = {
+        config: {
+          ...BUILT_IN_DEFAULTS,
+          runs: {
+            ...BUILT_IN_DEFAULTS.runs,
+            timeoutSeconds: 300,
+            heartbeatSeconds: 15,
+          },
+          tools: {
+            ...BUILT_IN_DEFAULTS.tools,
+            allowed: [],
+            callTimeoutSeconds: 15,
+          },
+        },
+      };
       const failingLoop = new ChatLoopService(
         tenantDb,
         models,
-        {
-          config: {
-            runs: { timeoutSeconds: 300, heartbeatSeconds: 15 },
-            tools: { allowed: [], callTimeoutSeconds: 15 },
-          },
-        } as unknown as InstanceConfigService,
+        instanceConfig,
         { createUiMessageStreamResponse: vi.fn() },
         new RunAbortRegistry(),
         dispatch,

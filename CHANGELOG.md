@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed all seven double assertions from the chat-loop real-Postgres
+  integration suite. Existing `ModelSelectionValidator`, `RunStreamResponder`,
+  `RunDispatcher`, and `InstanceConfigReader` contracts plus complete built-in
+  configuration replace whole-service casts without production changes or new
+  fixture infrastructure. The focused integration suite passes 19/19; the full
+  API unit suite passes 1,090/1,090; API build, typecheck, and lint pass.
+  Application/test debt falls from 49 to 42.
+
 - Removed all six double assertions from the chats controller tests. Narrow
   controller capabilities with explicit Nest injection tokens, typed Vitest
   spies, a real Node writable stream, Drizzle's mock database, and the AI SDK's
