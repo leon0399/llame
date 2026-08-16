@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Added the missing `packages/config-typescript` workspace guide, completing
+  the root documentation contract that every workspace owns focused
+  instructions. The guide records preset consumers, prevents app-specific
+  settings from leaking into shared bases, and requires sequential consumer
+  typechecks for preset changes.
+
 - Reconciled contributor documentation with executable configuration: the Node
   floor is consistently 22.19+ (with 22.23.1 pinned for development), tests are
   correctly documented as uncached, root Prettier is repository-wide after its
@@ -13,7 +19,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   stale suppressions without a custom checker. Removed all 48 pre-existing
   unused directives; each lint-owning workspace now reports zero.
 
-- Added pinned markdownlint-cli2 0.23.2 semantic linting for 199 product-owned
+- Added pinned markdownlint-cli2 0.23.2 semantic linting for 200 product-owned
   Markdown files in Lefthook and CI, with zero grandfathered findings or custom
   wrapper. Generated/upstream agent integrations and symlink loader aliases are
   explicitly excluded. Existing rendering defects were repaired, including
