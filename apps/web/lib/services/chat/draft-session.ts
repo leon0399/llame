@@ -49,9 +49,7 @@ export function reduceDraftSession(
     case "history-indeterminate":
       return state;
     case "finished":
-      return state.kind === "sending" || state.kind === "recovering"
-        ? { kind: "persisted", resumeRequested: false }
-        : state;
+      return { kind: "persisted", resumeRequested: false };
   }
 }
 

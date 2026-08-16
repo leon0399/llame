@@ -65,7 +65,7 @@ export function AppSidebarActions() {
     <SidebarMenu>
       <SidebarMenuItem>
         <SidebarMenuButton
-          render={<Link href="/" />}
+          render={<Link href="/" prefetch={false} />}
           isActive={pathname === "/"}
           className={cn("group/button")}
           tooltip={shortcutTooltip("New Chat", newChatShortcut)}

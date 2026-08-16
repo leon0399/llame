@@ -45,6 +45,7 @@ export function ChatListSidebar() {
             render={
               <Link
                 href="/"
+                prefetch={false}
                 className={cn(
                   buttonVariants({ variant: "ghost", size: "icon" }),
                   "size-8",

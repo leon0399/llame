@@ -99,10 +99,20 @@ describe("reduceDraftSession", () => {
   });
 
   it("finishes normally without requesting a redundant resume", () => {
-    const state = reduceDraftSession({ kind: "sending" }, { type: "finished" });
+    const sending = reduceDraftSession(
+      { kind: "fresh" },
+      { type: "send-started" },
+    );
+    const state = reduceDraftSession(sending, { type: "finished" });
 
     expect(state).toEqual({ kind: "persisted", resumeRequested: false });
     expect(draftPhaseForSession(state)).toBeNull();
     expect(shouldResumeChat(state)).toBe(false);
+  });
+
+  it("treats finish as persistence even before a send-state render commits", () => {
+    expect(reduceDraftSession({ kind: "fresh" }, { type: "finished" })).toEqual(
+      { kind: "persisted", resumeRequested: false },
+    );
   });
 });

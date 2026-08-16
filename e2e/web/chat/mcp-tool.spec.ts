@@ -21,6 +21,7 @@ const mcpFixtureUrl = `http://localhost:${process.env.E2E_MCP_PORT ?? "4304"}`;
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
+const apiOrigin = new URL(apiUrl).origin;
 
 type McpFixtureStats = {
   toolCalls: number;
@@ -50,6 +51,7 @@ test("operator MCP search settles and reconstructs from durable chat history", a
     releaseHistory = resolve;
   });
   let markHistoryReachedApi: () => void = () => undefined;
+  let historyStatus: number | undefined;
   const historyReachedApi = new Promise<void>((resolve) => {
     markHistoryReachedApi = resolve;
   });
@@ -60,12 +62,12 @@ test("operator MCP search settles and reconstructs from durable chat history", a
 
   await page.route(
     (url) =>
-      url.origin === apiUrl &&
+      url.origin === apiOrigin &&
       url.pathname === `/api/v1/chats/${chatId}/messages` &&
       url.searchParams.has("limit"),
     async (route) => {
       const response = await route.fetch();
-      expect(response.ok(), `history returned ${response.status()}`).toBe(true);
+      historyStatus = response.status();
       markHistoryReachedApi();
       await historyRelease;
       await route.fulfill({ response });
@@ -99,6 +101,7 @@ test("operator MCP search settles and reconstructs from durable chat history", a
     timeout: 15_000,
   });
   await historyReachedApi;
+  expect(historyStatus, "owner history response status").toBe(200);
   const fixtureSource = log.getByRole("button", { name: "Fixture source" });
   const linkSafetyModal = page.locator('[data-streamdown="link-safety-modal"]');
   await expect(fixtureSource).toBeVisible();

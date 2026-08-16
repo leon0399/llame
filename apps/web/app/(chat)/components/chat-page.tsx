@@ -222,14 +222,13 @@ function ChatSession({
   }, []);
 
   const onFinished = useCallback(() => {
-    if (session.kind !== "sending" && session.kind !== "recovering") return;
     window.history.replaceState(
       window.history.state,
       "",
       draftChatPath(chatId, null),
     );
     dispatch({ type: "finished" });
-  }, [chatId, session.kind]);
+  }, [chatId]);
 
   if (!shouldRenderChatOwner(session)) {
     return null;
