@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Replaced the forged chats-repository fluent database with Drizzle's native
+  mock and public query logger. The 35 focused tests now assert compiled SQL
+  and bound parameters from real Drizzle builders instead of hand-copied
+  `where`/`values`/`set` chains. Redundant >500-row chunking simulation is
+  deleted because the real-Postgres fork integration already executes the
+  cross-chunk path; focused units pass 35/35 and that integration passes 6/6.
+  Tracked application/test double-assertion debt falls from 2 to 1.
+
 - Replaced the forged model-context repository unit database with real
   Postgres coverage. Five reachable unique-key collision variants now execute
   through Drizzle and the database; simulated source/availability mismatch

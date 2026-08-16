@@ -12,18 +12,18 @@ required.
 
 ## Active stack
 
-| Order | State       | Layer                                   | Acceptance evidence                                                                                                         |
-| ----: | ----------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                           |
-|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                 |
-|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction    |
-|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                       |
-|     5 | active      | Remaining cast slices                   | Standard SDK/framework types remove 78 assertions across adapter, HTTP, controller, integration, and worker tests; 2 remain |
-|     6 | queued      | Full-tree double-assertion prohibition  | One native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI          |
-|     7 | investigate | Constructor decorator placement (#286)  | 11 inline vs 35 split `@Inject` parameters measured; select maintained enforcement before one all-split codemod             |
-|     8 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                                  |
-|     9 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                 |
-|    10 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
+| Order | State       | Layer                                   | Acceptance evidence                                                                                                          |
+| ----: | ----------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                            |
+|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                  |
+|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction     |
+|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                        |
+|     5 | active      | Remaining cast slices                   | Standard SDK/framework types remove 79 assertions across adapter, HTTP, controller, integration, and worker tests; 1 remains |
+|     6 | queued      | Full-tree double-assertion prohibition  | One native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI           |
+|     7 | investigate | Constructor decorator placement (#286)  | 11 inline vs 35 split `@Inject` parameters measured; select maintained enforcement before one all-split codemod              |
+|     8 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                                   |
+|     9 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                  |
+|    10 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                              |
 
 ## Published stack
 
@@ -51,6 +51,7 @@ required.
 |    20 | #379 | Runtime-boundary negative fixtures  |
 |    21 | #380 | Worker database/lifecycle fixtures  |
 |    22 | #381 | Model-context repository coverage   |
+|    23 | #382 | Chats repository query coverage     |
 
 ## Inventory
 
@@ -82,8 +83,9 @@ required.
 | active      | Negative runtime fixtures removed 3 double assertions                                                    | Structural supersets and accurately broad validated inputs replace casts without weakening `User`, registered `Tool`, or `MessagePart`    |
 | active      | Database/lifecycle boundaries removed 2 double assertions                                                | Native Drizzle mock replaces an unused forged chain; typed factory client ownership preserves graceful worker teardown                    |
 | active      | Model-context repository removed 1 forged database assertion                                             | Real Postgres covers five reachable hash-collision branches; impossible simulated source/availability collisions are deleted              |
-| queued      | 2 owned application/test matches remain after the completed slices                                       | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                   |
-| queued      | Next: chats-repository SQL logging and chat-loop transaction coverage                                    | Replace the remaining simulated Drizzle builders with native query logging or real Postgres                                               |
+| active      | Chats repository removed 1 forged fluent database assertion                                              | Drizzle's native mock and public logger compile real SQL/params; focused units 35/35 and >500-row fork integration 6/6                    |
+| queued      | 1 owned application/test match remains after the completed slices                                        | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                   |
+| queued      | Next: chat-loop transaction coverage                                                                     | Replace the remaining simulated nested transaction with real Postgres coverage                                                            |
 | investigate | Direct `any`, non-null assertions, and stale ESLint disables                                             | Classify production vs test/integration scaffolding before enabling restriction rules                                                     |
 
 ### Lint and formatting
