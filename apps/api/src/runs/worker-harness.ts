@@ -24,8 +24,10 @@
  */
 
 import { Test, type TestingModule } from '@nestjs/testing';
+import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { sql } from 'drizzle-orm';
-import type { streamText } from 'ai';
+import { streamText as sdkStreamText } from 'ai';
+import { MockLanguageModelV3 } from 'ai/test';
 
 import { WorkerModule } from '../worker.module';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
@@ -33,7 +35,6 @@ import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
 } from '../instance-config/llame-config';
-import { ZERO_USAGE } from '../models/fake-model-client';
 import { ModelsService } from '../models/models.service';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
@@ -51,7 +52,10 @@ import { seedModelContextSnapshot } from './model-context-snapshot.test-fixture'
 
 // ---- Scripted model client ------------------------------------------------
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const PROVIDER_ZERO_USAGE = {
+  inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
+  outputTokens: { total: 0, text: 0, reasoning: 0 },
+};
 
 /**
  * The behavior a run's fake model client exhibits, keyed by modelId (each
@@ -83,53 +87,142 @@ class HarnessModelClient implements ModelClient {
     >,
   ) {}
 
-  streamText(input: ModelStreamInput): ReturnType<typeof streamText> {
+  streamText(input: ModelStreamInput): ReturnType<typeof sdkStreamText> {
     const behavior = this.behavior;
     const text = behavior.kind === 'complete' ? (behavior.text ?? 'ok') : '';
-
-    const done = (async () => {
-      if (behavior.kind === 'complete') {
-        if (behavior.delayMs) {
-          await sleep(behavior.delayMs);
+    let abortSettlement = Promise.resolve();
+    let abortSettlementError: { error: unknown } | undefined;
+    const waitForAbortSettlement = async () => {
+      await abortSettlement;
+      if (abortSettlementError) {
+        throw abortSettlementError.error;
+      }
+    };
+    const model = new MockLanguageModelV3({
+      provider: 'fake',
+      modelId: this.model,
+      doStream: ({ abortSignal }) => {
+        if (behavior.kind === 'provider-error') {
+          return Promise.reject(
+            new Error(behavior.message ?? 'simulated provider failure'),
+          );
         }
-        input.onTextDelta?.(text);
-        await input.onFinish?.({
-          text,
-          usage: ZERO_USAGE,
-          finishReason: 'stop',
-        });
-        return;
-      }
 
-      if (behavior.kind === 'provider-error') {
-        await input.onError?.({
-          error: new Error(behavior.message ?? 'simulated provider failure'),
-        });
-        return;
-      }
+        return Promise.resolve({
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            async start(controller) {
+              let delayTimer: ReturnType<typeof setTimeout> | undefined;
+              let unblock: () => void = () => undefined;
+              const onAbort = () => {
+                if (delayTimer) {
+                  clearTimeout(delayTimer);
+                }
+                controller.error(new DOMException('Aborted', 'AbortError'));
+                unblock();
+              };
+              if (abortSignal?.aborted) {
+                onAbort();
+                return;
+              }
+              abortSignal?.addEventListener('abort', onAbort, { once: true });
 
-      // 'hang': never finishes on its own — only reacts to the run's
-      // AbortSignal (the in-process wall-clock timeout, or a genuine user
-      // cancel), mirroring the real client's abort-produces-onError contract.
-      await new Promise<void>((resolve) => {
-        const onAbort = () => {
-          void (async () => {
-            await input.onError?.({ error: new Error('aborted') });
-            resolve();
+              try {
+                if (behavior.kind === 'hang') {
+                  await new Promise<void>((resolve) => {
+                    unblock = resolve;
+                  });
+                  return;
+                }
+                if (behavior.delayMs) {
+                  await new Promise<void>((resolve) => {
+                    unblock = resolve;
+                    delayTimer = setTimeout(resolve, behavior.delayMs);
+                  });
+                }
+                if (abortSignal?.aborted) {
+                  return;
+                }
+                controller.enqueue({ type: 'stream-start', warnings: [] });
+                controller.enqueue({ type: 'text-start', id: 'answer' });
+                if (text.length > 0) {
+                  controller.enqueue({
+                    type: 'text-delta',
+                    id: 'answer',
+                    delta: text,
+                  });
+                }
+                controller.enqueue({ type: 'text-end', id: 'answer' });
+                controller.enqueue({
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: undefined },
+                  usage: PROVIDER_ZERO_USAGE,
+                });
+                controller.close();
+              } catch (error) {
+                controller.error(error);
+              } finally {
+                abortSignal?.removeEventListener('abort', onAbort);
+              }
+            },
+          }),
+        });
+      },
+    });
+
+    const result = sdkStreamText({
+      model,
+      messages: input.messages,
+      system: input.system,
+      abortSignal: input.abortSignal,
+      ...(input.tools
+        ? {
+            tools: input.tools,
+            ...(input.toolChoice !== undefined
+              ? { toolChoice: input.toolChoice }
+              : {}),
+          }
+        : {}),
+      onChunk: ({ chunk }) => {
+        if (chunk.type === 'text-delta') {
+          input.onTextDelta?.(chunk.text);
+        } else if (chunk.type === 'reasoning-delta') {
+          input.onReasoningDelta?.(chunk.text);
+        }
+      },
+      onError: input.onError,
+      onAbort: () => {
+        abortSettlement = Promise.resolve(
+          input.onError?.({
+            error: input.abortSignal?.reason ?? new Error('aborted'),
+          }),
+        ).catch((error: unknown) => {
+          abortSettlementError = { error };
+        });
+      },
+      onFinish: ({ text: response, usage, finishReason }) =>
+        input.onFinish?.({ text: response, usage, finishReason }),
+    });
+
+    return new Proxy(result, {
+      get(target, property, receiver): unknown {
+        if (property === 'consumeStream') {
+          return async (...args: Parameters<typeof target.consumeStream>) => {
+            await target.consumeStream(...args);
+            await waitForAbortSettlement();
+          };
+        }
+        if (property === 'text') {
+          return (async () => {
+            try {
+              return await target.text;
+            } finally {
+              await waitForAbortSettlement();
+            }
           })();
-        };
-        if (input.abortSignal?.aborted) {
-          onAbort();
-          return;
         }
-        input.abortSignal?.addEventListener('abort', onAbort, { once: true });
-      });
-    })();
-
-    return {
-      text: done.then(() => text),
-      consumeStream: () => done,
-    } as unknown as ReturnType<typeof streamText>;
+        return Reflect.get(target, property, receiver);
+      },
+    });
   }
 }
 

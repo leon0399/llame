@@ -97,6 +97,7 @@ describe('ModelClient', () => {
       messages,
       system: 'stable system',
       abortSignal,
+      onAbort: expect.any(Function) as () => void,
       onError,
       onFinish,
     });
@@ -142,6 +143,7 @@ describe('ModelClient', () => {
       messages,
       system: undefined,
       abortSignal: undefined,
+      onAbort: expect.any(Function) as () => void,
       onError: undefined,
       onFinish: undefined,
     });

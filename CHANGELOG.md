@@ -2,6 +2,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Replaced the worker integration harness's forged AI SDK result with the
+  provider-neutral `MockLanguageModelV3` and real `streamText`. Exercising the
+  real SDK exposed and fixed an abort-contract bug: AI SDK reports cancellation
+  through `onAbort`, which the OpenAI-compatible ModelClient adapter now maps
+  onto its existing error seam and explicitly awaits before stream consumption
+  can finish, preserving durable worker settlement. Focused model units pass 15/15 and the
+  real-Postgres worker integration suites pass 10/10; API typecheck and lint
+  pass. Application/test debt falls from 27 to 26.
+
 - Removed all four double assertions from the pins unit tests. Nest's standard
   `TestingModule` now provides partial `TenantDbService` and `PinsService`
   doubles through their real injection tokens, avoiding forged concrete class

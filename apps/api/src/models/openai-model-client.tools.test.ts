@@ -108,6 +108,77 @@ function buildClient(model: MockLanguageModelV3) {
   });
 }
 
+describe('createOpenAIModelClient — abort handling', () => {
+  it.each(['consumeStream', 'text'] as const)(
+    'maps abort onto ModelClient error settlement before %s settles',
+    async (consumer) => {
+      let providerStarted: () => void = () => undefined;
+      const started = new Promise<void>((resolve) => {
+        providerStarted = resolve;
+      });
+      let errorStarted: () => void = () => undefined;
+      const errorStartedPromise = new Promise<void>((resolve) => {
+        errorStarted = resolve;
+      });
+      let releaseError: () => void = () => undefined;
+      const errorSettlement = new Promise<void>((resolve) => {
+        releaseError = resolve;
+      });
+      const model = new MockLanguageModelV3({
+        provider: 'openai.test',
+        modelId: 'gpt-test',
+        doStream: ({ abortSignal }) =>
+          Promise.resolve({
+            stream: new ReadableStream<LanguageModelV3StreamPart>({
+              start(controller) {
+                providerStarted();
+                abortSignal?.addEventListener(
+                  'abort',
+                  () =>
+                    controller.error(new DOMException('Aborted', 'AbortError')),
+                  { once: true },
+                );
+              },
+            }),
+          }),
+      });
+      const client = buildClient(model);
+      const abort = new AbortController();
+      const onError = vi.fn(async () => {
+        errorStarted();
+        await errorSettlement;
+      });
+      const result = client.streamText({
+        messages,
+        abortSignal: abort.signal,
+        onError,
+      });
+      const consumption =
+        consumer === 'consumeStream'
+          ? result.consumeStream()
+          : result.text.then(
+              () => undefined,
+              () => undefined,
+            );
+      let consumed = false;
+      void consumption.then(() => {
+        consumed = true;
+      });
+
+      await started;
+      abort.abort('run-timeout');
+      await errorStartedPromise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(consumed).toBe(false);
+      releaseError();
+      await consumption;
+
+      expect(onError).toHaveBeenCalledWith({ error: 'run-timeout' });
+    },
+  );
+});
+
 describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () => {
   it('forwards provider-neutral toolChoice to the AI SDK request', async () => {
     const model = scriptedModel([textResponse()]);
