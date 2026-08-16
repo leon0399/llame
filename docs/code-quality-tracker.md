@@ -13,21 +13,21 @@ measurement needed before implementation.
 
 ## Active stack
 
-| Order | State       | Layer                                   | Acceptance evidence                                                                                                                    |
-| ----: | ----------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                                      |
-|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                            |
-|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction               |
-|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                                  |
-|     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code            |
-|     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI              |
-|     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                                |
-|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 200 product-owned files with zero findings through the same local/CI command                            |
-|     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces                          |
-|    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                             |
-|    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification                   |
-|    12 | active      | Mutation-testing pilot                  | PR #390 carries the native config, measured 2026-08-15 baseline, and operating docs; all 100 useful gaps remain queued in child layers |
-|    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                                        |
+| Order | State       | Layer                                   | Acceptance evidence                                                                                                         |
+| ----: | ----------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                           |
+|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                 |
+|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction    |
+|     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                       |
+|     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code |
+|     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI   |
+|     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                     |
+|     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 200 product-owned files with zero findings through the same local/CI command                 |
+|     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces               |
+|    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                  |
+|    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification        |
+|    12 | active      | Mutation-testing pilot                  | PR #390 carries the native config/baseline; PR #391 repairs tool-ID gaps; 82 useful gaps remain in layers 2–4               |
+|    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
 
 ## Published PR stack
 
@@ -67,12 +67,13 @@ layer is merged or shipped. Layer state remains active until merge.
 |    29 | #388 | Contributor documentation contracts |
 |    30 | #389 | Shared TypeScript config ownership  |
 |    31 | #390 | Bounded mutation-testing pilot      |
+|    32 | #391 | MCP tool-ID mutation repairs        |
 
 ## Current submission
 
-| State     | Layer                                                 | Commit evidence                                                                                                                                           | PR   |
-| --------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
-| submitted | Mutation-testing pilot: native config, baseline, docs | `8d5c0023` contains the pilot implementation and measured baseline; `00f7ceb4` contains the operating docs; `7e5b13d0` closes generated-report formatting | #390 |
+| State     | Layer                                   | Commit evidence                                                                                                                   | PR   |
+| --------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| submitted | MCP tool-ID mutation repair child layer | `170d217a` adds three behavior assertions and records the 90-mutant 86.67% result plus exact evidence for all 12 runner artifacts | #391 |
 
 ## Inventory
 
@@ -140,7 +141,7 @@ layer is merged or shipped. Layer state remains active until merge.
 | done        | Unit, real-Postgres integration, Storybook browser, and product E2E are separate enforced layers | `docs/testing.md`, CI workflow                                                                                                                                                                                                                                                                                                                                                              |
 | done        | Bounded mutation-testing command and configuration                                               | `apps/api/stryker.config.json` limits mutation to three pure MCP utilities, uses pinned `@stryker-mutator/vitest-runner@9.6.1`, keeps Stryker and Vitest at one worker, and emits native reports; no broad CI gate initially                                                                                                                                                                |
 | active      | First pilot candidate: three pure MCP utilities with direct unit tests                           | PR #390: 33 tests and 425 mutants; the 2026-08-15 baseline is 69.41% with 101 survivors, 29 no-coverage mutants, and 6 timeouts; disposition inventory follows below                                                                                                                                                                                                                        |
-| queued      | Child layer 1: tool-id canonicalization/parser                                                   | 18 useful `U` mutants remain queued for invalid-format parsing, canonicalization, separators, and the 64-character boundary; no gaps marked repaired                                                                                                                                                                                                                                        |
+| active      | Child layer 1: tool-id canonicalization/parser                                                   | PR #391: three behavior assertions cover invalid-format parsing, edge trimming, and the exact 64-character boundary; six baseline `U` gaps are repaired and 12 baseline survivors are reclassified `R` with exact manual evidence                                                                                                                                                           |
 | queued      | Child layer 2: protected-values normalization/propagation                                        | 24 useful `U` mutants remain queued for normalization, ordering/ties, scalar detection, and nested failure propagation; no gaps marked repaired                                                                                                                                                                                                                                             |
 | queued      | Child layer 3: bounded-fetch request parsing/body sizing/response byte-limit semantics           | Exactly 42 useful `U` mutants remain queued: `S7`, `S10`, `S12`, `S16`, `S17`, `S33`, `NC37`, `NC38`, `S39`, `NC51`, `NC52`, `NC53`, `NC54`, `NC55`, `NC56`, `NC57`, `NC58`, `NC59`, `S41`, `S42`, `S43`, `S45`, `S47`, `S48`, `S49`, `S50`, `S65`, `S66`, `S68`, `S70`, `S71`, `S73`, `S79`, `S81`, `S89`, `S101`, `S102`, `S103`, `S106`, `S109`, `S111`, `S123`; no gaps marked repaired |
 | queued      | Child layer 4: bounded-fetch SSE recognition/framing plus wrapper cancellation/metadata          | Exactly 16 useful `U` mutants remain queued: `S85`, `S113`, `S136`, `S137`, `S139`, `S140`, `S146`, `S149`, `S151`, `S153`, `S163`, `S164`, `S165`, `S166`, `S167`, `S168`; no gaps marked repaired                                                                                                                                                                                         |
@@ -281,8 +282,77 @@ backlog entries.
 | S374                       | 46 (`EqualityOperator`)                                                      | U           | The 64-character boundary is not tested; add exactly-at-limit and one-over-limit cases.                                                              |
 | S385                       | 55 (`ConditionalExpression`)                                                 | U           | Noncanonical parser inputs need a direct invalid-format branch assertion.                                                                            |
 
-The first repair slice should target the `U` rows that guard byte limits, SSE
-framing, protected-value propagation, and canonical IDs. `E` rows should not be
+#### Child layer 1 repair result (2026-08-15; PR #391 active)
+
+The baseline inventory above is historical and remains unchanged. This child
+layer is complete locally but is not merged or shipped. The source file was
+temporarily mutated only with the exact native replacements listed above and
+restored byte-for-byte (`sha256 e39d27869998b3d3b87fa2faedeb97cdd1bc60074f77533610f1a33a8e2f44b2`).
+The three added assertions cover invalid-format parsing for a non-`mcp__` id,
+trimming every safe underscore at both tool-name edges while preserving
+interior separators, and acceptance of the serialized 64-character boundary;
+the existing 65-character rejection remains in place.
+
+- Parser prefix and invalid-format result (`NC387`–`NC390`, `S385`): exact
+  NC387 block deletion and exact S385 `false` condition each made the new
+  non-`mcp__` assertion fail (`noncanonical` instead of `invalid_format`);
+  source restoration returned the direct suite to green. All five are killed;
+  the four baseline no-coverage mutants are covered.
+- Server-id validation (`S335`–`S338`): exact S335 replacement
+  (`/[A-Za-z0-9_-]+$/u`) made the existing invalid-server assertions fail.
+  Exact S336 (`/[A-Za-z0-9_-]+/u`) failed two tests: `bad/server` was accepted
+  as `mcp__bad/server__search`, and the parser accepted
+  `mcp__bad/server__search` instead of returning `invalid_server_id`. Exact
+  S337 (`/^[A-Za-z0-9_-]$/u`) and S338 (`/^[^A-Za-z0-9_-]+$/u`) each failed
+  10/17 tests: every valid multi-character-server create/parse behavior
+  returned `invalid_server_id`, including the expected `empty_tool_name`,
+  `overlength`, `noncanonical`, and successful canonical results. Each source
+  restoration returned the clean hash; all four native survivors are `R` from
+  these exact direct-test failures.
+- Unsafe-run collapse (`S339`, `S340`): exact S339 replacement
+  (`/[^A-Za-z0-9_-]/gu`) made the existing normalization assertion fail with
+  repeated underscores. Exact S340 (`/[A-Za-z0-9_-]+/gu`) failed 9/17 tests:
+  the two normalization cases produced `mcp__Web_Server-1__/` and
+  `"mcp__web__  _..._///_  "`, edge trimming returned `empty_tool_name`, `東京`
+  was accepted unchanged, overlength/exact-64/canonical-parse cases returned
+  `empty_tool_name`, and the parser accepted `mcp__web__東京` while rejecting
+  the 55-character case as `empty_tool_name`. Both native survivors are `R`
+  from these exact direct-test failures.
+- Edge trimming (`S341`–`S344`): exact S341 (`/_+|_+$/gu`) and S343
+  (`/^_+|_+/gu`) each failed 4/17 tests: the three create/canonicalization
+  cases lost interior underscores (`FindDocs`, `FindDocsNOW`, and `FindDocs`),
+  and canonical parsing returned `noncanonical`. Exact S342 (`/^_|_+$/gu`)
+  failed the new edge-trim assertion after passing the old suite. Exact S344
+  (`/^_+|_$/gu`) failed the new edge-trim assertion with
+  `mcp__web__Find__Docs_` (the trailing underscore remained). All four native
+  survivors are `R` from these exact direct-test failures.
+- Persisted prefix/separator (`S345`, `S346`): exact S345 prefix replacement
+  (`''`) made existing generated/parser assertions fail. Exact S346 (`''`)
+  failed 10/17 tests: the three normal create cases omitted the `__` separator,
+  the 55-character input was accepted instead of `overlength`, the exact-64
+  result omitted the separator, canonical parsing failed as `invalid_server_id`,
+  and four parser cases returned `invalid_server_id` instead of their expected
+  format/canonical/tool-name/length reasons. Both native survivors are `R` from
+  these exact direct-test failures.
+- Serialized length (`S374`): exact `>=` replacement passed the old suite, then
+  failed the new exact-64 assertion; restoration returned 17/17 green. The
+  mutant is killed and the 65-character rejection remains covered.
+
+The post-repair direct suite is 17/17. The native one-file run used the
+committed Stryker configuration with CLI scope overrides (no temporary config,
+wrapper, parser, or custom harness):
+`/usr/bin/time -v pnpm --filter api exec stryker run --mutate src/mcp/tool-id.ts --testFiles src/mcp/tool-id.test.ts`.
+It measured 90 mutants: 78 killed, 12 survived, 0 no coverage, 0 timeout, and
+0 errors; mutation score 86.67% (covered-mutant rate 86.67%), 16.56 seconds
+wall time, 223048 kB peak RSS, and 0 swaps. The scoped report renumbered these
+survivors `0`–`11`; identical file lines and replacements map them to baseline
+`S335`–`S346`. All are `R` based on the exact manual failures above, and no
+useful `U` survivor remains in `tool-id.ts`. The literal task command
+with `pnpm --filter api test:mutation -- --mutate ...` forwarded an extra
+separator and failed before Stryker started, so it was not retried.
+
+The remaining repair slices should target the `U` rows that guard byte limits,
+SSE framing, and protected-value propagation. `E` rows should not be
 suppressed or changed in Stryker configuration; they remain documented hypotheses
 until a supported-input contract changes. `I` rows are deliberately outside the
 pilot's first contract and should not be converted into broad robustness tests

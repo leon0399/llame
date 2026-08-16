@@ -21,6 +21,13 @@ describe('mcp-tool-id-v1', () => {
     });
   });
 
+  it('trims every edge underscore while preserving interior separators', () => {
+    expect(createMcpToolId('web', '__Find__Docs__')).toEqual({
+      success: true,
+      id: 'mcp__web__Find__Docs',
+    });
+  });
+
   it('refuses an invalid configured server id', () => {
     expect(createMcpToolId('bad__server', 'search')).toEqual({
       success: false,
@@ -43,6 +50,13 @@ describe('mcp-tool-id-v1', () => {
     expect(createMcpToolId('web', 'a'.repeat(55))).toEqual({
       success: false,
       reason: 'overlength',
+    });
+  });
+
+  it('accepts an id whose serialized length is exactly 64 characters', () => {
+    expect(createMcpToolId('web', 'a'.repeat(54))).toEqual({
+      success: true,
+      id: `mcp__web__${'a'.repeat(54)}`,
     });
   });
 
@@ -73,6 +87,13 @@ describe('mcp-tool-id-v1', () => {
       id: 'mcp__Web_Server-1__Find_Docs',
       serverId: 'Web_Server-1',
       toolName: 'Find_Docs',
+    });
+  });
+
+  it('rejects an id without the mcp prefix as invalid format', () => {
+    expect(parseMcpToolId('server__search')).toEqual({
+      success: false,
+      reason: 'invalid_format',
     });
   });
 
