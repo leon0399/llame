@@ -13,6 +13,7 @@ out/
 .next/
 .turbo/
 coverage/
+apps/api/reports/mutation/
 storybook-static/
 playwright-report/
 test-results/

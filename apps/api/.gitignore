@@ -17,6 +17,7 @@ lerna-debug.log*
 
 # Tests
 /coverage
+/reports/mutation/
 /.nyc_output
 
 # IDEs and editors
