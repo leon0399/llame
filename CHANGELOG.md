@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed the final two concrete-service double assertions from worker
+  concurrency coverage and the search-reindex no-op. The bridge fixture now
+  uses the existing `RunStreamResponder`; the reindex service owns a shared
+  `ChatReindexDispatcher` capability consumed by `ChatsService`, run execution,
+  tests, and the no-op, with explicit Nest injection preserved. API build,
+  typecheck, and lint pass. Application/test debt falls from 10 to 8.
+
 - Removed both forged tenant-database assertions from tool-context units.
   `ToolContext` now exposes the existing `TenantRunner` capability instead of
   the concrete service; search coverage uses Drizzle's mock DB to execute the

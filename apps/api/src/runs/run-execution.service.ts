@@ -18,7 +18,10 @@ import {
 import { CompactionService } from '../compaction/compaction.service';
 import { requestFitsContextWindow } from '../compaction/compaction';
 import { SearchIndexService } from '../search/search-index.service';
-import { SearchReindexDispatchService } from '../search/search-reindex-dispatch.service';
+import {
+  SearchReindexDispatchService,
+  type ChatReindexDispatcher,
+} from '../search/search-reindex-dispatch.service';
 import {
   buildContext,
   partsToText,
@@ -415,12 +418,6 @@ export type RunExecutor = Pick<
 
 /** The search capability needed after an assistant turn commits. */
 export type ChatSearchIndexer = Pick<SearchIndexService, 'reindexChat'>;
-
-/** The fallback reindex capability needed after direct indexing fails. */
-export type ChatReindexDispatcher = Pick<
-  SearchReindexDispatchService,
-  'enqueueChatReindex'
->;
 
 @Injectable()
 export class RunExecutionService {

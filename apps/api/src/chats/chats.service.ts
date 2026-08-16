@@ -1,7 +1,15 @@
-import { HttpException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  HttpException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { type Chat, type Compaction, type Message } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
-import { SearchReindexDispatchService } from '../search/search-reindex-dispatch.service';
+import {
+  SearchReindexDispatchService,
+  type ChatReindexDispatcher,
+} from '../search/search-reindex-dispatch.service';
 import {
   ChatsRepository,
   CompactionsRepository,
@@ -21,7 +29,8 @@ export class ChatsService {
   constructor(
     private readonly tenantDb: TenantDbService,
     private readonly aborts: RunAbortRegistry,
-    private readonly reindexDispatch: SearchReindexDispatchService,
+    @Inject(SearchReindexDispatchService)
+    private readonly reindexDispatch: ChatReindexDispatcher,
   ) {}
 
   /**

@@ -3,6 +3,11 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { QUEUE, type Queue } from '../queue/queue';
 import { SEARCH_REINDEX_QUEUE } from './reindex-queues';
 
+export type ChatReindexDispatcher = Pick<
+  SearchReindexDispatchService,
+  'enqueueChatReindex'
+>;
+
 /**
  * SearchReindexDispatchService (#195) — the enqueue seam the content-write paths
  * (user-message persist, assistant finalization, fork) call to keep search fresh.

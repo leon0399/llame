@@ -1,4 +1,4 @@
-import { SearchReindexDispatchService } from './search-reindex-dispatch.service';
+import { type ChatReindexDispatcher } from './search-reindex-dispatch.service';
 
 /**
  * A no-op {@link SearchReindexDispatchService} for tests that construct services
@@ -6,8 +6,8 @@ import { SearchReindexDispatchService } from './search-reindex-dispatch.service'
  * projection. Enqueue is best-effort in production, so a no-op is behaviourally
  * faithful for those suites.
  */
-export function noopReindexDispatch(): SearchReindexDispatchService {
+export function noopReindexDispatch(): ChatReindexDispatcher {
   return {
     enqueueChatReindex: async () => {},
-  } as unknown as SearchReindexDispatchService;
+  };
 }
