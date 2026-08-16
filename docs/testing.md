@@ -160,8 +160,6 @@ unit ──────┼─→ build ───────────┐
   (low-friction first: compaction-boundary, effective-context-inspector,
   admin-section-nav, …; mixed files split pure/render first). Delete a jsdom
   test only after its story covers the same assertions.
-- Replace `chat-page.hydration.test.ts` (regex over its own source text) with
-  behavioral coverage.
 - The in-file `describeIfDb`-style guards inside integration suites are dead
   code now that the globalSetup guarantees the env — remove them when touching
   each suite.

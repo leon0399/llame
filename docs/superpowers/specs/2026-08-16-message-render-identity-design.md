@@ -24,10 +24,13 @@ run-surrogate ID until a remount or reload happens to replace the session.
 ## Decision
 
 Make the chat route canonical before the stateful chat UI mounts. The `/` server
-page generates a cryptographically random UUID and redirects to
+page waits for Next's actual-request `connection()` boundary, then generates a
+cryptographically random UUID per navigation and redirects to
 `/chat/:id?draft=fresh`. Both a new draft and an existing chat then render through
 the existing `/chat/[id]` page leaf. There is no stateful `ChatPage` on `/`, and
 the first successful turn never changes a dynamic route segment.
+Persistent New Chat links disable speculative prefetch so UUID creation belongs
+to activation, not viewport or hover behavior.
 
 The draft marker is initial routing intent, not authorization and not a live
 server-mode authority:

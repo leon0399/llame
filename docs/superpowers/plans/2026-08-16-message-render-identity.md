@@ -243,7 +243,7 @@ Version: v3
 - Delete: `apps/web/app/(chat)/components/chat-page.hydration.test.ts`
 - Modify: `e2e/web/chat/mcp-tool.spec.ts`
 
-- [ ] **Step 1: Write the page-level redirect RED**
+- [x] **Step 1: Write the page-level redirect RED**
 
   In the server-page Vitest, spy on `crypto.randomUUID`, mock
   `next/navigation.redirect`, call the page, and require the exact
@@ -279,7 +279,11 @@ Version: v3
   Do not rerun for luck. Leave this verified RED change in the worktree while
   implementing the production cutover.
 
-- [ ] **Step 3: Write the pure session-state RED**
+  Local attempt on 2026-08-16 stopped before application startup because the
+  sandbox denied the Docker socket; the narrow permission review timed out. No
+  product RED is claimed from that environment failure.
+
+- [x] **Step 3: Write the pure session-state RED**
 
   Model only valid domain states:
 
@@ -307,14 +311,14 @@ Version: v3
   Run the new draft-session suite. Expected: FAIL because the reducer does not
   exist.
 
-- [ ] **Step 4: Implement the pure state machine**
+- [x] **Step 4: Implement the pure state machine**
 
   Export initial-state and transition functions plus derived selectors for URL
   phase, query enablement, owner visibility, and resume-on-mount. No React,
   network, timers, storage, or router imports belong in this module. Run its
   suite to GREEN before wiring the component.
 
-- [ ] **Step 5: Write the dynamic page-boundary RED**
+- [x] **Step 5: Write the dynamic page-boundary RED**
 
   Call the async `/chat/[id]` page with mocked server-history functions and
   query seeding. Pin these wiring contracts directly:
@@ -335,10 +339,11 @@ Version: v3
   Expected: FAIL because the current page neither parses draft intent nor
   selects the tolerant contract.
 
-- [ ] **Step 6: Implement the canonical page boundary**
+- [x] **Step 6: Implement the canonical page boundary**
 
-  - `/` redirects with `draftChatPath(crypto.randomUUID(), "fresh")` before
-    rendering UI.
+  - `/` awaits Next's `connection()` boundary, then redirects with
+    `draftChatPath(crypto.randomUUID(), "fresh")` before rendering UI, so build
+    prerendering or link prefetch cannot reuse a UUID.
   - `/chat/[id]` parses `searchParams.draft`, uses strict or tolerant server
     history, seeds only non-null history, and renders:
 
@@ -353,7 +358,7 @@ Version: v3
   - invalid draft values use the strict persisted contract.
   - query parameters never authorize access.
 
-- [ ] **Step 7: Implement one `ChatSession` owner**
+- [x] **Step 7: Implement one `ChatSession` owner**
 
   Required wiring:
 
@@ -372,14 +377,15 @@ Version: v3
     live recovery changes the existing owner's resume signal without exchanging
     it for another wrapper;
   - marker changes use
-    `window.history.replaceState(null, "", draftChatPath(chatId, phase))` only;
+    `window.history.replaceState(window.history.state, "", draftChatPath(chatId, phase))`
+    only;
     no `router.replace`, sleep, or `sessionStorage`.
 
   Wire `shouldAdoptServerHistory` with message lists. Use `messageRenderKey` for
   the outer fragment and `${renderKey}-part-${partIndex}` for parts. Durable
   `message.id` remains unchanged for API callbacks.
 
-- [ ] **Step 8: Replace source inspection with behavior**
+- [x] **Step 8: Replace source inspection with behavior**
 
   Update the existing model/compaction container suites to pass explicit route
   props and cover fresh versus hydrated owner mounting. Delete
@@ -409,7 +415,7 @@ Version: v3
   Expected: every unit/container suite passes; browser passes on its first
   attempt with no retry/flaky marker.
 
-- [ ] **Step 10: Commit the cutover**
+- [x] **Step 10: Commit the cutover**
 
   Commit the named production/tests and E2E files:
 
@@ -429,22 +435,22 @@ Version: v3
 - Modify: `apps/web/app/(chat)/projects/[id]/page.tsx`
 - Modify: affected existing web tests/mocks that construct `ChatContextType`
 
-- [ ] **Step 1: Establish the compiler RED**
+- [x] **Step 1: Establish the compiler RED**
 
   Delete `activeChatId`, `draftChatId`, `draftRestored`, setters,
   `recordSentDraft`, the storage effect/key, and `useStartNewChat` from the
   context. Run web typecheck and save the exact stale-consumer list.
 
-- [ ] **Step 2: Move every stale consumer to route authority**
+- [x] **Step 2: Move every stale consumer to route authority**
 
-  - New-chat links remain plain `href="/"`.
+  - New-chat links remain `href="/"` and disable speculative prefetch.
   - Command palette keeps its existing close-then-`router.push("/")` flow.
   - `ChatList` derives selection only from `usePathname()`.
   - Project/delete flows navigate normally without clearing context identity.
   - Do not rename `ChatContext`; it still owns chat-wide model selection, and a
     repository-wide rename is unrelated churn.
 
-- [ ] **Step 3: Verify GREEN and commit**
+- [x] **Step 3: Verify GREEN and commit**
 
   Run web typecheck plus the existing chat-list, chat-item, and command-palette
   suites. Commit:
@@ -464,7 +470,7 @@ Version: v3
 - Modify: `CHANGELOG.md`
 - Modify: `docs/superpowers/plans/2026-08-16-message-render-identity.md`
 
-- [ ] **Step 1: Update authoritative documentation**
+- [x] **Step 1: Update authoritative documentation**
 
   - remove the deleted source-regex follow-up from `docs/testing.md`;
   - narrow the tracker row to genuinely disabled Vitest-rule work;
@@ -492,11 +498,22 @@ Version: v3
   If the capped local build fails due environment/memory, report the exact
   failure and rely only on a later successful remote Build job.
 
-- [ ] **Step 3: Independent code reviews**
+  2026-08-16 local evidence: web unit 53 files/384 tests, web lint, web
+  typecheck, root lint, ast-grep, Markdownlint, format, and diff checks passed.
+  The capped web build was interrupted with exit 130 after more than two silent
+  minutes in Next's optimized-build phase; no build success is claimed. Product
+  E2E remained blocked before startup by Docker-socket permission review.
 
-  Dispatch one specification reviewer and one code-quality reviewer over the
-  full branch diff. Independently verify every P0/P1, fix test-first, and rerun
-  affected gates.
+- [x] **Step 3: Full-diff code review**
+
+  Review the full branch diff against the approved design and for code quality.
+  Verify every P0/P1, fix test-first, and rerun affected gates. This execution is
+  manual because Leo prohibited subagents after implementation began.
+
+  Review fixed two P1s: request/prefetch UUID reuse and a successful finish
+  racing the sending-state render. Focused tests, web typecheck/lint, root lint,
+  and pre-commit structural gates passed after both fixes. No remaining P0/P1
+  was found; browser confidence remains pending Product E2E.
 
 - [ ] **Step 4: Commit documentation**
 
@@ -545,6 +562,10 @@ Version: v3
 
 ## Revision history
 
+- **v4 (2026-08-16):** Recorded the local Docker/build blockers and manual review
+  evidence; pinned UUID minting behind Next's actual-request boundary, disabled
+  New Chat prefetch, and made successful finish an unconditional persistence
+  event so React render timing cannot strand the sent marker.
 - **v3 (2026-08-16):** Added direct RED coverage for the dynamic chat page's
   strict/tolerant fetch, seeding, and prop wiring. Corrected live first-send
   recovery to trigger the same history-gated, ref-guarded resume probe as
