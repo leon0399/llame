@@ -1,19 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 describe("fetchMeOptional", () => {
-  const originalFetch = global.fetch;
-
   afterEach(() => {
-    global.fetch = originalFetch;
+    vi.unstubAllGlobals();
     vi.resetModules();
   });
 
   it("requests /auth/v1/me with credentials included, regardless of outcome", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      status: 401,
-      ok: false,
-    }) as unknown as typeof fetch;
-    global.fetch = fetchMock;
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
 
     const { fetchMeOptional } = await import("./queries");
     await fetchMeOptional();
@@ -25,10 +22,12 @@ describe("fetchMeOptional", () => {
   });
 
   it("returns null on a 401 — never throws, never redirects", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      status: 401,
-      ok: false,
-    }) as unknown as typeof fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(null, { status: 401 })),
+    );
 
     const { fetchMeOptional } = await import("./queries");
     await expect(fetchMeOptional()).resolves.toBeNull();
@@ -42,21 +41,27 @@ describe("fetchMeOptional", () => {
       emailVerified: null,
       image: null,
     };
-    global.fetch = vi.fn().mockResolvedValue({
-      status: 200,
-      ok: true,
-      json: () => Promise.resolve(user),
-    }) as unknown as typeof fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify(user), {
+          headers: { "content-type": "application/json" },
+          status: 200,
+        }),
+      ),
+    );
 
     const { fetchMeOptional } = await import("./queries");
     await expect(fetchMeOptional()).resolves.toEqual(user);
   });
 
   it("throws on a non-401 error status (a real failure, not 'signed out')", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      status: 500,
-      ok: false,
-    }) as unknown as typeof fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(null, { status: 500 })),
+    );
 
     const { fetchMeOptional } = await import("./queries");
     await expect(fetchMeOptional()).rejects.toThrow(

@@ -15,7 +15,7 @@ required.
 | Order | State       | Layer                                   | Acceptance evidence                                                                                                |
 | ----: | ----------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 |     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                  |
-|     2 | queued      | Web test doubles                        | Web reaches zero matches using Vitest, Storybook, and native Web API types; full web and browser suites pass       |
+|     2 | active      | Web test doubles                        | Web reaches zero matches using Vitest, Storybook, and native Web API types; full web and browser suites pass       |
 |     3 | queued      | Complexity ceiling and first extraction | Oxlint rejects modified complexity over 35; the current 53-point function must be reduced below the ceiling        |
 |     4 | queued      | AI SDK model doubles                    | `model-client.test.ts` and the shared fake use typed SDK test utilities; focused tests/typecheck pass              |
 |     5 | queued      | Remaining cast slices                   | All 113 legacy owned-code matches reach zero; no baselines or allowlists remain                                    |
@@ -34,7 +34,8 @@ required.
 | done        | New staged API `.ts` casts are blocked while migration debt remains                                                 | Existing interim script and Lefthook job; this is regression protection, not acceptance     |
 | queued      | The ban is not project-wide                                                                                         | Lefthook covers only `apps/api/**/*.ts`; root, e2e, web TSX, MTS, and CTS remain outside it |
 | queued      | TSX needs its own ast-grep parser                                                                                   | `--lang ts` returns no match for JSX containing a double assertion; `--lang tsx` finds it   |
-| queued      | 118 matched text lines, 113 across 46 owned application/test files                                                  | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline     |
+| active      | Web test and story doubles contained 19 assertions across 14 files                                                  | Zero web matches; 340 web unit tests and 300 Storybook browser tests pass                   |
+| queued      | 94 owned application/test matches remain after the web slice                                                        | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline     |
 | queued      | Largest file cluster is `apps/api/src/models/model-client.test.ts` with 13                                          | Migrate the AI SDK boundary with `ai/test` instead of narrowing a Nest dependency           |
 | queued      | Other top clusters: OpenAI tools 9; app setup 8; chat-loop integration 7; search worker and chats controller 6 each | Group by boundary and remedy; do not chase count mechanically                               |
 | investigate | Direct `any`, non-null assertions, and stale ESLint disables                                                        | Classify production vs test/integration scaffolding before enabling restriction rules       |

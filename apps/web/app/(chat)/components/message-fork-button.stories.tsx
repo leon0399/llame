@@ -1,14 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, userEvent, within } from "storybook/test";
+import { vi } from "vitest";
 
-// Import via the REAL specifier: sb.mock (preview.tsx) redirects it to the
-// __mocks__ module, so the `forkMutate` spy here is the SAME instance the
-// component's `useForkChat().mutate` returns.
+// Import the hook via the REAL specifier: sb.mock (preview.tsx) redirects it
+// to the __mocks__ module. The stable `forkMutate` control is imported from
+// that manual mock and injected into the redirected hook in `beforeEach`.
 import * as fork from "@/lib/services/chat/fork";
-import type * as forkMock from "@/lib/services/chat/__mocks__/fork";
+import { forkMutate } from "@/lib/services/chat/__mocks__/fork";
 import { MessageForkButton } from "./message-fork-button";
 
-const { forkMutate, useForkChat } = fork as unknown as typeof forkMock;
+const useForkChat = vi.mocked(fork.useForkChat, { partial: true });
 
 const meta = {
   component: MessageForkButton,

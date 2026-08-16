@@ -66,14 +66,15 @@ beforeAll(() => {
     Element.prototype.scrollIntoView = () => {};
   }
   if (!("ResizeObserver" in globalThis)) {
-    class ResizeObserverStub {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    }
-    (
-      globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }
-    ).ResizeObserver = ResizeObserverStub;
+    vi.stubGlobal(
+      "ResizeObserver",
+      class ResizeObserverStub {
+        constructor(_callback: ResizeObserverCallback) {}
+        observe(_target: Element, _options?: ResizeObserverOptions): void {}
+        unobserve(_target: Element): void {}
+        disconnect(): void {}
+      },
+    );
   }
 });
 
