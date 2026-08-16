@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed all six double assertions from the chats controller tests. Narrow
+  controller capabilities with explicit Nest injection tokens, typed Vitest
+  spies, a real Node writable stream, Drizzle's mock database, and the AI SDK's
+  provider-neutral model stream replace hand-forged service, Express, database,
+  and stream-result objects. The focused suite passes 22/22; the full API unit
+  suite passes 1,090/1,090; API build, typecheck, and lint pass.
+  Application/test debt falls from 55 to 49.
+
 - Removed 16 double assertions from API app-setup, authentication, models, and
   runs controller tests. Narrow `Pick<>` consumer contracts with explicit Nest
   injection tokens, Nest's `ExecutionContextHost`, Express response

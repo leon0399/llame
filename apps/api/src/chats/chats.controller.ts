@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpException,
   HttpStatus,
+  Inject,
   Logger,
   NotFoundException,
   Param,
@@ -13,7 +14,6 @@ import {
   Patch,
   Post,
   Query,
-  Req,
   Res,
 } from '@nestjs/common';
 import {
@@ -32,11 +32,11 @@ import {
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
-import { Readable } from 'node:stream';
+import { Readable, type Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import type { Request, Response as ExpressResponse } from 'express';
+import type { Response as ExpressResponse } from 'express';
 import { CurrentUser } from '../auth/auth-context';
-import { TenantDbService } from '../db/tenant-db.service';
+import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsService } from './chats.service';
 import {
@@ -44,7 +44,10 @@ import {
   ModelNotAvailableError,
 } from '../models/models.service';
 import { ModelDomainErrorResponse } from '../models/dto/models.dto';
-import { RunStreamBridgeService } from '../runs/run-stream-bridge';
+import {
+  RunStreamBridgeService,
+  type RunStreamResponder,
+} from '../runs/run-stream-bridge';
 import { RunsRepository } from '../runs/runs-repository';
 import {
   ChatListItemResponse,
@@ -64,6 +67,19 @@ import {
 } from './dto/chats.dto';
 
 const streamLogger = new Logger('ChatStream');
+type NodeWebReadableStream =
+  import('node:stream/web').ReadableStream<Uint8Array>;
+
+export type ChatsControllerService = Pick<
+  ChatsService,
+  | 'listChatsWithLastMessage'
+  | 'searchChats'
+  | 'getChatById'
+  | 'getChatMessages'
+  | 'updateChat'
+  | 'deleteChat'
+  | 'forkChat'
+>;
 
 @ApiTags('chats')
 @ApiBearerAuth('bearer')
@@ -73,10 +89,17 @@ export class ChatsController {
   private readonly logger = new Logger(ChatsController.name);
 
   constructor(
-    private readonly chatsService: ChatsService,
-    private readonly chatLoopService: ChatLoopService,
-    private readonly tenantDb: TenantDbService,
-    private readonly bridge: RunStreamBridgeService,
+    @Inject(ChatsService)
+    private readonly chatsService: ChatsControllerService,
+    @Inject(ChatLoopService)
+    private readonly chatLoopService: Pick<
+      ChatLoopService,
+      'createMessageStream'
+    >,
+    @Inject(TenantDbService)
+    private readonly tenantDb: TenantRunner,
+    @Inject(RunStreamBridgeService)
+    private readonly bridge: RunStreamResponder,
   ) {}
 
   /**
@@ -103,7 +126,7 @@ export class ChatsController {
   async resumeChatStream(
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,
-    @Res() response: ExpressResponse,
+    @Res() response: ChatStreamResponse,
   ): Promise<void> {
     // Abort registration comes FIRST: a client that disconnects while the
     // run lookup is in flight fires 'close' before any listener would exist,
@@ -265,8 +288,7 @@ export class ChatsController {
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() input: CreateMessageDto,
-    @Req() request: Request,
-    @Res() response: ExpressResponse,
+    @Res() response: ChatStreamResponse,
   ): Promise<void> {
     const abort = requestAbortSignal(response);
 
@@ -398,7 +420,10 @@ export class ChatsController {
  *
  * @returns The abort signal and a cleanup function that removes the registered listeners.
  */
-function requestAbortSignal(response: ExpressResponse): {
+type ChatStreamResponse = Writable &
+  Pick<ExpressResponse, 'status' | 'setHeader' | 'headersSent'>;
+
+function requestAbortSignal(response: ChatStreamResponse): {
   signal: AbortSignal;
   cleanup: () => void;
 } {
@@ -443,7 +468,7 @@ function requestAbortSignal(response: ExpressResponse): {
  */
 async function writeWebResponse(
   streamResponse: Response,
-  response: ExpressResponse,
+  response: ChatStreamResponse,
   abortSignal: AbortSignal,
 ): Promise<void> {
   response.status(streamResponse.status || 200);
@@ -457,7 +482,8 @@ async function writeWebResponse(
   }
 
   try {
-    await pipeline(Readable.fromWeb(streamResponse.body as never), response);
+    const body = streamResponse.body as NodeWebReadableStream;
+    await pipeline(Readable.fromWeb(body), response);
   } catch (error) {
     if (abortSignal.aborted) {
       return;

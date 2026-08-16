@@ -1,18 +1,25 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 
 import { NotFoundException } from '@nestjs/common';
-import { EventEmitter } from 'node:events';
-import type { Request, Response as ExpressResponse } from 'express';
-import { ChatsController } from './chats.controller';
+import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { streamText } from 'ai';
+import { MockLanguageModelV3 } from 'ai/test';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { Writable } from 'node:stream';
+import {
+  ChatsController,
+  type ChatsControllerService,
+} from './chats.controller';
 import type { ChatLoopService } from './chat-loop.service';
-import type { ChatsService } from './chats.service';
+import * as schema from '../db/schema';
 import type { Chat, Compaction, Message } from '../db/schema';
+import type { Db, TenantRunner } from '../db/tenant-db.service';
+import type { RunStreamResponder } from '../runs/run-stream-bridge';
 import {
   ModelConfigurationError,
   ModelNotAvailableError,
 } from '../models/models.service';
 
-import type { Mock, Mocked } from 'vitest';
 const chat: Chat = {
   id: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
   ownerUserId: 'verified-user',
@@ -55,48 +62,61 @@ const chatMessages: Message[] = [
 ];
 
 describe('ChatsController', () => {
-  function makeWritableResponse(): ExpressResponse {
-    const response = new EventEmitter() as unknown as ExpressResponse & {
-      status: Mock;
-      setHeader: Mock;
-      end: Mock;
-      writableEnded: boolean;
-    };
-    response.status = vi.fn().mockReturnValue(response);
-    response.setHeader = vi.fn().mockReturnValue(response);
-    response.end = vi.fn(() => {
-      response.writableEnded = true;
-      return response;
-    });
-    response.writableEnded = false;
+  function makeWritableResponse() {
+    const response = Object.assign(
+      new Writable({
+        write(_chunk, _encoding, callback) {
+          callback();
+        },
+      }),
+      {
+        status: vi.fn(),
+        setHeader: vi.fn(),
+        headersSent: false,
+      },
+    );
+    response.status.mockReturnValue(response);
+    response.setHeader.mockReturnValue(response);
     return response;
   }
 
-  function makeController(service?: Partial<ChatsService>) {
+  function makeController(service?: Partial<ChatsControllerService>) {
     const chatsService = {
       listChatsWithLastMessage: vi
-        .fn()
+        .fn<ChatsControllerService['listChatsWithLastMessage']>()
         .mockResolvedValue([{ chat, lastMessage: chatMessages[1] }]),
-      getChatById: vi.fn().mockResolvedValue(chat),
-      getChatMessages: vi.fn().mockResolvedValue({
-        messages: chatMessages,
-        compaction: undefined,
-        absorbedMessageCount: null,
-      }),
-      updateChat: vi.fn().mockResolvedValue(chat),
-      ...service,
-    } as unknown as Mocked<ChatsService>;
+      searchChats: vi.fn<ChatsControllerService['searchChats']>(),
+      getChatById: vi
+        .fn<ChatsControllerService['getChatById']>()
+        .mockResolvedValue(chat),
+      getChatMessages: vi
+        .fn<ChatsControllerService['getChatMessages']>()
+        .mockResolvedValue({
+          messages: chatMessages,
+          compaction: undefined,
+          absorbedMessageCount: null,
+        }),
+      updateChat: vi
+        .fn<ChatsControllerService['updateChat']>()
+        .mockResolvedValue(chat),
+      deleteChat: vi.fn<ChatsControllerService['deleteChat']>(),
+      forkChat: vi.fn<ChatsControllerService['forkChat']>(),
+    } satisfies ChatsControllerService;
+    Object.assign(chatsService, service);
     const chatLoopService = {
-      createMessageStream: vi.fn(),
-    } as unknown as Mocked<ChatLoopService>;
-    const tenantDb = {
-      runAs: vi.fn(),
-    } as unknown as Mocked<import('../db/tenant-db.service').TenantDbService>;
+      createMessageStream: vi.fn<ChatLoopService['createMessageStream']>(),
+    } satisfies Pick<ChatLoopService, 'createMessageStream'>;
+    const tx: Db = drizzle.mock({ schema });
+    const runAs: TenantRunner['runAs'] = async <T>(
+      _userId: string,
+      callback: (scoped: Db) => Promise<T>,
+    ) => callback(tx);
+    const tenantDb: TenantRunner = { runAs };
+    const runAsSpy = vi.spyOn(tenantDb, 'runAs');
     const bridge = {
-      createUiMessageStreamResponse: vi.fn(),
-    } as unknown as Mocked<
-      import('../runs/run-stream-bridge').RunStreamBridgeService
-    >;
+      createUiMessageStreamResponse:
+        vi.fn<RunStreamResponder['createUiMessageStreamResponse']>(),
+    } satisfies RunStreamResponder;
 
     return {
       controller: new ChatsController(
@@ -107,7 +127,7 @@ describe('ChatsController', () => {
       ),
       chatsService,
       chatLoopService,
-      tenantDb,
+      runAsSpy,
       bridge,
     };
   }
@@ -339,11 +359,12 @@ describe('ChatsController', () => {
 
   it('patches a chat scoped to the verified user only', async () => {
     const { controller, chatsService } = makeController();
-
-    await controller.updateChat('verified-user', chat.id, {
+    const input = {
       title: 'Renamed',
       ownerUserId: 'attacker',
-    } as never);
+    };
+
+    await controller.updateChat('verified-user', chat.id, input);
 
     expect(chatsService.updateChat).toHaveBeenCalledWith(
       chat.id,
@@ -412,24 +433,50 @@ describe('ChatsController', () => {
 
   it('streams messages with userId from the verified session only', async () => {
     const { controller, chatLoopService } = makeController();
-    const streamResult = {
-      toUIMessageStreamResponse: vi.fn(() => new Response(null)),
-    } as unknown as Awaited<ReturnType<ChatLoopService['createMessageStream']>>;
+    const streamResult = streamText({
+      model: new MockLanguageModelV3({
+        provider: 'test',
+        modelId: 'test',
+        doStream: {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(stream) {
+              stream.enqueue({ type: 'stream-start', warnings: [] });
+              stream.enqueue({
+                type: 'finish',
+                finishReason: { unified: 'stop', raw: undefined },
+                usage: {
+                  inputTokens: {
+                    total: 0,
+                    noCache: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                  },
+                  outputTokens: { total: 0, text: 0, reasoning: 0 },
+                },
+              });
+              stream.close();
+            },
+          }),
+          response: {},
+        },
+      }),
+      messages: [{ role: 'user', content: 'Hello' }],
+    });
     chatLoopService.createMessageStream.mockResolvedValue(streamResult);
 
     const userMessageId = '0910fd41-1f2f-49de-b1c2-00ff4b3c7c60';
+    const input = {
+      modelId: 'system:openai:gpt-5.4-mini',
+      userId: 'attacker',
+      message: {
+        id: userMessageId,
+        parts: [{ type: 'text' as const, text: 'Hello' }],
+      },
+    };
     await controller.createMessage(
       'verified-user',
       chat.id,
-      {
-        modelId: 'system:openai:gpt-5.4-mini',
-        userId: 'attacker',
-        message: {
-          id: userMessageId,
-          parts: [{ type: 'text', text: 'Hello' }],
-        },
-      } as never,
-      new EventEmitter() as Request,
+      input,
       makeWritableResponse(),
     );
 
@@ -464,7 +511,6 @@ describe('ChatsController', () => {
             parts: [{ type: 'text', text: 'Hello' }],
           },
         },
-        new EventEmitter() as Request,
         makeWritableResponse(),
       ),
     ).rejects.toMatchObject({
@@ -495,7 +541,6 @@ describe('ChatsController', () => {
             parts: [{ type: 'text', text: 'Hello' }],
           },
         },
-        new EventEmitter() as Request,
         makeWritableResponse(),
       ),
     ).rejects.toMatchObject({
@@ -510,77 +555,59 @@ describe('ChatsController', () => {
   });
 
   it('resume: 204 with no active run — scoped to the verified user (RLS path)', async () => {
-    const { controller, tenantDb, bridge } = makeController();
-    tenantDb.runAs.mockResolvedValue(undefined);
-    const response = {
-      status: vi.fn().mockReturnThis(),
-      end: vi.fn(),
-      on: vi.fn(),
-      off: vi.fn(),
-      destroyed: false,
-    };
+    const { controller, runAsSpy, bridge } = makeController();
+    runAsSpy.mockResolvedValue(undefined);
+    const response = makeWritableResponse();
+    const end = vi.spyOn(response, 'end');
 
     await controller.resumeChatStream(
       'verified-user',
       '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10',
-      response as never,
+      response,
     );
 
     // Tenant scoping comes from the session-derived userId, never the client.
-    expect(tenantDb.runAs).toHaveBeenCalledWith(
+    expect(runAsSpy).toHaveBeenCalledWith(
       'verified-user',
       expect.any(Function),
     );
     expect(response.status).toHaveBeenCalledWith(204);
-    expect(response.end).toHaveBeenCalled();
+    expect(end).toHaveBeenCalled();
     expect(bridge.createUiMessageStreamResponse).not.toHaveBeenCalled();
   });
 
   it('resume: a client already gone at registration never reaches the bridge', async () => {
-    const { controller, tenantDb, bridge } = makeController();
+    const { controller, runAsSpy, bridge } = makeController();
     // Even with an active run, a response whose socket died before the
     // handler ran must exit after the (single) lookup without a write.
-    tenantDb.runAs.mockResolvedValue({ id: 'run-1' });
-    const response = {
-      status: vi.fn().mockReturnThis(),
-      end: vi.fn(),
-      on: vi.fn(),
-      off: vi.fn(),
-      destroyed: true,
-    };
+    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    const response = makeWritableResponse();
+    const end = vi.spyOn(response, 'end');
+    response.destroy();
 
     await controller.resumeChatStream(
       'verified-user',
       '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10',
-      response as never,
+      response,
     );
 
     expect(bridge.createUiMessageStreamResponse).not.toHaveBeenCalled();
     expect(response.status).not.toHaveBeenCalled();
-    expect(response.end).not.toHaveBeenCalled();
+    expect(end).not.toHaveBeenCalled();
   });
 
   it('resume: bridges the active run for the verified user', async () => {
-    const { controller, tenantDb, bridge } = makeController();
-    tenantDb.runAs.mockResolvedValue({ id: 'run-1' });
+    const { controller, runAsSpy, bridge } = makeController();
+    runAsSpy.mockResolvedValue({ id: 'run-1' });
     bridge.createUiMessageStreamResponse.mockReturnValue(
       new Response(null, { status: 200 }),
     );
-    const response = {
-      status: vi.fn().mockReturnThis(),
-      end: vi.fn(),
-      on: vi.fn(),
-      off: vi.fn(),
-      setHeader: vi.fn(),
-      write: vi.fn(),
-      destroyed: false,
-      writableEnded: false,
-    };
+    const response = makeWritableResponse();
 
     await controller.resumeChatStream(
       'verified-user',
       '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10',
-      response as never,
+      response,
     );
 
     expect(bridge.createUiMessageStreamResponse).toHaveBeenCalledWith(
