@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
+import type { UIMessage } from "ai";
 import {
   buildChatMessagesHistoryUrl,
+  messageRenderKey,
   mergeTrustedModelContextParts,
   modelSwitchPart,
   runIdFromMessageMetadata,
@@ -219,49 +221,163 @@ describe("trusted model-context projection", () => {
 });
 
 describe("shouldAdoptServerHistory", () => {
+  const LIVE_RUN_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
+  const OTHER_RUN_ID = "42668ca4-5fb2-4f90-a52a-7f5f104f7c2a";
+
+  const userMessage = (id: string): UIMessage => ({
+    id,
+    role: "user",
+    parts: [{ type: "text", text: id }],
+  });
+  const assistantMessage = (id: string, runId?: string): UIMessage => ({
+    id,
+    role: "assistant",
+    parts: [{ type: "text", text: id }],
+    ...(runId === undefined ? {} : { metadata: { usage: { runId } } }),
+  });
   const adopt = (
     status: string,
-    serverMessageCount: number,
-    liveMessageCount: number,
-  ) =>
-    shouldAdoptServerHistory({ status, serverMessageCount, liveMessageCount });
+    serverMessages: readonly UIMessage[],
+    liveMessages: readonly UIMessage[],
+  ) => shouldAdoptServerHistory({ status, serverMessages, liveMessages });
 
   it("adopts a strictly longer server history once the turn is settled (#261)", () => {
     // The 204-resume case: the log holds only the user turn, the answer is
     // durable server-side, and nothing else will ever re-read it.
-    expect(adopt("ready", 2, 1)).toBe(true);
+    expect(
+      adopt(
+        "ready",
+        [userMessage("user-1"), assistantMessage("assistant-1")],
+        [userMessage("user-1")],
+      ),
+    ).toBe(true);
   });
 
   it("never adopts mid-turn — the live copy legitimately runs ahead (#259)", () => {
     // An optimistic user turn, or an answer still streaming, is newer than
     // anything the server can return; replacing it rewinds the transcript.
-    expect(adopt("streaming", 3, 2)).toBe(false);
-    expect(adopt("submitted", 3, 2)).toBe(false);
+    const server = [userMessage("user-1"), assistantMessage("assistant-1")];
+    const live = [userMessage("user-1")];
+
+    expect(adopt("streaming", server, live)).toBe(false);
+    expect(adopt("submitted", server, live)).toBe(false);
   });
 
-  it("does not adopt an equal or shorter server history", () => {
-    // Equal is the steady state (and what the adoption itself produces, so
-    // re-running is a no-op); shorter means the server has yet to catch up.
-    expect(adopt("ready", 2, 2)).toBe(false);
-    expect(adopt("ready", 1, 2)).toBe(false);
+  it("adopts an equal-length ready history for the same final assistant Run", () => {
+    expect(
+      adopt(
+        "ready",
+        [
+          userMessage("user-1"),
+          assistantMessage("durable-assistant-1", LIVE_RUN_ID),
+        ],
+        [userMessage("user-1"), assistantMessage(LIVE_RUN_ID)],
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects an equal-length ready history for a different final Run", () => {
+    expect(
+      adopt(
+        "ready",
+        [
+          userMessage("user-1"),
+          assistantMessage("durable-assistant-1", OTHER_RUN_ID),
+        ],
+        [userMessage("user-1"), assistantMessage(LIVE_RUN_ID)],
+      ),
+    ).toBe(false);
+  });
+
+  it("does not infer identity from a non-final assistant position", () => {
+    expect(
+      adopt(
+        "ready",
+        [
+          assistantMessage("durable-assistant-1", LIVE_RUN_ID),
+          userMessage("user-1"),
+        ],
+        [assistantMessage(LIVE_RUN_ID), userMessage("user-1")],
+      ),
+    ).toBe(false);
+  });
+
+  it("does not re-adopt after the durable message id is already live", () => {
+    const durable = [
+      userMessage("user-1"),
+      assistantMessage("durable-assistant-1", LIVE_RUN_ID),
+    ];
+
+    expect(adopt("ready", durable, durable)).toBe(false);
+  });
+
+  it("does not adopt a shorter server history", () => {
+    expect(
+      adopt(
+        "ready",
+        [userMessage("user-1")],
+        [userMessage("user-1"), assistantMessage(LIVE_RUN_ID)],
+      ),
+    ).toBe(false);
   });
 
   it("still heals after a failed turn", () => {
     // 'error' is settled: a partial answer persisted by the run is worth
     // showing, and no live stream can be clobbered.
-    expect(adopt("error", 2, 1)).toBe(true);
+    expect(
+      adopt(
+        "error",
+        [userMessage("user-1"), assistantMessage("assistant-1")],
+        [userMessage("user-1")],
+      ),
+    ).toBe(true);
   });
 
   it("adopts an equal-length history after a failed turn, where count cannot tell them apart", () => {
     // Disconnect mid-answer: the SDK keeps the partial assistant message, so
     // the healed history has the same COUNT but complete content. Adopting on
     // strictly-longer alone would leave the transcript truncated.
-    expect(adopt("error", 2, 2)).toBe(true);
+    expect(
+      adopt(
+        "error",
+        [userMessage("user-1"), assistantMessage("durable-assistant-1")],
+        [userMessage("user-1"), assistantMessage("partial-assistant-1")],
+      ),
+    ).toBe(true);
   });
 
   it("never shortens the log, even on a failed turn", () => {
     // A send that failed before the user turn persisted: the server has less
     // than the log does, and adopting would delete what the user typed.
-    expect(adopt("error", 1, 2)).toBe(false);
+    expect(
+      adopt(
+        "error",
+        [userMessage("user-1")],
+        [userMessage("user-1"), assistantMessage("partial-assistant-1")],
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("messageRenderKey", () => {
+  const RUN_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
+
+  it("joins live and durable assistant representations by Run id", () => {
+    expect(messageRenderKey({ id: RUN_ID, role: "assistant" })).toBe(
+      messageRenderKey({
+        id: "durable-assistant-1",
+        role: "assistant",
+        metadata: { usage: { runId: RUN_ID } },
+      }),
+    );
+  });
+
+  it("keeps user and legacy assistant identity message-id based", () => {
+    expect(messageRenderKey({ id: "user-1", role: "user" })).toBe(
+      "user:user-1",
+    );
+    expect(messageRenderKey({ id: "assistant-1", role: "assistant" })).toBe(
+      "assistant:assistant-1",
+    );
   });
 });

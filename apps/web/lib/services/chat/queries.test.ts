@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { HTTPError, type NormalizedOptions } from "ky";
 import type { ChatHistory } from "./history";
 import {
   type ChatResponse,
@@ -7,8 +8,17 @@ import {
   chatQueryKeys,
   ChatGroupPeriod,
   groupChatsByTimePeriod,
+  isChatHistoryMissing,
   seedChatMessagesQueryData,
 } from "./queries";
+
+function kyHttpError(status: number): HTTPError {
+  return new HTTPError(
+    new Response(null, { status }),
+    new Request("http://localhost/api/v1/chats/chat-1/messages"),
+    {} as NormalizedOptions,
+  );
+}
 
 describe("groupChatsByTimePeriod", () => {
   it("groups chats by updatedAt from the api response shape", () => {
@@ -84,6 +94,51 @@ describe("chat message query options", () => {
 
     expect(options.queryKey).toEqual(chatQueryKeys.messages("chat-1"));
   });
+
+  it("leaves ordinary message queries on TanStack's default retry behavior", () => {
+    const options = chatMessagesQueryOptions("chat-1");
+
+    expect(options.retry).toBeUndefined();
+  });
+
+  it("retries only owner-scoped 404 history failures within a bounded budget", () => {
+    const options = chatMessagesQueryOptions("chat-1", {
+      recoverSentDraft: true,
+    });
+
+    const retry = options.retry;
+    if (typeof retry !== "function") {
+      throw new Error("sent-draft recovery must expose a retry predicate");
+    }
+
+    const missing = kyHttpError(404);
+    expect(retry(0, missing)).toBe(true);
+    expect(retry(1, missing)).toBe(true);
+    expect(retry(2, missing)).toBe(false);
+    expect(retry(0, kyHttpError(401))).toBe(false);
+    expect(retry(0, kyHttpError(500))).toBe(false);
+    expect(retry(0, new Error("network failure"))).toBe(false);
+    expect(options).not.toHaveProperty("retryDelay");
+    expect(options).not.toHaveProperty("refetchInterval");
+  });
+
+  it.each([
+    [404, true],
+    [401, false],
+    [500, false],
+  ])(
+    "classifies ky HTTP status %s as history absence: %s",
+    (status, expected) => {
+      expect(isChatHistoryMissing(kyHttpError(status))).toBe(expected);
+    },
+  );
+
+  it.each([new Error("network failure"), undefined, null, "not an error", {}])(
+    "does not classify non-HTTP errors as history absence: %s",
+    (error) => {
+      expect(isChatHistoryMissing(error)).toBe(false);
+    },
+  );
 
   it("derives the chat message request from the query function context", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => {

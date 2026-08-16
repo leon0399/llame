@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
 import { SidebarMenu, SidebarProvider } from "@workspace/ui/components/sidebar";
-import { expect, fn, screen, userEvent, within } from "storybook/test";
+import { expect, screen, userEvent, within } from "storybook/test";
 import { vi } from "vitest";
 
 // Import the mocked context via the REAL specifier (not the __mocks__ file
@@ -72,7 +72,6 @@ const meta = {
   tags: ["autodocs"],
   args: {
     chat: baseChat,
-    onSelect: fn(),
     isActive: false,
     isPinned: false,
     projects: [],

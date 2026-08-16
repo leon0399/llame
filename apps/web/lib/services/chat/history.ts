@@ -149,6 +149,16 @@ export function runIdFromMessageMetadata(metadata: unknown): string | null {
   return typeof runId === "string" && UUID_PATTERN.test(runId) ? runId : null;
 }
 
+export function messageRenderKey(
+  message: Pick<UIMessage, "id" | "role" | "metadata">,
+): string {
+  const identity =
+    message.role === "assistant"
+      ? (runIdFromMessageMetadata(message.metadata) ?? message.id)
+      : message.id;
+  return `${message.role}:${identity}`;
+}
+
 export type ChatMessagesHistoryOptions = {
   limit?: number;
   beforeSeq?: number;
@@ -220,7 +230,7 @@ export function toChatUiMessages(response: {
  * still streaming), and replacing it there duplicates or rewinds the
  * transcript (#259).
  *
- * Two settled states are worth adopting, and they need different tests:
+ * Three settled states are worth adopting, and they need different tests:
  *
  * - a STRICTLY LONGER history — the answer exists server-side and the log
  *   never received it. Count alone is enough, and it makes re-running this
@@ -230,17 +240,40 @@ export function toChatUiMessages(response: {
  *   count but complete content. Count alone would call that settled and leave
  *   the transcript truncated. `error` is only reachable once the live stream
  *   is over, so nothing in flight can be clobbered.
+ * - a READY turn at equal length whose final assistant changed representation:
+ *   live streaming uses the Run ID as the assistant message ID, while durable
+ *   history uses the Message ID and carries that Run ID in owner-only metadata.
+ *   The exact final-position join adopts durable IDs once and becomes false
+ *   after adoption.
  */
 export function shouldAdoptServerHistory(input: {
   status: string;
-  serverMessageCount: number;
-  liveMessageCount: number;
+  serverMessages: readonly UIMessage[];
+  liveMessages: readonly UIMessage[];
 }): boolean {
   if (input.status === "streaming" || input.status === "submitted") {
     return false;
   }
+  const serverMessageCount = input.serverMessages.length;
+  const liveMessageCount = input.liveMessages.length;
   if (input.status === "error") {
-    return input.serverMessageCount >= input.liveMessageCount;
+    return serverMessageCount >= liveMessageCount;
   }
-  return input.serverMessageCount > input.liveMessageCount;
+  if (serverMessageCount > liveMessageCount) return true;
+  if (serverMessageCount !== liveMessageCount || serverMessageCount === 0) {
+    return false;
+  }
+
+  const liveFinal = input.liveMessages[liveMessageCount - 1];
+  const serverFinal = input.serverMessages[serverMessageCount - 1];
+  if (liveFinal?.role !== "assistant" || serverFinal?.role !== "assistant") {
+    return false;
+  }
+
+  const serverRunId = runIdFromMessageMetadata(serverFinal.metadata);
+  return (
+    serverRunId !== null &&
+    liveFinal.id === serverRunId &&
+    serverFinal.id !== liveFinal.id
+  );
 }

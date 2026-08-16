@@ -138,7 +138,6 @@ function renderChatItem({
               updatedAt: new Date().toISOString(),
               archivedAt: null,
             }}
-            onSelect={vi.fn()}
             // Only id/name are read by the submenu; cast keeps the fixture
             // free of ProjectResponse's timestamp noise.
             projects={

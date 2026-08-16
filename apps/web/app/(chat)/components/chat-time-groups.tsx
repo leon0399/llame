@@ -34,14 +34,12 @@ export const chatGroupTitles = {
 export function ChatTimeGroups({
   chats,
   selectedChatId,
-  onSelect,
   projects,
   onRequestNewProject,
   pinnedAtByChatId,
 }: {
   chats: ChatResponse[];
   selectedChatId?: string | null;
-  onSelect: (chatId: string) => void;
   /** For the rows' "Add to project" submenu. */
   projects: ProjectResponse[];
   /**
@@ -81,7 +79,6 @@ export function ChatTimeGroups({
                     key={chat.id}
                     chat={chat}
                     isActive={chat.id === selectedChatId}
-                    onSelect={onSelect}
                     projects={projects}
                     onNewProject={
                       onRequestNewProject

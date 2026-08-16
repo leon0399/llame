@@ -6,6 +6,7 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { isToday, isYesterday, subMonths, subWeeks } from "date-fns";
+import { HTTPError } from "ky";
 import { api, buildApiUrl } from "../../api/client";
 import {
   buildChatMessagesHistoryUrl,
@@ -87,6 +88,12 @@ export const chatQueryKeys = {
 
 type ChatMessagesQueryKey = ReturnType<typeof chatQueryKeys.messages>;
 
+type ChatMessagesQueryOptions = {
+  recoverSentDraft?: boolean;
+};
+
+const SENT_DRAFT_RECOVERY_RETRY_COUNT = 2;
+
 // Both shapes chatQueryKeys.infinite() produces (with/without the trailing
 // filters object) are assignable to this optional-element tuple.
 type ChatsInfiniteQueryKey = readonly [
@@ -151,10 +158,20 @@ export function seedChatMessagesQueryData(
   queryClient.setQueryData(chatQueryKeys.messages(chatId), history);
 }
 
-export function chatMessagesQueryOptions(chatId: string) {
+export function chatMessagesQueryOptions(
+  chatId: string,
+  { recoverSentDraft = false }: ChatMessagesQueryOptions = {},
+) {
   return queryOptions({
     queryKey: chatQueryKeys.messages(chatId),
     queryFn: fetchChatMessages,
+    ...(recoverSentDraft
+      ? {
+          retry: (failureCount: number, error: unknown) =>
+            failureCount < SENT_DRAFT_RECOVERY_RETRY_COUNT &&
+            isChatHistoryMissing(error),
+        }
+      : {}),
   });
 }
 
@@ -162,16 +179,22 @@ export function useChatMessagesQuery({
   chatId,
   enabled = true,
   initialMessages,
+  recoverSentDraft = false,
 }: {
   chatId: string;
   enabled?: boolean;
   initialMessages?: ChatHistory;
+  recoverSentDraft?: boolean;
 }) {
   return useQuery({
-    ...chatMessagesQueryOptions(chatId),
+    ...chatMessagesQueryOptions(chatId, { recoverSentDraft }),
     enabled,
     ...(initialMessages === undefined ? {} : { initialData: initialMessages }),
   });
+}
+
+export function isChatHistoryMissing(error: unknown): boolean {
+  return error instanceof HTTPError && error.response.status === 404;
 }
 
 export function useChatsQuery(filters?: ChatListFilters) {

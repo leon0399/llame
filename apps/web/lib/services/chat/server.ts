@@ -12,12 +12,13 @@ import {
   CHAT_HISTORY_PAGE_SIZE,
   paginateAllMessages,
 } from "./paginate-messages";
+import { draftChatPath, type DraftPhase } from "./draft-route";
 
 const SESSION_COOKIE_NAME = "llame_session";
 const CHAT_HISTORY_FETCH_TIMEOUT_MS = 5_000;
 
-function loginRedirectPath(chatId: string): Route {
-  return `/login?callbackUrl=${encodeURIComponent(`/chat/${chatId}`)}`;
+function loginRedirectPath(chatId: string, phase: DraftPhase | null): Route {
+  return `/login?callbackUrl=${encodeURIComponent(draftChatPath(chatId, phase))}`;
 }
 
 // One page of history for SSR, carrying the session cookie. Auth/timeout are
@@ -27,7 +28,9 @@ async function fetchHistoryPage(
   chatId: string,
   cookieValue: string,
   beforeSeq: number | undefined,
-): Promise<ChatMessagesResponse> {
+  phase: DraftPhase | null,
+  allowMissing: boolean,
+): Promise<ChatMessagesResponse | null> {
   const controller = new AbortController();
   const timeoutId = setTimeout(
     () => controller.abort(),
@@ -48,10 +51,15 @@ async function fetchHistoryPage(
     );
 
     if (response.status === 401) {
-      redirect(loginRedirectPath(chatId));
+      redirect(loginRedirectPath(chatId, phase));
     }
 
-    if (response.status === 400 || response.status === 404) {
+    if (response.status === 400) {
+      notFound();
+    }
+
+    if (response.status === 404) {
+      if (allowMissing) return null;
       notFound();
     }
 
@@ -67,14 +75,26 @@ async function fetchHistoryPage(
   }
 }
 
-export async function fetchInitialChatMessages(
+function fetchChatHistory(
   chatId: string,
-): Promise<ChatHistory> {
+  phase: null,
+  allowMissingInitial: false,
+): Promise<ChatHistory>;
+function fetchChatHistory(
+  chatId: string,
+  phase: DraftPhase,
+  allowMissingInitial: true,
+): Promise<ChatHistory | null>;
+async function fetchChatHistory(
+  chatId: string,
+  phase: DraftPhase | null,
+  allowMissingInitial: boolean,
+): Promise<ChatHistory | null> {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME);
 
   if (!sessionCookie) {
-    redirect(loginRedirectPath(chatId));
+    redirect(loginRedirectPath(chatId, phase));
   }
 
   // Compaction (#57) is embedded in the messages response (#136) — capture it
@@ -82,11 +102,40 @@ export async function fetchInitialChatMessages(
   // every page in this one fetch carries the identical "latest compaction"
   // snapshot, so it doesn't matter which page's value is kept.
   let compaction: Compaction | null = null;
-  const messages = await paginateAllMessages((beforeSeq) =>
-    fetchHistoryPage(chatId, sessionCookie.value, beforeSeq).then((page) => {
+  let missingInitialPage = false;
+  const messages = await paginateAllMessages((beforeSeq) => {
+    const allowMissing = allowMissingInitial && beforeSeq === undefined;
+
+    return fetchHistoryPage(
+      chatId,
+      sessionCookie.value,
+      beforeSeq,
+      phase,
+      allowMissing,
+    ).then((page) => {
+      if (page === null) {
+        missingInitialPage = true;
+        return { messages: [], compaction: null };
+      }
+
       compaction = page.compaction;
       return page;
-    }),
-  );
+    });
+  });
+
+  if (missingInitialPage) return null;
   return { messages: toChatUiMessages({ messages }), compaction };
+}
+
+export async function fetchInitialChatMessages(
+  chatId: string,
+): Promise<ChatHistory> {
+  return fetchChatHistory(chatId, null, false);
+}
+
+export function fetchDraftChatMessages(
+  chatId: string,
+  phase: DraftPhase,
+): Promise<ChatHistory | null> {
+  return fetchChatHistory(chatId, phase, true);
 }

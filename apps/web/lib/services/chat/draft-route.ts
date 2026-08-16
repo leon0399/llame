@@ -1,0 +1,25 @@
+export type DraftPhase = "fresh" | "sent";
+
+export function draftPhaseFromSearchParam(
+  value: string | string[] | undefined,
+): DraftPhase | null {
+  if (value === "fresh" || value === "sent") {
+    return value;
+  }
+
+  return null;
+}
+
+export function draftChatPath(
+  chatId: string,
+  phase: DraftPhase | null,
+): `/chat/${string}` {
+  const searchParams = new URLSearchParams();
+
+  if (phase !== null) {
+    searchParams.set("draft", phase);
+  }
+
+  const query = searchParams.toString();
+  return `/chat/${chatId}${query === "" ? "" : `?${query}`}`;
+}

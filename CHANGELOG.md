@@ -2,6 +2,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-16
 
+- Repaired the first-send chat lifecycle defect exposed by Product E2E on PR
+  #405. `/` now waits for an actual Next request and redirects before UI mount
+  to a per-navigation canonical UUID route, with
+  `?draft=fresh`/`?draft=sent` carrying reload intent until owner-scoped history
+  proves persistence. One reducer owns fresh, sending, recovery, and persisted
+  states; bounded TanStack Query retries handle only the expected 404 race, and
+  native History API updates remove the marker without a Next router transition
+  or chat-owner remount. The URL is now the sole chat identity authority, so the
+  duplicate `sessionStorage` draft ID and active-chat context were deleted.
+  Durable assistant Run IDs now anchor React render keys and exact live-to-server
+  history adoption, preserving stateful streamed UI while durable history lands.
+  The MCP browser acceptance test holds the real history response across an open
+  link-safety modal and asserts the same modal survives committed frames; the old
+  source-regex hydration test was deleted in favor of route, reducer, query, and
+  browser behavior coverage. Diagnostic retries and `failOnFlakyTests` remain.
+
 - Enforced `anti-slop/no-shape-in-symbol-names` at zero baseline across root
   E2E and all four workspaces. Five structural placeholder references now name
   their prompt scenario, rendered conversation node, or admitted MCP result

@@ -28,9 +28,12 @@ test.describe("chat flow (worker execution mode)", () => {
       timeout: 20_000,
     });
 
-    // The turn completed: the chat adopted a deep link (#98) and the sidebar
-    // shows the server-generated title turn's chat entry.
-    await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/, { timeout: 15_000 });
+    // The turn completed: the route was the chat's identity all along (the
+    // root redirected to `/chat/:id` before UI mount, #98), finish cleared
+    // the `?draft` marker, and the sidebar shows the generated-title entry.
+    await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}$/, {
+      timeout: 15_000,
+    });
   });
 
   test("refresh mid-FIRST-answer resumes the draft run and completes (#49)", async ({
@@ -45,32 +48,29 @@ test.describe("chat flow (worker execution mode)", () => {
     await page.getByRole("button", { name: "Send message" }).click();
 
     // First token on screen: the run is streaming. Reload IMMEDIATELY —
-    // still on `/` (navigation happens at finish), which is exactly the
-    // rehydrated-draft path: the per-tab store keeps the chat id, the page
-    // re-mounts it as a persisted session, and resume reconnects.
+    // the URL is the write half of the resume contract now: the root
+    // redirected to `/chat/:id` before mount, and send marked first-send
+    // intent as `?draft=sent` via the History API, so a reload re-enters
+    // the same chat on the recovery path. (No `?draft=sent` assertion: if
+    // the stream finishes before this read, finish legitimately clears the
+    // marker; the outcome assertions below cover both timings.)
     await expect(
       page.getByRole("log").getByText("Mocked", { exact: false }),
     ).toBeVisible({ timeout: 20_000 });
 
-    // The draft id must be recorded per-tab at send time — the write half of
-    // the resume contract. (No post-reload storage assertion: if the resumed
-    // stream finishes DURING the page boot — slow CI dev-server compile vs
-    // the 4s drip — onFinish legitimately clears the id and navigates; the
-    // outcome assertions below cover both the mid-run and just-finished
-    // timings.)
-    const storedBefore = await page.evaluate(() =>
-      sessionStorage.getItem("llame:draft-chat-id"),
-    );
-    expect(storedBefore).not.toBeNull();
+    const draftPath = new URL(page.url()).pathname;
+    expect(draftPath).toMatch(/^\/chat\/[0-9a-f-]{36}$/);
     await page.reload();
 
     // The FULL answer appears — the run survived the socket (worker mode),
     // its deltas replay from the durable event log, and the tail follows
-    // live. The deep link is adopted when the resumed stream finishes.
+    // live — on the SAME chat route, with the draft marker gone at finish.
     await expect(page.getByRole("log").getByText(ANSWER)).toBeVisible({
       timeout: 25_000,
     });
-    await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/, { timeout: 15_000 });
+    await expect(page).toHaveURL(new RegExp(`${draftPath}$`), {
+      timeout: 15_000,
+    });
   });
 
   test("refresh mid-answer on a persisted chat resumes the run (#49)", async ({

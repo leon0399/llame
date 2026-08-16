@@ -69,9 +69,6 @@ vi.mock("@/lib/services/pins/queries", async (importOriginal) => {
   return { ...actual, usePins: () => mockPins };
 });
 
-vi.mock("@/contexts/chat-context", () => ({
-  useChatContext: () => ({ activeChatId: null, setActiveChatId: vi.fn() }),
-}));
 // ChatItem reads this context for its unread/processing badge — isolate
 // from ActiveRunsProvider's real polling, same convention as chat-item.test.tsx.
 vi.mock("@/contexts/active-runs-context", () => ({
