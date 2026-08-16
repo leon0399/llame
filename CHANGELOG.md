@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Added mutation-testing pilot child layer 3 for bounded MCP request context,
+  request-body sizing, session handling, strict response-length parsing, and
+  non-SSE byte limits. The native one-file run measured 169 mutants with 136
+  killed, 31 surviving, and 2 without coverage (80.47%) in 2:01.14 at 237760
+  kB peak RSS and zero swaps; 39 baseline useful gaps are killed and three are
+  evidence-reclassified without changing production code.
+
 - Added mutation-testing pilot child layer 2 for protected-value normalization,
   precedence, scalar/array detection, and nested fail-closed propagation. The
   native one-file run measured 166 mutants with 137 killed, 20 surviving, 3

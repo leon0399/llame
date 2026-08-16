@@ -26,7 +26,7 @@ measurement needed before implementation.
 |     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces               |
 |    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                  |
 |    11 | active      | Shared TypeScript config ownership      | The final workspace has focused instructions naming preset fan-out, boundaries, and sequential consumer verification        |
-|    12 | active      | Mutation-testing pilot                  | PR #390 carries the native config/baseline; PRs #391–#392 repair two child slices; 58 useful gaps remain in layers 3–4      |
+|    12 | active      | Mutation-testing pilot                  | PR #390 carries the native baseline; PRs #391–#393 repair three child slices; 16 useful layer-4 gaps remain                 |
 |    13 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
 
 ## Published PR stack
@@ -34,47 +34,48 @@ measurement needed before implementation.
 Publication here means the PR exists in the remote stack; it does not mean the
 layer is merged or shipped. Layer state remains active until merge.
 
-| Order | PR   | Layer                               |
-| ----: | ---- | ----------------------------------- |
-|     1 | #359 | Tracker and design baseline         |
-|     2 | #360 | Web test doubles                    |
-|     3 | #361 | Native complexity ceiling           |
-|     4 | #362 | AI SDK model doubles                |
-|     5 | #363 | AI SDK tool-callback types          |
-|     6 | #364 | API HTTP/framework test doubles     |
-|     7 | #365 | Chats controller test doubles       |
-|     8 | #366 | Chat-loop integration test doubles  |
-|     9 | #367 | Search worker test doubles          |
-|    10 | #368 | Compaction integration test doubles |
-|    11 | #370 | Pins test doubles                   |
-|    12 | #371 | Worker AI SDK and abort settlement  |
-|    13 | #372 | Remaining AI SDK stream doubles     |
-|    14 | #373 | Auth service test doubles           |
-|    15 | #374 | Tenant DB service test doubles      |
-|    16 | #375 | Session cookie header types         |
-|    17 | #376 | Instance config test doubles        |
-|    18 | #377 | Tool tenant-context types           |
-|    19 | #378 | Source-owned service capabilities   |
-|    20 | #379 | Runtime-boundary negative fixtures  |
-|    21 | #380 | Worker database/lifecycle fixtures  |
-|    22 | #381 | Model-context repository coverage   |
-|    23 | #382 | Chats repository query coverage     |
-|    24 | #383 | Chat-loop transaction binding       |
-|    25 | #384 | Full-tree double-assertion gate     |
-|    26 | #385 | Constructor decorator placement     |
-|    27 | #386 | Semantic Markdown lint              |
-|    28 | #387 | Unused lint-disable ratchet         |
-|    29 | #388 | Contributor documentation contracts |
-|    30 | #389 | Shared TypeScript config ownership  |
-|    31 | #390 | Bounded mutation-testing pilot      |
-|    32 | #391 | MCP tool-ID mutation repairs        |
-|    33 | #392 | Protected-value mutation repairs    |
+| Order | PR   | Layer                                |
+| ----: | ---- | ------------------------------------ |
+|     1 | #359 | Tracker and design baseline          |
+|     2 | #360 | Web test doubles                     |
+|     3 | #361 | Native complexity ceiling            |
+|     4 | #362 | AI SDK model doubles                 |
+|     5 | #363 | AI SDK tool-callback types           |
+|     6 | #364 | API HTTP/framework test doubles      |
+|     7 | #365 | Chats controller test doubles        |
+|     8 | #366 | Chat-loop integration test doubles   |
+|     9 | #367 | Search worker test doubles           |
+|    10 | #368 | Compaction integration test doubles  |
+|    11 | #370 | Pins test doubles                    |
+|    12 | #371 | Worker AI SDK and abort settlement   |
+|    13 | #372 | Remaining AI SDK stream doubles      |
+|    14 | #373 | Auth service test doubles            |
+|    15 | #374 | Tenant DB service test doubles       |
+|    16 | #375 | Session cookie header types          |
+|    17 | #376 | Instance config test doubles         |
+|    18 | #377 | Tool tenant-context types            |
+|    19 | #378 | Source-owned service capabilities    |
+|    20 | #379 | Runtime-boundary negative fixtures   |
+|    21 | #380 | Worker database/lifecycle fixtures   |
+|    22 | #381 | Model-context repository coverage    |
+|    23 | #382 | Chats repository query coverage      |
+|    24 | #383 | Chat-loop transaction binding        |
+|    25 | #384 | Full-tree double-assertion gate      |
+|    26 | #385 | Constructor decorator placement      |
+|    27 | #386 | Semantic Markdown lint               |
+|    28 | #387 | Unused lint-disable ratchet          |
+|    29 | #388 | Contributor documentation contracts  |
+|    30 | #389 | Shared TypeScript config ownership   |
+|    31 | #390 | Bounded mutation-testing pilot       |
+|    32 | #391 | MCP tool-ID mutation repairs         |
+|    33 | #392 | Protected-value mutation repairs     |
+|    34 | #393 | Bounded-fetch limit mutation repairs |
 
 ## Current submission
 
-| State     | Layer                                       | Commit evidence                                                                                                              | PR   |
-| --------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---- |
-| submitted | Protected-value mutation repair child layer | `affbdf5f` adds seven behavior tests and records the 166-mutant 86.14% result with all 24 baseline useful gaps accounted for | #392 |
+| State     | Layer                                     | Commit evidence                                                                                                                   | PR   |
+| --------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| submitted | Bounded-fetch limit mutation repair layer | `6fc62a80`–`235a5180` add 27 behavior cases; `259fc4e0` records the 169-mutant 80.47% result and accounts for all 42 layer-3 gaps | #393 |
 
 ## Inventory
 
@@ -137,20 +138,20 @@ layer is merged or shipped. Layer state remains active until merge.
 
 ### Test quality
 
-| State       | Finding                                                                                          | Evidence / exit condition                                                                                                                                                                                                                                                                                                                                                                   |
-| ----------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| done        | Unit, real-Postgres integration, Storybook browser, and product E2E are separate enforced layers | `docs/testing.md`, CI workflow                                                                                                                                                                                                                                                                                                                                                              |
-| done        | Bounded mutation-testing command and configuration                                               | `apps/api/stryker.config.json` limits mutation to three pure MCP utilities, uses pinned `@stryker-mutator/vitest-runner@9.6.1`, keeps Stryker and Vitest at one worker, and emits native reports; no broad CI gate initially                                                                                                                                                                |
-| active      | First pilot candidate: three pure MCP utilities with direct unit tests                           | PR #390: 33 tests and 425 mutants; the 2026-08-15 baseline is 69.41% with 101 survivors, 29 no-coverage mutants, and 6 timeouts; disposition inventory follows below                                                                                                                                                                                                                        |
-| active      | Child layer 1: tool-id canonicalization/parser                                                   | PR #391: three behavior assertions cover invalid-format parsing, edge trimming, and the exact 64-character boundary; six baseline `U` gaps are repaired and 12 baseline survivors are reclassified `R` with exact manual evidence                                                                                                                                                           |
-| active      | Child layer 2: protected-values normalization/propagation                                        | PR #392: 17 baseline `U` gaps are killed, marker `S169` is reclassified `R` with an exact manual failure, and comparator/tie mutants `S191`–`S195` plus `S255` are reclassified `E`; no useful protected-values gap remains                                                                                                                                                                 |
-| queued      | Child layer 3: bounded-fetch request parsing/body sizing/response byte-limit semantics           | Exactly 42 useful `U` mutants remain queued: `S7`, `S10`, `S12`, `S16`, `S17`, `S33`, `NC37`, `NC38`, `S39`, `NC51`, `NC52`, `NC53`, `NC54`, `NC55`, `NC56`, `NC57`, `NC58`, `NC59`, `S41`, `S42`, `S43`, `S45`, `S47`, `S48`, `S49`, `S50`, `S65`, `S66`, `S68`, `S70`, `S71`, `S73`, `S79`, `S81`, `S89`, `S101`, `S102`, `S103`, `S106`, `S109`, `S111`, `S123`; no gaps marked repaired |
-| queued      | Child layer 4: bounded-fetch SSE recognition/framing plus wrapper cancellation/metadata          | Exactly 16 useful `U` mutants remain queued: `S85`, `S113`, `S136`, `S137`, `S139`, `S140`, `S146`, `S149`, `S151`, `S153`, `S163`, `S164`, `S165`, `S166`, `S167`, `S168`; no gaps marked repaired                                                                                                                                                                                         |
-| done        | API README command inventory                                                                     | The workspace README lists executable commands only; it does not document a nonexistent coverage script or invent coverage tooling                                                                                                                                                                                                                                                          |
-| queued      | Source-regex tests and disabled Vitest rules remain known follow-ups                             | Existing `docs/testing.md` list; convert when owning files are touched                                                                                                                                                                                                                                                                                                                      |
-| investigate | The committed OpenAPI contract has no generated property-based conformance run                   | Pilot Schemathesis against the throwaway API/Postgres environment; measure auth and tenant setup, status/schema findings, replayability, runtime, and false positives before gating                                                                                                                                                                                                         |
-| investigate | The chat-message single-flight integration test flakes only under suite load                     | Timed out on PR #361 and locally in the full 329-test run; isolated rerun passes 1/1; diagnose scheduling/state coupling before changing timeouts                                                                                                                                                                                                                                           |
-| investigate | Product E2E auth navigation and session fixtures flake under concurrent Next dev load            | PR #361 rerun flaked in two auth cases; PR #367 hit `ERR_ABORTED`; logs show Next `ECONNRESET`/aborts; diagnose server lifecycle rather than adding retries or timeouts                                                                                                                                                                                                                     |
+| State       | Finding                                                                                          | Evidence / exit condition                                                                                                                                                                                                         |
+| ----------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done        | Unit, real-Postgres integration, Storybook browser, and product E2E are separate enforced layers | `docs/testing.md`, CI workflow                                                                                                                                                                                                    |
+| done        | Bounded mutation-testing command and configuration                                               | `apps/api/stryker.config.json` limits mutation to three pure MCP utilities, uses pinned `@stryker-mutator/vitest-runner@9.6.1`, keeps Stryker and Vitest at one worker, and emits native reports; no broad CI gate initially      |
+| active      | First pilot candidate: three pure MCP utilities with direct unit tests                           | PR #390: 33 tests and 425 mutants; the 2026-08-15 baseline is 69.41% with 101 survivors, 29 no-coverage mutants, and 6 timeouts; disposition inventory follows below                                                              |
+| active      | Child layer 1: tool-id canonicalization/parser                                                   | PR #391: three behavior assertions cover invalid-format parsing, edge trimming, and the exact 64-character boundary; six baseline `U` gaps are repaired and 12 baseline survivors are reclassified `R` with exact manual evidence |
+| active      | Child layer 2: protected-values normalization/propagation                                        | PR #392: 17 baseline `U` gaps are killed, marker `S169` is reclassified `R` with an exact manual failure, and comparator/tie mutants `S191`–`S195` plus `S255` are reclassified `E`; no useful protected-values gap remains       |
+| active      | Child layer 3: bounded-fetch request parsing/body sizing/response byte-limit semantics           | PR #393: 39 baseline `U` gaps are killed and `S12`, `S16`, and `NC58` are reclassified `E` for the supported `BodyInit` domain; no useful layer-3 gap remains                                                                     |
+| queued      | Child layer 4: bounded-fetch SSE recognition/framing plus wrapper cancellation/metadata          | Exactly 16 useful `U` mutants remain queued: `S85`, `S113`, `S136`, `S137`, `S139`, `S140`, `S146`, `S149`, `S151`, `S153`, `S163`, `S164`, `S165`, `S166`, `S167`, `S168`; no gaps marked repaired                               |
+| done        | API README command inventory                                                                     | The workspace README lists executable commands only; it does not document a nonexistent coverage script or invent coverage tooling                                                                                                |
+| queued      | Source-regex tests and disabled Vitest rules remain known follow-ups                             | Existing `docs/testing.md` list; convert when owning files are touched                                                                                                                                                            |
+| investigate | The committed OpenAPI contract has no generated property-based conformance run                   | Pilot Schemathesis against the throwaway API/Postgres environment; measure auth and tenant setup, status/schema findings, replayability, runtime, and false positives before gating                                               |
+| investigate | The chat-message single-flight integration test flakes only under suite load                     | Timed out on PR #361 and locally in the full 329-test run; isolated rerun passes 1/1; diagnose scheduling/state coupling before changing timeouts                                                                                 |
+| investigate | Product E2E auth navigation and session fixtures flake under concurrent Next dev load            | PR #361 rerun flaked in two auth cases; PR #367 hit `ERR_ABORTED`; logs show Next `ECONNRESET`/aborts; diagnose server lifecycle rather than adding retries or timeouts                                                           |
 
 #### Mutation-testing pilot baseline (2026-08-15)
 
@@ -250,6 +251,42 @@ backlog entries.
 | S163                         | 159 (`ArrowFunction`)                                             | U           | Explicit cancellation of the returned bounded body must cancel the upstream reader; add a direct consumer-cancel assertion.                                |
 | S164                         | 161 (`ObjectLiteral`)                                             | U           | The wrapper must preserve response status, status text, and headers; add metadata assertions.                                                              |
 | S165, S166, S167, S168       | 166-169 (`ObjectLiteral`)                                         | U           | `redirected`, `type`, and `url` are fetch response metadata; add a transparent-wrapper metadata case.                                                      |
+
+#### Child layer 3 repair result (2026-08-15; PR #393 active)
+
+The baseline inventory above remains historical. This active child layer adds
+request-context, request-size, session, and non-SSE response-limit assertions
+only; `mcp-bounded-fetch.ts` is unchanged
+(`sha256 8b6a369cfd943073043f393ce4ff4ce67106ba0aad9e6bbb8b0a56af0cb7eeef`).
+The direct suite grows from 11 to 38 tests and covers HTTP/RPC context fallback,
+every explicitly sized `BodyInit` branch, zero/exact/unsupported request limits,
+session callback absence, strict `Content-Length` parsing, bodyless responses,
+and exact streamed response boundaries.
+
+- Native Stryker killed 39 of the 42 baseline layer-3 `U` mutants, including
+  every request-size, session, strict-header, claimed-length, bodyless-response,
+  and streamed exact-boundary mutant.
+- `S12` and `S16` are reclassified `E` for supported `BodyInit`: bypassing the
+  non-string early return only sends those values through `JSON.parse`
+  coercion, which fails and reaches the same catch result
+  `{ httpMethod, rpcMethod: null }`.
+- `NC58` is reclassified `E`: making the final Blob condition unconditional
+  still returns `undefined` for the remaining supported unsized bodies
+  (`ReadableStream` and `FormData`), while every sized type returned earlier.
+  A custom non-`BodyInit` object with a numeric `size` is outside the fetch
+  contract.
+- The exact layer-4 set remains queued unchanged: `S85`, `S113`, `S136`,
+  `S137`, `S139`, `S140`, `S146`, `S149`, `S151`, `S153`, `S163`, `S164`,
+  `S165`, `S166`, `S167`, and `S168`.
+
+The final native one-file command was
+`/usr/bin/time -v pnpm --filter api exec stryker run --mutate src/mcp/mcp-bounded-fetch.ts --testFiles src/mcp/mcp-bounded-fetch.test.ts`.
+It measured 169 mutants: 136 killed, 31 survived, 2 no coverage, 0 timeout,
+and 0 errors; mutation score 80.47% (covered-mutant rate 81.44%), 2:01.14 wall
+time, 237760 kB peak RSS, and 0 swaps. The memory preflight found 2.0 GiB
+available and no sustained swap traffic before the single-worker foreground
+run. No useful layer-3 `U` mutant remains; the 16 useful survivors are exactly
+the separately scoped layer-4 backlog.
 
 ##### `src/mcp/protected-values.ts`
 

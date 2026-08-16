@@ -75,9 +75,11 @@ not duplicate the ID lists in this plan.
 
 - [x] Child layer 1 (tool-id canonicalization/parser) is submitted as PR #391: three behavior-focused assertions, direct Vitest 17/17, API lint/typecheck green, and the targeted native mutation result recorded in the tracker.
 - [x] Child layer 2 (protected-values normalization/propagation) is submitted as PR #392: direct Vitest 16/16 and a 166-mutant one-file result of 86.14%; its tracker evidence accounts for all 24 baseline `U` gaps without production changes.
-- [ ] Child layers 3–4 remain queued for their own evidence-backed repair slices.
+- [x] Child layer 3 (bounded-fetch request/response limits) is submitted as PR #393: direct Vitest 38/38 and a 169-mutant one-file result of 80.47%; 39 baseline `U` gaps are killed and three are reclassified `E` without production changes.
+- [ ] Child layer 4 remains queued for its own SSE/cancellation/metadata repair slice.
 - [x] Submit child layer 1 as its own stack layer; it remains active until merge and is not marked shipped from this plan.
 - [x] Submit child layer 2 as its own stack layer; it remains active until merge and is not marked shipped from this plan.
+- [x] Submit child layer 3 as its own stack layer; it remains active until merge and is not marked shipped from this plan.
 
 ## Task 4: Complete current-pilot documentation for publication
 
