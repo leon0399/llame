@@ -1,5 +1,7 @@
-import { ChatPage } from "./components/chat-page";
+import { redirect } from "next/navigation";
+
+import { draftChatPath } from "@/lib/services/chat/draft-route";
 
 export default function Page() {
-  return <ChatPage />;
+  redirect(draftChatPath(crypto.randomUUID(), "fresh"));
 }

@@ -147,7 +147,11 @@ function renderChatPage(
     ...render(
       <QueryClientProvider client={queryClient}>
         <ChatProvider>
-          <ChatPage chatId={chatId} />
+          <ChatPage
+            chatId={chatId}
+            initialChatExists
+            initialDraftPhase={null}
+          />
         </ChatProvider>
       </QueryClientProvider>,
     ),

@@ -18,6 +18,9 @@ const FIXTURE_ANSWER =
 const FIXTURE_SOURCE_URL = "https://fixture.invalid/operator-mcp/current";
 const E2E_MODEL_ID = "system:openai:gpt-5.4-mini";
 const mcpFixtureUrl = `http://localhost:${process.env.E2E_MCP_PORT ?? "4304"}`;
+const apiUrl =
+  process.env.NEXT_PUBLIC_API_URL ??
+  `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
 
 type McpFixtureStats = {
   toolCalls: number;
@@ -33,6 +36,43 @@ test("operator MCP search settles and reconstructs from durable chat history", a
   const baselineStats = (await baseline.json()) as McpFixtureStats;
 
   await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}\?draft=fresh$/, {
+    timeout: 15_000,
+  });
+
+  const chatId = new URL(page.url()).pathname.split("/").pop();
+  if (!chatId) {
+    throw new Error(`Could not extract chat id from URL: ${page.url()}`);
+  }
+
+  let releaseHistory: () => void = () => undefined;
+  const historyRelease = new Promise<void>((resolve) => {
+    releaseHistory = resolve;
+  });
+  let markHistoryReachedApi: () => void = () => undefined;
+  const historyReachedApi = new Promise<void>((resolve) => {
+    markHistoryReachedApi = resolve;
+  });
+  let markHistoryCommitted: () => void = () => undefined;
+  const historyCommitted = new Promise<void>((resolve) => {
+    markHistoryCommitted = resolve;
+  });
+
+  await page.route(
+    (url) =>
+      url.origin === apiUrl &&
+      url.pathname === `/api/v1/chats/${chatId}/messages` &&
+      url.searchParams.has("limit"),
+    async (route) => {
+      const response = await route.fetch();
+      expect(response.ok(), `history returned ${response.status()}`).toBe(true);
+      markHistoryReachedApi();
+      await historyRelease;
+      await route.fulfill({ response });
+      markHistoryCommitted();
+    },
+    { times: 1 },
+  );
 
   await expect(
     page.getByRole("combobox", { name: "Select model" }),
@@ -58,6 +98,7 @@ test("operator MCP search settles and reconstructs from durable chat history", a
   await expect(page.getByRole("button", { name: "Send message" })).toBeVisible({
     timeout: 15_000,
   });
+  await historyReachedApi;
   const fixtureSource = log.getByRole("button", { name: "Fixture source" });
   const linkSafetyModal = page.locator('[data-streamdown="link-safety-modal"]');
   await expect(fixtureSource).toBeVisible();
@@ -65,9 +106,20 @@ test("operator MCP search settles and reconstructs from durable chat history", a
   await expect(
     linkSafetyModal.getByText(FIXTURE_SOURCE_URL, { exact: true }),
   ).toBeVisible();
+  releaseHistory();
+  await historyCommitted;
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+  await expect(linkSafetyModal).toBeVisible();
   await linkSafetyModal.getByRole("button", { name: "Close" }).click();
   await expect(linkSafetyModal).toBeHidden();
-  await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/, { timeout: 15_000 });
+  await expect(page).toHaveURL(new RegExp(`/chat/${chatId}$`), {
+    timeout: 15_000,
+  });
 
   await expect
     .poll(async () => {

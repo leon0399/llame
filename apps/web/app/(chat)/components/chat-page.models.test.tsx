@@ -98,7 +98,11 @@ function renderDraftChat() {
   return render(
     <QueryClientProvider client={queryClient}>
       <ChatProvider>
-        <ChatPage />
+        <ChatPage
+          chatId="a5dc235e-1de8-4aad-84d8-e0e247b6a135"
+          initialChatExists={false}
+          initialDraftPhase="fresh"
+        />
       </ChatProvider>
     </QueryClientProvider>,
   );
