@@ -15,7 +15,15 @@ import { type JsonSchemaDocument } from './types';
 function isZodSchema(
   schema: z.ZodTypeAny | JsonSchemaDocument,
 ): schema is z.ZodTypeAny {
-  return typeof (schema as z.ZodTypeAny).safeParse === 'function';
+  if (
+    schema === null ||
+    typeof schema !== 'object' ||
+    !('safeParse' in schema)
+  ) {
+    return false;
+  }
+
+  return typeof schema.safeParse === 'function';
 }
 
 const DIALECT_CONSTRUCTORS: Record<string, typeof Ajv> = {
@@ -149,12 +157,10 @@ export async function admitToolInputSchema(
   schema: z.ZodTypeAny | JsonSchemaDocument,
 ): Promise<ToolSchemaAdmission> {
   if (isZodSchema(schema)) {
+    const generatedSchema = await asSchema(schema).jsonSchema;
     return {
       success: true,
-      inputSchema: (await asSchema(schema).jsonSchema) as Record<
-        string,
-        unknown
-      >,
+      inputSchema: { ...generatedSchema },
     };
   }
 
@@ -216,7 +222,8 @@ export async function resolveJsonSchema(
   schema: z.ZodTypeAny | JsonSchemaDocument,
 ): Promise<Record<string, unknown>> {
   if (isZodSchema(schema)) {
-    return (await asSchema(schema).jsonSchema) as Record<string, unknown>;
+    const generatedSchema = await asSchema(schema).jsonSchema;
+    return { ...generatedSchema };
   }
   return schema;
 }

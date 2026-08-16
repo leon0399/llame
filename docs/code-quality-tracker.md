@@ -32,6 +32,7 @@ measurement needed before implementation.
 |    15 | active      | Persisted tool-observation validation   | Runtime record and safe-integer guards remove seven assertions; malformed replay and checkpoint writes fail closed; inventory reaches 274/81 |
 |    16 | active      | MCP declaration-schema canonicalization | A truthful outer-record overload plus typed fixtures remove five assertions without widening canonicalization; inventory reaches 269/79      |
 |    17 | active      | MCP SDK executor binding                | Two assertions removed; direct 59/59; `constructor` accepted; accessors/prototype-only names refused; inventory 267/77                       |
+|    18 | active      | Tool schema admission                   | Three production assertions removed; structural Zod evidence and owned generated schemas; focused 89/89; inventory 264/76                    |
 
 ## Published PR stack
 
@@ -79,6 +80,7 @@ layer is merged or shipped. Layer state remains active until merge.
 |    37 | #396 | Persisted tool-observation validation |
 |    38 | #397 | MCP schema canonicalization           |
 |    39 | #398 | MCP SDK executor binding              |
+|    40 | #399 | Tool schema admission                 |
 
 ## Current submission
 
@@ -86,6 +88,7 @@ layer is merged or shipped. Layer state remains active until merge.
 | --------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---- |
 | submitted | MCP declaration-schema canonicalization | `0bf5468` removes five schema-boundary assertions with a truthful record overload and typed fixtures; native inventory reaches 269/79 | #397 |
 | submitted | MCP SDK executor binding                | `d9c96cb6` removes the final MCP production and paired test assertions; inventory 267/77                                              | #398 |
+| submitted | Tool schema admission                   | `24905194` removes three production assertions while preserving raw schema identity and dialects; inventory 264/76                    | #399 |
 
 ## Inventory
 
@@ -120,7 +123,7 @@ layer is merged or shipped. Layer state remains active until merge.
 | active      | Chat-loop transaction binding removed the final forged database assertion                                | 17 orchestration cases use the real `TenantDbService`/Drizzle transaction boundary; 3 pre-transaction guards remain fast units                                       |
 | done        | Zero owned application/test matches remain                                                               | Full-tree inventory reports zero across tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                                            |
 | active      | Full-tree double-assertion enforcement                                                                   | Pinned native rules include owned hidden directories and run through the same package script in Lefthook/CI; the diff script is deleted                              |
-| active      | API unsafe narrowing assertions are measured for zero-baseline migration                                 | Native type-aware Oxlint fell from 282/83 to 281/82, 274/81, 269/79 then 267/77 after MCP executor binding; coherent slices must reach zero before enabling the rule |
+| active      | API unsafe narrowing assertions are measured for zero-baseline migration                                 | Native type-aware Oxlint fell from 282/83 to 281/82, 274/81, 269/79, 267/77 then 264/76 after schema layer; coherent slices must reach zero before rule's enablement |
 | investigate | Direct `any` and non-null assertions                                                                     | Classify production vs test/integration scaffolding before enabling restriction rules                                                                                |
 
 The unsafe-assertion baseline was measured from
@@ -149,6 +152,10 @@ final MCP production assertion and its direct-test parser assertion with own dat
 property evidence and runtime JSON validation. The same inventory now reports 267
 diagnostics across 77 files; MCP production files have zero remaining findings,
 while MCP test, integration, and fixture debt remains in later slices.
+The tool schema-admission layer then replaces three production assertions with
+structural Zod evidence and owned copies of AI SDK-generated schemas. Raw JSON
+Schema documents retain their identity and draft-specific behavior; the inventory
+now reports 264 diagnostics across 76 files.
 
 ### Lint and formatting
 
