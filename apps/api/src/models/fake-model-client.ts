@@ -1,10 +1,12 @@
-import type { LanguageModelUsage, TextStreamPart, streamText } from 'ai';
+import {
+  simulateReadableStream,
+  streamText,
+  type LanguageModelUsage,
+} from 'ai';
+import { MockLanguageModelV3 } from 'ai/test';
+import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 
 import type { ModelClient, ModelStreamInput } from './model-client';
-
-type TextStream = AsyncIterable<string> & ReadableStream<string>;
-type FullStream = AsyncIterable<TextStreamPart<never>> &
-  ReadableStream<TextStreamPart<never>>;
 
 export const ZERO_USAGE: LanguageModelUsage = {
   inputTokens: 0,
@@ -40,111 +42,102 @@ export function createFakeModelClient(
           ? ''
           : responses[responseIndex++ % responses.length];
 
-      // #73 fidelity: like the real AI SDK, callbacks fire on CONSUMPTION —
-      // during the first stream read (or text/consumeStream access), awaited,
-      // never synchronously at call time.
-      let finishOnce: Promise<void> | undefined;
-      const finish = () =>
-        (finishOnce ??= (async () => {
-          if (response.length > 0) {
-            input.onTextDelta?.(response);
-          }
-          await input.onFinish?.({
-            text: response,
-            usage: ZERO_USAGE,
-            finishReason: 'stop',
-          });
-        })());
+      const chunks: LanguageModelV3StreamPart[] = [
+        { type: 'stream-start', warnings: [] },
+        { type: 'text-start', id: 'fake-response' },
+      ];
 
-      return createFakeStreamTextResult(response, finish);
+      if (response.length > 0) {
+        chunks.push({
+          type: 'text-delta',
+          id: 'fake-response',
+          delta: response,
+        });
+      }
+
+      chunks.push(
+        { type: 'text-end', id: 'fake-response' },
+        {
+          type: 'finish',
+          finishReason: { unified: 'stop', raw: undefined },
+          usage: {
+            inputTokens: {
+              total: 0,
+              noCache: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+            },
+            outputTokens: { total: 0, text: 0, reasoning: 0 },
+          },
+        },
+      );
+
+      let resolveCompletion: () => void = () => undefined;
+      let rejectCompletion: (reason?: unknown) => void = () => undefined;
+      const completion = new Promise<void>((resolve, reject) => {
+        resolveCompletion = resolve;
+        rejectCompletion = reject;
+      });
+      const result = streamText({
+        model: new MockLanguageModelV3({
+          provider: 'fake',
+          modelId: 'fake-model',
+          doStream: () =>
+            Promise.resolve({
+              stream: simulateReadableStream({ chunks }),
+            }),
+        }),
+        messages: input.messages,
+        system: input.system,
+        abortSignal: input.abortSignal,
+        ...(input.tools
+          ? {
+              tools: input.tools,
+              ...(input.toolChoice !== undefined
+                ? { toolChoice: input.toolChoice }
+                : {}),
+            }
+          : {}),
+        onChunk: ({ chunk }) => {
+          if (chunk.type === 'text-delta') {
+            input.onTextDelta?.(chunk.text);
+          } else if (chunk.type === 'reasoning-delta') {
+            input.onReasoningDelta?.(chunk.text);
+          }
+        },
+        onError: async (event) => {
+          try {
+            await input.onError?.(event);
+            resolveCompletion();
+          } catch (error) {
+            rejectCompletion(error);
+          }
+        },
+        onFinish: async (event) => {
+          try {
+            await input.onFinish?.({
+              text: event.text,
+              usage: ZERO_USAGE,
+              finishReason: event.finishReason,
+            });
+            resolveCompletion();
+          } catch (error) {
+            rejectCompletion(error);
+          }
+        },
+      });
+
+      return new Proxy(result, {
+        get(target, property, receiver): unknown {
+          if (property === 'text') {
+            return Promise.all([target.text, completion]).then(
+              ([text]) => text,
+            );
+          }
+
+          return Reflect.get(target, property, receiver);
+        },
+      });
     },
   };
-}
-
-function createFakeStreamTextResult(
-  response: string,
-  finish: () => Promise<void>,
-): ReturnType<typeof streamText> {
-  return {
-    // Lazy getter: accessing `text` consumes the (fake) stream, like the SDK.
-    get text() {
-      return finish().then(() => response);
-    },
-    textStream: createTextStream(response, finish),
-    fullStream: createFullStream(response, finish),
-    consumeStream: () => finish(),
-  } as unknown as ReturnType<typeof streamText>;
-}
-
-function createTextStream(
-  response: string,
-  finish: () => Promise<void>,
-): TextStream {
-  let emitted = false;
-  return new ReadableStream<string>(
-    {
-      // pull (not start): runs on the first READ, so an unconsumed stream never
-      // fires callbacks — the consumption-driven timing of the real SDK.
-      async pull(controller) {
-        if (emitted) {
-          controller.close();
-          return;
-        }
-        emitted = true;
-        if (response.length > 0) {
-          controller.enqueue(response);
-        }
-        await finish();
-        controller.close();
-      },
-      // highWaterMark 0: a default stream pre-fills its queue by calling pull()
-      // once AT CONSTRUCTION (WHATWG streams §pull steps) — which would fire
-      // the callbacks with no consumer and break consumption-driven timing.
-      // With 0, pull runs only on an actual read request.
-    },
-    { highWaterMark: 0 },
-  ) as TextStream;
-}
-
-function createFullStream(
-  response: string,
-  finish: () => Promise<void>,
-): FullStream {
-  let emitted = false;
-  return new ReadableStream<TextStreamPart<never>>(
-    {
-      // pull (not start): consumption-driven like textStream — reading the full
-      // stream fires the same once-only callbacks as the real SDK, where
-      // onTextDelta/onFinish fire regardless of which interface is consumed.
-      async pull(controller) {
-        if (emitted) {
-          controller.close();
-          return;
-        }
-        emitted = true;
-        controller.enqueue({ type: 'text-start', id: 'fake-response' });
-
-        if (response.length > 0) {
-          controller.enqueue({
-            type: 'text-delta',
-            id: 'fake-response',
-            text: response,
-          });
-        }
-
-        controller.enqueue({ type: 'text-end', id: 'fake-response' });
-        await finish();
-        controller.enqueue({
-          type: 'finish',
-          finishReason: 'stop',
-          rawFinishReason: undefined,
-          totalUsage: ZERO_USAGE,
-        });
-        controller.close();
-      },
-      // highWaterMark 0 — same construction-time pull() consideration as
-      // createTextStream above.
-    },
-    { highWaterMark: 0 },
-  ) as FullStream;
 }
