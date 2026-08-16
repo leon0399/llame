@@ -1,11 +1,22 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
+import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
 import { SESSION_COOKIE_NAME } from './auth/constants';
 
 const DEFAULT_DEV_WEB_ORIGIN = 'http://localhost:3000';
 
+export type AppSetupApplication = Pick<
+  INestApplication,
+  'enableCors' | 'useGlobalPipes'
+> & {
+  getHttpAdapter: () => Pick<
+    ReturnType<INestApplication['getHttpAdapter']>,
+    'getInstance'
+  >;
+};
+
 export function configureApp(
-  app: INestApplication,
+  app: AppSetupApplication,
   trustProxy?: string | null,
 ): void {
   // Reliable client IP behind a reverse proxy (#68, SPEC §22.0): without this,

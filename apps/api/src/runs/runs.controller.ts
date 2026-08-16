@@ -3,6 +3,7 @@ import {
   ConflictException,
   Controller,
   Get,
+  Inject,
   Logger,
   NotFoundException,
   Param,
@@ -24,7 +25,7 @@ import {
 import type { Request, Response as ExpressResponse } from 'express';
 
 import { CurrentUser } from '../auth/auth-context';
-import { TenantDbService } from '../db/tenant-db.service';
+import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { type Run, type RunEvent } from '../db/schema';
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
@@ -62,7 +63,7 @@ export class RunsController {
   private readonly logger = new Logger(RunsController.name);
 
   constructor(
-    private readonly tenantDb: TenantDbService,
+    @Inject(TenantDbService) private readonly tenantDb: TenantRunner,
     private readonly aborts: RunAbortRegistry,
   ) {}
 

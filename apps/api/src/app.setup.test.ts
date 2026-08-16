@@ -1,27 +1,33 @@
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
-import type { INestApplication } from '@nestjs/common';
-import { configureApp, getTrustProxySetting } from './app.setup';
+import {
+  configureApp,
+  getTrustProxySetting,
+  type AppSetupApplication,
+} from './app.setup';
 import { RegisterDto } from './auth/dto/auth.dto';
 
 describe('configureApp', () => {
   it('installs a fail-closed global ValidationPipe', () => {
     const useGlobalPipes = vi.fn();
     const enableCors = vi.fn();
-    const app = {
+    const app: AppSetupApplication = {
       useGlobalPipes,
       enableCors,
-    } as unknown as INestApplication;
+      getHttpAdapter: vi.fn(),
+    };
 
     configureApp(app);
 
     expect(useGlobalPipes).toHaveBeenCalledWith(expect.any(ValidationPipe));
-    const [[pipe]] = useGlobalPipes.mock.calls as [[ValidationPipe]];
-    expect(
-      (pipe as unknown as { validatorOptions: unknown }).validatorOptions,
-    ).toMatchObject({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-    });
+    expect(useGlobalPipes).toHaveBeenCalledWith(
+      expect.objectContaining({
+        validatorOptions: {
+          forbidUnknownValues: false,
+          whitelist: true,
+          forbidNonWhitelisted: true,
+        },
+      }),
+    );
   });
 
   it('enables credentialed CORS for the configured web origin allowlist', () => {
@@ -31,10 +37,11 @@ describe('configureApp', () => {
 
     const useGlobalPipes = vi.fn();
     const enableCors = vi.fn();
-    const app = {
+    const app: AppSetupApplication = {
       useGlobalPipes,
       enableCors,
-    } as unknown as INestApplication;
+      getHttpAdapter: vi.fn(),
+    };
 
     try {
       configureApp(app);
@@ -58,10 +65,11 @@ describe('configureApp', () => {
     process.env.NODE_ENV = 'production';
     delete process.env.WEB_ORIGIN;
 
-    const app = {
+    const app: AppSetupApplication = {
       useGlobalPipes: vi.fn(),
       enableCors: vi.fn(),
-    } as unknown as INestApplication;
+      getHttpAdapter: vi.fn(),
+    };
 
     try {
       expect(() => configureApp(app)).toThrow(/WEB_ORIGIN/);
@@ -81,10 +89,11 @@ describe('configureApp', () => {
 
   it('fails closed when a web origin carries a path or trailing slash', () => {
     const originalWebOrigin = process.env.WEB_ORIGIN;
-    const app = {
+    const app: AppSetupApplication = {
       useGlobalPipes: vi.fn(),
       enableCors: vi.fn(),
-    } as unknown as INestApplication;
+      getHttpAdapter: vi.fn(),
+    };
 
     try {
       for (const bad of [
@@ -108,10 +117,11 @@ describe('configureApp', () => {
     const originalWebOrigin = process.env.WEB_ORIGIN;
     process.env.WEB_ORIGIN = '*';
 
-    const app = {
+    const app: AppSetupApplication = {
       useGlobalPipes: vi.fn(),
       enableCors: vi.fn(),
-    } as unknown as INestApplication;
+      getHttpAdapter: vi.fn(),
+    };
 
     try {
       expect(() => configureApp(app)).toThrow(/\*/);
@@ -126,11 +136,11 @@ describe('configureApp', () => {
 
   it('does not touch the Express trust-proxy setting when no trustProxy value is resolved', () => {
     const getHttpAdapter = vi.fn();
-    const app = {
+    const app: AppSetupApplication = {
       useGlobalPipes: vi.fn(),
       enableCors: vi.fn(),
       getHttpAdapter,
-    } as unknown as INestApplication;
+    };
 
     configureApp(app, null);
 
@@ -142,11 +152,11 @@ describe('configureApp', () => {
     const getHttpAdapter = vi.fn(() => ({
       getInstance: () => ({ set }),
     }));
-    const app = {
+    const app: AppSetupApplication = {
       useGlobalPipes: vi.fn(),
       enableCors: vi.fn(),
       getHttpAdapter,
-    } as unknown as INestApplication;
+    };
 
     configureApp(app, '1');
 

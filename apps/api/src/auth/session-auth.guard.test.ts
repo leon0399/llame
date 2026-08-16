@@ -1,30 +1,22 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 
 import { UnauthorizedException } from '@nestjs/common';
-import type { ExecutionContext } from '@nestjs/common';
-import type { Reflector } from '@nestjs/core';
-import { SessionAuthGuard } from './session-auth.guard';
+import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
+import {
+  SessionAuthGuard,
+  type SessionAuthReflector,
+} from './session-auth.guard';
 import type { AuthService } from './auth.service';
 
-import type { Mocked } from 'vitest';
-function makeContext(request: Record<string, unknown>): ExecutionContext {
-  return {
-    switchToHttp: () => ({
-      getRequest: () => request,
-    }),
-    getHandler: () => undefined,
-    getClass: () => undefined,
-  } as unknown as ExecutionContext;
-}
-
 describe('SessionAuthGuard', () => {
-  function makeGuard(validateToken = vi.fn(), isPublic = false) {
-    const authService = {
-      validateToken,
-    } as unknown as Mocked<AuthService>;
-    const reflector = {
+  function makeGuard(
+    validateToken = vi.fn<AuthService['validateToken']>(),
+    isPublic = false,
+  ) {
+    const authService = { validateToken };
+    const reflector: SessionAuthReflector = {
       getAllAndOverride: vi.fn().mockReturnValue(isPublic),
-    } as unknown as Reflector;
+    };
     return {
       guard: new SessionAuthGuard(authService, reflector),
       authService,
@@ -42,9 +34,13 @@ describe('SessionAuthGuard', () => {
       },
     };
 
-    await expect(guard.canActivate(makeContext(request))).resolves.toBe(true);
+    await expect(
+      guard.canActivate(new ExecutionContextHost([request])),
+    ).resolves.toBe(true);
 
-    expect(authService.validateToken).toHaveBeenCalledWith('bearer-token');
+    expect(authService.validateToken.mock.calls).toContainEqual([
+      'bearer-token',
+    ]);
     expect(request).toHaveProperty('authContext', {
       userId: 'user-1',
       sessionId: 'session-1',
@@ -59,7 +55,9 @@ describe('SessionAuthGuard', () => {
       headers: { authorization: 'bearer    spaced-token' },
     };
 
-    await expect(guard.canActivate(makeContext(request))).resolves.toBe(true);
+    await expect(
+      guard.canActivate(new ExecutionContextHost([request])),
+    ).resolves.toBe(true);
     expect(authService.validateToken).toHaveBeenCalledWith('spaced-token');
   });
 
@@ -73,7 +71,9 @@ describe('SessionAuthGuard', () => {
       },
     };
 
-    await expect(guard.canActivate(makeContext(request))).resolves.toBe(true);
+    await expect(
+      guard.canActivate(new ExecutionContextHost([request])),
+    ).resolves.toBe(true);
 
     expect(authService.validateToken).toHaveBeenCalledWith('cookie-token');
   });
@@ -82,7 +82,7 @@ describe('SessionAuthGuard', () => {
     const { guard } = makeGuard();
 
     await expect(
-      guard.canActivate(makeContext({ headers: {} })),
+      guard.canActivate(new ExecutionContextHost([{ headers: {} }])),
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
@@ -90,24 +90,20 @@ describe('SessionAuthGuard', () => {
     const { guard } = makeGuard();
 
     await expect(
-      guard.canActivate({
-        switchToHttp: () => ({
-          getRequest: () => ({
-            headers: { cookie: 'llame_session=%E0%A4%A' },
-          }),
-        }),
-        getHandler: () => undefined,
-        getClass: () => undefined,
-      } as unknown as ExecutionContext),
+      guard.canActivate(
+        new ExecutionContextHost([
+          { headers: { cookie: 'llame_session=%E0%A4%A' } },
+        ]),
+      ),
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('lets a @Public() route through without any token (#68)', async () => {
     const { guard, authService } = makeGuard(vi.fn(), true);
 
-    await expect(guard.canActivate(makeContext({ headers: {} }))).resolves.toBe(
-      true,
-    );
+    await expect(
+      guard.canActivate(new ExecutionContextHost([{ headers: {} }])),
+    ).resolves.toBe(true);
     expect(authService.validateToken).not.toHaveBeenCalled();
   });
 
@@ -116,7 +112,9 @@ describe('SessionAuthGuard', () => {
 
     await expect(
       guard.canActivate(
-        makeContext({ headers: { authorization: 'Bearer revoked-token' } }),
+        new ExecutionContextHost([
+          { headers: { authorization: 'Bearer revoked-token' } },
+        ]),
       ),
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });

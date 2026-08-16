@@ -210,7 +210,7 @@ function getSessionMetadata(request: Request): SessionMetadata {
 }
 
 export function setSessionCookie(
-  response: Response,
+  response: Pick<Response, 'cookie'>,
   token: string,
   expires: Date,
   options: CookieOptions = getSessionCookieOptions(),
@@ -222,7 +222,7 @@ export function setSessionCookie(
 }
 
 export function clearSessionCookie(
-  response: Response,
+  response: Pick<Response, 'clearCookie'>,
   options: CookieOptions = getSessionCookieOptions(),
 ): void {
   response.clearCookie(SESSION_COOKIE_NAME, options);

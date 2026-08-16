@@ -24,10 +24,10 @@ describe('auth session cookies', () => {
     const expires = new Date('2030-01-01T00:00:00.000Z');
     const cookie = vi.fn();
     const clearCookie = vi.fn();
-    const response = {
+    const response: Pick<Response, 'cookie' | 'clearCookie'> = {
       cookie,
       clearCookie,
-    } as unknown as Response;
+    };
 
     setSessionCookie(response, 'raw-session-token', expires);
     clearSessionCookie(response);
@@ -55,10 +55,10 @@ describe('auth session cookies', () => {
   it('fails closed in production when the session cookie domain is missing', () => {
     process.env.NODE_ENV = 'production';
     delete process.env.SESSION_COOKIE_DOMAIN;
-    const response = {
+    const response: Pick<Response, 'cookie' | 'clearCookie'> = {
       cookie: vi.fn(),
       clearCookie: vi.fn(),
-    } as unknown as Response;
+    };
 
     expect(() =>
       setSessionCookie(response, 'raw-session-token', new Date()),
