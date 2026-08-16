@@ -18,7 +18,7 @@ required.
 |     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass                 |
 |     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction    |
 |     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                       |
-|     5 | active      | Remaining cast slices                   | Standard SDK/framework types remove 75 assertions across adapter, HTTP, controller, integration, and worker tests; 5 remain |
+|     5 | active      | Remaining cast slices                   | Standard SDK/framework types remove 77 assertions across adapter, HTTP, controller, integration, and worker tests; 3 remain |
 |     6 | queued      | Full-tree double-assertion prohibition  | One native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI          |
 |     7 | investigate | Constructor decorator placement (#286)  | 11 inline vs 35 split `@Inject` parameters measured; select maintained enforcement before one all-split codemod             |
 |     8 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                                  |
@@ -49,6 +49,7 @@ required.
 |    18 | #377 | Tool tenant-context types           |
 |    19 | #378 | Source-owned service capabilities   |
 |    20 | #379 | Runtime-boundary negative fixtures  |
+|    21 | #380 | Worker database/lifecycle fixtures  |
 
 ## Inventory
 
@@ -78,8 +79,9 @@ required.
 | active      | Tool-context units removed 2 concrete tenant-database assertions                                         | Existing `TenantRunner`, Drizzle's mock DB, and a repository spy exercise the real callback boundary; units 23/23                         |
 | active      | Remaining service fixtures removed 2 concrete-service assertions                                         | Existing `RunStreamResponder` plus source-owned `ChatReindexDispatcher` capabilities replace concrete bridge/dispatch fixtures            |
 | active      | Negative runtime fixtures removed 3 double assertions                                                    | Structural supersets and accurately broad validated inputs replace casts without weakening `User`, registered `Tool`, or `MessagePart`    |
-| queued      | 5 owned application/test matches remain after the completed slices                                       | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                   |
-| queued      | Next clusters: 5 database/lifecycle boundary matches                                                     | Group by boundary and remedy; do not chase count mechanically                                                                             |
+| active      | Database/lifecycle boundaries removed 2 double assertions                                                | Native Drizzle mock replaces an unused forged chain; typed factory client ownership preserves graceful worker teardown                    |
+| queued      | 3 owned application/test matches remain after the completed slices                                       | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                   |
+| queued      | Next: repository SQL logging and real transaction coverage                                               | Replace simulated Drizzle builders with native query logging or real Postgres; no intersected fake methods                                |
 | investigate | Direct `any`, non-null assertions, and stale ESLint disables                                             | Classify production vs test/integration scaffolding before enabling restriction rules                                                     |
 
 ### Lint and formatting

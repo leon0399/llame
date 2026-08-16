@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Removed two double assertions from worker database/lifecycle test
+  infrastructure. Runs-worker units now delete an unused handcrafted query
+  chain and use Drizzle's native mock database; the worker harness retrieves
+  the native Drizzle factory intersection exposing its postgres.js client
+  instead of recasting the database during teardown. Runs-worker units pass
+  8/8 and real-Postgres worker harness integrations pass 10/10;
+  application/test debt falls from 5 to 3. The remaining simulated builders must move to native query
+  logging or real Postgres rather than hiding incompatible methods in an
+  intersection.
+
 - Removed three double assertions from negative runtime-boundary fixtures.
   Future user columns now rely on structural supersets; tool registration
   accepts unknown classification input only at the boundary that validates
