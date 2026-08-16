@@ -67,6 +67,8 @@ Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in pr
 ## Conventions
 
 - TypeScript only across web/api/worker — no second backend language (SPEC.md §23).
+- Double assertions through `unknown` (`as unknown as T`) are prohibited project-wide. Narrow the consumer's required capability or validate the boundary instead.
+- Modified cyclomatic complexity must remain `<= 35` under Oxlint's `modified` variant. Extract only along a real responsibility boundary; arbitrary helper extraction, inline disables, and other metric gaming are prohibited.
 - Drizzle ORM for all DB access; generate migrations with `drizzle-kit`, never hand-write migration SQL.
 - Conventional commits (e.g. `feat(api):`, `docs(spec):`).
 - Tests follow [docs/testing.md](docs/testing.md): `*.test.ts(x)` is Vitest everywhere (`.integration` infix = needs real Postgres; root `e2e/` is Playwright's island); component behavior belongs in Storybook stories, not jsdom render tests; DB-backed suites fail loudly, never skip silently.

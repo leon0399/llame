@@ -8,9 +8,13 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
-import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
+import {
+  TenantDbService,
+  type Db,
+  type TenantRunner,
+} from '../db/tenant-db.service';
 import { assertNotArchived } from '../db/assert-not-archived';
-import { type Message, type Run } from '../db/schema';
+import { type Chat, type Message, type Run } from '../db/schema';
 import {
   InstanceConfigService,
   type InstanceConfigReader,
@@ -60,6 +64,7 @@ import {
   MemoryService,
   type MemorySettingsBindingResolver,
   type MemorySettingsResolver,
+  type ResolvedMemorySettings,
 } from '../memory/memory.service';
 import {
   createRecencyDigestDeltaPart,
@@ -68,6 +73,7 @@ import {
 import {
   deriveRecencyDigestDelta,
   RecencyDigestService,
+  type RecencyDigestDelta,
   type RecencyDigestResolution,
   type RecencyDigestResolver,
 } from './recency-digest.service';
@@ -77,6 +83,19 @@ type RuntimeCatalogSnapshotter = Pick<McpRuntimeService, 'snapshotCandidates'>;
 export type ChatMessageInput = {
   id: string;
   parts: MessagePart[];
+};
+
+type PersistUserMessageAndRunInput = {
+  chatId: string;
+  userId: string;
+  modelId: string;
+  message: ChatMessageInput;
+  targetRunId: string;
+  model: SystemModelCatalogEntry;
+  user: Parameters<SystemPromptsService['render']>[1];
+  allowedToolRules: readonly string[];
+  dynamicCandidates: readonly TurnToolCandidate[];
+  digestCandidate?: RecencyDigestResolution;
 };
 
 type ChatMessageStream = Pick<
@@ -219,18 +238,9 @@ export class ChatLoopService {
     };
   }
 
-  private async persistUserMessageAndRun(input: {
-    chatId: string;
-    userId: string;
-    modelId: string;
-    message: ChatMessageInput;
-    targetRunId: string;
-    model: SystemModelCatalogEntry;
-    user: Parameters<SystemPromptsService['render']>[1];
-    allowedToolRules: readonly string[];
-    dynamicCandidates: readonly TurnToolCandidate[];
-    digestCandidate?: RecencyDigestResolution;
-  }): Promise<{
+  private async persistUserMessageAndRun(
+    input: PersistUserMessageAndRunInput,
+  ): Promise<{
     runId: string;
     userMessage: RunUserMessage;
     supersededRunIds: string[];
@@ -341,92 +351,15 @@ export class ChatLoopService {
             })
           : null;
 
-      let systemPrompt: string;
-      try {
-        systemPrompt = this.systemPrompts.render(
-          input.model,
-          input.user,
-          chat.recencyDigestBaseline ?? undefined,
-        );
-      } catch (error) {
-        if (chat.recencyDigestBaseline === null) throw error;
-        this.logger.error('recency_digest_render_failed');
-        throw new Error('Failed to render system prompt');
-      }
-      const effectiveContext: EffectiveContextSnapshotInput =
-        await resolveEffectiveContext({
-          model: input.model,
-          systemPrompt,
-          allowedToolRules: input.allowedToolRules,
-          callTimeoutSeconds:
-            this.instanceConfig.config.tools.callTimeoutSeconds,
-          dynamicCandidates: input.dynamicCandidates,
-        });
-
       let userMessage: Message | undefined = turn.userMessage;
-      const runsRepo = new RunsRepository(tx);
-      const previousRun = await runsRepo.findMostRecentByChatMessageSequence(
-        input.chatId,
-        input.userId,
-      );
-      const snapshotsRepo = new ModelContextSnapshotsRepository(tx);
-      const previousSnapshot = previousRun
-        ? await snapshotsRepo.findByOwnedRun(previousRun.id, input.userId)
-        : undefined;
-      const activeCompaction = previousRun
-        ? await new CompactionsRepository(tx).findLatestByChatId(
-            input.chatId,
-            input.userId,
-          )
-        : undefined;
-      const startsDisclosureEpoch =
-        !previousSnapshot ||
-        (activeCompaction !== undefined &&
-          previousRun !== undefined &&
-          activeCompaction.createdAt > previousRun.createdAt);
-      const digestRebaked =
-        activeCompaction !== undefined &&
-        previousRun !== undefined &&
-        chat.recencyDigestRebakedFrom === activeCompaction.id &&
-        activeCompaction.createdAt > previousRun.createdAt;
-      const availabilityPart = createToolAvailabilityPart({
-        runId: input.targetRunId,
-        current: effectiveContext.toolAvailabilityManifest,
-        ...(!startsDisclosureEpoch
-          ? { previous: previousSnapshot.toolAvailabilityManifest }
-          : {}),
-      });
-      const modelSwitchPart =
-        previousRun && previousRun.modelId !== input.modelId
-          ? createModelSwitchPart({
-              fromModelId: previousRun.modelId,
-              toModelId: input.modelId,
-              runId: input.targetRunId,
-            })
-          : undefined;
-      const digestDeltaPart = digestDelta
-        ? createRecencyDigestDeltaPart({
-            runId: input.targetRunId,
-            entries: digestDelta.entries,
-            pinChanges: digestDelta.pinChanges,
-          })
-        : undefined;
-      // Compaction is the one context boundary that re-bakes the digest. A
-      // model switch changes only the provider reading unchanged history, so
-      // refreshing there would silently change what the assistant knows.
-      const digestSupersessionPart =
-        digestRebaked &&
-        chat.recencyDigestBaseline !== null &&
-        shareRecentChats?.shareRecentChats === true
-          ? createRecencyDigestSupersessionPart({ runId: input.targetRunId })
-          : undefined;
-      const messageParts = [
-        ...(modelSwitchPart ? [modelSwitchPart] : []),
-        ...(availabilityPart ? [availabilityPart] : []),
-        ...(digestSupersessionPart ? [digestSupersessionPart] : []),
-        ...(digestDeltaPart ? [digestDeltaPart] : []),
-        ...input.message.parts,
-      ];
+      const { effectiveContext, messageParts } =
+        await this.buildTurnContextAndParts({
+          tx,
+          chat,
+          turnInput: input,
+          shareRecentChats,
+          digestDelta,
+        });
 
       if (!userMessage) {
         userMessage = await messagesRepo.createUserMessageIfAbsent({
@@ -454,6 +387,7 @@ export class ChatLoopService {
       // record. Reusing a message id is rejected above; retries are a separate
       // feature, not implicit idempotency.
       const eventsRepo = new RunEventsRepository(tx);
+      const snapshotsRepo = new ModelContextSnapshotsRepository(tx);
       const snapshot = await snapshotsRepo.createOrReuse(
         input.userId,
         effectiveContext,
@@ -462,6 +396,7 @@ export class ChatLoopService {
       // Defensive cleanup for impossible legacy state: a freshly inserted
       // message should have no older active runs, but if dev data violates that
       // invariant, canceling them preserves the per-chat single-flight slot.
+      const runsRepo = new RunsRepository(tx);
       const superseded = await runsRepo.cancelActiveRunsForMessage(
         userMessage.id,
         input.userId,
@@ -566,6 +501,107 @@ export class ChatLoopService {
         supersededRunIds: superseded.map((stale) => stale.id),
       };
     });
+  }
+
+  private async buildTurnContextAndParts(input: {
+    tx: Db;
+    chat: Chat;
+    turnInput: PersistUserMessageAndRunInput;
+    shareRecentChats: ResolvedMemorySettings;
+    digestDelta: RecencyDigestDelta | null;
+  }): Promise<{
+    effectiveContext: EffectiveContextSnapshotInput;
+    messageParts: MessagePart[];
+  }> {
+    const { tx, chat, turnInput, shareRecentChats, digestDelta } = input;
+    let systemPrompt: string;
+    try {
+      systemPrompt = this.systemPrompts.render(
+        turnInput.model,
+        turnInput.user,
+        chat.recencyDigestBaseline ?? undefined,
+      );
+    } catch (error) {
+      if (chat.recencyDigestBaseline === null) throw error;
+      this.logger.error('recency_digest_render_failed');
+      throw new Error('Failed to render system prompt');
+    }
+    const effectiveContext: EffectiveContextSnapshotInput =
+      await resolveEffectiveContext({
+        model: turnInput.model,
+        systemPrompt,
+        allowedToolRules: turnInput.allowedToolRules,
+        callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
+        dynamicCandidates: turnInput.dynamicCandidates,
+      });
+
+    const runsRepo = new RunsRepository(tx);
+    const previousRun = await runsRepo.findMostRecentByChatMessageSequence(
+      turnInput.chatId,
+      turnInput.userId,
+    );
+    const snapshotsRepo = new ModelContextSnapshotsRepository(tx);
+    const previousSnapshot = previousRun
+      ? await snapshotsRepo.findByOwnedRun(previousRun.id, turnInput.userId)
+      : undefined;
+    const activeCompaction = previousRun
+      ? await new CompactionsRepository(tx).findLatestByChatId(
+          turnInput.chatId,
+          turnInput.userId,
+        )
+      : undefined;
+    const startsDisclosureEpoch =
+      !previousSnapshot ||
+      (activeCompaction !== undefined &&
+        previousRun !== undefined &&
+        activeCompaction.createdAt > previousRun.createdAt);
+    const digestRebaked =
+      activeCompaction !== undefined &&
+      previousRun !== undefined &&
+      chat.recencyDigestRebakedFrom === activeCompaction.id &&
+      activeCompaction.createdAt > previousRun.createdAt;
+    const availabilityPart = createToolAvailabilityPart({
+      runId: turnInput.targetRunId,
+      current: effectiveContext.toolAvailabilityManifest,
+      ...(!startsDisclosureEpoch
+        ? { previous: previousSnapshot.toolAvailabilityManifest }
+        : {}),
+    });
+    const modelSwitchPart =
+      previousRun && previousRun.modelId !== turnInput.modelId
+        ? createModelSwitchPart({
+            fromModelId: previousRun.modelId,
+            toModelId: turnInput.modelId,
+            runId: turnInput.targetRunId,
+          })
+        : undefined;
+    const digestDeltaPart = digestDelta
+      ? createRecencyDigestDeltaPart({
+          runId: turnInput.targetRunId,
+          entries: digestDelta.entries,
+          pinChanges: digestDelta.pinChanges,
+        })
+      : undefined;
+    // Compaction is the one context boundary that re-bakes the digest. A
+    // model switch changes only the provider reading unchanged history, so
+    // refreshing there would silently change what the assistant knows.
+    const digestSupersessionPart =
+      digestRebaked &&
+      chat.recencyDigestBaseline !== null &&
+      shareRecentChats?.shareRecentChats === true
+        ? createRecencyDigestSupersessionPart({
+            runId: turnInput.targetRunId,
+          })
+        : undefined;
+    const messageParts: MessagePart[] = [
+      ...(modelSwitchPart ? [modelSwitchPart] : []),
+      ...(availabilityPart ? [availabilityPart] : []),
+      ...(digestSupersessionPart ? [digestSupersessionPart] : []),
+      ...(digestDeltaPart ? [digestDeltaPart] : []),
+      ...turnInput.message.parts,
+    ];
+
+    return { effectiveContext, messageParts };
   }
 }
 

@@ -56,8 +56,17 @@ export interface ReasoningPart {
   text: string;
 }
 
-/** Union of AI SDK v5 UIMessage parts. Extend as more part types are added. */
-export type MessagePart = TextPart | ReasoningPart | Record<string, unknown>;
+/**
+ * Stored chat-message parts: explicit server-authored variants plus the open
+ * object fallback for other persisted AI SDK/provider/tool parts.
+ */
+export type MessagePart =
+  | TextPart
+  | ReasoningPart
+  | ModelSwitchPart
+  | ToolAvailabilityPart
+  | RecencyDigestPart
+  | Record<string, unknown>;
 
 /** The single source of the text-part shape check — reused by the context
  * builder and the chat-list excerpt mapper so the duck-typing can't drift. */

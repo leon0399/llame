@@ -12,33 +12,33 @@ required.
 
 ## Active stack
 
-| Order | State       | Layer                                   | Acceptance evidence                                                                                                |
-| ----: | ----------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                  |
-|     2 | active      | Web test doubles                        | Web reaches zero matches using Vitest, Storybook, and native Web API types; full web and browser suites pass       |
-|     3 | queued      | Complexity ceiling and first extraction | Oxlint rejects modified complexity over 35; the current 53-point function must be reduced below the ceiling        |
-|     4 | queued      | AI SDK model doubles                    | `model-client.test.ts` and the shared fake use typed SDK test utilities; focused tests/typecheck pass              |
-|     5 | queued      | Remaining cast slices                   | All 113 legacy owned-code matches reach zero; no baselines or allowlists remain                                    |
-|     6 | queued      | Full-tree double-assertion prohibition  | One native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI |
-|     7 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                         |
-|     8 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                        |
-|     9 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                    |
+| Order | State       | Layer                                   | Acceptance evidence                                                                                                      |
+| ----: | ----------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+|     1 | active      | Tracker and design baseline             | Documents match live configuration, issue #268, and measured debt                                                        |
+|     2 | active      | Web test doubles                        | Web has zero matches using Vitest, Storybook, and native Web API types; 340 unit and 300 browser tests pass              |
+|     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction |
+|     4 | queued      | AI SDK model doubles                    | `model-client.test.ts` and the shared fake use typed SDK test utilities; focused tests/typecheck pass                    |
+|     5 | queued      | Remaining cast slices                   | All 113 legacy owned-code matches reach zero; no baselines or allowlists remain                                          |
+|     6 | queued      | Full-tree double-assertion prohibition  | One native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI       |
+|     7 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                               |
+|     8 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                              |
+|     9 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                          |
 
 ## Inventory
 
 ### Typing and assertions
 
-| State       | Finding                                                                                                             | Evidence / exit condition                                                                   |
-| ----------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| done        | API convention bans `as unknown as T` and gives the `Pick<>` plus explicit Nest injection-token recipe              | `apps/api/AGENTS.md`; PR #285                                                               |
-| done        | New staged API `.ts` casts are blocked while migration debt remains                                                 | Existing interim script and Lefthook job; this is regression protection, not acceptance     |
-| queued      | The ban is not project-wide                                                                                         | Lefthook covers only `apps/api/**/*.ts`; root, e2e, web TSX, MTS, and CTS remain outside it |
-| queued      | TSX needs its own ast-grep parser                                                                                   | `--lang ts` returns no match for JSX containing a double assertion; `--lang tsx` finds it   |
-| active      | Web test and story doubles contained 19 assertions across 14 files                                                  | Zero web matches; 340 web unit tests and 300 Storybook browser tests pass                   |
-| queued      | 94 owned application/test matches remain after the web slice                                                        | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline     |
-| queued      | Largest file cluster is `apps/api/src/models/model-client.test.ts` with 13                                          | Migrate the AI SDK boundary with `ai/test` instead of narrowing a Nest dependency           |
-| queued      | Other top clusters: OpenAI tools 9; app setup 8; chat-loop integration 7; search worker and chats controller 6 each | Group by boundary and remedy; do not chase count mechanically                               |
-| investigate | Direct `any`, non-null assertions, and stale ESLint disables                                                        | Classify production vs test/integration scaffolding before enabling restriction rules       |
+| State       | Finding                                                                                                             | Evidence / exit condition                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| done        | API convention bans `as unknown as T` and gives the `Pick<>` plus explicit Nest injection-token recipe              | `apps/api/AGENTS.md`; PR #285                                                                   |
+| done        | New staged API `.ts` casts are blocked while migration debt remains                                                 | Existing interim script and Lefthook job; this is regression protection, not acceptance         |
+| queued      | The ban is not project-wide                                                                                         | Current API-only hook omits root/e2e and TSX/MTS/CTS; full-tree rule lands only after zero debt |
+| active      | Web test and story doubles contained 19 assertions across 14 files                                                  | Zero web matches; 340 web unit tests and 300 Storybook browser tests pass                       |
+| queued      | 94 owned application/test matches remain after the web slice                                                        | Exit condition is zero matches in all tracked TS/TSX/MTS/CTS; no grandfathered baseline         |
+| active      | `MessagePart` explicitly names `ModelSwitchPart`, `ToolAvailabilityPart`, and `RecencyDigestPart`                   | Corrects the pre-existing stored-message type gap without an assertion                          |
+| queued      | Largest file cluster is `apps/api/src/models/model-client.test.ts` with 13                                          | Migrate the AI SDK boundary with `ai/test` instead of narrowing a Nest dependency               |
+| queued      | Other top clusters: OpenAI tools 9; app setup 8; chat-loop integration 7; search worker and chats controller 6 each | Group by boundary and remedy; do not chase count mechanically                                   |
+| investigate | Direct `any`, non-null assertions, and stale ESLint disables                                                        | Classify production vs test/integration scaffolding before enabling restriction rules           |
 
 ### Lint and formatting
 
@@ -53,14 +53,15 @@ required.
 
 ### Complexity and structure
 
-| State       | Finding                                                                                               | Evidence / exit condition                                                       |
-| ----------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| queued      | Modified complexity over 20: API 12, web 3, UI 1                                                      | Re-run Oxlint's `complexity` rule from the baseline config                      |
-| queued      | Worst measured function: `chat-loop.service.ts` callback at 53                                        | Characterize, extract cohesive stages, set global ceiling to 35                 |
-| queued      | Next API values above 30: MCP client callback 34, prompt assertion 32                                 | Separate PR slices; lower ceiling only after each is repaired                   |
-| queued      | Files over 1,000 lines include production services/repositories and large test suites                 | File length is triage only; split by responsibility, not arbitrary line count   |
-| investigate | `run-execution.service.ts`, `mcp-server-client.ts`, and `chats-repository.ts` are production hotspots | Map responsibilities and dependency fan-in before proposing interfaces/modules  |
-| investigate | Web `chat-page.tsx` and conversation tree are large UI orchestrators                                  | Require render/interaction evidence and consult `DESIGN.md` before any UI split |
+| State       | Finding                                                                                                                      | Evidence / exit condition                                                                                                                       |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| queued      | Lower-threshold debt remains: modified complexity over 20 is API 12, web 3, UI 1 (unchanged in the 2026-08-14 remeasurement) | Ratchet toward 30 and then 20 remains queued evidence-driven work                                                                               |
+| active      | Four lint-owning workspaces enforce modified complexity 35 with Oxlint's native rule                                         | `apps/api/.oxlintrc.json`, `apps/web/.oxlintrc.json`, `packages/ui/.oxlintrc.json`, and `apps/storybook/.oxlintrc.json`; forced lint passes     |
+| active      | `chat-loop.service.ts` accepted-turn callback measures 30 after 53 before; private `buildTurnContextAndParts` measures 24    | Context-builder + chat-loop units 83/83; real-Docker chat-loop integration 19/19; forced lint and API typecheck pass; active until remote merge |
+| queued      | Next API values above 30: MCP client callback 34, prompt assertion 32                                                        | Lower the ceiling only after each is repaired in a separate evidence-backed slice                                                               |
+| queued      | Files over 1,000 lines include production services/repositories and large test suites                                        | File length is triage only; split by responsibility, not arbitrary line count                                                                   |
+| investigate | `run-execution.service.ts`, `mcp-server-client.ts`, and `chats-repository.ts` are production hotspots                        | Map responsibilities and dependency fan-in before proposing interfaces/modules                                                                  |
+| investigate | Web `chat-page.tsx` and conversation tree are large UI orchestrators                                                         | Require render/interaction evidence and consult `DESIGN.md` before any UI split                                                                 |
 
 ### Test quality
 
@@ -74,13 +75,14 @@ required.
 
 ### Conventions and governance
 
-| State  | Finding                                                                                | Evidence / exit condition                                                                |
-| ------ | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| active | Keep this tracker current in every quality stack layer                                 | Layer changes state and adds PR/evidence before submission                               |
-| queued | Root convention must distinguish capability interfaces from interface ceremony         | State the four valid boundary reasons and reject one-interface-per-service cargo culting |
-| queued | Complexity exceptions need local rationale and owner                                   | No directory-wide exemption; temporary exception names issue and measured value          |
-| queued | Gate runtime budgets are unrecorded                                                    | Record local and CI duration before making mutation or expensive analysis blocking       |
-| queued | Quality work must update `CHANGELOG.md`; roadmap entries are removed only when shipped | Follow root documentation contract in implementation layers                              |
+| State  | Finding                                                                                                      | Evidence / exit condition                                                                                                    |
+| ------ | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| active | Keep this tracker current in every quality stack layer                                                       | Layer changes state and adds PR/evidence before submission                                                                   |
+| active | Modified cyclomatic complexity must stay at `<= 35` and refactors must follow real responsibility boundaries | `AGENTS.md`; arbitrary helper extraction, inline disables, and other metric gaming are prohibited; active until remote merge |
+| queued | Root convention must distinguish capability interfaces from interface ceremony                               | State the four valid boundary reasons and reject one-interface-per-service cargo culting                                     |
+| queued | Complexity exceptions need local rationale and owner                                                         | No directory-wide exemption; temporary exception names issue and measured value                                              |
+| queued | Gate runtime budgets are unrecorded                                                                          | Record local and CI duration before making mutation or expensive analysis blocking                                           |
+| queued | Quality work must update `CHANGELOG.md`; roadmap entries are removed only when shipped                       | Follow root documentation contract in implementation layers                                                                  |
 
 ### Documentation, specification, and ownership drift
 

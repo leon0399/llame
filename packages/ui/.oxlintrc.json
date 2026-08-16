@@ -6,6 +6,7 @@
   },
   "ignorePatterns": ["dist/**"],
   "rules": {
+    "complexity": ["error", { "max": 35, "variant": "modified" }],
     "react/rules-of-hooks": "error",
     "react/exhaustive-deps": "warn"
   },
