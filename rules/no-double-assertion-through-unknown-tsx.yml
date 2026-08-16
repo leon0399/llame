@@ -1,0 +1,8 @@
+id: no-double-assertion-through-unknown-tsx
+language: Tsx
+severity: error
+message: Replace `as unknown as T` with a typed boundary or runtime validation.
+files:
+  - "**/*.tsx"
+rule:
+  pattern: $EXPR as unknown as $TYPE

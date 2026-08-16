@@ -19,7 +19,7 @@ required.
 |     3 | active      | Complexity ceiling and first extraction | Four native Oxlint configs enforce modified complexity 35; the 53-point function measures 30 after a boundary extraction    |
 |     4 | active      | AI SDK model doubles                    | 14 assertions removed; focused units 11/11, compaction integration 17/17, and API typecheck/lint pass                       |
 |     5 | active      | Remaining cast slices                   | Standard SDK/framework types and real database transactions remove all 80 assertions across owned application and test code |
-|     6 | queued      | Full-tree double-assertion prohibition  | One native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI          |
+|     6 | active      | Full-tree double-assertion prohibition  | One pinned native ast-grep package script rejects `.ts`, `.tsx`, `.mts`, and `.cts` across the owned tree in hooks and CI   |
 |     7 | investigate | Constructor decorator placement (#286)  | 11 inline vs 35 split `@Inject` parameters measured; select maintained enforcement before one all-split codemod             |
 |     8 | queued      | Semantic Markdown and lint ratchets     | Chosen standard tool rejects invalid owned Markdown without broad disables                                                  |
 |     9 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                 |
@@ -53,6 +53,7 @@ required.
 |    22 | #381 | Model-context repository coverage   |
 |    23 | #382 | Chats repository query coverage     |
 |    24 | #383 | Chat-loop transaction binding       |
+|    25 | #384 | Full-tree double-assertion gate     |
 
 ## Inventory
 
@@ -61,8 +62,7 @@ required.
 | State       | Finding                                                                                                  | Evidence / exit condition                                                                                                                 |
 | ----------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | done        | API convention bans `as unknown as T` and gives the `Pick<>` plus explicit Nest injection-token recipe   | `apps/api/AGENTS.md`; PR #285                                                                                                             |
-| done        | New staged API `.ts` casts are blocked while migration debt remains                                      | Existing interim script and Lefthook job; this is regression protection, not acceptance                                                   |
-| queued      | The ban is not project-wide                                                                              | Current API-only hook omits root/e2e and TSX/MTS/CTS; full-tree rule lands only after zero debt                                           |
+| active      | Double assertions are prohibited across the full owned TypeScript tree                                   | Pinned native ast-grep rules scan TS/TSX/MTS/CTS, including hidden owned directories, through one root command in Lefthook and CI         |
 | active      | Web test and story doubles contained 19 assertions across 14 files                                       | Zero web matches; 340 web unit tests and 300 Storybook browser tests pass                                                                 |
 | active      | `MessagePart` explicitly names `ModelSwitchPart`, `ToolAvailabilityPart`, and `RecencyDigestPart`        | Corrects the pre-existing stored-message type gap without an assertion                                                                    |
 | active      | AI SDK model doubles removed 13 assertions from `model-client.test.ts` and 1 from `fake-model-client.ts` | Partial Vitest mocks, `MockLanguageModelV3`, and real `streamText` with typed provider chunks; units 11/11                                |
@@ -87,7 +87,7 @@ required.
 | active      | Chats repository removed 1 forged fluent database assertion                                              | Drizzle's native mock and public logger compile real SQL/params; focused units 35/35 and >500-row fork integration 6/6                    |
 | active      | Chat-loop transaction binding removed the final forged database assertion                                | 17 orchestration cases use the real `TenantDbService`/Drizzle transaction boundary; 3 pre-transaction guards remain fast units            |
 | done        | Zero owned application/test matches remain                                                               | Full-tree inventory reports zero across tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                 |
-| queued      | Next: full-tree double-assertion enforcement                                                             | Replace the interim diff gate with one native ast-grep command wired into package scripts, hooks, and CI                                  |
+| active      | Full-tree double-assertion enforcement                                                                   | Pinned native rules include owned hidden directories and run through the same package script in Lefthook/CI; the diff script is deleted   |
 | investigate | Direct `any`, non-null assertions, and stale ESLint disables                                             | Classify production vs test/integration scaffolding before enabling restriction rules                                                     |
 
 ### Lint and formatting
@@ -132,6 +132,7 @@ required.
 | State  | Finding                                                                                                      | Evidence / exit condition                                                                                                                                                     |
 | ------ | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | active | **No-go: trade reviewable delivery for local batching or further polish**                                    | Submit each independently verified layer as a stacked PR before starting the next; local-only commits are inventory, not delivered progress                                   |
+| active | **No-go: run resource-unbounded aggregate builds on agent workstations**                                     | Build affected workspaces sequentially; if the aggregate is required, use Turbo `--concurrency=1` and keep it foreground/observable                                           |
 | active | Existing conventions are defaults, not immunity from architectural review                                    | Replace a convention when evidence shows material quality, readability, or architecture gains; document and migrate the owned scope, never create a silent one-off divergence |
 | active | Keep this tracker current in every quality stack layer                                                       | Layer changes state and adds PR/evidence before submission                                                                                                                    |
 | active | Modified cyclomatic complexity must stay at `<= 35` and refactors must follow real responsibility boundaries | `AGENTS.md`; arbitrary helper extraction, inline disables, and other metric gaming are prohibited; active until remote merge                                                  |
@@ -168,7 +169,7 @@ required.
 | ------ | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | done   | Workflow syntax and action-pin validation are shipped and green on the baseline  | Workflow-lint CI owns both gates; `actionlint` and `pinact run --check` re-run locally on 2026-08-14                                            |
 | queued | Pedantic workflow security reports seven findings, concentrated in `git-ai.yaml` | Review broad write permission, installer provenance, concurrency, job naming, and reusable-workflow permissions; rerun actionlint/zizmor/pinact |
-| queued | The local double-assertion hook is bypassable and absent from CI                 | Reach zero debt, then run native ast-grep full-tree enforcement in hooks and CI; delete the bespoke diff script (#287)                          |
+| active | Double-assertion enforcement is full-tree and shared by local/CI gates           | `pnpm check:double-assertions` owns TS/TSX/MTS/CTS through native ast-grep rules; the bespoke diff script is deleted (#287)                     |
 
 ## Rejected shortcuts
 

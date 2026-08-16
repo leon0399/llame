@@ -48,6 +48,11 @@ pnpm test:e2e:debug      # playwright test --debug
 pnpm test:e2e:report     # playwright show-report
 ```
 
+Agent verification is resource-bounded: build affected workspaces sequentially
+(`pnpm --filter <workspace> build`). If an aggregate build is necessary, use
+`pnpm exec turbo run build --concurrency=1`; do not run the unbounded root
+`pnpm build`, which launches the API, Next, and Storybook builds concurrently.
+
 Scope to one workspace with `pnpm --filter web <script>` (or `--filter api`).
 Install Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, Playwright starts a throwaway Docker Postgres, applies migrations, then starts `apps/api` and `apps/web`; set `POSTGRES_URL` only to use an already-migrated external database instead. Authenticated E2E tests should use the worker-scoped fixture from `e2e/support/fixtures.ts`, which writes per-worker storage state under `.auth/`; destructive session tests should request `freshAccount`. Override `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_DB_PORT`, or `E2E_DB_READY_PORT` only when the default E2E ports (`4300`/`4301`/`55433`/`4302`) conflict. Next.js 16 enforces one dev instance **per project directory**, not per port — `pnpm test:e2e`'s own `next dev --port 4300` refuses to start (and the whole run fails) while a manual `pnpm dev`/`next dev` is running anywhere against `apps/web`, even on a different port; stop the manual dev server first.
 
@@ -71,6 +76,10 @@ Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in pr
 - Modified cyclomatic complexity must remain `<= 35` under Oxlint's `modified` variant. Extract only along a real responsibility boundary; arbitrary helper extraction, inline disables, and other metric gaming are prohibited.
 - Drizzle ORM for all DB access; generate migrations with `drizzle-kit`, never hand-write migration SQL.
 - Conventional commits (e.g. `feat(api):`, `docs(spec):`).
+- `as unknown as T` is banned across owned `.ts`, `.tsx`, `.mts`, and `.cts`
+  files. `pnpm check:double-assertions` runs the pinned native ast-grep rules in
+  Lefthook and CI; narrow the boundary, construct a complete value, or validate
+  untrusted input instead of suppressing the compiler.
 - Tests follow [docs/testing.md](docs/testing.md): `*.test.ts(x)` is Vitest everywhere (`.integration` infix = needs real Postgres; root `e2e/` is Playwright's island); component behavior belongs in Storybook stories, not jsdom render tests; DB-backed suites fail loudly, never skip silently.
 - UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).
 

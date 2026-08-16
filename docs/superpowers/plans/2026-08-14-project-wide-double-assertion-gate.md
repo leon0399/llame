@@ -6,8 +6,8 @@
 
 **Goal:** Remove every `as unknown as` assertion from owned `.ts`, `.tsx`,
 `.mts`, and `.cts` files, then make issue #268's prohibition a native full-tree
-check. The current staged API script is transitional regression protection, not
-completion.
+check. The former staged API script provided transitional regression protection,
+not completion.
 
 **Architecture:** Migrate the 113 legacy matches in coherent boundary-owned stack
 layers. Prefer real framework and SDK types, narrow consumer contracts, and runtime
@@ -83,18 +83,19 @@ Issue #268 cannot close before the result is empty.
 - Modify: `package.json`
 - Modify: `pnpm-lock.yaml`
 
-- [ ] Pin `@ast-grep/cli@0.44.0` at the workspace root.
-- [ ] Define equivalent native rules for TypeScript and TSX that match an
+- [x] Pin `@ast-grep/cli@0.44.0` at the workspace root.
+- [x] Define equivalent native rules for TypeScript and TSX that match an
       assertion through `unknown` and report an error for `.ts`, `.tsx`, `.mts`,
       and `.cts` files.
-- [ ] Validate the rule using ast-grep's native `test` command only if fixture
+- [x] Validate the rule using ast-grep's native `test` command only if fixture
       coverage is needed; do not build a custom shell test runner.
-- [ ] Add the exact root script
-      `"check:double-assertions": "ast-grep scan --error ."`.
-- [ ] Use the native scan against temporary violating `.ts`, `.tsx`, `.mts`, and
+- [x] Add the exact root script
+      `"check:double-assertions": "ast-grep scan --error --no-ignore hidden ."`.
+- [x] Use the native scan against temporary violating `.ts`, `.tsx`, `.mts`, and
       `.cts` files, including root/e2e paths, to prove every supported extension
-      is RED; remove the fixtures, then prove the owned tree is GREEN. Do not add
-      a repository-specific harness.
+      is RED. Prove a violation under an owned hidden directory such as
+      `.storybook` is RED too; remove the fixtures, then prove the owned tree is
+      GREEN. Do not add a repository-specific harness.
 
 ### Task 4: Use the same native command locally and in CI
 
@@ -109,13 +110,14 @@ Issue #268 cannot close before the result is empty.
 - Modify: `docs/code-quality-tracker.md`
 - Modify: `CHANGELOG.md`
 
-- [ ] Replace the staged API script with `pnpm check:double-assertions`.
-- [ ] Run that same package script in the existing lint workflow so the pinned
+- [x] Replace the staged API script with `pnpm check:double-assertions`.
+- [x] Run that same package script in the existing lint workflow so the pinned
       local binary is on `PATH`; no direct binary call, diff base, or
       grandfathered baseline is allowed.
-- [ ] Document the project-wide ban and retain the API-specific Nest narrowing
+- [x] Document the project-wide ban and retain the API-specific Nest narrowing
       recipe without implying the rule is API-only.
-- [ ] Mark the tracker layer done only after the owned-tree scan is green.
+- [ ] Mark the tracker layer done only after the owned-tree scan is green and
+      the PR ships.
 
 ## Chunk 4: Verify, review, and stack
 

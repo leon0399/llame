@@ -8,6 +8,7 @@
     "build": "turbo run build",
     "dev": "turbo run dev dev:studio",
     "lint": "turbo run lint",
+    "check:double-assertions": "ast-grep scan --error --no-ignore hidden .",
     "test": "turbo run test",
     "test:storybook": "turbo run test:storybook",
     "typecheck": "turbo run typecheck",
@@ -29,6 +30,7 @@
     "db:provision-rls": "docker compose exec -T -e PGPASSWORD=postgres postgres psql -U postgres -d llame -v ON_ERROR_STOP=1 < docker/postgres/rls-function-owner.sql"
   },
   "devDependencies": {
+    "@ast-grep/cli": "0.44.0",
     "@playwright/test": "catalog:",
     "@workspace/config-typescript": "workspace:*",
     "lefthook": "2.1.9",

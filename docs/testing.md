@@ -78,6 +78,8 @@ Three test-pipeline workflows, one job per concern (`.github/workflows/` —
 **Lint** — source checks, independent of everything, so they report in seconds:
 
 - **Lint** — `turbo run lint` · **Format** — `format:check`
+- **Double assertions** — `pnpm check:double-assertions` (native ast-grep,
+  full owned TypeScript tree)
 
 **Workflow lint** — the pipeline checks itself:
 

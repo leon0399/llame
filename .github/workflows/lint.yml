@@ -41,6 +41,9 @@ jobs:
       # oxlint per workspace; type-aware rules via tsgolint in apps/api.
       - run: pnpm exec turbo run lint
 
+      # Project-wide native ast-grep rules; identical command to Lefthook.
+      - run: pnpm check:double-assertions
+
   format:
     name: Format
     runs-on: ubuntu-latest
