@@ -1,11 +1,10 @@
+import { isRecord } from '../unknown-record';
+
 export const PROTECTED_VALUE_REDACTION_MARKER = '[REDACTED]';
 
 export type ProtectedValueSanitizationResult =
   | { readonly success: true; readonly value: unknown }
   | { readonly success: false; readonly reason: 'protected_value_key' };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /**
  * Removes values that cannot identify a secret and establishes a deterministic

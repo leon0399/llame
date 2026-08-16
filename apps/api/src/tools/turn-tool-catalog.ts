@@ -7,6 +7,7 @@ import {
   hashWithDomain,
 } from '../canonical-json';
 import { type ModelToolDeclaration } from '../db/schema';
+import { isRecord } from '../unknown-record';
 import { admitToolInputSchema } from './schema-utils';
 import { asciiCaseFoldToolId, isToolId, matchesAllowedToolId } from './tool-id';
 import { type Tool, type ToolClassification } from './types';
@@ -122,9 +123,6 @@ function isRepresentableAbortTimeout(timeoutSeconds: number): boolean {
     timeoutMilliseconds <= MAX_ABORT_TIMEOUT_MS
   );
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const hasExactKeys = (
   value: Record<string, unknown>,

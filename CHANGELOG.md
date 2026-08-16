@@ -2,6 +2,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-15
 
+- Began the zero-baseline migration to Oxlint's maintained type-aware
+  `typescript/no-unsafe-type-assertion` rule. One root `isRecord` guard now owns
+  the recurring JSON-object boundary instead of four duplicate MCP/tool
+  predicates, and bounded-fetch uses that runtime evidence instead of asserting
+  parsed request JSON. The native one-thread inventory falls from 282 diagnostics
+  across 83 API files to 281 across 82; the rule remains diagnostic until every
+  existing finding is refactored, with no baseline, suppression, or vendored
+  anti-slop preset.
+
 - Added mutation-testing pilot child layer 4 for bounded MCP SSE recognition
   and framing, explicit consumer cancellation, and transparent response
   metadata. The native one-file run measured 169 mutants with 152 killed, 15

@@ -1,3 +1,5 @@
+import { isRecord } from '../unknown-record';
+
 export class McpBodyLimitError extends Error {
   constructor(limit: number) {
     super(`MCP response exceeded the ${limit}-byte transport limit.`);
@@ -34,10 +36,10 @@ function requestContext(
   }
   try {
     const body = JSON.parse(init.body) as unknown;
-    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    if (!isRecord(body)) {
       return { httpMethod, rpcMethod: null };
     }
-    const method = (body as Record<string, unknown>)['method'];
+    const method = body['method'];
     return {
       httpMethod,
       rpcMethod: typeof method === 'string' ? method : null,
