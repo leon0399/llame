@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-14
 
+- Added the Code Quality Taser design, execution plan, and living tracker. The
+  baseline records 113 double-assertion debt lines across 46 owned TypeScript
+  files, measured complexity hotspots, lint/formatting gaps, and a bounded
+  mutation-testing pilot. The plan requires standard tooling, zero legacy
+  double assertions, and one native full-tree ast-grep package script covering
+  `.ts`, `.tsx`, `.mts`, and `.cts` in both Lefthook and CI.
+
 - Fixed the Memory settings card getting stuck on its loading skeleton when the
   settings request failed. React Query leaves the query not-pending with no
   data once it errors, so the card rendered a skeleton indefinitely — and
