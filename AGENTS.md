@@ -40,7 +40,7 @@ pnpm install
 pnpm dev      # turbo run dev — all apps in watch mode (web + api + storybook on :6006)
 pnpm build    # turbo build
 pnpm lint     # turbo lint (oxlint per workspace; type-aware via tsgolint in apps/api)
-pnpm format   # prettier --write **/*.{ts,tsx,md}   (format:check to verify)
+pnpm format   # prettier --write --cache . over the ignore-pruned repository (format:check to verify)
 pnpm test:e2e            # playwright test; pass filters after --, e.g. pnpm test:e2e -- e2e/auth
 pnpm test:e2e:ui         # playwright test --ui
 pnpm test:e2e:headed     # playwright test --headed
@@ -73,7 +73,10 @@ Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in pr
 
 - TypeScript only across web/api/worker — no second backend language (SPEC.md §23).
 - Modified cyclomatic complexity must remain `<= 35` under Oxlint's `modified` variant. Extract only along a real responsibility boundary; arbitrary helper extraction, inline disables, and other metric gaming are prohibited.
-- Drizzle ORM for all DB access; generate migrations with `drizzle-kit`, never hand-write migration SQL.
+- Drizzle ORM for all DB access. Generate migrations with `drizzle-kit` by
+  default; a security or data-transition gap may add a reviewed hand-authored
+  step only when it is recorded in the [API migration exception ledger](apps/api/AGENTS.md#gotchas)
+  with its regeneration and verification requirements.
 - Conventional commits (e.g. `feat(api):`, `docs(spec):`).
 - Repository structural rules run through the pinned native ast-grep command
   `pnpm lint:ast-grep` in Lefthook and CI. `as unknown as T` is banned across

@@ -23,8 +23,9 @@ required.
 |     7 | active      | Constructor decorator placement (#286)  | All 46 `@Inject` constructor parameters use split placement; native ast-grep rejects inline regressions                     |
 |     8 | active      | Semantic Markdown and lint ratchets     | Pinned markdownlint-cli2 scans 199 product-owned files with zero findings through the same local/CI command                 |
 |     9 | active      | Unused lint-disable ratchet             | Native Oxlint enforcement removed 48 stale directives and reports zero across all four lint-owning workspaces               |
-|    10 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                 |
-|    11 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
+|    10 | active      | Contributor documentation contracts     | Runtime, migration, formatting, and test-cache claims match their executable configuration                                  |
+|    11 | queued      | Mutation-testing pilot                  | Bounded Stryker run completes; runtime and every survivor category recorded                                                 |
+|    12 | investigate | Modular/service refactors               | Only measured coupling or responsibility hotspots become layers                                                             |
 
 ## Published stack
 
@@ -58,6 +59,7 @@ required.
 |    26 | #385 | Constructor decorator placement     |
 |    27 | #386 | Semantic Markdown lint              |
 |    28 | #387 | Unused lint-disable ratchet         |
+|    29 | #388 | Contributor documentation contracts |
 
 ## Inventory
 
@@ -147,17 +149,17 @@ required.
 
 ### Documentation, specification, and ownership drift
 
-| State  | Finding                                                                                                            | Evidence / exit condition                                                                                                                                                   |
-| ------ | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| queued | Runtime floor contradicts itself                                                                                   | Root `AGENTS.md` and `package.json` require Node 22.19+, `.node-version` pins 22.23.1, while `docs/runtime-and-package-manager.md` and a workspace comment still name 22.12 |
-| queued | Root migration rule says never hand-write SQL while API instructions require security-critical reviewed exceptions | Reword root rule to generate by default and link the documented exception ledger; retain explicit verification requirements                                                 |
-| queued | `docs/testing.md` says unit tests are cached while Turbo and CI intentionally disable test caching                 | Make cached-versus-fresh execution claims match `turbo.json` and CI                                                                                                         |
-| queued | Root formatting command description understates the owned surface                                                  | Document the actual ignore-pruned repository-wide Prettier command rather than only TS/TSX/Markdown                                                                         |
-| queued | `SPEC.md` links an archived OpenSpec change as if it were active authority                                         | Retarget canonical behavior to `openspec/specs` and provenance to the archive; add link validation                                                                          |
-| queued | OpenSpec project rules and strict CI validation are absent                                                         | Define project context/rules, measure current validation failures, then add an authoritative check                                                                          |
-| queued | API and security-sensitive paths have no CODEOWNER                                                                 | Assign explicit owners for backend, migrations, auth/security configuration, and workflows                                                                                  |
-| queued | Story provenance and documentation conventions are advisory only                                                   | Add an AST/static metadata guard with an explicit exception manifest                                                                                                        |
-| queued | Root claims every workspace has child instructions, but `packages/config-typescript` has none                      | Add a focused guide or qualify the root statement                                                                                                                           |
+| State  | Finding                                                                                       | Evidence / exit condition                                                                                                    |
+| ------ | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| active | Runtime floor is consistently documented as Node 22.19+                                       | `package.json`, `.npmrc`, `pnpm-workspace.yaml`, and runtime decision doc agree; `.node-version` pins 22.23.1                |
+| active | Root migration policy matches the API's reviewed exception ledger                             | Drizzle generation remains the default; security/data-transition exceptions require documented regeneration and verification |
+| active | Test documentation matches uncached execution                                                 | `docs/testing.md` now reflects `turbo.json` for unit/Storybook and direct non-Turbo integration/eval/e2e gates               |
+| active | Root formatting command documents its real owned surface                                      | `pnpm format` is described as ignore-pruned repository-wide Prettier with cache, matching `package.json`                     |
+| queued | `SPEC.md` links an archived OpenSpec change as if it were active authority                    | Retarget canonical behavior to `openspec/specs` and provenance to the archive; add link validation                           |
+| queued | OpenSpec project rules and strict CI validation are absent                                    | Define project context/rules, measure current validation failures, then add an authoritative check                           |
+| queued | API and security-sensitive paths have no CODEOWNER                                            | Assign explicit owners for backend, migrations, auth/security configuration, and workflows                                   |
+| queued | Story provenance and documentation conventions are advisory only                              | Add an AST/static metadata guard with an explicit exception manifest                                                         |
+| queued | Root claims every workspace has child instructions, but `packages/config-typescript` has none | Add a focused guide or qualify the root statement                                                                            |
 
 ### Generated API and queue contracts
 
