@@ -50,8 +50,9 @@ overrides:
   # GHSA esbuild dev-server request-forwarding advisory (patched 0.25.0).
   # @esbuild-kit/core-utils@3.3.2 — a deprecated, unmaintained transitive of
   # drizzle-kit's `@esbuild-kit/esm-loader` — pins esbuild with `~0.18.20`,
-  # which cannot reach 0.25.0 through its own declared range. drizzle-kit is
-  # already on the newest 0.x release; the fix lives only past that pin.
+  # which cannot reach 0.25.0 through its own declared range. No drizzle-kit
+  # 0.x release (including the newest, 0.31.10) drops the @esbuild-kit
+  # dependency, so this override is the only path to the patched esbuild.
   "@esbuild-kit/core-utils>esbuild": "^0.25.0"
   # GHSA qs prototype-pollution-adjacent advisory (patched 6.15.2).
   # typed-rest-client@2.3.1 — the newest 2.3.x release, itself capped by
