@@ -2,7 +2,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-17
 
-- Dependency security pass: cleared 72 of 93 open Dependabot alerts, including
+- Dependency security pass: cleared 67 of 93 open Dependabot alerts, including
   both criticals (`form-data`, `@xhmikosr/decompress`) and the highs reachable
   through real version adoption. `pnpm dedupe` plus targeted `pnpm up` on the
   direct devDependencies and dependencies that hard-pin their own transitives
@@ -14,13 +14,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   will also close the 5 alerts pinned by Next's bundled `postcss`/`sharp`.
   `packages/ui` now pins its `@storybook/nextjs-vite` `next` peer through the
   catalog, so peer auto-install can no longer silently split the workspace
-  onto two Next versions. Overrides are reserved for permanently stuck
-  parents: exactly three advisory-scoped entries remain
-  (`@esbuild-kit/core-utils>esbuild` under drizzle-kit's deprecated loader,
-  `typed-rest-client>qs` under Stryker's pinned client, and
-  `@storybook/addon-mcp>valibot`/`@storybook/mcp>valibot` under the addons'
-  hard pin), each annotated with its removal condition. The 21 alerts
-  deliberately left open: 12 `undici` alerts on the `@ai-sdk/provider-utils`
+  onto two Next versions. This change adopts real versions only — no
+  resolution overrides; the three permanently stuck parents
+  (drizzle-kit's deprecated `@esbuild-kit` loader, Stryker's pinned
+  `typed-rest-client`, and the Storybook MCP addons' valibot hard pin) are
+  addressed in the stacked override change on top. The 26 alerts left open
+  here: 5 owned by that override layer (`esbuild`, `qs` ×3, `valibot`);
+  12 `undici` alerts on the `@ai-sdk/provider-utils`
   5.x line whose real fix (`@ai-sdk/mcp@1.0.71`) exits the
   `minimumReleaseAge` cooldown on 2026-08-21 and lands as a normal catalog
   bump then; 4 `postcss` and 1 `sharp` alerts deferred to the Next 16.3
