@@ -38,40 +38,24 @@ minimumReleaseAgeExclude:
 # fix is cooldown-blocked) and the parent-scoped `pkg>dep` selector keeps the
 # override from leaking to unrelated instances of the same dependency.
 overrides:
-  # GHSA-related undici advisories (patched >=6.23.0/6.24.0/6.27.0/6.28.0):
-  # @ai-sdk/mcp@1.0.67 (catalog-pinned, paired with @modelcontextprotocol/sdk
-  # per the note below) hard-pins @ai-sdk/provider-utils@4.0.42, which in turn
-  # requires undici@^5.29.0 — a line with no patched release. Upstream already
-  # shipped the fix as provider-utils@4.0.46 (undici@^6.28.0), but that only
-  # lands via @ai-sdk/mcp@1.0.71, published 2026-08-14 and still inside the
-  # minimumReleaseAge cooldown (clears 2026-08-21). This override applies the
-  # exact same upstream bump early, without touching the catalog pin.
-  "@ai-sdk/provider-utils>undici": "^6.28.0"
   # GHSA esbuild dev-server request-forwarding advisory (patched 0.25.0).
   # @esbuild-kit/core-utils@3.3.2 — a deprecated, unmaintained transitive of
   # drizzle-kit's `@esbuild-kit/esm-loader` — pins esbuild with `~0.18.20`,
   # which cannot reach 0.25.0 through its own declared range. No drizzle-kit
   # 0.x release (including the newest, 0.31.10) drops the @esbuild-kit
   # dependency, so this override is the only path to the patched esbuild.
+  # Remove when drizzle-kit drops @esbuild-kit or it ships esbuild >=0.25.
   "@esbuild-kit/core-utils>esbuild": "^0.25.0"
   # GHSA qs prototype-pollution-adjacent advisory (patched 6.15.2).
   # typed-rest-client@2.3.1 — the newest 2.3.x release, itself capped by
   # @stryker-mutator/core's `~2.3.0` pin — hard-pins qs@6.15.1 exact.
+  # Remove when typed-rest-client releases with qs >=6.15.2.
   "typed-rest-client>qs": "^6.15.2"
-  # GHSA file-type advisories (patched >=21.3.1/21.3.2). Five separate
-  # @xhmikosr/* decompression-tooling packages (archive-type,
-  # decompress-tar/-tarbz2/-targz/-unzip) each declare their own
-  # file-type@^20.5.0 edge; @xhmikosr/downloader (their shared parent) is
-  # already on its newest 15.x release, and the file-type 21.x bump only
-  # ships in downloader 16.x. Unscoped rather than five parent selectors:
-  # dev-only decompression tooling (@nestjs/cli's `new` command), narrow
-  # buffer-sniffing API — low-risk to force forward everywhere.
-  "file-type": "^21.3.4"
   # GHSA valibot advisory (patched 1.4.2). @storybook/addon-mcp and
   # @storybook/mcp both hard-pin valibot@1.2.0 exact with no newer release
   # available upstream (latest 0.7.0 / alpha lines still pin 1.2.0); this
   # also resolves the pnpm peer warning from @valibot/to-json-schema wanting
-  # valibot@^1.4.0.
+  # valibot@^1.4.0. Remove when both addons declare valibot >=1.4.
   "@storybook/addon-mcp>valibot": "^1.4.2"
   "@storybook/mcp>valibot": "^1.4.2"
 
