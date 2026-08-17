@@ -14,7 +14,8 @@ import {
   type McpServerConfig,
   type McpStdioServerConfig,
   type ProviderConfig,
-  type ProviderType,
+  type RawInstanceConfig,
+  type RawMcpServerEntry,
   type WorkerProfile,
 } from './llame-config';
 import { InstanceConfigError } from './instance-config.error';
@@ -28,6 +29,7 @@ import { createModelPromptLoader } from './prompt-loader';
 import { getRegisteredToolIds } from '../tools/registry';
 import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
+import { isRecord } from '../unknown-record';
 
 const DEFAULT_CONFIG_FILENAME = 'llame.config.json';
 
@@ -91,24 +93,30 @@ export function loadInstanceConfig(
         env,
       }),
       // nullable:false guarantees a number, never null — see resolveNumeric.
-      heartbeatSeconds: resolveNumeric({
-        configPath: 'runs.heartbeatSeconds',
-        ...readLeaf(raw, 'runs', 'heartbeatSeconds'),
-        builtInDefault: BUILT_IN_DEFAULTS.runs.heartbeatSeconds,
-        nullable: false,
-        // pg-boss's hard floor for a queue heartbeat window; an {env:...}
-        // token resolving below this would otherwise crash boot with a raw
-        // pg-boss assertion instead of a clear config error.
-        min: 10,
-        env,
-      }) as number,
-      timeoutSeconds: resolveNumeric({
-        configPath: 'runs.timeoutSeconds',
-        ...readLeaf(raw, 'runs', 'timeoutSeconds'),
-        builtInDefault: BUILT_IN_DEFAULTS.runs.timeoutSeconds,
-        nullable: false,
-        env,
-      }) as number,
+      heartbeatSeconds: requireResolvedNumber(
+        resolveNumeric({
+          configPath: 'runs.heartbeatSeconds',
+          ...readLeaf(raw, 'runs', 'heartbeatSeconds'),
+          builtInDefault: BUILT_IN_DEFAULTS.runs.heartbeatSeconds,
+          nullable: false,
+          // pg-boss's hard floor for a queue heartbeat window; an {env:...}
+          // token resolving below this would otherwise crash boot with a raw
+          // pg-boss assertion instead of a clear config error.
+          min: 10,
+          env,
+        }),
+        'runs.heartbeatSeconds',
+      ),
+      timeoutSeconds: requireResolvedNumber(
+        resolveNumeric({
+          configPath: 'runs.timeoutSeconds',
+          ...readLeaf(raw, 'runs', 'timeoutSeconds'),
+          builtInDefault: BUILT_IN_DEFAULTS.runs.timeoutSeconds,
+          nullable: false,
+          env,
+        }),
+        'runs.timeoutSeconds',
+      ),
     },
     http: {
       trustProxy: resolveNullableString({
@@ -118,13 +126,16 @@ export function loadInstanceConfig(
       }),
     },
     db: {
-      poolSize: resolveNumeric({
-        configPath: 'db.poolSize',
-        ...readLeaf(raw, 'db', 'poolSize'),
-        builtInDefault: BUILT_IN_DEFAULTS.db.poolSize,
-        nullable: false,
-        env,
-      }) as number,
+      poolSize: requireResolvedNumber(
+        resolveNumeric({
+          configPath: 'db.poolSize',
+          ...readLeaf(raw, 'db', 'poolSize'),
+          builtInDefault: BUILT_IN_DEFAULTS.db.poolSize,
+          nullable: false,
+          env,
+        }),
+        'db.poolSize',
+      ),
     },
     tools: {
       allowed: resolveToolAllowlist({
@@ -132,20 +143,26 @@ export function loadInstanceConfig(
         ...readLeaf(raw, 'tools', 'allowed'),
         configuredMcpServerIds: new Set(Object.keys(mcpServers)),
       }),
-      maxStepsPerRun: resolveNumeric({
-        configPath: 'tools.maxStepsPerRun',
-        ...readLeaf(raw, 'tools', 'maxStepsPerRun'),
-        builtInDefault: BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
-        nullable: false,
-        env,
-      }) as number,
-      callTimeoutSeconds: resolveNumeric({
-        configPath: 'tools.callTimeoutSeconds',
-        ...readLeaf(raw, 'tools', 'callTimeoutSeconds'),
-        builtInDefault: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
-        nullable: false,
-        env,
-      }) as number,
+      maxStepsPerRun: requireResolvedNumber(
+        resolveNumeric({
+          configPath: 'tools.maxStepsPerRun',
+          ...readLeaf(raw, 'tools', 'maxStepsPerRun'),
+          builtInDefault: BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
+          nullable: false,
+          env,
+        }),
+        'tools.maxStepsPerRun',
+      ),
+      callTimeoutSeconds: requireResolvedNumber(
+        resolveNumeric({
+          configPath: 'tools.callTimeoutSeconds',
+          ...readLeaf(raw, 'tools', 'callTimeoutSeconds'),
+          builtInDefault: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
+          nullable: false,
+          env,
+        }),
+        'tools.callTimeoutSeconds',
+      ),
     },
     mcpServers,
     workers: resolveWorkerProfiles(raw),
@@ -163,11 +180,11 @@ function readRawConfig(
   try {
     text = readFileSync(configPath, 'utf8');
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (err instanceof Error && 'code' in err && err.code === 'ENOENT') {
       return undefined;
     }
     throw new InstanceConfigError(
-      `Failed to read ${configPath}: ${(err as Error).message}`,
+      `Failed to read ${configPath}: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
@@ -186,12 +203,12 @@ function readRawConfig(
       `Malformed JSONC in ${configPath} at line ${line}, column ${column}: ${printParseErrorCode(first.error)}`,
     );
   }
-  if (typeof result !== 'object' || result === null || Array.isArray(result)) {
+  if (!isRecord(result)) {
     throw new InstanceConfigError(
       `Invalid ${configPath}: top-level value must be a JSON object`,
     );
   }
-  return result as Record<string, unknown>;
+  return result;
 }
 
 function assertNoDuplicateProperties(text: string, configPath: string): void {
@@ -253,7 +270,7 @@ function offsetToLineColumn(
 function assertValidRaw(
   raw: Record<string, unknown>,
   configPath: string,
-): void {
+): asserts raw is RawInstanceConfig {
   const validate = getConfigValidator();
   if (validate(raw)) {
     return;
@@ -287,17 +304,13 @@ function readLeaf(
     return { present: false, raw: undefined };
   }
   const groupValue = raw[group];
-  if (
-    groupValue === undefined ||
-    groupValue === null ||
-    typeof groupValue !== 'object'
-  ) {
+  if (!isRecord(groupValue)) {
     return { present: false, raw: undefined };
   }
   if (!Object.prototype.hasOwnProperty.call(groupValue, key)) {
     return { present: false, raw: undefined };
   }
-  return { present: true, raw: (groupValue as Record<string, unknown>)[key] };
+  return { present: true, raw: groupValue[key] };
 }
 
 /** Resolve a string interpolation, translating a failure into a config-path-scoped, value-free error. */
@@ -329,11 +342,10 @@ function resolveNullableString(opts: {
     // env-var fallback (D5).
     return null;
   }
-  const resolved = resolveInterpolatedString(
-    raw as string,
-    configPath,
-    env,
-  ).trim();
+  if (typeof raw !== 'string') {
+    throw new InstanceConfigError(`${configPath}: must be a string`);
+  }
+  const resolved = resolveInterpolatedString(raw, configPath, env).trim();
   // Empty (or whitespace-only) resolution on a nullable key means unset.
   // Trimmed so InstanceConfigService.config hands out one normalized shape.
   return resolved === '' ? null : resolved;
@@ -383,8 +395,14 @@ function resolveNumeric(opts: {
   }
 
   // Schema validation already guaranteed `raw` is a whole-value
-  // {env:...}/{path:...} token string at this point.
-  const resolved = resolveInterpolatedString(raw as string, configPath, env);
+  // {env:...}/{path:...} token string at this point; re-check at runtime
+  // rather than trust that guarantee silently.
+  if (typeof raw !== 'string') {
+    throw new InstanceConfigError(
+      `${configPath}: must be a number or a {env:}/{path:} token string`,
+    );
+  }
+  const resolved = resolveInterpolatedString(raw, configPath, env);
   if (resolved.trim() === '') {
     if (nullable) {
       return null;
@@ -404,12 +422,39 @@ function resolveNumeric(opts: {
 }
 
 /**
+ * Narrows `resolveNumeric`'s `number | null` result for a call site that
+ * passed `nullable: false`. `resolveNumeric` itself can still return
+ * `builtInDefault` verbatim when the leaf is absent, so its return type
+ * stays honest as `number | null` — this is the runtime check for callers
+ * that know their own `builtInDefault` is never `null`. A `null` here means
+ * that local invariant broke, not an operator config problem.
+ */
+function requireResolvedNumber(
+  value: number | null,
+  configPath: string,
+): number {
+  if (value === null) {
+    throw new InstanceConfigError(
+      `${configPath}: internal error — expected a resolved number`,
+    );
+  }
+  return value;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) && value.every((item) => typeof item === 'string')
+  );
+}
+
+/**
  * Resolve `tools.allowed`: absent → empty (fail closed, no tools). The
- * schema already guarantees an array of non-empty strings when present.
- * Code-owned ids remain strict against the registry; exact MCP ids use the
- * mcp-tool-id-v1 parser and namespace permissions use the single canonical
- * `mcp__<configured-server>__*` form. Neither depends on discovery succeeding
- * during boot.
+ * schema already guarantees an array of non-empty strings when present;
+ * `isStringArray` re-checks it at runtime rather than trust that guarantee
+ * silently. Code-owned ids remain strict against the registry; exact MCP ids
+ * use the mcp-tool-id-v1 parser and namespace permissions use the single
+ * canonical `mcp__<configured-server>__*` form. Neither depends on discovery
+ * succeeding during boot.
  */
 function resolveToolAllowlist(opts: {
   configPath: string;
@@ -421,7 +466,10 @@ function resolveToolAllowlist(opts: {
   if (!present) {
     return BUILT_IN_DEFAULTS.tools.allowed;
   }
-  const ids = raw as string[];
+  if (!isStringArray(raw)) {
+    throw new InstanceConfigError(`${configPath}: must be an array of strings`);
+  }
+  const ids = raw;
   const registered = new Set(getRegisteredToolIds());
   for (const id of ids) {
     if (id.includes('*')) {
@@ -461,20 +509,6 @@ function resolveToolAllowlist(opts: {
   return ids;
 }
 
-type RawMcpServerEntry =
-  | {
-      type: 'http' | 'streamable-http';
-      url: string;
-      headers?: Record<string, string>;
-    }
-  | {
-      type: 'stdio';
-      command: string;
-      args?: string[];
-      env?: Record<string, string>;
-      cwd?: string;
-    };
-
 const TRANSPORT_OWNED_MCP_HEADERS = new Set([
   'accept',
   'content-type',
@@ -488,11 +522,10 @@ function asciiCaseFold(value: string): string {
 }
 
 function resolveMcpServers(
-  raw: Record<string, unknown> | undefined,
+  raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
 ): Readonly<Record<string, McpServerConfig>> {
-  const entries =
-    (raw?.mcpServers as Record<string, RawMcpServerEntry> | undefined) ?? {};
+  const entries = raw?.mcpServers ?? {};
   const resolved: Record<string, McpServerConfig> = {};
 
   for (const [serverId, entry] of Object.entries(entries)) {
@@ -606,7 +639,11 @@ function resolveStdioServer(
     // variable name, and assigning `__proto__` into a normal object hits
     // `Object.prototype`'s setter instead of creating an own property, so the
     // variable would be dropped silently on its way to the child.
-    childEnv = Object.create(null) as Record<string, string>;
+    // Mutating a typed empty object's prototype in place, rather than
+    // `Object.create(null)`, keeps the value typed without a cast — TS types
+    // `Object.create`'s single-argument overload as `any`.
+    childEnv = {};
+    Object.setPrototypeOf(childEnv, null);
     for (const [name, raw] of Object.entries(entry.env)) {
       childEnv[name] = take(raw, `${serverPath}.env.${name}`);
     }
@@ -649,7 +686,9 @@ function resolveMcpHeaders(
     namesByFold.set(folded, name);
   }
 
-  const headers = Object.create(null) as Record<string, string>;
+  // Same null-prototype construction as `resolveStdioServer`'s `childEnv`.
+  const headers: Record<string, string> = {};
+  Object.setPrototypeOf(headers, null);
   for (const [name, rawValue] of Object.entries(rawHeaders)) {
     const headerPath = `${serverPath}.headers.${name}`;
     const value = resolvePrivateMcpString(rawValue, headerPath, env);
@@ -675,13 +714,13 @@ function resolveMcpHeaders(
  * built-in base (e.g. a future `heavy`) is used as-is. To run a strict subset
  * of groups, declare a new profile name rather than narrowing `all`. Group-name
  * and concurrency-value validity is enforced by the JSON Schema's closed
- * per-profile shape (assertValidRaw already ran), so the cast is trusted the
- * same way resolveToolAllowlist trusts its schema-validated array shape.
+ * per-profile shape — `assertValidRaw` already ran and typed `raw.workers`
+ * accordingly, so no further cast is needed here.
  */
 function resolveWorkerProfiles(
-  raw: Record<string, unknown> | undefined,
+  raw: RawInstanceConfig | undefined,
 ): Record<string, WorkerProfile> {
-  const fileWorkers = raw?.workers as Record<string, WorkerProfile> | undefined;
+  const fileWorkers = raw?.workers;
   if (!fileWorkers) {
     return BUILT_IN_DEFAULTS.workers;
   }
@@ -696,45 +735,19 @@ function resolveWorkerProfiles(
 
 // ---- Providers + models (providers-and-models-as-code, #167) ------------
 
-type RawProviderEntry = {
-  id: string;
-  type: ProviderType;
-  key?: unknown;
-  baseUrl?: unknown;
-};
-
-type RawModelEntry = {
-  id: string;
-  provider: string;
-  providerModelId: string;
-  contextWindowTokens: unknown;
-  compactionThresholdTokens?: unknown;
-  systemPromptFile?: string;
-  pricingUsdPer1M?: SystemModelCatalogEntry['pricingUsdPer1M'];
-  name?: string;
-  description?: string;
-  tags?: string[];
-  icon?: string;
-  knowledgeCutoff?: string;
-  reasoning?: boolean;
-  website?: string;
-  apiDocs?: string;
-  modelPage?: string;
-  releasedAt?: string;
-};
-
 /**
  * Resolve `providers[]`: the schema (assertValidRaw, already run) guarantees
- * element shape (required `id`/`type`, closed properties) — this resolver
- * owns interpolation of `key`/`baseUrl` and duplicate-id rejection. Every
- * error names the entry's `id` and field, never the resolved value (same
- * secret discipline as the scalar loader's `{env:}`/`{path:}` resolution).
+ * element shape (required `id`/`type`, closed properties) and typed
+ * `raw.providers` accordingly — this resolver owns interpolation of
+ * `key`/`baseUrl` and duplicate-id rejection. Every error names the entry's
+ * `id` and field, never the resolved value (same secret discipline as the
+ * scalar loader's `{env:}`/`{path:}` resolution).
  */
 function resolveProviders(
-  raw: Record<string, unknown> | undefined,
+  raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
 ): ProviderConfig[] {
-  const entries = (raw?.providers as RawProviderEntry[] | undefined) ?? [];
+  const entries = raw?.providers ?? [];
   const seenIds = new Set<string>();
 
   return entries.map((entry) => {
@@ -775,12 +788,12 @@ function resolveProviders(
  * across sibling arrays).
  */
 function resolveModels(
-  raw: Record<string, unknown> | undefined,
+  raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
   providerIds: ReadonlySet<string>,
   promptLoader: ReturnType<typeof createModelPromptLoader>,
 ): SystemModelCatalogEntry[] {
-  const entries = (raw?.models as RawModelEntry[] | undefined) ?? [];
+  const entries = raw?.models ?? [];
   const seenIds = new Set<string>();
 
   return entries.map((entry) => {
@@ -807,26 +820,32 @@ function resolveModels(
       ...display
     } = entry;
 
-    const contextWindowTokens = resolveNumeric({
-      configPath: `models[${entry.id}].contextWindowTokens`,
-      present: true,
-      raw: rawContextWindowTokens,
-      builtInDefault: null,
-      nullable: false,
-      env,
-    }) as number;
+    const contextWindowTokens = requireResolvedNumber(
+      resolveNumeric({
+        configPath: `models[${entry.id}].contextWindowTokens`,
+        present: true,
+        raw: rawContextWindowTokens,
+        builtInDefault: null,
+        nullable: false,
+        env,
+      }),
+      `models[${entry.id}].contextWindowTokens`,
+    );
 
     const compactionThresholdTokens =
       rawCompactionThresholdTokens === undefined
         ? undefined
-        : (resolveNumeric({
-            configPath: `models[${entry.id}].compactionThresholdTokens`,
-            present: true,
-            raw: rawCompactionThresholdTokens,
-            builtInDefault: null,
-            nullable: false,
-            env,
-          }) as number);
+        : requireResolvedNumber(
+            resolveNumeric({
+              configPath: `models[${entry.id}].compactionThresholdTokens`,
+              present: true,
+              raw: rawCompactionThresholdTokens,
+              builtInDefault: null,
+              nullable: false,
+              env,
+            }),
+            `models[${entry.id}].compactionThresholdTokens`,
+          );
 
     const prompt = promptLoader.resolve({
       id: entry.id,

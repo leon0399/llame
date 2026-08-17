@@ -8,8 +8,7 @@ import * as fs from 'node:fs';
 import { WHOLE_VALUE_TOKEN_PATTERN } from './interpolation';
 import { InstanceConfigError } from './instance-config.error';
 import { getConfigValidator, loadSchemaDocument, SCHEMA_PATH } from './schema';
-
-import type { Mock } from 'vitest';
+import { isRecord } from '../unknown-record';
 // node:fs's own exports object rejects vi.spyOn (its properties are
 // non-configurable in this runtime — "Cannot redefine property"), so
 // readFileSync is replaced with a vi.fn wrapping the real implementation
@@ -27,7 +26,7 @@ describe('published schema — single artifact', () => {
   });
 
   it('wraps a missing/unreadable schema artifact as InstanceConfigError, never a raw fs error — a packaging problem must not read like the operator broke their own llame.config.json', () => {
-    const mockedReadFileSync = fs.readFileSync as Mock;
+    const mockedReadFileSync = vi.mocked(fs.readFileSync);
     mockedReadFileSync.mockImplementationOnce(() => {
       throw Object.assign(new Error('ENOENT: no such file or directory'), {
         code: 'ENOENT',
@@ -51,22 +50,34 @@ describe('published schema — single artifact', () => {
   it('is a strict-closed schema with the $schema exemption declared', () => {
     const schema = loadSchemaDocument();
     expect(schema.additionalProperties).toBe(false);
-    const properties = schema.properties as Record<string, unknown>;
+    const { properties } = schema;
+    if (!isRecord(properties)) {
+      throw new Error('expected schema.properties to be a record');
+    }
     expect(properties.$schema).toBeDefined();
   });
 
   it('interpolation.ts WHOLE_VALUE_TOKEN_PATTERN never silently drifts from the published $defs.interpolationToken.pattern', () => {
     const schema = loadSchemaDocument();
-    const defs = schema.$defs as Record<string, { pattern: string }>;
+    const { $defs } = schema;
+    if (!isRecord($defs) || !isRecord($defs.interpolationToken)) {
+      throw new Error(
+        'expected schema.$defs.interpolationToken to be a record',
+      );
+    }
+    const { pattern } = $defs.interpolationToken;
+    if (typeof pattern !== 'string') {
+      throw new Error(
+        'expected schema.$defs.interpolationToken.pattern to be a string',
+      );
+    }
     // WHOLE_VALUE_TOKEN_PATTERN is anchored with ^...$; the JSON Schema
     // "pattern" keyword is implicitly unanchored-but-substring-matched by
     // some engines, so the schema copy is written the same anchored way —
     // compare the literal regex sources, not just observed behavior, so a
     // hand-edit to either side that changes the grammar is caught here
     // rather than discovered as silent runtime divergence.
-    expect(WHOLE_VALUE_TOKEN_PATTERN.source).toBe(
-      defs.interpolationToken.pattern,
-    );
+    expect(WHOLE_VALUE_TOKEN_PATTERN.source).toBe(pattern);
   });
 });
 

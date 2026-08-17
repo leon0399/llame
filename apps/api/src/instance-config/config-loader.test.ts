@@ -14,6 +14,14 @@ import { renderSystemPromptTemplate } from './prompt-loader';
 import { loadInstanceConfig, resolveConfigPath } from './config-loader';
 import { BUILT_IN_DEFAULTS } from './llame-config';
 
+/** Narrows a `catch`-clause `unknown` to its message without a cast; fails the test loudly if the caught value is not an `Error`. */
+function errorMessage(err: unknown): string {
+  if (!(err instanceof Error)) {
+    throw new Error(`expected an Error instance, got ${String(err)}`);
+  }
+  return err.message;
+}
+
 const ENV_KEYS = [
   'LLAME_CONFIG_PATH',
   'DEFAULT_MODEL_ID',
@@ -165,8 +173,8 @@ describe('loadInstanceConfig â€” file presence', () => {
       loadInstanceConfig();
       expect.unreachable('expected throw');
     } catch (err) {
-      expect((err as Error).message).toContain(file);
-      expect((err as Error).message).toMatch(/line \d+, column \d+/);
+      expect(errorMessage(err)).toContain(file);
+      expect(errorMessage(err)).toMatch(/line \d+, column \d+/);
     }
   });
 
@@ -329,7 +337,7 @@ describe('loadInstanceConfig â€” whole-value numeric interpolation (task 2.2)', 
       loadInstanceConfig();
       expect.unreachable('expected throw');
     } catch (err) {
-      expect((err as Error).message).toContain(missing);
+      expect(errorMessage(err)).toContain(missing);
     }
   });
 
@@ -499,9 +507,9 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
       loadInstanceConfig({ MCP_URL: secretUrl });
       expect.unreachable('expected throw');
     } catch (error) {
-      expect((error as Error).message).toContain('mcpServers.web.url');
-      expect((error as Error).message).not.toContain(secretUrl);
-      expect((error as Error).message).not.toContain('secret');
+      expect(errorMessage(error)).toContain('mcpServers.web.url');
+      expect(errorMessage(error)).not.toContain(secretUrl);
+      expect(errorMessage(error)).not.toContain('secret');
     }
   });
 
@@ -595,7 +603,7 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
       loadInstanceConfig();
       expect.unreachable('expected throw');
     } catch (error) {
-      const message = (error as Error).message;
+      const message = errorMessage(error);
       expect(message).toContain('shell');
       // Never advice from the wrong branch.
       expect(message).not.toContain('url');
@@ -624,8 +632,8 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
       loadInstanceConfig();
       expect.unreachable('expected throw');
     } catch (error) {
-      expect((error as Error).message).toContain('mcpServers.local.env.TOKEN');
-      expect((error as Error).message).not.toContain('MISSING_STDIO_SECRET=');
+      expect(errorMessage(error)).toContain('mcpServers.local.env.TOKEN');
+      expect(errorMessage(error)).not.toContain('MISSING_STDIO_SECRET=');
     }
   });
 
@@ -698,14 +706,14 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
       loadInstanceConfig();
       expect.unreachable('expected throw');
     } catch (error) {
-      expect((error as Error).message).toContain(
+      expect(errorMessage(error)).toContain(
         'mcpServers.web.headers.Authorization',
       );
-      expect((error as Error).message).toContain(
+      expect(errorMessage(error)).toContain(
         'mcpServers.web.headers.authorization',
       );
-      expect((error as Error).message).not.toContain('first-secret');
-      expect((error as Error).message).not.toContain('second-secret');
+      expect(errorMessage(error)).not.toContain('first-secret');
+      expect(errorMessage(error)).not.toContain('second-secret');
     }
   });
 
@@ -729,10 +737,8 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
       loadInstanceConfig();
       expect.unreachable('expected throw');
     } catch (error) {
-      expect((error as Error).message).toContain(
-        `mcpServers.web.headers.${header}`,
-      );
-      expect((error as Error).message).not.toContain('header-secret');
+      expect(errorMessage(error)).toContain(`mcpServers.web.headers.${header}`);
+      expect(errorMessage(error)).not.toContain('header-secret');
     }
   });
 
@@ -769,8 +775,8 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
       loadInstanceConfig();
       expect.unreachable('expected throw');
     } catch (error) {
-      expect((error as Error).message).toContain('mcpServers.web.url');
-      expect((error as Error).message).not.toContain(url);
+      expect(errorMessage(error)).toContain('mcpServers.web.url');
+      expect(errorMessage(error)).not.toContain(url);
     }
   });
 
@@ -810,8 +816,8 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
         expect.unreachable('expected throw');
       } catch (error) {
         expect(error).toBeInstanceOf(InstanceConfigError);
-        expect((error as Error).message).toContain('/mcpServers/web/headers');
-        expect((error as Error).message).not.toContain('header-secret');
+        expect(errorMessage(error)).toContain('/mcpServers/web/headers');
+        expect(errorMessage(error)).not.toContain('header-secret');
       }
     },
   );
@@ -1215,7 +1221,7 @@ describe('loadInstanceConfig â€” providers[] / models[] (providers-and-models-as
       loadInstanceConfig();
       expect.unreachable('expected throw');
     } catch (err) {
-      expect((err as Error).message).not.toContain('sk-should-never-leak');
+      expect(errorMessage(err)).not.toContain('sk-should-never-leak');
     }
   });
 
@@ -1229,9 +1235,7 @@ describe('loadInstanceConfig â€” providers[] / models[] (providers-and-models-as
       loadInstanceConfig();
       expect.unreachable('expected throw');
     } catch (err) {
-      expect((err as Error).message).not.toContain(
-        'sk-should-never-appear-either',
-      );
+      expect(errorMessage(err)).not.toContain('sk-should-never-appear-either');
     }
   });
 });
@@ -1255,7 +1259,7 @@ describe('loadInstanceConfig â€” no secret in logs', () => {
       loadInstanceConfig();
       expect.unreachable('expected throw');
     } catch (err) {
-      expect((err as Error).message).not.toContain(
+      expect(errorMessage(err)).not.toContain(
         'sk-should-never-appear-in-any-error',
       );
     }

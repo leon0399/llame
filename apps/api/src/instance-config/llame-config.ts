@@ -81,6 +81,71 @@ export type WorkerGroup = (typeof WORKER_GROUPS)[number];
 /** A worker profile: which groups a process consumes, and each one's main-queue concurrency. Absent group = not consumed by a process running this profile. */
 export type WorkerProfile = Partial<Record<WorkerGroup, number>>;
 
+/**
+ * The still-uninterpolated `mcpServers` entry shape once the published JSON
+ * Schema has validated it (config-loader.ts's `assertValidRaw`) — scalar
+ * fields still need `{env:}`/`{path:}` resolution before they become a
+ * `McpServerConfig`.
+ */
+export type RawMcpServerEntry =
+  | {
+      type: 'http' | 'streamable-http';
+      url: string;
+      headers?: Record<string, string>;
+    }
+  | {
+      type: 'stdio';
+      command: string;
+      args?: string[];
+      env?: Record<string, string>;
+      cwd?: string;
+    };
+
+/** The still-uninterpolated `providers[]` entry shape once schema-validated. */
+export type RawProviderEntry = {
+  id: string;
+  type: ProviderType;
+  key?: unknown;
+  baseUrl?: unknown;
+};
+
+/** The still-uninterpolated `models[]` entry shape once schema-validated. */
+export type RawModelEntry = {
+  id: string;
+  provider: string;
+  providerModelId: string;
+  contextWindowTokens: unknown;
+  compactionThresholdTokens?: unknown;
+  systemPromptFile?: string;
+  pricingUsdPer1M?: SystemModelCatalogEntry['pricingUsdPer1M'];
+  name?: string;
+  description?: string;
+  tags?: string[];
+  icon?: string;
+  knowledgeCutoff?: string;
+  reasoning?: boolean;
+  website?: string;
+  apiDocs?: string;
+  modelPage?: string;
+  releasedAt?: string;
+};
+
+/**
+ * The raw config document's shape once `assertValidRaw` (config-loader.ts)
+ * has run the closed published JSON Schema over it — the composite fields
+ * below are what the schema guarantees about their element/entry shape, not
+ * a re-derivation of it. Scalar leaves stay `unknown`: `readLeaf` derives
+ * per-group-and-key presence generically, and each resolver narrows its own
+ * leaf with its own runtime check. Extending `Record<string, unknown>` keeps
+ * this assignable everywhere a plain parsed-JSON record is still expected.
+ */
+export interface RawInstanceConfig extends Record<string, unknown> {
+  mcpServers?: Record<string, RawMcpServerEntry>;
+  workers?: Record<string, WorkerProfile>;
+  providers?: RawProviderEntry[];
+  models?: RawModelEntry[];
+}
+
 export type LlameConfig = {
   defaults: {
     modelId: string | null;
