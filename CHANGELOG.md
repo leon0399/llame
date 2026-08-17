@@ -2,6 +2,44 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-17
 
+- Dependency security pass: cleared 67 of 93 open Dependabot alerts, including
+  both criticals (`form-data`, `@xhmikosr/decompress`) and the highs reachable
+  through real version adoption. `pnpm dedupe` plus targeted `pnpm up` on the
+  direct devDependencies and dependencies that hard-pin their own transitives
+  (`@nestjs/cli`, `@nestjs/common`, `@nestjs/platform-express`,
+  `@nestjs/swagger`, `@nestjs/config`) resolved the bulk of it, and
+  `supertest`/`@types/supertest` moved to the 7.x line (fixes `form-data`
+  <4.0.6). Framework versions are not security side-effects: the Next.js
+  16.2.12 → 16.3.0 minor is split into its own reviewed upgrade (#412), which
+  will also close the 5 alerts pinned by Next's bundled `postcss`/`sharp`.
+  `packages/ui` now pins its `@storybook/nextjs-vite` `next` peer through the
+  catalog, so peer auto-install can no longer silently split the workspace
+  onto two Next versions. This change adopts real versions only — no
+  resolution overrides; the three permanently stuck parents
+  (drizzle-kit's deprecated `@esbuild-kit` loader, Stryker's pinned
+  `typed-rest-client`, and the Storybook MCP addons' valibot hard pin) are
+  addressed in the stacked override change on top. The 26 alerts left open
+  here: 5 owned by that override layer (`esbuild`, `qs` ×3, `valibot`);
+  12 `undici` alerts on the `@ai-sdk/provider-utils`
+  5.x line whose real fix (`@ai-sdk/mcp@1.0.71`) exits the
+  `minimumReleaseAge` cooldown on 2026-08-21 and lands as a normal catalog
+  bump then; 4 `postcss` and 1 `sharp` alerts deferred to the Next 16.3
+  upgrade (#412); 2 `file-type` alerts whose parents (`@xhmikosr/*` dev-only
+  decompression tooling) cap at `^20.5.0` with no patched 20.x; and 2
+  `image-size` alerts (GHSA-w3rx-r6r6-pgpr, GHSA-5p2g-fcmc-qvqq) with no
+  patched release published upstream at all.
+
+  CI caught a type regression the above pass introduced: an opportunistic
+  `drizzle-kit` bump (0.31.4 → 0.31.10, not required for any alert — the
+  esbuild fix lives entirely in the `@esbuild-kit/core-utils>esbuild`
+  override above) added a new `tsx: ^4.21.0` dependency that the workspace's
+  `tsx: ^4.20.3` catalog pin couldn't satisfy, forcing a second `tsx`/`vite`
+  install whose structurally distinct `Plugin`/`Environment` types broke
+  `apps/api`'s `vitest.config.mts` typecheck. Reverted the unnecessary
+  `drizzle-kit` bump; a follow-up `pnpm dedupe` then collapsed `tsx` back to
+  one instance (settling on 4.23.12, still within the catalog's declared
+  range) with no further package.json changes needed.
+
 - Removed 47 `typescript/no-unsafe-type-assertion` findings from the
   instance-config loader/validator boundary (`config-loader.ts`, `schema.ts`,
   and their direct unit tests): the native inventory falls from 243
