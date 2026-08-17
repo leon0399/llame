@@ -2,6 +2,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-17
 
+- Removed 47 `typescript/no-unsafe-type-assertion` findings from the
+  instance-config loader/validator boundary (`config-loader.ts`, `schema.ts`,
+  and their direct unit tests): the native inventory falls from 243
+  diagnostics/72 files to 196/68. `schema.ts` parameterizes the ajv validator
+  as `ValidateFunction<RawInstanceConfig>` so `assertValidRaw` becomes a real
+  `asserts raw is RawInstanceConfig` type predicate, removing every downstream
+  cast on `raw.mcpServers`/`workers`/`providers`/`models`; scalar leaf
+  resolvers add runtime `typeof`/`Array.isArray` guards instead of trusting
+  the schema silently, and a new `requireResolvedNumber` helper narrows
+  `resolveNumeric`'s result at `nullable: false` call sites. No behavior
+  change: malformed-input paths still fail closed with `InstanceConfigError`.
+
 - Closed out the code-quality tracker after the 47-PR quality stack (#359–#407)
   merged: every shipped layer and its inventory rows are now recorded `done`,
   the submission queue is empty, and the unshipped remainder stays open as
