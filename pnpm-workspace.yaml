@@ -33,6 +33,27 @@ minimumReleaseAgeExclude:
   # exclusion once a version has been on the registry past the cooldown.
   - storyproof
 
+# Narrow, advisory-scoped resolution overrides. Prefer bumping the direct
+# dependency; only add an entry here when the parent hard-pins (or its own
+# fix is cooldown-blocked) and the parent-scoped `pkg>dep` selector keeps the
+# override from leaking to unrelated instances of the same dependency.
+overrides:
+  # GHSA-related undici advisories (patched >=6.23.0/6.24.0/6.27.0/6.28.0):
+  # @ai-sdk/mcp@1.0.67 (catalog-pinned, paired with @modelcontextprotocol/sdk
+  # per the note below) hard-pins @ai-sdk/provider-utils@4.0.42, which in turn
+  # requires undici@^5.29.0 — a line with no patched release. Upstream already
+  # shipped the fix as provider-utils@4.0.46 (undici@^6.28.0), but that only
+  # lands via @ai-sdk/mcp@1.0.71, published 2026-08-14 and still inside the
+  # minimumReleaseAge cooldown (clears 2026-08-21). This override applies the
+  # exact same upstream bump early, without touching the catalog pin.
+  "@ai-sdk/provider-utils>undici": "^6.28.0"
+  # GHSA esbuild dev-server request-forwarding advisory (patched 0.25.0).
+  # @esbuild-kit/core-utils@3.3.2 — a deprecated, unmaintained transitive of
+  # drizzle-kit's `@esbuild-kit/esm-loader` — pins esbuild with `~0.18.20`,
+  # which cannot reach 0.25.0 through its own declared range. drizzle-kit is
+  # already on the newest 0.x release; the fix lives only past that pin.
+  "@esbuild-kit/core-utils>esbuild": "^0.25.0"
+
 # One shared version per dependency used by 2+ workspaces — reference with
 # "catalog:" in package.json. Single edit point, no cross-package drift.
 catalog:
@@ -63,7 +84,7 @@ catalog:
   lucide-react: ^1.22.0
   # apps/web and apps/storybook must run the same Next (storybook compiles ui
   # stories through Next's compiler via @storybook/nextjs-vite).
-  next: 16.2.12
+  next: 16.3.0
   next-themes: ^0.4.4
   oxlint: 1.77.0
   prettier: ^3.5.1

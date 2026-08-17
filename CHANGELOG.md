@@ -2,6 +2,23 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-17
 
+- Dependency security pass: cleared 91 of 93 open Dependabot alerts, including
+  both criticals (`form-data`, `@xhmikosr/decompress`) and all 40 highs bar
+  two. `pnpm dedupe` plus targeted `pnpm up` on the direct devDependencies that
+  hard-pin their own transitives (`@nestjs/cli`, `@nestjs/platform-express`,
+  `@nestjs/swagger`, `@nestjs/config`, `drizzle-kit`) resolved the bulk of it;
+  `next` moved 16.2.12 → 16.3.0 (minor, fixes its bundled `postcss`/`sharp`)
+  and `supertest`/`@types/supertest` moved to the 7.x line (fixes `form-data`
+  <4.0.6). Two narrow, advisory-scoped `pnpm.overrides` entries cover
+  transitives whose own parents can't reach the fix yet:
+  `@ai-sdk/provider-utils>undici` (upstream's own fix ships in
+  `@ai-sdk/mcp@1.0.71`, published 2026-08-14 and still inside the 7-day
+  `minimumReleaseAge` cooldown) and `@esbuild-kit/core-utils>esbuild`
+  (deprecated, unmaintained transitive of `drizzle-kit`, tilde-pinned below the
+  patched esbuild). The two remaining open alerts are both `image-size`
+  (GHSA-w3rx-r6r6-pgpr, GHSA-5p2g-fcmc-qvqq) with no patched release published
+  upstream as of this pass.
+
 - Removed 47 `typescript/no-unsafe-type-assertion` findings from the
   instance-config loader/validator boundary (`config-loader.ts`, `schema.ts`,
   and their direct unit tests): the native inventory falls from 243
