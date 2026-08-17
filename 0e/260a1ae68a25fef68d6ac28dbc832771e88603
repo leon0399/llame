@@ -1,0 +1,13 @@
+apps/api/package.json
+  c2a7d448fc16accd 81,84,89
+CHANGELOG.md
+  c2a7d448fc16accd 5-9,15-44,49
+pnpm-workspace.yaml
+  c2a7d448fc16accd 36-77,108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "0e260a1ae68a25fef68d6ac28dbc832771e88603",
+  "prompts": {}
+}
