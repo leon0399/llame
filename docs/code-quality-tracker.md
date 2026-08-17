@@ -638,13 +638,16 @@ replacement and manual failure proof, and never use it as a waiver or ignore buc
 
 ### Workflow and supply-chain checks
 
-| State  | Finding                                                                          | Evidence / exit condition                                                                                                                        |
-| ------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| done   | Workflow syntax and action-pin validation are shipped and green on the baseline  | Workflow-lint CI owns both gates; `actionlint` and `pinact run --check` re-run locally on 2026-08-14                                             |
-| queued | Pedantic workflow security reports seven findings, concentrated in `git-ai.yaml` | Review broad write permission, installer provenance, concurrency, job naming, and reusable-workflow permissions; rerun actionlint/zizmor/pinact  |
-| done   | Structural ast-grep enforcement is full-tree and shared by local/CI gates        | `pnpm lint:ast-grep` owns only API decorator placement; maintained anti-slop Oxlint replaces the two bespoke double-assertion rules (#287, #286) |
-| done   | Semantic Markdown enforcement is shared by local/CI gates                        | `pnpm lint:markdown` owns the explicit product-documentation scope with zero baseline, inline disable, or custom wrapper                         |
-| done   | Native Oxlint rejects unused disable directives in all four workspaces           | Existing Turbo, Lefthook, and CI lint paths share the workspace commands; 48 stale directives removed with no baseline                           |
+| State  | Finding                                                                           | Evidence / exit condition                                                                                                                                                  |
+| ------ | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done   | Workflow syntax and action-pin validation are shipped and green on the baseline   | Workflow-lint CI owns both gates; `actionlint` and `pinact run --check` re-run locally on 2026-08-14                                                                       |
+| queued | Pedantic workflow security reports seven findings, concentrated in `git-ai.yaml`  | Review broad write permission, installer provenance, concurrency, job naming, and reusable-workflow permissions; rerun actionlint/zizmor/pinact                            |
+| done   | Structural ast-grep enforcement is full-tree and shared by local/CI gates         | `pnpm lint:ast-grep` owns only API decorator placement; maintained anti-slop Oxlint replaces the two bespoke double-assertion rules (#287, #286)                           |
+| done   | Semantic Markdown enforcement is shared by local/CI gates                         | `pnpm lint:markdown` owns the explicit product-documentation scope with zero baseline, inline disable, or custom wrapper                                                   |
+| done   | Native Oxlint rejects unused disable directives in all four workspaces            | Existing Turbo, Lefthook, and CI lint paths share the workspace commands; 48 stale directives removed with no baseline                                                     |
+| queued | `@esbuild-kit/core-utils>esbuild` override (advisory patched 0.25.0)              | Remove when drizzle-kit drops `@esbuild-kit` or it ships esbuild >=0.25; verified 2026-08-18 that even drizzle-kit 1.0.0-rc still carries it                               |
+| queued | `typed-rest-client>qs` override (advisory patched 6.15.2)                         | Remove when Stryker reaches typed-rest-client 3.x (fix exists there); `@stryker-mutator/core@latest` still pins `~2.3.0` as of 2026-08-18                                  |
+| queued | `@storybook/addon-mcp>valibot`/`@storybook/mcp>valibot` overrides (patched 1.4.2) | Remove when both addons declare valibot >=1.4; their newest `10.6.0-alpha.6` still pins 1.2.0 exact, while their own `@valibot/to-json-schema` peer already wants `^1.4.0` |
 
 ## Rejected shortcuts
 

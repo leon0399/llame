@@ -1,5 +1,17 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-18
+
+- Dependency security pass, override layer: three advisory-scoped
+  `pnpm.overrides` for parents that provably cannot move — esbuild under
+  drizzle-kit's deprecated `@esbuild-kit` loader (even 1.0.0-rc still carries
+  it), `qs` under Stryker's `typed-rest-client ~2.3.0` cap (the fix exists
+  only in 3.x), and valibot under the Storybook MCP addons' 1.2.0 hard pin
+  (their own `@valibot/to-json-schema` peer already wants `^1.4.0`). Clears
+  the five remaining reachable alerts (cumulative 72/93 with the base layer);
+  each override carries its removal condition in `pnpm-workspace.yaml` and a
+  `queued` tracker row so it is re-examined on the tracker's normal cadence.
+
 # 2026-08-17
 
 - Dependency security pass: cleared 67 of 93 open Dependabot alerts, including
