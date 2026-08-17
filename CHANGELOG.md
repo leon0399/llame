@@ -2,25 +2,31 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-17
 
-- Dependency security pass: cleared 77 of 93 open Dependabot alerts, including
+- Dependency security pass: cleared 72 of 93 open Dependabot alerts, including
   both criticals (`form-data`, `@xhmikosr/decompress`) and the highs reachable
   through real version adoption. `pnpm dedupe` plus targeted `pnpm up` on the
   direct devDependencies and dependencies that hard-pin their own transitives
   (`@nestjs/cli`, `@nestjs/common`, `@nestjs/platform-express`,
-  `@nestjs/swagger`, `@nestjs/config`) resolved the bulk of it; `next` moved
-  16.2.12 → 16.3.0 (minor, fixes its bundled `postcss`/`sharp`) and
+  `@nestjs/swagger`, `@nestjs/config`) resolved the bulk of it, and
   `supertest`/`@types/supertest` moved to the 7.x line (fixes `form-data`
-  <4.0.6). Overrides are reserved for permanently stuck parents: exactly three
-  advisory-scoped entries remain (`@esbuild-kit/core-utils>esbuild` under
-  drizzle-kit's deprecated loader, `typed-rest-client>qs` under Stryker's
-  pinned client, and `@storybook/addon-mcp>valibot`/`@storybook/mcp>valibot`
-  under the addons' hard pin), each annotated with its removal condition. The
-  16 alerts deliberately left open: 12 `undici` alerts on the
-  `@ai-sdk/provider-utils` 5.x line whose real fix (`@ai-sdk/mcp@1.0.71`)
-  exits the `minimumReleaseAge` cooldown on 2026-08-21 and lands as a normal
-  catalog bump then; 2 `file-type` alerts whose parents (`@xhmikosr/*`
-  dev-only decompression tooling) cap at `^20.5.0` with no patched 20.x; and
-  2 `image-size` alerts (GHSA-w3rx-r6r6-pgpr, GHSA-5p2g-fcmc-qvqq) with no
+  <4.0.6). Framework versions are not security side-effects: the Next.js
+  16.2.12 → 16.3.0 minor is split into its own reviewed upgrade (#412), which
+  will also close the 5 alerts pinned by Next's bundled `postcss`/`sharp`.
+  `packages/ui` now pins its `@storybook/nextjs-vite` `next` peer through the
+  catalog, so peer auto-install can no longer silently split the workspace
+  onto two Next versions. Overrides are reserved for permanently stuck
+  parents: exactly three advisory-scoped entries remain
+  (`@esbuild-kit/core-utils>esbuild` under drizzle-kit's deprecated loader,
+  `typed-rest-client>qs` under Stryker's pinned client, and
+  `@storybook/addon-mcp>valibot`/`@storybook/mcp>valibot` under the addons'
+  hard pin), each annotated with its removal condition. The 21 alerts
+  deliberately left open: 12 `undici` alerts on the `@ai-sdk/provider-utils`
+  5.x line whose real fix (`@ai-sdk/mcp@1.0.71`) exits the
+  `minimumReleaseAge` cooldown on 2026-08-21 and lands as a normal catalog
+  bump then; 4 `postcss` and 1 `sharp` alerts deferred to the Next 16.3
+  upgrade (#412); 2 `file-type` alerts whose parents (`@xhmikosr/*` dev-only
+  decompression tooling) cap at `^20.5.0` with no patched 20.x; and 2
+  `image-size` alerts (GHSA-w3rx-r6r6-pgpr, GHSA-5p2g-fcmc-qvqq) with no
   patched release published upstream at all.
 
   CI caught a type regression the above pass introduced: an opportunistic

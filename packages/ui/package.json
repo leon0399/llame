@@ -49,6 +49,7 @@
     "@types/react-dom": "catalog:",
     "@typescript/native-preview": "catalog:",
     "@workspace/config-typescript": "workspace:*",
+    "next": "catalog:",
     "oxlint": "catalog:",
     "storybook": "catalog:",
     "tailwindcss": "^4.1.0",
