@@ -3,6 +3,8 @@ import path from 'node:path';
 import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020';
 
 import { InstanceConfigError } from './instance-config.error';
+import type { RawInstanceConfig } from './llame-config';
+import { isRecord } from '../unknown-record';
 
 /**
  * The published JSON Schema (D2/D3) — editors bind to it via the config
@@ -28,22 +30,37 @@ export const SCHEMA_PATH = path.resolve(__dirname, 'llame.config.schema.json');
  * `ENOENT` that an operator would mistake for their own file.
  */
 export function loadSchemaDocument(): Record<string, unknown> {
+  let parsed: unknown;
   try {
     const text = readFileSync(SCHEMA_PATH, 'utf8');
-    return JSON.parse(text) as Record<string, unknown>;
+    parsed = JSON.parse(text);
   } catch (err) {
     throw new InstanceConfigError(
-      `The published JSON Schema artifact at ${SCHEMA_PATH} is missing or invalid — this is an internal packaging problem (see nest-cli.json "assets"), not an operator llame.config.json error: ${(err as Error).message}`,
+      `The published JSON Schema artifact at ${SCHEMA_PATH} is missing or invalid — this is an internal packaging problem (see nest-cli.json "assets"), not an operator llame.config.json error: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+  if (!isRecord(parsed)) {
+    throw new InstanceConfigError(
+      `The published JSON Schema artifact at ${SCHEMA_PATH} is not a JSON object — this is an internal packaging problem (see nest-cli.json "assets"), not an operator llame.config.json error.`,
+    );
+  }
+  return parsed;
 }
 
-let cachedValidator: ValidateFunction | undefined;
+let cachedValidator: ValidateFunction<RawInstanceConfig> | undefined;
 
-/** Compile (once, cached) and return the ajv validator for the published schema. */
-export function getConfigValidator(): ValidateFunction {
-  cachedValidator ??= new Ajv2020({ allErrors: true, strict: false }).compile(
-    loadSchemaDocument(),
-  );
+/**
+ * Compile (once, cached) and return the ajv validator for the published
+ * schema. Parameterizing the compile call with `RawInstanceConfig` makes the
+ * returned function's call signature a real type predicate
+ * (`data is RawInstanceConfig`, ajv's own `ValidateFunction<T>` contract) —
+ * `assertValidRaw` (config-loader.ts) relies on that to narrow the parsed
+ * document without a cast.
+ */
+export function getConfigValidator(): ValidateFunction<RawInstanceConfig> {
+  cachedValidator ??= new Ajv2020({
+    allErrors: true,
+    strict: false,
+  }).compile<RawInstanceConfig>(loadSchemaDocument());
   return cachedValidator;
 }
