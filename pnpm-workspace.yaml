@@ -53,6 +53,26 @@ overrides:
   # which cannot reach 0.25.0 through its own declared range. drizzle-kit is
   # already on the newest 0.x release; the fix lives only past that pin.
   "@esbuild-kit/core-utils>esbuild": "^0.25.0"
+  # GHSA qs prototype-pollution-adjacent advisory (patched 6.15.2).
+  # typed-rest-client@2.3.1 — the newest 2.3.x release, itself capped by
+  # @stryker-mutator/core's `~2.3.0` pin — hard-pins qs@6.15.1 exact.
+  "typed-rest-client>qs": "^6.15.2"
+  # GHSA file-type advisories (patched >=21.3.1/21.3.2). Five separate
+  # @xhmikosr/* decompression-tooling packages (archive-type,
+  # decompress-tar/-tarbz2/-targz/-unzip) each declare their own
+  # file-type@^20.5.0 edge; @xhmikosr/downloader (their shared parent) is
+  # already on its newest 15.x release, and the file-type 21.x bump only
+  # ships in downloader 16.x. Unscoped rather than five parent selectors:
+  # dev-only decompression tooling (@nestjs/cli's `new` command), narrow
+  # buffer-sniffing API — low-risk to force forward everywhere.
+  "file-type": "^21.3.4"
+  # GHSA valibot advisory (patched 1.4.2). @storybook/addon-mcp and
+  # @storybook/mcp both hard-pin valibot@1.2.0 exact with no newer release
+  # available upstream (latest 0.7.0 / alpha lines still pin 1.2.0); this
+  # also resolves the pnpm peer warning from @valibot/to-json-schema wanting
+  # valibot@^1.4.0.
+  "@storybook/addon-mcp>valibot": "^1.4.2"
+  "@storybook/mcp>valibot": "^1.4.2"
 
 # One shared version per dependency used by 2+ workspaces — reference with
 # "catalog:" in package.json. Single edit point, no cross-package drift.

@@ -40,7 +40,7 @@
     "@ai-sdk/openai": "3.0.79",
     "@knaadh/nestjs-drizzle-postgres": "^1.2.0",
     "@modelcontextprotocol/sdk": "catalog:",
-    "@nestjs/common": "^11.0.1",
+    "@nestjs/common": "^11.1.29",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.1.18",
     "@nestjs/platform-express": "^11.1.29",

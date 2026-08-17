@@ -4,18 +4,23 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - Dependency security pass: cleared 91 of 93 open Dependabot alerts, including
   both criticals (`form-data`, `@xhmikosr/decompress`) and all 40 highs bar
-  two. `pnpm dedupe` plus targeted `pnpm up` on the direct devDependencies that
-  hard-pin their own transitives (`@nestjs/cli`, `@nestjs/platform-express`,
-  `@nestjs/swagger`, `@nestjs/config`, `drizzle-kit`) resolved the bulk of it;
-  `next` moved 16.2.12 → 16.3.0 (minor, fixes its bundled `postcss`/`sharp`)
-  and `supertest`/`@types/supertest` moved to the 7.x line (fixes `form-data`
-  <4.0.6). Two narrow, advisory-scoped `pnpm.overrides` entries cover
+  two. `pnpm dedupe` plus targeted `pnpm up` on the direct devDependencies and
+  dependencies that hard-pin their own transitives (`@nestjs/cli`,
+  `@nestjs/common`, `@nestjs/platform-express`, `@nestjs/swagger`,
+  `@nestjs/config`, `drizzle-kit`) resolved the bulk of it; `next` moved
+  16.2.12 → 16.3.0 (minor, fixes its bundled `postcss`/`sharp`) and
+  `supertest`/`@types/supertest` moved to the 7.x line (fixes `form-data`
+  <4.0.6). Five narrow, advisory-scoped `pnpm.overrides` entries cover
   transitives whose own parents can't reach the fix yet:
   `@ai-sdk/provider-utils>undici` (upstream's own fix ships in
   `@ai-sdk/mcp@1.0.71`, published 2026-08-14 and still inside the 7-day
-  `minimumReleaseAge` cooldown) and `@esbuild-kit/core-utils>esbuild`
+  `minimumReleaseAge` cooldown), `@esbuild-kit/core-utils>esbuild`
   (deprecated, unmaintained transitive of `drizzle-kit`, tilde-pinned below the
-  patched esbuild). The two remaining open alerts are both `image-size`
+  patched esbuild), `typed-rest-client>qs` and `file-type` (both exact-pinned
+  by dev-only build/mutation-testing tooling with no newer compatible parent
+  release), and `@storybook/addon-mcp>valibot` /
+  `@storybook/mcp>valibot` (both hard-pin `valibot@1.2.0` with no newer
+  release upstream). The two remaining open alerts are both `image-size`
   (GHSA-w3rx-r6r6-pgpr, GHSA-5p2g-fcmc-qvqq) with no patched release published
   upstream as of this pass.
 
