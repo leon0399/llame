@@ -7,11 +7,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   two. `pnpm dedupe` plus targeted `pnpm up` on the direct devDependencies and
   dependencies that hard-pin their own transitives (`@nestjs/cli`,
   `@nestjs/common`, `@nestjs/platform-express`, `@nestjs/swagger`,
-  `@nestjs/config`, `drizzle-kit`) resolved the bulk of it; `next` moved
-  16.2.12 → 16.3.0 (minor, fixes its bundled `postcss`/`sharp`) and
-  `supertest`/`@types/supertest` moved to the 7.x line (fixes `form-data`
-  <4.0.6). Five narrow, advisory-scoped `pnpm.overrides` entries cover
-  transitives whose own parents can't reach the fix yet:
+  `@nestjs/config`) resolved the bulk of it; `next` moved 16.2.12 → 16.3.0
+  (minor, fixes its bundled `postcss`/`sharp`) and `supertest`/
+  `@types/supertest` moved to the 7.x line (fixes `form-data` <4.0.6). Five
+  narrow, advisory-scoped `pnpm.overrides` entries cover transitives whose own
+  parents can't reach the fix yet:
   `@ai-sdk/provider-utils>undici` (upstream's own fix ships in
   `@ai-sdk/mcp@1.0.71`, published 2026-08-14 and still inside the 7-day
   `minimumReleaseAge` cooldown), `@esbuild-kit/core-utils>esbuild`
@@ -23,6 +23,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   release upstream). The two remaining open alerts are both `image-size`
   (GHSA-w3rx-r6r6-pgpr, GHSA-5p2g-fcmc-qvqq) with no patched release published
   upstream as of this pass.
+
+  CI caught a type regression the above pass introduced: an opportunistic
+  `drizzle-kit` bump (0.31.4 → 0.31.10, not required for any alert — the
+  esbuild fix lives entirely in the `@esbuild-kit/core-utils>esbuild`
+  override above) added a new `tsx: ^4.21.0` dependency that the workspace's
+  `tsx: ^4.20.3` catalog pin couldn't satisfy, forcing a second `tsx`/`vite`
+  install whose structurally distinct `Plugin`/`Environment` types broke
+  `apps/api`'s `vitest.config.mts` typecheck. Reverted the unnecessary
+  `drizzle-kit` bump; a follow-up `pnpm dedupe` then collapsed `tsx` back to
+  one instance (settling on 4.23.12, still within the catalog's declared
+  range) with no further package.json changes needed.
 
 - Removed 47 `typescript/no-unsafe-type-assertion` findings from the
   instance-config loader/validator boundary (`config-loader.ts`, `schema.ts`,
