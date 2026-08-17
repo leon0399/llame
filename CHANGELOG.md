@@ -1,5 +1,12 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-17
+
+- Closed out the code-quality tracker after the 47-PR quality stack (#359–#407)
+  merged: every shipped layer and inventory row is now recorded `done`, the
+  submission queue is empty, and the still-open work is carried only by
+  `queued`/`investigate` rows and the standing governance no-gos.
+
 # 2026-08-16
 
 - Dropped all 27 dated `docs/superpowers` working plans and specs from the
