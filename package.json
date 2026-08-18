@@ -34,7 +34,7 @@
   },
   "devDependencies": {
     "@ast-grep/cli": "0.44.0",
-    "@oxlint/plugins": "1.77.0",
+    "@oxlint/plugins": "1.78.0",
     "@playwright/test": "catalog:",
     "@workspace/config-typescript": "workspace:*",
     "lefthook": "2.1.9",
