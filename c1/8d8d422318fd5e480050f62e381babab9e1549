@@ -1,0 +1,24 @@
+apps/web/next.config.mjs
+  c2a7d448fc16accd 9-12
+apps/web/AGENTS.md
+  c2a7d448fc16accd 5-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "c18d8d422318fd5e480050f62e381babab9e1549",
+  "prompts": {
+    "c2a7d448fc16accd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cf030898-251e-4248-80ca-1addc0ffab17",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 9,
+      "total_deletions": 1,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    }
+  }
+}
