@@ -8,7 +8,7 @@ import { type UnknownRecord } from '../unknown-record';
  * external sources (D2: "accepted as the source ships it"). Distinct from
  * `z.ZodTypeAny` which is the code-authored schema form.
  */
-export type JsonSchemaDocument = Record<string, unknown>;
+export type JsonSchemaDocument = UnknownRecord;
 
 /**
  * Trusted execution context injected into a tool's execute by the run loop —

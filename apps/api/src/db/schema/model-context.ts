@@ -12,11 +12,12 @@ import {
 
 import { users } from './auth';
 import { type ToolAvailabilityManifest } from '../../tools/turn-tool-catalog';
+import { type JsonSchemaDocument } from '../../tools/types';
 
 export type ModelToolDeclaration = {
   id: string;
   description: string;
-  inputSchema: Record<string, unknown>;
+  inputSchema: JsonSchemaDocument;
 };
 
 export const modelContextPromptSource = pgEnum('model_context_prompt_source', [

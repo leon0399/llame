@@ -145,7 +145,7 @@ export function buildJsonSchemaValidator(
 }
 
 export type ToolSchemaAdmission =
-  | { success: true; inputSchema: Record<string, unknown> }
+  | { success: true; inputSchema: JsonSchemaDocument }
   | Extract<JsonSchemaCompilation, { success: false }>;
 
 /**
@@ -220,7 +220,7 @@ export function safeParseArgs(
  */
 export async function resolveJsonSchema(
   schema: z.ZodTypeAny | JsonSchemaDocument,
-): Promise<Record<string, unknown>> {
+): Promise<JsonSchemaDocument> {
   if (isZodSchema(schema)) {
     const generatedSchema = await asSchema(schema).jsonSchema;
     return { ...generatedSchema };

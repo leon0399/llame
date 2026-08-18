@@ -2,6 +2,27 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-19
 
+- Enabled `anti-slop/no-unsafe-dictionary-type` at error in
+  `apps/api/.oxlintrc.json` (Arc 2's fifth rule), after redirecting the 4
+  remaining sites that were literally "a tool's input schema as a JSON
+  Schema document" (`db/schema/model-context.ts`'s `ModelToolDeclaration`,
+  `runs/dto/runs.dto.ts`'s `inputSchema`, `schema-utils.ts`'s
+  `ToolSchemaAdmission` and `resolveJsonSchema`) to the existing
+  `JsonSchemaDocument` alias instead of the generic `UnknownRecord`, and
+  re-aliasing `JsonSchemaDocument` itself to `UnknownRecord`. Fresh-measuring
+  against the whole `apps/api` tree (not just `src/`, which the prior layer's
+  scratch config had scanned) surfaced one more finding outside `src/`:
+  `evals/mcp-web-search-eval.test.ts` carried its own verbatim-duplicate
+  `isRecord`, now imported from `unknown-record.ts` instead. `unknown-record.ts`'s
+  own `UnknownRecord` declaration carries this repo's second inline-disable
+  precedent (after `stream-text-result-proxy.ts`): the rule has no
+  filename-allowlist or directive-comment exemption in its source, so the one
+  declaration the rule's escape hatch exists to centralize can never satisfy
+  it — a `.oxlintrc.json` file-scoped override was considered and rejected,
+  since the tracker's own adoption policy rules out a file-level override.
+  No behavior change; `openapi.json` confirmed byte-identical (both touched
+  DTO fields carry explicit `@ApiProperty({ type: Object, additionalProperties:
+true })` decorators, unaffected by the TS-level alias swap).
 - Removed 37 of 43 `anti-slop/no-unsafe-dictionary-type` findings (Arc 2's
   fifth rule, not enabled yet — 6 remain: 4 sites that should redirect to the
   existing `JsonSchemaDocument` alias instead of a blanket swap, its own
