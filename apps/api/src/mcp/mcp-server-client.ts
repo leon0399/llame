@@ -177,10 +177,12 @@ class McpMatchingResponseError extends Error {
   }
 }
 
-function rpcRequest(init: RequestInit | undefined): {
+type RpcRequestSummary = {
   readonly id?: string | number;
   readonly method?: string;
-} {
+};
+
+function rpcRequest(init: RequestInit | undefined): RpcRequestSummary {
   if (typeof init?.body !== 'string') return {};
   try {
     const body = JSON.parse(init.body) as unknown;

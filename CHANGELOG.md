@@ -2,6 +2,24 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-19
 
+- Removed 17 of 36 `anti-slop/no-known-value-widening` findings (Arc 2's
+  third rule, not enabled yet — 19 remain in the runs/chats/tools cluster) in
+  the MCP + instance-config cluster: `mcp-server-client.ts` and its test,
+  `declaration-admission.test.ts`, `mcp-operator.integration.test.ts`,
+  `config-loader.ts`, and `prompt-loader.ts`. Anonymous inline object
+  return/binding types get named type aliases (the rule's own alias-resolution
+  path exempts a named alias over a plain member-literal shape, matching its
+  "use a named owner contract" guidance); private single-caller helpers drop
+  the annotation entirely and let inference reconstruct it.
+  `prompt-loader.ts`'s `PROMPT_ESCAPES` needed a real design change instead of
+  either recipe: a `Map` replaces the object literal, because an `in`-narrowed
+  lookup typechecked clean under `tsgo --noEmit` but oxlint's own type-aware
+  `tsgolint` engine (the actual lint gate) rejected it as an unsafe return —
+  the two engines don't agree on that narrowing path. Also fixed a second
+  scratch-config resolution-root gap beyond the one `no-unknown-returns`
+  found: `overrides[].files`/`ignorePatterns` have the same
+  config-file-relative resolution problem as `jsPlugins.specifier`. No
+  behavior change.
 - Enabled `anti-slop/no-unknown-returns` at error in `apps/api/.oxlintrc.json`
   (Arc 2's second rule), after removing its remaining 14 findings across 12
   files. Most sites just drop an explicit `: unknown`/`Promise<unknown>`

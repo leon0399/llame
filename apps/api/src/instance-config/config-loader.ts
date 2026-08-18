@@ -16,7 +16,6 @@ import {
   type ProviderConfig,
   type RawInstanceConfig,
   type RawMcpServerEntry,
-  type WorkerProfile,
 } from './llame-config';
 import { InstanceConfigError } from './instance-config.error';
 import { getConfigValidator } from './schema';
@@ -256,10 +255,7 @@ function formatConfigPath(pathSegments: readonly (string | number)[]): string {
     .join('');
 }
 
-function offsetToLineColumn(
-  text: string,
-  offset: number,
-): { line: number; column: number } {
+function offsetToLineColumn(text: string, offset: number) {
   const upToOffset = text.slice(0, offset);
   const lines = upToOffset.split('\n');
   return { line: lines.length, column: lines[lines.length - 1].length + 1 };
@@ -524,7 +520,7 @@ function asciiCaseFold(value: string): string {
 function resolveMcpServers(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
-): Readonly<Record<string, McpServerConfig>> {
+) {
   const entries = raw?.mcpServers ?? {};
   const resolved: Record<string, McpServerConfig> = {};
 
@@ -717,16 +713,12 @@ function resolveMcpHeaders(
  * per-profile shape — `assertValidRaw` already ran and typed `raw.workers`
  * accordingly, so no further cast is needed here.
  */
-function resolveWorkerProfiles(
-  raw: RawInstanceConfig | undefined,
-): Record<string, WorkerProfile> {
+function resolveWorkerProfiles(raw: RawInstanceConfig | undefined) {
   const fileWorkers = raw?.workers;
   if (!fileWorkers) {
     return BUILT_IN_DEFAULTS.workers;
   }
-  const merged: Record<string, WorkerProfile> = {
-    ...BUILT_IN_DEFAULTS.workers,
-  };
+  const merged = { ...BUILT_IN_DEFAULTS.workers };
   for (const [name, groups] of Object.entries(fileWorkers)) {
     merged[name] = { ...BUILT_IN_DEFAULTS.workers[name], ...groups };
   }
