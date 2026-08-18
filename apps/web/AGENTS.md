@@ -2,6 +2,10 @@
 
 Next.js 16 App Router frontend. `apps/web` is a thin browser client of `apps/api`: it owns UI state and calls `NEXT_PUBLIC_API_URL` directly for auth and chat. Consumes shared UI from `@workspace/ui`.
 
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
 ## Stack
 
 - Next.js 16 (App Router, Turbopack dev + build) + React 19

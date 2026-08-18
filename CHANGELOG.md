@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-18
 
+- Upgraded Next.js 16.2.12 → 16.3.0 (#416, tracker #412) — a no-breaking-
+  changes minor that turns on Turbopack dev memory eviction, the FileSystem
+  build cache, native Node stream SSR, and prefetch inlining by default, and
+  refreshes Next's bundled `postcss`/`sharp` pins to close five deferred
+  Dependabot alerts. The new auto-managed `AGENTS.md` block is disabled
+  (`agentRules: false`) because it would rewrite a symlinked, markdown-linted
+  file on every `next dev`; its bundled-docs pointer is committed manually in
+  `apps/web/AGENTS.md` instead. Instant Navigations, `catchError` boundaries,
+  TS7 build type checking, and CI build-cache persistence are adopted
+  separately (#417–#420).
+
 - Bumped the paired `oxlint`/`@oxlint/plugins` lint engine 1.77.0 → 1.78.0, now
   past the seven-day release cooldown that deferred it at anti-slop
   qualification. All five lint scopes and the vendored-plugin `RuleTester`
