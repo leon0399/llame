@@ -13,6 +13,24 @@ import path from 'node:path';
 
 import { InterpolationError, interpolateString } from './interpolation';
 
+/** Narrows a `catch`-clause `unknown` to the InterpolationError it's expected to be, without a cast. */
+function interpolationErrorSource(err: unknown): InterpolationError['source'] {
+  if (!(err instanceof InterpolationError)) {
+    throw new Error(
+      `expected an InterpolationError instance, got ${String(err)}`,
+    );
+  }
+  return err.source;
+}
+
+/** Narrows a `catch`-clause `unknown` to its message without a cast. */
+function errorMessage(err: unknown): string {
+  if (!(err instanceof Error)) {
+    throw new Error(`expected an Error instance, got ${String(err)}`);
+  }
+  return err.message;
+}
+
 const ENV_KEYS = [
   'IC_TEST_VAR',
   'IC_TEST_SECRET',
@@ -48,7 +66,7 @@ describe('interpolateString — {env:...}', () => {
       expect.unreachable('expected throw');
     } catch (err) {
       expect(err).toBeInstanceOf(InterpolationError);
-      expect((err as InterpolationError).source).toEqual({
+      expect(interpolationErrorSource(err)).toEqual({
         kind: 'env',
         name: 'IC_TEST_VAR',
       });
@@ -120,7 +138,7 @@ describe('interpolateString — {path:...}', () => {
       expect.unreachable('expected throw');
     } catch (err) {
       expect(err).toBeInstanceOf(InterpolationError);
-      expect((err as InterpolationError).source).toEqual({
+      expect(interpolationErrorSource(err)).toEqual({
         kind: 'path',
         location: missing,
       });
@@ -148,7 +166,7 @@ describe('interpolateString — redaction', () => {
       interpolateString('{env:IC_TEST_SECRET}{env:IC_TEST_VAR}');
       expect.unreachable('expected throw');
     } catch (err) {
-      expect((err as Error).message).not.toContain('sk-should-never-appear');
+      expect(errorMessage(err)).not.toContain('sk-should-never-appear');
     }
   });
 });

@@ -105,67 +105,86 @@ historical publication record of stack #369.
 ## Current submission
 
 Arc 1 (drive `typescript/no-unsafe-type-assertion` to zero, then enable it)
-opened a new stack, `quality/unsafe-assertion-run-execution-tools`, on top of
-the merged instance-config slice. Layer 1 removes the 36 findings in
+opened a new stack, `quality/unsafe-assertion-run-execution-tools` ←
+`quality/unsafe-assertion-prompt-loader`, on top of the merged instance-config
+slice. The native inventory falls from 196 diagnostics/68 files to 147/64
+across the two layers below.
+
+**Layer 1** removes the 36 findings in
 `run-execution-tools.integration.test.ts`, plus two more the same production
 narrowing exposed as newly-unnecessary in
 `compaction-context.integration.test.ts` and
-`mcp-operator.integration.test.ts`. The native inventory falls from 196
-diagnostics/68 files to 158/67. `RunExecutionService`'s constructor now takes
-`CompactionCapability`/`TitleCapability` (new `Pick<>` types alongside the
-existing `InstanceConfigReader`) instead of the three concrete service
-classes, each bound through an explicit `@Inject(ConcreteClass)` token — the
-established recipe (`apps/api/AGENTS.md`) — so test doubles satisfy them
-structurally with zero casts. `TOOL_REGISTRY` (`tools/registry.ts`) keeps an
-internal mutable `registryStore` behind its exported `ReadonlyMap` view and
-gains `registerTestOnlyTool`/`unregisterTestOnlyTool` as the one supported
+`mcp-operator.integration.test.ts` (196/68 → 158/67).
+`RunExecutionService`'s constructor now takes `CompactionCapability`/
+`TitleCapability` (new `Pick<>` types alongside the existing
+`InstanceConfigReader`) instead of the three concrete service classes, each
+bound through an explicit `@Inject(ConcreteClass)` token — the established
+recipe (`apps/api/AGENTS.md`) — so test doubles satisfy them structurally
+with zero casts. `TOOL_REGISTRY` (`tools/registry.ts`) keeps an internal
+mutable `registryStore` behind its exported `ReadonlyMap` view and gains
+`registerTestOnlyTool`/`unregisterTestOnlyTool` as the one supported
 test-only mutation seam, replacing seven inline `TOOL_REGISTRY as
 Map<string, Tool>` casts. The scripted `MockLanguageModelV3` step builders
 now construct typed `LanguageModelV3StreamPart[]` chunks (matching
 `fake-model-client.ts`'s established idiom) instead of `as any`-wrapped
 literals, which also corrected the fixture data itself — the untyped chunks
 were carrying a stale flat `usage`/string `finishReason` shape invisible
-behind the casts, not the real nested V3 shape. Repair evidence: focused
-units (`src/tools`, `src/compaction`, `src/titles`, `src/runs`) all green,
-full `pnpm --filter api test` 1153/1153, `pnpm --filter api lint`/`typecheck`
-clean, targeted Docker-backed integration run (the three touched
-`.integration.test.ts` files) 39/39.
+behind the casts, not the real nested V3 shape.
+
+**Layer 2** removes the remaining 11 findings in the instance-config module
+(`prompt-loader.ts`, `prompt-loader.test.ts`, `interpolation.test.ts`),
+completing it to zero (158/67 → 147/64). handlebars types every AST node's
+`type` field as plain `string` (the shipped `hbs.AST.Expression`/`Statement`
+supertypes are not discriminated unions), so `node.type === 'X'` alone never
+narrowed `node` itself; four explicit type-predicate functions
+(`isPathExpression`/`isMustacheStatement`/`isBlockStatement`/
+`isContentStatement`) replace the check-then-cast pattern at every
+AST-walking call site. The two test files reuse the shared `isRecord` guard
+and a local `instanceof`-narrowing error helper, matching
+`config-loader.test.ts`'s established idiom.
+
+Repair evidence (both layers): focused units (`src/tools`, `src/compaction`,
+`src/titles`, `src/runs`, `src/instance-config`) all green, full
+`pnpm --filter api test` 1153/1153 (twice), `pnpm --filter api lint`/
+`typecheck` clean, targeted Docker-backed integration runs 39/39 then 36/36
+(five distinct `.integration.test.ts` files that import the touched
+production code).
 
 ## Inventory
 
 ### Typing and assertions
 
-| State       | Finding                                                                                                  | Evidence / exit condition                                                                                                                                               |
-| ----------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| done        | API convention bans `as unknown as T` and gives the `Pick<>` plus explicit Nest injection-token recipe   | `apps/api/AGENTS.md`; PR #285                                                                                                                                           |
-| done        | Double assertions are prohibited across all five owned lint scopes                                       | Maintained anti-slop Oxlint scans root E2E plus API, web, UI, and Storybook through their normal Lefthook/Turbo/CI paths                                                |
-| done        | Web test and story doubles contained 19 assertions across 14 files                                       | Zero web matches; 340 web unit tests and 300 Storybook browser tests pass                                                                                               |
-| done        | `MessagePart` explicitly names `ModelSwitchPart`, `ToolAvailabilityPart`, and `RecencyDigestPart`        | Corrects the pre-existing stored-message type gap without an assertion                                                                                                  |
-| done        | AI SDK model doubles removed 13 assertions from `model-client.test.ts` and 1 from `fake-model-client.ts` | Partial Vitest mocks, `MockLanguageModelV3`, and real `streamText` with typed provider chunks; units 11/11                                                              |
-| done        | OpenAI adapter tool-loop tests removed 9 assertions without OpenAI-specific model doubles                | Provider-boundary `MockLanguageModelV3` drives real SDK scheduling, validation, and repair; focused units 8/8                                                           |
-| done        | API app-setup, auth, models, and runs tests removed 16 assertions                                        | Narrow Nest capabilities, `ExecutionContextHost`, Express `Pick<>`, and `drizzle.mock`; focused units 29/29                                                             |
-| done        | Chats controller tests removed 6 assertions                                                              | Real Node writable streams, typed Vitest spies, Drizzle mock DB, and provider-neutral AI SDK stream result; units 22/22                                                 |
-| done        | Chat-loop integration tests removed 7 assertions                                                         | Existing narrow service contracts and complete built-in config; real-Postgres integration 19/19                                                                         |
-| done        | Search worker tests removed 6 assertions                                                                 | Nest `TestingModule`, public bootstrap lifecycle, provider overrides, and prototype logger spies; units 4/4                                                             |
-| done        | Compaction continuity integration removed 5 assertions                                                   | AI SDK `MockLanguageModelV3`, real `streamText`, typed provider chunks, and public `asSchema`; integration 17/17                                                        |
-| done        | Pins tests removed 4 assertions                                                                          | Nest `TestingModule` provider overrides replace forged concrete service and tenant DB instances; units 11/11                                                            |
-| done        | Worker harness removed 1 forged AI SDK result                                                            | Provider-neutral `MockLanguageModelV3` drives real `streamText`; worker integration 10/10 and model units 15/15                                                         |
-| done        | Shared and worker-mode integration fakes removed 4 forged AI SDK results                                 | One shared provider-neutral `MockLanguageModelV3` client drives real `streamText`; support unit 1/1 and affected integration suites 24/24                               |
-| done        | Auth service tests removed 3 concrete-class double assertions                                            | Exported `Pick<>` capabilities plus explicit Nest injection tokens preserve mock metadata and runtime DI; units 3/3                                                     |
-| done        | Tenant DB service tests removed 2 forged Drizzle database assertions                                     | Narrow transaction capability, Drizzle's mock driver, and typed Vitest spies replace partial database objects; units 6/6                                                |
-| done        | HTTP integration support removed 3 `set-cookie` header assertions                                        | Superagent's typed `get('Set-Cookie')` overload and the shared cookie extractor replace direct header-map coercions; integrations 15/15                                 |
-| done        | Instance config consumers removed 2 concrete-service assertions                                          | Existing `InstanceConfigReader`, explicit Nest tokens, and complete built-in config fixtures replace partial config objects; units 15/15                                |
-| done        | Tool-context units removed 2 concrete tenant-database assertions                                         | Existing `TenantRunner`, Drizzle's mock DB, and a repository spy exercise the real callback boundary; units 23/23                                                       |
-| done        | Remaining service fixtures removed 2 concrete-service assertions                                         | Existing `RunStreamResponder` plus source-owned `ChatReindexDispatcher` capabilities replace concrete bridge/dispatch fixtures                                          |
-| done        | Negative runtime fixtures removed 3 double assertions                                                    | Structural supersets and accurately broad validated inputs replace casts without weakening `User`, registered `Tool`, or `MessagePart`                                  |
-| done        | Database/lifecycle boundaries removed 2 double assertions                                                | Native Drizzle mock replaces an unused forged chain; typed factory client ownership preserves graceful worker teardown                                                  |
-| done        | Model-context repository removed 1 forged database assertion                                             | Real Postgres covers five reachable hash-collision branches; impossible simulated source/availability collisions are deleted                                            |
-| done        | Chats repository removed 1 forged fluent database assertion                                              | Drizzle's native mock and public logger compile real SQL/params; focused units 35/35 and >500-row fork integration 6/6                                                  |
-| done        | Chat-loop transaction binding removed the final forged database assertion                                | 17 orchestration cases use the real `TenantDbService`/Drizzle transaction boundary; 3 pre-transaction guards remain fast units                                          |
-| done        | Zero owned application/test matches remain                                                               | Full-tree inventory reports zero across tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                                               |
-| done        | Five-scope chained-assertion enforcement                                                                 | Maintained anti-slop Oxlint covers root E2E plus four workspaces in Lefthook/CI; the old diff script and two bespoke ast-grep rules are deleted                         |
-| queued      | API unsafe narrowing assertions are measured for zero-baseline migration                                 | Native type-aware Oxlint fell from 282/83 through 281/82, 274/81, 269/79, 267/77, 264/76, 260/75, 243/72, 196/68, then 158/67; slices must reach zero before enablement |
-| investigate | Direct `any` and non-null assertions                                                                     | Classify production vs test/integration scaffolding before enabling restriction rules                                                                                   |
+| State       | Finding                                                                                                  | Evidence / exit condition                                                                                                                                                       |
+| ----------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done        | API convention bans `as unknown as T` and gives the `Pick<>` plus explicit Nest injection-token recipe   | `apps/api/AGENTS.md`; PR #285                                                                                                                                                   |
+| done        | Double assertions are prohibited across all five owned lint scopes                                       | Maintained anti-slop Oxlint scans root E2E plus API, web, UI, and Storybook through their normal Lefthook/Turbo/CI paths                                                        |
+| done        | Web test and story doubles contained 19 assertions across 14 files                                       | Zero web matches; 340 web unit tests and 300 Storybook browser tests pass                                                                                                       |
+| done        | `MessagePart` explicitly names `ModelSwitchPart`, `ToolAvailabilityPart`, and `RecencyDigestPart`        | Corrects the pre-existing stored-message type gap without an assertion                                                                                                          |
+| done        | AI SDK model doubles removed 13 assertions from `model-client.test.ts` and 1 from `fake-model-client.ts` | Partial Vitest mocks, `MockLanguageModelV3`, and real `streamText` with typed provider chunks; units 11/11                                                                      |
+| done        | OpenAI adapter tool-loop tests removed 9 assertions without OpenAI-specific model doubles                | Provider-boundary `MockLanguageModelV3` drives real SDK scheduling, validation, and repair; focused units 8/8                                                                   |
+| done        | API app-setup, auth, models, and runs tests removed 16 assertions                                        | Narrow Nest capabilities, `ExecutionContextHost`, Express `Pick<>`, and `drizzle.mock`; focused units 29/29                                                                     |
+| done        | Chats controller tests removed 6 assertions                                                              | Real Node writable streams, typed Vitest spies, Drizzle mock DB, and provider-neutral AI SDK stream result; units 22/22                                                         |
+| done        | Chat-loop integration tests removed 7 assertions                                                         | Existing narrow service contracts and complete built-in config; real-Postgres integration 19/19                                                                                 |
+| done        | Search worker tests removed 6 assertions                                                                 | Nest `TestingModule`, public bootstrap lifecycle, provider overrides, and prototype logger spies; units 4/4                                                                     |
+| done        | Compaction continuity integration removed 5 assertions                                                   | AI SDK `MockLanguageModelV3`, real `streamText`, typed provider chunks, and public `asSchema`; integration 17/17                                                                |
+| done        | Pins tests removed 4 assertions                                                                          | Nest `TestingModule` provider overrides replace forged concrete service and tenant DB instances; units 11/11                                                                    |
+| done        | Worker harness removed 1 forged AI SDK result                                                            | Provider-neutral `MockLanguageModelV3` drives real `streamText`; worker integration 10/10 and model units 15/15                                                                 |
+| done        | Shared and worker-mode integration fakes removed 4 forged AI SDK results                                 | One shared provider-neutral `MockLanguageModelV3` client drives real `streamText`; support unit 1/1 and affected integration suites 24/24                                       |
+| done        | Auth service tests removed 3 concrete-class double assertions                                            | Exported `Pick<>` capabilities plus explicit Nest injection tokens preserve mock metadata and runtime DI; units 3/3                                                             |
+| done        | Tenant DB service tests removed 2 forged Drizzle database assertions                                     | Narrow transaction capability, Drizzle's mock driver, and typed Vitest spies replace partial database objects; units 6/6                                                        |
+| done        | HTTP integration support removed 3 `set-cookie` header assertions                                        | Superagent's typed `get('Set-Cookie')` overload and the shared cookie extractor replace direct header-map coercions; integrations 15/15                                         |
+| done        | Instance config consumers removed 2 concrete-service assertions                                          | Existing `InstanceConfigReader`, explicit Nest tokens, and complete built-in config fixtures replace partial config objects; units 15/15                                        |
+| done        | Tool-context units removed 2 concrete tenant-database assertions                                         | Existing `TenantRunner`, Drizzle's mock DB, and a repository spy exercise the real callback boundary; units 23/23                                                               |
+| done        | Remaining service fixtures removed 2 concrete-service assertions                                         | Existing `RunStreamResponder` plus source-owned `ChatReindexDispatcher` capabilities replace concrete bridge/dispatch fixtures                                                  |
+| done        | Negative runtime fixtures removed 3 double assertions                                                    | Structural supersets and accurately broad validated inputs replace casts without weakening `User`, registered `Tool`, or `MessagePart`                                          |
+| done        | Database/lifecycle boundaries removed 2 double assertions                                                | Native Drizzle mock replaces an unused forged chain; typed factory client ownership preserves graceful worker teardown                                                          |
+| done        | Model-context repository removed 1 forged database assertion                                             | Real Postgres covers five reachable hash-collision branches; impossible simulated source/availability collisions are deleted                                                    |
+| done        | Chats repository removed 1 forged fluent database assertion                                              | Drizzle's native mock and public logger compile real SQL/params; focused units 35/35 and >500-row fork integration 6/6                                                          |
+| done        | Chat-loop transaction binding removed the final forged database assertion                                | 17 orchestration cases use the real `TenantDbService`/Drizzle transaction boundary; 3 pre-transaction guards remain fast units                                                  |
+| done        | Zero owned application/test matches remain                                                               | Full-tree inventory reports zero across tracked TS/TSX/MTS/CTS; no grandfathered baseline                                                                                       |
+| done        | Five-scope chained-assertion enforcement                                                                 | Maintained anti-slop Oxlint covers root E2E plus four workspaces in Lefthook/CI; the old diff script and two bespoke ast-grep rules are deleted                                 |
+| queued      | API unsafe narrowing assertions are measured for zero-baseline migration                                 | Native type-aware Oxlint fell from 282/83 through 281/82, 274/81, 269/79, 267/77, 264/76, 260/75, 243/72, 196/68, 158/67, then 147/64; slices must reach zero before enablement |
+| investigate | Direct `any` and non-null assertions                                                                     | Classify production vs test/integration scaffolding before enabling restriction rules                                                                                           |
 
 The unsafe-assertion baseline was measured from
 `quality-taser/mutation-bounded-fetch-sse` at
@@ -240,6 +259,14 @@ build typed `LanguageModelV3StreamPart[]` chunks instead of `as any`-wrapped
 literals, correcting fixture data that had drifted to a stale flat
 `usage`/string `finishReason` shape behind the casts. The same inventory now
 reports 158 diagnostics across 67 files.
+The prompt-loader layer then removes the remaining 11 findings in the
+instance-config module, completing it to zero. handlebars types every AST
+node's `type` field as plain `string`, so `node.type === 'X'` alone never
+narrowed `node` itself; four explicit type-predicate functions replace the
+check-then-cast pattern at every AST-walking call site, and the two touched
+test files reuse the shared `isRecord` guard and an `instanceof`-narrowing
+error helper. The same inventory now reports 147 diagnostics across 64
+files.
 
 ### Lint and formatting
 

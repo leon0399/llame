@@ -401,6 +401,35 @@ function unsupported(field: string, construct: string): InstanceConfigError {
   );
 }
 
+// handlebars types every AST node's `type` as plain `string` (the shipped
+// `hbs.AST.Expression`/`Statement` supertypes are not discriminated unions),
+// so `node.type === 'X'` alone never narrows `node` itself — these explicit
+// predicates are the one place that trusts the exact literal each subtype
+// declares for its own `type` field.
+function isPathExpression(
+  node: hbs.AST.Expression,
+): node is hbs.AST.PathExpression {
+  return node.type === 'PathExpression';
+}
+
+function isMustacheStatement(
+  node: hbs.AST.Statement,
+): node is hbs.AST.MustacheStatement {
+  return node.type === 'MustacheStatement';
+}
+
+function isBlockStatement(
+  node: hbs.AST.Statement,
+): node is hbs.AST.BlockStatement {
+  return node.type === 'BlockStatement';
+}
+
+function isContentStatement(
+  node: hbs.AST.Statement,
+): node is hbs.AST.ContentStatement {
+  return node.type === 'ContentStatement';
+}
+
 /**
  * Rejects any path expression that is not reachable from `position`.
  *
@@ -415,10 +444,10 @@ function assertPath(
   position: 'value' | 'conditional' | 'item' = 'value',
   itemFields?: ReadonlySet<string>,
 ): void {
-  if (node.type !== 'PathExpression') {
+  if (!isPathExpression(node)) {
     throw unsupported(field, node.type);
   }
-  const expression = node as hbs.AST.PathExpression;
+  const expression = node;
   const key = expression.parts.join('\0');
   const permitted =
     !expression.data &&
@@ -448,10 +477,10 @@ function assertCollectionPath(
   node: hbs.AST.Expression,
   field: string,
 ): ReadonlySet<string> {
-  if (node.type !== 'PathExpression') {
+  if (!isPathExpression(node)) {
     throw unsupported(field, node.type);
   }
-  const expression = node as hbs.AST.PathExpression;
+  const expression = node;
   const itemFields = PROMPT_COLLECTION_ITEM_FIELDS.get(
     expression.parts.join('\0'),
   );
@@ -473,8 +502,8 @@ function assertStatements(
       throw unsupported(field, node.type);
     }
 
-    if (node.type === 'MustacheStatement') {
-      const mustache = node as hbs.AST.MustacheStatement;
+    if (isMustacheStatement(node)) {
+      const mustache = node;
       if (!mustache.escaped) {
         throw unsupported(field, 'unescaped output');
       }
@@ -492,8 +521,8 @@ function assertStatements(
       continue;
     }
 
-    if (node.type === 'BlockStatement') {
-      const block = node as hbs.AST.BlockStatement;
+    if (isBlockStatement(node)) {
+      const block = node;
       const helper = block.path.original;
       if (typeof helper !== 'string' || !ALLOWED_BLOCK_HELPERS.has(helper)) {
         throw unsupported(field, String(helper));
@@ -567,11 +596,11 @@ function assertStatements(
  */
 function hasLiteralContent(body: readonly hbs.AST.Statement[]): boolean {
   return body.some((node) => {
-    if (node.type === 'ContentStatement') {
-      return (node as hbs.AST.ContentStatement).value.trim().length > 0;
+    if (isContentStatement(node)) {
+      return node.value.trim().length > 0;
     }
-    if (node.type === 'BlockStatement') {
-      const block = node as hbs.AST.BlockStatement;
+    if (isBlockStatement(node)) {
+      const block = node;
       return (
         hasLiteralContent(block.program?.body ?? []) ||
         hasLiteralContent(block.inverse?.body ?? [])
@@ -713,7 +742,8 @@ function renderPrompt(
 }
 
 function promptReadError(field: string, error: unknown): InstanceConfigError {
-  const code = (error as NodeJS.ErrnoException).code;
+  const code =
+    error instanceof Error && 'code' in error ? error.code : undefined;
   if (code === 'ENOENT') {
     return new InstanceConfigError(`${field}: prompt file is missing`);
   }
