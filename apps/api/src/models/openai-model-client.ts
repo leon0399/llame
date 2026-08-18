@@ -35,7 +35,7 @@ export const KEYLESS_PLACEHOLDER_API_KEY = 'keyless-no-credential-configured';
  * than throwing — a hallucinating model's malformed arguments are still a
  * recorded observation, not a crash.
  */
-function parseToolCallInput(raw: string): unknown {
+function parseToolCallInput(raw: string) {
   try {
     return JSON.parse(raw) as unknown;
   } catch {
@@ -183,20 +183,21 @@ export function createOpenAIModelClient(config: {
       });
 
       return wrapStreamTextResult(result, {
-        consumeStream:
-          (target) =>
-          async (...args: Parameters<typeof target.consumeStream>) => {
+        consumeStream: (target) => ({
+          value: async (...args: Parameters<typeof target.consumeStream>) => {
             await target.consumeStream(...args);
             await waitForAbortSettlement();
           },
-        text: (target) =>
-          (async () => {
+        }),
+        text: (target) => ({
+          value: (async () => {
             try {
               return await target.text;
             } finally {
               await waitForAbortSettlement();
             }
           })(),
+        }),
       });
     },
     async generateObject<OBJECT>(input: ModelObjectInput<OBJECT>) {

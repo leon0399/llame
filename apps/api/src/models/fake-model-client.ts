@@ -129,8 +129,9 @@ export function createFakeModelClient(
       });
 
       return wrapStreamTextResult(result, {
-        text: (target) =>
-          Promise.all([target.text, completion]).then(([text]) => text),
+        text: (target) => ({
+          value: Promise.all([target.text, completion]).then(([text]) => text),
+        }),
       });
     },
   };

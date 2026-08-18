@@ -59,7 +59,7 @@ export function parseSseEvents(body: string): unknown[] {
       .filter((line): line is string => line !== undefined)
       .map((line) => line.slice('data: '.length))
       .filter((data) => data !== '[DONE]')
-      .map((data): unknown => JSON.parse(data) as unknown)
+      .map((data) => JSON.parse(data) as unknown)
   );
 }
 
@@ -331,20 +331,21 @@ export class FakeStreamingModelClient {
     });
 
     return wrapStreamTextResult(result, {
-      consumeStream:
-        (target) =>
-        async (...args: Parameters<typeof target.consumeStream>) => {
+      consumeStream: (target) => ({
+        value: async (...args: Parameters<typeof target.consumeStream>) => {
           await target.consumeStream(...args);
           await waitForAbortSettlement();
         },
-      text: (target) =>
-        (async () => {
+      }),
+      text: (target) => ({
+        value: (async () => {
           try {
             return await target.text;
           } finally {
             await waitForAbortSettlement();
           }
         })(),
+      }),
     });
   }
 }

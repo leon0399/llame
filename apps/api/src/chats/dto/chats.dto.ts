@@ -30,7 +30,7 @@ export const CHAT_MESSAGES_MAX_SAFE_SEQ = Number.MAX_SAFE_INTEGER;
 
 const SAFE_INTEGER_QUERY_PATTERN = /^(0|[1-9]\d*)$/;
 
-function parseSafeIntegerQueryValue(value: unknown): unknown {
+function parseSafeIntegerQueryValue(value: unknown): number | null | undefined {
   if (value === undefined || value === null) {
     return value;
   }

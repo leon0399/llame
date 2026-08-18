@@ -104,6 +104,53 @@ historical publication record of stack #369.
 
 ## Current submission
 
+Arc 2's second rule, `no-unknown-returns` (branch
+`quality/unsafe-returns-no-unknown`, stacked on `quality/arc1-closeout`),
+recovers the pre-rebase WIP stash left behind before the reboot. Popped
+deliberately (`git stash apply`, verified, then `git stash pop`) rather
+than blindly, since the stash predates the rebase onto the merged peer
+stack. Re-measuring found a methodology gap: the scratch-config technique
+(documented below for `no-reflect-apply`) only made `jsPlugins.specifier`
+absolute — `overrides[].files` glob patterns have the same relative-
+resolution-root problem (oxlint resolves them against the config file's
+own location, not cwd), so a scratch config living outside `apps/api`
+silently stopped applying the one override that disables
+`typescript/no-unsafe-*` for `mcp-stdio-test-fixture.mjs`. The first
+scratch run falsely reported 88 diagnostics (74 phantom
+`typescript/no-unsafe-*` findings on that one file); making
+`overrides[].files` and `ignorePatterns` absolute too (the same fix as
+`jsPlugins.specifier`) corrected it to the real signal: 14
+diagnostics/12 files fresh (the pre-rebase queued baseline was 18/15).
+Future scratch-config measurements should apply this fix from the start.
+
+The fresh 12-file list mostly matched the stash's 13 touched files, with
+one gap: `canonical-json.ts` (2 findings, not covered by the stash) and
+two files in the stash with no live findings (`fake-model-client.ts`,
+`worker-harness.ts` — knock-on type fixes for
+`stream-text-result-proxy.ts`'s signature change, not `no-unknown-returns`
+sites). `canonicalize`'s two overloads returned `unknown`/`Promise<unknown>`
+-shaped values for the general (non-`Record`) case, used internally for
+its own recursive array/object-value calls. Unlike most of this stash's
+sites, the explicit annotation can't simply be dropped here — TypeScript
+overload _signatures_ have no implementation body to infer a return type
+from, so omitting it is a syntax error, not a style choice. Instead, a
+recursive `CanonicalJsonValue` type (mirroring `result-truncation.ts`'s
+own `CappedValue`, already established earlier in this same stash) replaces
+`unknown`, with a fail-closed `throw` for symbol/function/bigint at the
+terminal case. Both real call sites (`turn-tool-catalog.ts`,
+`declaration-admission.ts`) pass `Record<string, unknown>`, so they
+resolve to the narrower overload and see no type change.
+
+The full-tree scratch-config inventory now reports zero
+`anti-slop/no-unknown-returns` diagnostics, confirmed against the real
+`.oxlintrc.json` with the rule enabled (not just the scratch config).
+Repair evidence: `pnpm --filter api lint`/`typecheck` clean (rule
+enabled), `pnpm --filter api test` 1153/1153, full `pnpm --filter api
+test:integration` 348/351 (3 pre-existing skips) against real Postgres —
+run in full rather than a focused subset, since `canonical-json.ts`/
+`stream-text-result-proxy.ts`/`testing/support.ts` are consumed across
+nearly every integration suite.
+
 Arc 1 closes out (branch `quality/arc1-closeout`, stacked on
 `quality/no-reflect-get`, itself stacked on PR #433, PR #432, PR #431,
 PR #430, PR #429, PR #428, PR #423, and PR #422). Leo merged the peer
@@ -516,16 +563,16 @@ across all tracked TS/TSX/MTS/CTS files in `apps/api`, and
 
 ### Lint and formatting
 
-| State  | Finding                                                                                                         | Evidence / exit condition                                                                                                                                                                                                                                                          |
-| ------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS                      | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                                                                                                                                                                                 |
-| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                                                 | Workspace `lint` scripts and Turbo                                                                                                                                                                                                                                                 |
-| queued | API is type-aware; other workspaces are substantially lighter                                                   | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                                                                                                                                                                                |
-| done   | Semantic Markdown is linted across all product-owned files (200 at adoption; 191 after the working-doc removal) | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded                                                                                                                                                       |
-| done   | Unused lint-disable directives are rejected in every lint-owning workspace                                      | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                                                                                                                                                                                |
-| queued | Four Vitest rules are disabled in API                                                                           | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                                                                                                                                                                           |
-| done   | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline                         | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness                                                                                                                                                                 |
-| queued | All 15 `dmmulroy/anti-slop` Oxlint rules are adoption targets                                                   | Five rules had a zero baseline at adoption (base `446268e` plus one documented correctness patch); two more (`no-reflect-apply`, `no-reflect-get`) are since remediated to zero; eight rules still require remediation; only validated `unknown` inputs may carry local exceptions |
+| State  | Finding                                                                                                         | Evidence / exit condition                                                                                                                                                                                                                                                                                  |
+| ------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS                      | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                                                                                                                                                                                                         |
+| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                                                 | Workspace `lint` scripts and Turbo                                                                                                                                                                                                                                                                         |
+| queued | API is type-aware; other workspaces are substantially lighter                                                   | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                                                                                                                                                                                                        |
+| done   | Semantic Markdown is linted across all product-owned files (200 at adoption; 191 after the working-doc removal) | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded                                                                                                                                                                               |
+| done   | Unused lint-disable directives are rejected in every lint-owning workspace                                      | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                                                                                                                                                                                                        |
+| queued | Four Vitest rules are disabled in API                                                                           | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                                                                                                                                                                                                   |
+| done   | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline                         | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness                                                                                                                                                                                         |
+| queued | All 15 `dmmulroy/anti-slop` Oxlint rules are adoption targets                                                   | Five rules had a zero baseline at adoption (base `446268e` plus one documented correctness patch); three more (`no-reflect-apply`, `no-reflect-get`, `no-unknown-returns`) are since remediated to zero; seven rules still require remediation; only validated `unknown` inputs may carry local exceptions |
 
 #### `anti-slop` rule qualification (2026-08-15)
 
@@ -541,23 +588,23 @@ the seven-day release-age gate for 1.78.0. A rule becomes an error only in the P
 that removes every existing owned finding; no baseline, allowlist, or file-level
 override is acceptable.
 
-| State  | Upstream rule                               | llame disposition                                                                                                                      |
-| ------ | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| done   | `no-chained-type-assertions`                | Zero across five scopes; standard `RuleTester` covers parentheses, non-null wrappers, and angle/`as` chains.                           |
-| queued | `no-conditional-empty-object-spread`        | 147 diagnostics/50 files; preserve exact omission semantics rather than replacing omission with unconditional `undefined`.             |
-| queued | `no-known-value-widening`                   | 47 diagnostics/30 files; repair with inference, `satisfies`, or named owner contracts.                                                 |
-| queued | `no-module-mocking`                         | 81 diagnostics/34 files; replace module mocks with real dependency seams or faithful implementations, never overrides.                 |
-| done   | `no-object-parameters`                      | Zero across five scopes; endpoint DTO variants preserve deliberate invalid-field tests and Pins uses an exact service capability seam. |
-| done   | `no-reflect-apply`                          | Zero across three call sites in two files; enforced at error in `apps/api/.oxlintrc.json`.                                             |
-| done   | `no-reflect-get`                            | Zero; the four AI SDK proxy-forwarding sites consolidated into one owned helper with a source-verified inline exception.               |
-| queued | `no-runtime-typeof`                         | 202 diagnostics/77 files; replace ad hoc representation narrowing with boundary schemas and parsed domain values.                      |
-| done   | `no-shape-in-symbol-names`                  | Zero across five scopes; prompt scenarios, rendered conversation nodes, and admitted MCP payloads now carry their domain roles.        |
-| queued | `no-unknown-parameters`                     | 142 diagnostics/64 files; only immediate validation may retain a local suppression with a specific explanation.                        |
-| queued | `no-unknown-returns`                        | 18 diagnostics/15 files; parse where the producing layer owns the contract instead of exporting raw `unknown`.                         |
-| done   | `no-unknown-type-aliases`                   | Zero across five owned scopes and enforced through root plus workspace Oxlint.                                                         |
-| queued | `no-unsafe-dictionary-type`                 | 88 diagnostics/50 files; replace open top-type dictionaries with schema/owner-derived contracts, never `any`.                          |
-| done   | `no-widen-then-assert`                      | Zero across five owned scopes; blocks local evidence erasure before it becomes unsafe-assertion debt.                                  |
-| queued | `require-safety-comment-for-type-assertion` | 386 diagnostics/142 files; enable after unsafe assertions reach zero, documenting only rare unexpressible invariants.                  |
+| State  | Upstream rule                               | llame disposition                                                                                                                                                                                        |
+| ------ | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done   | `no-chained-type-assertions`                | Zero across five scopes; standard `RuleTester` covers parentheses, non-null wrappers, and angle/`as` chains.                                                                                             |
+| queued | `no-conditional-empty-object-spread`        | 147 diagnostics/50 files; preserve exact omission semantics rather than replacing omission with unconditional `undefined`.                                                                               |
+| queued | `no-known-value-widening`                   | 47 diagnostics/30 files; repair with inference, `satisfies`, or named owner contracts.                                                                                                                   |
+| queued | `no-module-mocking`                         | 81 diagnostics/34 files; replace module mocks with real dependency seams or faithful implementations, never overrides.                                                                                   |
+| done   | `no-object-parameters`                      | Zero across five scopes; endpoint DTO variants preserve deliberate invalid-field tests and Pins uses an exact service capability seam.                                                                   |
+| done   | `no-reflect-apply`                          | Zero across three call sites in two files; enforced at error in `apps/api/.oxlintrc.json`.                                                                                                               |
+| done   | `no-reflect-get`                            | Zero; the four AI SDK proxy-forwarding sites consolidated into one owned helper with a source-verified inline exception.                                                                                 |
+| queued | `no-runtime-typeof`                         | 202 diagnostics/77 files; replace ad hoc representation narrowing with boundary schemas and parsed domain values.                                                                                        |
+| done   | `no-shape-in-symbol-names`                  | Zero across five scopes; prompt scenarios, rendered conversation nodes, and admitted MCP payloads now carry their domain roles.                                                                          |
+| queued | `no-unknown-parameters`                     | 142 diagnostics/64 files; only immediate validation may retain a local suppression with a specific explanation.                                                                                          |
+| done   | `no-unknown-returns`                        | Zero; `CanonicalJsonValue` (mirroring `result-truncation.ts`'s `CappedValue`) replaces the two overloads' `unknown`/`Promise<unknown>` return contracts; enforced at error in `apps/api/.oxlintrc.json`. |
+| done   | `no-unknown-type-aliases`                   | Zero across five owned scopes and enforced through root plus workspace Oxlint.                                                                                                                           |
+| queued | `no-unsafe-dictionary-type`                 | 88 diagnostics/50 files; replace open top-type dictionaries with schema/owner-derived contracts, never `any`.                                                                                            |
+| done   | `no-widen-then-assert`                      | Zero across five owned scopes; blocks local evidence erasure before it becomes unsafe-assertion debt.                                                                                                    |
+| queued | `require-safety-comment-for-type-assertion` | 386 diagnostics/142 files; enable after unsafe assertions reach zero, documenting only rare unexpressible invariants.                                                                                    |
 
 The remaining 1,117 diagnostics are remediation inventory, not a tolerated
 baseline. Adopt rules in reviewable layers rather than enabling the all-on preset

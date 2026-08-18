@@ -1,5 +1,28 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-19
+
+- Enabled `anti-slop/no-unknown-returns` at error in `apps/api/.oxlintrc.json`
+  (Arc 2's second rule), after removing its remaining 14 findings across 12
+  files. Most sites just drop an explicit `: unknown`/`Promise<unknown>`
+  return-type annotation — the rule only flags explicit contracts, not
+  TypeScript's inferred type, so the function still returns the same value,
+  it just stops advertising `unknown` in its signature. `canonical-json.ts`'s
+  `canonicalize` couldn't take that shortcut: its two overloads are bare
+  signatures with no implementation body to infer a type from, so the
+  annotation can't be dropped. A recursive `CanonicalJsonValue` type
+  (mirroring `result-truncation.ts`'s own `CappedValue`, from the same
+  stack) replaces `unknown`, with a fail-closed `throw` for
+  symbol/function/bigint at the terminal case. While re-measuring, found
+  that the scratch-config technique used for JS-plugin rules (documented
+  under `no-reflect-apply` below) had a second relative-path gap beyond the
+  already-documented `jsPlugins.specifier` one: `overrides[].files` glob
+  patterns and `ignorePatterns` also resolve against the config file's own
+  location, not the working directory, so a scratch config living outside
+  `apps/api` silently dropped the one override disabling
+  `typescript/no-unsafe-*` for `mcp-stdio-test-fixture.mjs` and inflated the
+  count with 74 phantom findings until corrected. No behavior change.
+
 # 2026-08-18
 
 - Removed the last 8 `typescript/no-unsafe-type-assertion` findings —

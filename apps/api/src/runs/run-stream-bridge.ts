@@ -59,7 +59,7 @@ export interface RunEventLike {
 }
 
 /** Raw field off an unknown object payload — the one null-guard every reader shares. */
-function payloadField(payload: unknown, key: string): unknown {
+function payloadField(payload: unknown, key: string) {
   if (!isRecord(payload)) {
     return undefined;
   }

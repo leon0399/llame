@@ -23,7 +23,11 @@ import { TenantDbService } from './db/tenant-db.service';
 import { MessagesRepository } from './chats/chats-repository';
 import { RunEventsRepository, RunsRepository } from './runs/runs-repository';
 import { ModelsService } from './models/models.service';
-import { cookieOf, FakeStreamingModelClient } from './testing/support';
+import {
+  cookieOf,
+  FakeStreamingModelClient,
+  parseSseEvents,
+} from './testing/support';
 import { isRecord } from './unknown-record';
 import { z } from 'zod';
 
@@ -31,21 +35,6 @@ const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
 
 vi.setConfig({ testTimeout: 30_000 });
-
-function sseData(body: string): unknown[] {
-  return body
-    .split('\n\n')
-    .map((block) =>
-      block
-        .trim()
-        .split('\n')
-        .find((line) => line.startsWith('data: ')),
-    )
-    .filter((line): line is string => line !== undefined)
-    .map((line) => line.slice('data: '.length))
-    .filter((data) => data !== '[DONE]')
-    .map((data): unknown => JSON.parse(data) as unknown);
-}
 
 async function waitFor<T>(
   poll: () => Promise<T | undefined>,
@@ -208,7 +197,7 @@ d('queue-executed runs behind the stream bridge', () => {
 
     const chunks = z
       .array(z.object({ type: z.string(), delta: z.string().optional() }))
-      .parse(sseData(res.text));
+      .parse(parseSseEvents(res.text));
     expect(chunks.map((c) => c.type)).toEqual([
       'start',
       'text-start',
@@ -465,7 +454,7 @@ d('queue-executed runs behind the stream bridge', () => {
     expect(resumed.headers['x-vercel-ai-ui-message-stream']).toBe('v1');
     const chunks = z
       .array(z.object({ type: z.string(), delta: z.string().optional() }))
-      .parse(sseData(resumed.text));
+      .parse(parseSseEvents(resumed.text));
     expect(chunks.map((c) => c.type)).toEqual([
       'start',
       'text-start',

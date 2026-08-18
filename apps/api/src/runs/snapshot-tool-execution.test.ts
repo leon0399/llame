@@ -51,13 +51,13 @@ function makeJsonSchemaTool(
 async function makeDeclaration(tool: Tool): Promise<ModelToolDeclaration> {
   const { resolveJsonSchema } = await import('../tools/schema-utils.js');
   const { canonicalJson } = await import('./effective-context-resolver.js');
-  const canonicalize = (v: unknown): unknown =>
-    JSON.parse(canonicalJson(v)) as unknown;
-  const declaration = canonicalize({
-    id: tool.id,
-    description: tool.description,
-    inputSchema: await resolveJsonSchema(tool.inputSchema),
-  });
+  const declaration: unknown = JSON.parse(
+    canonicalJson({
+      id: tool.id,
+      description: tool.description,
+      inputSchema: await resolveJsonSchema(tool.inputSchema),
+    }),
+  );
   assertModelToolDeclaration(declaration);
   return declaration;
 }
