@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { type UnknownRecord } from './unknown-record';
+
 export const compareCodePoints = (left: string, right: string): number => {
   const leftScalars = Array.from(left, (scalar) => scalar.codePointAt(0) ?? 0);
   const rightScalars = Array.from(
@@ -29,7 +31,7 @@ export type CanonicalJsonValue =
   | { [key: string]: CanonicalJsonValue };
 
 export function canonicalize(
-  value: Record<string, unknown>,
+  value: UnknownRecord,
 ): Record<string, CanonicalJsonValue>;
 export function canonicalize(value: unknown): CanonicalJsonValue;
 export function canonicalize(value: unknown): CanonicalJsonValue {

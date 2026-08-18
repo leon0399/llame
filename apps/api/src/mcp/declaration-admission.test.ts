@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { composeTurnToolCatalog } from '../tools/turn-tool-catalog';
 import { safeParseArgs } from '../tools/schema-utils';
 import { type Tool } from '../tools/types';
-import { isRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '../unknown-record';
 import {
   MCP_REDACTION_MARKER,
   admitMcpToolDefinitions,
@@ -24,7 +24,7 @@ const supportedDialects = [
 
 const definition = (
   name: string,
-  inputSchema: Record<string, unknown> = {
+  inputSchema: UnknownRecord = {
     type: 'object',
     properties: {},
   },

@@ -18,7 +18,7 @@ import {
   type OrgUnitType,
 } from '../../db/schema';
 import { type OrgUnitWithSummary } from '../identity-repository';
-import { isRecord } from '../../unknown-record';
+import { isRecord, type UnknownRecord } from '../../unknown-record';
 
 const ORG_UNIT_TYPES = [
   'organization',
@@ -104,7 +104,7 @@ export class UpdateOrgUnitDto {
   })
   @ValidateIf((o: UpdateOrgUnitDto) => o.settings !== undefined)
   @IsObject()
-  settings?: Record<string, unknown>;
+  settings?: UnknownRecord;
 
   @ApiPropertyOptional({
     type: String,
@@ -137,7 +137,7 @@ export class OrgUnitResponse {
   path!: string;
 
   @ApiProperty({ type: 'object', additionalProperties: true })
-  settings!: Record<string, unknown>;
+  settings!: UnknownRecord;
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;

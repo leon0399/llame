@@ -9,6 +9,7 @@ import {
   type ToolUnavailableReason,
 } from '../tools/turn-tool-catalog';
 import { isToolId } from '../tools/tool-id';
+import { type UnknownRecord } from '../unknown-record';
 
 export const TOOL_RECOVERY_REASONS = [
   'source_reconnected',
@@ -70,7 +71,7 @@ const UUID_PATTERN =
 function isExactRecord(
   value: unknown,
   expectedKeys: readonly string[],
-): value is Record<string, unknown> {
+): value is UnknownRecord {
   return (
     typeof value === 'object' &&
     value !== null &&

@@ -6,7 +6,7 @@ import {
 } from '@ai-sdk/mcp';
 
 import { type ToolResult } from '../tools/types';
-import { isRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '../unknown-record';
 import {
   admitMcpToolDefinitions,
   type AdmittedMcpToolDefinition,
@@ -243,7 +243,7 @@ function exceedsDepth(value: unknown, maxDepth: number): boolean {
   return false;
 }
 
-function errorRecord(error: unknown): Record<string, unknown> | undefined {
+function errorRecord(error: unknown): UnknownRecord | undefined {
   return isRecord(error) ? error : undefined;
 }
 
@@ -303,7 +303,7 @@ function failureKind(
   if (
     findCause(
       error,
-      (candidate): candidate is Record<string, unknown> =>
+      (candidate): candidate is UnknownRecord =>
         errorRecord(candidate)?.['name'] === 'ZodError',
     ) !== undefined
   ) {
@@ -312,7 +312,7 @@ function failureKind(
   if (
     findCause(
       error,
-      (candidate): candidate is Record<string, unknown> =>
+      (candidate): candidate is UnknownRecord =>
         errorRecord(candidate)?.['name'] === 'SyntaxError',
     ) !== undefined
   ) {
@@ -321,7 +321,7 @@ function failureKind(
   if (
     findCause(
       error,
-      (candidate): candidate is Record<string, unknown> =>
+      (candidate): candidate is UnknownRecord =>
         typeof errorRecord(candidate)?.['code'] === 'number',
     ) !== undefined
   ) {
@@ -333,7 +333,7 @@ function failureKind(
 function failureHttpStatus(error: unknown): number | undefined {
   const failure = findCause(
     error,
-    (candidate): candidate is Record<string, unknown> =>
+    (candidate): candidate is UnknownRecord =>
       typeof errorRecord(candidate)?.['statusCode'] === 'number',
   );
   const status = failure?.['statusCode'];
@@ -417,19 +417,17 @@ function hasProtectedKeyInErrorData(
 function matchingRpcResponse(
   value: unknown,
   requestId: string | number,
-): Record<string, unknown> | undefined {
+): UnknownRecord | undefined {
   const messages = Array.isArray(value) ? value : [value];
   return messages.find(
-    (message): message is Record<string, unknown> =>
+    (message): message is UnknownRecord =>
       isRecord(message) &&
       message['id'] === requestId &&
       (Object.hasOwn(message, 'result') || Object.hasOwn(message, 'error')),
   );
 }
 
-function assertSupportedInitializeResponse(
-  message: Record<string, unknown>,
-): void {
+function assertSupportedInitializeResponse(message: UnknownRecord): void {
   const result = message['result'];
   if (!isRecord(result)) return;
   const protocolVersion = result['protocolVersion'];
@@ -538,7 +536,7 @@ function sseEventBoundary(
 async function readMatchingSseResponse(
   response: Response,
   requestId: string | number,
-): Promise<Record<string, unknown>> {
+): Promise<UnknownRecord> {
   if (response.body === null) throw new McpMatchingResponseError();
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let pending = '';

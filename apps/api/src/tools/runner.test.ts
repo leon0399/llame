@@ -5,6 +5,7 @@ import { type TenantRunner } from '../db/tenant-db.service';
 import { RESULT_TRUNCATE_CHARS } from './result-truncation';
 import { runTool } from './runner';
 import { type Tool, type ToolContext } from './types';
+import { type UnknownRecord } from '../unknown-record';
 
 function fakeContext(userId = 'user-A'): ToolContext {
   const tenantDb: TenantRunner = {
@@ -259,7 +260,7 @@ describe('runTool', () => {
     );
     // The tool's own field survives the cut (#294) — shape preservation is
     // covered in result-truncation.test.ts; this pins the runner wiring.
-    expect(typeof (result as Record<string, unknown>).blob).toBe('string');
+    expect(typeof (result as UnknownRecord).blob).toBe('string');
   });
 
   it('fails closed when truncation receives a malformed oversized projection', async () => {

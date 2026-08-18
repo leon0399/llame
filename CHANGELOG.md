@@ -2,6 +2,27 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-19
 
+- Removed 37 of 43 `anti-slop/no-unsafe-dictionary-type` findings (Arc 2's
+  fifth rule, not enabled yet — 6 remain: 4 sites that should redirect to the
+  existing `JsonSchemaDocument` alias instead of a blanket swap, its own
+  declaration, and the rule's one structurally-unavoidable finding) across 27
+  files. A dedicated `UnknownRecord` alias (`type UnknownRecord = Record<string,
+unknown>`, `src/unknown-record.ts`, beside the existing `isRecord` guard)
+  consolidates the project's one sanctioned "narrowed from `unknown`, not yet
+  validated" idiom that was previously repeated ad hoc — parsing boundaries
+  (raw JSONC config, JSON Schema documents, tool-availability manifests,
+  provider `usage` blobs), open-ended DTO/repository fields with no fixed
+  schema (org-unit `settings`), and generic/test-fixture dictionary shapes all
+  redirect to it. Verified empirically (not just from the rule's source) that
+  the alias-consumption exemption crosses files: because the rule's type
+  environment only collects alias declarations from the current file's own
+  program body, an imported `UnknownRecord` reference is unresolvable to it
+  and never gets classified as an unsafe dictionary — confirmed by declaring
+  the alias and converting `mcp-server-client.ts`'s 9 sites first, which took
+  the fresh count from 53 to 43 with `mcp-server-client.ts` reaching 0. No
+  behavior change; `openapi.json` confirmed byte-identical after `pnpm
+--filter api build` for the touched DTOs (`chats.dto.ts`'s `usage`,
+  `identity.dto.ts`'s `settings`).
 - Enabled `anti-slop/no-module-mocking` at error in `apps/api/.oxlintrc.json`
   (Arc 2's fourth rule), after removing its remaining 6 findings across 5
   files (fresh count, down from a stale 81/34 pre-rebase baseline — most had

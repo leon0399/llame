@@ -24,7 +24,7 @@ import {
 } from './identity-repository';
 import { pathIds } from './org-path';
 import { resolveEffectiveRole, type EffectiveRole } from './role-resolution';
-import { isRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '../unknown-record';
 
 /**
  * Machine-readable discriminators for the domain 409/422s, carried in the
@@ -249,7 +249,7 @@ export class IdentityService {
     userId: string;
     orgUnitId: string;
     name?: string;
-    settings?: Record<string, unknown>;
+    settings?: UnknownRecord;
     parentId?: string | null;
   }): Promise<OrgUnitWithSummary> {
     try {

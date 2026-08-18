@@ -1,5 +1,6 @@
 import { type RecencyDigestEntry } from '../db/schema';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
+import { type UnknownRecord } from '../unknown-record';
 
 type RecencyDigestDeltaEntry = RecencyDigestEntry & { pinned: boolean };
 
@@ -35,7 +36,7 @@ const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 function isExactRecord(
   value: unknown,
   expectedKeys: readonly string[],
-): value is Record<string, unknown> {
+): value is UnknownRecord {
   return (
     typeof value === 'object' &&
     value !== null &&

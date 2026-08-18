@@ -7,7 +7,7 @@ import {
   hashWithDomain,
 } from '../canonical-json';
 import { type ModelToolDeclaration } from '../db/schema';
-import { isRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '../unknown-record';
 import { admitToolInputSchema } from './schema-utils';
 import { asciiCaseFoldToolId, isToolId, matchesAllowedToolId } from './tool-id';
 import { type Tool, type ToolClassification } from './types';
@@ -123,7 +123,7 @@ function isRepresentableAbortTimeout(timeoutSeconds: number): boolean {
 }
 
 const hasExactKeys = (
-  value: Record<string, unknown>,
+  value: UnknownRecord,
   expected: readonly string[],
 ): boolean => {
   const actual = Object.keys(value).sort(compareCodePoints);
@@ -163,7 +163,7 @@ export function parseToolAvailabilityManifest(
   if (!isRecord(value)) {
     throw new Error('Invalid tool availability manifest: expected an object.');
   }
-  const manifest: Record<string, unknown> = value;
+  const manifest: UnknownRecord = value;
   if (manifest['version'] === 0) {
     if (
       !hasExactKeys(manifest, ['state', 'version']) ||

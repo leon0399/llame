@@ -1,6 +1,7 @@
 import { type z } from 'zod';
 
 import { type TenantRunner } from '../db/tenant-db.service';
+import { type UnknownRecord } from '../unknown-record';
 
 /**
  * A JSON Schema document used as a tool's input schema. Accepted as-is from
@@ -47,7 +48,7 @@ export type ToolClassification =
  * exceptions (D6: tool failure is an observation, not a crash).
  */
 export type ToolResult =
-  | ({ status: 'success' } & Record<string, unknown>)
+  | ({ status: 'success' } & UnknownRecord)
   | { status: 'error'; type: string; message: string };
 
 /**
@@ -58,7 +59,7 @@ export type ToolResult =
  * `timeoutSeconds` is an optional per-tool override of the global
  * `tools.callTimeoutSeconds` (D6), a code-level property, not a config key.
  */
-export interface Tool<TArgs = Record<string, unknown>> {
+export interface Tool<TArgs = UnknownRecord> {
   readonly id: string;
   readonly description: string;
   readonly classification: ToolClassification;

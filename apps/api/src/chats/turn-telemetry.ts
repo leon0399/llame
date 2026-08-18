@@ -2,6 +2,7 @@ import type { FinishReason, LanguageModelUsage } from 'ai';
 import pino from 'pino';
 
 import type { TokenPrice } from '../models/model-catalog';
+import { type UnknownRecord } from '../unknown-record';
 
 export type { TokenPrice };
 
@@ -31,7 +32,7 @@ export type BuildTurnTelemetryInput = {
 };
 
 export type TurnTelemetryLogger = {
-  info(payload: Record<string, unknown>): void;
+  info(payload: UnknownRecord): void;
 };
 
 export const turnTelemetryLogger = pino({

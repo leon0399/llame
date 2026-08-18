@@ -26,6 +26,7 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { CHUNKER_VERSION } from './chat/conversation-chunker';
 import { SearchIndexService } from './search-index.service';
+import { type UnknownRecord } from '../unknown-record';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -54,7 +55,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
   // against the caller-supplied schema. Raw SQL rows are untyped at the
   // driver boundary — Zod parsing is real runtime evidence for the shape,
   // not a compile-time-only assertion, and throws on a malformed row.
-  const ownedRows = <T extends Record<string, unknown>>(
+  const ownedRows = <T extends UnknownRecord>(
     frag: ReturnType<typeof sql>,
     rowSchema: z.ZodType<T>,
   ): Promise<T[]> =>

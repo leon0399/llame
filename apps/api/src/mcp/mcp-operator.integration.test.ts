@@ -47,6 +47,7 @@ import {
   McpRuntimeModule,
 } from './mcp-runtime.module';
 import { McpRuntimeService } from './mcp-runtime.service';
+import { type UnknownRecord } from '../unknown-record';
 import {
   createMcpTestFixture,
   mcpStreamableHttpInitialize,
@@ -747,7 +748,7 @@ describe('operator-configured MCP production acceptance', () => {
       ).toContain('Now available:');
 
       const definitions = api.moduleRef.get<
-        Readonly<Record<string, Record<string, unknown>>>
+        Readonly<Record<string, UnknownRecord>>
       >(MCP_RUNTIME_SERVER_DEFINITIONS);
       expect(definitions['web']).toEqual({
         url: fixture.url,

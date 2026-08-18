@@ -1,4 +1,4 @@
-import { isRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '../unknown-record';
 import { type ToolResult } from './types';
 
 /** ~16KB result cap (D5/D6): oversized tool output is truncated, visibly. */
@@ -72,7 +72,7 @@ type CappedValue =
   | { [key: string]: CappedValue };
 
 function capRecord(
-  value: Record<string, unknown>,
+  value: UnknownRecord,
   limit: number,
   lists: ShortenedList[],
   path: string,

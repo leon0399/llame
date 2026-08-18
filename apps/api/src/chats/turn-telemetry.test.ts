@@ -6,6 +6,7 @@ import {
   type TokenPrice,
   type TurnTelemetryLogger,
 } from './turn-telemetry';
+import { type UnknownRecord } from '../unknown-record';
 
 describe('TurnTelemetry', () => {
   const price = {
@@ -114,7 +115,7 @@ describe('TurnTelemetry', () => {
   it.each(['aborted', 'error'] as const)(
     'does not emit a structured log for a %s turn',
     (status) => {
-      const info = vi.fn<(payload: Record<string, unknown>) => void>();
+      const info = vi.fn<(payload: UnknownRecord) => void>();
       const logger = { info } satisfies TurnTelemetryLogger;
       const telemetry = buildTurnTelemetry({
         usage: null,
@@ -137,7 +138,7 @@ describe('TurnTelemetry', () => {
   );
 
   it('omits message content from the structured telemetry log payload', () => {
-    const info = vi.fn<(payload: Record<string, unknown>) => void>();
+    const info = vi.fn<(payload: UnknownRecord) => void>();
     const logger = { info } satisfies TurnTelemetryLogger;
     const telemetry = buildTurnTelemetry({
       usage: {

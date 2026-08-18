@@ -20,6 +20,7 @@ import {
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { childPath, isDescendantPath, pathIds, rootPath } from './org-path';
+import { type UnknownRecord } from '../unknown-record';
 
 /**
  * A row this structural write depends on vanished between the caller's
@@ -57,7 +58,7 @@ export class OrgUnitsRepository {
     name: string;
     type?: OrgUnitType;
     createdBy: string;
-    settings?: Record<string, unknown>;
+    settings?: UnknownRecord;
   }): Promise<OrgUnit> {
     const id = crypto.randomUUID();
     const [created] = await this.db
@@ -87,7 +88,7 @@ export class OrgUnitsRepository {
     name: string;
     type?: OrgUnitType;
     createdBy: string;
-    settings?: Record<string, unknown>;
+    settings?: UnknownRecord;
   }): Promise<OrgUnit> {
     const id = crypto.randomUUID();
     const [created] = await this.db
@@ -350,7 +351,7 @@ export class OrgUnitsRepository {
 
   async updateSettings(
     id: string,
-    settings: Record<string, unknown>,
+    settings: UnknownRecord,
   ): Promise<OrgUnit | undefined> {
     const [updated] = await this.db
       .update(orgUnits)

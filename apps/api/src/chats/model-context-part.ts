@@ -1,3 +1,5 @@
+import { type UnknownRecord } from '../unknown-record';
+
 export interface ModelSwitchPart {
   type: 'data-model-context';
   data: {
@@ -19,7 +21,7 @@ const UUID_PATTERN =
 function isExactRecord(
   value: unknown,
   expectedKeys: readonly string[],
-): value is Record<string, unknown> {
+): value is UnknownRecord {
   return (
     typeof value === 'object' &&
     value !== null &&
