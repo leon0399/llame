@@ -1,0 +1,36 @@
+CHANGELOG.md
+  c2a7d448fc16accd 5-15,5-29,30-32
+docs/code-quality-tracker.md
+  c2a7d448fc16accd 107-129,131-132,133-137,167,177,228-242,253-267
+apps/api/src/compaction/compaction.service.ts
+  c2a7d448fc16accd 503-512
+apps/api/src/titles/title.service.ts
+  c2a7d448fc16accd 142-148
+apps/api/src/runs/run-execution.service.ts
+  c2a7d448fc16accd 19-20,38-39,434-439
+apps/api/src/tools/registry.ts
+  c2a7d448fc16accd 67-88
+apps/api/src/chats/run-execution-tools.integration.test.ts
+  c2a7d448fc16accd 33-38,51,53-55,66-68,72,169-178,180-191,194-195,202-204,217-218,220-221,228-229,245-246,249,257-259,269-270,272-273,282-283,293-294,296-297,304-306,316-317,319-320,323-324,329-331,334-343,372-384,796,801,908,925,933,994,1036-1037,1172-1173,1635,1642,1644,1663,1937,2083,2197
+apps/api/src/compaction/compaction-context.integration.test.ts
+  c2a7d448fc16accd 867
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "1e250ebdf1993073f3cd4aa3d3d0c1a084956f68",
+  "prompts": {
+    "c2a7d448fc16accd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cf030898-251e-4248-80ca-1addc0ffab17",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 52,
+      "total_deletions": 17,
+      "accepted_lines": 220,
+      "overriden_lines": 0
+    }
+  }
+}
