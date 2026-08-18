@@ -1,0 +1,27 @@
+apps/api/src/compaction/compaction.service.ts
+  c2a7d448fc16accd 33-34,75-93,194,344,524-533
+apps/api/src/memory/memory.service.test.ts
+  c2a7d448fc16accd 2,5,7,15,48,57-62
+apps/api/src/memory/memory.service.ts
+  c2a7d448fc16accd 1,6,26-27
+apps/api/src/compaction/compaction-context.integration.test.ts
+  c2a7d448fc16accd 826-829,834,855,940,985-986,1062,1120,1188,1207-1208,1258,1279-1280,1354
+docs/code-quality-tracker.md
+  c2a7d448fc16accd 107-183,223,286,288,313-320,323-324,326-341
+apps/api/src/compaction/compaction.test.ts
+  c2a7d448fc16accd 356-357
+CHANGELOG.md
+  c2a7d448fc16accd 12-30
+apps/api/src/personalization/personalization.integration.test.ts
+  c2a7d448fc16accd 17,26-27,41-48,131-136,138
+apps/api/src/memory/memory.integration.test.ts
+  c2a7d448fc16accd 10,16-17,31-38,73-76
+apps/api/src/compaction/compactions.integration.test.ts
+  c2a7d448fc16accd 29,38,67,79-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "e08dc102fab08973c43569663db8c504822adf73",
+  "prompts": {}
+}
