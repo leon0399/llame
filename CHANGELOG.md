@@ -1,5 +1,15 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-18
+
+- Bumped the paired `oxlint`/`@oxlint/plugins` lint engine 1.77.0 → 1.78.0, now
+  past the seven-day release cooldown that deferred it at anti-slop
+  qualification. All five lint scopes and the vendored-plugin `RuleTester`
+  regression pass unchanged; the type-aware `oxlint-tsgolint` pairing is
+  untouched. The vendored anti-slop copy was also re-verified against the
+  `install-anti-slop` skill's bundle: same upstream base, differing only by
+  llame's documented non-null-wrapper patch, which is retained.
+
 # 2026-08-17
 
 - Dependency security pass: cleared 67 of 93 open Dependabot alerts, including
