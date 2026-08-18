@@ -1,0 +1,135 @@
+apps/api/src/chats/chats.controller.ts
+  c2a7d448fc16accd 70-83,498-501
+apps/api/src/compaction/compactions.integration.test.ts
+  c2a7d448fc16accd 29,38,67,79-87
+apps/api/src/compaction/compaction-context.integration.test.ts
+  c2a7d448fc16accd 826-829,834,855,940,985-986,1062,1120,1188,1207-1208,1258,1279-1280,1354
+apps/api/src/mcp/mcp-operator.integration.test.ts
+  c2a7d448fc16accd 35,538-540,551,587,593-595,601,626
+apps/api/src/chats/chat-sharing.integration.test.ts
+  c2a7d448fc16accd 31,280
+apps/api/src/mcp/mcp-runtime.service.test.ts
+  c2a7d448fc16accd 16,20-25,471,643,706,751
+apps/api/src/mcp/mcp-test-fixture.test.ts
+  c2a7d448fc16accd 101
+apps/api/src/runs/run-queues.ts
+  c2a7d448fc16accd 8,45-49,53
+apps/api/src/runs/run-stream-bridge.ts
+  c2a7d448fc16accd 16,63,254-255,258-259
+apps/api/src/runs/model-context-snapshot.test-fixture.test.ts
+  c2a7d448fc16accd 1-3,10-13
+apps/api/src/chats/dto/chats.dto.test.ts
+  c2a7d448fc16accd 2
+apps/api/src/compaction/compaction.service.ts
+  c2a7d448fc16accd 33-34,75-93,194,344
+apps/api/src/tools/turn-tool-catalog.ts
+  c2a7d448fc16accd 141-155,160,347,351-353
+apps/api/src/chats/chats.service.ts
+  c2a7d448fc16accd 20,449-453
+apps/api/src/tools/search-conversations.test.ts
+  c2a7d448fc16accd 9,51-54
+apps/api/src/compaction/compaction.test.ts
+  c2a7d448fc16accd 356-357
+apps/api/src/chats/dto/chats.dto.ts
+  c2a7d448fc16accd 23,522,571,580-581
+apps/api/src/memory/memory.service.ts
+  c2a7d448fc16accd 1,6,26-27
+apps/api/src/runs/worker-concurrency.integration.test.ts
+  c2a7d448fc16accd 55-61,63
+apps/api/src/chats/chat-loop.integration.test.ts
+  c2a7d448fc16accd 684,700-702
+apps/api/src/tools/turn-tool-catalog.test.ts
+  c2a7d448fc16accd 325-333,339-349,395-399,405-409
+apps/api/src/tools/runner.ts
+  c2a7d448fc16accd 7,112,132
+apps/api/src/runs/context-receipt.integration.test.ts
+  c2a7d448fc16accd 10,19,34-41,160-163
+apps/api/src/runs/runs-worker.service.test.ts
+  c2a7d448fc16accd 17-19,47-59,72,97-109,133,136,148,152-153
+apps/api/src/memory/memory.service.test.ts
+  c2a7d448fc16accd 2,5,7,15,48,57-62
+apps/api/src/chats/tool-availability-part.ts
+  c2a7d448fc16accd 114
+apps/api/src/chats/context-builder.ts
+  c2a7d448fc16accd 267-268,270
+apps/api/src/chats/context-builder.test.ts
+  c2a7d448fc16accd 25,28-48,296-299,882-883,885-886
+apps/api/src/chats/chat-loop.service.ts
+  c2a7d448fc16accd 34,84-98,515
+apps/api/src/runs/worker-harness.ts
+  c2a7d448fc16accd 47
+apps/api/src/worker-mode.integration.test.ts
+  c2a7d448fc16accd 27-28,118,167-175,209-211,379-380,382-387,392,395,466-468
+apps/api/src/runs/worker-liveness.integration.test.ts
+  c2a7d448fc16accd 37,95-102,204-211
+apps/api/src/mcp/mcp-runtime.module.test.ts
+  c2a7d448fc16accd 81,84-85,88-89,92
+apps/api/src/chats/reasoning-parts.test.ts
+  c2a7d448fc16accd 6-7,9-14,96-97
+apps/api/src/runs/snapshot-tool-execution.test.ts
+  c2a7d448fc16accd 5,8,11-31,56,60-62,199
+apps/api/src/personalization/personalization.integration.test.ts
+  c2a7d448fc16accd 17,26-27,41-48,131-136,138
+apps/api/src/runs/effective-context-resolver.test.ts
+  c2a7d448fc16accd 9,75-81,83-87,112,122-130,165-168,173-182
+apps/api/src/mcp/mcp-stdio-server-client.test.ts
+  c2a7d448fc16accd 9,86-88,264-267
+apps/api/src/chats/fork-chat.integration.test.ts
+  c2a7d448fc16accd 23,29-32
+apps/api/src/chats/recency-digest.service.test.ts
+  c2a7d448fc16accd 2,4,184
+apps/api/src/mcp/mcp-test-fixture.ts
+  c2a7d448fc16accd 43-46
+apps/api/src/memory/memory.integration.test.ts
+  c2a7d448fc16accd 10,16-17,31-38,73-76
+apps/api/src/chats/chats-rls.integration.test.ts
+  c2a7d448fc16accd 47,338-343
+apps/api/src/tools/schema-utils.ts
+  c2a7d448fc16accd 15
+apps/api/src/search/search-index.integration.test.ts
+  c2a7d448fc16accd 22,53-56,59,63,118,132-138,170-173,220,224,235,251,296-302
+apps/api/vitest.integration.setup.ts
+  c2a7d448fc16accd 1-2,40,42
+apps/api/evals/qa-evals.test.ts
+  c2a7d448fc16accd 48,75,103-111
+apps/api/src/models/models.controller.test.ts
+  c2a7d448fc16accd 72-76
+apps/api/evals/mcp-web-search-eval.test.ts
+  c2a7d448fc16accd 68-74
+apps/api/src/identity/dto/identity.dto.ts
+  c2a7d448fc16accd 21,168
+apps/api/src/models/models.service.test.ts
+  c2a7d448fc16accd 167-171
+CHANGELOG.md
+  c2a7d448fc16accd 12-94
+apps/api/src/app.setup.ts
+  c2a7d448fc16accd 12-14,30
+apps/api/src/app.integration.test.ts
+  c2a7d448fc16accd 10,26
+apps/api/src/queue/queue.ts
+  c2a7d448fc16accd 19-20,242,245
+apps/api/src/identity/identity-invariants.integration.test.ts
+  c2a7d448fc16accd 506-510
+apps/api/src/models/model-client.test.ts
+  c2a7d448fc16accd 95-96,104,142-143,151
+apps/api/src/queue/queue.integration.test.ts
+  c2a7d448fc16accd 36,217,220
+apps/api/src/auth/auth.service.ts
+  c2a7d448fc16accd 26,285
+apps/api/src/db/migration-journal.test.ts
+  c2a7d448fc16accd 4-5,26-35,37-46
+apps/api/src/pins/pins.service.ts
+  c2a7d448fc16accd 4,68-72
+apps/api/src/identity/identity.service.ts
+  c2a7d448fc16accd 27,552-556
+apps/api/src/db/tenant-db.service.test.ts
+  c2a7d448fc16accd 14,66-69,71
+docs/code-quality-tracker.md
+  c2a7d448fc16accd 107-249,251-266,306,369,371,396-403,406-407,409-535
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "7fccc06e953edcaa17e44d9725bfe0743aa6713c",
+  "prompts": {}
+}
