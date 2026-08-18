@@ -78,18 +78,18 @@ describe('McpRuntimeModule', () => {
   });
 
   it('wires the same graph-local runtime into HTTP turn binding and worker execution', () => {
-    const chatImports = Reflect.getMetadata(
+    const chatImports: unknown = Reflect.getMetadata(
       MODULE_METADATA.IMPORTS,
       ChatsModule,
-    ) as readonly unknown[];
-    const workerImports = Reflect.getMetadata(
+    );
+    const workerImports: unknown = Reflect.getMetadata(
       MODULE_METADATA.IMPORTS,
       RunWorkerModule,
-    ) as readonly unknown[];
-    const workerProviders = Reflect.getMetadata(
+    );
+    const workerProviders: unknown = Reflect.getMetadata(
       MODULE_METADATA.PROVIDERS,
       RunWorkerModule,
-    ) as readonly unknown[];
+    );
 
     expect(chatImports).toContain(McpRuntimeModule);
     expect(workerImports).toContain(McpRuntimeModule);
