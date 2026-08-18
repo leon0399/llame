@@ -104,171 +104,47 @@ historical publication record of stack #369.
 
 ## Current submission
 
-Two parallel slices forked from the same 196-diagnostic/68-file baseline
-after the instance-config loader slice below and have both since merged.
+Arc 2 opens with `no-reflect-apply` (branch `quality/no-reflect-apply`,
+stacked on `quality/unsafe-assertion-misc-tail`, itself stacked on
+`quality/unsafe-assertion-chats-tail`, PR #430, PR #429, PR #428, PR #423,
+and PR #422). This vendored anti-slop rule is a JS plugin, not a native
+type-aware one: the `-D anti-slop/<rule>` CLI flag silently matches
+nothing for it (confirmed empirically — even a nonexistent rule name
+no-ops the same way), so its inventory is measured by temporarily
+enabling the rule in a scratch copy of `.oxlintrc.json` with an absolute
+`jsPlugins` specifier (its own relative path only resolves against the
+real config's location) and running `oxlint -c <scratch-config>`. The
+stale queued count (two diagnostics in one file) predates the chats/
+domain tail slice, which introduced a third `Reflect.apply` call as its
+own `no-unsafe-type-assertion` fix; the fresh count was three diagnostics
+across two files.
 
-The run-execution-tools/prompt-loader stack (`quality/unsafe-assertion-run-execution-tools`
-← `quality/unsafe-assertion-prompt-loader`) removed 49 findings across two
-layers (196/68 → 147/64). **Layer 1** removed the 36 findings in
-`run-execution-tools.integration.test.ts`, plus two more the same production
-narrowing exposed as newly-unnecessary in
-`compaction-context.integration.test.ts` and
-`mcp-operator.integration.test.ts` (196/68 → 158/67).
-`RunExecutionService`'s constructor now takes `CompactionCapability`/
-`TitleCapability` (new `Pick<>` types alongside the existing
-`InstanceConfigReader`) instead of the three concrete service classes, each
-bound through an explicit `@Inject(ConcreteClass)` token — the established
-recipe (`apps/api/AGENTS.md`) — so test doubles satisfy them structurally
-with zero casts. `TOOL_REGISTRY` (`tools/registry.ts`) keeps an internal
-mutable `registryStore` behind its exported `ReadonlyMap` view and gains
-`registerTestOnlyTool`/`unregisterTestOnlyTool` as the one supported
-test-only mutation seam, replacing seven inline `TOOL_REGISTRY as
-Map<string, Tool>` casts. The scripted `MockLanguageModelV3` step builders
-now construct typed `LanguageModelV3StreamPart[]` chunks (matching
-`fake-model-client.ts`'s established idiom) instead of `as any`-wrapped
-literals, which also corrected the fixture data itself — the untyped chunks
-were carrying a stale flat `usage`/string `finishReason` shape invisible
-behind the casts, not the real nested V3 shape. **Layer 2** removed the
-remaining 11 findings in the instance-config module (`prompt-loader.ts`,
-`prompt-loader.test.ts`, `interpolation.test.ts`), completing it to zero
-(158/67 → 147/64). handlebars types every AST node's `type` field as plain
-`string` (the shipped `hbs.AST.Expression`/`Statement` supertypes are not
-discriminated unions), so `node.type === 'X'` alone never narrowed `node`
-itself; four explicit type-predicate functions
-(`isPathExpression`/`isMustacheStatement`/`isBlockStatement`/
-`isContentStatement`) replace the check-then-cast pattern at every
-AST-walking call site. The two test files reuse the shared `isRecord` guard
-and a local `instanceof`-narrowing error helper, matching
-`config-loader.test.ts`'s established idiom. Repair evidence (both layers):
-focused units (`src/tools`, `src/compaction`, `src/titles`, `src/runs`,
-`src/instance-config`) all green, full `pnpm --filter api test` 1153/1153
-(twice), `pnpm --filter api lint`/`typecheck` clean, targeted Docker-backed
-integration runs 39/39 then 36/36 (five distinct `.integration.test.ts`
-files that import the touched production code).
-
-The chats-integration cluster (branch
-`quality/unsafe-assertion-chats-integration`, forked independently from the
-same 196/68 baseline) removes all 30 `typescript/no-unsafe-type-assertion`
-findings across `reasoning-loop.integration.test.ts` (9 of 12; 3 deferred),
-`chats-messages.integration.test.ts` (11), and
-`shared-chats.integration.test.ts` (7) — three `src/chats/` integration
-suites sharing the same repair idioms (typed AI SDK stream fixtures, the
-shared `isRecord` guard, `zod`-parsed HTTP bodies). Measured against its own
-196/68 fork point, this slice's inventory falls to 169/66; this slice's own
-stack continues from that number, since it does not touch the
-run-execution-tools/prompt-loader files above. Repair evidence: `pnpm
---filter api test` 1153/1153, focused `test:integration` on the three files
-27/27 (one unrelated flaky single-flight-409 test, passes standalone —
-matches the known wall-clock-under-load flake, not a regression), `pnpm
---filter api lint`/`typecheck`/`build` clean, `openapi.json` unchanged
-(test-only change). Docker was confirmed available.
-
-The memory/compaction cluster (branch
-`quality/unsafe-assertion-memory-compaction`, stacked on
-`quality/unsafe-assertion-chats-integration`, PR #422) removes 26 of 27
-`typescript/no-unsafe-type-assertion` findings across `compaction.service.ts`
-(2), `compaction-context.integration.test.ts` (10 of 11; 1 deferred),
-`compactions.integration.test.ts` (2), `compaction.test.ts` (1),
-`memory.integration.test.ts` (4), `memory.service.test.ts` (3), and
-`personalization.integration.test.ts` (4). `MemoryService`'s constructor
-narrows to the existing `TenantRunner` capability with an explicit
-`@Inject(TenantDbService)` token; a new `toStoredMessages` helper in
-`compaction.service.ts` narrows read-back JSONB `parts` the same way as
-every other JSON-record boundary; `expect.stringContaining`/`stringMatching`
-asymmetric matchers (typed `any` by Vitest) split into plain-string
-`.toBe`/`.toContain`/`.toMatch` assertions. The native inventory falls from
-169 diagnostics/66 files to 143/60. Repair evidence: `pnpm --filter api test`
-1153/1153, focused `test:integration` on the seven files 32/32, `pnpm
---filter api lint`/`typecheck`/`build` clean, `openapi.json` unchanged
-(test-only + narrow-capability change). Docker was confirmed available.
-
-The MCP runtime cluster (branch
-`quality/unsafe-assertion-prompt-loader-v2`, stacked on
-`quality/unsafe-assertion-memory-compaction`, PR #423, itself stacked on
-PR #422) removes 9 of 11
-`typescript/no-unsafe-type-assertion` findings across
-`mcp-runtime.service.test.ts` (4), `mcp-runtime.module.test.ts` (3), and
-`mcp-operator.integration.test.ts` (2 of 4; 2 deferred). A shared
-`TenantRunner` fake (never-called `.runAs`) replaces four forged-empty
-`TenantDbService` casts; `Reflect.getMetadata` results stay `unknown` rather
-than casting to `readonly unknown[]`, since Vitest's `toContain`/
-`toContainEqual` accept `unknown` directly; typed `TextPart[]` literals
-replace two read-back `MessagePart[]` casts. The native inventory falls from
-143 diagnostics/60 files to 134/58. Repair evidence: `pnpm --filter api test`
-1153/1153, focused `test:integration` on `mcp-operator.integration.test.ts`
-3/3, `pnpm --filter api lint`/`typecheck`/`build` clean, `openapi.json`
-unchanged (test-only change). Docker was confirmed available.
-
-The runs/ cluster (branch `quality/unsafe-assertion-runs-cluster`, stacked on
-`quality/unsafe-assertion-prompt-loader-v2`, PR #428, which stacks on PR #423,
-which stacks on PR #422) removes all 23
-`typescript/no-unsafe-type-assertion` findings
-across `run-queues.ts`, `run-stream-bridge.ts`, `worker-harness.ts`,
-`effective-context-resolver.test.ts`, `context-receipt.integration.test.ts`,
-`runs-worker.service.test.ts`, `model-context-snapshot.test-fixture.test.ts`,
-`snapshot-tool-execution.test.ts`, `worker-concurrency.integration.test.ts`,
-and `worker-liveness.integration.test.ts`. Repair idioms: the shared
-`isRecord` guard (including `Array.prototype.every(isRecord)` for a JSONB
-array field); a plain (non-mocked) arrow function assigned to a
-generic-typed slot (`TenantRunner['runAs']`, an explicit `vi.fn<T>()` type
-parameter for a generic `consume` mock) where `vi.fn()`'s own inference
-can't express the target's generic signature; a local `asserts`-style
-predicate reasserting a JSON round-trip's erased type. One caught-by-tests
-regression during repair: an initial `runAs` rewrite double-invoked the
-transaction callback (once inside the tracking spy, once in the wrapper) —
-`pnpm --filter api test` surfaced 3 failures immediately, fixed by making
-the spy a pure call-recorder. The native inventory falls from 134
-diagnostics/58 files to 111/48. Repair evidence: `pnpm --filter api test`
-1153/1153, focused `test:integration` on three files 14/14, `pnpm --filter
-api lint`/`typecheck`/`build` clean, `openapi.json` unchanged (test +
-narrow-capability change). Docker was confirmed available.
-
-The tools/MCP cluster (branch `quality/unsafe-assertion-tools-mcp-cluster`,
-stacked on `quality/unsafe-assertion-runs-cluster`, itself stacked on
-PR #428, PR #423, and PR #422) removes all 17
-`typescript/no-unsafe-type-assertion` findings across `turn-tool-catalog.ts`,
-`runner.ts`, `worker-mode.integration.test.ts`,
-`mcp-stdio-server-client.test.ts`, `mcp-test-fixture.test.ts`,
-`turn-tool-catalog.test.ts`, and `search-conversations.test.ts`. Repair
-idioms: a widening cast (`readonly ToolUnavailableReason[]` to `readonly
-string[]`) replaces a narrowing one; `runner.ts` fails a malformed
-non-object tool argument closed instead of casting past the type system;
-the `T | (string & {})` branded-string idiom widens a test fixture's own
-options type for a negative test without weakening its real (already
-runtime-validated) contract; the newly-exported `isZodSchema` guard
-replaces a production-module type assertion; the `expect.stringMatching`
-map-then-narrow treatment recurs at three more discriminated-union call
-sites. The native inventory falls from 111 diagnostics/48 files to 94/41.
-Repair evidence: `pnpm --filter api test` 1153/1153, focused
-`test:integration` on two files 9/9, `pnpm --filter api lint`/`typecheck`/
-`build` clean, `openapi.json` unchanged (test + fixture-type change).
-Docker was confirmed available.
-
-The chats/ domain tail (branch `quality/unsafe-assertion-chats-tail`,
-stacked on `quality/unsafe-assertion-tools-mcp-cluster`, itself stacked on
-PR #429, PR #428, PR #423, and PR #422) removes all 16
-`typescript/no-unsafe-type-assertion` findings across
-`tool-availability-part.ts`, `context-builder.ts`, `chat-loop.service.ts`,
-`dto/chats.dto.ts`, `chats.controller.ts`, `chats.service.ts`, and seven
-integration/unit test files. Repair idioms: a second widening-cast /
-`.filter()` type-predicate pair for the same discriminated-union
-narrowing gaps as earlier slices; `toSharedChatResponse` narrowed to
-`Pick<Chat, 'id' | 'title'>`, its only two reads; a runtime
-`Symbol.asyncIterator in body` check replacing a DOM-vs-Node
-`ReadableStream` cast in the chat streaming response path (verified
-against real SSE integration coverage); `Reflect.apply` replacing
-`Function.prototype.call` where a real tsgo generic-inference gap silently
-returned `any` (traded into the not-yet-enabled `no-reflect-apply` queued
-rule, which will re-measure fresh). The native inventory falls from 94
-diagnostics/41 files to 78/27. Repair evidence: `pnpm --filter api test`
-1153/1153, focused `test:integration` on four files 53/53, `pnpm --filter
-api lint`/`typecheck`/`build` clean, `openapi.json` unchanged (no response
-shape changed). Docker was confirmed available.
-
-Both forks are now merged into `master`; a fresh full-tree measurement after
-the combined rebase is the authoritative current count (see the Arc 2
-"Current submission" entry below for that re-measurement and its effect on
-the deferred casts each fork left behind).
+`mcp-failure-policy.test.ts`'s two calls tested `classifyMcpFailure`'s
+fail-closed behavior for a stage/kind it doesn't recognize — exactly the
+case its own switch/if `default` branches were already written to handle,
+even though the exported `McpFailureSignal` parameter type claimed the
+input was closed to `McpFailureStage`/`McpFailureKind` literals only.
+`classifyMcpFailure`'s own parameter type now honestly says so: the
+`(string & {})` branded-string widening (the same idiom the tools/MCP
+cluster used for a protocol-version test fixture) accepts any string
+alongside the closed unions, so the tests call it directly instead of
+routing through `Reflect.apply`. `chat-loop.integration.test.ts`'s
+`Reflect.apply` was itself a `no-unsafe-type-assertion` repair for a real
+gap — this project's `strictBindCallApply: false` makes
+`Function.prototype.call`/`.apply`/`.bind` fall through to the untyped
+legacy `Function` overload (confirmed with isolated probes: property
+access on the result compiles clean instead of erroring, proving it
+resolved to `any`) — but the deeper fix needed no dynamic-dispatch
+mechanism at all: `mockImplementationOnce` intercepts only the one
+re-check call the test targets, so calling `spy.mockRestore()` before
+re-invoking the method as a plain, ordinarily-typed `this.findActiveByChatId(...)`
+correctly resolves through the now-restored prototype method — no
+`.call`/`.apply`/`.bind`/`Reflect.apply` anywhere. `no-reflect-apply` is
+now enforced at error in `apps/api/.oxlintrc.json`, in a separate commit
+from the remediation so the flip alone is revertable. Repair evidence:
+`pnpm --filter api lint`/`typecheck` clean, `pnpm --filter api test`
+1153/1153, focused `test:integration` on `chat-loop.integration.test.ts`
+19/19 against real Postgres.
 
 ## Inventory
 
@@ -575,7 +451,7 @@ override is acceptable.
 | queued | `no-known-value-widening`                   | 47 diagnostics/30 files; repair with inference, `satisfies`, or named owner contracts.                                                 |
 | queued | `no-module-mocking`                         | 81 diagnostics/34 files; replace module mocks with real dependency seams or faithful implementations, never overrides.                 |
 | done   | `no-object-parameters`                      | Zero across five scopes; endpoint DTO variants preserve deliberate invalid-field tests and Pins uses an exact service capability seam. |
-| queued | `no-reflect-apply`                          | Two diagnostics in one file; replace dynamic dispatch with typed calls/interfaces.                                                     |
+| done   | `no-reflect-apply`                          | Zero across three call sites in two files; enforced at error in `apps/api/.oxlintrc.json`.                                             |
 | queued | `no-reflect-get`                            | Four diagnostics/four files; parse boundaries or use typed property access.                                                            |
 | queued | `no-runtime-typeof`                         | 202 diagnostics/77 files; replace ad hoc representation narrowing with boundary schemas and parsed domain values.                      |
 | done   | `no-shape-in-symbol-names`                  | Zero across five scopes; prompt scenarios, rendered conversation nodes, and admitted MCP payloads now carry their domain roles.        |

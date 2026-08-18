@@ -9,6 +9,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `string`, so `node.type === 'X'` alone never narrows `node` itself; four
   new local type-predicate functions replace the check-then-cast pattern
   used across the prompt-file Handlebars AST validator. No behavior change.
+- Enabled `anti-slop/no-reflect-apply` at error in `apps/api/.oxlintrc.json`
+  (Arc 2's first queued rule), after removing its three findings across two
+  files. `mcp-failure-policy.test.ts`'s two calls tested
+  `classifyMcpFailure`'s already-fail-closed handling of an unrecognized
+  stage/kind; its parameter type now honestly widens with the `(string &
+{})` branded-string idiom instead of claiming a closed union the
+  function's own control flow never required, so the tests call it
+  directly. `chat-loop.integration.test.ts`'s `Reflect.apply` was itself a
+  `no-unsafe-type-assertion` repair for a real gap — `strictBindCallApply:
+false` makes `.call`/`.apply`/`.bind` fall through to the untyped legacy
+  `Function` overload — but the deeper fix needed no dynamic-dispatch
+  mechanism: `mockImplementationOnce` plus `spy.mockRestore()` before
+  re-invoking the method as a plain, ordinarily-typed call resolves through
+  the now-restored prototype method with no cast anywhere.
 - Removed 21 `typescript/no-unsafe-type-assertion` findings across 19 files
   in the misc infra tail (test bootstrap, opt-in evals, the queue layer, a
   Postgres-error-code helper duplicated across `auth.service.ts`,
