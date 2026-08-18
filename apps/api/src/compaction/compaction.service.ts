@@ -30,7 +30,8 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { buildTurnTelemetry } from '../chats/turn-telemetry';
-import { type ModelToolDeclaration } from '../db/schema';
+import { type Message, type ModelToolDeclaration } from '../db/schema';
+import { isRecord } from '../unknown-record';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import {
@@ -68,6 +69,26 @@ function schemaOnlyTools(
     ]);
   }
   return Object.fromEntries(entries);
+}
+
+/**
+ * Narrows a read history's `unknown[]` JSONB `parts` to `MessagePart[]`: each
+ * part must be an object (the union's `Record<string, unknown>` fallback
+ * arm), matching every other JSON-record boundary in this codebase. Malformed
+ * (non-object) parts fail closed rather than silently coercing.
+ */
+function toStoredMessages(history: readonly Message[]): StoredMessage[] {
+  return history.map((message) => ({
+    ...message,
+    parts: message.parts.map((part) => {
+      if (!isRecord(part)) {
+        throw new Error(
+          `Malformed message part in message ${message.id}: expected an object`,
+        );
+      }
+      return part;
+    }),
+  }));
 }
 
 /**
@@ -170,7 +191,7 @@ export class CompactionService {
     );
 
     const plan = planCompaction({
-      history: history as StoredMessage[],
+      history: toStoredMessages(history),
       previousSummary: previous?.summary,
       previousToolObservationLedger: previous?.toolObservationLedger,
       thresholdTokens,
@@ -320,7 +341,7 @@ export class CompactionService {
         },
       );
       const plan = planTransitionCompaction(
-        history as StoredMessage[],
+        toStoredMessages(history),
         input.triggeringUserSeq,
       );
       const sourceRun = await new RunsRepository(

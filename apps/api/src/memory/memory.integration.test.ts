@@ -7,13 +7,14 @@ import request from 'supertest';
 import { AppModule } from '../app.module';
 import { configureApp, createOpenApiDocument } from '../app.setup';
 import { cookieOf } from '../testing/support';
+import { isRecord } from '../unknown-record';
 import { type UpdateMemoryDto } from './dto/memory.dto';
 
 type MemoryPatchBody = UpdateMemoryDto | (UpdateMemoryDto & { userId: string });
 
 describe('/api/v1/me/memory (HTTP)', () => {
-  let app: INestApplication;
-  let http: never;
+  let app: INestApplication<import('http').Server>;
+  let http: import('http').Server;
   const tag = Date.now();
   const password = 'password123';
   let cookieA = '';
@@ -27,8 +28,15 @@ describe('/api/v1/me/memory (HTTP)', () => {
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email, password, name });
-    const body = res.body as { user?: { id?: unknown } };
-    return { cookie: cookieOf(res), userId: body.user?.id as string };
+    const body: unknown = res.body;
+    if (
+      !isRecord(body) ||
+      !isRecord(body.user) ||
+      typeof body.user.id !== 'string'
+    ) {
+      throw new Error('Expected register response with user.id');
+    }
+    return { cookie: cookieOf(res), userId: body.user.id };
   }
 
   const get = (cookie: string) =>
@@ -45,7 +53,7 @@ describe('/api/v1/me/memory (HTTP)', () => {
     app = module.createNestApplication();
     configureApp(app);
     await app.init();
-    http = app.getHttpServer() as never;
+    http = app.getHttpServer();
 
     const a = await register(`memory-a-${tag}@test.com`, 'Memory Owner A');
     cookieA = a.cookie;
@@ -62,7 +70,11 @@ describe('/api/v1/me/memory (HTTP)', () => {
     const res = await get(cookieA).expect(200);
 
     expect(res.body).toEqual({ shareRecentChats: false });
-    expect(Object.keys(res.body as object)).toEqual(['shareRecentChats']);
+    const body: unknown = res.body;
+    if (!isRecord(body)) {
+      throw new Error('Expected object response body');
+    }
+    expect(Object.keys(body)).toEqual(['shareRecentChats']);
   });
 
   it('updates only the authenticated owner', async () => {

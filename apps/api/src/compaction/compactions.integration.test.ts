@@ -26,6 +26,7 @@ import {
 import { type Compaction } from '../db/schema';
 import { ModelsService } from '../models/models.service';
 import { FakeModelsService, type FakeTurn, cookieOf } from '../testing/support';
+import { isRecord } from '../unknown-record';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
@@ -34,7 +35,7 @@ const d = hasDb ? describe : describe.skip;
 vi.setConfig({ testTimeout: 30_000 });
 
 d('compaction lineage over HTTP (#57)', () => {
-  let app: INestApplication;
+  let app: INestApplication<import('http').Server>;
   let http: import('http').Server;
   let models: FakeModelsService;
   let tenantDb: TenantDbService;
@@ -63,7 +64,7 @@ d('compaction lineage over HTTP (#57)', () => {
     app = mod.createNestApplication();
     configureApp(app);
     await app.init();
-    http = app.getHttpServer() as import('http').Server;
+    http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
 
     const res = await request(http)
@@ -75,7 +76,15 @@ d('compaction lineage over HTTP (#57)', () => {
       });
     expect(res.status).toBe(201);
     cookie = cookieOf(res);
-    userId = (res.body as { user: { id: string } }).user.id;
+    const registerBody: unknown = res.body;
+    if (
+      !isRecord(registerBody) ||
+      !isRecord(registerBody.user) ||
+      typeof registerBody.user.id !== 'string'
+    ) {
+      throw new Error('Expected register response with user.id');
+    }
+    userId = registerBody.user.id;
   });
 
   afterAll(async () => {
