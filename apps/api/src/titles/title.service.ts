@@ -139,3 +139,10 @@ export class TitleService {
     return result.text;
   }
 }
+
+/**
+ * The narrow capability `RunExecutionService` needs (#268) — narrower than
+ * the whole service. A test double implements exactly this one method,
+ * never a partial `TitleService` cast.
+ */
+export type TitleCapability = Pick<TitleService, 'maybeGenerateTitle'>;

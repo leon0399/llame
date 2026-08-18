@@ -864,7 +864,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     return new RunExecutionService(
       tenantDb,
       compaction,
-      { maybeGenerateTitle: async () => {} } as never,
+      { maybeGenerateTitle: async () => {} },
       { config: BUILT_IN_DEFAULTS },
       new SearchIndexService(tenantDb),
       noopReindexDispatch(),

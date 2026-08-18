@@ -500,3 +500,13 @@ export class CompactionService {
     };
   }
 }
+
+/**
+ * The narrow capability `RunExecutionService` needs (#268) — narrower than
+ * the whole service. A test double implements exactly these two methods,
+ * never a partial `CompactionService` cast.
+ */
+export type CompactionCapability = Pick<
+  CompactionService,
+  'maybeCompact' | 'compactForTransition'
+>;
