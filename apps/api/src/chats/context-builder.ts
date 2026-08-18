@@ -263,8 +263,11 @@ export function buildContext(
   // Determine if sender attribution is needed (>1 distinct human sender)
   const senderIds = new Set(
     messages
-      .filter((m) => m.role === 'user' && m.senderUserId !== null)
-      .map((m) => m.senderUserId as string),
+      .filter(
+        (m): m is StoredMessage & { senderUserId: string } =>
+          m.role === 'user' && m.senderUserId !== null,
+      )
+      .map((m) => m.senderUserId),
   );
   const multiSender = senderIds.size > 1;
 

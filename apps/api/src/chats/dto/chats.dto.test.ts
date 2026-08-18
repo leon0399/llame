@@ -1,5 +1,5 @@
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
-import { type Chat, type Message } from '../../db/schema';
+import { type Message } from '../../db/schema';
 import {
   CreateMessageDto,
   ChatMessagesQueryDto,
@@ -261,7 +261,7 @@ describe('ChatSearchQueryDto', () => {
 });
 
 describe('toSharedChatResponse — public-share egress allowlist (tool-calling-loop task 3.3)', () => {
-  const fakeChat = { id: 'chat-1', title: 'Shared chat' } as Chat;
+  const fakeChat = { id: 'chat-1', title: 'Shared chat' };
 
   function fakeMessage(overrides: Partial<Message>): Message {
     return {

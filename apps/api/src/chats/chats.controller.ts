@@ -67,8 +67,20 @@ import {
 } from './dto/chats.dto';
 
 const streamLogger = new Logger('ChatStream');
-type NodeWebReadableStream =
-  import('node:stream/web').ReadableStream<Uint8Array>;
+
+/**
+ * DOM's `ReadableStream` type doesn't declare `[Symbol.asyncIterator]` even
+ * though the runtime object supports it, and its BYOB-reader overload isn't
+ * assignable to `node:stream/web`'s declaration of the same class —
+ * `Readable.fromWeb` can't accept it without a cast. Checking async
+ * iterability at runtime instead sidesteps both type declarations and lets
+ * `Readable.from` (which only needs the iteration protocol) consume it.
+ */
+function isAsyncIterable(
+  value: ReadableStream<Uint8Array>,
+): value is ReadableStream<Uint8Array> & AsyncIterable<Uint8Array> {
+  return Symbol.asyncIterator in value;
+}
 
 export type ChatsControllerService = Pick<
   ChatsService,
@@ -482,8 +494,11 @@ async function writeWebResponse(
   }
 
   try {
-    const body = streamResponse.body as NodeWebReadableStream;
-    await pipeline(Readable.fromWeb(body), response);
+    const body = streamResponse.body;
+    if (!isAsyncIterable(body)) {
+      throw new Error('Expected the response body to be async-iterable');
+    }
+    await pipeline(Readable.from(body), response);
   } catch (error) {
     if (abortSignal.aborted) {
       return;

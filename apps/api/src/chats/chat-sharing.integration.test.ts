@@ -28,6 +28,7 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { toSharedChatResponse } from './dto/chats.dto';
+import { isTextPart } from './context-builder';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -276,10 +277,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
       // exercised separately above).
       pages.unshift(
         messages.map(
-          (m) =>
-            (m.parts as { type: string; text: string }[]).find(
-              (p) => p.type === 'text',
-            )?.text,
+          (m) => (Array.isArray(m.parts) ? m.parts : []).find(isTextPart)?.text,
         ),
       );
 

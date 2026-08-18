@@ -20,6 +20,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import type { Chat, Compaction, Message, MessageRole } from '../../db/schema';
+import { isRecord } from '../../unknown-record';
 import { isTextPart } from '../context-builder';
 import type { TurnTelemetry } from '../turn-telemetry';
 
@@ -518,10 +519,7 @@ export function toChatMessageResponse(message: Message): ChatMessageResponse {
     senderUserId: message.senderUserId,
     parts: message.parts,
     attachments: message.attachments,
-    usage:
-      message.usage === null
-        ? null
-        : (message.usage as Record<string, unknown>),
+    usage: isRecord(message.usage) ? message.usage : null,
     inReplyTo: message.inReplyTo,
     createdAt: message.createdAt,
   };
@@ -570,7 +568,7 @@ export class SharedChatResponse {
 }
 
 export function toSharedChatResponse(
-  chat: Chat,
+  chat: Pick<Chat, 'id' | 'title'>,
   messages: Message[],
 ): SharedChatResponse {
   return {
@@ -578,11 +576,14 @@ export function toSharedChatResponse(
     title: chat.title,
     messages: messages
       // Only the conversation (user + assistant) is public — never system/tool.
-      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .filter(
+        (m): m is Message & { role: 'user' | 'assistant' } =>
+          m.role === 'user' || m.role === 'assistant',
+      )
       .map((m) => ({
         id: m.id,
         seq: m.seq,
-        role: m.role as 'user' | 'assistant',
+        role: m.role,
         // TEXT-only allowlist: strips reasoning (privacy), model/availability
         // semantic controls, and every other non-display part.
         // Reuses the same isTextPart guard as partsToExcerpt (not an ad-hoc

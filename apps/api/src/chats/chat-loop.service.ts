@@ -31,6 +31,7 @@ import {
   MessagesRepository,
 } from './chats-repository';
 import { type MessagePart } from './context-builder';
+import { isRecord } from '../unknown-record';
 import { RunAbortRegistry, type RunAborter } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
 import {
@@ -79,6 +80,21 @@ import {
 } from './recency-digest.service';
 
 type RuntimeCatalogSnapshotter = Pick<McpRuntimeService, 'snapshotCandidates'>;
+
+/**
+ * Narrows a read-back message's `unknown[]` JSONB `parts` to `MessagePart[]`:
+ * each part must be an object (the union's `Record<string, unknown>`
+ * fallback arm), matching every other JSON-record boundary in this
+ * codebase. Malformed (non-object) parts fail closed.
+ */
+function toMessageParts(parts: readonly unknown[]): MessagePart[] {
+  return parts.map((part) => {
+    if (!isRecord(part)) {
+      throw new Error('Malformed message part: expected an object');
+    }
+    return part;
+  });
+}
 
 export type ChatMessageInput = {
   id: string;
@@ -496,7 +512,7 @@ export class ChatLoopService {
         userMessage: {
           id: userMessage.id,
           seq: userMessage.seq,
-          parts: userMessage.parts as MessagePart[],
+          parts: toMessageParts(userMessage.parts),
         },
         supersededRunIds: superseded.map((stale) => stale.id),
       };

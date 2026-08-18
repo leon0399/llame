@@ -9,6 +9,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `string`, so `node.type === 'X'` alone never narrows `node` itself; four
   new local type-predicate functions replace the check-then-cast pattern
   used across the prompt-file Handlebars AST validator. No behavior change.
+- Removed all 16 `typescript/no-unsafe-type-assertion` findings across the
+  chats/ domain tail (`tool-availability-part.ts`, `context-builder.ts`,
+  `chat-loop.service.ts`, `dto/chats.dto.ts`, `chats.controller.ts`,
+  `chats.service.ts`, and seven integration/unit test files). Repair
+  idioms: `toSharedChatResponse` narrowed to `Pick<Chat, 'id' | 'title'>`;
+  a runtime `Symbol.asyncIterator in body` check replacing a DOM-vs-Node
+  `ReadableStream` cast in the chat streaming response path; `Reflect.apply`
+  replacing `Function.prototype.call` where a real tsgo generic-inference
+  gap silently returned `any`. Native inventory falls from 94/41 to 78/27.
 - Removed all 17 `typescript/no-unsafe-type-assertion` findings across the
   tools/MCP cluster (`turn-tool-catalog.ts`, `runner.ts`,
   `worker-mode.integration.test.ts`, `mcp-stdio-server-client.test.ts`,

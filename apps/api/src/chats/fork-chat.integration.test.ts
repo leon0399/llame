@@ -20,13 +20,16 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { isRecord } from '../unknown-record';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = any;
 
-const textOf = (parts: unknown): string | undefined =>
-  Array.isArray(parts) ? (parts[0] as { text?: string })?.text : undefined;
+const textOf = (parts: unknown): string | undefined => {
+  if (!Array.isArray(parts) || !isRecord(parts[0])) return undefined;
+  return typeof parts[0].text === 'string' ? parts[0].text : undefined;
+};
 
 describeIfDb('forkChat — copy correctness + RLS', () => {
   let sql: SqlClient;
