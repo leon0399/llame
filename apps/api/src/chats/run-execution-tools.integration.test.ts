@@ -30,6 +30,12 @@ import {
   type ToolSet,
 } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
+import type {
+  LanguageModelV3FinishReason,
+  LanguageModelV3StreamPart,
+  LanguageModelV3StreamResult,
+  LanguageModelV3Usage,
+} from '@ai-sdk/provider';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { type ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -42,8 +48,11 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
-import { type MessagePart } from './context-builder';
+import { isTextPart } from './context-builder';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import type { InstanceConfigReader } from '../instance-config/instance-config.service';
+import type { CompactionCapability } from '../compaction/compaction.service';
+import type { TitleCapability } from '../titles/title.service';
 import {
   type ChatSearchIndexer,
   RunExecutionService,
@@ -53,9 +62,14 @@ import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
 import { createRunEventTranslator } from '../runs/run-stream-bridge';
 import { SearchIndexService } from '../search/search-index.service';
-import { TOOL_REGISTRY } from '../tools/registry';
+import {
+  registerTestOnlyTool,
+  TOOL_REGISTRY,
+  unregisterTestOnlyTool,
+} from '../tools/registry';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
 import { type Tool, type ToolContext } from '../tools/types';
+import { isRecord } from '../unknown-record';
 import { turnTelemetryLogger } from './turn-telemetry';
 import {
   createModelSwitchPart,
@@ -152,85 +166,111 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
   };
 }
 
-function textDelta(id: string, delta: string) {
+/** Shared scripted-step usage/finish-reason evidence (values are irrelevant to
+ * every assertion in this file — only the stream shape and tool-call routing
+ * matter — but the real provider V3 shape is nested, not the flat
+ * `{inputTokens, outputTokens, totalTokens}` numbers an untyped fixture could
+ * get away with). */
+const FAKE_USAGE: LanguageModelV3Usage = {
+  inputTokens: {
+    total: 1,
+    noCache: 1,
+    cacheRead: undefined,
+    cacheWrite: undefined,
+  },
+  outputTokens: { total: 1, text: 1, reasoning: undefined },
+};
+const TOOL_CALLS_FINISH_REASON: LanguageModelV3FinishReason = {
+  unified: 'tool-calls',
+  raw: undefined,
+};
+const STOP_FINISH_REASON: LanguageModelV3FinishReason = {
+  unified: 'stop',
+  raw: undefined,
+};
+
+function textDelta(
+  id: string,
+  delta: string,
+): Extract<LanguageModelV3StreamPart, { type: 'text-delta' }> {
   return { type: 'text-delta', id, delta };
 }
 
 /** Step that streams some text, then calls search_conversations. */
-function textThenToolCallResponse(pre: string, query: string) {
-  return {
-    stream: simulateReadableStream({
-      chunks: [
-        { type: 'stream-start', warnings: [] },
-        { type: 'text-start', id: 'p' },
-        textDelta('p', pre),
-        { type: 'text-end', id: 'p' },
-        {
-          type: 'tool-call',
-          toolCallId: 'call-1',
-          toolName: 'search_conversations',
-          input: JSON.stringify({ query }),
-        },
-        {
-          type: 'finish',
-          finishReason: 'tool-calls',
-          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-        },
-      ] as any,
-    }),
-  } as any;
+function textThenToolCallResponse(
+  pre: string,
+  query: string,
+): LanguageModelV3StreamResult {
+  const chunks: LanguageModelV3StreamPart[] = [
+    { type: 'stream-start', warnings: [] },
+    { type: 'text-start', id: 'p' },
+    textDelta('p', pre),
+    { type: 'text-end', id: 'p' },
+    {
+      type: 'tool-call',
+      toolCallId: 'call-1',
+      toolName: 'search_conversations',
+      input: JSON.stringify({ query }),
+    },
+    {
+      type: 'finish',
+      finishReason: TOOL_CALLS_FINISH_REASON,
+      usage: FAKE_USAGE,
+    },
+  ];
+  return { stream: simulateReadableStream({ chunks }) };
 }
 
 /** A step that reasons, writes text, then requests a tool. */
-function reasoningTextThenToolCallResponse(pre: string, query: string) {
-  const response = textThenToolCallResponse(pre, query);
-  response.stream = simulateReadableStream({
-    chunks: [
-      { type: 'stream-start', warnings: [] },
-      { type: 'reasoning-start', id: 'r' },
-      { type: 'reasoning-delta', id: 'r', delta: 'I should search first. ' },
-      { type: 'reasoning-end', id: 'r' },
-      { type: 'text-start', id: 'p' },
-      textDelta('p', pre),
-      { type: 'text-end', id: 'p' },
-      {
-        type: 'tool-call',
-        toolCallId: 'call-1',
-        toolName: 'search_conversations',
-        input: JSON.stringify({ query }),
-      },
-      {
-        type: 'finish',
-        finishReason: 'tool-calls',
-        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-      },
-    ] as any,
-  });
-  return response;
+function reasoningTextThenToolCallResponse(
+  pre: string,
+  query: string,
+): LanguageModelV3StreamResult {
+  const chunks: LanguageModelV3StreamPart[] = [
+    { type: 'stream-start', warnings: [] },
+    { type: 'reasoning-start', id: 'r' },
+    { type: 'reasoning-delta', id: 'r', delta: 'I should search first. ' },
+    { type: 'reasoning-end', id: 'r' },
+    { type: 'text-start', id: 'p' },
+    textDelta('p', pre),
+    { type: 'text-end', id: 'p' },
+    {
+      type: 'tool-call',
+      toolCallId: 'call-1',
+      toolName: 'search_conversations',
+      input: JSON.stringify({ query }),
+    },
+    {
+      type: 'finish',
+      finishReason: TOOL_CALLS_FINISH_REASON,
+      usage: FAKE_USAGE,
+    },
+  ];
+  return { stream: simulateReadableStream({ chunks }) };
 }
 
 /** A step that requests a tool NOT in the advertised toolSet (unlisted or
  * hallucinated) — the AI SDK raises NoSuchToolError, routed through
  * experimental_repairToolCall to onUnavailableToolCall. */
-function unlistedToolCallResponse(toolName: string, query: string) {
-  return {
-    stream: simulateReadableStream({
-      chunks: [
-        { type: 'stream-start', warnings: [] },
-        {
-          type: 'tool-call',
-          toolCallId: 'call-bad',
-          toolName,
-          input: JSON.stringify({ query }),
-        },
-        {
-          type: 'finish',
-          finishReason: 'tool-calls',
-          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-        },
-      ] as any,
-    }),
-  } as any;
+function unlistedToolCallResponse(
+  toolName: string,
+  query: string,
+): LanguageModelV3StreamResult {
+  const chunks: LanguageModelV3StreamPart[] = [
+    { type: 'stream-start', warnings: [] },
+    {
+      type: 'tool-call',
+      toolCallId: 'call-bad',
+      toolName,
+      input: JSON.stringify({ query }),
+    },
+    {
+      type: 'finish',
+      finishReason: TOOL_CALLS_FINISH_REASON,
+      usage: FAKE_USAGE,
+    },
+  ];
+  return { stream: simulateReadableStream({ chunks }) };
 }
 
 /** A provider tool call with caller-controlled JSON input. Used to prove the
@@ -239,66 +279,68 @@ function jsonToolCallResponse(
   toolCallId: string,
   toolName: string,
   input: unknown,
-) {
-  return {
-    stream: simulateReadableStream({
-      chunks: [
-        { type: 'stream-start', warnings: [] },
-        {
-          type: 'tool-call',
-          toolCallId,
-          toolName,
-          input: JSON.stringify(input),
-        },
-        {
-          type: 'finish',
-          finishReason: 'tool-calls',
-          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-        },
-      ] as any,
-    }),
-  } as any;
+): LanguageModelV3StreamResult {
+  const chunks: LanguageModelV3StreamPart[] = [
+    { type: 'stream-start', warnings: [] },
+    {
+      type: 'tool-call',
+      toolCallId,
+      toolName,
+      input: JSON.stringify(input),
+    },
+    {
+      type: 'finish',
+      finishReason: TOOL_CALLS_FINISH_REASON,
+      usage: FAKE_USAGE,
+    },
+  ];
+  return { stream: simulateReadableStream({ chunks }) };
 }
 
 /** A step that ALWAYS requests the tool again (never answers) — drives the
  * loop to the step cap. */
-function alwaysToolCallResponse(callId: string, query: string) {
-  return {
-    stream: simulateReadableStream({
-      chunks: [
-        { type: 'stream-start', warnings: [] },
-        {
-          type: 'tool-call',
-          toolCallId: callId,
-          toolName: 'search_conversations',
-          input: JSON.stringify({ query }),
-        },
-        {
-          type: 'finish',
-          finishReason: 'tool-calls',
-          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-        },
-      ] as any,
-    }),
-  } as any;
+function alwaysToolCallResponse(
+  callId: string,
+  query: string,
+): LanguageModelV3StreamResult {
+  const chunks: LanguageModelV3StreamPart[] = [
+    { type: 'stream-start', warnings: [] },
+    {
+      type: 'tool-call',
+      toolCallId: callId,
+      toolName: 'search_conversations',
+      input: JSON.stringify({ query }),
+    },
+    {
+      type: 'finish',
+      finishReason: TOOL_CALLS_FINISH_REASON,
+      usage: FAKE_USAGE,
+    },
+  ];
+  return { stream: simulateReadableStream({ chunks }) };
 }
 
-function textResponse(text: string) {
-  return {
-    stream: simulateReadableStream({
-      chunks: [
-        { type: 'stream-start', warnings: [] },
-        { type: 'text-start', id: 'a' },
-        textDelta('a', text),
-        { type: 'text-end', id: 'a' },
-        {
-          type: 'finish',
-          finishReason: 'stop',
-          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-        },
-      ] as any,
-    }),
-  } as any;
+function textResponse(text: string): LanguageModelV3StreamResult {
+  const chunks: LanguageModelV3StreamPart[] = [
+    { type: 'stream-start', warnings: [] },
+    { type: 'text-start', id: 'a' },
+    textDelta('a', text),
+    { type: 'text-end', id: 'a' },
+    { type: 'finish', finishReason: STOP_FINISH_REASON, usage: FAKE_USAGE },
+  ];
+  return { stream: simulateReadableStream({ chunks }) };
+}
+
+/**
+ * Narrows a persisted `assistant?.parts` (`unknown[] | undefined`) entry to
+ * a record with a `type` tag, so a test can inspect a specific server-authored
+ * part (`tool-<id>`, `data-cap-notice`, ...) by its discriminant without
+ * casting the whole array to a guessed shape.
+ */
+function isTypedPart(
+  value: unknown,
+): value is { type: string } & Record<string, unknown> {
+  return isRecord(value) && typeof value.type === 'string';
 }
 
 async function waitFor(
@@ -327,9 +369,19 @@ describeIfDb('executeRun tool-loop persistence', () => {
     reindexDispatch?: ChatReindexDispatcher;
     dynamicToolResolver?: DynamicToolExecutorResolver;
   }): RunExecutionService {
-    const noopCompaction = { maybeCompact: async () => {} } as never;
-    const noopTitles = { maybeGenerateTitle: async () => {} } as never;
-    const instanceConfig = {
+    const noopCompaction: CompactionCapability = {
+      maybeCompact: async () => {},
+      // Never exercised by this suite: every seeded context fits the mock
+      // model's context window, so the transition-compaction branch never
+      // runs. A throw catches a future scenario silently relying on it.
+      compactForTransition: () => {
+        throw new Error(
+          'serviceWithTools.compactForTransition is not exercised by this suite',
+        );
+      },
+    };
+    const noopTitles: TitleCapability = { maybeGenerateTitle: async () => {} };
+    const instanceConfig: InstanceConfigReader = {
       config: {
         ...BUILT_IN_DEFAULTS,
         tools: {
@@ -339,7 +391,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
           callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
         },
       },
-    } as never;
+    };
     return new RunExecutionService(
       tenantDb,
       noopCompaction,
@@ -451,7 +503,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       userMessage: {
         id: seeded.userMessage.id,
         seq: seeded.userMessage.seq,
-        parts: seeded.userMessage.parts as { type: 'text'; text: string }[],
+        parts: seeded.userMessage.parts.filter(isTextPart),
       },
       client,
     });
@@ -741,13 +793,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
       inputSchema: z.object({ query: z.string().min(1) }).strict(),
       execute: seedExecute,
     };
-    const registry = TOOL_REGISTRY as Map<string, Tool>;
-    registry.set(toolId, seedTool);
+    registerTestOnlyTool(seedTool);
     let seeded: Awaited<ReturnType<typeof seedBoundRun>> | undefined;
 
     try {
       seeded = await seedBoundRun(`dynamic-${crypto.randomUUID()}`, [toolId]);
-      registry.delete(toolId);
+      unregisterTestOnlyTool(toolId);
       const declaration = seeded.snapshot.toolDeclarations[0];
       const execute = vi.fn(
         (context: ToolContext, args: Record<string, unknown>) => ({
@@ -844,7 +895,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         userMessage: {
           id: later.userMessage.id,
           seq: later.userMessage.seq,
-          parts: later.userMessage.parts as MessagePart[],
+          parts: later.userMessage.parts.filter(isTextPart),
         },
         client: recordingClient(replayedCalls),
       });
@@ -854,7 +905,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         'release notes: current',
       );
     } finally {
-      registry.delete(toolId);
+      unregisterTestOnlyTool(toolId);
       if (seeded !== undefined) {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
       }
@@ -871,8 +922,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       inputSchema: z.object({ query: z.string() }).strict(),
       execute: remoteExecute,
     };
-    const registry = TOOL_REGISTRY as Map<string, Tool>;
-    registry.set(toolId, remoteTool);
+    registerTestOnlyTool(remoteTool);
     let seeded: Awaited<ReturnType<typeof seedBoundRun>> | undefined;
 
     try {
@@ -880,7 +930,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         toolId,
         'search_conversations',
       ]);
-      registry.delete(toolId);
+      unregisterTestOnlyTool(toolId);
       const resolveDynamicTool = vi.fn((id: string) =>
         id === toolId
           ? ({ state: 'unavailable' } as const)
@@ -941,7 +991,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
       expect(events.map((event) => event.eventType)).toContain('run.completed');
     } finally {
-      registry.delete(toolId);
+      unregisterTestOnlyTool(toolId);
       if (seeded !== undefined) {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
       }
@@ -983,9 +1033,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
       },
       execute: executeMalformed,
     };
-    const registry = TOOL_REGISTRY as Map<string, Tool>;
-    registry.set(validToolId, validTool);
-    registry.set(malformedToolId, malformedTool);
+    registerTestOnlyTool(validTool);
+    registerTestOnlyTool(malformedTool);
     const chatId = crypto.randomUUID();
 
     try {
@@ -1045,7 +1094,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         userMessage: {
           id: seeded.userMessage.id,
           seq: seeded.userMessage.seq,
-          parts: seeded.userMessage.parts as MessagePart[],
+          parts: seeded.userMessage.parts.filter(isTextPart),
         },
         client: {
           ...delegate,
@@ -1108,7 +1157,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         userMessage: {
           id: later.userMessage.id,
           seq: later.userMessage.seq,
-          parts: later.userMessage.parts as MessagePart[],
+          parts: later.userMessage.parts.filter(isTextPart),
         },
         client: recordingClient(replayedCalls),
       });
@@ -1120,8 +1169,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
       expect(replayedHistory).toContain('\\\"echo\\\":\\\"alpha\\\"');
       expect(replayedHistory).not.toContain(malformedToolId);
     } finally {
-      registry.delete(validToolId);
-      registry.delete(malformedToolId);
+      unregisterTestOnlyTool(validToolId);
+      unregisterTestOnlyTool(malformedToolId);
       await sql`DELETE FROM chats WHERE id = ${chatId}`;
     }
   });
@@ -1142,8 +1191,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       },
       execute,
     };
-    const registry = TOOL_REGISTRY as Map<string, Tool>;
-    registry.set(toolId, registeredTool);
+    registerTestOnlyTool(registeredTool);
     const chatId = crypto.randomUUID();
 
     try {
@@ -1196,7 +1244,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         userMessage: {
           id: seeded.userMessage.id,
           seq: seeded.userMessage.seq,
-          parts: seeded.userMessage.parts as MessagePart[],
+          parts: seeded.userMessage.parts.filter(isTextPart),
         },
         client: createMockModelClient(model),
       });
@@ -1242,7 +1290,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         }),
       );
     } finally {
-      registry.delete(toolId);
+      unregisterTestOnlyTool(toolId);
       await sql`DELETE FROM chats WHERE id = ${chatId}`;
     }
   });
@@ -1287,8 +1335,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       },
       execute,
     };
-    const registry = TOOL_REGISTRY as Map<string, Tool>;
-    registry.set(toolId, registeredTool);
+    registerTestOnlyTool(registeredTool);
     const chatId = crypto.randomUUID();
 
     try {
@@ -1332,7 +1379,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         userMessage: {
           id: seeded.userMessage.id,
           seq: seeded.userMessage.seq,
-          parts: seeded.userMessage.parts as MessagePart[],
+          parts: seeded.userMessage.parts.filter(isTextPart),
         },
         client: createMockModelClient(model),
         abortSignal: controller.signal,
@@ -1375,7 +1422,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       expect(types.filter((type) => type === 'run.cancelled')).toHaveLength(1);
       expect(execute).toHaveBeenCalledTimes(1);
     } finally {
-      registry.delete(toolId);
+      unregisterTestOnlyTool(toolId);
       await sql`DELETE FROM chats WHERE id = ${chatId}`;
     }
   });
@@ -1430,8 +1477,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       },
       execute,
     };
-    const registry = TOOL_REGISTRY as Map<string, Tool>;
-    registry.set(toolId, registeredTool);
+    registerTestOnlyTool(registeredTool);
     const chatId = crypto.randomUUID();
     let failedSettlementWrite = false;
     // eslint-disable-next-line @typescript-eslint/unbound-method
@@ -1499,7 +1545,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         userMessage: {
           id: seeded.userMessage.id,
           seq: seeded.userMessage.seq,
-          parts: seeded.userMessage.parts as MessagePart[],
+          parts: seeded.userMessage.parts.filter(isTextPart),
         },
         client: createMockModelClient(model),
         abortSignal: controller.signal,
@@ -1549,7 +1595,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       }
     } finally {
       appendSpy.mockRestore();
-      registry.delete(toolId);
+      unregisterTestOnlyTool(toolId);
       await sql`DELETE FROM chats WHERE id = ${chatId}`;
     }
   });
@@ -1586,17 +1632,16 @@ describeIfDb('executeRun tool-loop persistence', () => {
       const service = serviceWithTools();
       const seeded = await seedBoundRun(`drift-${crypto.randomUUID()}`);
       const calls: ModelStreamInput[] = [];
-      const registry = TOOL_REGISTRY as Map<string, Tool>;
-      const original = registry.get('search_conversations');
+      const original = TOOL_REGISTRY.get('search_conversations');
       if (!original) {
         throw new Error('search_conversations must exist in the test registry');
       }
 
       const changed = mutate(original);
       if (changed) {
-        registry.set('search_conversations', changed);
+        registerTestOnlyTool(changed);
       } else {
-        registry.delete('search_conversations');
+        unregisterTestOnlyTool('search_conversations');
       }
 
       try {
@@ -1615,7 +1660,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
           events.filter((event) => event.eventType === 'run.failed'),
         ).toHaveLength(1);
       } finally {
-        registry.set('search_conversations', original);
+        registerTestOnlyTool(original);
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
       }
     },
@@ -1713,7 +1758,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       userMessage: {
         id: seeded.targetUser.id,
         seq: seeded.targetUser.seq,
-        parts: seeded.targetUser.parts as MessagePart[],
+        parts: seeded.targetUser.parts.filter(isRecord),
       },
       client: recordingClient(calls),
     });
@@ -1815,7 +1860,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       userMessage: {
         id: userMessage.id,
         seq: userMessage.seq,
-        parts: userMessage.parts as { type: 'text'; text: string }[],
+        parts: userMessage.parts.filter(isTextPart),
       },
       client: createMockModelClient(model),
     });
@@ -1889,11 +1934,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     );
     expect(assistant).toBeDefined();
     expect(assistant?.usage).toMatchObject({ runId: run.id });
-    const parts = assistant?.parts as Array<{
-      type: string;
-      state?: string;
-      output?: unknown;
-    }>;
+    const parts = (assistant?.parts ?? []).filter(isTypedPart);
     const toolPart = parts.find((p) => p.type === 'tool-search_conversations');
     expect(toolPart).toMatchObject({ state: 'output-available' });
     expect(parts.map((part) => part.type)).toEqual([
@@ -1988,7 +2029,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       userMessage: {
         id: userMessage.id,
         seq: userMessage.seq,
-        parts: userMessage.parts as { type: 'text'; text: string }[],
+        parts: userMessage.parts.filter(isTextPart),
       },
       client: createMockModelClient(model),
     });
@@ -2039,15 +2080,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
       (m) => m.role === 'assistant' && m.inReplyTo === messageId,
     );
     expect(assistant).toBeDefined();
-    const parts = assistant?.parts as Array<{
-      type: string;
-      state?: string;
-      errorText?: string;
-    }>;
+    const parts = (assistant?.parts ?? []).filter(isTypedPart);
     const toolPart = parts.find((p) => p.type === 'tool-not_a_real_tool');
     expect(toolPart).toMatchObject({
       state: 'output-error',
-      errorText: expect.stringContaining('not available') as string,
+      errorText: expect.stringContaining('not available'),
       outcome: 'not_available',
     });
     expect(JSON.stringify(assistant?.parts)).toContain(
@@ -2115,7 +2152,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       userMessage: {
         id: userMessage.id,
         seq: userMessage.seq,
-        parts: userMessage.parts as { type: 'text'; text: string }[],
+        parts: userMessage.parts.filter(isTextPart),
       },
       client: createMockModelClient(model),
     });
@@ -2157,10 +2194,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const assistant = messages.find(
       (m) => m.role === 'assistant' && m.inReplyTo === messageId,
     );
-    const parts = assistant?.parts as Array<{
-      type: string;
-      data?: { stepsUsed: number; maxSteps: number };
-    }>;
+    const parts = (assistant?.parts ?? []).filter(isTypedPart);
     const capNotice = parts.find((p) => p.type === 'data-cap-notice');
     expect(capNotice).toMatchObject({ data: { stepsUsed: 2, maxSteps: 2 } });
     // The cap notice is the LAST part (after the forced answer text).

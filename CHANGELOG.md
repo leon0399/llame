@@ -13,6 +13,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   TS7 build type checking, and CI build-cache persistence are adopted
   separately (#417–#420).
 
+- Removed 38 `typescript/no-unsafe-type-assertion` findings from the
+  run-execution tool-loop test boundary: the native inventory falls from 196
+  diagnostics/68 files to 158/67. `RunExecutionService`'s constructor now
+  takes narrow `CompactionCapability`/`TitleCapability` types (new, alongside
+  the existing `InstanceConfigReader`) instead of three concrete service
+  classes, bound through explicit `@Inject(ConcreteClass)` tokens;
+  `TOOL_REGISTRY` gains a supported `registerTestOnlyTool`/
+  `unregisterTestOnlyTool` test seam instead of scattered `as Map<...>`
+  casts; scripted `MockLanguageModelV3` fixtures in
+  `run-execution-tools.integration.test.ts` now build typed
+  `LanguageModelV3StreamPart[]` chunks, which also corrected fixture data
+  that had drifted to a stale usage/finish-reason shape behind the removed
+  casts. No behavior change.
+
 - Bumped the paired `oxlint`/`@oxlint/plugins` lint engine 1.77.0 → 1.78.0, now
   past the seven-day release cooldown that deferred it at anti-slop
   qualification. All five lint scopes and the vendored-plugin `RuleTester`

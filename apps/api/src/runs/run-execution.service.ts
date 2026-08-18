@@ -15,7 +15,10 @@ import {
   isCompletedAssistantTurn,
   MessagesRepository,
 } from '../chats/chats-repository';
-import { CompactionService } from '../compaction/compaction.service';
+import {
+  CompactionService,
+  type CompactionCapability,
+} from '../compaction/compaction.service';
 import { requestFitsContextWindow } from '../compaction/compaction';
 import { SearchIndexService } from '../search/search-index.service';
 import {
@@ -31,7 +34,10 @@ import {
 import { isModelSwitchPart } from '../chats/model-context-part';
 import { normalizeToolObservationOutcome } from '../chats/tool-observation-part';
 import { createDeltaBuffer } from './delta-buffer';
-import { InstanceConfigService } from '../instance-config/instance-config.service';
+import {
+  InstanceConfigService,
+  type InstanceConfigReader,
+} from '../instance-config/instance-config.service';
 import { invalidCallResult, refusalResult, runTool } from '../tools/runner';
 import { toFlexibleSchema } from '../tools/schema-utils';
 import { type ToolContext, type ToolResult } from '../tools/types';
@@ -41,7 +47,7 @@ import {
   RunsRepository,
   type RunEventType,
 } from './runs-repository';
-import { TitleService } from '../titles/title.service';
+import { TitleService, type TitleCapability } from '../titles/title.service';
 import {
   buildTurnTelemetry,
   emitCompletedTurnTelemetryLog,
@@ -425,9 +431,12 @@ export class RunExecutionService {
 
   constructor(
     private readonly tenantDb: TenantDbService,
-    private readonly compaction: CompactionService,
-    private readonly titles: TitleService,
-    private readonly instanceConfig: InstanceConfigService,
+    @Inject(CompactionService)
+    private readonly compaction: CompactionCapability,
+    @Inject(TitleService)
+    private readonly titles: TitleCapability,
+    @Inject(InstanceConfigService)
+    private readonly instanceConfig: InstanceConfigReader,
     @Inject(SearchIndexService)
     private readonly searchIndex: ChatSearchIndexer,
     @Inject(SearchReindexDispatchService)

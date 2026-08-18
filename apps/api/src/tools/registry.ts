@@ -64,7 +64,28 @@ export function buildRegistry(
   return registry;
 }
 
-export const TOOL_REGISTRY: ReadonlyMap<string, Tool> = buildRegistry(TOOLS);
+const registryStore: Map<string, Tool> = new Map(buildRegistry(TOOLS));
+
+/** Read-only to production code by design (design D2): the registered
+ * toolset is fixed in-code, not runtime-mutable. `Map<string, Tool>` is
+ * assignable to `ReadonlyMap<string, Tool>` without a cast. */
+export const TOOL_REGISTRY: ReadonlyMap<string, Tool> = registryStore;
+
+/**
+ * Test-only mutation seam for `TOOL_REGISTRY`. Production code must never
+ * call this — the exported registry stays read-only to keep that boundary
+ * explicit and enforced by the type system; only integration tests that
+ * need a throwaway tool for one scenario reach for it. Never widen
+ * `TOOL_REGISTRY` itself to `Map<string, Tool>` to avoid this seam.
+ */
+export function registerTestOnlyTool(tool: Tool): void {
+  registryStore.set(tool.id, tool);
+}
+
+/** Companion to {@link registerTestOnlyTool}; test-only. */
+export function unregisterTestOnlyTool(id: string): void {
+  registryStore.delete(id);
+}
 
 /** Every registered tool id — instance-config boot validation reads this. */
 export function getRegisteredToolIds(): readonly string[] {

@@ -236,7 +236,7 @@ function executionService(
   return new RunExecutionService(
     tenantDb,
     { maybeCompact: () => Promise.resolve() } as never,
-    { maybeGenerateTitle: () => Promise.resolve() } as never,
+    { maybeGenerateTitle: () => Promise.resolve() },
     {
       config: {
         ...BUILT_IN_DEFAULTS,
