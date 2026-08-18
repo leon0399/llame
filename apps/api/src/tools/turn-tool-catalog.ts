@@ -138,11 +138,26 @@ const hasExactKeys = (
 const invalidManifest = (detail: string): Error =>
   new Error(`Invalid tool availability manifest: ${detail}.`);
 
+/** `canonicalize`'s JSON round-trip erases compile-time type information;
+ * this reasserts it from the actual shape. */
+function assertModelToolDeclaration(
+  value: unknown,
+): asserts value is ModelToolDeclaration {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.description !== 'string' ||
+    !isRecord(value.inputSchema)
+  ) {
+    throw new TypeError('Expected a canonical ModelToolDeclaration');
+  }
+}
+
 const isToolUnavailableReason = (
   value: unknown,
 ): value is ToolUnavailableReason =>
   typeof value === 'string' &&
-  TOOL_UNAVAILABLE_REASONS.includes(value as ToolUnavailableReason);
+  (TOOL_UNAVAILABLE_REASONS as readonly string[]).includes(value);
 
 export function parseToolAvailabilityManifest(
   value: unknown,
@@ -329,11 +344,13 @@ export async function composeTurnToolCatalog(input: {
       continue;
     }
 
-    const declaration = canonicalize({
+    const canonicalized = canonicalize({
       id,
       description: candidate.tool.description,
       inputSchema: admission.inputSchema,
-    }) as ModelToolDeclaration;
+    });
+    assertModelToolDeclaration(canonicalized);
+    const declaration = canonicalized;
     const declarationHash = hashToolDeclaration(declaration);
     admitted.push({
       source: candidate.source,

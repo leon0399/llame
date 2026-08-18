@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { McpServerClient } from './mcp-server-client';
 import { DiagnosticBuffer, MAX_DIAGNOSTIC_CHARS } from './mcp-stdio-transport';
+import { isRecord } from '../unknown-record';
 
 const FIXTURE = join(__dirname, 'mcp-stdio-test-fixture.mjs');
 
@@ -81,10 +82,10 @@ describe('McpServerClient.connectStdio', () => {
       );
       await client.close();
 
-      const childEnv = JSON.parse(readFileSync(envDumpPath, 'utf8')) as Record<
-        string,
-        string
-      >;
+      const childEnv: unknown = JSON.parse(readFileSync(envDumpPath, 'utf8'));
+      if (!isRecord(childEnv)) {
+        throw new Error('Expected the dumped child env to be an object');
+      }
 
       // Defined allowlist variable is inherited without being declared.
       expect(childEnv.SHELL).toBe('/bin/from-parent');
@@ -260,7 +261,10 @@ describe('McpServerClient.connectStdio', () => {
     );
     await client.close();
 
-    const argv = JSON.parse(readFileSync(argvDumpPath, 'utf8')) as string[];
+    const argv: unknown = JSON.parse(readFileSync(argvDumpPath, 'utf8'));
+    if (!Array.isArray(argv)) {
+      throw new Error('Expected the dumped argv to be an array');
+    }
     expect(argv).toContain(hostile);
   });
 

@@ -4,6 +4,7 @@ import { truncateOversizedResult } from './result-truncation';
 import { safeParseArgs } from './schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
+import { isRecord } from '../unknown-record';
 
 const logger = new Logger('ToolRunner');
 
@@ -108,7 +109,7 @@ export async function runTool(
   }
 
   const parsed = safeParseArgs(tool.inputSchema, args);
-  if (!parsed.success) {
+  if (!parsed.success || !isRecord(parsed.data)) {
     return {
       status: 'error',
       type: 'invalid_input',
@@ -128,7 +129,7 @@ export async function runTool(
   onValidated?.();
   try {
     const result = await withAbort(
-      Promise.resolve(tool.execute(executionContext, parsed.data as never)),
+      Promise.resolve(tool.execute(executionContext, parsed.data)),
       composedSignal,
     );
     return truncateOversizedResult(result);
