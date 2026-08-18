@@ -6,6 +6,10 @@ const nextConfig = {
   transpilePackages: ["@workspace/ui"],
   // Statically typed hrefs for next/link and next/navigation (stable since 15.5).
   typedRoutes: true,
+  // Next 16.3's auto-managed AGENTS.md block would rewrite a symlinked,
+  // markdown-linted file on every `next dev`; the bundled-docs pointer is
+  // committed manually in apps/web/AGENTS.md instead.
+  agentRules: false,
   turbopack: {
     // Monorepo root. Without this, Turbopack infers the workspace root from
     // lockfile locations, which picks the wrong directory in git worktrees.
