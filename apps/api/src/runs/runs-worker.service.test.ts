@@ -13,7 +13,11 @@ import { Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
-import { type QueueConsumer, deadLetterQueue } from '../queue/queue';
+import {
+  type ConsumeOptions,
+  type QueueConsumer,
+  deadLetterQueue,
+} from '../queue/queue';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type WorkerConcurrencyResolver } from '../instance-config/worker-profile.service';
@@ -40,6 +44,19 @@ function unstubbed(method: string) {
   };
 }
 
+/**
+ * The concrete instantiation of `QueueConsumer['consume']` this suite mocks —
+ * both the runs queue and its dead-letter queue share this handler shape.
+ * `vi.fn()`'s own generic can't express `consume`'s `<Q extends
+ * QueueDefinition<any>>` signature directly, so the mock is typed at this
+ * fixed instantiation instead of the generic method.
+ */
+type ConsumeMockFn = (
+  queue: { name: string },
+  handler: (job: RunJob) => Promise<void>,
+  options?: ConsumeOptions,
+) => Promise<string>;
+
 function makeService(
   tx: Db,
   overrides: {
@@ -52,7 +69,7 @@ function makeService(
   // assertions reference a plain vi.fn variable, not an interface method —
   // oxlint's typescript-aware unbound-method rule flags the latter.
   const ensureQueueSpy = vi.fn().mockResolvedValue(undefined);
-  const consumeSpy = vi.fn().mockResolvedValue('consumer-id');
+  const consumeSpy = vi.fn<ConsumeMockFn>().mockResolvedValue('consumer-id');
   const queue: QueueConsumer = {
     ensureQueue: ensureQueueSpy,
     consume: consumeSpy,
@@ -77,14 +94,19 @@ function makeService(
     concurrencyFor: vi.fn().mockReturnValue(1),
   };
 
-  const runAsSpy = vi.fn((_userId: string, cb: (tx: Db) => unknown) =>
-    Promise.resolve(cb(tx)),
-  );
-  // A mocked generic method infers a concrete T (here `unknown`) that can't
-  // structurally satisfy `runAs`'s own `<T>` — a single narrowing `as`, not
-  // the banned double cast (the mock genuinely implements this signature;
-  // TS just can't verify it generically).
-  const tenantDb: TenantRunner = { runAs: runAsSpy as TenantRunner['runAs'] };
+  // Records calls for assertions only — `runAs` below performs the actual
+  // invocation, so this must not also call `cb` or the callback would run
+  // twice.
+  const runAsSpy = vi.fn((_userId: string, _cb: (tx: Db) => unknown) => {});
+  // A mocked generic method infers a concrete T that can't structurally
+  // satisfy `runAs`'s own `<T>`. A plain (non-mocked) arrow function assigned
+  // to the generic-typed slot lets TS infer the real generic signature; it
+  // delegates to the spy for tracking without ever widening then asserting.
+  const runAs: TenantRunner['runAs'] = (userId, fn) => {
+    runAsSpy(userId, fn);
+    return fn(tx);
+  };
+  const tenantDb: TenantRunner = { runAs };
 
   const service = new RunsWorkerService(
     queue,
@@ -105,16 +127,13 @@ function makeService(
   return { service, consumeSpy, runAsSpy };
 }
 
-type ConsumeCall = [{ name: string }, (job: RunJob) => Promise<void>];
-
 /** Capture the handler RunsWorkerService registered on the main runs queue. */
 async function captureRunsHandler(
   service: RunsWorkerService,
-  consumeSpy: Mock,
+  consumeSpy: Mock<ConsumeMockFn>,
 ): Promise<(job: RunJob) => Promise<void>> {
   await service.onApplicationBootstrap();
-  const calls = consumeSpy.mock.calls as ConsumeCall[];
-  const call = calls.find(
+  const call = consumeSpy.mock.calls.find(
     ([definition]) => definition.name === RUNS_QUEUE.name,
   );
   if (!call) {
@@ -126,12 +145,13 @@ async function captureRunsHandler(
 /** Capture the handler RunsWorkerService registered on the runs.dead queue. */
 async function captureDeadLetterHandler(
   service: RunsWorkerService,
-  consumeSpy: Mock,
+  consumeSpy: Mock<ConsumeMockFn>,
 ): Promise<(job: RunJob) => Promise<void>> {
   await service.onApplicationBootstrap();
   const deadQueueName = deadLetterQueue(RUNS_QUEUE).name;
-  const calls = consumeSpy.mock.calls as ConsumeCall[];
-  const call = calls.find(([definition]) => definition.name === deadQueueName);
+  const call = consumeSpy.mock.calls.find(
+    ([definition]) => definition.name === deadQueueName,
+  );
   if (!call) {
     throw new Error('runs.dead consumer was never registered');
   }

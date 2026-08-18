@@ -52,8 +52,15 @@ vi.setConfig({ testTimeout: 60_000 });
  * suite does it (chats-rls.integration.test.ts), so a remote TEST_DATABASE_URL
  * works here too.
  */
+function requireTestDbUrl(): string {
+  if (!TEST_DB_URL) {
+    throw new Error('TEST_DATABASE_URL is required for this suite');
+  }
+  return TEST_DB_URL;
+}
+
 const testClient = (max: number) =>
-  postgres(TEST_DB_URL as string, {
+  postgres(requireTestDbUrl(), {
     max,
     ssl: /sslmode=require/.test(TEST_DB_URL ?? '') ? 'require' : false,
   });

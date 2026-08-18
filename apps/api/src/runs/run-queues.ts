@@ -5,6 +5,7 @@ import {
   expectString,
   type QueueDefinition,
 } from '../queue/queue';
+import { isRecord } from '../unknown-record';
 import { type RunUserMessage } from './run-execution.service';
 
 /**
@@ -41,10 +42,15 @@ export const RUNS_QUEUE = defineQueue<RunJob>({
         "Malformed 'runs' job: userMessage.parts not an array",
       );
     }
+    if (!message.parts.every(isRecord)) {
+      throw new TypeError(
+        "Malformed 'runs' job: userMessage.parts contains a non-object part",
+      );
+    }
     const userMessage: RunUserMessage = {
       id: expectString(message, 'id', 'runs'),
       seq: message.seq,
-      parts: message.parts as RunUserMessage['parts'],
+      parts: message.parts,
     };
     return {
       runId: expectString(record, 'runId', 'runs'),

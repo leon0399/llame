@@ -13,6 +13,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { TenantDbService } from '../db/tenant-db.service';
+import { isRecord } from '../unknown-record';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
 /** UI-message stream chunk subset the bridge emits (AI SDK v1 protocol). */
@@ -59,10 +60,10 @@ export interface RunEventLike {
 
 /** Raw field off an unknown object payload — the one null-guard every reader shares. */
 function payloadField(payload: unknown, key: string): unknown {
-  if (typeof payload !== 'object' || payload === null) {
+  if (!isRecord(payload)) {
     return undefined;
   }
-  return (payload as Record<string, unknown>)[key];
+  return payload[key];
 }
 
 function payloadString(payload: unknown, key: string): string | undefined {
@@ -250,15 +251,12 @@ export function createRunEventTranslator(messageId: string): {
           const output = payloadField(event.payload, 'output');
           const isCancelled =
             status === 'error' &&
-            typeof output === 'object' &&
-            output !== null &&
-            (output as { type?: unknown }).type === 'cancelled';
+            isRecord(output) &&
+            output.type === 'cancelled';
           if (status === 'error') {
             const errorText =
-              typeof output === 'object' &&
-              output !== null &&
-              typeof (output as { message?: unknown }).message === 'string'
-                ? (output as { message: string }).message
+              isRecord(output) && typeof output.message === 'string'
+                ? output.message
                 : 'The tool failed.';
             return [
               ...prelude(),
