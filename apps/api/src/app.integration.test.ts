@@ -7,7 +7,7 @@ import { McpRuntimeService } from './mcp/mcp-runtime.service';
 import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './runs/snapshot-tool-execution';
 
 describe('AppController — liveness probe', () => {
-  let app: INestApplication;
+  let app: INestApplication<import('http').Server>;
 
   beforeAll(async () => {
     const mod = await Test.createTestingModule({
@@ -23,9 +23,7 @@ describe('AppController — liveness probe', () => {
   });
 
   it('GET / returns 200 with the expected body', async () => {
-    const res = await request(app.getHttpServer() as import('http').Server).get(
-      '/',
-    );
+    const res = await request(app.getHttpServer()).get('/');
     expect(res.status).toBe(200);
     expect(res.text).toBe('Hello World!');
   });

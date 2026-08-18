@@ -18,6 +18,7 @@ import {
   type OrgUnitType,
 } from '../../db/schema';
 import { type OrgUnitWithSummary } from '../identity-repository';
+import { isRecord } from '../../unknown-record';
 
 const ORG_UNIT_TYPES = [
   'organization',
@@ -164,7 +165,7 @@ export function toOrgUnitResponse(unit: OrgUnitWithSummary): OrgUnitResponse {
     name: unit.name,
     type: unit.type,
     path: unit.path,
-    settings: unit.settings as Record<string, unknown>,
+    settings: isRecord(unit.settings) ? unit.settings : {},
     createdAt: unit.createdAt,
     memberCount: unit.memberCount,
     directRole: unit.directRole,

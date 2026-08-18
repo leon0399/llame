@@ -503,8 +503,11 @@ describeIfDb(
         // Drizzle), so the driver error surfaces as-is — `.code`, not
         // `.cause.code`.
         const rejected = [aResult, bResult].find(
-          (r) => r.status === 'rejected',
-        ) as PromiseRejectedResult;
+          (r): r is PromiseRejectedResult => r.status === 'rejected',
+        );
+        if (!rejected) {
+          throw new Error('Expected exactly one rejected attempt');
+        }
         expect(rejected.reason).toMatchObject({ code: 'OW001' });
 
         const remainingOwners = await asUser(

@@ -19,6 +19,7 @@
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
+import { z } from 'zod';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -49,13 +50,17 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         ),
       )
       .then((rows) => [...rows][0].n);
-  // Run an owner-scoped read of an RLS-protected table.
+  // Run an owner-scoped read of an RLS-protected table, validating each row
+  // against the caller-supplied schema. Raw SQL rows are untyped at the
+  // driver boundary — Zod parsing is real runtime evidence for the shape,
+  // not a compile-time-only assertion, and throws on a malformed row.
   const ownedRows = <T extends Record<string, unknown>>(
     frag: ReturnType<typeof sql>,
+    rowSchema: z.ZodType<T>,
   ): Promise<T[]> =>
     tenantDb
-      .runAs(u, (tx) => tx.execute<T>(frag))
-      .then((rows) => [...rows] as T[]);
+      .runAs(u, (tx) => tx.execute(frag))
+      .then((rows) => rowSchema.array().parse([...rows]));
   const staleIds = (): Promise<string[]> =>
     tenantDb
       .runAsPublic((tx) =>
@@ -108,8 +113,9 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     const id = await seed('Indexing', [{ role: 'user', text: 'hello world' }]);
     await indexService.reindexChat(id, u);
     expect(await docCount(id)).toBeGreaterThan(0);
-    const state = await ownedRows<{ chunker_version: number }>(
+    const state = await ownedRows(
       sql`SELECT chunker_version FROM search_chat_state WHERE chat_id = ${id}`,
+      z.object({ chunker_version: z.number() }),
     );
     expect(state[0].chunker_version).toBe(CHUNKER_VERSION);
   });
@@ -120,13 +126,16 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       { role: 'assistant', text: 'answer-1' },
     ]);
     await indexService.reindexChat(id, u);
-    const [row] = await ownedRows<{
-      content: string;
-      normalized_content: string;
-      fts: string;
-    }>(sql`
+    const [row] = await ownedRows(
+      sql`
       SELECT content, normalized_content, fts::text AS fts
-      FROM search_chat_documents WHERE chat_id = ${id}`);
+      FROM search_chat_documents WHERE chat_id = ${id}`,
+      z.object({
+        content: z.string(),
+        normalized_content: z.string(),
+        fts: z.string(),
+      }),
+    );
     expect(row.content).toBe('[user] hello\n\n[assistant] answer-1');
     expect(row.normalized_content).toBe('hello answer-1');
     expect(row.fts).not.toContain('user');
@@ -139,10 +148,11 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     ]);
     await indexService.reindexChat(id, u);
     const q = sql`SELECT id, updated_at::text AS updated_at FROM search_chat_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal`;
-    const before = await ownedRows<{ updated_at: string }>(q);
+    const rowSchema = z.object({ updated_at: z.string() });
+    const before = await ownedRows(q, rowSchema);
     await new Promise((r) => setTimeout(r, 25));
     await indexService.reindexChat(id, u);
-    const after = await ownedRows<{ updated_at: string }>(q);
+    const after = await ownedRows(q, rowSchema);
     // Unchanged (hash-matched) chunks are not rewritten → updated_at is identical.
     expect(after.map((r) => r.updated_at)).toEqual(
       before.map((r) => r.updated_at),
@@ -156,22 +166,19 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     ]);
     await indexService.reindexChat(id, u);
     const q = sql`SELECT chunk_ordinal, content_hash, content FROM search_chat_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal`;
-    const first = await ownedRows<{
-      chunk_ordinal: number;
-      content_hash: string;
-      content: string;
-    }>(q);
+    const rowSchema = z.object({
+      chunk_ordinal: z.number(),
+      content_hash: z.string(),
+      content: z.string(),
+    });
+    const first = await ownedRows(q, rowSchema);
     // A genuine concurrent race isn't worth flaking a test over — concurrent
     // rebuilds of one chat run under REPEATABLE READ, and a loser that hits a
     // serialization failure is retried by reindexChat until it converges. What we
     // CAN assert directly: rebuilding twice from the same unchanged canonical
     // messages is idempotent and reproduces a byte-identical projection.
     await indexService.reindexChat(id, u);
-    const second = await ownedRows<{
-      chunk_ordinal: number;
-      content_hash: string;
-      content: string;
-    }>(q);
+    const second = await ownedRows(q, rowSchema);
     expect(second).toEqual(first);
   });
 
@@ -179,7 +186,8 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     const id = await seed('Monotonic', [{ role: 'user', text: 'first pass' }]);
     await indexService.reindexChat(id, u);
     const stateQuery = sql`SELECT indexed_at::text AS indexed_at FROM search_chat_state WHERE chat_id = ${id}`;
-    const before = await ownedRows<{ indexed_at: string }>(stateQuery);
+    const stateRowSchema = z.object({ indexed_at: z.string() });
+    const before = await ownedRows(stateQuery, stateRowSchema);
 
     // Force the stored watermark artificially into the future — beyond
     // anything a reindex could compute from the chat's real message/chat
@@ -189,7 +197,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         sql`UPDATE search_chat_state SET indexed_at = indexed_at + interval '1 day' WHERE chat_id = ${id}`,
       ),
     );
-    const forced = await ownedRows<{ indexed_at: string }>(stateQuery);
+    const forced = await ownedRows(stateQuery, stateRowSchema);
     expect(new Date(forced[0].indexed_at).getTime()).toBeGreaterThan(
       new Date(before[0].indexed_at).getTime(),
     );
@@ -198,7 +206,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     // message/chat timestamps. GREATEST(existing, excluded) in the upsert
     // must keep the stored indexed_at from moving backward.
     await indexService.reindexChat(id, u);
-    const after = await ownedRows<{ indexed_at: string }>(stateQuery);
+    const after = await ownedRows(stateQuery, stateRowSchema);
     expect(after[0].indexed_at).toEqual(forced[0].indexed_at);
   });
 
@@ -207,11 +215,13 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       { role: 'user', text: 'original phrasing' },
     ]);
     await indexService.reindexChat(id, u);
-    const [{ id: msgId }] = await ownedRows<{ id: string }>(
+    const [{ id: msgId }] = await ownedRows(
       sql`SELECT id FROM messages WHERE chat_id = ${id} LIMIT 1`,
+      z.object({ id: z.string() }),
     );
-    const before = await ownedRows<{ content_hash: string }>(
+    const before = await ownedRows(
       sql`SELECT content_hash FROM search_chat_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal LIMIT 1`,
+      z.object({ content_hash: z.string() }),
     );
     const newParts = JSON.stringify(text('rewritten distinctive wording'));
     await tenantDb.runAs(u, (tx) =>
@@ -220,8 +230,9 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       ),
     );
     await indexService.reindexChat(id, u);
-    const after = await ownedRows<{ content: string; content_hash: string }>(
+    const after = await ownedRows(
       sql`SELECT content, content_hash FROM search_chat_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal LIMIT 1`,
+      z.object({ content: z.string(), content_hash: z.string() }),
     );
     expect(after[0].content_hash).not.toBe(before[0].content_hash);
     expect(after[0].content).toContain('rewritten distinctive wording');
@@ -235,8 +246,9 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       tx.execute(sql`DELETE FROM chats WHERE id = ${id}`),
     );
     expect(await docCount(id)).toBe(0);
-    const state = await ownedRows<{ n: number }>(
+    const state = await ownedRows(
       sql`SELECT count(*)::int AS n FROM search_chat_state WHERE chat_id = ${id}`,
+      z.object({ n: z.number() }),
     );
     expect(state[0].n).toBe(0);
   });
@@ -278,13 +290,16 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     );
     expect(await staleIds()).toContain(id);
     await indexService.reindexChat(id, u);
-    const rows = await ownedRows<{
-      chunker_version: number;
-      normalized_content: string;
-      fts: string;
-    }>(sql`
+    const rows = await ownedRows(
+      sql`
       SELECT chunker_version, normalized_content, fts::text AS fts
-      FROM search_chat_documents WHERE chat_id = ${id}`);
+      FROM search_chat_documents WHERE chat_id = ${id}`,
+      z.object({
+        chunker_version: z.number(),
+        normalized_content: z.string(),
+        fts: z.string(),
+      }),
+    );
     expect(rows).toHaveLength(1);
     expect(rows[0].chunker_version).toBe(CHUNKER_VERSION);
     expect(rows[0].normalized_content).toBe('hello answer-1');

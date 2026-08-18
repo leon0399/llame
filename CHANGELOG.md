@@ -9,6 +9,29 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `string`, so `node.type === 'X'` alone never narrows `node` itself; four
   new local type-predicate functions replace the check-then-cast pattern
   used across the prompt-file Handlebars AST validator. No behavior change.
+- Removed 21 `typescript/no-unsafe-type-assertion` findings across 19 files
+  in the misc infra tail (test bootstrap, opt-in evals, the queue layer, a
+  Postgres-error-code helper duplicated across `auth.service.ts`,
+  `pins.service.ts`, and `identity.service.ts`, `app.setup.ts`, migration
+  journal validation, and several integration/unit test files). Repair
+  idioms: the shared `isRecord` guard at every remaining record-shaped
+  cast; `pgboss-queue.service.ts` re-binds a generic-constrained `queue` to
+  a concretely-typed local to escape a `Q extends QueueDefinition<any>`
+  widening gap; `app.setup.ts`'s test-seam type drops a `Pick<>` wrapper for
+  the concrete shape callers use; `db/tenant-db.service.test.ts` narrows
+  with Drizzle's own `is(value, SQL)` entity check;
+  `search-index.integration.test.ts`'s generic `ownedRows<T>` helper moves
+  from a compile-time-only cast to a `z.ZodType<T>` parameter and
+  `.array().parse(...)`, since assigning a constraint-typed raw-driver row
+  back into the caller's own `T` is unsound in general; `model-client.test.ts`
+  replaces two `expect.any(Function) as () => void` casts (Vitest's
+  `expect.any` is declared `any`, so dropping the cast only traded one
+  unsafe-lint rule for another) with captured mock call arguments asserted
+  via `toMatchObject` plus a plain `typeof onAbort === 'function'` check.
+  Native inventory falls from 78/27 to 57/8; the remaining eight files are
+  owned by the unmerged `quality/unsafe-assertion-prompt-loader`/
+  run-execution-tools peer stack (#425/#426) and are excluded from further
+  slices until it merges and this branch rebases.
 - Removed all 16 `typescript/no-unsafe-type-assertion` findings across the
   chats/ domain tail (`tool-availability-part.ts`, `context-builder.ts`,
   `chat-loop.service.ts`, `dto/chats.dto.ts`, `chats.controller.ts`,

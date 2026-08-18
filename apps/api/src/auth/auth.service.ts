@@ -23,6 +23,7 @@ import { PasswordService } from './password.service';
 import type { User } from '../db/schema';
 import { PublicUserResponse } from '../users/public-user.response';
 import { toPublicUser, UsersService } from '../users/users.service';
+import { isRecord } from '../unknown-record';
 
 export type SessionMetadata = {
   userAgent?: string;
@@ -281,10 +282,5 @@ function normalizeEmail(email: string): string {
 
 // Postgres unique-violation SQLSTATE (postgres.js surfaces it as `error.code`).
 function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: string }).code === '23505'
-  );
+  return isRecord(error) && error.code === '23505';
 }

@@ -163,13 +163,14 @@ export class PgBossQueueService implements Queue {
           : {}),
       },
       async (jobs: PgBossJob<PayloadOf<Q>>[]) => {
+        const definition: QueueDefinition<PayloadOf<Q>> = queue;
         for (const job of jobs) {
           // The definition's guard runs BEFORE domain code: a payload written
           // by an older deploy (or corrupted in flight) fails the job here —
           // retry policy, then dead letter — instead of surfacing as a
           // confusing TypeError deep inside the handler.
-          const data: PayloadOf<Q> = queue.parse
-            ? (queue.parse(job.data) as PayloadOf<Q>)
+          const data: PayloadOf<Q> = definition.parse
+            ? definition.parse(job.data)
             : job.data;
           await handler(data, { id: job.id, queue: queue.name });
         }

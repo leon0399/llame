@@ -1,3 +1,5 @@
+import { isRecord } from './src/unknown-record';
+
 /**
  * Per-suite pg-boss schema (see queue.module.ts): integration suites run
  * sequentially against one throwaway Postgres, and a suite's stopping
@@ -35,10 +37,9 @@ if (!Reflect.get(process, HANDLER_INSTALLED)) {
   Reflect.set(process, HANDLER_INSTALLED, true);
 
   process.on('uncaughtExceptionMonitor', (err) => {
-    const w = Reflect.get(globalThis, '__vitest_worker__') as
-      | { filepath?: string }
-      | undefined;
-    const file = w?.filepath ?? 'unknown';
+    const w: unknown = Reflect.get(globalThis, '__vitest_worker__');
+    const file =
+      isRecord(w) && typeof w.filepath === 'string' ? w.filepath : 'unknown';
     console.error(
       `[integration/${file}] uncaughtException (leaked handle?):`,
       err,

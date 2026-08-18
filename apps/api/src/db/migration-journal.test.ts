@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { isRecord } from '../unknown-record';
+
 /**
  * Guards `meta/_journal.json` against the two silent failure modes of
  * drizzle-orm's migrator, which applies an entry only when its `when` is
@@ -21,9 +23,28 @@ interface JournalEntry {
   tag: string;
 }
 
-const journal = JSON.parse(
+function isJournalEntry(value: unknown): value is JournalEntry {
+  return (
+    isRecord(value) &&
+    typeof value.idx === 'number' &&
+    typeof value.when === 'number' &&
+    typeof value.tag === 'string'
+  );
+}
+
+const parsedJournal: unknown = JSON.parse(
   readFileSync(join(__dirname, 'migrations', 'meta', '_journal.json'), 'utf8'),
-) as { entries: JournalEntry[] };
+);
+if (
+  !isRecord(parsedJournal) ||
+  !Array.isArray(parsedJournal.entries) ||
+  !parsedJournal.entries.every(isJournalEntry)
+) {
+  throw new Error('Malformed meta/_journal.json: expected { entries: [...] }');
+}
+const journal: { entries: JournalEntry[] } = {
+  entries: parsedJournal.entries,
+};
 
 describe('migration journal', () => {
   it('has at least one entry', () => {

@@ -1,6 +1,7 @@
 import { HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { type PinItemType } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
+import { isRecord } from '../unknown-record';
 import { PinsRepository, type PinnedRow } from './pins-repository';
 
 @Injectable()
@@ -64,6 +65,9 @@ function notFoundMessage(itemType: PinItemType): string {
 // Postgres driver surfaces the SQLSTATE on `.code` (sometimes nested on
 // `.cause.code`) — same extraction as ChatsService.
 function pgErrorCode(err: unknown): string | undefined {
-  const e = err as { code?: string; cause?: { code?: string } };
-  return e?.code ?? e?.cause?.code;
+  if (!isRecord(err)) return undefined;
+  if (typeof err.code === 'string') return err.code;
+  return isRecord(err.cause) && typeof err.cause.code === 'string'
+    ? err.cause.code
+    : undefined;
 }

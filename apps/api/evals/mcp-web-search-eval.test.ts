@@ -65,9 +65,13 @@ function resolveLiveEvalConfig(): {
     );
   }
 
-  const values = Object.fromEntries(
-    ENV_NAMES.map((name) => [name, process.env[name]!.trim()]),
-  ) as Record<(typeof ENV_NAMES)[number], string>;
+  const values: Record<(typeof ENV_NAMES)[number], string> = {
+    MCP_WEB_SEARCH_URL: process.env.MCP_WEB_SEARCH_URL!.trim(),
+    MCP_WEB_SEARCH_AUTH_HEADER: process.env.MCP_WEB_SEARCH_AUTH_HEADER!.trim(),
+    MCP_WEB_SEARCH_AUTH_VALUE: process.env.MCP_WEB_SEARCH_AUTH_VALUE!.trim(),
+    MCP_WEB_SEARCH_TOOL: process.env.MCP_WEB_SEARCH_TOOL!.trim(),
+    MCP_WEB_SEARCH_QUERY_FIELD: process.env.MCP_WEB_SEARCH_QUERY_FIELD!.trim(),
+  };
 
   let url: URL;
   try {
