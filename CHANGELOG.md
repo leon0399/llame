@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-18
 
+- Removed the remaining 11 `typescript/no-unsafe-type-assertion` findings in
+  the instance-config module (`prompt-loader.ts` and its direct unit tests),
+  completing it to zero: the native inventory falls from 158 diagnostics/67
+  files to 147/64. handlebars types every AST node's `type` field as plain
+  `string`, so `node.type === 'X'` alone never narrows `node` itself; four
+  new local type-predicate functions replace the check-then-cast pattern
+  used across the prompt-file Handlebars AST validator. No behavior change.
+
 - Upgraded Next.js 16.2.12 → 16.3.0 (#416, tracker #412) — a no-breaking-
   changes minor that turns on Turbopack dev memory eviction, the FileSystem
   build cache, native Node stream SSR, and prefetch inlining by default, and
