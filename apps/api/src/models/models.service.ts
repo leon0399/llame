@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 
 import {
   InstanceConfigService,
@@ -52,6 +52,15 @@ export type ModelSelectionValidator = Pick<
   'validateModelSelection'
 >;
 
+/**
+ * Test seam (anti-slop/no-module-mocking): no provider is registered for
+ * this token in any module, so Nest always injects `undefined` and
+ * `createClient` falls back to the real `createModelClient` — overriding it
+ * requires constructing `ModelsService` directly (as the tests do), not
+ * going through Nest's container.
+ */
+export const CREATE_MODEL_CLIENT = Symbol('CREATE_MODEL_CLIENT');
+
 @Injectable()
 export class ModelsService {
   private readonly modelsById: Map<string, SystemModelCatalogEntry>;
@@ -60,6 +69,9 @@ export class ModelsService {
   constructor(
     @Inject(InstanceConfigService)
     private readonly instanceConfig: InstanceConfigReader,
+    @Optional()
+    @Inject(CREATE_MODEL_CLIENT)
+    private readonly createModelClientOverride?: typeof createModelClient,
   ) {
     this.modelsById = new Map(
       this.instanceConfig.config.models.map((model) => [model.id, model]),
@@ -156,7 +168,10 @@ export class ModelsService {
       );
     }
 
-    return createModelClient({ provider, model });
+    return (this.createModelClientOverride ?? createModelClient)({
+      provider,
+      model,
+    });
   }
 
   private resolveConfiguredModel(

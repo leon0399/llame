@@ -1,11 +1,17 @@
+import type { createOpenAIModelClient } from './openai-model-client';
 import { createModelClient } from './model-client-factory';
-import { createOpenAIModelClient } from './openai-model-client';
 
-vi.mock('./openai-model-client', () => ({
-  createOpenAIModelClient: vi.fn(() => ({ model: 'fake' })),
-}));
+// Test seam (anti-slop/no-module-mocking): overrides createOpenAIModelClient
+// via createModelClient's own dependency-injection param instead of
+// module-mocking ./openai-model-client — this suite only verifies routing
+// (which provider-derived args createModelClient constructs), not the real
+// client's behavior.
+const createOpenAIModelClientMock = vi.mocked(
+  vi.fn<typeof createOpenAIModelClient>(),
+  { partial: true },
+);
+createOpenAIModelClientMock.mockReturnValue({ model: 'fake' });
 
-const createOpenAIModelClientMock = vi.mocked(createOpenAIModelClient);
 const model = {
   id: 'system:test:model',
   source: 'system' as const,
@@ -21,10 +27,13 @@ describe('createModelClient native OpenAI routing', () => {
   beforeEach(() => createOpenAIModelClientMock.mockClear());
 
   it('uses the native Responses path only for the configured openai provider id', () => {
-    createModelClient({
-      provider: { id: 'openai', type: 'openai', key: 'key', baseUrl: null },
-      model,
-    });
+    createModelClient(
+      {
+        provider: { id: 'openai', type: 'openai', key: 'key', baseUrl: null },
+        model,
+      },
+      { createOpenAIModelClient: createOpenAIModelClientMock },
+    );
 
     expect(createOpenAIModelClientMock).toHaveBeenCalledWith(
       expect.objectContaining({ nativeOpenAI: true }),
@@ -34,15 +43,18 @@ describe('createModelClient native OpenAI routing', () => {
   it.each(['openrouter', 'huggingface', 'custom-compatible'])(
     'keeps %s on the compatible Chat Completions path',
     (id) => {
-      createModelClient({
-        provider: {
-          id,
-          type: 'openai',
-          key: 'key',
-          baseUrl: 'https://example.test/v1',
+      createModelClient(
+        {
+          provider: {
+            id,
+            type: 'openai',
+            key: 'key',
+            baseUrl: 'https://example.test/v1',
+          },
+          model: { ...model, provider: id },
         },
-        model: { ...model, provider: id },
-      });
+        { createOpenAIModelClient: createOpenAIModelClientMock },
+      );
 
       expect(createOpenAIModelClientMock).toHaveBeenCalledWith(
         expect.objectContaining({ nativeOpenAI: false }),

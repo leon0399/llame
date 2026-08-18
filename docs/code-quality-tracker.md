@@ -104,6 +104,84 @@ historical publication record of stack #369.
 
 ## Current submission
 
+Arc 2's fourth rule, `no-module-mocking` (branch `quality/no-module-mocking`,
+stacked on `quality/known-value-widening-tail`), starts with a fresh
+re-measurement — the queued baseline (81/34) predates the rebase. Unlike
+every earlier rule in this arc, the fresh count wasn't just smaller, it
+collapsed: **6 diagnostics across 5 files.** Most of the original 81 had
+already been retired as a side effect of the earlier unsafe-assertion
+migration, which replaced most module-mocked test doubles with
+`MockLanguageModelV3`/real dependency seams (see the "AI SDK model doubles"
+entries earlier in this tracker) before this rule was ever measured against
+them.
+
+Classified all 6 before touching any code (design-heaviest rule in the
+queue — module mocks usually exist because a real seam is missing):
+`vi.mock('node:fs', …)` (`schema.test.ts`) is a genuine third-party-boundary
+mock, needed because `node:fs`'s own exports reject `vi.spyOn` (non-
+configurable properties — a real Node runtime constraint, not a design
+choice). The other 5 (`model-client-factory.test.ts`,
+`models.service.test.ts`, `openai-model-client.tools.test.ts`,
+`model-client.test.ts` ×2) all needed a **new production seam** — none were
+mechanically replaceable by something already in the codebase. Reported the
+classification and three proposed seam shapes before implementing, per
+team direction for new-seam findings.
+
+Two seam designs, reused across all 6 findings, touching three production
+files:
+
+- **`schema.ts`**: `loadSchemaDocument(access?: SchemaFileAccess)` — a
+  verbatim reuse of `prompt-loader.ts`'s existing `PromptFileAccess`/
+  `access` pattern, not a new shape.
+- **`openai-model-client.ts`**: `createOpenAIModelClient(config,
+dependencies?: {createOpenAI, streamText})`, both defaulting to the real
+  SDK imports. `createOpenAI` types cleanly as `typeof createOpenAI`, but
+  `streamText` is a _generic_ function
+  (`<TOOLS extends ToolSet, OUTPUT extends Output>(...)`), and Vitest's
+  mock-typing utilities (`vi.fn<T>()`, `vi.mocked(fn, {partial:true})`)
+  can't preserve a mock's full generic signature — every attempt to type
+  the dependency field as the literal `typeof streamText` produced a mock
+  assignable everywhere except back into that one field. Resolved by typing
+  the field non-generically via live utility types instead —
+  `(options: Parameters<typeof streamText>[0]) => ReturnType<typeof
+streamText>` — which still ties to the real SDK type (so a signature
+  change on the parameter/return shape still surfaces at compile time,
+  the same drift-detection goal) without fighting TypeScript's
+  higher-order generic mocking limits. `vi.mocked(vi.fn<typeof
+streamText>(), {partial: true})` on the test side then typechecks
+  against this narrower field cleanly.
+- **`model-client-factory.ts`/`models.service.ts`**:
+  `createModelClient(input, dependencies?: {createOpenAIModelClient})`,
+  reused by `ModelsService`'s constructor. `ModelsService` **is**
+  Nest-container-constructed (`providers: [ModelsService]` in
+  `models.module.ts`, confirmed before implementing, not assumed) — so a
+  bare optional constructor parameter would break bootstrap (Nest reflects
+  every constructor parameter as a dependency and fails resolution on an
+  unbound one). Uses the same `@Optional() @Inject(TOKEN)` idiom already
+  established for `DYNAMIC_TOOL_EXECUTOR_RESOLVER`
+  (`run-execution.service.ts`): a `Symbol()` token
+  (`CREATE_MODEL_CLIENT`) with no provider registered anywhere, so Nest
+  always injects `undefined` in production and `createClient` falls back
+  to the real `createModelClient` (`this.createModelClientOverride ??
+createModelClient`); only a test directly constructing `ModelsService`
+  (bypassing the container, as the existing tests already do) can supply
+  an override.
+
+Confirmed by grep, not just intent, that no production call site passes
+either new parameter: `loadSchemaDocument()` (zero-arg),
+`createOpenAIModelClient({...})`/`createModelClient({...})` (single-arg,
+default dependencies), and `models.module.ts` registers `ModelsService`
+with no provider bound to `CREATE_MODEL_CLIENT`. The full-tree
+scratch-config inventory now reports zero `anti-slop/no-module-mocking`
+diagnostics, confirmed against the real `.oxlintrc.json` with the rule
+enabled. Repair evidence: `pnpm --filter api lint`/`typecheck` clean (rule
+enabled — both gates checked after every fix this layer, not typecheck
+alone, after the `no-known-value-widening` layer's `tsgolint`-vs-`tsgo`
+divergence lesson), `pnpm --filter api test` 1153/1153, full `pnpm
+--filter api test:integration` 348/351 (3 pre-existing skips) against real
+Postgres — run in full given `openai-model-client.ts`/`models.service.ts`
+are boot-path production code, not test-only surface.
+
 `no-known-value-widening` closes out (branch
 `quality/known-value-widening-tail`, stacked on `quality/known-value-widening`),
 removing the remaining 19 findings across the runs/chats/tools cluster and
@@ -670,16 +748,16 @@ across all tracked TS/TSX/MTS/CTS files in `apps/api`, and
 
 ### Lint and formatting
 
-| State  | Finding                                                                                                         | Evidence / exit condition                                                                                                                                                                                                                                                                                                          |
-| ------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS                      | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                                                                                                                                                                                                                                 |
-| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                                                 | Workspace `lint` scripts and Turbo                                                                                                                                                                                                                                                                                                 |
-| queued | API is type-aware; other workspaces are substantially lighter                                                   | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                                                                                                                                                                                                                                |
-| done   | Semantic Markdown is linted across all product-owned files (200 at adoption; 191 after the working-doc removal) | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded                                                                                                                                                                                                       |
-| done   | Unused lint-disable directives are rejected in every lint-owning workspace                                      | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                                                                                                                                                                                                                                |
-| queued | Four Vitest rules are disabled in API                                                                           | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                                                                                                                                                                                                                           |
-| done   | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline                         | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness                                                                                                                                                                                                                 |
-| queued | All 15 `dmmulroy/anti-slop` Oxlint rules are adoption targets                                                   | Five rules had a zero baseline at adoption (base `446268e` plus one documented correctness patch); four more (`no-reflect-apply`, `no-reflect-get`, `no-unknown-returns`, `no-known-value-widening`) are since remediated to zero; six rules still require remediation; only validated `unknown` inputs may carry local exceptions |
+| State  | Finding                                                                                                         | Evidence / exit condition                                                                                                                                                                                                                                                                                                                                |
+| ------ | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS                      | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                                                                                                                                                                                                                                                       |
+| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                                                 | Workspace `lint` scripts and Turbo                                                                                                                                                                                                                                                                                                                       |
+| queued | API is type-aware; other workspaces are substantially lighter                                                   | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                                                                                                                                                                                                                                                      |
+| done   | Semantic Markdown is linted across all product-owned files (200 at adoption; 191 after the working-doc removal) | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded                                                                                                                                                                                                                             |
+| done   | Unused lint-disable directives are rejected in every lint-owning workspace                                      | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                                                                                                                                                                                                                                                      |
+| queued | Four Vitest rules are disabled in API                                                                           | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                                                                                                                                                                                                                                                 |
+| done   | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline                         | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness                                                                                                                                                                                                                                       |
+| queued | All 15 `dmmulroy/anti-slop` Oxlint rules are adoption targets                                                   | Five rules had a zero baseline at adoption (base `446268e` plus one documented correctness patch); five more (`no-reflect-apply`, `no-reflect-get`, `no-unknown-returns`, `no-known-value-widening`, `no-module-mocking`) are since remediated to zero; five rules still require remediation; only validated `unknown` inputs may carry local exceptions |
 
 #### `anti-slop` rule qualification (2026-08-15)
 
@@ -695,23 +773,23 @@ the seven-day release-age gate for 1.78.0. A rule becomes an error only in the P
 that removes every existing owned finding; no baseline, allowlist, or file-level
 override is acceptable.
 
-| State  | Upstream rule                               | llame disposition                                                                                                                                                                                                                |
-| ------ | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| done   | `no-chained-type-assertions`                | Zero across five scopes; standard `RuleTester` covers parentheses, non-null wrappers, and angle/`as` chains.                                                                                                                     |
-| queued | `no-conditional-empty-object-spread`        | 147 diagnostics/50 files; preserve exact omission semantics rather than replacing omission with unconditional `undefined`.                                                                                                       |
-| done   | `no-known-value-widening`                   | Zero across two layers (36 findings/20 files); named type aliases for anonymous shapes, `satisfies` for closed-union lookup tables, `Map` for genuine string-keyed dictionaries; enforced at error in `apps/api/.oxlintrc.json`. |
-| queued | `no-module-mocking`                         | 81 diagnostics/34 files; replace module mocks with real dependency seams or faithful implementations, never overrides.                                                                                                           |
-| done   | `no-object-parameters`                      | Zero across five scopes; endpoint DTO variants preserve deliberate invalid-field tests and Pins uses an exact service capability seam.                                                                                           |
-| done   | `no-reflect-apply`                          | Zero across three call sites in two files; enforced at error in `apps/api/.oxlintrc.json`.                                                                                                                                       |
-| done   | `no-reflect-get`                            | Zero; the four AI SDK proxy-forwarding sites consolidated into one owned helper with a source-verified inline exception.                                                                                                         |
-| queued | `no-runtime-typeof`                         | 202 diagnostics/77 files; replace ad hoc representation narrowing with boundary schemas and parsed domain values.                                                                                                                |
-| done   | `no-shape-in-symbol-names`                  | Zero across five scopes; prompt scenarios, rendered conversation nodes, and admitted MCP payloads now carry their domain roles.                                                                                                  |
-| queued | `no-unknown-parameters`                     | 142 diagnostics/64 files; only immediate validation may retain a local suppression with a specific explanation.                                                                                                                  |
-| done   | `no-unknown-returns`                        | Zero; `CanonicalJsonValue` (mirroring `result-truncation.ts`'s `CappedValue`) replaces the two overloads' `unknown`/`Promise<unknown>` return contracts; enforced at error in `apps/api/.oxlintrc.json`.                         |
-| done   | `no-unknown-type-aliases`                   | Zero across five owned scopes and enforced through root plus workspace Oxlint.                                                                                                                                                   |
-| queued | `no-unsafe-dictionary-type`                 | 88 diagnostics/50 files; replace open top-type dictionaries with schema/owner-derived contracts, never `any`.                                                                                                                    |
-| done   | `no-widen-then-assert`                      | Zero across five owned scopes; blocks local evidence erasure before it becomes unsafe-assertion debt.                                                                                                                            |
-| queued | `require-safety-comment-for-type-assertion` | 386 diagnostics/142 files; enable after unsafe assertions reach zero, documenting only rare unexpressible invariants.                                                                                                            |
+| State  | Upstream rule                               | llame disposition                                                                                                                                                                                                                                          |
+| ------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done   | `no-chained-type-assertions`                | Zero across five scopes; standard `RuleTester` covers parentheses, non-null wrappers, and angle/`as` chains.                                                                                                                                               |
+| queued | `no-conditional-empty-object-spread`        | 147 diagnostics/50 files; preserve exact omission semantics rather than replacing omission with unconditional `undefined`.                                                                                                                                 |
+| done   | `no-known-value-widening`                   | Zero across two layers (36 findings/20 files); named type aliases for anonymous shapes, `satisfies` for closed-union lookup tables, `Map` for genuine string-keyed dictionaries; enforced at error in `apps/api/.oxlintrc.json`.                           |
+| done   | `no-module-mocking`                         | Zero; fresh count 6/5 (was 81/34 pre-rebase, mostly retired by the unsafe-assertion migration's model doubles); `schema.ts`/`openai-model-client.ts`/`model-client-factory.ts`+`ModelsService` test seams; enforced at error in `apps/api/.oxlintrc.json`. |
+| done   | `no-object-parameters`                      | Zero across five scopes; endpoint DTO variants preserve deliberate invalid-field tests and Pins uses an exact service capability seam.                                                                                                                     |
+| done   | `no-reflect-apply`                          | Zero across three call sites in two files; enforced at error in `apps/api/.oxlintrc.json`.                                                                                                                                                                 |
+| done   | `no-reflect-get`                            | Zero; the four AI SDK proxy-forwarding sites consolidated into one owned helper with a source-verified inline exception.                                                                                                                                   |
+| queued | `no-runtime-typeof`                         | 202 diagnostics/77 files; replace ad hoc representation narrowing with boundary schemas and parsed domain values.                                                                                                                                          |
+| done   | `no-shape-in-symbol-names`                  | Zero across five scopes; prompt scenarios, rendered conversation nodes, and admitted MCP payloads now carry their domain roles.                                                                                                                            |
+| queued | `no-unknown-parameters`                     | 142 diagnostics/64 files; only immediate validation may retain a local suppression with a specific explanation.                                                                                                                                            |
+| done   | `no-unknown-returns`                        | Zero; `CanonicalJsonValue` (mirroring `result-truncation.ts`'s `CappedValue`) replaces the two overloads' `unknown`/`Promise<unknown>` return contracts; enforced at error in `apps/api/.oxlintrc.json`.                                                   |
+| done   | `no-unknown-type-aliases`                   | Zero across five owned scopes and enforced through root plus workspace Oxlint.                                                                                                                                                                             |
+| queued | `no-unsafe-dictionary-type`                 | 88 diagnostics/50 files; replace open top-type dictionaries with schema/owner-derived contracts, never `any`.                                                                                                                                              |
+| done   | `no-widen-then-assert`                      | Zero across five owned scopes; blocks local evidence erasure before it becomes unsafe-assertion debt.                                                                                                                                                      |
+| queued | `require-safety-comment-for-type-assertion` | 386 diagnostics/142 files; enable after unsafe assertions reach zero, documenting only rare unexpressible invariants.                                                                                                                                      |
 
 The remaining 1,117 diagnostics are remediation inventory, not a tolerated
 baseline. Adopt rules in reviewable layers rather than enabling the all-on preset
