@@ -9,6 +9,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `string`, so `node.type === 'X'` alone never narrows `node` itself; four
   new local type-predicate functions replace the check-then-cast pattern
   used across the prompt-file Handlebars AST validator. No behavior change.
+- Removed 2 of 6 `anti-slop/no-reflect-get` findings in
+  `vitest.integration.setup.ts` (not enabled — 4 remain, see
+  `docs/code-quality-tracker.md`). A `Symbol.for(...)`-keyed idempotency
+  flag on `process` and Vitest's own `__vitest_worker__` global are now
+  typed via `declare global` module augmentation instead of bypassing
+  `NodeJS.Process`'s type with `Reflect.get`/`Reflect.set`.
 - Enabled `anti-slop/no-reflect-apply` at error in `apps/api/.oxlintrc.json`
   (Arc 2's first queued rule), after removing its three findings across two
   files. `mcp-failure-policy.test.ts`'s two calls tested
