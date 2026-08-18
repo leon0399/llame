@@ -88,11 +88,15 @@ function payloadNumber(payload: unknown, key: string): number | undefined {
  * (text → tool → text) rather than merging text across the tool boundary.
  * Pure state machine — trivially unit-testable.
  */
-export function createRunEventTranslator(messageId: string): {
+export type RunEventTranslator = {
   translate(event: RunEventLike): UiChunk[];
   /** True once a terminal run event has been translated. */
   finished(): boolean;
-} {
+};
+
+export function createRunEventTranslator(
+  messageId: string,
+): RunEventTranslator {
   let startedStream = false;
   let finished = false;
   // Each contiguous run of text/reasoning is its own UI part (text-1, text-2, …

@@ -4,10 +4,7 @@ import { ModelsController, type ModelsReader } from './models.controller';
 import { ModelConfigurationError } from './models.service';
 
 describe('ModelsController', () => {
-  function makeController(service?: Partial<ModelsReader>): {
-    controller: ModelsController;
-    service: ModelsReader;
-  } {
+  function makeController(service?: Partial<ModelsReader>) {
     const modelsService = {
       getAvailableModels: vi.fn().mockReturnValue({
         defaultModelId: 'system:openai:gpt-5.4-mini',

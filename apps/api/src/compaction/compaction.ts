@@ -13,6 +13,7 @@
 
 import {
   buildContext,
+  type BuiltContext,
   type ModelMessage,
   type StoredMessage,
 } from '../chats/context-builder';
@@ -321,7 +322,7 @@ export function buildCompactionRequest(input: {
     | undefined;
   absorb: StoredMessage[];
   mode?: 'full_current' | 'transition_up_to';
-}): { system: string; messages: ModelMessage[] } {
+}): BuiltContext {
   const { system, messages } = buildContext(input.absorb, {
     systemPrompt: input.system,
     ...(input.previous ? { compaction: input.previous } : {}),

@@ -26,12 +26,12 @@ export function isZodSchema(
   return typeof schema.safeParse === 'function';
 }
 
-const DIALECT_CONSTRUCTORS: Record<string, typeof Ajv> = {
-  'http://json-schema.org/draft-07/schema': Ajv,
-  'https://json-schema.org/draft-07/schema': Ajv,
-  'https://json-schema.org/draft/2019-09/schema': Ajv2019,
-  'https://json-schema.org/draft/2020-12/schema': Ajv2020,
-};
+const DIALECT_CONSTRUCTORS = new Map<string, typeof Ajv>([
+  ['http://json-schema.org/draft-07/schema', Ajv],
+  ['https://json-schema.org/draft-07/schema', Ajv],
+  ['https://json-schema.org/draft/2019-09/schema', Ajv2019],
+  ['https://json-schema.org/draft/2020-12/schema', Ajv2020],
+]);
 
 type JsonSchemaValidator = (
   value: unknown,
@@ -59,7 +59,7 @@ function resolveAjvConstructor(
 ): typeof Ajv | undefined {
   const dialect = doc.$schema;
   if (typeof dialect !== 'string') return Ajv;
-  return DIALECT_CONSTRUCTORS[normalizedDialectUri(dialect)];
+  return DIALECT_CONSTRUCTORS.get(normalizedDialectUri(dialect));
 }
 
 function addDraft07HttpsMetaSchemaAlias(ajv: Ajv, dialect: unknown): void {

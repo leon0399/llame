@@ -42,7 +42,7 @@ if (
 ) {
   throw new Error('Malformed meta/_journal.json: expected { entries: [...] }');
 }
-const journal: { entries: JournalEntry[] } = {
+const journal = {
   entries: parsedJournal.entries,
 };
 

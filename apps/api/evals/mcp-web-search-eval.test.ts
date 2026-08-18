@@ -42,6 +42,11 @@ type CapturedConsole = {
   readonly restore: () => void;
 };
 
+type LiveEvalConfigResolution = {
+  readonly config?: LiveEvalConfig;
+  readonly optOutReason?: string;
+};
+
 const LIVE_TOOL_EXECUTION_TIMEOUT_MS = 30_000;
 const LIVE_SEARCH_QUERY =
   'Run a live web search now. Find one source that states the current UTC date in YYYY-MM-DD format. ' +
@@ -50,10 +55,7 @@ const LIVE_SEARCH_QUERY =
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
-function resolveLiveEvalConfig(): {
-  readonly config?: LiveEvalConfig;
-  readonly optOutReason?: string;
-} {
+function resolveLiveEvalConfig(): LiveEvalConfigResolution {
   if (process.env.RUN_MCP_WEB_SEARCH_EVAL !== '1') {
     return { optOutReason: 'set RUN_MCP_WEB_SEARCH_EVAL=1 to opt in' };
   }
@@ -65,7 +67,7 @@ function resolveLiveEvalConfig(): {
     );
   }
 
-  const values: Record<(typeof ENV_NAMES)[number], string> = {
+  const values = {
     MCP_WEB_SEARCH_URL: process.env.MCP_WEB_SEARCH_URL!.trim(),
     MCP_WEB_SEARCH_AUTH_HEADER: process.env.MCP_WEB_SEARCH_AUTH_HEADER!.trim(),
     MCP_WEB_SEARCH_AUTH_VALUE: process.env.MCP_WEB_SEARCH_AUTH_VALUE!.trim(),

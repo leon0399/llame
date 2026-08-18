@@ -26,9 +26,7 @@ export const TOOL_UNAVAILABLE_REASONS = [
 
 export type ToolUnavailableReason = (typeof TOOL_UNAVAILABLE_REASONS)[number];
 
-export const TOOL_UNAVAILABLE_REASON_LABELS: Readonly<
-  Record<ToolUnavailableReason, string>
-> = {
+export const TOOL_UNAVAILABLE_REASON_LABELS = {
   source_connecting: 'server connecting',
   source_disconnected: 'server disconnected',
   protocol_unsupported: 'protocol unsupported',
@@ -36,7 +34,7 @@ export const TOOL_UNAVAILABLE_REASON_LABELS: Readonly<
   tool_missing: 'tool missing',
   declaration_refused: 'tool declaration refused',
   name_collision: 'tool name collision',
-};
+} satisfies Readonly<Record<ToolUnavailableReason, string>>;
 
 export type TurnToolSource =
   | { readonly type: 'code_owned' }
