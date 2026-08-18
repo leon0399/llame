@@ -11,6 +11,7 @@ import {
   type PromptFileAccess,
 } from './prompt-loader';
 import type { PromptChatsInput } from '../models/model-catalog';
+import { isRecord } from '../unknown-record';
 
 let tmpDir: string;
 let configPath: string;
@@ -357,9 +358,18 @@ describe('project-default prompt packaging contract', () => {
 
   it('declares the prompt asset in Nest packaging and can load the source asset', () => {
     const apiRoot = path.resolve(__dirname, '../..');
-    const nestConfig = JSON.parse(
+    const nestConfig: unknown = JSON.parse(
       readFileSync(path.join(apiRoot, 'nest-cli.json'), 'utf8'),
-    ) as { compilerOptions: { assets: string[] } };
+    );
+    if (
+      !isRecord(nestConfig) ||
+      !isRecord(nestConfig.compilerOptions) ||
+      !Array.isArray(nestConfig.compilerOptions.assets)
+    ) {
+      throw new Error(
+        'expected nest-cli.json to declare compilerOptions.assets',
+      );
+    }
 
     expect(nestConfig.compilerOptions.assets).toContain('prompts/*.md');
     const model = { id: 'model-id' };
