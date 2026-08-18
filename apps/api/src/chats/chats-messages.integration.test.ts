@@ -10,6 +10,7 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { z } from 'zod';
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
 import { type Message } from '../db/schema';
@@ -18,6 +19,7 @@ import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelsService } from '../models/models.service';
 import { turnTelemetryLogger } from '../chats/turn-telemetry';
+import { isRecord } from '../unknown-record';
 import {
   FakeModelsService,
   cookieOf,
@@ -80,10 +82,15 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post('/auth/v1/register')
       .send({ email, password, name });
     expect(res.status).toBe(201);
-    const body = res.body as { user?: { id?: unknown } };
-    const userId = body.user?.id;
-    expect(typeof userId).toBe('string');
-    return { cookie: cookieOf(res), userId: userId as string };
+    const body: unknown = res.body;
+    if (
+      !isRecord(body) ||
+      !isRecord(body.user) ||
+      typeof body.user.id !== 'string'
+    ) {
+      throw new Error('Expected register response with user.id');
+    }
+    return { cookie: cookieOf(res), userId: body.user.id };
   }
 
   /**
@@ -218,9 +225,21 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const ownerRead = await request(http)
       .get(`/api/v1/chats/${historyChatId}/messages`)
       .set('Cookie', cookieA);
-    const ownerReadBody = ownerRead.body as {
-      messages: Array<{ createdAt: string; seq: number }>;
-    };
+    const ownerReadBody: unknown = ownerRead.body;
+    if (!isRecord(ownerReadBody) || !Array.isArray(ownerReadBody.messages)) {
+      throw new Error('Expected a messages array');
+    }
+    const [firstMessage, secondMessage]: unknown[] = ownerReadBody.messages;
+    if (
+      !isRecord(firstMessage) ||
+      typeof firstMessage.createdAt !== 'string' ||
+      typeof firstMessage.seq !== 'number' ||
+      !isRecord(secondMessage) ||
+      typeof secondMessage.createdAt !== 'string' ||
+      typeof secondMessage.seq !== 'number'
+    ) {
+      throw new Error('Expected two messages with createdAt/seq');
+    }
 
     expect(ownerRead.status).toBe(200);
     expect(ownerReadBody).toEqual({
@@ -253,22 +272,20 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       // No compaction on this chat — #136's embedded field is null.
       compaction: null,
     });
-    expect(Date.parse(ownerReadBody.messages[0].createdAt)).not.toBeNaN();
-    expect(Date.parse(ownerReadBody.messages[1].createdAt)).not.toBeNaN();
-    expect(ownerReadBody.messages[0].seq).toBeLessThan(
-      ownerReadBody.messages[1].seq,
-    );
+    expect(Date.parse(firstMessage.createdAt)).not.toBeNaN();
+    expect(Date.parse(secondMessage.createdAt)).not.toBeNaN();
+    expect(firstMessage.seq).toBeLessThan(secondMessage.seq);
 
     const olderPage = await request(http)
       .get(`/api/v1/chats/${historyChatId}/messages`)
-      .query({ limit: 1, beforeSeq: ownerReadBody.messages[1].seq })
+      .query({ limit: 1, beforeSeq: secondMessage.seq })
       .set('Cookie', cookieA);
     expect(olderPage.status).toBe(200);
     expect(olderPage.body).toEqual({
       messages: [
         expect.objectContaining({
           id: userMessageId,
-          seq: ownerReadBody.messages[0].seq,
+          seq: firstMessage.seq,
         }),
       ],
       compaction: null,
@@ -313,9 +330,11 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const ownerRead = await request(http)
       .get(`/api/v1/chats/${cappedChatId}/messages`)
       .set('Cookie', cookieA);
-    const ownerReadBody = ownerRead.body as {
-      messages: Array<{ id: string; seq: number }>;
-    };
+    const ownerReadBody = z
+      .object({
+        messages: z.array(z.object({ id: z.string(), seq: z.number() })),
+      })
+      .parse(ownerRead.body);
 
     expect(ownerRead.status).toBe(200);
     expect(ownerReadBody.messages).toHaveLength(100);
@@ -389,10 +408,16 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         cachedInputTokens: 2,
       }),
     );
-    const assistantUsage = assistantMessage?.usage as {
-      cachedInputTokens: number;
-      inputTokens: number;
-    };
+    const assistantUsage = assistantMessage?.usage;
+    if (
+      !isRecord(assistantUsage) ||
+      typeof assistantUsage.cachedInputTokens !== 'number' ||
+      typeof assistantUsage.inputTokens !== 'number'
+    ) {
+      throw new Error(
+        'Expected assistant usage with numeric cachedInputTokens/inputTokens',
+      );
+    }
     expect(
       assistantUsage.cachedInputTokens / assistantUsage.inputTokens,
     ).toBeCloseTo(2 / 3);
@@ -634,7 +659,8 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           m.inReplyTo === userMessageId &&
           Array.isArray(m.parts) &&
           m.parts.length === 0 &&
-          (m.usage as { status?: string } | null)?.status === 'aborted',
+          isRecord(m.usage) &&
+          m.usage.status === 'aborted',
       );
     }, 5000);
     expect(models.client.onFinishCalls).toBe(finishCallsBefore);
@@ -849,12 +875,10 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     // the terminal write (#261).
     const readChat = () =>
       request(http).get(`/api/v1/chats/${newChatId}`).set('Cookie', cookieA);
-    await waitFor(
-      async () =>
-        ((await readChat()).body as { title?: string }).title ===
-        'Generated Title',
-      10_000,
-    );
+    await waitFor(async () => {
+      const body: unknown = (await readChat()).body;
+      return isRecord(body) && body.title === 'Generated Title';
+    }, 10_000);
     expect((await readChat()).body).toMatchObject({ title: 'Generated Title' });
     expect(models.client.titleTurns.length).toBeGreaterThanOrEqual(1);
     expect(models.createClientCalls).toContainEqual(
@@ -896,15 +920,18 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     ).toEqual({ modelId: 'system:openai:gpt-5.4-mini' });
     const completedPayload = events.find(
       (event) => event.eventType === 'model.completed',
-    )?.payload as { telemetry?: Record<string, unknown> } | null;
-    expect(completedPayload?.telemetry).toEqual(
+    )?.payload;
+    const completedTelemetry = isRecord(completedPayload)
+      ? completedPayload.telemetry
+      : undefined;
+    expect(completedTelemetry).toEqual(
       expect.objectContaining({
         modelId: 'system:openai:gpt-5.4-mini',
         status: 'completed',
       }),
     );
-    expect(completedPayload?.telemetry).not.toHaveProperty('model');
-    expect(completedPayload?.telemetry).not.toHaveProperty('provider');
+    expect(completedTelemetry).not.toHaveProperty('model');
+    expect(completedTelemetry).not.toHaveProperty('provider');
     const sequences = events.map((e) => e.sequence);
     expect([...sequences].sort((a, b) => a - b)).toEqual(sequences);
 
@@ -1053,11 +1080,12 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .set('Cookie', cookieA);
     expect(sse.status).toBe(200);
     expect(sse.headers['content-type']).toContain('text/event-stream');
-    const frames = parseSseEvents(sse.text) as Array<{
-      sequence: number;
-      eventType: string;
-      payload: { text?: string } | null;
-    }>;
+    const runEventFrameSchema = z.object({
+      sequence: z.number(),
+      eventType: z.string(),
+      payload: z.object({ text: z.string().optional() }).nullable(),
+    });
+    const frames = z.array(runEventFrameSchema).parse(parseSseEvents(sse.text));
     expect(frames.map((f) => f.eventType)).toEqual([
       'run.created',
       'run.started',
@@ -1084,9 +1112,9 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const partial = await request(http)
       .get(`/api/v1/runs/${run.id}/events?after_sequence=${midSequence}`)
       .set('Cookie', cookieA);
-    const partialFrames = parseSseEvents(partial.text) as Array<{
-      eventType: string;
-    }>;
+    const partialFrames = z
+      .array(runEventFrameSchema)
+      .parse(parseSseEvents(partial.text));
     expect(partialFrames.map((f) => f.eventType)).toEqual([
       'model.delta',
       'model.completed',
@@ -1100,9 +1128,9 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .get(`/api/v1/runs/${run.id}/events`)
       .set('Cookie', cookieA)
       .set('Last-Event-ID', String(midSequence));
-    const reconnectedFrames = parseSseEvents(reconnected.text) as Array<{
-      eventType: string;
-    }>;
+    const reconnectedFrames = z
+      .array(runEventFrameSchema)
+      .parse(parseSseEvents(reconnected.text));
     expect(reconnectedFrames.map((f) => f.eventType)).toEqual([
       'model.delta',
       'model.completed',

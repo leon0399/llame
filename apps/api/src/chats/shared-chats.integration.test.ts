@@ -17,13 +17,14 @@ import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository } from '../chats/chats-repository';
+import { isRecord } from '../unknown-record';
 import { cookieOf } from '../testing/support';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
 
 d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
-  let app: INestApplication;
+  let app: INestApplication<import('http').Server>;
   let http: import('http').Server;
   let tenantDb: TenantDbService;
 
@@ -40,7 +41,7 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
     app = mod.createNestApplication();
     configureApp(app);
     await app.init();
-    http = app.getHttpServer() as import('http').Server;
+    http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
 
     const res = await request(http)
@@ -52,7 +53,15 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
       });
     expect(res.status).toBe(201);
     cookie = cookieOf(res);
-    userId = (res.body as { user: { id: string } }).user.id;
+    const registerBody: unknown = res.body;
+    if (
+      !isRecord(registerBody) ||
+      !isRecord(registerBody.user) ||
+      typeof registerBody.user.id !== 'string'
+    ) {
+      throw new Error('Expected register response with user.id');
+    }
+    userId = registerBody.user.id;
 
     // Seeded directly (no HTTP empty-chat endpoint, #86) — starts private.
     const chat = await tenantDb.runAs(userId, (tx) =>
@@ -135,11 +144,11 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
       title: 'HTTP share test chat',
       messages: [],
     });
-    expect(Object.keys(sharedRes.body as object).sort()).toEqual([
-      'id',
-      'messages',
-      'title',
-    ]);
+    const sharedBody: unknown = sharedRes.body;
+    if (!isRecord(sharedBody)) {
+      throw new Error('Expected object response body');
+    }
+    expect(Object.keys(sharedBody).sort()).toEqual(['id', 'messages', 'title']);
     expect(JSON.stringify(sharedRes.body)).not.toMatch(
       /PRIVATE DIGEST TITLE|PRIVATE DIGEST EXCERPT/,
     );
@@ -160,7 +169,7 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
 d(
   'POST /api/v1/shared/chats/:id/forks — forking a shared chat over HTTP',
   () => {
-    let app: INestApplication;
+    let app: INestApplication<import('http').Server>;
     let http: import('http').Server;
     let tenantDb: TenantDbService;
 
@@ -179,7 +188,7 @@ d(
       app = mod.createNestApplication();
       configureApp(app);
       await app.init();
-      http = app.getHttpServer() as import('http').Server;
+      http = app.getHttpServer();
       tenantDb = app.get(TenantDbService);
 
       const ownerRes = await request(http)
@@ -191,7 +200,15 @@ d(
         });
       expect(ownerRes.status).toBe(201);
       ownerCookie = cookieOf(ownerRes);
-      ownerId = (ownerRes.body as { user: { id: string } }).user.id;
+      const ownerBody: unknown = ownerRes.body;
+      if (
+        !isRecord(ownerBody) ||
+        !isRecord(ownerBody.user) ||
+        typeof ownerBody.user.id !== 'string'
+      ) {
+        throw new Error('Expected register response with user.id');
+      }
+      ownerId = ownerBody.user.id;
 
       const visitorRes = await request(http)
         .post('/auth/v1/register')
@@ -250,7 +267,11 @@ d(
         .set('Cookie', visitorCookie);
 
       expect(forkRes.status).toBe(201);
-      const forkedId = (forkRes.body as { id: string }).id;
+      const forkBody: unknown = forkRes.body;
+      if (!isRecord(forkBody) || typeof forkBody.id !== 'string') {
+        throw new Error('Expected fork response with id');
+      }
+      const forkedId = forkBody.id;
       expect(forkedId).not.toBe(publicChatId);
 
       // The visitor now owns it...
@@ -270,9 +291,11 @@ d(
         .get(`/api/v1/chats/${publicChatId}`)
         .set('Cookie', ownerCookie);
       expect(sourceStillOwners.status).toBe(200);
-      expect(
-        (sourceStillOwners.body as { visibility: string }).visibility,
-      ).toBe('public');
+      const sourceBody: unknown = sourceStillOwners.body;
+      if (!isRecord(sourceBody) || typeof sourceBody.visibility !== 'string') {
+        throw new Error('Expected chat response with visibility');
+      }
+      expect(sourceBody.visibility).toBe('public');
     });
   },
 );

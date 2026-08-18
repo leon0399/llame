@@ -16,10 +16,10 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { streamText } from 'ai';
+import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -31,6 +31,8 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { isTextPart, type TextPart } from './context-builder';
+import { isRecord } from '../unknown-record';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
@@ -72,45 +74,46 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
 // One turn: reasoning (sub-threshold, stays buffered) -> text, no tool.
 // Without the cross-flush at the top of onTextDelta, the buffered reasoning
 // tail would only flush at onFinish — landing AFTER the answer in the log.
-function reasoningThenText() {
-  return {
-    stream: simulateReadableStream({
-      chunks: [
-        { type: 'stream-start', warnings: [] },
-        { type: 'reasoning-start', id: 'r1' },
-        { type: 'reasoning-delta', id: 'r1', delta: 'brief thought' },
-        { type: 'reasoning-end', id: 'r1' },
-        { type: 'text-start', id: 't' },
-        { type: 'text-delta', id: 't', delta: 'Here it is.' },
-        { type: 'text-end', id: 't' },
-        {
-          type: 'finish',
-          finishReason: 'stop',
-          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-        },
-      ] as any,
-    }),
-  } as any;
+function reasoningThenText(): {
+  stream: ReadableStream<LanguageModelV3StreamPart>;
+} {
+  const chunks: LanguageModelV3StreamPart[] = [
+    { type: 'stream-start', warnings: [] },
+    { type: 'reasoning-start', id: 'r1' },
+    { type: 'reasoning-delta', id: 'r1', delta: 'brief thought' },
+    { type: 'reasoning-end', id: 'r1' },
+    { type: 'text-start', id: 't' },
+    { type: 'text-delta', id: 't', delta: 'Here it is.' },
+    { type: 'text-end', id: 't' },
+    {
+      type: 'finish',
+      finishReason: { unified: 'stop', raw: undefined },
+      usage: {
+        inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 1, text: 1, reasoning: 0 },
+      },
+    },
+  ];
+  return { stream: simulateReadableStream({ chunks }) };
 }
 
 // Reasoning starts, some partial answer text streams, then the model errors
 // out (no finish). Proves the onError path keeps BOTH the reasoning AND the
 // partial answer that already streamed -- same "show what the user actually
 // saw" honesty the codebase already applies to partial text on its own.
-function reasoningThenErrorMidAnswer() {
-  return {
-    stream: simulateReadableStream({
-      chunks: [
-        { type: 'stream-start', warnings: [] },
-        { type: 'reasoning-start', id: 'r1' },
-        { type: 'reasoning-delta', id: 'r1', delta: 'thinking before it dies' },
-        { type: 'reasoning-end', id: 'r1' },
-        { type: 'text-start', id: 't' },
-        { type: 'text-delta', id: 't', delta: 'partial answer' },
-        { type: 'error', error: new Error('provider dropped the stream') },
-      ] as any,
-    }),
-  } as any;
+function reasoningThenErrorMidAnswer(): {
+  stream: ReadableStream<LanguageModelV3StreamPart>;
+} {
+  const chunks: LanguageModelV3StreamPart[] = [
+    { type: 'stream-start', warnings: [] },
+    { type: 'reasoning-start', id: 'r1' },
+    { type: 'reasoning-delta', id: 'r1', delta: 'thinking before it dies' },
+    { type: 'reasoning-end', id: 'r1' },
+    { type: 'text-start', id: 't' },
+    { type: 'text-delta', id: 't', delta: 'partial answer' },
+    { type: 'error', error: new Error('provider dropped the stream') },
+  ];
+  return { stream: simulateReadableStream({ chunks }) };
 }
 
 async function waitFor(poll: () => Promise<boolean>, timeoutMs = 8000) {
@@ -161,6 +164,9 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
 
   it('reasoning precedes the answer in the event log (cross-flush) and is persisted as a leading part', async () => {
     const chatId = crypto.randomUUID();
+    const initialParts: TextPart[] = [
+      { type: 'text', text: 'think then answer' },
+    ];
     const userMessage = await tenantDb.runAs(userId, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
         id: chatId,
@@ -170,7 +176,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
         chatId,
         role: 'user',
         senderUserId: userId,
-        parts: [{ type: 'text', text: 'think then answer' }],
+        parts: initialParts,
       });
     });
     const run = await tenantDb.runAs(userId, async (tx) => {
@@ -195,7 +201,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       userMessage: {
         id: userMessage.id,
         seq: userMessage.seq,
-        parts: userMessage.parts as { type: 'text'; text: string }[],
+        parts: initialParts,
       },
       client: createMockModelClient(model),
     });
@@ -215,9 +221,14 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
     // reasoning was captured and persisted as a run-event…
     expect(types.indexOf('reasoning.delta')).toBeGreaterThan(-1);
     const reasoning = events.find((e) => e.eventType === 'reasoning.delta')!;
-    expect((reasoning.payload as { text: string }).text).toContain(
-      'brief thought',
-    );
+    const reasoningPayload = reasoning.payload;
+    if (
+      !isRecord(reasoningPayload) ||
+      typeof reasoningPayload.text !== 'string'
+    ) {
+      throw new Error('Expected reasoning.delta payload with a text field');
+    }
+    expect(reasoningPayload.text).toContain('brief thought');
     // …and, WITHOUT the cross-flush, it would land AFTER model.delta — the P0
     // this test proves is fixed.
     expect(types.indexOf('reasoning.delta')).toBeLessThan(
@@ -233,17 +244,18 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
     const assistant = messages.find((m) => m.role === 'assistant');
-    const parts = assistant?.parts as { type: string; text: string }[];
+    const parts = assistant?.parts;
     expect(parts?.[0]).toEqual({ type: 'reasoning', text: 'brief thought' });
-    expect(
-      parts?.some((p) => p.type === 'text' && p.text === 'Here it is.'),
-    ).toBe(true);
+    expect(parts?.some((p) => isTextPart(p) && p.text === 'Here it is.')).toBe(
+      true,
+    );
 
     await sql`DELETE FROM chats WHERE id = ${chatId}`;
   });
 
   it('keeps both the reasoning and the partial answer when the stream errors mid-turn', async () => {
     const chatId = crypto.randomUUID();
+    const initialParts: TextPart[] = [{ type: 'text', text: 'think then die' }];
     const userMessage = await tenantDb.runAs(userId, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
         id: chatId,
@@ -253,7 +265,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
         chatId,
         role: 'user',
         senderUserId: userId,
-        parts: [{ type: 'text', text: 'think then die' }],
+        parts: initialParts,
       });
     });
     const run = await tenantDb.runAs(userId, async (tx) => {
@@ -278,7 +290,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       userMessage: {
         id: userMessage.id,
         seq: userMessage.seq,
-        parts: userMessage.parts as { type: 'text'; text: string }[],
+        parts: initialParts,
       },
       client: createMockModelClient(model),
     });
@@ -296,7 +308,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
     const assistant = messages.find((m) => m.role === 'assistant');
-    const parts = assistant?.parts as { type: string; text: string }[];
+    const parts = assistant?.parts;
     // Both survive the abort -- reasoning is not silently dropped while the
     // partial answer is kept.
     expect(parts).toEqual([
