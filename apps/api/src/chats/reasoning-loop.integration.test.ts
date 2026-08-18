@@ -34,6 +34,9 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { isTextPart, type TextPart } from './context-builder';
 import { isRecord } from '../unknown-record';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import type { InstanceConfigReader } from '../instance-config/instance-config.service';
+import type { CompactionCapability } from '../compaction/compaction.service';
+import type { TitleCapability } from '../titles/title.service';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
@@ -138,11 +141,21 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
     sql = connect(TEST_DB_URL!, { ssl, max: 5 });
     db = drizzle(sql, { schema });
     tenantDb = new TenantDbService(db);
-    const noopCompaction = { maybeCompact: async () => {} } as never;
-    const noopTitles = { maybeGenerateTitle: async () => {} } as never;
+    const noopCompaction: CompactionCapability = {
+      maybeCompact: async () => {},
+      // Never exercised by this suite: every seeded context fits the mock
+      // model's context window, so the transition-compaction branch never
+      // runs. A throw catches a future scenario silently relying on it.
+      compactForTransition: () => {
+        throw new Error(
+          'reasoning-loop compactForTransition is not exercised by this suite',
+        );
+      },
+    };
+    const noopTitles: TitleCapability = { maybeGenerateTitle: async () => {} };
     // No tools configured (BUILT_IN_DEFAULTS.tools.allowed is empty) — this
     // suite is master's answer-only loop, no tool loop involved.
-    const instanceConfig = { config: BUILT_IN_DEFAULTS } as never;
+    const instanceConfig: InstanceConfigReader = { config: BUILT_IN_DEFAULTS };
     service = new RunExecutionService(
       tenantDb,
       noopCompaction,

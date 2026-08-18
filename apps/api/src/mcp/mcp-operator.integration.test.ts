@@ -16,6 +16,7 @@ import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import type { CompactionCapability } from '../compaction/compaction.service';
 import {
   type ModelClient,
   type ModelStreamInput,
@@ -233,9 +234,20 @@ function executionService(
   tenantDb: TenantDbService,
   runtime: McpRuntimeService,
 ): RunExecutionService {
+  const noopCompaction: CompactionCapability = {
+    maybeCompact: () => Promise.resolve(),
+    // Never exercised by this suite: every seeded context fits the mock
+    // model's context window, so the transition-compaction branch never
+    // runs. A throw catches a future scenario silently relying on it.
+    compactForTransition: () => {
+      throw new Error(
+        'mcp-operator compactForTransition is not exercised by this suite',
+      );
+    },
+  };
   return new RunExecutionService(
     tenantDb,
-    { maybeCompact: () => Promise.resolve() } as never,
+    noopCompaction,
     { maybeGenerateTitle: () => Promise.resolve() },
     {
       config: {

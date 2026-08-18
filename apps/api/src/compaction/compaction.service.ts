@@ -77,7 +77,7 @@ function schemaOnlyTools(
  * arm), matching every other JSON-record boundary in this codebase. Malformed
  * (non-object) parts fail closed rather than silently coercing.
  */
-function toStoredMessages(history: readonly Message[]): StoredMessage[] {
+export function toStoredMessages(history: readonly Message[]): StoredMessage[] {
   return history.map((message) => ({
     ...message,
     parts: message.parts.map((part) => {

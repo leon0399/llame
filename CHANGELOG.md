@@ -2,6 +2,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-18
 
+- Removed the last 8 `typescript/no-unsafe-type-assertion` findings —
+  `run-execution.service.ts` (4), `reasoning-loop.integration.test.ts` (3),
+  and `mcp-operator.integration.test.ts` (1) — and enabled the rule at
+  error in `apps/api/.oxlintrc.json`, closing Arc 1. `eventPayloadField`
+  gets the same `isRecord` treatment as `run-stream-bridge.ts`'s identical
+  helper; the tool-completion handler replaces an untyped `output as
+ToolResult` cast with a real discriminated success/error construction,
+  and the two `history as StoredMessage[]` casts reuse
+  `compaction.service.ts`'s newly-exported `toStoredMessages` helper
+  instead of duplicating its JSONB-narrowing logic. The four remaining
+  `as never` test doubles become properly-typed
+  `CompactionCapability`/`TitleCapability`/`InstanceConfigReader` doubles,
+  matching the idiom `run-execution-tools.integration.test.ts` established
+  when #425 landed. The full-tree native inventory (`apps/api`, all
+  tracked TS/TSX/MTS/CTS) now reports zero diagnostics. No behavior
+  change.
 - Removed the remaining 11 `typescript/no-unsafe-type-assertion` findings in
   the instance-config module (`prompt-loader.ts` and its direct unit tests),
   completing it to zero: the native inventory falls from 158 diagnostics/67
