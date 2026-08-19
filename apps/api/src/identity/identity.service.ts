@@ -24,7 +24,8 @@ import {
 } from './identity-repository';
 import { pathIds } from './org-path';
 import { resolveEffectiveRole, type EffectiveRole } from './role-resolution';
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import { type UnknownRecord } from '../unknown-record';
+import { pgErrorCode } from '../db/pg-error';
 
 /**
  * Machine-readable discriminators for the domain 409/422s, carried in the
@@ -545,13 +546,4 @@ export class IdentityService {
       throw err;
     }
   }
-}
-
-/** Extract the Postgres SQLSTATE from a raw driver error or a Drizzle wrapper. */
-function pgErrorCode(err: unknown): string | undefined {
-  if (!isRecord(err)) return undefined;
-  if (typeof err.code === 'string') return err.code;
-  return isRecord(err.cause) && typeof err.cause.code === 'string'
-    ? err.cause.code
-    : undefined;
 }
