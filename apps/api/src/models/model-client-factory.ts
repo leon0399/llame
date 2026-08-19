@@ -12,16 +12,27 @@ import { createOpenAIModelClient } from './openai-model-client';
  * branch below is defense-in-depth, not a runtime-reachable path while the
  * schema stays in sync with this switch.
  */
-export function createModelClient(input: {
-  provider: ProviderConfig;
-  model: SystemModelCatalogEntry;
-}): ModelClient {
+export function createModelClient(
+  input: {
+    provider: ProviderConfig;
+    model: SystemModelCatalogEntry;
+  },
+  /**
+   * Test seam (anti-slop/no-module-mocking): overrides the per-provider
+   * client constructor instead of module-mocking `./openai-model-client`.
+   * Production call sites never pass this — the default is the real
+   * constructor.
+   */
+  dependencies: {
+    createOpenAIModelClient: typeof createOpenAIModelClient;
+  } = { createOpenAIModelClient },
+): ModelClient {
   const { provider, model } = input;
   const pricing = toTokenPrice(model.pricingUsdPer1M);
 
   switch (provider.type) {
     case 'openai':
-      return createOpenAIModelClient({
+      return dependencies.createOpenAIModelClient({
         credential: provider.key ?? undefined,
         baseUrl: provider.baseUrl ?? undefined,
         nativeOpenAI: provider.id === 'openai',

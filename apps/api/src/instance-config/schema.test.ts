@@ -7,17 +7,23 @@ import * as fs from 'node:fs';
 
 import { WHOLE_VALUE_TOKEN_PATTERN } from './interpolation';
 import { InstanceConfigError } from './instance-config.error';
-import { getConfigValidator, loadSchemaDocument, SCHEMA_PATH } from './schema';
+import {
+  getConfigValidator,
+  loadSchemaDocument,
+  SCHEMA_PATH,
+  type SchemaFileAccess,
+} from './schema';
 import { isRecord } from '../unknown-record';
-// node:fs's own exports object rejects vi.spyOn (its properties are
-// non-configurable in this runtime — "Cannot redefine property"), so
-// readFileSync is replaced with a vi.fn wrapping the real implementation
-// by default; only the one test below overrides it, via
-// mockImplementationOnce, which self-restores after that single call.
-vi.mock('node:fs', async () => {
-  const actual = await vi.importActual<typeof fs>('node:fs');
-  return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
-});
+
+function throwingAccess(): SchemaFileAccess {
+  return {
+    readFile: () => {
+      throw Object.assign(new Error('ENOENT: no such file or directory'), {
+        code: 'ENOENT',
+      });
+    },
+  };
+}
 
 describe('published schema — single artifact', () => {
   it('loadSchemaDocument returns exactly what is on disk at the published path', () => {
@@ -26,23 +32,13 @@ describe('published schema — single artifact', () => {
   });
 
   it('wraps a missing/unreadable schema artifact as InstanceConfigError, never a raw fs error — a packaging problem must not read like the operator broke their own llame.config.json', () => {
-    const mockedReadFileSync = vi.mocked(fs.readFileSync);
-    mockedReadFileSync.mockImplementationOnce(() => {
-      throw Object.assign(new Error('ENOENT: no such file or directory'), {
-        code: 'ENOENT',
-      });
-    });
     // .toThrow(InstanceConfigError) already proves it's this module's typed
     // error, not the raw fs ENOENT — the message assertion additionally
     // proves it names the artifact, not just the error type.
-    expect(() => loadSchemaDocument()).toThrow(InstanceConfigError);
-
-    mockedReadFileSync.mockImplementationOnce(() => {
-      throw Object.assign(new Error('ENOENT: no such file or directory'), {
-        code: 'ENOENT',
-      });
-    });
-    expect(() => loadSchemaDocument()).toThrow(
+    expect(() => loadSchemaDocument(throwingAccess())).toThrow(
+      InstanceConfigError,
+    );
+    expect(() => loadSchemaDocument(throwingAccess())).toThrow(
       /published JSON Schema artifact/,
     );
   });

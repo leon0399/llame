@@ -51,18 +51,32 @@ function parseToolCallInput(raw: string) {
  * `providerModelId` is the server-only model id sent to the provider.
  * @returns A model client that streams text using the configured model
  */
-export function createOpenAIModelClient(config: {
-  credential?: string;
-  providerModelId: string;
-  modelId: string;
-  contextWindowTokens: number;
-  baseUrl?: string;
-  /** Native OpenAI only; compatible endpoints remain on Chat Completions. */
-  nativeOpenAI?: boolean;
-  pricing?: TokenPrice;
-  compactionThresholdTokens?: number;
-}): ModelClient {
-  const openai = createOpenAI({
+export function createOpenAIModelClient(
+  config: {
+    credential?: string;
+    providerModelId: string;
+    modelId: string;
+    contextWindowTokens: number;
+    baseUrl?: string;
+    /** Native OpenAI only; compatible endpoints remain on Chat Completions. */
+    nativeOpenAI?: boolean;
+    pricing?: TokenPrice;
+    compactionThresholdTokens?: number;
+  },
+  /**
+   * Test seam (anti-slop/no-module-mocking): overrides the AI SDK's
+   * provider-factory and streaming entry points instead of module-mocking
+   * `@ai-sdk/openai`/`ai`. Production call sites never pass this — the
+   * default is the real SDK.
+   */
+  dependencies: {
+    createOpenAI: typeof createOpenAI;
+    streamText: (
+      options: Parameters<typeof streamText>[0],
+    ) => ReturnType<typeof streamText>;
+  } = { createOpenAI, streamText },
+): ModelClient {
+  const openai = dependencies.createOpenAI({
     // A keyless provider (empty/absent credential) still needs a non-empty
     // apiKey passed through — see KEYLESS_PLACEHOLDER_API_KEY.
     apiKey: config.credential || KEYLESS_PLACEHOLDER_API_KEY,
@@ -86,7 +100,7 @@ export function createOpenAIModelClient(config: {
           throw abortSettlementError.error;
         }
       };
-      const result = streamText({
+      const result = dependencies.streamText({
         // Only the configured native OpenAI provider uses Responses. Every
         // compatible endpoint stays on Chat Completions.
         model: config.nativeOpenAI

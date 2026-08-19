@@ -1,7 +1,7 @@
 import type { ModelMessage } from 'ai';
-import { streamText } from 'ai';
+import type { streamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
-import { createOpenAI } from '@ai-sdk/openai';
+import type { createOpenAI } from '@ai-sdk/openai';
 
 import {
   MissingModelCredentialError,
@@ -12,16 +12,18 @@ import {
   KEYLESS_PLACEHOLDER_API_KEY,
 } from './openai-model-client';
 
-vi.mock('@ai-sdk/openai', () => ({
-  createOpenAI: vi.fn(),
-}));
-
-vi.mock('ai', () => ({
-  streamText: vi.fn(),
-}));
-
-const createOpenAIMock = vi.mocked(createOpenAI, { partial: true });
-const streamTextMock = vi.mocked(streamText, { partial: true });
+// Test seam (anti-slop/no-module-mocking): these tests verify how
+// createOpenAIModelClient SHAPES its calls into the AI SDK's provider
+// factory and streamText — not the SDK's own streaming behavior (that's
+// openai-model-client.tools.test.ts, via MockLanguageModelV3 + real
+// streamText) — so streamText itself must be observable here, not just the
+// language model layer beneath it.
+const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
+  partial: true,
+});
+const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
+  partial: true,
+});
 
 const messages = [
   {
@@ -66,12 +68,15 @@ describe('ModelClient', () => {
     const credential = await resolveModelCredential('user-1', (userId) =>
       userId === 'user-1' ? 'sk-user-supplied' : null,
     );
-    const client = createOpenAIModelClient({
-      credential,
-      providerModelId: 'gpt-test',
-      modelId: 'system:openai:gpt-test',
-      contextWindowTokens: 128_000,
-    });
+    const client = createOpenAIModelClient(
+      {
+        credential,
+        providerModelId: 'gpt-test',
+        modelId: 'system:openai:gpt-test',
+        contextWindowTokens: 128_000,
+      },
+      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+    );
 
     const abortSignal = AbortSignal.timeout(1000);
     const onError = vi.fn();
@@ -124,11 +129,14 @@ describe('ModelClient', () => {
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
 
-    const client = createOpenAIModelClient({
-      providerModelId: 'gpt-local',
-      modelId: 'system:local:gpt-local',
-      contextWindowTokens: 128_000,
-    });
+    const client = createOpenAIModelClient(
+      {
+        providerModelId: 'gpt-local',
+        modelId: 'system:local:gpt-local',
+        contextWindowTokens: 128_000,
+      },
+      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+    );
     client.streamText({ messages });
 
     expect(client).toMatchObject({
@@ -166,13 +174,16 @@ describe('ModelClient', () => {
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
 
-    const client = createOpenAIModelClient({
-      credential: 'sk-user-supplied',
-      providerModelId: 'gpt-test',
-      modelId: 'system:openai:gpt-test',
-      contextWindowTokens: 128_000,
-      baseUrl: 'https://openrouter.ai/api/v1',
-    });
+    const client = createOpenAIModelClient(
+      {
+        credential: 'sk-user-supplied',
+        providerModelId: 'gpt-test',
+        modelId: 'system:openai:gpt-test',
+        contextWindowTokens: 128_000,
+        baseUrl: 'https://openrouter.ai/api/v1',
+      },
+      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+    );
     client.streamText({ messages });
 
     expect(client).toMatchObject({
@@ -199,13 +210,16 @@ describe('ModelClient', () => {
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
 
-    const client = createOpenAIModelClient({
-      credential: 'sk-user-supplied',
-      providerModelId: 'gpt-test',
-      modelId: 'system:openai:gpt-test',
-      contextWindowTokens: 128_000,
-      nativeOpenAI: true,
-    });
+    const client = createOpenAIModelClient(
+      {
+        credential: 'sk-user-supplied',
+        providerModelId: 'gpt-test',
+        modelId: 'system:openai:gpt-test',
+        contextWindowTokens: 128_000,
+        nativeOpenAI: true,
+      },
+      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+    );
     client.streamText({ messages });
 
     expect(openaiProvider).toHaveBeenCalledWith('gpt-test');

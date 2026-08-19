@@ -3,19 +3,18 @@
  * is replaced at its provider boundary; AI SDK `streamText`, step scheduling,
  * tool validation, and repair callbacks remain real.
  */
-import { createOpenAI, type OpenAIProvider } from '@ai-sdk/openai';
+import type { OpenAIProvider } from '@ai-sdk/openai';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
-import { simulateReadableStream, tool, type ModelMessage } from 'ai';
+import {
+  simulateReadableStream,
+  streamText,
+  tool,
+  type ModelMessage,
+} from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
 
 import { createOpenAIModelClient } from './openai-model-client';
-
-vi.mock('@ai-sdk/openai', () => ({
-  createOpenAI: vi.fn(),
-}));
-
-const createOpenAIMock = vi.mocked(createOpenAI);
 
 const tools = {
   echo: tool({
@@ -99,13 +98,15 @@ function buildClient(model: MockLanguageModelV3) {
   const provider = vi.fn<OpenAIProvider>();
   provider.mockReturnValue(model);
   provider.chat = vi.fn<OpenAIProvider['chat']>(() => model);
-  createOpenAIMock.mockReturnValue(provider);
 
-  return createOpenAIModelClient({
-    providerModelId: 'gpt-test',
-    modelId: 'system:openai:gpt-test',
-    contextWindowTokens: 128_000,
-  });
+  return createOpenAIModelClient(
+    {
+      providerModelId: 'gpt-test',
+      modelId: 'system:openai:gpt-test',
+      contextWindowTokens: 128_000,
+    },
+    { createOpenAI: () => provider, streamText },
+  );
 }
 
 describe('createOpenAIModelClient — abort handling', () => {

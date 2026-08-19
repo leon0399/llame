@@ -21,6 +21,21 @@ import { isRecord } from '../unknown-record';
 export const SCHEMA_PATH = path.resolve(__dirname, 'llame.config.schema.json');
 
 /**
+ * Test seam (anti-slop/no-module-mocking): `node:fs`'s own exports object
+ * rejects `vi.spyOn` (its properties are non-configurable in this runtime —
+ * "Cannot redefine property"), so tests that need to simulate a missing or
+ * unreadable schema file substitute this instead of module-mocking `node:fs`.
+ * Production call sites never pass it — the default reads the real file.
+ */
+export type SchemaFileAccess = {
+  readFile(filePath: string): string;
+};
+
+const DEFAULT_SCHEMA_FILE_ACCESS: SchemaFileAccess = {
+  readFile: (filePath) => readFileSync(filePath, 'utf8'),
+};
+
+/**
  * Read + parse the published schema document. Exported so tests can prove
  * boot validates against this exact artifact.
  *
@@ -29,10 +44,12 @@ export const SCHEMA_PATH = path.resolve(__dirname, 'llame.config.schema.json');
  * wrapped as InstanceConfigError so it never surfaces as a raw, unattributed
  * `ENOENT` that an operator would mistake for their own file.
  */
-export function loadSchemaDocument(): Record<string, unknown> {
+export function loadSchemaDocument(
+  access: SchemaFileAccess = DEFAULT_SCHEMA_FILE_ACCESS,
+): Record<string, unknown> {
   let parsed: unknown;
   try {
-    const text = readFileSync(SCHEMA_PATH, 'utf8');
+    const text = access.readFile(SCHEMA_PATH);
     parsed = JSON.parse(text);
   } catch (err) {
     throw new InstanceConfigError(

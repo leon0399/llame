@@ -2,6 +2,23 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-19
 
+- Enabled `anti-slop/no-module-mocking` at error in `apps/api/.oxlintrc.json`
+  (Arc 2's fourth rule), after removing its remaining 6 findings across 5
+  files (fresh count, down from a stale 81/34 pre-rebase baseline — most had
+  already been retired as a side effect of the earlier unsafe-assertion
+  migration's AI SDK model doubles). Two new production test seams, both
+  default to the real implementation so production call sites never pass
+  them: `schema.ts`'s `loadSchemaDocument(access?)` reuses
+  `prompt-loader.ts`'s existing file-access pattern (needed because
+  `node:fs`'s own exports reject `vi.spyOn`); `openai-model-client.ts`'s
+  `createOpenAIModelClient(config, dependencies?)` injects the AI SDK's
+  `createOpenAI`/`streamText` instead of module-mocking `@ai-sdk/openai`/
+  `ai`, and `model-client-factory.ts`'s `createModelClient(input,
+dependencies?)` injects `createOpenAIModelClient` the same way, threaded
+  through `ModelsService`'s constructor via the same `@Optional()
+@Inject(TOKEN)` idiom already used for `DYNAMIC_TOOL_EXECUTOR_RESOLVER`
+  (`ModelsService` is Nest-container-constructed, so a bare optional
+  constructor parameter would have broken bootstrap). No behavior change.
 - Enabled `anti-slop/no-known-value-widening` at error in
   `apps/api/.oxlintrc.json` (Arc 2's third rule), after removing its
   remaining 19 findings across the runs/chats/tools cluster and misc tail

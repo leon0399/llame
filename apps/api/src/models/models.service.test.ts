@@ -7,23 +7,33 @@ import {
   type ProviderConfig,
 } from '../instance-config/llame-config';
 import type { SystemModelCatalogEntry } from './model-catalog';
-import { createOpenAIModelClient } from './openai-model-client';
+import { createModelClient } from './model-client-factory';
+import type { createOpenAIModelClient } from './openai-model-client';
 import {
   ModelConfigurationError,
   ModelNotAvailableError,
   ModelsService,
 } from './models.service';
 
-vi.mock('./openai-model-client', () => ({
-  createOpenAIModelClient: vi.fn(() => ({
-    model: 'stub',
-    provider: 'openai',
-    contextWindowTokens: 400_000,
-    streamText: vi.fn(),
-  })),
-}));
-
-const createOpenAIModelClientMock = vi.mocked(createOpenAIModelClient);
+// Test seam (anti-slop/no-module-mocking): overrides createOpenAIModelClient
+// via ModelsService's own dependency-injection constructor param instead of
+// module-mocking ./openai-model-client. No provider is registered for that
+// token in production, so this override only takes effect when a test
+// constructs ModelsService directly, as createService below does.
+const createOpenAIModelClientMock = vi.mocked(
+  vi.fn<typeof createOpenAIModelClient>(),
+  { partial: true },
+);
+createOpenAIModelClientMock.mockReturnValue({
+  model: 'stub',
+  provider: 'openai',
+  contextWindowTokens: 400_000,
+  streamText: vi.fn(),
+});
+const createModelClientOverride: typeof createModelClient = (input) =>
+  createModelClient(input, {
+    createOpenAIModelClient: createOpenAIModelClientMock,
+  });
 
 const DEFAULT_PROVIDER: ProviderConfig = {
   id: 'openai',
@@ -121,7 +131,7 @@ function createService(overrides: {
     },
   };
 
-  return new ModelsService(instanceConfig);
+  return new ModelsService(instanceConfig, createModelClientOverride);
 }
 
 describe('ModelsService', () => {
