@@ -2,7 +2,6 @@ import {
   createMCPClient,
   type ListToolsResult,
   type MCPClient,
-  type MCPTransport,
 } from '@ai-sdk/mcp';
 
 import { type ToolResult } from '../tools/types';
@@ -916,13 +915,10 @@ export class McpServerClient {
     }
 
     // The pinned client accepts a broader revision set than llame does, so the
-    // gate is llame's own.
-    // SAFETY: `transport` here is `StdioClientTransport`, whose own class
-    // type doesn't declare `protocolVersion` — but `MCPTransport` does, and
-    // the AI SDK client assigns that field onto the transport instance after
-    // the handshake completes, so it's genuinely present by the time this
-    // line runs.
-    const negotiated = (transport as MCPTransport).protocolVersion;
+    // gate is llame's own. `BoundedStdioTransport` declares `protocolVersion`
+    // directly, and the AI SDK client assigns it after the handshake
+    // completes, so it's genuinely present by the time this line runs.
+    const negotiated = transport.protocolVersion;
     if (
       negotiated !== undefined &&
       !isSupportedMcpProtocolVersion(negotiated)

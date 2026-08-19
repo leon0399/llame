@@ -2,6 +2,31 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-19
 
+- Fixed an unbounded-memory path in local stdio MCP servers, found by
+  CodeRabbit review before the `add-stdio-mcp-servers` change was archived.
+  The pinned `@modelcontextprotocol/sdk`'s stdio `ReadBuffer` accumulates a
+  child's stdout without any size cap until a newline arrives, so a server
+  that writes without ever emitting one — buggy, not necessarily hostile —
+  could grow the API process's heap without limit. The SDK exposes no way to
+  intercept stdout before its internal buffer sees it, so
+  `apps/api/src/mcp/mcp-stdio-transport.ts` now owns the child spawn and
+  stdout read path directly (`BoundedStdioTransport`, transcribing the SDK's
+  own spawn/close-escalation logic) and enforces the same 1 MiB pre-parse
+  cap the remote transport already applies to a response body, per
+  unterminated line. An overrun terminates the child, which is then treated
+  as any other exited stdio server — withdrawn and retried on the existing
+  bounded stdio retry ladder, no new lifecycle plumbing needed. Also
+  documented that a credential interpolated into a stdio entry's `args`
+  (rather than `env`) is still redacted from every llame-owned surface but
+  remains visible in that child's argv to any other process on the host via
+  `/proc/<pid>/cmdline` — an accepted-risk clarification, not a new
+  restriction, since `args` interpolation legitimately carries non-secret
+  values a mechanical `env`-only rule cannot distinguish. Both findings
+  verified against the pinned SDK's actual source before fixing. The
+  change's own delta specs, `design.md`, and `docs/mcp-tools.md` are
+  revised to match; the fixed wording carries through when the change is
+  synced to main specs and archived.
+
 - Closed `anti-slop/require-safety-comment-for-type-assertion` remediation,
   enabling it at error in `apps/api/.oxlintrc.json` — the 15th and final
   `dmmulroy/anti-slop` rule, closing the full ruleset adoption. Fresh

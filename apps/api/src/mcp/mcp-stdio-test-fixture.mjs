@@ -20,6 +20,9 @@
 //   argvDumpPath     string   write `process.argv.slice(2)` here as JSON
 //   cwdDumpPath      string   write `process.cwd()` here
 //   exitAfterInit    boolean  exit non-zero once initialized
+//   stdoutFloodBytes number   write N newline-free bytes to stdout at
+//                             startup, to exercise the client's per-message
+//                             byte cap
 
 import { writeFileSync } from 'node:fs';
 
@@ -37,6 +40,9 @@ if (config.argvDumpPath) {
 }
 if (config.cwdDumpPath) {
   writeFileSync(config.cwdDumpPath, process.cwd(), 'utf8');
+}
+if (config.stdoutFloodBytes) {
+  process.stdout.write('X'.repeat(config.stdoutFloodBytes));
 }
 const STDERR_LINE_WIDTH = 100;
 

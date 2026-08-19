@@ -35,9 +35,9 @@ This capability SHALL offer MCP protocol `2025-11-25` and MAY negotiate only the
 
 ### Requirement: Discovery is complete, bounded, and isolated
 
-Every MCP operation over a remote transport SHALL enforce a fixed v1 limit of 1 MiB per non-streaming response body or SSE event while consuming bytes, before JSON/JSON-RPC parsing. The adapter SHALL supply the pinned HTTP transport with a bounded `fetch` implementation that wraps every returned `Response` before the package consumes it, including non-2xx bodies the package later reads as text. `Content-Length` MAY reject early but SHALL NOT be the sole enforcement.
+Every MCP operation, on both transports, SHALL enforce a fixed v1 limit of 1 MiB consumed before JSON/JSON-RPC parsing: for a remote transport, per non-streaming response body or SSE event; for a local stdio transport, per unterminated line accumulated since the last successfully framed message. The adapter SHALL supply the pinned HTTP transport with a bounded `fetch` implementation that wraps every returned `Response` before the package consumes it, including non-2xx bodies the package later reads as text; `Content-Length` MAY reject early but SHALL NOT be the sole enforcement. For stdio, llame SHALL own the child process spawn and the stdout read path itself rather than delegate that piece to the pinned client library, because the library's own stdio reader accumulates a child's output without any pre-parse bound. An overrun on either transport SHALL classify as malformed transport/JSON-RPC input; for stdio, the overrun SHALL also terminate the child process, which is then treated as any other exited stdio server.
 
-A local stdio transport SHALL NOT be required to enforce a pre-parse byte bound, because the pinned client library reads a child process's output without one and the bound exists to constrain a network-reachable peer rather than an operator-installed local process that already executes with llame's own privileges. This exemption SHALL be limited to the pre-parse per-message bound and the aggregate response-byte budget; every other limit below SHALL apply to both transports. This weaker guarantee SHALL be stated in the operator documentation rather than left implicit.
+Only the aggregate discovery response-byte budget below remains stdio-exempt, because it is a distinct running total across an entire discovery operation that the per-message bound does not itself track; every other limit below SHALL apply to both transports.
 
 Tool discovery SHALL follow pagination until completion under additional fixed v1 limits: a 30-second aggregate deadline; 8 MiB total response bytes for remote transports; 256 tools per page; 1,000 tools total; 256 KiB per serialized raw declaration; schema nesting depth 64; 4 MiB serialized declarations retained for the candidate catalog; a 1,000-page cap; and a repeated-cursor guard. An operation-level budget breach SHALL fail the affected server's entire discovery/refresh and publish no partial catalog. A declaration exceeding only its individual size/depth admission budget SHALL be refused while valid siblings remain eligible. Connection, discovery, or declaration failure SHALL otherwise remain isolated to the affected server or tool. A catalog SHALL become advertisable only after discovery completes and every admitted declaration has passed the generic tool-schema and safety gates; partial pages SHALL never replace the prior catalog.
 
@@ -62,6 +62,12 @@ Tool discovery SHALL follow pagination until completion under additional fixed v
 - **THEN** the input is aborted or refused within that bound
 - **AND** no partial replacement catalog is advertised
 
+#### Scenario: Oversized stdio message is bounded before parsing
+
+- **WHEN** a stdio server writes bytes without a terminating newline past the 1 MiB pre-parse bound
+- **THEN** llame stops consuming before JSON/JSON-RPC parsing and terminates the child process
+- **AND** the server is treated as an exited stdio server, following its unavailable and bounded-retry behavior
+
 #### Scenario: Incomplete discovery is never published
 
 - **WHEN** a later discovery page times out or fails
@@ -77,7 +83,7 @@ Tool discovery SHALL follow pagination until completion under additional fixed v
 
 Each MCP tool call SHALL use the existing per-call Run cancellation signal and effective tool-call timeout, on every transport. llame SHALL NOT automatically retry an MCP tool call on any transport. A successful MCP response SHALL map deterministically into the existing structured tool-result contract and flow through the existing truncation, persistence, live-stream, and later-turn replay paths. An MCP error, timeout, disconnect, or missing result SHALL become a structured non-fatal tool observation; raw remote exception text SHALL NOT become the recorded result.
 
-For a remote transport, a call's response body, non-2xx error body, or SSE event SHALL remain subject to the transport-wide 1 MiB pre-parse cap at the adapter-supplied `fetch` boundary; exceeding that cap SHALL abort consumption and classify as malformed transport/JSON-RPC input. A local stdio transport SHALL NOT be required to enforce that pre-parse cap, for the reason given in "Discovery is complete, bounded, and isolated"; a malformed or unparseable stdio message SHALL still classify as malformed transport/JSON-RPC input.
+For a remote transport, a call's response body, non-2xx error body, or SSE event SHALL remain subject to the transport-wide 1 MiB pre-parse cap at the adapter-supplied `fetch` boundary; exceeding that cap SHALL abort consumption and classify as malformed transport/JSON-RPC input. For a local stdio transport, a call's response line SHALL remain subject to the same 1 MiB pre-parse cap per "Discovery is complete, bounded, and isolated"; exceeding it SHALL abort consumption, classify as malformed transport/JSON-RPC input, and terminate the child process. A malformed or unparseable stdio message that stays within the cap SHALL still classify as malformed transport/JSON-RPC input.
 
 During a tool call over a remote transport, a network disconnect, HTTP `401` or `403`, HTTP `404` when an MCP session is established, or malformed transport/JSON-RPC response SHALL additionally atomically withdraw that process's catalog for the affected server and start its background reconnect path. HTTP `429`, any `5xx`, every other valid `4xx` including `410`, a valid tool-level MCP error, `CallToolResult.isError`, invalid tool output, per-call timeout, Run cancellation, or caller cancellation SHALL settle only the affected call and SHALL NOT change server availability.
 
@@ -318,10 +324,11 @@ Where a token is only part of a field's text, the protected value SHALL be the r
 
 A protected value SHALL NOT appear in model input, user-visible receipts, run events, persisted errors, or logs. Startup failures concerning these fields SHALL name only the configuration path.
 
-This rule deliberately differs from the remote-header rule, under which every configured header value is protected regardless of origin. Arguments and environment values legitimately carry non-secret text — flags, paths, and ports — and protected values are matched as substrings across tool traffic, so protecting a low-entropy literal would refuse legitimate tool calls and corrupt legitimate results. Two consequences SHALL be documented for operators rather than left to be discovered:
+This rule deliberately differs from the remote-header rule, under which every configured header value is protected regardless of origin. Arguments and environment values legitimately carry non-secret text — flags, paths, and ports — and protected values are matched as substrings across tool traffic, so protecting a low-entropy literal would refuse legitimate tool calls and corrupt legitimate results. `args` interpolation SHALL therefore remain permitted rather than restricted to `env`: a mechanical restriction cannot distinguish a legitimately interpolated non-secret argument from a credential, and llame's own protected-value redaction still applies equally to a secret resolved into either field. Three consequences SHALL be documented for operators rather than left to be discovered:
 
 - Interpolating a low-entropy value, such as a per-deployment directory, makes that string protected everywhere, which can refuse tool calls naming it and redact it from results. Writing such a value literally is the remedy.
 - A secret written literally instead of interpolated is not protected, and would therefore not be redacted from that server's diagnostic output. Secrets are always to be interpolated, never inlined.
+- A resolved `args` value becomes that child process's argv, which on a POSIX host is world-readable via `/proc/<pid>/cmdline` (mode 444) to any process on the host, unlike `env` (`/proc/<pid>/environ`, mode 400, readable only by the owning user or root). llame's protected-value redaction covers what llame itself logs, persists, and sends to a model; it does not and cannot prevent another process on the same host from observing a live child's command line. A credential SHALL therefore be interpolated into `env`, never `args`.
 
 #### Scenario: Interpolated secret is protected
 
@@ -344,6 +351,12 @@ This rule deliberately differs from the remote-header rule, under which every co
 
 - **WHEN** interpolation fails for a stdio entry's environment value or argument
 - **THEN** startup fails naming the configuration path without printing the resolved or partially resolved value
+
+#### Scenario: A credential interpolated into args is redacted from llame but visible in argv
+
+- **WHEN** an operator interpolates a secret into a stdio entry's `args` rather than its `env`
+- **THEN** the resolved value is still protected by every llame-owned surface — logs, diagnostics, receipts, model input
+- **AND** it is nonetheless present in the child process's argv, observable by another process on the same host through `/proc/<pid>/cmdline`, which no application-level redaction can prevent
 
 ### Requirement: stdio diagnostic output is captured, bounded, and sanitized
 

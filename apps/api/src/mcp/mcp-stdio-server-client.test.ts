@@ -5,7 +5,13 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { McpServerClient } from './mcp-server-client';
-import { DiagnosticBuffer, MAX_DIAGNOSTIC_CHARS } from './mcp-stdio-transport';
+import {
+  BoundedReadBuffer,
+  DiagnosticBuffer,
+  MAX_DIAGNOSTIC_CHARS,
+  MAX_STDIO_MESSAGE_BYTES,
+  McpStdioMessageLimitError,
+} from './mcp-stdio-transport';
 import { isRecord, type UnknownRecord } from '../unknown-record';
 
 const FIXTURE = join(__dirname, 'mcp-stdio-test-fixture.mjs');
@@ -294,5 +300,45 @@ describe('McpServerClient.connectStdio', () => {
     );
     await disconnected;
     await client.close();
+  });
+
+  // A stdio server that floods stdout without ever emitting a newline must
+  // not be allowed to grow this process's heap without bound. The fixture
+  // writes the flood synchronously at startup, before it can answer
+  // `initialize`, so the cap fires during the handshake and the connect
+  // attempt itself rejects.
+  it('refuses a stdio server that floods stdout without a newline', async () => {
+    await expect(
+      connect({
+        tools: [TOOL],
+        stdoutFloodBytes: MAX_STDIO_MESSAGE_BYTES + 1,
+      }),
+    ).rejects.toBeInstanceOf(Error);
+  });
+});
+
+describe('BoundedReadBuffer', () => {
+  it('parses a message under the cap', () => {
+    const buffer = new BoundedReadBuffer(MAX_STDIO_MESSAGE_BYTES);
+    buffer.append(Buffer.from('{"jsonrpc":"2.0","id":1,"result":{}}\n'));
+    expect(buffer.readMessage()).toMatchObject({ id: 1 });
+  });
+
+  // Cap-check runs before the concat, so an oversized single write is refused
+  // at ~cap + one chunk of peak memory rather than after allocating the
+  // oversized buffer once.
+  it('throws before accumulating past the cap', () => {
+    const buffer = new BoundedReadBuffer(16);
+    buffer.append(Buffer.from('01234567'));
+    expect(() => buffer.append(Buffer.from('890123456789'))).toThrow(
+      McpStdioMessageLimitError,
+    );
+  });
+
+  it('accumulates across chunks up to the cap without a newline', () => {
+    const buffer = new BoundedReadBuffer(16);
+    buffer.append(Buffer.from('0123'));
+    buffer.append(Buffer.from('4567'));
+    expect(buffer.readMessage()).toBeNull();
   });
 });
