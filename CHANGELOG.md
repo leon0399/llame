@@ -17,6 +17,25 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 lint`/`typecheck` clean, `pnpm --filter api test` 1153/1153. See
   `docs/code-quality-tracker.md` for the full bucket classification and the
   remaining work.
+- Closed `anti-slop/no-runtime-typeof` remediation, enabling it at error
+  (`allowInTypeGuards: true`) in `apps/api/.oxlintrc.json`. Every remaining
+  finding resolved to the same `isString`/`isNumber`/`isBoolean`/`isRecord`
+  predicate swap, including the 10 findings on a durable execution path
+  (`run-execution.service.ts`, `run-stream-bridge.ts`,
+  `chats-repository.ts`, `compaction.ts`) — preserved exactly under a
+  behavior-preservation invariant (a site that fell back gracefully still
+  falls back identically; nothing was upgraded to a throw). Consolidated
+  the byte-identical `pgErrorCode` duplicated across `chats.service.ts`,
+  `identity.service.ts`, and `pins.service.ts` into a single
+  `src/db/pg-error.ts` with direct unit coverage. Only two sites keep an
+  inline disable (`` `...type ${typeof value}` `` diagnostic message
+  interpolation, not narrowing — no predicate form applies). No behavior
+  change; `pnpm --filter api lint`/`typecheck` clean, `pnpm --filter api
+test` 1158/1158, full `pnpm --filter api test:integration`, `pnpm
+--filter api build` confirms `openapi.json` byte-identical. See
+  `docs/code-quality-tracker.md` for the closeout narrative and a queued
+  follow-up on `MessagePart`'s open-union type-design smell this
+  remediation surfaced but didn't fix.
 
 - Enabled `anti-slop/no-unknown-parameters` at error in `apps/api/.oxlintrc.json`
   (Arc 2's seventh rule), closing out remediation that spanned a type-predicate

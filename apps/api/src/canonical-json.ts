@@ -65,6 +65,7 @@ export function canonicalize(value: unknown): CanonicalJsonValue {
   ) {
     return value;
   }
+  // eslint-disable-next-line anti-slop/no-runtime-typeof -- diagnostic interpolation naming the rejected value's runtime type in the thrown message, not narrowing it; no predicate form applies to a value already excluded from every accepted branch above.
   throw new TypeError(`Cannot canonicalize a value of type ${typeof value}.`);
 }
 

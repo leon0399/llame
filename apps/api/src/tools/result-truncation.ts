@@ -131,6 +131,7 @@ function capValues(
     return value;
   }
   throw new TypeError(
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- diagnostic interpolation naming the rejected value's runtime type in the thrown message, not narrowing it; no predicate form applies to a value already excluded from every accepted branch above.
     `Cannot truncate a tool-result value of type ${typeof value}.`,
   );
 }
