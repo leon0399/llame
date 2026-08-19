@@ -20,6 +20,7 @@ import {
   McpServerClient,
   type McpDiscoveredTool,
 } from '../src/mcp/mcp-server-client';
+import { isRecord } from '../src/unknown-record';
 
 const ENV_NAMES = [
   'MCP_WEB_SEARCH_URL',
@@ -51,9 +52,6 @@ const LIVE_TOOL_EXECUTION_TIMEOUT_MS = 30_000;
 const LIVE_SEARCH_QUERY =
   'Run a live web search now. Find one source that states the current UTC date in YYYY-MM-DD format. ' +
   'Return non-empty sourced evidence including an HTTP(S) reference and that exact date.';
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function resolveLiveEvalConfig(): LiveEvalConfigResolution {
   if (process.env.RUN_MCP_WEB_SEARCH_EVAL !== '1') {

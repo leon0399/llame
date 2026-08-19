@@ -20,6 +20,7 @@ import {
   TOOL_UNAVAILABLE_REASON_LABELS,
   type ToolUnavailableReason,
 } from '../../tools/turn-tool-catalog';
+import { type JsonSchemaDocument } from '../../tools/types';
 
 /** Query for the run-event replay cursor (SPEC §9.4). */
 export class ListRunEventsQuery {
@@ -85,7 +86,7 @@ export class ContextReceiptToolResponse {
   description!: string;
 
   @ApiProperty({ type: Object, additionalProperties: true })
-  inputSchema!: Record<string, unknown>;
+  inputSchema!: JsonSchemaDocument;
 }
 
 export class ContextReceiptAvailableToolResponse {
