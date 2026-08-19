@@ -104,6 +104,7 @@ export type McpCallOutcome = {
 };
 
 export type McpToolExecutor = (
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- per-tool executor contract: each MCP tool declares its own JSON-Schema-validated argument shape at admission time (declaration-admission.ts), so `args` is deliberately generic here; narrowing it would require a discriminated union over every possible tool schema.
   args: unknown,
   options: McpToolExecutionOptions,
 ) => Promise<McpCallOutcome>;
@@ -198,6 +199,7 @@ function rpcRequest(init: RequestInit | undefined): RpcRequestSummary {
   }
 }
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- measures the serialized byte size of an arbitrary already-admitted value for the discovery byte budget; value-agnostic by design, no domain type to parse into.
 function serializedBytes(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
 }
@@ -222,6 +224,7 @@ function safeDiscoveryRefusalId(
     : toolId.id;
 }
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- this function IS the recursive depth-walker over untrusted JSON (see the iterative Array.isArray/isRecord dispatch in its loop below); there is no earlier validation to point to, since depth-checking must handle every JSON shape by definition.
 function exceedsDepth(value: unknown, maxDepth: number): boolean {
   const pending: Array<{ value: unknown; depth: number }> = [
     { value, depth: 1 },
@@ -384,6 +387,7 @@ function safeFailureResult(kind: McpFailureKind): ToolResult {
   }
 }
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `isRecord(value) && (Array.isArray(...) || ...)` below -- `isRecord` combined with further checks via `&&`, a shape the structural exemption's single-check parse doesn't cover.
 function hasPortableMcpResultPayload(value: unknown): boolean {
   return (
     isRecord(value) &&
@@ -415,6 +419,7 @@ function hasProtectedKeyInErrorData(
 }
 
 function matchingRpcResponse(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- first use is the ternary `Array.isArray(value) ? value : [value]` below -- the validating `Array.isArray` check is the ternary's test, a shape the structural exemption doesn't unwrap (same gap as canonical-json.ts's overload siblings).
   value: unknown,
   requestId: string | number,
 ): UnknownRecord | undefined {

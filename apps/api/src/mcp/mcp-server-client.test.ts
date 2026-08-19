@@ -23,6 +23,7 @@ const resolvedResponse = (response: Response): Promise<Response> =>
 const textEncoder = new TextEncoder();
 
 function openSseResponse(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- test fixture: JSON.stringify'd verbatim into a fake SSE frame below; the actual use is nested inside the ReadableStream's `start()` callback, several scopes past this function's own first statement, so the caller controls the fixture's payload shape by design.
   message: unknown,
   onCancel: () => void,
   closeAfterMs = 250,
@@ -83,6 +84,7 @@ function requestBody(init: RequestInit | undefined): {
 
 function jsonRpcResult(
   id: number,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- test fixture helper: builds an arbitrary fake JSON-RPC 2.0 `result` payload embedded verbatim in the response body, so each call site controls its shape to simulate a different MCP server response.
   result: unknown,
 ): Extract<McpFixtureResponse, { kind: 'json' }> {
   return {

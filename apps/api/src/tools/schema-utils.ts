@@ -34,6 +34,7 @@ const DIALECT_CONSTRUCTORS = new Map<string, typeof Ajv>([
 ]);
 
 type JsonSchemaValidator = (
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- type of the compiled schema-validator function itself (see the implementation at `compileJsonSchemaValidator`'s `validate:` below, which runs `validate(value)` against the ajv-compiled schema as its own first use); a type declaration has no body for the structural exemption to inspect.
   value: unknown,
 ) => { success: true; value: unknown } | { success: false; error: Error };
 
@@ -62,6 +63,7 @@ function resolveAjvConstructor(
   return DIALECT_CONSTRUCTORS.get(normalizedDialectUri(dialect));
 }
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `typeof dialect !== 'string' || normalizedDialectUri(dialect) !== '...'` below -- a typeof check combined with a derived comparison via `||`, a shape the structural exemption's single-check parse doesn't cover.
 function addDraft07HttpsMetaSchemaAlias(ajv: Ajv, dialect: unknown): void {
   if (
     typeof dialect !== 'string' ||
@@ -124,6 +126,7 @@ export function compileJsonSchemaValidator(
 
   return {
     success: true,
+    // eslint-disable-next-line anti-slop/no-unknown-parameters -- first use is `if (validate(value))` immediately below -- `validate` is the ajv-compiled `ValidateFunction` (this closure's outer `validate`), the actual real-time schema check; a bare identifier named `validate` rather than `isXxx`- or `.parse`/`.safeParse`-shaped, outside the structural exemption's naming coverage.
     validate: (value: unknown) => {
       if (validate(value)) {
         return { success: true, value };
@@ -197,6 +200,7 @@ export function toFlexibleSchema(
  */
 export function safeParseArgs(
   schema: z.ZodTypeAny | JsonSchemaDocument,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- this whole function's body IS `args`'s validation (see the doc comment above: "Defense-in-depth argument validation"), dispatching through `schema.safeParse(args)` or the ajv validator depending on schema kind; the first statement checks `schema`'s type, not `args` directly, so the structural exemption doesn't fire even though this function is definitionally `args`'s validator.
   args: unknown,
 ): { success: true; data: unknown } | { success: false } {
   if (isZodSchema(schema)) {

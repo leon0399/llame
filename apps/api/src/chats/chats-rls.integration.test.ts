@@ -335,12 +335,15 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       // expired rows anyway, so it would pass even if the delete no-opped.
       const rawRows = await sql`
         SELECT id FROM sessions WHERE id IN (${live.id}, ${expired.id})`;
-      const rawIds = rawRows.map((r: unknown) => {
-        if (!isRecord(r) || typeof r.id !== 'string') {
-          throw new Error('Expected a session row with a string id');
-        }
-        return r.id;
-      });
+      const rawIds = rawRows.map(
+        // eslint-disable-next-line anti-slop/no-unknown-parameters -- row shape from a raw `sql` template tag (postgres.js), validated inline via `isRecord(r) && typeof r.id === 'string'` before use; a compound guard the structural exemption's "single first-use check" shape doesn't parse, not a missing validation.
+        (r: unknown) => {
+          if (!isRecord(r) || typeof r.id !== 'string') {
+            throw new Error('Expected a session row with a string id');
+          }
+          return r.id;
+        },
+      );
       expect(rawIds).toContain(live.id);
       expect(rawIds).not.toContain(expired.id);
     } finally {

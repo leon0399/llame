@@ -2,6 +2,27 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-19
 
+- Enabled `anti-slop/no-unknown-parameters` at error in `apps/api/.oxlintrc.json`
+  (Arc 2's seventh rule), closing out remediation that spanned a type-predicate
+  rule patch and mechanical fixes from earlier this week. Added a third local
+  patch: an options schema (mirroring `no-runtime-typeof`'s `allowInTypeGuards`
+  shape) with `allowWhenImmediatelyValidated` — exempts a parameter whose first
+  body use validates it (a type-guard call including `Array.isArray`, a
+  `typeof`/`instanceof` check including `switch` spellings, a schema parse, or
+  a body-less overload signature's adjacent implementation) — and
+  `allowErrorFamilyNames`, extending the rule's own `cause` carve-out to
+  `error`/`err`/`reason` as a fixed 3-name set. Together they resolved 51 of
+  103 remaining findings structurally (measured against the full `src/` +
+  `evals/` tree); the other 52 carry a per-site inline disable with a specific
+  one-line reason (see `docs/code-quality-tracker.md` for the full
+  justification-class breakdown). The 11 previously-flagged catch-handler
+  sites needed zero manual disables — `allowErrorFamilyNames` covered all of
+  them. RuleTester regression covers both options' exempted and still-flagged
+  cases; documented in `tools/oxlint/anti-slop/UPSTREAM.md`. No behavior
+  change; `pnpm --filter api lint`/`typecheck` clean,
+  `--report-unused-disable-directives` confirms every disable fires on a real
+  finding, unit 1153/1153, full `test:integration` 348/351 (3 pre-existing
+  skips).
 - Enabled `anti-slop/no-conditional-empty-object-spread` at error in
   `apps/api/.oxlintrc.json` (Arc 2's sixth rule), removing all 135 findings
   across 41 files (fresh re-measurement — the queued 147/50 baseline was

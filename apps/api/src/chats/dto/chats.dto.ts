@@ -30,6 +30,7 @@ export const CHAT_MESSAGES_MAX_SAFE_SEQ = Number.MAX_SAFE_INTEGER;
 
 const SAFE_INTEGER_QUERY_PATTERN = /^(0|[1-9]\d*)$/;
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- parses a raw HTTP query-string value (string | undefined at the framework boundary, `unknown` because query values are untyped) into a safe integer or a `NaN` sentinel; the whole function body IS the validation, branching sequentially through undefined/null, `typeof number`, then a string-pattern regex -- no single first-use check to point at.
 function parseSafeIntegerQueryValue(value: unknown): number | null | undefined {
   if (value === undefined || value === null) {
     return value;

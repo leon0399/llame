@@ -60,6 +60,7 @@ export function canonicalize(value: unknown): CanonicalJsonValue {
   throw new TypeError(`Cannot canonicalize a value of type ${typeof value}.`);
 }
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `canonicalize` above, the actual recursive walker that dispatches on `Array.isArray`/`typeof`; this is a thin `JSON.stringify` wrapper around it, not a second boundary.
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalize(value));
 }

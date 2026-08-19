@@ -297,6 +297,7 @@ function unlistedToolCallResponse(
 function jsonToolCallResponse(
   toolCallId: string,
   toolName: string,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- deliberately accepts arbitrary/malformed caller input (see the doc comment above) to prove the AI SDK's own JSON-Schema validation rejects it before the executor runs; genuinely untyped by design, not an oversight.
   input: unknown,
 ): LanguageModelV3StreamResult {
   const chunks: LanguageModelV3StreamPart[] = [

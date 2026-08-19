@@ -27,12 +27,14 @@ function getAuthContext(context: ExecutionContext): AuthContext {
 }
 
 export const CurrentUser = createParamDecorator(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- mirrors NestJS's own `ParamDecoratorCallback` signature (`data: unknown` in `@nestjs/common`); this decorator ignores it, no domain type to accept.
   (_data: unknown, context: ExecutionContext): string => {
     return getAuthContext(context).userId;
   },
 );
 
 export const CurrentSession = createParamDecorator(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- mirrors NestJS's own `ParamDecoratorCallback` signature (`data: unknown` in `@nestjs/common`); this decorator ignores it, no domain type to accept.
   (_data: unknown, context: ExecutionContext): string => {
     return getAuthContext(context).sessionId;
   },

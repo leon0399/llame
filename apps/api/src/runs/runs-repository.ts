@@ -361,6 +361,7 @@ export class RunEventsRepository {
   async append(
     runId: string,
     eventType: RunEventType,
+    // eslint-disable-next-line anti-slop/no-unknown-parameters -- the run_events.payload JSONB column accepts a discriminated-union shape keyed by `eventType` (see RunEventType above); every caller (run-execution.service.ts's `enqueueEvent`) already constructs the correct literal shape before calling this -- the repository's job is the atomic INSERT, not re-validating what its caller already built.
     payload?: unknown,
   ): Promise<RunEvent> {
     const [created] = await this.db

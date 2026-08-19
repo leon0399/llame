@@ -98,6 +98,7 @@ export type McpTestFixture = {
     name: string,
     expectedValue: string,
   ): boolean;
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- type of the caller-supplied `predicate` callback parameter: the fixture records an arbitrary JSON request body and lets each call site define its own shape check, so there is no single validation to place at this type-declaration site.
   requestMatches(index: number, predicate: (body: unknown) => boolean): boolean;
   close(): Promise<void>;
 };

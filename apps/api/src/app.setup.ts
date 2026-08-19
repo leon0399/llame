@@ -10,6 +10,7 @@ export type AppSetupApplication = Pick<
   'enableCors' | 'useGlobalPipes'
 > & {
   getHttpAdapter: () => {
+    // eslint-disable-next-line anti-slop/no-unknown-parameters -- mirrors Express's own `app.set(key, value)` signature (`value: any` in `@types/express-serve-static-core`), narrowed to `unknown` here rather than widened to `any`.
     getInstance: () => { set: (key: string, value: unknown) => void };
   };
 };

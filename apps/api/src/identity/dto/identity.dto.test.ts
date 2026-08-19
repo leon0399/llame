@@ -9,10 +9,12 @@ import {
   UpdateOrgUnitDto,
 } from './identity.dto';
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- deliberately accepts arbitrary/malformed plain objects (see the `role: 'superuser'` / missing-`userId` cases below) to exercise GrantMembershipDto's real class-validator rules end to end; the boundary under test IS the validation, so no earlier check belongs here.
 const errorsFor = (obj: unknown) =>
   validateSync(plainToInstance(GrantMembershipDto, obj));
 
 describe('CreateOrgUnitDto', () => {
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- deliberately accepts arbitrary/malformed plain objects (see the `type: 'nope'` / `type: 'project'` cases below) to exercise CreateOrgUnitDto's real class-validator rules end to end; the boundary under test IS the validation.
   const errs = (obj: unknown) =>
     validateSync(plainToInstance(CreateOrgUnitDto, obj));
 
@@ -64,6 +66,7 @@ describe('GrantMembershipDto — D3 widened grantable roles', () => {
 });
 
 describe('ChangeMembershipRoleDto — same grantable set as GrantMembershipDto', () => {
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- deliberately accepts arbitrary/malformed plain objects (see the `role: 'service_account'` case below) to exercise ChangeMembershipRoleDto's real class-validator rules end to end; the boundary under test IS the validation.
   const errs = (obj: unknown) =>
     validateSync(plainToInstance(ChangeMembershipRoleDto, obj));
 
