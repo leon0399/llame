@@ -94,9 +94,41 @@ function isValidationCall(call: ESTree.CallExpression, parameterName: string): b
     !call.callee.computed &&
     call.callee.property.type === "Identifier"
   ) {
-    return call.callee.property.name === "parse" || call.callee.property.name === "safeParse";
+    const propertyName = call.callee.property.name;
+    if (propertyName === "parse" || propertyName === "safeParse") return true;
+    // `Array.isArray(x)` is TypeScript's own standard-library type guard
+    // (`lib.es5.d.ts` declares it `arg is any[]`) -- the same class as
+    // `typeof`/`instanceof`, not a codebase-specific pattern.
+    return (
+      propertyName === "isArray" &&
+      call.callee.object.type === "Identifier" &&
+      call.callee.object.name === "Array"
+    );
   }
   return false;
+}
+
+/**
+ * True when `node`'s `discriminant` makes it a validation of `parameterName`:
+ * `switch (typeof x) { ... }` (the switch-statement spelling of `typeof x ===
+ * ...`), or `switch (true) { case <test>: ... }` whose first case's test
+ * validates `parameterName` -- only that trivial, unambiguous shape; any
+ * other `switch (true)` case ordering or a `default`-first clause is skipped,
+ * not exempted.
+ */
+function switchStatementFirstUse(node: ESTree.SwitchStatement): ESTree.Expression | null {
+  if (node.discriminant.type === "UnaryExpression" && node.discriminant.operator === "typeof") {
+    return node.discriminant;
+  }
+  if (
+    node.discriminant.type === "Literal" &&
+    typeof node.discriminant.value === "boolean" &&
+    node.discriminant.value === true
+  ) {
+    const [firstCase] = node.cases;
+    if (firstCase !== undefined && firstCase.test !== null) return firstCase.test;
+  }
+  return null;
 }
 
 /**
@@ -116,6 +148,10 @@ function isValidationExpression(
   if (expression.type === "UnaryExpression" && expression.operator === "!") {
     return isValidationExpression(expression.argument, parameterName);
   }
+  // Bare `typeof x`, as it appears as a `switch (typeof x)` discriminant --
+  // the switch-statement spelling of the `typeof x === ...` comparison
+  // already handled below.
+  if (isTypeofOfParameter(expression, parameterName)) return true;
   if (expression.type === "CallExpression") return isValidationCall(expression, parameterName);
   if (expression.type === "BinaryExpression") {
     // `#x in obj` shares the "BinaryExpression" node type with `x in obj`
@@ -169,7 +205,74 @@ function firstUseExpression(node: ParameterOwner): ESTree.Expression | null {
   if (first.type === "VariableDeclaration" && first.declarations.length === 1) {
     return first.declarations[0].init;
   }
+  if (first.type === "SwitchStatement") return switchStatementFirstUse(first);
   return null;
+}
+
+function unwrapExportedDeclaration(
+  statement: ESTree.Statement,
+): ESTree.Statement | ESTree.Declaration {
+  if (statement.type === "ExportNamedDeclaration" && statement.declaration !== null) {
+    return statement.declaration;
+  }
+  if (
+    statement.type === "ExportDefaultDeclaration" &&
+    (statement.declaration.type === "FunctionDeclaration" ||
+      statement.declaration.type === "TSDeclareFunction")
+  ) {
+    return statement.declaration;
+  }
+  return statement;
+}
+
+/**
+ * For a body-less overload signature (`TSDeclareFunction` -- the node type
+ * every headless `function foo(...): T;` signature parses as, overload or
+ * ambient), find the adjacent implementation signature: the sibling
+ * declaration in the same scope with the same function name and an actual
+ * body. An overload signature having no body is a mechanical artifact of the
+ * declaration form, not a statement that its parameter is unvalidated, so its
+ * exemption is inherited from whichever signature actually implements it. If
+ * no matching sibling with a body exists (e.g. a genuinely ambient
+ * declaration), this returns null and the caller stays unexempted.
+ */
+function resolveOverloadImplementation(node: ParameterOwner): ESTree.Function | null {
+  if (node.type !== "TSDeclareFunction" || node.id === null) return null;
+  let container: ESTree.Node = node.parent;
+  if (container.type === "ExportNamedDeclaration" || container.type === "ExportDefaultDeclaration") {
+    container = container.parent;
+  }
+  if (
+    container.type !== "Program" &&
+    container.type !== "BlockStatement" &&
+    container.type !== "TSModuleBlock"
+  ) {
+    return null;
+  }
+  for (const statement of container.body) {
+    const declaration = unwrapExportedDeclaration(statement);
+    if (
+      (declaration.type === "FunctionDeclaration" || declaration.type === "TSDeclareFunction") &&
+      declaration.id !== null &&
+      declaration.id.name === node.id.name &&
+      declaration.body !== null
+    ) {
+      return declaration;
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether `parameterName` on `node` is exempted by `allowWhenImmediatelyValidated`:
+ * either `node` itself validates it as its first body use, or (for a
+ * body-less overload signature) the adjacent implementation signature does.
+ */
+function isImmediatelyValidated(node: ParameterOwner, parameterName: string): boolean {
+  if (isValidationExpression(firstUseExpression(node), parameterName)) return true;
+  const implementation = resolveOverloadImplementation(node);
+  if (implementation === null) return false;
+  return isValidationExpression(firstUseExpression(implementation), parameterName);
 }
 
 /** Disallow unknown inputs except explicitly named error-cause enrichment. */
@@ -221,9 +324,7 @@ export const noUnknownParametersRule = defineRule({
         if (name === "cause") continue;
         if (name === guardedName) continue;
         if (allowErrorFamilyNames && ERROR_FAMILY_NAMES.has(name)) continue;
-        if (allowWhenImmediatelyValidated && isValidationExpression(firstUseExpression(node), name)) {
-          continue;
-        }
+        if (allowWhenImmediatelyValidated && isImmediatelyValidated(node, name)) continue;
         context.report({
           node: annotation.typeAnnotation,
           messageId: "unknownParameter",

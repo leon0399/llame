@@ -45,6 +45,30 @@ tester.run("anti-slop/no-unknown-parameters", noUnknownParametersRule, {
       code: "function accept(value: unknown): boolean { return value instanceof Error; }",
       options: [{ allowWhenImmediatelyValidated: true }],
     },
+    // (a) `Array.isArray(x)` is a standard-library type guard, same class as
+    // `typeof`/`instanceof`.
+    {
+      code: "function accept(value: unknown): void { if (Array.isArray(value)) { use(value); } }",
+      options: [{ allowWhenImmediatelyValidated: true }],
+    },
+    // (b) `switch (typeof x)` is the switch-statement spelling of
+    // `typeof x === ...`.
+    {
+      code: "function accept(value: unknown): void { switch (typeof value) { case 'string': use(value); break; default: break; } }",
+      options: [{ allowWhenImmediatelyValidated: true }],
+    },
+    // (b) `switch (true)` whose first case tests the parameter -- the
+    // trivial, unambiguous shape only.
+    {
+      code: "function accept(value: unknown): void { switch (true) { case isRecord(value): use(value); break; default: break; } }",
+      options: [{ allowWhenImmediatelyValidated: true }],
+    },
+    // (c) An overload signature (no body of its own) inherits the adjacent
+    // implementation signature's verdict.
+    {
+      code: "function accept(value: unknown): void; function accept(value: unknown): void { if (isRecord(value)) { use(value); } }",
+      options: [{ allowWhenImmediatelyValidated: true }],
+    },
     // `allowErrorFamilyNames`: names beyond `cause` in the same family.
     {
       code: "function classify(error: unknown): string { return String(error); }",
@@ -120,6 +144,30 @@ tester.run("anti-slop/no-unknown-parameters", noUnknownParametersRule, {
       code: "function accept(value: unknown): void {}",
       options: [{ allowErrorFamilyNames: true }],
       errors: [error("value")],
+    },
+    {
+      // (a) A non-first `Array.isArray` doesn't count -- same "first use
+      // only" rule as every other validation shape.
+      code: "function accept(value: unknown): void { use(value); if (Array.isArray(value)) { use(value); } }",
+      options: [{ allowWhenImmediatelyValidated: true }],
+      errors: [error("value")],
+    },
+    {
+      // (b) `switch (true)` is only recognized when the *first* case tests
+      // the parameter -- a `default` (or any other) case first makes the
+      // shape ambiguous, so it is skipped, not exempted.
+      code: "function accept(value: unknown): void { switch (true) { default: break; case isRecord(value): use(value); break; } }",
+      options: [{ allowWhenImmediatelyValidated: true }],
+      errors: [error("value")],
+    },
+    {
+      // (c) An overload whose implementation does NOT validate the
+      // parameter is still flagged -- at both the overload signature and
+      // the implementation, since neither has a genuine first-use
+      // validation.
+      code: "function accept(value: unknown): void; function accept(value: unknown): void { use(value); }",
+      options: [{ allowWhenImmediatelyValidated: true }],
+      errors: [error("value"), error("value")],
     },
   ],
 });

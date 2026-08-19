@@ -32,17 +32,29 @@ The base of this directory is vendored from
   from it.
   - `allowWhenImmediatelyValidated`: exempts a parameter whose first use in
     the function body validates that same parameter -- a type-guard call
-    (`isFoo(value)`), a `typeof`/`instanceof` narrowing check, or a schema
-    parse (`Schema.parse(value)` / `.safeParse(value)`), optionally wrapped
-    in a negation. The rule's own message instructs callers to "run the
-    expected schema or parser at the I/O boundary before calling this
-    function"; when the function itself immediately does exactly that, it
-    satisfies the rule's intent rather than violating it. Deliberately
-    conservative: an undetermined first use (no body, empty body, or an
-    unrecognized first-statement shape) is never exempted, so false
-    negatives (still flagged, needing a per-site disable) are expected and
-    acceptable, but a false positive (silently exempting genuinely
-    unvalidated input) is not.
+    (`isFoo(value)`, `Array.isArray(value)`), a `typeof`/`instanceof`
+    narrowing check (including the switch-statement spellings
+    `switch (typeof value)` and a trivial `switch (true) { case <test>: ... }`
+    whose first case tests the parameter), a schema parse
+    (`Schema.parse(value)` / `.safeParse(value)`), optionally wrapped in a
+    negation -- or, for a body-less overload signature (which has no body of
+    its own to inspect), the verdict of the adjacent implementation
+    signature with the same function name. `Array.isArray` and `switch`
+    widenings are universally correct TypeScript/JS semantics (TypeScript's
+    own `lib.es5.d.ts` declares `Array.isArray` a type guard; a `switch` is
+    the same check as its `if`/`===` spelling), not codebase-specific
+    heuristics; the overload-signature widening is a mechanical artifact of
+    the declaration form (an overload's `TSDeclareFunction` node has no body
+    by construction), not a statement about the parameter's safety. The
+    rule's own message instructs callers to "run the expected schema or
+    parser at the I/O boundary before calling this function"; when the
+    function itself immediately does exactly that, it satisfies the rule's
+    intent rather than violating it. Deliberately conservative: an
+    undetermined first use (no body, empty body, an unrecognized
+    first-statement shape, or an unresolvable overload implementation) is
+    never exempted, so false negatives (still flagged, needing a per-site
+    disable) are expected and acceptable, but a false positive (silently
+    exempting genuinely unvalidated input) is not.
   - `allowErrorFamilyNames`: extends the rule's own `cause` carve-out to the
     rest of the error family -- `error`, `err`, `reason` -- covering
     error-classification helpers and catch bindings that inspect an unknown
