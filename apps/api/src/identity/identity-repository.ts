@@ -72,7 +72,7 @@ export class OrgUnitsRepository {
         type: input.type ?? 'organization',
         path: rootPath(id),
         createdBy: input.createdBy,
-        ...(input.settings ? { settings: input.settings } : {}),
+        ...(input.settings && { settings: input.settings }),
       })
       .returning();
     return created;
@@ -97,10 +97,10 @@ export class OrgUnitsRepository {
         id,
         parentId: input.parent.id,
         name: input.name,
-        ...(input.type ? { type: input.type } : {}),
+        ...(input.type && { type: input.type }),
         path: childPath(input.parent.path, id),
         createdBy: input.createdBy,
-        ...(input.settings ? { settings: input.settings } : {}),
+        ...(input.settings && { settings: input.settings }),
       })
       .returning();
     return created;
