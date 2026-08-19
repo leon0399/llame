@@ -93,12 +93,12 @@ describe('MCP Streamable HTTP test fixture', () => {
   it('refuses protocol revisions outside the supported session-capable range', () => {
     expect(() =>
       mcpStreamableHttpInitialize({
-        protocolVersion: '2026-07-28' as never,
+        protocolVersion: '2026-07-28',
       }),
     ).toThrow('unsupported Streamable HTTP protocol version');
     expect(() =>
       mcpStreamableHttpInitialize({
-        protocolVersion: '2024-11-05' as never,
+        protocolVersion: '2024-11-05',
       }),
     ).toThrow('unsupported Streamable HTTP protocol version');
   });

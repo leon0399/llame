@@ -12,7 +12,7 @@ import { type z } from 'zod';
 
 import { type JsonSchemaDocument } from './types';
 
-function isZodSchema(
+export function isZodSchema(
   schema: z.ZodTypeAny | JsonSchemaDocument,
 ): schema is z.ZodTypeAny {
   if (

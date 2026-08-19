@@ -9,6 +9,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `string`, so `node.type === 'X'` alone never narrows `node` itself; four
   new local type-predicate functions replace the check-then-cast pattern
   used across the prompt-file Handlebars AST validator. No behavior change.
+- Removed all 17 `typescript/no-unsafe-type-assertion` findings across the
+  tools/MCP cluster (`turn-tool-catalog.ts`, `runner.ts`,
+  `worker-mode.integration.test.ts`, `mcp-stdio-server-client.test.ts`,
+  `mcp-test-fixture.test.ts`, `turn-tool-catalog.test.ts`,
+  `search-conversations.test.ts`). Repair idioms: a widening cast replacing
+  a narrowing one; `runner.ts` now fails a malformed tool argument closed
+  instead of casting past the type system; the `T | (string & {})`
+  branded-string idiom widening a test fixture's own options type for
+  negative testing; a newly-exported `isZodSchema` guard. Native inventory
+  falls from 111/48 to 94/41.
 - Removed all 23 `typescript/no-unsafe-type-assertion` findings across the
   runs/ cluster (`run-queues.ts`, `run-stream-bridge.ts`,
   `worker-harness.ts`, `effective-context-resolver.test.ts`,

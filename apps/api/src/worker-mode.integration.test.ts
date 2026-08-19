@@ -24,6 +24,8 @@ import { MessagesRepository } from './chats/chats-repository';
 import { RunEventsRepository, RunsRepository } from './runs/runs-repository';
 import { ModelsService } from './models/models.service';
 import { cookieOf, FakeStreamingModelClient } from './testing/support';
+import { isRecord } from './unknown-record';
+import { z } from 'zod';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
@@ -113,7 +115,7 @@ class FakeModelsService {
 }
 
 d('queue-executed runs behind the stream bridge', () => {
-  let app: INestApplication;
+  let app: INestApplication<import('http').Server>;
   let http: import('http').Server;
   let models: FakeModelsService;
   let tenantDb: TenantDbService;
@@ -150,7 +152,7 @@ d('queue-executed runs behind the stream bridge', () => {
     app = mod.createNestApplication();
     configureApp(app);
     await app.init();
-    http = app.getHttpServer() as import('http').Server;
+    http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
 
     const res = await request(http)
@@ -162,7 +164,15 @@ d('queue-executed runs behind the stream bridge', () => {
       });
     expect(res.status).toBe(201);
     cookie = cookieOf(res);
-    userId = (res.body as { user: { id: string } }).user.id;
+    const body: unknown = res.body;
+    if (
+      !isRecord(body) ||
+      !isRecord(body.user) ||
+      typeof body.user.id !== 'string'
+    ) {
+      throw new Error('Expected register response with user.id');
+    }
+    userId = body.user.id;
   });
 
   afterAll(async () => {
@@ -196,10 +206,9 @@ d('queue-executed runs behind the stream bridge', () => {
     expect(res.headers['content-type']).toContain('text/event-stream');
     expect(res.headers['x-vercel-ai-ui-message-stream']).toBe('v1');
 
-    const chunks = sseData(res.text) as Array<{
-      type: string;
-      delta?: string;
-    }>;
+    const chunks = z
+      .array(z.object({ type: z.string(), delta: z.string().optional() }))
+      .parse(sseData(res.text));
     expect(chunks.map((c) => c.type)).toEqual([
       'start',
       'text-start',
@@ -367,14 +376,23 @@ d('queue-executed runs behind the stream bridge', () => {
     );
 
     // Hand-craft a non-terminal run occupying the single-flight slot.
+    const {
+      messageId: seededMessageId,
+      modelContextSnapshotId: seededSnapshotId,
+    } = seededRun;
+    if (seededMessageId === null || seededSnapshotId === null) {
+      throw new Error(
+        'Expected the seeded run to carry a message and snapshot id',
+      );
+    }
     const blocker = await tenantDb.runAs(userId, async (tx) => {
       const repo = new RunsRepository(tx);
       const run = await repo.create({
         chatId,
-        messageId: seededRun.messageId as string,
+        messageId: seededMessageId,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-        modelContextSnapshotId: seededRun.modelContextSnapshotId as string,
+        modelContextSnapshotId: seededSnapshotId,
       });
       await repo.markStarted(run.id, userId);
       return run;
@@ -445,10 +463,9 @@ d('queue-executed runs behind the stream bridge', () => {
       .set('Cookie', cookie);
     expect(resumed.status).toBe(200);
     expect(resumed.headers['x-vercel-ai-ui-message-stream']).toBe('v1');
-    const chunks = sseData(resumed.text) as Array<{
-      type: string;
-      delta?: string;
-    }>;
+    const chunks = z
+      .array(z.object({ type: z.string(), delta: z.string().optional() }))
+      .parse(sseData(resumed.text));
     expect(chunks.map((c) => c.type)).toEqual([
       'start',
       'text-start',

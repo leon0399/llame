@@ -322,26 +322,31 @@ describe('composeTurnToolCatalog', () => {
       ],
     });
 
-    expect(catalog.manifest).toEqual({
-      version: 1,
-      entries: [
-        {
-          id: 'a_tool',
-          state: 'available',
-          declarationHash: expect.stringMatching(/^[0-9a-f]{64}$/) as string,
-        },
-        {
-          id: 'protocol_tool',
-          state: 'unavailable',
-          reason: 'protocol_unsupported',
-        },
-        {
-          id: 'z_tool',
-          state: 'available',
-          declarationHash: expect.stringMatching(/^[0-9a-f]{64}$/) as string,
-        },
-      ],
-    });
+    expect(catalog.manifest.version).toBe(1);
+    expect(
+      catalog.manifest.entries.map((entry) =>
+        entry.state === 'available'
+          ? { id: entry.id, state: entry.state }
+          : entry,
+      ),
+    ).toEqual([
+      { id: 'a_tool', state: 'available' },
+      {
+        id: 'protocol_tool',
+        state: 'unavailable',
+        reason: 'protocol_unsupported',
+      },
+      { id: 'z_tool', state: 'available' },
+    ]);
+    const [aToolEntry, , zToolEntry] = catalog.manifest.entries;
+    if (
+      aToolEntry?.state !== 'available' ||
+      zToolEntry?.state !== 'available'
+    ) {
+      throw new Error('Expected a_tool and z_tool available');
+    }
+    expect(aToolEntry.declarationHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(zToolEntry.declarationHash).toMatch(/^[0-9a-f]{64}$/);
     expect(catalog.admitted.map(({ declaration }) => declaration.id)).toEqual([
       'a_tool',
       'z_tool',
@@ -386,15 +391,22 @@ describe('composeTurnToolCatalog', () => {
       ],
     });
 
-    expect(catalog.manifest.entries).toEqual([
+    expect(
+      catalog.manifest.entries.map((entry) =>
+        entry.state === 'available'
+          ? { id: entry.id, state: entry.state }
+          : entry,
+      ),
+    ).toEqual([
       { id: 'Search', state: 'unavailable', reason: 'name_collision' },
-      {
-        id: 'safe',
-        state: 'available',
-        declarationHash: expect.stringMatching(/^[0-9a-f]{64}$/) as string,
-      },
+      { id: 'safe', state: 'available' },
       { id: 'search', state: 'unavailable', reason: 'name_collision' },
     ]);
+    const [, safeEntry] = catalog.manifest.entries;
+    if (safeEntry?.state !== 'available') {
+      throw new Error('Expected safe available');
+    }
+    expect(safeEntry.declarationHash).toMatch(/^[0-9a-f]{64}$/);
     expect(catalog.admitted.map(({ declaration }) => declaration.id)).toEqual([
       'safe',
     ]);

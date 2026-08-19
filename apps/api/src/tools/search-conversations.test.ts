@@ -6,6 +6,7 @@ import { ChatsRepository } from '../chats/chats-repository';
 import * as schema from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { searchConversationsTool } from './search-conversations';
+import { isZodSchema } from './schema-utils';
 import { type ToolContext } from './types';
 
 /**
@@ -47,8 +48,10 @@ describe('search_conversations', () => {
 
   it('is read-only and takes only query/limit from the model', () => {
     expect(searchConversationsTool.classification).toBe('read_only');
-    const schema =
-      searchConversationsTool.inputSchema as import('zod').ZodTypeAny;
+    const schema = searchConversationsTool.inputSchema;
+    if (!isZodSchema(schema)) {
+      throw new Error('Expected a Zod input schema');
+    }
     expect(schema.parse({ query: 'hi' })).toEqual({
       query: 'hi',
       limit: 5,

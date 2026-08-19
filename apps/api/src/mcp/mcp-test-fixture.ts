@@ -40,7 +40,10 @@ export type McpStreamableHttpProtocolVersion =
   (typeof MCP_STREAMABLE_HTTP_PROTOCOL_VERSIONS)[number];
 
 type McpStreamableHttpInitializeOptions = {
-  readonly protocolVersion?: McpStreamableHttpProtocolVersion;
+  // Widened (not just the supported literals) so a fixture caller can
+  // exercise the runtime rejection of an unsupported version — this
+  // function validates the value at runtime regardless of its static type.
+  readonly protocolVersion?: McpStreamableHttpProtocolVersion | (string & {});
   readonly sessionId?: string;
 };
 
