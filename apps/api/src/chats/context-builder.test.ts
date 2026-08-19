@@ -1342,6 +1342,7 @@ describe('buildContext', () => {
 
       Object.defineProperty(JSON, 'stringify', {
         ...stringifyDescriptor,
+        // eslint-disable-next-line anti-slop/no-unknown-parameters -- monkey-patches JSON.stringify for test instrumentation; mirrors its own `(value: any, ...) => string` signature narrowed to `unknown`, and forwards straight to the real `originalStringify` below.
         value: (value: unknown) => {
           if (Array.isArray(value) && value.length > 2) {
             wholeProjectionSerializations += 1;

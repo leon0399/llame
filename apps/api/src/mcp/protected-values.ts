@@ -32,6 +32,7 @@ function containsProtectedString(
   );
 }
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `value === null || typeof value === 'boolean'` below -- two checks combined with `||`, a shape the structural exemption's single-check parse doesn't cover; this scalar-classification helper is one branch of the recursive JSON walker below.
 function canonicalJsonScalar(value: unknown): string | undefined {
   if (value === null || typeof value === 'boolean') {
     return JSON.stringify(value);
@@ -91,6 +92,7 @@ export function redactProtectedString(
  * before executing tool arguments, where redaction would silently alter intent.
  */
 export function containsProtectedValueJson(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- thin public wrapper delegating straight into `containsNormalizedProtectedValueJson` below (which validates via `typeof value === 'string'` as its own first use); this function's first use is a bare-identifier delegation call, not itself a validating check.
   value: unknown,
   protectedValues: readonly string[],
 ): boolean {
@@ -132,6 +134,7 @@ function containsNormalizedProtectedValueJson(
  * fails closed and deliberately returns no key or payload.
  */
 export function sanitizeProtectedValueJson(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- thin public wrapper delegating straight into `sanitizeNormalizedProtectedValueJson` below (which validates via `typeof value === 'string'` as its own first use); this function's first use is a bare-identifier delegation call, not itself a validating check.
   value: unknown,
   protectedValues: readonly string[],
 ): ProtectedValueSanitizationResult {

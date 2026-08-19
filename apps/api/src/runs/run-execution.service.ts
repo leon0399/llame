@@ -241,6 +241,7 @@ export function createAssistantPartCollector() {
 function toolActivityPart(
   toolCallId: string,
   toolName: string,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- persisted verbatim into the tool-observation record's `input` field; each tool's actual argument shape is validated separately at the AI SDK / MCP boundary before this function ever runs (see the `tool({ execute })` callback below) -- this just records what was already admitted.
   input: unknown,
   result: ToolResult,
 ): ToolActivityPart {
@@ -268,10 +269,12 @@ function toolActivityPart(
       };
 }
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the ternary test `isRecord(payload)` below -- an `isXxx`-named guard call, but as a ternary test rather than an `if`/`return`-of-boolean, a shape the structural exemption doesn't unwrap.
 function eventPayloadField(payload: unknown, key: string) {
   return isRecord(payload) ? payload[key] : undefined;
 }
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `eventPayloadField` above, which validates via `isRecord(payload)` as its own ternary test; bare-identifier delegation, not itself a validating call.
 function eventPayloadString(payload: unknown, key: string): string | undefined {
   const value = eventPayloadField(payload, key);
   return typeof value === 'string' ? value : undefined;
@@ -735,6 +738,7 @@ export class RunExecutionService {
     const assistantPartCollector = createAssistantPartCollector();
     let deltaWrites: Promise<void> = Promise.resolve();
     let progressWriteFailed = false;
+    // eslint-disable-next-line anti-slop/no-unknown-parameters -- generic run-event payload dispatcher: shape depends on `eventType` (a discriminated union `RunEventsRepository.append` accepts), and every call site below already constructs the correct literal shape (see `persistDelta`/`persistReasoning`/`recordToolRequested`); this is the single serialization chokepoint, not a validation boundary.
     const enqueueEvent = (eventType: RunEventType, payload: unknown) => {
       deltaWrites = deltaWrites.then(async () => {
         const recorded = await this.recordRunProgress(
@@ -811,6 +815,7 @@ export class RunExecutionService {
     const recordToolRequested = (
       toolCallId: string,
       toolName: string,
+      // eslint-disable-next-line anti-slop/no-unknown-parameters -- the AI SDK's own inputSchema validation (`toFlexibleSchema`, wired into `tool({...})` below) already ran before this callback fires; `toolInput` here is that already-admitted, per-tool-schema-shaped value forwarded for durable recording.
       toolInput: unknown,
     ) => {
       openToolCalls.set(toolCallId, { toolName, toolInput });
@@ -832,6 +837,7 @@ export class RunExecutionService {
     const recordToolCompleted = (
       toolCallId: string,
       toolName: string,
+      // eslint-disable-next-line anti-slop/no-unknown-parameters -- same rationale as `recordToolRequested` above: the AI SDK's inputSchema validation already ran before this value ever reaches either function.
       toolInput: unknown,
       result: ToolResult,
     ) => {
@@ -890,6 +896,7 @@ export class RunExecutionService {
           description: declaration.description,
           inputSchema: toFlexibleSchema(declaration.inputSchema)!,
           execute: async (
+            // eslint-disable-next-line anti-slop/no-unknown-parameters -- mirrors the AI SDK's own `tool({ execute })` callback signature; `args` is validated against `declaration.inputSchema` (`toFlexibleSchema` above) by the SDK itself before this executor is invoked -- the boundary parse already happened one frame up, inside the SDK.
             args: unknown,
             { toolCallId }: { toolCallId: string },
           ) => {

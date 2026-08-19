@@ -107,9 +107,11 @@ function resolveLiveEvalConfig(): LiveEvalConfigResolution {
   };
 }
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- accepts whatever the MCP eval captured (console args, tool output, thrown errors) purely to stringify it for diagnostics; there is no domain type to parse into.
 function inspectableJson(value: unknown): string {
   try {
     return (
+      // eslint-disable-next-line anti-slop/no-unknown-parameters -- mirrors JSON.stringify's own replacer signature (`(key: string, value: any) => any` in lib.es5.d.ts), narrowed to `unknown`.
       JSON.stringify(value, (_key, item: unknown) =>
         item instanceof Error
           ? { name: item.name, message: item.message, cause: item.cause }
@@ -121,6 +123,7 @@ function inspectableJson(value: unknown): string {
   }
 }
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- forwards directly to `inspectableJson` above for credential-leak scanning; same rationale, no domain type to parse into.
 function assertCredentialAbsent(value: unknown, credential: string): void {
   if (inspectableJson(value).includes(credential)) {
     throw new Error('A credential escaped the MCP adapter boundary.');
@@ -177,6 +180,7 @@ function assertStringQueryField(tool: McpDiscoveredTool, field: string): void {
 }
 
 function assertCurrentSourcedEvidence(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- the MCP tool's raw output, forwarded to `inspectableJson` for evidence-substring inspection; the eval treats it as opaque diagnostic text, not a domain value.
   output: unknown,
   expectedUtcDate: string,
 ): void {

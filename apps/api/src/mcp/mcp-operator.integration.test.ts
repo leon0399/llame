@@ -62,6 +62,7 @@ const RECONNECTED_SESSION_SENTINEL = 'api-reconnected-session-sentinel';
 
 type SqlClient = ReturnType<typeof postgres>;
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- test fixture helper: builds an arbitrary fake JSON-RPC 2.0 `result` payload embedded verbatim in the response body, so each call site controls its shape to simulate a different MCP server response.
 const rpcResult = (id: number, result: unknown): McpFixtureResponse => ({
   kind: 'json',
   body: { jsonrpc: '2.0', id, result },

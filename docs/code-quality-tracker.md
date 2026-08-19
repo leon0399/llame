@@ -104,93 +104,78 @@ historical publication record of stack #369.
 
 ## Current submission
 
-`no-unknown-parameters` is **partially landed, rule NOT yet enabled** —
-branches `quality/unknown-parameters-mechanical` (5 findings fixed) stacked
-on `quality/unknown-parameters-rule-patch` (vendored rule patch, see the
-`anti-slop` rule-qualification table below), in turn stacked on
-`quality/conditional-empty-object-spread-flip`. Fresh count: 135
-findings/58 files (queued baseline 142/64 was close-but-stale, as usual).
+`no-unknown-parameters` **closes out**, enabled at error with a third
+vendored rule patch and 52 per-site disables, on branches
+`quality/unknown-parameters-options-patch` (options schema) and its
+remediation/flip layer, stacked on `quality/unknown-parameters-mechanical`
+(5 findings fixed) → `quality/unknown-parameters-rule-patch` (type-predicate
+patch) → `quality/conditional-empty-object-spread-flip`.
 
-**Vendored rule patch** (second local correctness patch, after
-`no-chained-type-assertions`'s `TSNonNullExpression` fix): exempts a type
-predicate's own subject parameter (`function isFoo(value: unknown): value is
-Foo`) — TypeScript requires that parameter to stay `unknown` for the guard
-to be sound, no narrower type satisfies it, mirroring upstream's own `cause`
-carve-out for the identical structural reason. Only the parameter the
-predicate names is exempted, not every `unknown` parameter in the same
-signature. RuleTester regression added (`no-unknown-parameters.test.ts`),
-documented in `UPSTREAM.md`. Effect: 135 → 108, all 27 resolved sites
-confirmed as genuine `value is T` (including `asserts value is T`) subjects
-via rescan.
+**Vendored rule patch #2** (type predicate subject exemption): exempts a
+type predicate's own subject parameter (`function isFoo(value: unknown):
+value is Foo`) — TypeScript requires that parameter to stay `unknown` for
+the guard to be sound, no narrower type satisfies it, mirroring upstream's
+own `cause` carve-out for the identical structural reason. Effect: 135 →
+108.
 
 **Mechanical fixes (A: 4, B: 1), landed**: `mcp-server-client.ts`'s
 `jsonResponse(message)` → `UnknownRecord | null`; `turn-telemetry.ts`'s
 `tokenCount`/`optionalTokenCount(value)` → `number | undefined`;
 `fork-chat.integration.test.ts`'s `textOf(parts)` → `unknown[]`;
 `context-builder.test.ts`'s `typedContentParts(content)` →
-`ModelMessage['content']`. Every site: every call site already passed (or
-the schema/SDK already declared) a narrower type — `unknown` was simply
-unwritten. 108 → 103. `pnpm --filter api lint`/`typecheck` clean, unit
-1153/1153, full `test:integration` 348/351 (3 pre-existing skips).
+`ModelMessage['content']`. 108 → 103.
 
-**Category C (92 sites): PARKED for Leo, not committed.** D1/D2 (catch
-handlers, 11 sites) are also held — see below. The remaining 92 findings are
-all boundary/type-classification functions where `unknown` is arguably the
-_honest_ type, not slop: type guards without a literal `is T` predicate
-(booleans/parsers the guard idiom doesn't syntactically cover), recursive
-walkers over untrusted external JSON, and accessors over Drizzle columns
-that are only compile-time-typed (`.$type<T>()` is not runtime-validated).
-77% of this rule's post-patch findings falling into "needs a suppression,
-not a fix" is itself a signal worth Leo's judgment before committing 92
-one-line disables — not a call for either of us to make solo at 4am. Full
-sub-class breakdown, verified against the current 103-finding rescan (not
-just the earlier 135-finding taxonomy, which included since-patched sites):
+**Vendored rule patch #3** (options schema, mirrors `no-runtime-typeof`'s
+`allowInTypeGuards` shape): two booleans, both default `false`.
+`allowWhenImmediatelyValidated` exempts a parameter whose first body use
+validates that same parameter — a type-guard call (`isFoo(x)`,
+`Array.isArray(x)`), a `typeof`/`instanceof` check (including the
+switch-statement spellings `switch (typeof x)` and a trivial
+`switch (true) { case <test>: ... }`), a schema parse (`Schema.parse`/
+`.safeParse`), or — for a body-less overload signature — the adjacent
+implementation signature's verdict. Deliberately conservative: an
+undetermined first use is never exempted (false negatives, needing a manual
+disable, are acceptable; false positives are not). `allowErrorFamilyNames`
+extends the rule's own hardcoded `cause` carve-out to `error`/`err`/`reason`
+— a fixed 3-name set gated by one boolean, not an open allowlist, so it
+can't be incrementally widened into a rubber stamp. RuleTester regression
+covers both options' exempted and still-flagged (negative) cases.
+Documented in `UPSTREAM.md` as the third local divergence. Measured effect
+against the full `src/` + `evals/` tree: baseline 103 → 55 (both options) →
+52 (after the switch/`Array.isArray`/overload widenings); isolated,
+`allowWhenImmediatelyValidated` alone resolves 22, `allowErrorFamilyNames`
+alone resolves 33 (7 overlap).
 
-| Sub-class                                                                                                                 |  Count | Representative files                                                                                                                                                                                                                                                         |
-| ------------------------------------------------------------------------------------------------------------------------- | -----: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Recursive JSON/schema walkers over untrusted external data                                                                |     18 | `canonical-json.ts` (3), `mcp/declaration-admission.ts` (6), `mcp/protected-values.ts` (5), `tools/result-truncation.ts`+`.test.ts` (2), `mcp-server-client.ts`'s `serializedBytes`/`exceedsDepth` (2)                                                                       |
-| Persisted-JSONB-column readers (Drizzle `.$type<T>()` is compile-time-only, not runtime-validated)                        |     17 | `chats/tool-observation-part.ts` (6), `runs/run-stream-bridge.ts` (3), `runs/run-execution.service.ts`'s payload family (3), `runs/runs-repository.ts` (2), `compaction/compaction.ts`+integration test (3)                                                                  |
-| Named error-classification helpers called _from_ a catch block, not themselves the catch binding                          |     18 | `mcp-server-client.ts`'s error-chain family (6), 4x duplicated `pgErrorCode`/`isUniqueViolation`/`isConcurrentTreeChange` (identity/auth/pins/chats services), `mcp-runtime.service.ts`, `prompt-loader.ts`, `instance-config/interpolation.test.ts`+`config-loader.test.ts` |
-| Per-tool/per-schema arbitrary-argument boundaries (MCP wire protocol, AI SDK dynamic tool schema, queue payload contract) |     17 | `mcp-server-client.ts` (3), `runs/run-execution.service.ts`'s tool-io family (4), `tools/schema-utils.ts` (4), `tools/runner.ts`, `chats/dto/chats.dto.ts`, `queue/queue.ts` (3), `tools/turn-tool-catalog.ts`                                                               |
-| Library-signature-mirroring parameters (deliberately narrows an upstream `any` default to `unknown`)                      |      7 | `auth/auth-context.ts`'s Nest decorator factories (2), `app.setup.ts` (Express `.set`), `models/fake-model-client.ts`+`mcp-runtime.service.test.ts` (Promise `reject`, 3), eval test's `JSON.stringify` replacer                                                             |
-| Test fixtures fabricating arbitrary/deliberately-invalid input                                                            |     15 | `evals/mcp-web-search-eval.test.ts` (3), `mcp-server-client.test.ts` (2), `mcp/mcp-test-fixture.ts` (3), `identity/dto/identity.dto.test.ts` (3), plus 4 single-site integration/unit tests                                                                                  |
-| **Total**                                                                                                                 | **92** |                                                                                                                                                                                                                                                                              |
+**Remaining 52: per-site inline disables, each with a specific reason** (not
+copy-pasted boilerplate — every comment names what validates the value or
+which contract it mirrors). By justification class:
 
-**D1/D2 (11 sites) also held — not a judgment call, a mechanical blocker.**
-Confirmed empirically: `--report-unused-disable-directives` flags any
-`eslint-disable-next-line anti-slop/no-unknown-parameters` comment as
-unused while the rule isn't enabled — so D1/D2 can't land as a standalone
-commit any more than C can. They're ready to apply (9 pass-through
-`.catch()` sites → suppress; 2 inspected-but-not-wrapped-as-`cause`
-sites, `turn-telemetry.ts`'s `onError` field and `tools/runner.ts`'s
-`withAbort` rejection handler → suppress, not rename, since neither wraps
-the value into an actual Error `cause`) the moment the flip is unblocked.
+| Class                                                                                                    | Count | Representative sites                                                                                                |
+| --------------------------------------------------------------------------------------------------------- | ----: | --------------------------------------------------------------------------------------------------------------------- |
+| Compound guard (`&&`/`\|\|` combining two checks) — a shape the structural exemption's single-check parse doesn't cover | 8 | `mcp-server-client.ts`'s `hasPortableMcpResultPayload`, `protected-values.ts`'s `canonicalJsonScalar`, `tool-observation-part.ts`'s `isCancelledMetadata`, `schema-utils.ts`'s `addDraft07HttpsMetaSchemaAlias`, `declaration-admission.ts`'s `safeRefusalId` |
+| Ternary-test validation — the check is the ternary's test, unwrapped shape not parsed                     |     8 | `run-execution.service.ts`'s `eventPayloadField`, `tool-observation-part.ts`'s `normalizeToolObservationOutcome`, `mcp-server-client.ts`'s `matchingRpcResponse`, `compactions.integration.test.ts`'s `contentText` |
+| Bare-identifier delegation to an already-validating sibling/parser (`parseXxx(value)`, not `.parse`/`isXxx`-shaped) | 9 | `canonical-json.ts`'s `canonicalJson`, `protected-values.ts`'s two public wrappers, `tool-observation-part.ts`'s two ledger builders, `run-stream-bridge.ts`'s `payloadString`/`payloadNumber`, `run-execution.service.ts`'s `eventPayloadString` |
+| Per-tool/per-schema arbitrary-argument boundaries (AI SDK / MCP wire protocol / queue payload contract)   |     8 | `mcp-server-client.ts`'s `McpToolExecutor`, `run-execution.service.ts`'s tool-io + `enqueueEvent` family (4), `runs-repository.ts`'s `append`, `queue/queue.ts`'s `parse` slot (2) |
+| Library-signature-mirroring (narrows an upstream `any`/generic parameter to `unknown`)                    |     6 | `auth-context.ts`'s Nest decorator factories (2), `app.setup.ts` (Express `.set`), `run-execution.service.ts`'s `tool({ execute })` callback, `schema-utils.ts`'s `JsonSchemaValidator` type, `mcp-test-fixture.ts`'s predicate callback |
+| Recursive JSON walker or its own scalar/depth classifier — the function IS the boundary, dispatch isn't a single first-use check | 3 | `mcp-server-client.ts`'s `serializedBytes`/`exceedsDepth`, `run-execution.service.ts`'s `toolActivityPart`                                                                                                                              |
+| Validated, but not as the function's *first* statement (real checks precede it)                          |     2 | `tools/runner.ts`'s `runTool` (`safeParseArgs` fires after 3 guard clauses), `schema-utils.ts`'s `safeParseArgs` (checks `schema`'s type before `args`)                                                                              |
+| Named validator with a non-matching naming convention (`validate(x)`, not `isXxx`)                        |     1 | `schema-utils.ts`'s `compileJsonSchemaValidator`'s inner `validate:`                                                                                                                                                                    |
+| Test fixture: deliberately arbitrary/invalid input, exercising real downstream validation                 |     7 | `evals/mcp-web-search-eval.test.ts` (4), `identity.dto.test.ts` (3, one per DTO)                                                                                                                                                        |
+| Test fixture: fake wire-protocol/JSON-serialization payload, caller controls shape by design               |     6 | `mcp-server-client.test.ts` (2), `mcp-operator.integration.test.ts`, `context-builder.test.ts`, `chats-rls.integration.test.ts`, `run-execution-tools.integration.test.ts`                                                            |
+| Opaque forward, several calls deep, into an already-validating boundary                                    |     1 | `compaction.ts`'s `estimateContextTokens`'s `previousToolObservationLedger`                                                                                                                                                             |
+| **Total**                                                                                                  |**52** |                                                                                                                                                                                                                                          |
 
-**Options for Leo on category C** (present all three, not a recommendation):
+D1/D2 (the 11 catch-handler sites from the earlier taxonomy) needed **zero**
+manual disables — `allowErrorFamilyNames` resolved all of them, including
+both explicitly named cases (`turn-telemetry.ts`'s `onError` field and
+`tools/runner.ts`'s `withAbort` rejection handler, both parameter named
+`error`), confirmed against the full-tree scan rather than assumed.
 
-1. **Accept 92 per-site disables.** Tracker's own adoption policy for this
-   rule already anticipated per-site suppressions ("only immediate
-   validation may retain a local suppression with a specific explanation")
-   — maximally auditable, but heavy comment noise and a per-new-boundary
-   tax on every future PR that adds one of these patterns.
-2. **A second surgical rule patch** for whichever sub-classes above have a
-   clean syntactic signature, no heuristics needed. Candidates: the
-   error-classification-helper class (18) has no reliable syntactic marker
-   (a function "called from a catch block" isn't visible to the rule
-   without call-graph analysis — NOT patchable cleanly); the
-   library-mirroring class (7) similarly has no syntactic tell distinguishing
-   it from ordinary slop. Neither looks patchable without heuristics that
-   would themselves need scrutiny. The walker/boundary-parser classes (18 +
-   17 + 17 = 52) are the ones actually reachable by a syntactic rule (e.g.
-   "recursive self-referential function over `unknown`"), but that starts
-   to look like reverse-engineering the specific codebase into the rule
-   rather than fixing a genuine rule defect — a materially different kind
-   of patch than the type-predicate one, worth Leo's explicit sign-off
-   before attempting.
-3. **Documented partial adoption.** Rule stays off; tracker row explains
-   the 92/103 (89%) miscalculation-shaped gap and links this breakdown;
-   revisit if/when upstream evolves the rule. Honest, but leaves one of the
-   15 target rules permanently unshipped rather than merely delayed.
+Repair evidence: `pnpm --filter api lint`/`typecheck` clean (rule enabled,
+`--report-unused-disable-directives` confirms every disable fires on a real
+finding), unit 1153/1153, full `test:integration` 348/351 (3 pre-existing
+skips). Root `pnpm lint`/`lint:anti-slop` (tsc + both RuleTester suites)
+clean.
 
 `no-conditional-empty-object-spread` closes out (branch
 `quality/conditional-empty-object-spread-flip`, stacked on four remediation
@@ -409,7 +394,7 @@ files:
 - **`openai-model-client.ts`**: `createOpenAIModelClient(config,
 dependencies?: {createOpenAI, streamText})`, both defaulting to the real
   SDK imports. `createOpenAI` types cleanly as `typeof createOpenAI`, but
-  `streamText` is a _generic_ function
+  `streamText` is a *generic* function
   (`<TOOLS extends ToolSet, OUTPUT extends Output>(...)`), and Vitest's
   mock-typing utilities (`vi.fn<T>()`, `vi.mocked(fn, {partial:true})`)
   can't preserve a mock's full generic signature — every attempt to type
@@ -503,9 +488,9 @@ rule is **not** enabled this round; the remaining 19 findings across 14 files
 carries the flip.
 
 The rule (`tools/oxlint/anti-slop/rules/no-known-value-widening.ts`) is purely
-syntactic — it flags a _known_ value (an object/array/function/class/`new`/
+syntactic — it flags a *known* value (an object/array/function/class/`new`/
 literal expression, or a stable `const` traced back to one) flowing into an
-_explicit_ return/binding/property/assertion type that's `unknown`, `object`,
+*explicit* return/binding/property/assertion type that's `unknown`, `object`,
 a non-empty anonymous type literal, or a `Record<>`/mapped/generic-container
 shape — regardless of whether the runtime value is actually safe. Two repair
 idioms cover nearly every site:
@@ -590,7 +575,7 @@ sites). `canonicalize`'s two overloads returned `unknown`/`Promise<unknown>`
 -shaped values for the general (non-`Record`) case, used internally for
 its own recursive array/object-value calls. Unlike most of this stash's
 sites, the explicit annotation can't simply be dropped here — TypeScript
-overload _signatures_ have no implementation body to infer a return type
+overload *signatures* have no implementation body to infer a return type
 from, so omitting it is a syntax error, not a style choice. Instead, a
 recursive `CanonicalJsonValue` type (mirroring `result-truncation.ts`'s
 own `CappedValue`, already established earlier in this same stash) replaces
@@ -1057,7 +1042,7 @@ override is acceptable.
 | done   | `no-reflect-get`                            | Zero; the four AI SDK proxy-forwarding sites consolidated into one owned helper with a source-verified inline exception.                                                                                                                                                                      |
 | queued | `no-runtime-typeof`                         | 202 diagnostics/77 files; replace ad hoc representation narrowing with boundary schemas and parsed domain values.                                                                                                                                                                             |
 | done   | `no-shape-in-symbol-names`                  | Zero across five scopes; prompt scenarios, rendered conversation nodes, and admitted MCP payloads now carry their domain roles.                                                                                                                                                               |
-| active | `no-unknown-parameters`                     | 12/135 removed (rule patch + mechanical); 103 remain (92 category-C suppressions + 11 catch-handler disposition), both held pending Leo's decision on suppression volume — see "Current submission" for the full sub-class breakdown and options. Rule NOT yet enabled.                       |
+| done   | `no-unknown-parameters`                     | Zero across `src/` + `evals/`; a third local rule patch (`allowWhenImmediatelyValidated`, `allowErrorFamilyNames`) resolved 51/103 structurally, the remaining 52 carry a per-site inline disable with a specific reason; enforced at error (both options on) in `apps/api/.oxlintrc.json`.    |
 | done   | `no-unknown-returns`                        | Zero; `CanonicalJsonValue` (mirroring `result-truncation.ts`'s `CappedValue`) replaces the two overloads' `unknown`/`Promise<unknown>` return contracts; enforced at error in `apps/api/.oxlintrc.json`.                                                                                      |
 | done   | `no-unknown-type-aliases`                   | Zero across five owned scopes and enforced through root plus workspace Oxlint.                                                                                                                                                                                                                |
 | done   | `no-unsafe-dictionary-type`                 | Zero across two layers (43 findings/28 files incl. one outside `src/`); shared `UnknownRecord` alias plus `JsonSchemaDocument` redirects for tool-input-schema sites; origin declaration carries this repo's second inline-disable precedent; enforced at error in `apps/api/.oxlintrc.json`. |

@@ -66,11 +66,13 @@ function payloadField(payload: unknown, key: string) {
   return payload[key];
 }
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `payloadField` above, which validates via `!isRecord(payload)` as its own first statement; bare-identifier delegation, not itself a validating call.
 function payloadString(payload: unknown, key: string): string | undefined {
   const value = payloadField(payload, key);
   return typeof value === 'string' ? value : undefined;
 }
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `payloadField` above, which validates via `!isRecord(payload)` as its own first statement; bare-identifier delegation, not itself a validating call.
 function payloadNumber(payload: unknown, key: string): number | undefined {
   const value = payloadField(payload, key);
   return typeof value === 'number' ? value : undefined;

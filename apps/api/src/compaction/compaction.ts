@@ -121,6 +121,7 @@ export function normalizeCompactionSummary(value: unknown): string | null {
 export function estimateContextTokens(
   history: StoredMessage[],
   previousSummary: string | undefined,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- forwarded opaque, several calls deep, into `projectCompactionToolObservationLedger` -> `parseCompactionToolObservationLedger`'s `isRecord` guard (context-builder.ts / tool-observation-part.ts); this function only estimates a token count and never inspects the ledger's shape itself.
   previousToolObservationLedger?: unknown,
 ): number {
   if (

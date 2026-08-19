@@ -79,6 +79,7 @@ function emptyCompactionToolObservationLedger(): CompactionToolObservationLedger
 }
 
 export function normalizeToolObservationOutcome(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by `isBoundedToken(value, ...)` as a ternary test below (`isBoundedToken(...) ? value : fallback`); the validating call sits inside a conditional expression, a shape the structural exemption's `if`/`return` guard parse doesn't unwrap.
   value: unknown,
   fallback: string,
 ): string {
@@ -119,6 +120,7 @@ function isToolActivityPart(part: unknown): part is StoredToolPart {
   );
 }
 
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `!isRecord(value) || !isRecord(value.llame)` below -- two type-guard calls combined with `||`, a shape the structural exemption's single-check parse doesn't cover.
 function isCancelledMetadata(value: unknown): boolean {
   if (!isRecord(value) || !isRecord(value.llame)) return false;
   return value.llame.cancelled === true;
@@ -423,6 +425,7 @@ function parseCompactionToolObservationLedger(
 }
 
 export function projectCompactionToolObservationLedger(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- forwards directly to `parseCompactionToolObservationLedger` below, which validates via `isRecord(value)`; a bare-identifier `parseXxx(value)` delegation, a naming shape the structural exemption's `.parse`/`.safeParse` member-call pattern doesn't match.
   value: unknown,
 ): ToolObservationProjection | null {
   const ledger = parseCompactionToolObservationLedger(value);
@@ -447,6 +450,7 @@ export function projectCompactionToolObservationLedger(
 }
 
 export function buildCompactionToolObservationLedger(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- forwards directly to `parseCompactionToolObservationLedger` below (as `previousValue`), which validates via `isRecord(value)`; a bare-identifier `parseXxx(previousValue)` delegation, same rationale as `projectCompactionToolObservationLedger` above.
   previousValue: unknown,
   absorbedAssistantParts: readonly MessagePart[][],
 ): CompactionToolObservationLedgerV1 {

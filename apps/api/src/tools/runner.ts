@@ -64,6 +64,7 @@ export function invalidCallResult(toolName: string): ToolResult {
  */
 export async function runTool(
   tool: Tool,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated via `safeParseArgs(tool.inputSchema, args)` a few statements down in this function's body, after three unrelated guard checks (identity, abort, timeout) that must run first; genuinely validated, just not as this function's *first* statement, which the structural exemption requires.
   args: unknown,
   context: ToolContext | undefined,
   callTimeoutSeconds: number,

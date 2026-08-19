@@ -47,6 +47,7 @@ export interface QueueDefinition<T extends object> {
    * boundary (a redelivered job may have been written by an older deploy);
    * a parse that throws fails the job → queue retry policy → dead letter.
    */
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- this IS the rule's own recommended I/O-boundary parser contract (see the doc comment above): the caller-supplied payload-parser slot, declared generically since QueueDefinition<T> is reused across every domain-specific queue.
   readonly parse?: (data: unknown) => T;
   /** Phantom — type-system only, makes definitions invariant in T. */
   readonly [payloadType]?: (payload: T) => T;
@@ -59,6 +60,7 @@ export type PayloadOf<Q> = Q extends QueueDefinition<infer T> ? T : never;
 export function defineQueue<T extends object>(definition: {
   name: string;
   options?: QueueOptions;
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- mirrors QueueDefinition['parse'] above (same rationale: this IS the rule's own recommended I/O-boundary parser contract), just repeated at the `defineQueue` call-site's parameter type.
   parse?: (data: unknown) => T;
 }): QueueDefinition<T> {
   return definition;

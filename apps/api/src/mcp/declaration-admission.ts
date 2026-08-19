@@ -48,6 +48,7 @@ export type McpDeclarationAdmissionResult = {
 
 function safeRefusalId(
   serverId: string,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `!isRecord(definition) || typeof definition.name !== 'string'` below -- two checks combined with `||`, a shape the structural exemption's single-check parse doesn't cover.
   definition: unknown,
   protectedValues: readonly string[],
 ): string | undefined {
@@ -134,6 +135,7 @@ function resolveSupportedSchemaDialect(
 }
 
 function safeInstanceValue(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the ternary test `containsProtectedValueJson(value, protectedValues)` below, which delegates to protected-values.ts's own recursive scanner over untrusted JSON; not an `isXxx`-named guard and the check is a ternary test, both shapes the structural exemption doesn't parse.
   value: unknown,
   protectedValues: readonly string[],
 ): SafeValueResult {

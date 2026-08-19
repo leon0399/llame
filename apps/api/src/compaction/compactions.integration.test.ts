@@ -135,6 +135,7 @@ d('compaction lineage over HTTP (#57)', () => {
   // ModelMessage.content is string | parts — the v0.1 loop always sends
   // flattened strings, but stringify defensively so lint (and a future
   // structured-parts regression) can't hide behind '[object Object]'.
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated inline by the ternary test below (`typeof content === 'string' ? content : JSON.stringify(content)`); the check is the ternary's test, a shape the structural exemption's `if`/`return`-of-boolean parse doesn't unwrap.
   function contentText(content: unknown): string {
     return typeof content === 'string' ? content : JSON.stringify(content);
   }
