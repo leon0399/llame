@@ -20,7 +20,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import type { Chat, Compaction, Message, MessageRole } from '../../db/schema';
-import { isRecord } from '../../unknown-record';
+import { isRecord, type UnknownRecord } from '../../unknown-record';
 import { isTextPart } from '../context-builder';
 import type { TurnTelemetry } from '../turn-telemetry';
 
@@ -490,7 +490,7 @@ export class ChatMessageResponse {
     nullable: true,
     additionalProperties: true,
   })
-  usage!: Record<string, unknown> | null;
+  usage!: UnknownRecord | null;
 
   @ApiProperty({ type: String, format: 'uuid', nullable: true })
   inReplyTo!: string | null;

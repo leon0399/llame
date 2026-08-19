@@ -14,7 +14,7 @@ import {
   mcpStreamableHttpInitialize,
   type McpFixtureResponse,
 } from './mcp-test-fixture';
-import { isRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '../unknown-record';
 
 const emptyToolSchema = { type: 'object' as const, properties: {} };
 const ONE_MIB = 1024 * 1024;
@@ -45,7 +45,7 @@ function openSseResponse(
   );
 }
 
-function tool(name: string, extra: Record<string, unknown> = {}) {
+function tool(name: string, extra: UnknownRecord = {}) {
   return {
     name,
     description: `Use ${name}.`,

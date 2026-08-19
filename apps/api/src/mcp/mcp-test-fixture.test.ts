@@ -6,13 +6,14 @@ import {
   MCP_STREAMABLE_HTTP_PROTOCOL_VERSIONS,
   type McpFixtureResponse,
 } from './mcp-test-fixture';
+import { type UnknownRecord } from '../unknown-record';
 
 const ONE_MIB = 1024 * 1024;
 
 async function rpc(
   url: string,
   method: string,
-  params: Record<string, unknown> = {},
+  params: UnknownRecord = {},
   headers: Record<string, string> = {},
 ): Promise<Response> {
   return fetch(url, {

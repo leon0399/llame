@@ -30,6 +30,7 @@ import {
   renderRecencyDigestReminder,
   type RecencyDigestPart,
 } from './recency-digest-part';
+import { type UnknownRecord } from '../unknown-record';
 import {
   projectCompactionToolObservationLedger,
   projectToolObservations,
@@ -66,7 +67,7 @@ export type MessagePart =
   | ModelSwitchPart
   | ToolAvailabilityPart
   | RecencyDigestPart
-  | Record<string, unknown>;
+  | UnknownRecord;
 
 /** The single source of the text-part shape check — reused by the context
  * builder and the chat-list excerpt mapper so the duck-typing can't drift. */

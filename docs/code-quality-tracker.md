@@ -104,6 +104,74 @@ historical publication record of stack #369.
 
 ## Current submission
 
+Arc 2's fifth rule, `no-unsafe-dictionary-type` (branch
+`quality/unsafe-dictionary-type-conversions`, stacked on
+`quality/no-module-mocking`), starts with a fresh re-measurement — the queued
+baseline (88/50) predates the rebase. The corrected scratch-config technique
+reports **53 diagnostics across 32 files**, `mcp-server-client.ts` largest
+at 9. The rule flags an object-dictionary type whose value type is `unknown`,
+`any`, `object`, `{}`, or a union/alias containing one of those.
+
+Before touching code, read the rule's source (`classifyUnsafeDictionary`,
+`isPlainAliasConsumerUse`, `createTypeEnvironment`) to check whether a shared
+named alias could consolidate the scattered instances of the same
+`Record<string, unknown>` escape hatch, the way `no-known-value-widening`'s
+own alias-resolution path already rewards named aliases over anonymous
+shapes. `createTypeEnvironment` collects `TSTypeAliasDeclaration`s only from
+the current file's own program body — an imported alias name is never in
+that map, so a `TSTypeReference` to it can't be resolved to a `Record` and
+`classifyUnsafeDictionary` returns null for it. That means a dictionary
+alias declared once and imported everywhere goes clean at every consumption
+site, cross-file, not just same-file. Verified empirically before committing
+to the plan, not just from the source reading: declared `export type
+UnknownRecord = Record<string, unknown>` beside the project's existing
+`isRecord` guard (`src/unknown-record.ts`), converted `mcp-server-client.ts`'s
+9 sites to import and use it, and re-ran the scratch config — 53 → 43,
+`mcp-server-client.ts` at 0. Also checked `no-unknown-type-aliases` (already
+enforced at error) wouldn't reject the new alias: it only flags an alias
+resolving to `TSUnknownKeyword` directly or through another local alias
+chain, and `Record<string, unknown>`'s type arguments make `referencedAliasName`
+return null for it — confirmed clean.
+
+Classified the remaining 42 sites (43rd being the alias's own declaration)
+into buckets before writing more code: the overwhelming majority (37 sites,
+27 files) are genuine "narrowed from `unknown` at a boundary, not yet
+validated" cases — raw JSONC config pre-validation, JSON Schema meta-documents,
+tool-availability manifests, AI SDK provider `usage` blobs, open-ended
+DTO/repository `settings` fields with no fixed schema, generic Zod-row
+constraints pre-parse, and test fixtures — all converted to `UnknownRecord`.
+4 sites (`db/schema/model-context.ts`, `runs/dto/runs.dto.ts`,
+`schema-utils.ts` ×2) are literally "a tool's input schema as a JSON Schema
+document," the exact concept `tools/types.ts` already names
+`JsonSchemaDocument`; redirecting these to the existing alias instead of
+minting a second unrelated meaning is correct, but it's a distinct decision
+from the mechanical swap, so it's deferred to the next layer along with the
+one finding that can never go clean: `unknown-record.ts`'s own `UnknownRecord`
+declaration (no filename allowlist or directive-comment exemption exists in
+the rule's source — checked both files — so the origin is structurally
+permanent by design, the same way the rule's whole point is keeping `unknown`
+visible at exactly one declared boundary instead of scattered ad hoc).
+
+This layer covers the 37-site mechanical conversion across 27 files. The rule
+is **not** enabled this round; the 4 `JsonSchemaDocument` redirects, the
+`JsonSchemaDocument = UnknownRecord` re-alias, and the origin declaration's
+disable (this repo's second inline-disable precedent, after
+`stream-text-result-proxy.ts` — a `.oxlintrc.json` file-scoped override was
+considered and rejected, since the tracker's own adoption policy rules out a
+file-level override) continue in the next layer, which also carries the
+flip. The 3x duplicated `isExactRecord` helper (`model-context-part.ts`,
+`recency-digest-part.ts`, `tool-availability-part.ts` — same helper, three
+files) is a dedup opportunity out of this rule's scope; tracked as a queued
+follow-up below rather than fixed here. Repair evidence: `pnpm --filter api
+lint`/`typecheck` clean, `pnpm --filter api test` 1153/1153, full `pnpm
+--filter api test:integration` 348/351 (3 pre-existing skips) against real
+Postgres (run in full given DTO/repository/schema production files are
+touched, not test-only surface), `openapi.json` confirmed byte-identical via
+`git status`/`git diff --stat` after `pnpm --filter api build` (the touched
+`chats.dto.ts`/`identity.dto.ts` fields carry explicit Swagger
+`type`/`additionalProperties` decorators, so the TS-level alias swap doesn't
+change generated metadata).
+
 Arc 2's fourth rule, `no-module-mocking` (branch `quality/no-module-mocking`,
 stacked on `quality/known-value-widening-tail`), starts with a fresh
 re-measurement — the queued baseline (81/34) predates the rebase. Unlike
@@ -773,23 +841,23 @@ the seven-day release-age gate for 1.78.0. A rule becomes an error only in the P
 that removes every existing owned finding; no baseline, allowlist, or file-level
 override is acceptable.
 
-| State  | Upstream rule                               | llame disposition                                                                                                                                                                                                                                          |
-| ------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| done   | `no-chained-type-assertions`                | Zero across five scopes; standard `RuleTester` covers parentheses, non-null wrappers, and angle/`as` chains.                                                                                                                                               |
-| queued | `no-conditional-empty-object-spread`        | 147 diagnostics/50 files; preserve exact omission semantics rather than replacing omission with unconditional `undefined`.                                                                                                                                 |
-| done   | `no-known-value-widening`                   | Zero across two layers (36 findings/20 files); named type aliases for anonymous shapes, `satisfies` for closed-union lookup tables, `Map` for genuine string-keyed dictionaries; enforced at error in `apps/api/.oxlintrc.json`.                           |
-| done   | `no-module-mocking`                         | Zero; fresh count 6/5 (was 81/34 pre-rebase, mostly retired by the unsafe-assertion migration's model doubles); `schema.ts`/`openai-model-client.ts`/`model-client-factory.ts`+`ModelsService` test seams; enforced at error in `apps/api/.oxlintrc.json`. |
-| done   | `no-object-parameters`                      | Zero across five scopes; endpoint DTO variants preserve deliberate invalid-field tests and Pins uses an exact service capability seam.                                                                                                                     |
-| done   | `no-reflect-apply`                          | Zero across three call sites in two files; enforced at error in `apps/api/.oxlintrc.json`.                                                                                                                                                                 |
-| done   | `no-reflect-get`                            | Zero; the four AI SDK proxy-forwarding sites consolidated into one owned helper with a source-verified inline exception.                                                                                                                                   |
-| queued | `no-runtime-typeof`                         | 202 diagnostics/77 files; replace ad hoc representation narrowing with boundary schemas and parsed domain values.                                                                                                                                          |
-| done   | `no-shape-in-symbol-names`                  | Zero across five scopes; prompt scenarios, rendered conversation nodes, and admitted MCP payloads now carry their domain roles.                                                                                                                            |
-| queued | `no-unknown-parameters`                     | 142 diagnostics/64 files; only immediate validation may retain a local suppression with a specific explanation.                                                                                                                                            |
-| done   | `no-unknown-returns`                        | Zero; `CanonicalJsonValue` (mirroring `result-truncation.ts`'s `CappedValue`) replaces the two overloads' `unknown`/`Promise<unknown>` return contracts; enforced at error in `apps/api/.oxlintrc.json`.                                                   |
-| done   | `no-unknown-type-aliases`                   | Zero across five owned scopes and enforced through root plus workspace Oxlint.                                                                                                                                                                             |
-| queued | `no-unsafe-dictionary-type`                 | 88 diagnostics/50 files; replace open top-type dictionaries with schema/owner-derived contracts, never `any`.                                                                                                                                              |
-| done   | `no-widen-then-assert`                      | Zero across five owned scopes; blocks local evidence erasure before it becomes unsafe-assertion debt.                                                                                                                                                      |
-| queued | `require-safety-comment-for-type-assertion` | 386 diagnostics/142 files; enable after unsafe assertions reach zero, documenting only rare unexpressible invariants.                                                                                                                                      |
+| State  | Upstream rule                               | llame disposition                                                                                                                                                                                                                                               |
+| ------ | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done   | `no-chained-type-assertions`                | Zero across five scopes; standard `RuleTester` covers parentheses, non-null wrappers, and angle/`as` chains.                                                                                                                                                    |
+| queued | `no-conditional-empty-object-spread`        | 147 diagnostics/50 files; preserve exact omission semantics rather than replacing omission with unconditional `undefined`.                                                                                                                                      |
+| done   | `no-known-value-widening`                   | Zero across two layers (36 findings/20 files); named type aliases for anonymous shapes, `satisfies` for closed-union lookup tables, `Map` for genuine string-keyed dictionaries; enforced at error in `apps/api/.oxlintrc.json`.                                |
+| done   | `no-module-mocking`                         | Zero; fresh count 6/5 (was 81/34 pre-rebase, mostly retired by the unsafe-assertion migration's model doubles); `schema.ts`/`openai-model-client.ts`/`model-client-factory.ts`+`ModelsService` test seams; enforced at error in `apps/api/.oxlintrc.json`.      |
+| done   | `no-object-parameters`                      | Zero across five scopes; endpoint DTO variants preserve deliberate invalid-field tests and Pins uses an exact service capability seam.                                                                                                                          |
+| done   | `no-reflect-apply`                          | Zero across three call sites in two files; enforced at error in `apps/api/.oxlintrc.json`.                                                                                                                                                                      |
+| done   | `no-reflect-get`                            | Zero; the four AI SDK proxy-forwarding sites consolidated into one owned helper with a source-verified inline exception.                                                                                                                                        |
+| queued | `no-runtime-typeof`                         | 202 diagnostics/77 files; replace ad hoc representation narrowing with boundary schemas and parsed domain values.                                                                                                                                               |
+| done   | `no-shape-in-symbol-names`                  | Zero across five scopes; prompt scenarios, rendered conversation nodes, and admitted MCP payloads now carry their domain roles.                                                                                                                                 |
+| queued | `no-unknown-parameters`                     | 142 diagnostics/64 files; only immediate validation may retain a local suppression with a specific explanation.                                                                                                                                                 |
+| done   | `no-unknown-returns`                        | Zero; `CanonicalJsonValue` (mirroring `result-truncation.ts`'s `CappedValue`) replaces the two overloads' `unknown`/`Promise<unknown>` return contracts; enforced at error in `apps/api/.oxlintrc.json`.                                                        |
+| done   | `no-unknown-type-aliases`                   | Zero across five owned scopes and enforced through root plus workspace Oxlint.                                                                                                                                                                                  |
+| queued | `no-unsafe-dictionary-type`                 | 6 of 43 fresh findings remain (was a stale 88/50 baseline); layer 1 (37 findings/27 files) consolidated into a shared `UnknownRecord` alias, not enabled yet; layer 2 carries 4 `JsonSchemaDocument` redirects, the origin declaration's disable, and the flip. |
+| done   | `no-widen-then-assert`                      | Zero across five owned scopes; blocks local evidence erasure before it becomes unsafe-assertion debt.                                                                                                                                                           |
+| queued | `require-safety-comment-for-type-assertion` | 386 diagnostics/142 files; enable after unsafe assertions reach zero, documenting only rare unexpressible invariants.                                                                                                                                           |
 
 The remaining 1,117 diagnostics are remediation inventory, not a tolerated
 baseline. Adopt rules in reviewable layers rather than enabling the all-on preset
@@ -1143,6 +1211,7 @@ replacement and manual failure proof, and never use it as a waiver or ignore buc
 | queued | Complexity exceptions need local rationale and owner                                                                                                                  | No directory-wide exemption; temporary exception names issue and measured value                                                                                                                                                                                                                                                                        |
 | queued | Gate runtime budgets are unrecorded                                                                                                                                   | Record local and CI duration before making mutation or expensive analysis blocking                                                                                                                                                                                                                                                                     |
 | queued | Quality work must update `CHANGELOG.md`; roadmap entries are removed only when shipped                                                                                | Follow root documentation contract in implementation layers                                                                                                                                                                                                                                                                                            |
+| queued | `isExactRecord` is hand-duplicated verbatim in three files (`model-context-part.ts`, `recency-digest-part.ts`, `tool-availability-part.ts`)                           | Consolidate into one shared helper; surfaced while converting the trio's `Record<string, unknown>` return-type predicates to `UnknownRecord` for `no-unsafe-dictionary-type` — out of that rule's scope, not fixed there                                                                                                                               |
 
 ### Documentation, specification, and ownership drift
 

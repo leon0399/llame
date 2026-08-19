@@ -28,7 +28,7 @@ import { createModelPromptLoader } from './prompt-loader';
 import { getRegisteredToolIds } from '../tools/registry';
 import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
-import { isRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '../unknown-record';
 
 const DEFAULT_CONFIG_FILENAME = 'llame.config.json';
 
@@ -172,9 +172,7 @@ export function loadInstanceConfig(
 
 // ---- File read + parse -----------------------------------------------
 
-function readRawConfig(
-  configPath: string,
-): Record<string, unknown> | undefined {
+function readRawConfig(configPath: string): UnknownRecord | undefined {
   let text: string;
   try {
     text = readFileSync(configPath, 'utf8');
@@ -264,7 +262,7 @@ function offsetToLineColumn(text: string, offset: number) {
 // ---- Schema validation --------------------------------------------------
 
 function assertValidRaw(
-  raw: Record<string, unknown>,
+  raw: UnknownRecord,
   configPath: string,
 ): asserts raw is RawInstanceConfig {
   const validate = getConfigValidator();
@@ -292,7 +290,7 @@ function assertValidRaw(
 type Leaf = { present: boolean; raw: unknown };
 
 function readLeaf(
-  raw: Record<string, unknown> | undefined,
+  raw: UnknownRecord | undefined,
   group: string,
   key: string,
 ): Leaf {

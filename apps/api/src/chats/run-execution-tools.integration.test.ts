@@ -69,7 +69,7 @@ import {
 } from '../tools/registry';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
 import { type Tool, type ToolContext } from '../tools/types';
-import { isRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '../unknown-record';
 import { turnTelemetryLogger } from './turn-telemetry';
 import {
   createModelSwitchPart,
@@ -339,7 +339,7 @@ function textResponse(text: string): LanguageModelV3StreamResult {
  */
 function isTypedPart(
   value: unknown,
-): value is { type: string } & Record<string, unknown> {
+): value is { type: string } & UnknownRecord {
   return isRecord(value) && typeof value.type === 'string';
 }
 
@@ -800,14 +800,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
       seeded = await seedBoundRun(`dynamic-${crypto.randomUUID()}`, [toolId]);
       unregisterTestOnlyTool(toolId);
       const declaration = seeded.snapshot.toolDeclarations[0];
-      const execute = vi.fn(
-        (context: ToolContext, args: Record<string, unknown>) => ({
-          status: 'success' as const,
-          evidence: `${String(args['query'])}: current`,
-          observedToolCallId: context.toolCallId,
-          receivedAbortSignal: context.abortSignal instanceof AbortSignal,
-        }),
-      );
+      const execute = vi.fn((context: ToolContext, args: UnknownRecord) => ({
+        status: 'success' as const,
+        evidence: `${String(args['query'])}: current`,
+        observedToolCallId: context.toolCallId,
+        receivedAbortSignal: context.abortSignal instanceof AbortSignal,
+      }));
       const liveTool: Tool = { ...seedTool, execute };
       const dynamicToolResolver: DynamicToolExecutorResolver = {
         resolveDynamicTool: (id) =>
@@ -1002,7 +1000,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const validToolId = 'json_schema_lookup';
     const malformedToolId = 'malformed_json_schema';
     const executeValid = vi.fn(
-      (_context: ToolContext, args: Record<string, unknown>) => ({
+      (_context: ToolContext, args: UnknownRecord) => ({
         status: 'success' as const,
         echo: args['query'],
       }),

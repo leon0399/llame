@@ -4,7 +4,7 @@ import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020';
 
 import { InstanceConfigError } from './instance-config.error';
 import type { RawInstanceConfig } from './llame-config';
-import { isRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '../unknown-record';
 
 /**
  * The published JSON Schema (D2/D3) — editors bind to it via the config
@@ -46,7 +46,7 @@ const DEFAULT_SCHEMA_FILE_ACCESS: SchemaFileAccess = {
  */
 export function loadSchemaDocument(
   access: SchemaFileAccess = DEFAULT_SCHEMA_FILE_ACCESS,
-): Record<string, unknown> {
+): UnknownRecord {
   let parsed: unknown;
   try {
     const text = access.readFile(SCHEMA_PATH);

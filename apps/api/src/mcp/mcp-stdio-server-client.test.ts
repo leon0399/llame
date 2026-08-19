@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { McpServerClient } from './mcp-server-client';
 import { DiagnosticBuffer, MAX_DIAGNOSTIC_CHARS } from './mcp-stdio-transport';
-import { isRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '../unknown-record';
 
 const FIXTURE = join(__dirname, 'mcp-stdio-test-fixture.mjs');
 
@@ -16,7 +16,7 @@ const TOOL = {
   inputSchema: { type: 'object', properties: {} },
 };
 
-type FixtureConfig = Record<string, unknown>;
+type FixtureConfig = UnknownRecord;
 
 function connect(
   config: FixtureConfig,

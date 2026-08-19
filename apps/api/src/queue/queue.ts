@@ -16,7 +16,7 @@
  * with a mismatched handler, is a compile error, not a runtime surprise.
  */
 
-import { isRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '../unknown-record';
 
 /** DI token for the Queue implementation (NestJS has no interface tokens). */
 export const QUEUE = Symbol('QUEUE');
@@ -235,10 +235,7 @@ export function deadLetterQueueName(queue: string): string {
  * been written by an older deploy), so these validate at the consume boundary and
  * fail malformed payloads there (→ retry → dead letter) instead of deep in a handler.
  */
-export function expectRecord(
-  data: unknown,
-  queue: string,
-): Record<string, unknown> {
+export function expectRecord(data: unknown, queue: string): UnknownRecord {
   if (!isRecord(data)) {
     throw new TypeError(`Malformed '${queue}' job: payload is not an object`);
   }
@@ -246,7 +243,7 @@ export function expectRecord(
 }
 
 export function expectString(
-  value: Record<string, unknown>,
+  value: UnknownRecord,
   field: string,
   queue: string,
 ): string {

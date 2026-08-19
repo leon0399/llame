@@ -2,8 +2,9 @@ import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 
 import { UpdatePersonalizationDto } from './personalization.dto';
+import { type UnknownRecord } from '../../unknown-record';
 
-const validate = (payload: Record<string, unknown>) =>
+const validate = (payload: UnknownRecord) =>
   validateSync(plainToInstance(UpdatePersonalizationDto, payload), {
     whitelist: true,
   });
