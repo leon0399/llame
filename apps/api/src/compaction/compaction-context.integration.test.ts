@@ -2,7 +2,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable no-unsafe-optional-chaining */
 
 import path from 'node:path';
 
@@ -718,9 +717,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       lastTurnTotalTokens: 10,
     });
 
-    expect(
-      (calls[0].tools?.['lookup'] as { execute?: unknown }).execute,
-    ).toBeUndefined();
+    expect(calls[0].tools?.['lookup']?.execute).toBeUndefined();
     await expect(
       tenantDb.runAs(userId, (tx) =>
         new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
@@ -826,14 +823,15 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         toModelId: 'target-model',
         runId: targetRunId,
       });
+      const targetUserParts: MessagePart[] = [
+        ...(options?.switchMarker === false ? [] : [switchPart]),
+        { type: 'text', text: 'CURRENT TRIGGER' },
+      ];
       const targetUser = await messages.create({
         chatId: chat.id,
         role: 'user',
         senderUserId: userId,
-        parts: [
-          ...(options?.switchMarker === false ? [] : [switchPart]),
-          { type: 'text', text: 'CURRENT TRIGGER' },
-        ],
+        parts: targetUserParts,
       });
       const targetSnapshot = await seedModelContextSnapshot(
         tx,
@@ -854,6 +852,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         sourceSnapshot,
         switchPart,
         targetUser,
+        targetUserParts,
         targetSnapshot,
         targetRun,
       };
@@ -938,7 +937,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       userMessage: {
         id: seeded.targetUser.id,
         seq: seeded.targetUser.seq,
-        parts: seeded.targetUser.parts as MessagePart[],
+        parts: seeded.targetUserParts,
       },
       client: targetClient,
     });
@@ -983,14 +982,12 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     expect(Object.keys(targetCalls[0].tools ?? {})).toEqual([
       'search_conversations',
     ]);
-    expect(targetCalls[0].messages[0]).toEqual({
-      role: 'user',
-      content: expect.stringMatching(
-        new RegExp(
-          `^${CONVERSATION_CHECKPOINT_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
-        ),
-      ) as string,
-    });
+    expect(targetCalls[0].messages[0].role).toBe('user');
+    expect(targetCalls[0].messages[0].content).toMatch(
+      new RegExp(
+        `^${CONVERSATION_CHECKPOINT_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+      ),
+    );
     expect(targetCalls[0].messages[0].content).toContain(summary);
     expect(targetCalls[0].messages.at(-1)).toEqual({
       role: 'user',
@@ -1062,7 +1059,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         userMessage: {
           id: seeded.targetUser.id,
           seq: seeded.targetUser.seq,
-          parts: seeded.targetUser.parts as MessagePart[],
+          parts: seeded.targetUserParts,
         },
         client: targetClient,
       }),
@@ -1120,7 +1117,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       userMessage: {
         id: seeded.targetUser.id,
         seq: seeded.targetUser.seq,
-        parts: seeded.targetUser.parts as MessagePart[],
+        parts: seeded.targetUserParts,
       },
       client: targetClient,
       abortSignal: abort.signal,
@@ -1188,7 +1185,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       userMessage: {
         id: seeded.targetUser.id,
         seq: seeded.targetUser.seq,
-        parts: seeded.targetUser.parts as MessagePart[],
+        parts: seeded.targetUserParts,
       },
       client: targetClient,
     });
@@ -1207,10 +1204,8 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     await result.consumeStream?.();
 
     expect(targetCalls).toHaveLength(1);
-    expect(targetCalls[0]?.messages[0]).toEqual({
-      role: 'user',
-      content: expect.stringContaining(concurrentSummary) as string,
-    });
+    expect(targetCalls[0]?.messages[0].role).toBe('user');
+    expect(targetCalls[0]?.messages[0].content).toContain(concurrentSummary);
     const settled = await tenantDb.runAs(userId, async (tx: Db) => ({
       run: await new RunsRepository(tx).findById(seeded.targetRun.id, userId),
       checkpoint: await new CompactionsRepository(tx).findLatestByChatId(
@@ -1260,7 +1255,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       userMessage: {
         id: seeded.targetUser.id,
         seq: seeded.targetUser.seq,
-        parts: seeded.targetUser.parts as MessagePart[],
+        parts: seeded.targetUserParts,
       },
       client: targetClient,
     });
@@ -1281,10 +1276,8 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     await result.consumeStream?.();
 
     expect(targetCalls).toHaveLength(1);
-    expect(targetCalls[0]?.messages[0]).toEqual({
-      role: 'user',
-      content: expect.stringContaining(transitionSummary) as string,
-    });
+    expect(targetCalls[0]?.messages[0].role).toBe('user');
+    expect(targetCalls[0]?.messages[0].content).toContain(transitionSummary);
     const checkpoint = await tenantDb.runAs(userId, (tx) =>
       new CompactionsRepository(tx).findLatestByChatId(seeded.chat.id, userId),
     );
@@ -1358,7 +1351,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           userMessage: {
             id: seeded.targetUser.id,
             seq: seeded.targetUser.seq,
-            parts: seeded.targetUser.parts as MessagePart[],
+            parts: seeded.targetUserParts,
           },
           client: targetClient,
         }),

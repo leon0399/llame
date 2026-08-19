@@ -353,10 +353,8 @@ describe('buildCompactionRequest', () => {
     // Cache alignment: the system prompt is the chat's own, verbatim — a swapped
     // summarizer prompt would invalidate the whole provider prompt-cache prefix.
     expect(request.system).toBe(CHAT_SYSTEM);
-    expect(request.messages[0]).toEqual({
-      role: 'user',
-      content: expect.stringContaining('plan a trip to Japan') as string,
-    });
+    expect(request.messages[0].role).toBe('user');
+    expect(request.messages[0].content).toContain('plan a trip to Japan');
     expect(request.messages[1].role).toBe('assistant');
     const last = request.messages[request.messages.length - 1];
     expect(last).toEqual({ role: 'user', content: COMPACTION_INSTRUCTION });

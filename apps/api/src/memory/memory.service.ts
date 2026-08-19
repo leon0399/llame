@@ -1,7 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 
 import { type MemorySettings } from '../db/schema';
-import { TenantDbService, type Db } from '../db/tenant-db.service';
+import {
+  TenantDbService,
+  type Db,
+  type TenantRunner,
+} from '../db/tenant-db.service';
 import {
   MemoryRepository,
   type MemorySettingsUpdate,
@@ -18,7 +22,10 @@ export type MemorySettingsBindingResolver = Pick<
 
 @Injectable()
 export class MemoryService {
-  constructor(private readonly tenantDb: TenantDbService) {}
+  constructor(
+    @Inject(TenantDbService)
+    private readonly tenantDb: TenantRunner,
+  ) {}
 
   async getForOwner(userId: string): Promise<ResolvedMemorySettings> {
     const settings = await this.tenantDb.runAs(userId, (tx) =>

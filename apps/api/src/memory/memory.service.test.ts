@@ -1,8 +1,10 @@
 import { Test } from '@nestjs/testing';
+import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { AppModule } from '../app.module';
-import { TenantDbService } from '../db/tenant-db.service';
+import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { type Db } from '../db/tenant-db.service';
+import * as schema from '../db/schema';
 import { MemoryController } from './memory.controller';
 import { MemoryModule } from './memory.module';
 import { MemoryRepository } from './memory-repository';
@@ -10,7 +12,7 @@ import { MemoryService } from './memory.service';
 
 describe('MemoryModule registration', () => {
   it('registers the owner-scoped HTTP surface in AppModule', () => {
-    const imports = Reflect.getMetadata('imports', AppModule) as unknown[];
+    const imports: unknown = Reflect.getMetadata('imports', AppModule);
 
     expect(imports).toContain(MemoryModule);
   });
@@ -43,7 +45,7 @@ describe('MemoryService', () => {
   });
 
   it('uses the caller transaction for the dedicated binding read', async () => {
-    const tx = {} as Db;
+    const tx: Db = drizzle.mock({ schema });
     const findForOwnerForBinding = vi
       .spyOn(MemoryRepository.prototype, 'findForOwnerForBinding')
       .mockResolvedValue({
@@ -52,7 +54,12 @@ describe('MemoryService', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
       });
-    const service = new MemoryService({} as TenantDbService);
+    const tenantDb: TenantRunner = {
+      runAs: () => {
+        throw new Error('runAs should not be called by getForOwnerForBinding');
+      },
+    };
+    const service = new MemoryService(tenantDb);
 
     await expect(service.getForOwnerForBinding(tx, 'owner')).resolves.toEqual({
       shareRecentChats: true,

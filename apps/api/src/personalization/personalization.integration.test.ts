@@ -14,6 +14,7 @@ import request from 'supertest';
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
 import { cookieOf } from '../testing/support';
+import { isRecord } from '../unknown-record';
 import { type UpdatePersonalizationDto } from './dto/personalization.dto';
 import { PERSONALIZATION_CAPS } from './personalization.constants';
 
@@ -22,8 +23,8 @@ type PersonalizationPatchBody =
   | (UpdatePersonalizationDto & { userId: string });
 
 describe('/api/v1/me/personalization (HTTP)', () => {
-  let app: INestApplication;
-  let http: never;
+  let app: INestApplication<import('http').Server>;
+  let http: import('http').Server;
   const tag = Date.now();
   const password = 'password123';
   let cookieA = '';
@@ -37,8 +38,15 @@ describe('/api/v1/me/personalization (HTTP)', () => {
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email, password, name });
-    const body = res.body as { user?: { id?: unknown } };
-    return { cookie: cookieOf(res), userId: body.user?.id as string };
+    const body: unknown = res.body;
+    if (
+      !isRecord(body) ||
+      !isRecord(body.user) ||
+      typeof body.user.id !== 'string'
+    ) {
+      throw new Error('Expected register response with user.id');
+    }
+    return { cookie: cookieOf(res), userId: body.user.id };
   }
 
   const get = (cookie: string) =>
@@ -58,7 +66,7 @@ describe('/api/v1/me/personalization (HTTP)', () => {
     app = mod.createNestApplication();
     configureApp(app);
     await app.init();
-    http = app.getHttpServer() as never;
+    http = app.getHttpServer();
 
     const a = await register(`personalization-a-${tag}@test.com`, 'Owner A');
     cookieA = a.cookie;
@@ -120,9 +128,14 @@ describe('/api/v1/me/personalization (HTTP)', () => {
   });
 
   it('rejects a field over its cap, naming the field and storing nothing', async () => {
-    const before = (await get(cookieA).expect(200)).body as {
-      about: string | null;
-    };
+    const beforeBody: unknown = (await get(cookieA).expect(200)).body;
+    if (
+      !isRecord(beforeBody) ||
+      (typeof beforeBody.about !== 'string' && beforeBody.about !== null)
+    ) {
+      throw new Error('Expected personalization response with about');
+    }
+    const before = beforeBody;
 
     const res = await patch(cookieA, {
       about: 'x'.repeat(PERSONALIZATION_CAPS.about + 1),

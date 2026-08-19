@@ -9,7 +9,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `string`, so `node.type === 'X'` alone never narrows `node` itself; four
   new local type-predicate functions replace the check-then-cast pattern
   used across the prompt-file Handlebars AST validator. No behavior change.
-- Removed all 30 `typescript/no-unsafe-type-assertion` findings across the
+- Removed 26 of 27 `typescript/no-unsafe-type-assertion` findings across the
+  memory/compaction cluster (`compaction.service.ts`,
+  `compaction-context.integration.test.ts`, `compactions.integration.test.ts`,
+  `compaction.test.ts`, `memory.integration.test.ts`,
+  `memory.service.test.ts`, `personalization.integration.test.ts`).
+  `MemoryService`'s constructor narrows to the existing `TenantRunner`
+  capability; a new `toStoredMessages` helper narrows read-back JSONB
+  `parts`; `expect.stringContaining`/`stringMatching` (typed `any` by
+  Vitest) split into plain-string `.toBe`/`.toContain`/`.toMatch`
+  assertions. Native inventory falls from 169/66 to 143/60; 1 cast remains
+  in `compaction-context.integration.test.ts` pending the same
+  `RunExecutionService` capability types.
+- Removed 27 of 30 `typescript/no-unsafe-type-assertion` findings across the
   `src/chats/` integration-test cluster (`reasoning-loop`, `chats-messages`,
   `shared-chats`), replacing casts with typed AI SDK stream fixtures, the
   shared `isRecord` guard, and `zod`-parsed HTTP response bodies. Native
