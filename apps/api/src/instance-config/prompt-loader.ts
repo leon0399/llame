@@ -12,10 +12,12 @@ import type {
   PromptUserInput,
   SystemPromptSource,
 } from '../models/model-catalog';
+import type { TemporalAnchor } from '../prompts/temporal-anchor';
 export type {
   PromptChatsInput,
   PromptUserInput,
 } from '../models/model-catalog';
+export type { TemporalAnchor } from '../prompts/temporal-anchor';
 
 export type PromptFileAccess = {
   isFile(filePath: string): boolean;
@@ -74,6 +76,10 @@ export const PROMPT_CONTEXT_PATHS: readonly string[] = [
   'chats.recentShown',
   'chats.recentTotal',
   'chats.compiledOn',
+  // Temporal anchor — unconditional, server-computed. The first namespace that
+  // is always present; `context` stays out of PROMPT_GATE_KEYS deliberately.
+  'context.systemTime',
+  'context.systemTimezone',
 ];
 
 /**
@@ -217,6 +223,14 @@ function compileTemplate(template: string): HandlebarsTemplateDelegate {
   return compiled;
 }
 
+export type RenderSystemPromptInput = {
+  template: string;
+  model: Pick<PromptModel, 'id' | 'name'>;
+  anchor: TemporalAnchor;
+  user?: PromptUserInput;
+  chats?: PromptChatsInput;
+};
+
 /**
  * Renders one model's complete system prompt.
  *
@@ -226,12 +240,15 @@ function compileTemplate(template: string): HandlebarsTemplateDelegate {
  * a second time. `SystemPromptsService` is the injectable wrapper over this.
  */
 export function renderSystemPromptTemplate(
-  template: string,
-  model: Pick<PromptModel, 'id' | 'name'>,
-  user?: PromptUserInput,
-  chats?: PromptChatsInput,
+  input: RenderSystemPromptInput,
 ): string {
-  return renderPrompt(compileTemplate(template), model, user, chats);
+  return renderPrompt(
+    compileTemplate(input.template),
+    input.model,
+    input.anchor,
+    input.user,
+    input.chats,
+  );
 }
 
 export function resolveDefaultChatSystemPromptPath(
@@ -364,6 +381,12 @@ export function createModelPromptLoader(
         pinned: [],
         pinnedShown: 0,
       };
+      // Representative anchor for boot probes — every combination supplies it,
+      // and no probe exercises its absence, because no run can produce it.
+      const probeAnchor: TemporalAnchor = {
+        systemTime: '2000-01-01 00:00+00:00',
+        systemTimezone: 'UTC',
+      };
       const probes: readonly (readonly [
         PromptUserInput | undefined,
         PromptChatsInput | undefined,
@@ -380,12 +403,13 @@ export function createModelPromptLoader(
       if (
         probes.some(
           ([userProbe, chatsProbe]) =>
-            renderSystemPromptTemplate(
-              systemPromptTemplate,
+            renderSystemPromptTemplate({
+              template: systemPromptTemplate,
               model,
-              userProbe,
-              chatsProbe,
-            ).trim().length === 0,
+              anchor: probeAnchor,
+              user: userProbe,
+              chats: chatsProbe,
+            }).trim().length === 0,
         )
       ) {
         throw new InstanceConfigError(`${field}: rendered prompt is empty`);
@@ -748,6 +772,7 @@ function chatsContext(chats: PromptChatsInput | undefined) {
 function renderPrompt(
   template: HandlebarsTemplateDelegate,
   model: Pick<PromptModel, 'id' | 'name'>,
+  anchor: TemporalAnchor,
   user: PromptUserInput | undefined,
   chats: PromptChatsInput | undefined,
 ): string {
@@ -762,19 +787,31 @@ function renderPrompt(
       id: ReturnType<typeof promptValue>;
       name: ReturnType<typeof promptValue>;
     };
+    context: {
+      systemTime: Handlebars.SafeString;
+      systemTimezone: Handlebars.SafeString;
+    };
     user?: typeof projectedUser;
     chats?: typeof projectedChats;
   };
-  const context: RenderPromptContext = {
+  const renderContext: RenderPromptContext = {
     model: {
       id: promptValue(model.id),
       name: promptValue(model.name),
     },
+    // Unconditional — the first namespace that always is. Bypasses the
+    // omission rule: these are always computable and never absent.
+    context: {
+      systemTime: new templates.SafeString(escapeForPrompt(anchor.systemTime)),
+      systemTimezone: new templates.SafeString(
+        escapeForPrompt(anchor.systemTimezone),
+      ),
+    },
   };
-  if (projectedUser !== undefined) context.user = projectedUser;
-  if (projectedChats !== undefined) context.chats = projectedChats;
+  if (projectedUser !== undefined) renderContext.user = projectedUser;
+  if (projectedChats !== undefined) renderContext.chats = projectedChats;
 
-  return template(context);
+  return template(renderContext);
 }
 
 function promptReadError(field: string, error: unknown): InstanceConfigError {

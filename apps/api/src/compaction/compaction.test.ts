@@ -657,13 +657,12 @@ describe('personalization exclusion (add-user-personalization D7)', () => {
   ])(
     '%s still keeps in-conversation constraints in scope',
     (_label, instruction) => {
-      // The exclusion is about provenance, not the section: constraints the
-      // user actually stated in the conversation must still be summarized.
-      // Assert the EXCLUSION's own clause (lowercase 'p') — the capitalised
-      // spelling is the section heading, which predates this change and would
-      // pass even if the provenance carve-out were deleted.
-      expect(instruction).toContain('Constraints and preferences the user');
-      expect(instruction).toMatch(/stated within the conversation/i);
+      // The exclusion is about provenance, not the section: dates and
+      // constraints the user actually stated in the conversation must still be
+      // summarized. Assert the EXCLUSION's own carve-out clause.
+      expect(instruction).toMatch(
+        /the user or assistant established within the conversation/i,
+      );
     },
   );
 

@@ -48,7 +48,10 @@ import {
   RunDispatchService,
   type RunDispatcher,
 } from '../runs/run-dispatch.service';
-import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import {
+  SystemPromptsService,
+  type SystemPromptRenderInput,
+} from '../system-prompts/system-prompts.service';
 import {
   resolveEffectiveContext,
   type EffectiveContextSnapshotInput,
@@ -71,6 +74,10 @@ import {
   createRecencyDigestDeltaPart,
   createRecencyDigestSupersessionPart,
 } from './recency-digest-part';
+import {
+  formatTemporalAnchor,
+  resolveInstanceTimezone,
+} from '../prompts/temporal-anchor';
 import {
   deriveRecencyDigestDelta,
   RecencyDigestService,
@@ -108,7 +115,7 @@ type PersistUserMessageAndRunInput = {
   message: ChatMessageInput;
   targetRunId: string;
   model: SystemModelCatalogEntry;
-  user: Parameters<SystemPromptsService['render']>[1];
+  user: SystemPromptRenderInput['user'];
   allowedToolRules: readonly string[];
   dynamicCandidates: readonly TurnToolCandidate[];
   digestCandidate?: RecencyDigestResolution;
@@ -530,13 +537,29 @@ export class ChatLoopService {
     messageParts: MessagePart[];
   }> {
     const { tx, chat, turnInput, shareRecentChats, digestDelta } = input;
+
+    // Read the latest compaction UNCONDITIONALLY — the temporal anchor derives
+    // from it (falling back to chat.createdAt), and it must be available even
+    // for a chat's very first run. The downstream disclosure-epoch and
+    // digest-rebake logic reuses this same row.
+    const compactionsRepo = new CompactionsRepository(tx);
+    const latestCompaction = await compactionsRepo.findLatestByChatId(
+      turnInput.chatId,
+      turnInput.userId,
+    );
+
+    const anchorInstant = latestCompaction?.createdAt ?? chat.createdAt;
+    const instanceTimezone = resolveInstanceTimezone(this.logger);
+    const anchor = formatTemporalAnchor(anchorInstant, instanceTimezone);
+
     let systemPrompt: string;
     try {
-      systemPrompt = this.systemPrompts.render(
-        turnInput.model,
-        turnInput.user,
-        chat.recencyDigestBaseline ?? undefined,
-      );
+      systemPrompt = this.systemPrompts.render({
+        model: turnInput.model,
+        anchor,
+        user: turnInput.user,
+        chats: chat.recencyDigestBaseline ?? undefined,
+      });
     } catch (error) {
       if (chat.recencyDigestBaseline === null) throw error;
       this.logger.error('recency_digest_render_failed');
@@ -560,12 +583,8 @@ export class ChatLoopService {
     const previousSnapshot = previousRun
       ? await snapshotsRepo.findByOwnedRun(previousRun.id, turnInput.userId)
       : undefined;
-    const activeCompaction = previousRun
-      ? await new CompactionsRepository(tx).findLatestByChatId(
-          turnInput.chatId,
-          turnInput.userId,
-        )
-      : undefined;
+    // Reuse the already-read compaction for the disclosure-epoch logic.
+    const activeCompaction = latestCompaction;
     const startsDisclosureEpoch =
       !previousSnapshot ||
       (activeCompaction !== undefined &&

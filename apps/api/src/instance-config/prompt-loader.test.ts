@@ -9,6 +9,8 @@ import {
   DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
   resolveDefaultChatSystemPromptPath,
   type PromptFileAccess,
+  type PromptUserInput,
+  type TemporalAnchor,
 } from './prompt-loader';
 import type { PromptChatsInput } from '../models/model-catalog';
 import { isRecord } from '../unknown-record';
@@ -36,18 +38,29 @@ function loader(access?: PromptFileAccess) {
 
 type TestModel = { id: string; name?: string; systemPromptFile?: string };
 
+const TEST_ANCHOR: TemporalAnchor = {
+  systemTime: '2026-08-19 16:36+02:00',
+  systemTimezone: 'Europe/Madrid',
+};
+
 /** resolve() now returns a template; these render it the way the app does. */
 const renderResolved = (
   resolved: { systemPromptTemplate: string },
   model: TestModel,
-  user?: Parameters<typeof renderSystemPromptTemplate>[2],
+  user?: PromptUserInput,
   chats?: PromptChatsInput,
 ) =>
-  renderSystemPromptTemplate(resolved.systemPromptTemplate, model, user, chats);
+  renderSystemPromptTemplate({
+    template: resolved.systemPromptTemplate,
+    model,
+    anchor: TEST_ANCHOR,
+    user,
+    chats,
+  });
 
 const renderFor = (
   model: TestModel,
-  user?: Parameters<typeof renderSystemPromptTemplate>[2],
+  user?: PromptUserInput,
   chats?: PromptChatsInput,
 ) => renderResolved(loader().resolve(model), model, user, chats);
 
@@ -154,7 +167,11 @@ describe('model prompt rendering', () => {
     const model = { id: 'model-id', name: 'Model Name' };
     const resolved = loader().resolve(model);
     expect(
-      renderSystemPromptTemplate(resolved.systemPromptTemplate, model),
+      renderSystemPromptTemplate({
+        template: resolved.systemPromptTemplate,
+        model,
+        anchor: TEST_ANCHOR,
+      }),
     ).toBe('id model-id name Model Name literal {{model.name}}');
     expect(resolved.systemPromptSource).toBe('project_default');
   });

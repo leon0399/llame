@@ -1,5 +1,17 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-20
+
+- **Temporal anchor in system prompt** (#334): the model now receives a
+  frozen, timezone-explicit reference point (`context.systemTime` /
+  `context.systemTimezone`) so that relative expressions and dated context
+  (including recency-digest dates) become interpretable. The anchor is
+  derived from the latest compaction time (or chat creation), refreshed only
+  at compaction, formatted in the instance's local timezone with a numeric
+  UTC offset. `renderSystemPromptTemplate` and `SystemPromptsService.render`
+  now take an options object with `anchor` required. The compaction
+  instruction excludes the anchor from checkpoints.
+
 # 2026-08-19
 
 - Closed `anti-slop/require-safety-comment-for-type-assertion` remediation,

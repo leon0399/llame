@@ -17,7 +17,13 @@ import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import {
   createModelPromptLoader,
   renderSystemPromptTemplate,
+  type TemporalAnchor,
 } from '../instance-config/prompt-loader';
+
+const TEST_ANCHOR: TemporalAnchor = {
+  systemTime: '2026-08-19 16:36+02:00',
+  systemTimezone: 'Europe/Madrid',
+};
 import { createFakeModelClient } from '../models/fake-model-client';
 import {
   type ModelClient,
@@ -333,13 +339,13 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const service = createCompactionService(unexercisedModels);
 
     const model = { id: 'system:openai:test', name: 'Test Model' };
-    const packagedPrompt = renderSystemPromptTemplate(
-      createModelPromptLoader({
+    const packagedPrompt = renderSystemPromptTemplate({
+      template: createModelPromptLoader({
         configPath: path.resolve(__dirname, '../../llame.config.json'),
       }).resolve(model).systemPromptTemplate,
       model,
-      undefined,
-      {
+      anchor: TEST_ANCHOR,
+      chats: {
         pinned: [
           {
             title: 'Quarterly planning',
@@ -362,7 +368,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         recentTotal: 4,
         compiledOn: '2026-08-10',
       },
-    );
+    });
     // Guard the guard: if the block stopped rendering, every assertion below
     // would pass vacuously.
     expect(packagedPrompt).toContain('<user_chat_history>');
