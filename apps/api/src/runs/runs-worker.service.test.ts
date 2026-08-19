@@ -97,7 +97,9 @@ function makeService(
   // Records calls for assertions only — `runAs` below performs the actual
   // invocation, so this must not also call `cb` or the callback would run
   // twice.
-  const runAsSpy = vi.fn((_userId: string, _cb: (tx: Db) => unknown) => {});
+  const runAsSpy = vi.fn(
+    <T>(_userId: string, _cb: (tx: Db) => T | Promise<T>) => {},
+  );
   // A mocked generic method infers a concrete T that can't structurally
   // satisfy `runAs`'s own `<T>`. A plain (non-mocked) arrow function assigned
   // to the generic-typed slot lets TS infer the real generic signature; it

@@ -105,7 +105,7 @@ export type McpTestFixture = {
 const wait = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-async function readRequestBody(request: IncomingMessage): Promise<unknown> {
+async function readRequestBody(request: IncomingMessage) {
   const chunks: Uint8Array[] = [];
   for await (const chunk of request) {
     if (!(chunk instanceof Uint8Array)) {

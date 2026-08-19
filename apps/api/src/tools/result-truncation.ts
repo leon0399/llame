@@ -61,13 +61,23 @@ const NAMED_LIST_LIMIT = 3;
  * self-evident to a reader, but a list that quietly lost its tail reads as a
  * complete one, so the model is told what it kept of what.
  */
+/** The JSON-like shape `capValues`/`capRecord` preserve while shortening. */
+type CappedValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | CappedValue[]
+  | { [key: string]: CappedValue };
+
 function capRecord(
   value: Record<string, unknown>,
   limit: number,
   lists: ShortenedList[],
   path: string,
   keepAllEntries: boolean,
-): Record<string, unknown> {
+): { [key: string]: CappedValue } {
   const entries = Object.entries(value);
   return Object.fromEntries(
     (keepAllEntries ? entries : entries.slice(0, limit)).map(([key, entry]) => [
@@ -83,7 +93,7 @@ function capValues(
   lists: ShortenedList[],
   path = '',
   keepAllEntries = false,
-): unknown {
+): CappedValue {
   if (typeof value === 'string') {
     return cutStringAtCodePointBoundary(value, limit);
   }
@@ -103,8 +113,20 @@ function capValues(
   if (isRecord(value)) {
     return capRecord(value, limit, lists, path, keepAllEntries);
   }
-  // Numbers, booleans and null are already shorter than any useful limit.
-  return value;
+  // Numbers, booleans, null, and undefined are already shorter than any
+  // useful limit. Anything else (symbol, function, bigint) is not a shape a
+  // JSON-ish tool result carries — fail closed instead of passing it through.
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+  throw new TypeError(
+    `Cannot truncate a tool-result value of type ${typeof value}.`,
+  );
 }
 
 /**

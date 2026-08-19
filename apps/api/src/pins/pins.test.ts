@@ -63,7 +63,7 @@ describe('PinsService.pin — error mapping', () => {
   // the underlying insert throw / the hydrate return undefined via the repo,
   // which we simulate by stubbing runAs directly.
   async function makeService(
-    runAsImpl: () => Promise<unknown>,
+    runAsImpl: () => Promise<PinnedRow | undefined>,
   ): Promise<PinsService> {
     const module = await Test.createTestingModule({
       providers: [

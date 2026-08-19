@@ -18,11 +18,21 @@ export const compareCodePoints = (left: string, right: string): number => {
   return leftScalars.length - rightScalars.length;
 };
 
+/** The JSON-like shape `canonicalize` preserves while sorting object keys. */
+export type CanonicalJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | CanonicalJsonValue[]
+  | { [key: string]: CanonicalJsonValue };
+
 export function canonicalize(
   value: Record<string, unknown>,
-): Record<string, unknown>;
-export function canonicalize(value: unknown): unknown;
-export function canonicalize(value: unknown): unknown {
+): Record<string, CanonicalJsonValue>;
+export function canonicalize(value: unknown): CanonicalJsonValue;
+export function canonicalize(value: unknown): CanonicalJsonValue {
   if (Array.isArray(value)) {
     return value.map(canonicalize);
   }
@@ -33,7 +43,19 @@ export function canonicalize(value: unknown): unknown {
         .map(([key, child]) => [key, canonicalize(child)]),
     );
   }
-  return value;
+  // Numbers, booleans, null, and undefined are already JSON-shaped. Anything
+  // else (symbol, function, bigint) is not a shape hashed/compared tool
+  // declarations carry — fail closed instead of passing it through.
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+  throw new TypeError(`Cannot canonicalize a value of type ${typeof value}.`);
 }
 
 export function canonicalJson(value: unknown): string {

@@ -206,20 +206,21 @@ class HarnessModelClient implements ModelClient {
     });
 
     return wrapStreamTextResult(result, {
-      consumeStream:
-        (target) =>
-        async (...args: Parameters<typeof target.consumeStream>) => {
+      consumeStream: (target) => ({
+        value: async (...args: Parameters<typeof target.consumeStream>) => {
           await target.consumeStream(...args);
           await waitForAbortSettlement();
         },
-      text: (target) =>
-        (async () => {
+      }),
+      text: (target) => ({
+        value: (async () => {
           try {
             return await target.text;
           } finally {
             await waitForAbortSettlement();
           }
         })(),
+      }),
     });
   }
 }
