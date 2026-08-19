@@ -44,7 +44,7 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import { type MessagePart } from '../chats/context-builder';
+import { type TextPart } from '../chats/context-builder';
 import { RunDispatchService } from './run-dispatch.service';
 import { type RunUserMessage } from './run-execution.service';
 import { RUNS_QUEUE, type RunJob } from './run-queues';
@@ -418,11 +418,12 @@ export async function seedRun(input: {
         title: 'Harness chat',
       });
     }
+    const parts: TextPart[] = [{ type: 'text', text: input.text ?? 'hello' }];
     const message = await new MessagesRepository(tx).create({
       chatId,
       role: 'user',
       senderUserId: input.userId,
-      parts: [{ type: 'text', text: input.text ?? 'hello' }],
+      parts,
     });
     const snapshot = await seedModelContextSnapshot(
       tx,
@@ -443,7 +444,7 @@ export async function seedRun(input: {
       userMessage: {
         id: message.id,
         seq: message.seq,
-        parts: message.parts as MessagePart[],
+        parts,
       },
     };
   });

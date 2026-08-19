@@ -9,6 +9,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `string`, so `node.type === 'X'` alone never narrows `node` itself; four
   new local type-predicate functions replace the check-then-cast pattern
   used across the prompt-file Handlebars AST validator. No behavior change.
+- Removed all 23 `typescript/no-unsafe-type-assertion` findings across the
+  runs/ cluster (`run-queues.ts`, `run-stream-bridge.ts`,
+  `worker-harness.ts`, `effective-context-resolver.test.ts`,
+  `context-receipt.integration.test.ts`, `runs-worker.service.test.ts`,
+  `model-context-snapshot.test-fixture.test.ts`,
+  `snapshot-tool-execution.test.ts`,
+  `worker-concurrency.integration.test.ts`,
+  `worker-liveness.integration.test.ts`). Repair idioms: the shared
+  `isRecord` guard; a plain (non-mocked) arrow function assigned to a
+  generic-typed mock slot where `vi.fn()`'s own inference can't express the
+  target's generic signature; a local `asserts`-style predicate reasserting
+  a JSON round-trip's erased type. Native inventory falls from 134/58 to
+  111/48.
 - Removed 9 of 11 `typescript/no-unsafe-type-assertion` findings across the
   MCP runtime cluster (`mcp-runtime.service.test.ts`,
   `mcp-runtime.module.test.ts`, `mcp-operator.integration.test.ts`). A shared

@@ -2,9 +2,33 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import { type ModelToolDeclaration } from '../db/schema';
+import { type TenantRunner } from '../db/tenant-db.service';
 import { type Tool, type JsonSchemaDocument } from '../tools/types';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
+import { isRecord } from '../unknown-record';
 import { resolveBoundExecutableTools } from './snapshot-tool-execution';
+
+/** The not-available executor path below never reaches `.runAs`. */
+const fakeTenantDb: TenantRunner = {
+  runAs: () => {
+    throw new Error('runAs should not be called by this executor context');
+  },
+};
+
+/** The JSON round-trip in `makeDeclaration` below erases compile-time type
+ * information; this reasserts it from the actual shape. */
+function assertModelToolDeclaration(
+  value: unknown,
+): asserts value is ModelToolDeclaration {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.description !== 'string' ||
+    !isRecord(value.inputSchema)
+  ) {
+    throw new TypeError('Expected a canonical ModelToolDeclaration');
+  }
+}
 
 function makeTool(overrides: Partial<Tool> = {}): Tool {
   return {
@@ -29,11 +53,13 @@ async function makeDeclaration(tool: Tool): Promise<ModelToolDeclaration> {
   const { canonicalJson } = await import('./effective-context-resolver.js');
   const canonicalize = (v: unknown): unknown =>
     JSON.parse(canonicalJson(v)) as unknown;
-  return canonicalize({
+  const declaration = canonicalize({
     id: tool.id,
     description: tool.description,
     inputSchema: await resolveJsonSchema(tool.inputSchema),
-  }) as ModelToolDeclaration;
+  });
+  assertModelToolDeclaration(declaration);
+  return declaration;
 }
 
 describe('resolveBoundExecutableTools — JSON-Schema tools', () => {
@@ -170,7 +196,7 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
           {
             userId: 'user-1',
             chatId: 'chat-1',
-            tenantDb: {} as never,
+            tenantDb: fakeTenantDb,
           },
           { query: 'llame' },
         ),

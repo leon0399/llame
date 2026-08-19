@@ -1,8 +1,16 @@
+import { drizzle } from 'drizzle-orm/postgres-js';
+
+import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { resolveEffectiveContext } from './effective-context-resolver';
 import { seedModelContextSnapshot } from './model-context-snapshot.test-fixture';
 import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
+
+/** `createOrReuse` is spied below, so the tx handle is never dereferenced. */
+function fakeTx(): Db {
+  return drizzle.mock({ schema });
+}
 
 describe('seedModelContextSnapshot', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -35,7 +43,7 @@ describe('seedModelContextSnapshot', () => {
         createdAt: new Date('2026-07-18T00:00:00.000Z'),
       });
 
-    await seedModelContextSnapshot({} as Db, ownerUserId, key);
+    await seedModelContextSnapshot(fakeTx(), ownerUserId, key);
 
     expect(createOrReuse).toHaveBeenCalledWith(ownerUserId, expectedContext);
     expect(expectedContext.toolDeclarations).toEqual([]);
@@ -60,7 +68,7 @@ describe('seedModelContextSnapshot', () => {
         createdAt: new Date('2026-07-18T00:00:00.000Z'),
       });
 
-    await seedModelContextSnapshot({} as Db, ownerUserId, key, [
+    await seedModelContextSnapshot(fakeTx(), ownerUserId, key, [
       'search_conversations',
     ]);
 

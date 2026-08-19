@@ -6,6 +6,7 @@ import { afterEach, vi } from 'vitest';
 
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { type Tool } from '../tools/types';
+import { isRecord } from '../unknown-record';
 import {
   canonicalJson,
   resolveEffectiveContext,
@@ -71,15 +72,19 @@ describe('effective context resolver', () => {
     expect(Object.keys(context.toolDeclarations[0].inputSchema)).toEqual(
       Object.keys(context.toolDeclarations[0].inputSchema).sort(),
     );
-    expect(
-      Object.keys(
-        (
-          context.toolDeclarations[0].inputSchema as {
-            properties: { nested: { properties: object } };
-          }
-        ).properties.nested.properties,
-      ),
-    ).toEqual(['a', 'z']);
+    const inputSchemaProperties =
+      context.toolDeclarations[0].inputSchema.properties;
+    if (
+      !isRecord(inputSchemaProperties) ||
+      !isRecord(inputSchemaProperties.nested)
+    ) {
+      throw new Error('Expected nested JSON Schema properties');
+    }
+    const nestedProperties = inputSchemaProperties.nested.properties;
+    if (!isRecord(nestedProperties)) {
+      throw new Error('Expected nested JSON Schema properties object');
+    }
+    expect(Object.keys(nestedProperties)).toEqual(['a', 'z']);
     expect(Object.keys(context).sort()).toEqual([
       'availabilityHash',
       'contentHash',
@@ -104,24 +109,25 @@ describe('effective context resolver', () => {
       ],
     });
 
+    expect(context.availabilityHash).toMatch(/^[0-9a-f]{64}$/);
     expect(context).toMatchObject({
-      availabilityHash: expect.stringMatching(/^[0-9a-f]{64}$/) as string,
       toolAvailabilityManifest: {
         version: 1,
         entries: [
-          {
-            id: 'a_tool',
-            state: 'available',
-            declarationHash: expect.stringMatching(/^[0-9a-f]{64}$/) as string,
-          },
-          {
-            id: 'z_tool',
-            state: 'available',
-            declarationHash: expect.stringMatching(/^[0-9a-f]{64}$/) as string,
-          },
+          { id: 'a_tool', state: 'available' },
+          { id: 'z_tool', state: 'available' },
         ],
       },
     });
+    const [firstEntry, secondEntry] = context.toolAvailabilityManifest.entries;
+    if (
+      firstEntry?.state !== 'available' ||
+      secondEntry?.state !== 'available'
+    ) {
+      throw new Error('Expected both entries available');
+    }
+    expect(firstEntry.declarationHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(secondEntry.declarationHash).toMatch(/^[0-9a-f]{64}$/);
     expect(context.toolHash).toBe(
       'eba2e361cc18e8ef77abf5b7f3bac7c4f1751acd3760df6505d35b960ef68faa',
     );
@@ -155,18 +161,25 @@ describe('effective context resolver', () => {
       'code_search',
       'mcp__web__search',
     ]);
-    expect(context.toolAvailabilityManifest.entries).toEqual([
-      {
-        id: 'code_search',
-        state: 'available',
-        declarationHash: expect.stringMatching(/^[0-9a-f]{64}$/) as string,
-      },
-      {
-        id: 'mcp__web__search',
-        state: 'available',
-        declarationHash: expect.stringMatching(/^[0-9a-f]{64}$/) as string,
-      },
+    expect(
+      context.toolAvailabilityManifest.entries.map(({ id, state }) => ({
+        id,
+        state,
+      })),
+    ).toEqual([
+      { id: 'code_search', state: 'available' },
+      { id: 'mcp__web__search', state: 'available' },
     ]);
+    const [codeSearchEntry, mcpSearchEntry] =
+      context.toolAvailabilityManifest.entries;
+    if (
+      codeSearchEntry?.state !== 'available' ||
+      mcpSearchEntry?.state !== 'available'
+    ) {
+      throw new Error('Expected both entries available');
+    }
+    expect(codeSearchEntry.declarationHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(mcpSearchEntry.declarationHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('filters the full MCP source inventory with a namespace wildcard while snapshotting exact ids only', async () => {

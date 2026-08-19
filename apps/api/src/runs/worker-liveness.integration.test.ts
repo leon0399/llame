@@ -34,6 +34,7 @@
 
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { isRecord } from '../unknown-record';
 import { waitFor } from '../testing/support';
 import {
   bootWorkerHarness,
@@ -91,9 +92,14 @@ describeIfDb(
       );
       const expiredEvent = events.find((e) => e.eventType === 'run.expired');
       expect(expiredEvent).toBeDefined();
-      expect((expiredEvent?.payload as { message?: string })?.message).toMatch(
-        /timed out/i,
-      );
+      const expiredPayload = expiredEvent?.payload;
+      if (
+        !isRecord(expiredPayload) ||
+        typeof expiredPayload.message !== 'string'
+      ) {
+        throw new Error('Expected run.expired payload with a message');
+      }
+      expect(expiredPayload.message).toMatch(/timed out/i);
       expect(events.map((e) => e.eventType)).not.toContain('run.cancelled');
     });
   },
@@ -195,9 +201,14 @@ describeIfDb(
       );
       const expiredEvent = events.find((e) => e.eventType === 'run.expired');
       expect(expiredEvent).toBeDefined();
-      expect((expiredEvent?.payload as { message?: string })?.message).toMatch(
-        /retries exhausted/i,
-      );
+      const expiredPayload = expiredEvent?.payload;
+      if (
+        !isRecord(expiredPayload) ||
+        typeof expiredPayload.message !== 'string'
+      ) {
+        throw new Error('Expected run.expired payload with a message');
+      }
+      expect(expiredPayload.message).toMatch(/retries exhausted/i);
     });
   },
 );

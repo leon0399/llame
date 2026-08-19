@@ -7,6 +7,7 @@ import { configureApp } from '../app.setup';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { modelContextSnapshots } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
+import { isRecord } from '../unknown-record';
 import { cookieOf } from '../testing/support';
 import { seedModelContextSnapshot } from './model-context-snapshot.test-fixture';
 import { RunsRepository } from './runs-repository';
@@ -15,7 +16,7 @@ const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
 
 d('GET /api/v1/runs/:id/context-receipt', () => {
-  let app: INestApplication;
+  let app: INestApplication<import('http').Server>;
   let http: import('http').Server;
   let tenantDb: TenantDbService;
   let ownerId = '';
@@ -30,7 +31,14 @@ d('GET /api/v1/runs/:id/context-receipt', () => {
       .post('/auth/v1/register')
       .send({ email, password, name });
     expect(response.status).toBe(201);
-    const body = response.body as { user: { id: string } };
+    const body: unknown = response.body;
+    if (
+      !isRecord(body) ||
+      !isRecord(body.user) ||
+      typeof body.user.id !== 'string'
+    ) {
+      throw new Error('Expected register response with user.id');
+    }
     return { id: body.user.id, cookie: cookieOf(response) };
   }
 
@@ -63,7 +71,7 @@ d('GET /api/v1/runs/:id/context-receipt', () => {
     app = module.createNestApplication();
     configureApp(app);
     await app.init();
-    http = app.getHttpServer() as import('http').Server;
+    http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
 
     const owner = await register(
@@ -149,7 +157,10 @@ d('GET /api/v1/runs/:id/context-receipt', () => {
       .set('Cookie', ownerCookie);
 
     expect(response.status).toBe(200);
-    const body = response.body as { toolAvailability: unknown };
+    const body: unknown = response.body;
+    if (!isRecord(body)) {
+      throw new Error('Expected object response body');
+    }
     expect(body.toolAvailability).toEqual({
       version: 0,
       state: 'unobserved',
