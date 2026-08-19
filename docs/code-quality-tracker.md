@@ -104,6 +104,80 @@ historical publication record of stack #369.
 
 ## Current submission
 
+Arc 2's third rule, `no-known-value-widening` (branch
+`quality/known-value-widening`, stacked on `quality/unsafe-returns-no-unknown`),
+starts with a fresh re-measurement — the queued baseline (47/30) predates the
+rebase, same staleness `no-unknown-returns` had. The corrected scratch-config
+technique (see below) reports 36 diagnostics across 20 files. Split into two
+reviewable layers along cluster lines rather than one 36-finding diff, matching
+the `no-reflect-get` precedent's partial-then-finish shape: this layer covers
+the MCP + instance-config cluster (`mcp-server-client.ts`, its test,
+`declaration-admission.test.ts`, `mcp-operator.integration.test.ts`,
+`config-loader.ts`, `prompt-loader.ts` — 17 of the 36 findings, 6 files). The
+rule is **not** enabled this round; the remaining 19 findings across 14 files
+(runs/chats/tools cluster + misc tail) continue in the next layer, which also
+carries the flip.
+
+The rule (`tools/oxlint/anti-slop/rules/no-known-value-widening.ts`) is purely
+syntactic — it flags a _known_ value (an object/array/function/class/`new`/
+literal expression, or a stable `const` traced back to one) flowing into an
+_explicit_ return/binding/property/assertion type that's `unknown`, `object`,
+a non-empty anonymous type literal, or a `Record<>`/mapped/generic-container
+shape — regardless of whether the runtime value is actually safe. Two repair
+idioms cover nearly every site:
+
+- **Anonymous inline object return/binding types** (`anonymous object` in the
+  rule's own vocabulary) get a **named type alias**. This isn't just style: the
+  rule's own alias-resolution path (`classifyAliasBroadTarget`) only flags a
+  named alias when it resolves to an index signature or mapped type — a named
+  alias whose body is a plain member-literal shape is exempt, matching the
+  rule's own remediation message ("keep inference, validate with `satisfies`,
+  or use a named owner contract"). `mcp-server-client.ts`'s `rpcRequest`
+  (4 return sites, one function) becomes `RpcRequestSummary`;
+  `mcp-operator.integration.test.ts`'s two structurally-identical fixture
+  builders share one local `FixtureStreamResponse`; `prompt-loader.ts`'s
+  exported `createModelPromptLoader` gets `ModelPromptResolution`/
+  `ModelPromptLoader`, unblocking `config-loader.ts`'s consuming
+  `ReturnType<typeof createModelPromptLoader>` for free. Where the shape is
+  private, single-call-site, and undocumented as a contract (`config-loader.ts`'s
+  `offsetToLineColumn`/`resolveMcpServers`; `mcp-server-client.test.ts`'s
+  `initializedFixtureScripts`), the explicit annotation is dropped entirely
+  instead — inference reconstructs the identical type from the return
+  statement, verified against `tsgo --noEmit` after every change, not assumed.
+- **`Record<>` lookup-table constants with dynamic-string reads** can't use
+  `satisfies` (the resulting literal type has no index signature, so a
+  string-keyed read stops compiling) — but two of `config-loader.ts`'s three
+  findings turned out to not need the annotation at all:
+  `resolveWorkerProfiles`'s `merged` binding spreads an already
+  `Record<string, WorkerProfile>`-typed source, so TypeScript's own inference
+  reconstructs the same index-signature type without the annotation, and
+  `resolveMcpServers`'s return is a private, single-caller function
+  identically droppable. Only `prompt-loader.ts`'s `PROMPT_ESCAPES` (a 3-entry
+  lookup keyed by single characters from a regex match, provably closed but
+  typed `string` at the callback boundary) needed a real design change: a
+  `Map` instead of an object literal. A first attempt kept the object literal
+  with `satisfies` plus an `in`-narrowed lookup — `tsgo --noEmit` accepted it,
+  but the REAL gate (`pnpm --filter api lint`, oxlint's own type-aware
+  `tsgolint` engine) rejected it as `typescript(no-unsafe-return): Unsafe
+return of a value of type error` — `tsgolint`'s type resolution doesn't
+  follow that particular `in`-narrowing path the way `tsgo` does. Caught only
+  because lint ran immediately after, not just typecheck; every fix in this
+  layer now gets both. `Map.get()` returns `V | undefined` unconditionally
+  through both engines, sidestepping the gap entirely and reading more
+  honestly than the object-literal version did.
+
+While re-measuring, a second scratch-config resolution-root bug surfaced
+beyond the one `no-unknown-returns` found: `overrides[].files` glob patterns
+have the identical problem as `jsPlugins.specifier` (both resolve against the
+config file's own directory, not the working directory) — but this time it
+was caught before the false count was trusted, by cross-checking the
+suspiciously-round 88-diagnostic first run against per-rule breakdowns. Making
+`overrides[].files`/`ignorePatterns` absolute (same fix, applied earlier this
+time) corrected it. Repair evidence for this layer: `pnpm --filter api
+lint`/`typecheck` clean, `pnpm --filter api test` 1153/1153, full `pnpm
+--filter api test:integration` 348/351 (3 pre-existing skips) against real
+Postgres.
+
 Arc 2's second rule, `no-unknown-returns` (branch
 `quality/unsafe-returns-no-unknown`, stacked on `quality/arc1-closeout`),
 recovers the pre-rebase WIP stash left behind before the reboot. Popped
@@ -592,7 +666,7 @@ override is acceptable.
 | ------ | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | done   | `no-chained-type-assertions`                | Zero across five scopes; standard `RuleTester` covers parentheses, non-null wrappers, and angle/`as` chains.                                                                                             |
 | queued | `no-conditional-empty-object-spread`        | 147 diagnostics/50 files; preserve exact omission semantics rather than replacing omission with unconditional `undefined`.                                                                               |
-| queued | `no-known-value-widening`                   | 47 diagnostics/30 files; repair with inference, `satisfies`, or named owner contracts.                                                                                                                   |
+| queued | `no-known-value-widening`                   | Fresh count 36/20 (was 47/30 pre-rebase); 17/6 files done (MCP + instance-config cluster), 19/14 remain (runs/chats/tools cluster); repair with inference, `satisfies`, or named owner contracts.        |
 | queued | `no-module-mocking`                         | 81 diagnostics/34 files; replace module mocks with real dependency seams or faithful implementations, never overrides.                                                                                   |
 | done   | `no-object-parameters`                      | Zero across five scopes; endpoint DTO variants preserve deliberate invalid-field tests and Pins uses an exact service capability seam.                                                                   |
 | done   | `no-reflect-apply`                          | Zero across three call sites in two files; enforced at error in `apps/api/.oxlintrc.json`.                                                                                                               |

@@ -96,7 +96,7 @@ function initializedFixtureScripts(input: {
   listResponses: readonly McpFixtureResponse[];
   callResponses?: readonly McpFixtureResponse[];
   deleteResponses?: readonly McpFixtureResponse[];
-}): Readonly<Record<string, readonly McpFixtureResponse[]>> {
+}) {
   return {
     $get: [{ kind: 'raw', status: 405, body: '' }],
     initialize: [
@@ -111,7 +111,7 @@ function initializedFixtureScripts(input: {
       ? {}
       : { 'tools/call': input.callResponses }),
     $delete: input.deleteResponses ?? [{ kind: 'raw', status: 204, body: '' }],
-  };
+  } satisfies Readonly<Record<string, readonly McpFixtureResponse[]>>;
 }
 
 async function connectFixture(input: {
@@ -1159,7 +1159,10 @@ describe('McpServerClient', () => {
   });
 
   it('refuses only declarations exceeding 256 KiB or schema depth 64', async () => {
-    let deepSchema: Record<string, unknown> = { type: 'string' };
+    type DeepSchemaFixture =
+      | { type: 'string' }
+      | { type: 'object'; properties: { nested: DeepSchemaFixture } };
+    let deepSchema: DeepSchemaFixture = { type: 'string' };
     for (let depth = 0; depth < 70; depth += 1) {
       deepSchema = {
         type: 'object',

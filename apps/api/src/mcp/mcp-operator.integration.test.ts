@@ -127,9 +127,11 @@ function usage() {
   };
 }
 
-function toolCallResponse(): {
+type FixtureStreamResponse = {
   stream: ReadableStream<LanguageModelV3StreamPart>;
-} {
+};
+
+function toolCallResponse(): FixtureStreamResponse {
   const chunks: LanguageModelV3StreamPart[] = [
     { type: 'stream-start', warnings: [] },
     {
@@ -149,9 +151,7 @@ function toolCallResponse(): {
   };
 }
 
-function textResponse(text: string): {
-  stream: ReadableStream<LanguageModelV3StreamPart>;
-} {
+function textResponse(text: string): FixtureStreamResponse {
   const chunks: LanguageModelV3StreamPart[] = [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'answer' },

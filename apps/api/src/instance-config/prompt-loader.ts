@@ -147,14 +147,21 @@ const ALLOWED_BLOCK_HELPERS: ReadonlySet<string> = new Set([
 ]);
 
 /** Narrower than handlebars' default, which also mangles `'`, `"`, `=`, and backticks. */
-const PROMPT_ESCAPES: Record<string, string> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-};
+const PROMPT_ESCAPES = new Map([
+  ['&', '&amp;'],
+  ['<', '&lt;'],
+  ['>', '&gt;'],
+]);
 
 function escapeForPrompt(value: string): string {
-  return value.replace(/[&<>]/gu, (character) => PROMPT_ESCAPES[character]);
+  return value.replace(/[&<>]/gu, (character) => {
+    const escaped = PROMPT_ESCAPES.get(character);
+    if (escaped === undefined) {
+      // Unreachable: the regex above only ever matches a PROMPT_ESCAPES key.
+      throw new Error(`Unexpected character in prompt escape: "${character}"`);
+    }
+    return escaped;
+  });
 }
 
 /**
@@ -235,13 +242,19 @@ export function resolveDefaultChatSystemPromptPath(
 export const DEFAULT_CHAT_SYSTEM_PROMPT_PATH =
   resolveDefaultChatSystemPromptPath(__dirname);
 
-export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
-  resolve(model: PromptModel): {
-    systemPromptTemplate: string;
-    systemPromptSource: SystemPromptSource;
-  };
+export type ModelPromptResolution = {
+  systemPromptTemplate: string;
+  systemPromptSource: SystemPromptSource;
+};
+
+export type ModelPromptLoader = {
+  resolve(model: PromptModel): ModelPromptResolution;
   validateProjectDefault(): void;
-} {
+};
+
+export function createModelPromptLoader(
+  options: ModelPromptLoaderOptions,
+): ModelPromptLoader {
   const access = options.access ?? DEFAULT_PROMPT_FILE_ACCESS;
   const defaultPromptPath = path.resolve(
     options.defaultPromptPath ?? DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
