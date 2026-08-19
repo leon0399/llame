@@ -2,6 +2,26 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-19
 
+- Closed `anti-slop/require-safety-comment-for-type-assertion` remediation,
+  enabling it at error in `apps/api/.oxlintrc.json` — the 15th and final
+  `dmmulroy/anti-slop` rule, closing the full ruleset adoption. Fresh
+  full-tree measurement (33 diagnostics/23 files; the queued 386/142 was
+  stale from before nine sibling rules landed) was read site by site: 30
+  assertions carry a real, specific `SAFETY:` comment (mostly `JSON.parse(x)
+  as unknown` downgrading `any` to `unknown`, and generic-variance/literal-
+  widening workarounds against Drizzle/AI-SDK/AJV types), 3 unjustified
+  assertions in `session-auth.guard.ts`'s header parsing and
+  `testing/support.ts` were deleted instead of documented — Node's own
+  `IncomingHttpHeaders` types (and its documented header-dedup behavior)
+  prove the removed `Array.isArray` branches were dead code on this
+  platform-express app, and `testing/support.ts` already had `isRecord`
+  imported and unused for the same narrowing. No behavior change; `pnpm
+--filter api lint`/`typecheck` clean, `pnpm --filter api test` 1158/1158,
+  full `pnpm --filter api test:integration` 348/351 (3 pre-existing skips),
+  root `pnpm lint` clean across all five workspaces, `pnpm --filter api
+build` confirms `openapi.json` byte-identical. See
+  `docs/code-quality-tracker.md` for the full site-by-site breakdown.
+
 - Started `anti-slop/no-runtime-typeof` remediation (Arc 2's eighth rule; not
   yet enabled). Fresh measurement: 148 diagnostics/56 files with the
   upstream `allowInTypeGuards` option (188/65 raw), matching the queued

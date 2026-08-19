@@ -1005,16 +1005,16 @@ across all tracked TS/TSX/MTS/CTS files in `apps/api`, and
 
 ### Lint and formatting
 
-| State  | Finding                                                                                                         | Evidence / exit condition                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ------ | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS                      | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                                                                                                                                                                                                                                                                                                                            |
-| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                                                 | Workspace `lint` scripts and Turbo                                                                                                                                                                                                                                                                                                                                                                                            |
-| queued | API is type-aware; other workspaces are substantially lighter                                                   | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                                                                                                                                                                                                                                                                                                                           |
-| done   | Semantic Markdown is linted across all product-owned files (200 at adoption; 191 after the working-doc removal) | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded                                                                                                                                                                                                                                                                                                  |
-| done   | Unused lint-disable directives are rejected in every lint-owning workspace                                      | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                                                                                                                                                                                                                                                                                                                           |
-| queued | Four Vitest rules are disabled in API                                                                           | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                                                                                                                                                                                                                                                                                                                      |
-| done   | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline                         | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness                                                                                                                                                                                                                                                                                                            |
-| queued | All 15 `dmmulroy/anti-slop` Oxlint rules are adoption targets                                                   | Five rules had a zero baseline at adoption (base `446268e` plus one documented correctness patch); seven more (`no-reflect-apply`, `no-reflect-get`, `no-unknown-returns`, `no-known-value-widening`, `no-module-mocking`, `no-unsafe-dictionary-type`, `no-conditional-empty-object-spread`) are since remediated to zero; three rules still require remediation; only validated `unknown` inputs may carry local exceptions |
+| State  | Finding                                                                                                         | Evidence / exit condition                                                                                                                                                                                                                                                                                                         |
+| ------ | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS                      | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                                                                                                                                                                                                                                |
+| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                                                 | Workspace `lint` scripts and Turbo                                                                                                                                                                                                                                                                                                |
+| queued | API is type-aware; other workspaces are substantially lighter                                                   | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                                                                                                                                                                                                                               |
+| done   | Semantic Markdown is linted across all product-owned files (200 at adoption; 191 after the working-doc removal) | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded                                                                                                                                                                                                      |
+| done   | Unused lint-disable directives are rejected in every lint-owning workspace                                      | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                                                                                                                                                                                                                               |
+| queued | Four Vitest rules are disabled in API                                                                           | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                                                                                                                                                                                                                          |
+| done   | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline                         | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness                                                                                                                                                                                                                |
+| done   | All 15 `dmmulroy/anti-slop` Oxlint rules are adoption targets                                                   | All 15 are now `error` in `apps/api/.oxlintrc.json`: five had a zero baseline at adoption (base `446268e` plus one documented correctness patch), the other ten were remediated to zero in reviewable layers, the last being `require-safety-comment-for-type-assertion`; only validated `unknown` inputs carry a local exception |
 
 #### `anti-slop` rule qualification (2026-08-15)
 
@@ -1030,23 +1030,23 @@ the seven-day release-age gate for 1.78.0. A rule becomes an error only in the P
 that removes every existing owned finding; no baseline, allowlist, or file-level
 override is acceptable.
 
-| State  | Upstream rule                               | llame disposition                                                                                                                                                                                                                                                                             |
-| ------ | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| done   | `no-chained-type-assertions`                | Zero across five scopes; standard `RuleTester` covers parentheses, non-null wrappers, and angle/`as` chains.                                                                                                                                                                                  |
-| done   | `no-conditional-empty-object-spread`        | Zero; 135 findings/41 files removed via a hybrid named-type-statement/`&&`-spread idiom, preserving exact omission semantics; enforced at error in `apps/api/.oxlintrc.json`.                                                                                                                 |
-| done   | `no-known-value-widening`                   | Zero across two layers (36 findings/20 files); named type aliases for anonymous shapes, `satisfies` for closed-union lookup tables, `Map` for genuine string-keyed dictionaries; enforced at error in `apps/api/.oxlintrc.json`.                                                              |
-| done   | `no-module-mocking`                         | Zero; fresh count 6/5 (was 81/34 pre-rebase, mostly retired by the unsafe-assertion migration's model doubles); `schema.ts`/`openai-model-client.ts`/`model-client-factory.ts`+`ModelsService` test seams; enforced at error in `apps/api/.oxlintrc.json`.                                    |
-| done   | `no-object-parameters`                      | Zero across five scopes; endpoint DTO variants preserve deliberate invalid-field tests and Pins uses an exact service capability seam.                                                                                                                                                        |
-| done   | `no-reflect-apply`                          | Zero across three call sites in two files; enforced at error in `apps/api/.oxlintrc.json`.                                                                                                                                                                                                    |
-| done   | `no-reflect-get`                            | Zero; the four AI SDK proxy-forwarding sites consolidated into one owned helper with a source-verified inline exception.                                                                                                                                                                      |
-| done   | `no-runtime-typeof`                         | Zero across `src/` + `evals/` (148/56 fresh baseline with `allowInTypeGuards: true`, 188/65 raw); two irreducible per-site disables (diagnostic `${typeof value}` interpolation in a thrown message); enforced at error (`allowInTypeGuards: true`) in `apps/api/.oxlintrc.json`.             |
-| done   | `no-shape-in-symbol-names`                  | Zero across five scopes; prompt scenarios, rendered conversation nodes, and admitted MCP payloads now carry their domain roles.                                                                                                                                                               |
-| done   | `no-unknown-parameters`                     | Zero across `src/` + `evals/`; a third local rule patch (`allowWhenImmediatelyValidated`, `allowErrorFamilyNames`) resolved 51/103 structurally, the remaining 52 carry a per-site inline disable with a specific reason; enforced at error (both options on) in `apps/api/.oxlintrc.json`.   |
-| done   | `no-unknown-returns`                        | Zero; `CanonicalJsonValue` (mirroring `result-truncation.ts`'s `CappedValue`) replaces the two overloads' `unknown`/`Promise<unknown>` return contracts; enforced at error in `apps/api/.oxlintrc.json`.                                                                                      |
-| done   | `no-unknown-type-aliases`                   | Zero across five owned scopes and enforced through root plus workspace Oxlint.                                                                                                                                                                                                                |
-| done   | `no-unsafe-dictionary-type`                 | Zero across two layers (43 findings/28 files incl. one outside `src/`); shared `UnknownRecord` alias plus `JsonSchemaDocument` redirects for tool-input-schema sites; origin declaration carries this repo's second inline-disable precedent; enforced at error in `apps/api/.oxlintrc.json`. |
-| done   | `no-widen-then-assert`                      | Zero across five owned scopes; blocks local evidence erasure before it becomes unsafe-assertion debt.                                                                                                                                                                                         |
-| queued | `require-safety-comment-for-type-assertion` | 386 diagnostics/142 files; enable after unsafe assertions reach zero, documenting only rare unexpressible invariants.                                                                                                                                                                         |
+| State | Upstream rule                               | llame disposition                                                                                                                                                                                                                                                                                                                                   |
+| ----- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done  | `no-chained-type-assertions`                | Zero across five scopes; standard `RuleTester` covers parentheses, non-null wrappers, and angle/`as` chains.                                                                                                                                                                                                                                        |
+| done  | `no-conditional-empty-object-spread`        | Zero; 135 findings/41 files removed via a hybrid named-type-statement/`&&`-spread idiom, preserving exact omission semantics; enforced at error in `apps/api/.oxlintrc.json`.                                                                                                                                                                       |
+| done  | `no-known-value-widening`                   | Zero across two layers (36 findings/20 files); named type aliases for anonymous shapes, `satisfies` for closed-union lookup tables, `Map` for genuine string-keyed dictionaries; enforced at error in `apps/api/.oxlintrc.json`.                                                                                                                    |
+| done  | `no-module-mocking`                         | Zero; fresh count 6/5 (was 81/34 pre-rebase, mostly retired by the unsafe-assertion migration's model doubles); `schema.ts`/`openai-model-client.ts`/`model-client-factory.ts`+`ModelsService` test seams; enforced at error in `apps/api/.oxlintrc.json`.                                                                                          |
+| done  | `no-object-parameters`                      | Zero across five scopes; endpoint DTO variants preserve deliberate invalid-field tests and Pins uses an exact service capability seam.                                                                                                                                                                                                              |
+| done  | `no-reflect-apply`                          | Zero across three call sites in two files; enforced at error in `apps/api/.oxlintrc.json`.                                                                                                                                                                                                                                                          |
+| done  | `no-reflect-get`                            | Zero; the four AI SDK proxy-forwarding sites consolidated into one owned helper with a source-verified inline exception.                                                                                                                                                                                                                            |
+| done  | `no-runtime-typeof`                         | Zero across `src/` + `evals/` (148/56 fresh baseline with `allowInTypeGuards: true`, 188/65 raw); two irreducible per-site disables (diagnostic `${typeof value}` interpolation in a thrown message); enforced at error (`allowInTypeGuards: true`) in `apps/api/.oxlintrc.json`.                                                                   |
+| done  | `no-shape-in-symbol-names`                  | Zero across five scopes; prompt scenarios, rendered conversation nodes, and admitted MCP payloads now carry their domain roles.                                                                                                                                                                                                                     |
+| done  | `no-unknown-parameters`                     | Zero across `src/` + `evals/`; a third local rule patch (`allowWhenImmediatelyValidated`, `allowErrorFamilyNames`) resolved 51/103 structurally, the remaining 52 carry a per-site inline disable with a specific reason; enforced at error (both options on) in `apps/api/.oxlintrc.json`.                                                         |
+| done  | `no-unknown-returns`                        | Zero; `CanonicalJsonValue` (mirroring `result-truncation.ts`'s `CappedValue`) replaces the two overloads' `unknown`/`Promise<unknown>` return contracts; enforced at error in `apps/api/.oxlintrc.json`.                                                                                                                                            |
+| done  | `no-unknown-type-aliases`                   | Zero across five owned scopes and enforced through root plus workspace Oxlint.                                                                                                                                                                                                                                                                      |
+| done  | `no-unsafe-dictionary-type`                 | Zero across two layers (43 findings/28 files incl. one outside `src/`); shared `UnknownRecord` alias plus `JsonSchemaDocument` redirects for tool-input-schema sites; origin declaration carries this repo's second inline-disable precedent; enforced at error in `apps/api/.oxlintrc.json`.                                                       |
+| done  | `no-widen-then-assert`                      | Zero across five owned scopes; blocks local evidence erasure before it becomes unsafe-assertion debt.                                                                                                                                                                                                                                               |
+| done  | `require-safety-comment-for-type-assertion` | Zero across the whole `apps/api` tree (33 findings/23 files fresh, the queued 386/142 was stale from before nine sibling rules landed); 30 assertions carry a real, specific `SAFETY:` comment, 3 unjustified ones were deleted instead (see remediation note below); enforced at error in `apps/api/.oxlintrc.json`, closing the 15-rule adoption. |
 
 The remaining 1,117 diagnostics are remediation inventory, not a tolerated
 baseline. Adopt rules in reviewable layers rather than enabling the all-on preset
@@ -1160,6 +1160,104 @@ fallback member, which is why `context-builder.ts:159` and
 `.type === 'text'` narrow. Properly discriminating the union (or dropping
 the open fallback) would delete those now-load-bearing predicate calls;
 out of scope here since it touches the persisted message-part contract.
+
+#### `require-safety-comment-for-type-assertion` remediation (2026-08-19, closed)
+
+The final anti-slop rule: every remaining `as T`/`<T>value` type assertion
+(excluding `as const`, which the rule itself exempts via `isConstAssertion` —
+a const assertion narrows a literal, it doesn't erase evidence, so it carries
+no invariant to document) must carry a leading `SAFETY:` comment stating the
+checked invariant TypeScript cannot express, placed immediately before the
+assertion or its containing statement/declaration (the rule walks up through
+intermediate expression nodes to the nearest `ExpressionStatement`,
+`PropertyDefinition`, `ReturnStatement`, `ThrowStatement`, or
+`VariableDeclaration` looking for a leading comment at each level). No
+options schema (unlike `no-runtime-typeof`'s `allowInTypeGuards`) — plain
+on/off.
+
+A fresh full-tree scratch-config measurement (technique per the
+`no-reflect-apply` entry above, this time explicitly re-verified against the
+whole `apps/api` tree — not just `src/` + `evals/` — after `no-runtime-typeof`
+missed a root-level file the same way) found 33 diagnostics/23 files. The
+queued 386/142 predates nine sibling rules landing (each removed real
+assertions along the way), so it was never a live number.
+
+Every finding was read individually — this rule's whole value is that the
+comments are true, so a plausible-sounding but unverified justification is
+worse than no comment at all. Two site classes dominated:
+
+- **~13 sites are `JSON.parse(x) as unknown`** (or the `Buffer`/stream
+  equivalent): `JSON.parse` returns `any`; the assertion deliberately
+  downgrades it to `unknown` so the immediately following `isRecord`/schema
+  check (or, for a few call sites, the caller across a function boundary) is
+  load-bearing rather than optional. Same idiom already established at
+  `openai-model-client.ts`'s `parseToolCallInput`.
+- **~7 sites are a generic-variance or literal-widening workaround**: `'chat'
+as PinItemType` / `'project' as PinItemType` (two call sites each in
+  `chats-repository.ts`/`projects-repository.ts` pin subqueries — `eq()`'s
+  column-comparison parameter widens the literal to `string`), `(reasons as
+readonly string[]).includes(value)` (two sites, `tool-availability-part.ts`
+  and `turn-tool-catalog.ts` — a `readonly TReason[]`'s own `.includes()`
+  only accepts `TReason`, not a plain narrowed `string`), `role: 'user'`
+  message-array literals (`title.service.ts`, matching the AI SDK
+  `ModelMessage` discriminated-union idiom used elsewhere), and
+  `Array.isArray`'s `any[]` narrow re-asserted to `unknown[]`
+  (`turn-tool-catalog.ts`) to keep the downstream loop honest rather than
+  implicitly `any`.
+
+The rest were one-off, each independently verified against the actual
+library/runtime type it crossed: `asSchema`/`jsonSchema` generic erasure to
+`FlexibleSchema<unknown>` (`schema-utils.ts`, checked against
+`@ai-sdk/provider-utils`'s actual declarations); an AJV `ErrorObject.params`
+narrow gated on a `keyword` check AJV's own types don't discriminate by
+(`config-loader.ts`); a `StdioClientTransport` → `MCPTransport` cast reading a
+field the AI SDK client assigns onto the transport instance post-handshake,
+not part of the concrete class's own declared type (`mcp-server-client.ts`
+— its existing comment was reworded, since "Reading it needs no cast" sat
+directly above a cast); three empty-array-literal-to-`number[]` widenings in
+one object literal, one shared comment (`search/core/eval.ts`); a
+deliberate excess-property bypass proving a classifier ignores untrusted
+input (`mcp-failure-policy.test.ts`, two sites — `McpFailureSignal` has no
+`message` field, the test asserts the classifier never reads one); a
+mixed-literal array spread whose combined type doesn't infer to
+`MessagePart[]` even though every member structurally satisfies the union's
+open `UnknownRecord` fallback (`context-builder.test.ts`); and two
+test-only reads of a field absent from a value's static type after a
+runtime-only `toMatchObject`/mock-call assertion (`runner.test.ts`,
+`worker.module.integration.test.ts`). An existing non-`SAFETY:`-prefixed
+comment on the jsonb-narrowing site in `chats.dto.ts` only needed the prefix
+added, not new content.
+
+**Three assertions were not justifiable and were deleted, not commented**
+(`session-auth.guard.ts`'s `getRequestToken`, two sites; `testing/support.ts`,
+one site) — writing a `SAFETY:` comment for either would have asserted
+something false:
+
+- `request.headers.authorization as string | string[] | undefined` and the
+  matching `cookie` cast: Node's own `IncomingHttpHeaders` types (and
+  documents) both fields as always a single `string | undefined` — duplicate
+  `authorization`/`cookie` headers are discarded/joined by Node's parser, never
+  turned into an array — and this app boots via `NestFactory.create` with no
+  adapter override, i.e. platform-express over plain Node `http`. The
+  `Array.isArray` branches these casts existed to type-check were dead code on
+  this platform; removed along with the casts rather than documented, since a
+  `SAFETY:` comment asserting the array case were real would be false.
+- `(event as { type?: unknown }).type === 'text-delta'` in
+  `testing/support.ts`'s `streamedText`: the file already imports `isRecord`
+  from `unknown-record.ts` and uses it elsewhere in the same module;
+  `isRecord(event) && event.type === 'text-delta'` is the real fix — it
+  removes the assertion entirely rather than justifying a workaround an
+  existing helper already avoids.
+
+`require-safety-comment-for-type-assertion` is now enforced at error in
+`apps/api/.oxlintrc.json`, closing the 15-rule `dmmulroy/anti-slop` adoption
+started in the "Anti-slop foundation" layer. Repair evidence: `pnpm --filter
+api lint`/`typecheck` clean (rule enabled), `pnpm --filter api test`
+1158/1158, full `pnpm --filter api test:integration` 348/351 (3 pre-existing
+skips, mandatory given `session-auth.guard.ts`/MCP/tools production files
+changed), root `pnpm lint` clean across all five workspaces plus
+`lint:anti-slop`, `pnpm --filter api build` confirms `openapi.json`
+byte-identical (`chats.dto.ts`'s change was comment-only).
 
 ### Complexity and structure
 
