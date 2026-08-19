@@ -128,14 +128,10 @@ describe('MCP failure policy', () => {
 
   it('fails closed for an unrecognized trusted discriminator', () => {
     expect(
-      Reflect.apply(classifyMcpFailure, undefined, [
-        { stage: 'call', kind: 'future_failure_kind' },
-      ]),
+      classifyMcpFailure({ stage: 'call', kind: 'future_failure_kind' }),
     ).toBe('reconnect');
-    expect(
-      Reflect.apply(classifyMcpFailure, undefined, [
-        { stage: 'future_stage', kind: 'timeout' },
-      ]),
-    ).toBe('reconnect');
+    expect(classifyMcpFailure({ stage: 'future_stage', kind: 'timeout' })).toBe(
+      'reconnect',
+    );
   });
 });

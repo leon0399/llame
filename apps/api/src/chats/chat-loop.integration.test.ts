@@ -680,12 +680,18 @@ describeIfDb(
       // makes after catching the unique violation, and have a genuinely
       // separate, already-committed writer mark the blocker terminal right
       // before it runs — no sleep/timing, fully deterministic.
-      const original: RunsRepository['findActiveByChatId'] =
-        // eslint-disable-next-line @typescript-eslint/unbound-method -- deliberately grabbed unbound: re-invoked below via Reflect.apply with an explicit receiver, not as a free-standing function.
-        RunsRepository.prototype.findActiveByChatId;
+      // Restores the prototype's real implementation before re-invoking it,
+      // rather than grabbing the unbound method and re-dispatching it with
+      // `.call`/`.apply`/`Reflect.apply` — this project's
+      // strictBindCallApply:false makes `.call`/`.apply` fall through to
+      // the untyped legacy Function overload (silently `any`), and
+      // Reflect.apply bypasses ordinary typed calls entirely. `mockRestore`
+      // then a plain `this.findActiveByChatId(...)` call is both simpler
+      // and fully typed: only this one re-check invocation is intercepted
+      // (mockImplementationOnce), so restoring before re-invoking is safe.
       const spy = vi
         .spyOn(RunsRepository.prototype, 'findActiveByChatId')
-        .mockImplementation(async function (
+        .mockImplementationOnce(async function (
           this: RunsRepository,
           queriedChatId: string,
           queriedUserId: string,
@@ -697,10 +703,8 @@ describeIfDb(
               'cancelled',
             ),
           );
-          // `Function.prototype.call`'s generic overload doesn't preserve
-          // `original`'s real return type here (a tsgo gap); `Reflect.apply`
-          // does, giving `Promise<Run | undefined>` with no cast needed.
-          return Reflect.apply(original, this, [queriedChatId, queriedUserId]);
+          spy.mockRestore();
+          return this.findActiveByChatId(queriedChatId, queriedUserId);
         });
 
       try {

@@ -29,8 +29,19 @@ function isHttpFailureStatus(status: unknown): status is number {
   );
 }
 
+// classifyMcpFailure fails closed (default/else branches below) for a stage
+// or kind it doesn't recognize — a real possibility once a remote MCP server
+// evolves ahead of this client. The parameter type says so honestly: it
+// accepts the closed literal unions every trusted call site already
+// constructs, plus any other string, rather than a narrower type this
+// function's own control flow doesn't actually require.
 export function classifyMcpFailure(
-  failure: McpFailureSignal,
+  failure: Readonly<{
+    stage: McpFailureStage | (string & {});
+    kind: McpFailureKind | (string & {});
+    status?: unknown;
+    hasSession?: boolean;
+  }>,
 ): McpFailureDisposition {
   if (
     failure.stage === 'initialize' ||
