@@ -14,6 +14,16 @@ The base of this directory is vendored from
   `(value as unknown)! as Target` bypasses the rule. The standard Oxlint
   `RuleTester` regression lives beside the rule. Upstream `main` was still the
   pinned commit when the patch was added on 2026-08-15.
+- Local correctness patch: `no-unknown-parameters` exempts a type predicate's
+  own subject parameter (`function isFoo(value: unknown): value is Foo`).
+  TypeScript requires that parameter to be typed `unknown` for the guard to
+  be sound — no narrower type satisfies it — so this is the canonical
+  legitimate use the rule exists to funnel code toward, mirrored by
+  upstream's own `cause` carve-out for the same reason. Only the parameter
+  the predicate names is exempted; a second `unknown` parameter in the same
+  signature, or a predicate on a different parameter, is still flagged. The
+  standard Oxlint `RuleTester` regression lives beside the rule. Upstream
+  `main` was still the pinned commit when the patch was added on 2026-08-19.
 
 Update by reviewing the upstream diff, running its `install.mjs` into a temporary
 directory, and reconciling every local patch above before replacement. Remove a
