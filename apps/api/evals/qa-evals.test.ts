@@ -45,6 +45,7 @@ import { TenantDbService } from './../src/db/tenant-db.service';
 import { CompactionsRepository } from './../src/chats/chats-repository';
 import { type Compaction } from './../src/db/schema';
 import { cookieOf, streamedText } from '../src/testing/support';
+import { isRecord } from '../src/unknown-record';
 
 const enabled =
   process.env.RUN_MODEL_EVALS === '1' && !!process.env.POSTGRES_URL;
@@ -71,7 +72,7 @@ async function waitFor<T>(
 }
 
 d('Q&A harness evals (#58) — real model, real loop', () => {
-  let app: INestApplication;
+  let app: INestApplication<import('http').Server>;
   let http: import('http').Server;
   let tenantDb: TenantDbService;
 
@@ -87,7 +88,7 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
     app = mod.createNestApplication();
     configureApp(app);
     await app.init();
-    http = app.getHttpServer() as import('http').Server;
+    http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
 
     const res = await request(http)
@@ -99,7 +100,15 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
       });
     expect(res.status).toBe(201);
     cookie = cookieOf(res);
-    userId = (res.body as { user: { id: string } }).user.id;
+    const body: unknown = res.body;
+    if (
+      !isRecord(body) ||
+      !isRecord(body.user) ||
+      typeof body.user.id !== 'string'
+    ) {
+      throw new Error('Expected register response with user.id');
+    }
+    userId = body.user.id;
   });
 
   afterAll(async () => {

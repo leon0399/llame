@@ -164,10 +164,11 @@ describe('ModelsService', () => {
         service.getAvailableModels();
         throw new Error('expected getAvailableModels to throw');
       } catch (error) {
-        expect(error).toBeInstanceOf(ModelConfigurationError);
-        const configurationError = error as ModelConfigurationError;
-        expect(configurationError.code).toBe('model_configuration_invalid');
-        expect(configurationError.statusCode).toBe(503);
+        if (!(error instanceof ModelConfigurationError)) {
+          throw new Error('Expected a ModelConfigurationError');
+        }
+        expect(error.code).toBe('model_configuration_invalid');
+        expect(error.statusCode).toBe(503);
       }
     }
   });

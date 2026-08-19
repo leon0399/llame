@@ -9,10 +9,9 @@ export type AppSetupApplication = Pick<
   INestApplication,
   'enableCors' | 'useGlobalPipes'
 > & {
-  getHttpAdapter: () => Pick<
-    ReturnType<INestApplication['getHttpAdapter']>,
-    'getInstance'
-  >;
+  getHttpAdapter: () => {
+    getInstance: () => { set: (key: string, value: unknown) => void };
+  };
 };
 
 export function configureApp(
@@ -28,10 +27,7 @@ export function configureApp(
   // passes the already-resolved value in.
   const resolvedTrustProxy = getTrustProxySetting(trustProxy);
   if (resolvedTrustProxy !== undefined) {
-    const express = app.getHttpAdapter().getInstance() as {
-      set: (key: string, value: unknown) => void;
-    };
-    express.set('trust proxy', resolvedTrustProxy);
+    app.getHttpAdapter().getInstance().set('trust proxy', resolvedTrustProxy);
   }
 
   app.enableCors({

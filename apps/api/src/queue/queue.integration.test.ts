@@ -33,6 +33,7 @@ import {
   type QueueDefinition,
 } from './queue';
 import { waitFor } from '../testing/support';
+import { isRecord } from '../unknown-record';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -213,11 +214,10 @@ describeIfDb(
       const guarded = defineQueue<{ n: number }>({
         name: `${tag}-guarded`,
         parse: (data) => {
-          const record = data as { n?: unknown };
-          if (typeof record?.n !== 'number') {
+          if (!isRecord(data) || typeof data.n !== 'number') {
             throw new TypeError('expected { n: number }');
           }
-          return { n: record.n };
+          return { n: data.n };
         },
       });
       await queue.ensureQueue(guarded);

@@ -92,15 +92,16 @@ describe('ModelClient', () => {
       apiKey: 'sk-user-supplied',
     });
     expect(openaiProvider.chat).toHaveBeenCalledWith('gpt-test');
-    expect(streamTextMock).toHaveBeenCalledWith({
+    const streamTextCall = streamTextMock.mock.calls[0]?.[0];
+    expect(streamTextCall).toMatchObject({
       model: providerModel,
       messages,
       system: 'stable system',
       abortSignal,
-      onAbort: expect.any(Function) as () => void,
       onError,
       onFinish,
     });
+    expect(typeof streamTextCall?.onAbort).toBe('function');
   });
 
   it('passes a non-empty placeholder apiKey for keyless compatible endpoints (#162)', () => {
@@ -138,15 +139,16 @@ describe('ModelClient', () => {
       apiKey: KEYLESS_PLACEHOLDER_API_KEY,
     });
     expect(openaiProvider.chat).toHaveBeenCalledWith('gpt-local');
-    expect(streamTextMock).toHaveBeenCalledWith({
+    const streamTextCall = streamTextMock.mock.calls[0]?.[0];
+    expect(streamTextCall).toMatchObject({
       model: providerModel,
       messages,
       system: undefined,
       abortSignal: undefined,
-      onAbort: expect.any(Function) as () => void,
       onError: undefined,
       onFinish: undefined,
     });
+    expect(typeof streamTextCall?.onAbort).toBe('function');
   });
 
   it('targets an OpenAI-compatible endpoint when a base URL is provided', () => {

@@ -16,6 +16,8 @@
  * with a mismatched handler, is a compile error, not a runtime surprise.
  */
 
+import { isRecord } from '../unknown-record';
+
 /** DI token for the Queue implementation (NestJS has no interface tokens). */
 export const QUEUE = Symbol('QUEUE');
 
@@ -237,10 +239,10 @@ export function expectRecord(
   data: unknown,
   queue: string,
 ): Record<string, unknown> {
-  if (typeof data !== 'object' || data === null) {
+  if (!isRecord(data)) {
     throw new TypeError(`Malformed '${queue}' job: payload is not an object`);
   }
-  return data as Record<string, unknown>;
+  return data;
 }
 
 export function expectString(

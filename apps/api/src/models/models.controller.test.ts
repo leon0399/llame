@@ -69,10 +69,11 @@ describe('ModelsController', () => {
       controller.listModels();
       throw new Error('expected controller to throw');
     } catch (error) {
-      expect(error).toBeInstanceOf(HttpException);
-      const exception = error as HttpException;
-      expect(exception.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
-      expect(exception.getResponse()).toEqual({
+      if (!(error instanceof HttpException)) {
+        throw new Error('Expected an HttpException');
+      }
+      expect(error.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+      expect(error.getResponse()).toEqual({
         statusCode: 503,
         error: 'Service Unavailable',
         message: 'DEFAULT_MODEL_ID is required.',

@@ -11,6 +11,7 @@
  * Uses a spy/mock fake db — no real Postgres connection required.
  */
 
+import { is, SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import {
@@ -62,10 +63,12 @@ describe('TenantDbService.runAs', () => {
     // Compile the executed statement to SQL + params via the real dialect, so the
     // assertion fails if the config KEY changes or is_local is flipped to false —
     // not just if the userId happens to appear somewhere.
+    const executed = executeSpy.mock.calls[0][0];
+    if (!is(executed, SQL)) {
+      throw new Error('Expected a compiled SQL query object');
+    }
     const dialect = new PgDialect();
-    const { sql: compiled, params } = dialect.sqlToQuery(
-      executeSpy.mock.calls[0][0] as never,
-    );
+    const { sql: compiled, params } = dialect.sqlToQuery(executed);
 
     expect(compiled).toContain('set_config');
     expect(compiled).toContain('app.current_user_id');
