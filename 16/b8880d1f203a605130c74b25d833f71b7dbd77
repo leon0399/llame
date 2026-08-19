@@ -1,0 +1,28 @@
+openspec/changes/add-stdio-mcp-servers/design.md
+  2fd5e50d976499b7 32,37,39,116,119
+openspec/changes/add-stdio-mcp-servers/specs/mcp-tools/spec.md
+  2fd5e50d976499b7 38,40,65-70,86,327,331,355-359
+openspec/changes/add-stdio-mcp-servers/specs/instance-config/spec.md
+  2fd5e50d976499b7 113
+CHANGELOG.md
+  2fd5e50d976499b7 5-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "16b8880d1f203a605130c74b25d833f71b7dbd77",
+  "prompts": {
+    "2fd5e50d976499b7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "09d5aa41-a552-4353-8055-4eaa34e35771",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 52,
+      "total_deletions": 11,
+      "accepted_lines": 49,
+      "overriden_lines": 2
+    }
+  }
+}
