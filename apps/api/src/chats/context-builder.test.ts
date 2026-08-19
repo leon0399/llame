@@ -23,7 +23,7 @@ import {
   TOOL_REPLAY_CALL_LIMIT,
   TOOL_REPLAY_TURN_LIMIT,
 } from './tool-observation-part';
-import { isRecord } from '../unknown-record';
+import { isRecord, isString } from '../unknown-record';
 import { modelMessageSchema } from 'ai';
 
 function assertTypedContentPart(
@@ -212,8 +212,9 @@ describe('buildContext', () => {
       const userMessages = result.filter((m) => m.role === 'user');
       // At least one message should have a sender prefix
       const hasSenderPrefix = userMessages.some((m) => {
-        const content =
-          typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+        const content = isString(m.content)
+          ? m.content
+          : JSON.stringify(m.content);
         return (
           content.includes('[user-alice]') ||
           content.includes('[user-bob]') ||
@@ -238,8 +239,9 @@ describe('buildContext', () => {
 
       const assistantMessages = result.filter((m) => m.role === 'assistant');
       assistantMessages.forEach((m) => {
-        const content =
-          typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+        const content = isString(m.content)
+          ? m.content
+          : JSON.stringify(m.content);
         expect(content).not.toContain('[');
       });
     });
@@ -251,10 +253,9 @@ describe('buildContext', () => {
       const { messages: result } = buildContext(messages, { systemPrompt });
 
       const userResult = result.find((m) => m.role === 'user');
-      const content =
-        typeof userResult!.content === 'string'
-          ? userResult!.content
-          : JSON.stringify(userResult!.content);
+      const content = isString(userResult!.content)
+        ? userResult!.content
+        : JSON.stringify(userResult!.content);
 
       expect(content).toContain('Hello');
     });

@@ -5,6 +5,7 @@ import Handlebars from 'handlebars';
 
 import { sanitizeAuthoredText } from './authored-text';
 import { InstanceConfigError } from './instance-config.error';
+import { isString } from '../unknown-record';
 import type {
   PromptChatDigestEntry,
   PromptChatsInput,
@@ -537,7 +538,7 @@ function assertStatements(
     if (isBlockStatement(node)) {
       const block = node;
       const helper = block.path.original;
-      if (typeof helper !== 'string' || !ALLOWED_BLOCK_HELPERS.has(helper)) {
+      if (!isString(helper) || !ALLOWED_BLOCK_HELPERS.has(helper)) {
         throw unsupported(field, String(helper));
       }
       // Arity is validated here rather than left to the engine: handlebars

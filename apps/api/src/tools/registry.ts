@@ -1,6 +1,7 @@
 import { searchConversationsTool } from './search-conversations';
 import { isToolId, matchesAllowedToolId } from './tool-id';
 import { type Tool } from './types';
+import { isString } from '../unknown-record';
 
 /** Every tool the harness knows about (design D2: in-code registry). */
 export const TOOLS: readonly Tool[] = [searchConversationsTool];
@@ -43,7 +44,7 @@ export function buildRegistry(
   const registry = new Map<string, Tool>();
   for (const tool of tools) {
     const id: unknown = tool.id;
-    if (typeof id === 'string' && id.startsWith('mcp__')) {
+    if (isString(id) && id.startsWith('mcp__')) {
       throw new Error(
         `Tool registration failed: id "${id}" uses the reserved mcp__ namespace.`,
       );

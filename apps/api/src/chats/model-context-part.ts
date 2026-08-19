@@ -1,4 +1,4 @@
-import { type UnknownRecord } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '../unknown-record';
 
 export interface ModelSwitchPart {
   type: 'data-model-context';
@@ -79,12 +79,14 @@ export function sanitizeClientMessageParts(
 ): ClientTextPart[] {
   return parts.flatMap((part) => {
     if (
-      typeof part !== 'object' ||
-      part === null ||
+      // Not `isRecord`'s own array exclusion changing anything here: an
+      // array `part` has no `type` property either way, so both branches
+      // already agreed on "skip this part" before this swap.
+      !isRecord(part) ||
       !('type' in part) ||
       part.type !== 'text' ||
       !('text' in part) ||
-      typeof part.text !== 'string'
+      !isString(part.text)
     ) {
       return [];
     }

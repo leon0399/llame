@@ -5,7 +5,7 @@ import {
   expectString,
   type QueueDefinition,
 } from '../queue/queue';
-import { isRecord } from '../unknown-record';
+import { isNumber, isRecord } from '../unknown-record';
 import { type RunUserMessage } from './run-execution.service';
 
 /**
@@ -34,7 +34,7 @@ export const RUNS_QUEUE = defineQueue<RunJob>({
   parse: (data) => {
     const record = expectRecord(data, 'runs');
     const message = expectRecord(record.userMessage, 'runs');
-    if (typeof message.seq !== 'number' || !Number.isFinite(message.seq)) {
+    if (!isNumber(message.seq) || !Number.isFinite(message.seq)) {
       throw new TypeError("Malformed 'runs' job: userMessage.seq not a number");
     }
     if (!Array.isArray(message.parts)) {

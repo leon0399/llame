@@ -18,7 +18,7 @@ import type {
   CompactionToolObservation,
   CompactionToolObservationLedgerV1,
 } from '../db/schema/chats';
-import { isRecord } from '../unknown-record';
+import { isRecord, isString } from '../unknown-record';
 import type { MessagePart } from './context-builder';
 
 export const TOOL_PART_PREFIX = 'tool-';
@@ -137,7 +137,7 @@ function resolveOutcome(part: StoredToolPart): string {
 }
 
 function serializePayload(value: unknown): string {
-  if (typeof value === 'string') return value;
+  if (isString(value)) return value;
   return JSON.stringify(value ?? null) ?? 'null';
 }
 
@@ -145,7 +145,7 @@ function resolveResultBody(part: StoredToolPart): string | null {
   if (part.state === 'output-available' && part.output !== undefined) {
     return serializePayload(part.output);
   }
-  return typeof part.errorText === 'string' && part.errorText.length > 0
+  return isString(part.errorText) && part.errorText.length > 0
     ? part.errorText
     : null;
 }

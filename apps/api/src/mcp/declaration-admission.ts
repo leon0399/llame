@@ -2,7 +2,7 @@ import { canonicalize } from '../canonical-json';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { admitToolInputSchema } from '../tools/schema-utils';
 import { type JsonSchemaDocument } from '../tools/types';
-import { isRecord } from '../unknown-record';
+import { isRecord, isString } from '../unknown-record';
 import {
   createMcpToolId,
   findAsciiCaseFoldedCollisionIndexes,
@@ -48,11 +48,11 @@ export type McpDeclarationAdmissionResult = {
 
 function safeRefusalId(
   serverId: string,
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `!isRecord(definition) || typeof definition.name !== 'string'` below -- two checks combined with `||`, a shape the structural exemption's single-check parse doesn't cover.
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `!isRecord(definition) || !isString(definition.name)` below -- two checks combined with `||`, a shape the structural exemption's single-check parse doesn't cover.
   definition: unknown,
   protectedValues: readonly string[],
 ): string | undefined {
-  if (!isRecord(definition) || typeof definition.name !== 'string') {
+  if (!isRecord(definition) || !isString(definition.name)) {
     return undefined;
   }
   if (containsProtectedValueJson(definition.name, protectedValues)) {
@@ -70,7 +70,7 @@ function sanitizeDescription(
   protectedValues: readonly string[],
 ): string {
   const redacted = sanitizeProtectedValueJson(value, protectedValues);
-  if (!redacted.success || typeof redacted.value !== 'string') {
+  if (!redacted.success || !isString(redacted.value)) {
     // A string leaf has no object key and the protected-value boundary always
     // returns a string. Keep this branch fail-closed if that contract changes.
     return MCP_REDACTION_MARKER;
@@ -119,7 +119,7 @@ function resolveSupportedSchemaDialect(
   schema: JsonSchemaDocument,
 ): SupportedSchemaDialect | undefined {
   const declared = schema.$schema;
-  if (typeof declared !== 'string') return 'draft-07';
+  if (!isString(declared)) return 'draft-07';
   const normalized = declared.endsWith('#') ? declared.slice(0, -1) : declared;
   switch (normalized) {
     case 'http://json-schema.org/draft-07/schema':
@@ -215,7 +215,7 @@ function safeSchemaNode(
     if (containsProtectedValueJson(key, protectedValues)) {
       return { success: false };
     }
-    if (key === 'description' && typeof item === 'string') {
+    if (key === 'description' && isString(item)) {
       safeEntries.push([key, sanitizeDescription(item, protectedValues)]);
       continue;
     }
@@ -290,9 +290,9 @@ export async function admitMcpToolDefinitions(input: {
     };
     if (
       !isRecord(definition) ||
-      typeof definition.name !== 'string' ||
+      !isString(definition.name) ||
       (definition.description !== undefined &&
-        typeof definition.description !== 'string') ||
+        !isString(definition.description)) ||
       !isRecord(definition.inputSchema)
     ) {
       refuse('invalid_declaration');

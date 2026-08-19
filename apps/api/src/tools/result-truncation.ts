@@ -1,4 +1,10 @@
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import {
+  isBoolean,
+  isNumber,
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '../unknown-record';
 import { type ToolResult } from './types';
 
 /** ~16KB result cap (D5/D6): oversized tool output is truncated, visibly. */
@@ -94,7 +100,7 @@ function capValues(
   path = '',
   keepAllEntries = false,
 ): CappedValue {
-  if (typeof value === 'string') {
+  if (isString(value)) {
     return cutStringAtCodePointBoundary(value, limit);
   }
   if (Array.isArray(value)) {
@@ -119,8 +125,8 @@ function capValues(
   if (
     value === null ||
     value === undefined ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
+    isNumber(value) ||
+    isBoolean(value)
   ) {
     return value;
   }

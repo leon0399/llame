@@ -6,6 +6,7 @@ import {
   truncateOversizedResult,
 } from './result-truncation';
 import { type ToolResult } from './types';
+import { isRecord, isString } from '../unknown-record';
 
 function size(result: ToolResult): number {
   return JSON.stringify(result).length;
@@ -23,9 +24,9 @@ function isWellFormed(value: string): boolean {
 }
 
 function stringLeaves(value: unknown): string[] {
-  if (typeof value === 'string') return [value];
+  if (isString(value)) return [value];
   if (Array.isArray(value)) return value.flatMap(stringLeaves);
-  if (typeof value === 'object' && value !== null) {
+  if (isRecord(value)) {
     return Object.values(value).flatMap(stringLeaves);
   }
   return [];
