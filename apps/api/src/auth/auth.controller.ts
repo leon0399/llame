@@ -236,7 +236,7 @@ function getSessionCookieOptions(): CookieOptions {
     secure: SESSION_COOKIE_SECURE,
     sameSite: 'lax',
     path: '/',
-    ...(domain ? { domain } : {}),
+    ...(domain && { domain }),
   };
 }
 

@@ -286,19 +286,19 @@ export class FakeStreamingModelClient {
           }),
         }),
     });
+    const toolOptions: Pick<ModelStreamInput, 'tools' | 'toolChoice'> = {};
+    if (input.tools) {
+      toolOptions.tools = input.tools;
+      if (input.toolChoice !== undefined) {
+        toolOptions.toolChoice = input.toolChoice;
+      }
+    }
     const result = sdkStreamText({
       model,
       messages: input.messages,
       system: input.system,
       abortSignal: input.abortSignal,
-      ...(input.tools
-        ? {
-            tools: input.tools,
-            ...(input.toolChoice !== undefined
-              ? { toolChoice: input.toolChoice }
-              : {}),
-          }
-        : {}),
+      ...toolOptions,
       onChunk: ({ chunk }) => {
         if (chunk.type === 'text-delta') {
           input.onTextDelta?.(chunk.text);
@@ -397,10 +397,10 @@ export class FakeModelsService {
       },
       provider: client.provider,
       contextWindowTokens: client.contextWindowTokens,
-      ...(client.pricing !== undefined ? { pricing: client.pricing } : {}),
-      ...(client.compactionThresholdTokens !== undefined
-        ? { compactionThresholdTokens: client.compactionThresholdTokens }
-        : {}),
+      ...(client.pricing !== undefined && { pricing: client.pricing }),
+      ...(client.compactionThresholdTokens !== undefined && {
+        compactionThresholdTokens: client.compactionThresholdTokens,
+      }),
       streamText: (input) => client.streamText(input),
     } satisfies ModelClient;
   }

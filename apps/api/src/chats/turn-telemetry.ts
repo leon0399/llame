@@ -63,7 +63,7 @@ export function buildTurnTelemetry(
     cachedInputTokens,
     outputTokens,
     totalTokens,
-    ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+    ...(reasoningTokens !== undefined && { reasoningTokens }),
     modelId: input.modelId,
     latencyMs,
     finishReason: input.finishReason ?? null,
@@ -101,9 +101,9 @@ export function emitCompletedTurnTelemetryLog(
       cachedInputTokens: input.telemetry.cachedInputTokens,
       outputTokens: input.telemetry.outputTokens,
       totalTokens: input.telemetry.totalTokens,
-      ...(input.telemetry.reasoningTokens !== undefined
-        ? { reasoningTokens: input.telemetry.reasoningTokens }
-        : {}),
+      ...(input.telemetry.reasoningTokens !== undefined && {
+        reasoningTokens: input.telemetry.reasoningTokens,
+      }),
       modelId: input.telemetry.modelId,
       latencyMs: input.telemetry.latencyMs,
       finishReason: input.telemetry.finishReason,

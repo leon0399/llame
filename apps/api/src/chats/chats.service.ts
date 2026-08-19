@@ -278,7 +278,7 @@ export class ChatsService {
 
       const created = await chatsRepo.create({
         ownerUserId: callerId,
-        ...(dto.title !== null ? { title: forkTitle(dto.title) } : {}),
+        ...(dto.title !== null && { title: forkTitle(dto.title) }),
       });
 
       const idMap = new Map(
@@ -404,7 +404,7 @@ export class ChatsService {
         ownerUserId,
         // Nullable title (#78): a still-untitled chat stays untitled when forked
         // rather than forcing a title onto it.
-        ...(source.title !== null ? { title: forkTitle(source.title) } : {}),
+        ...(source.title !== null && { title: forkTitle(source.title) }),
       });
 
       // Pre-assign every copy's new id up front so in_reply_to can be remapped

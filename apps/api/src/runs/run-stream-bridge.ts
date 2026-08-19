@@ -268,13 +268,11 @@ export function createRunEventTranslator(
                 type: 'tool-output-error',
                 toolCallId,
                 errorText,
-                ...(isCancelled
-                  ? {
-                      providerMetadata: {
-                        llame: { cancelled: true as const },
-                      },
-                    }
-                  : {}),
+                ...(isCancelled && {
+                  providerMetadata: {
+                    llame: { cancelled: true as const },
+                  },
+                }),
                 dynamic: true,
               },
             ];

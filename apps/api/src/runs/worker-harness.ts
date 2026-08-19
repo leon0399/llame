@@ -176,14 +176,12 @@ class HarnessModelClient implements ModelClient {
       messages: input.messages,
       system: input.system,
       abortSignal: input.abortSignal,
-      ...(input.tools
-        ? {
-            tools: input.tools,
-            ...(input.toolChoice !== undefined
-              ? { toolChoice: input.toolChoice }
-              : {}),
-          }
-        : {}),
+      ...(input.tools && {
+        tools: input.tools,
+        ...(input.toolChoice !== undefined && {
+          toolChoice: input.toolChoice,
+        }),
+      }),
       onChunk: ({ chunk }) => {
         if (chunk.type === 'text-delta') {
           input.onTextDelta?.(chunk.text);
