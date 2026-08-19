@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { tool, type ToolSet } from 'ai';
 
 import { TenantDbService, type Db } from '../db/tenant-db.service';
+import { isRecord } from '../unknown-record';
 import {
   type Message,
   type ModelToolDeclaration,
@@ -17,6 +18,7 @@ import {
 } from '../chats/chats-repository';
 import {
   CompactionService,
+  toStoredMessages,
   type CompactionCapability,
 } from '../compaction/compaction.service';
 import { requestFitsContextWindow } from '../compaction/compaction';
@@ -29,7 +31,6 @@ import {
   buildContext,
   partsToText,
   type MessagePart,
-  type StoredMessage,
 } from '../chats/context-builder';
 import { isModelSwitchPart } from '../chats/model-context-part';
 import { normalizeToolObservationOutcome } from '../chats/tool-observation-part';
@@ -260,10 +261,8 @@ function toolActivityPart(
       };
 }
 
-function eventPayloadField(payload: unknown, key: string): unknown {
-  return typeof payload === 'object' && payload !== null
-    ? (payload as Record<string, unknown>)[key]
-    : undefined;
+function eventPayloadField(payload: unknown, key: string) {
+  return isRecord(payload) ? payload[key] : undefined;
 }
 
 function eventPayloadString(payload: unknown, key: string): string | undefined {
@@ -339,22 +338,26 @@ function reconstructDurableAssistant(events: RunEvent[]): {
     }
     const request = openToolCalls.get(toolCallId);
     const output = eventPayloadField(event.payload, 'output');
-    if (!request || typeof output !== 'object' || output === null) {
+    if (!request || !isRecord(output)) {
       continue;
     }
-    const status = eventPayloadString(output, 'status');
-    if (status !== 'success' && status !== 'error') {
+    const status = output['status'];
+    let result: ToolResult;
+    if (status === 'success') {
+      result = { ...output, status };
+    } else if (
+      status === 'error' &&
+      typeof output['type'] === 'string' &&
+      typeof output['message'] === 'string'
+    ) {
+      result = { status, type: output['type'], message: output['message'] };
+    } else {
       continue;
     }
     completedToolCallIds.add(toolCallId);
     openToolCalls.delete(toolCallId);
     collector.tool(
-      toolActivityPart(
-        toolCallId,
-        request.toolName,
-        request.toolInput,
-        output as ToolResult,
-      ),
+      toolActivityPart(toolCallId, request.toolName, request.toolInput, result),
     );
   }
 
@@ -586,7 +589,7 @@ export class RunExecutionService {
           );
         }
 
-        const built = buildContext(history as StoredMessage[], {
+        const built = buildContext(toStoredMessages(history), {
           systemPrompt: snapshot.systemPrompt,
           ...(compaction
             ? {
@@ -665,7 +668,7 @@ export class RunExecutionService {
               ...(compaction ? { sinceSeq: compaction.uptoSeq } : {}),
             },
           );
-          return buildContext(history as StoredMessage[], {
+          return buildContext(toStoredMessages(history), {
             systemPrompt: prepared.system,
             ...(compaction
               ? {
