@@ -157,9 +157,9 @@ describe('ModelsService', () => {
       source: 'system',
       name: 'GPT-5.5',
     });
-    expect(typeof firstModel.contextWindowTokens).toBe('number');
-    expect(typeof firstModel.pricingUsdPer1M?.input).toBe('number');
-    expect(typeof firstModel.pricingUsdPer1M?.output).toBe('number');
+    expect(firstModel.contextWindowTokens).toEqual(expect.any(Number));
+    expect(firstModel.pricingUsdPer1M?.input).toEqual(expect.any(Number));
+    expect(firstModel.pricingUsdPer1M?.output).toEqual(expect.any(Number));
     expect(firstModel).not.toHaveProperty('providerModelId');
   });
 

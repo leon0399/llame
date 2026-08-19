@@ -26,6 +26,26 @@ import {
 import type { TokenPrice } from '../models/model-catalog';
 import { ModelNotAvailableError } from '../models/models.service';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
+import { isRecord } from '../unknown-record';
+
+/**
+ * Asserts a register (or any auth) response body carries `user.id` as a
+ * string — the one shape assertion nearly every integration suite otherwise
+ * re-derives inline right after registering a fixture user. Centralizing it
+ * also gives the underlying `isRecord`/`typeof` narrowing a real type-guard
+ * home (`allowInTypeGuards`), instead of a bare inline check.
+ */
+export function expectRegisteredUserId(
+  body: unknown,
+): asserts body is { user: { id: string } } {
+  if (
+    !isRecord(body) ||
+    !isRecord(body.user) ||
+    typeof body.user.id !== 'string'
+  ) {
+    throw new Error('Expected register response with user.id');
+  }
+}
 
 /** Extracts the llame session cookie pair from a response, or '' when absent. */
 export const cookieOf = (res: request.Response): string => {

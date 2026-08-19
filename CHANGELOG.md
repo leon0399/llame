@@ -2,6 +2,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-19
 
+- Started `anti-slop/no-runtime-typeof` remediation (Arc 2's eighth rule; not
+  yet enabled). Fresh measurement: 148 diagnostics/56 files with the
+  upstream `allowInTypeGuards` option (188/65 raw), matching the queued
+  baseline exactly. Landed the mechanical layer (68 findings, zero
+  behavior/production risk): two new shared type-guard primitives
+  (`isString`/`isNumber`/`isBoolean` in `unknown-record.ts`, siblings of the
+  existing `isRecord`) turn a bare `typeof x === 'type'` comparison into a
+  named predicate the rule's `allowInTypeGuards` option already exempts; a
+  new shared `expectRegisteredUserId` test helper replaces nine
+  byte-identical inline register-response assertions; several sites were
+  outright dead/redundant `typeof` re-checks against an already-typed value
+  (deleted, not disabled). No behavior change; `pnpm --filter api
+lint`/`typecheck` clean, `pnpm --filter api test` 1153/1153. See
+  `docs/code-quality-tracker.md` for the full bucket classification and the
+  remaining work.
+
 - Enabled `anti-slop/no-unknown-parameters` at error in `apps/api/.oxlintrc.json`
   (Arc 2's seventh rule), closing out remediation that spanned a type-predicate
   rule patch and mechanical fixes from earlier this week. Added a third local

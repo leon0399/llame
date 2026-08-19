@@ -6,7 +6,7 @@ import request from 'supertest';
 
 import { AppModule } from '../app.module';
 import { configureApp, createOpenApiDocument } from '../app.setup';
-import { cookieOf } from '../testing/support';
+import { cookieOf, expectRegisteredUserId } from '../testing/support';
 import { isRecord } from '../unknown-record';
 import { type UpdateMemoryDto } from './dto/memory.dto';
 
@@ -29,13 +29,7 @@ describe('/api/v1/me/memory (HTTP)', () => {
       .post('/auth/v1/register')
       .send({ email, password, name });
     const body: unknown = res.body;
-    if (
-      !isRecord(body) ||
-      !isRecord(body.user) ||
-      typeof body.user.id !== 'string'
-    ) {
-      throw new Error('Expected register response with user.id');
-    }
+    expectRegisteredUserId(body);
     return { cookie: cookieOf(res), userId: body.user.id };
   }
 

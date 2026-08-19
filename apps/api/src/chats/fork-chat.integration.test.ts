@@ -26,9 +26,13 @@ const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = any;
 
+function hasStringText(value: unknown): value is { text: string } {
+  return isRecord(value) && typeof value.text === 'string';
+}
+
 const textOf = (parts: unknown[]): string | undefined => {
-  if (!Array.isArray(parts) || !isRecord(parts[0])) return undefined;
-  return typeof parts[0].text === 'string' ? parts[0].text : undefined;
+  if (!Array.isArray(parts) || !hasStringText(parts[0])) return undefined;
+  return parts[0].text;
 };
 
 describeIfDb('forkChat — copy correctness + RLS', () => {

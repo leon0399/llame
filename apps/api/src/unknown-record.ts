@@ -15,3 +15,19 @@ export type UnknownRecord = Record<string, unknown>;
 
 export const isRecord = (value: unknown): value is UnknownRecord =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/**
+ * Primitive type-guards for narrowing an `unknown` value at its boundary.
+ * Consolidating the runtime `typeof` check inside a real type predicate is
+ * the pattern `anti-slop/no-runtime-typeof`'s `allowInTypeGuards` option is
+ * designed to reward: the check itself is unchanged, but it now establishes
+ * a named contract instead of a bare inline comparison scattered ad hoc.
+ */
+export const isString = (value: unknown): value is string =>
+  typeof value === 'string';
+
+export const isNumber = (value: unknown): value is number =>
+  typeof value === 'number';
+
+export const isBoolean = (value: unknown): value is boolean =>
+  typeof value === 'boolean';

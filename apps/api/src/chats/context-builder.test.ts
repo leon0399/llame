@@ -26,6 +26,18 @@ import {
 import { isRecord } from '../unknown-record';
 import { modelMessageSchema } from 'ai';
 
+function assertTypedContentPart(
+  part: unknown,
+): asserts part is { type: string; toolCallId?: unknown } {
+  if (!isRecord(part) || typeof part.type !== 'string') {
+    throw new Error('Expected a typed content part');
+  }
+}
+
+function hasStringToolCallId(part: unknown): part is { toolCallId: string } {
+  return isRecord(part) && typeof part.toolCallId === 'string';
+}
+
 /** Narrows a `ModelMessage.content` value to typed-part records for
  * assertions below — content is `string | Array<unknown>` at the type
  * level. */
@@ -36,14 +48,10 @@ function typedContentParts(
     throw new Error('Expected array message content');
   }
   return content.map((part) => {
-    if (!isRecord(part) || typeof part.type !== 'string') {
-      throw new Error('Expected a typed content part');
-    }
+    assertTypedContentPart(part);
     return {
       type: part.type,
-      ...(typeof part.toolCallId === 'string' && {
-        toolCallId: part.toolCallId,
-      }),
+      ...(hasStringToolCallId(part) && { toolCallId: part.toolCallId }),
     };
   });
 }

@@ -55,13 +55,37 @@ function tool(name: string, extra: UnknownRecord = {}) {
   };
 }
 
+function hasStringInitBody(
+  init: RequestInit | undefined,
+): init is RequestInit & { body: string } {
+  return typeof init?.body === 'string';
+}
+
+function assertStringInitBody(
+  init: RequestInit | undefined,
+): asserts init is RequestInit & { body: string } {
+  if (!hasStringInitBody(init)) {
+    throw new TypeError('expected a string MCP request body');
+  }
+}
+
+function assertRpcRequestBody(
+  body: UnknownRecord,
+): asserts body is { method: string; id?: number } {
+  const { method, id } = body;
+  if (
+    typeof method !== 'string' ||
+    (id !== undefined && typeof id !== 'number')
+  ) {
+    throw new TypeError('expected a valid MCP request body');
+  }
+}
+
 function requestBody(init: RequestInit | undefined): {
   readonly id?: number;
   readonly method: string;
 } {
-  if (typeof init?.body !== 'string') {
-    throw new TypeError('expected a string MCP request body');
-  }
+  assertStringInitBody(init);
   let body: unknown;
   try {
     body = JSON.parse(init.body);
@@ -71,15 +95,10 @@ function requestBody(init: RequestInit | undefined): {
   if (!isRecord(body)) {
     throw new TypeError('expected a valid MCP request body');
   }
-  const method = body['method'];
-  const id = body['id'];
-  if (
-    typeof method !== 'string' ||
-    (id !== undefined && typeof id !== 'number')
-  ) {
-    throw new TypeError('expected a valid MCP request body');
-  }
-  return id === undefined ? { method } : { id, method };
+  assertRpcRequestBody(body);
+  return body.id === undefined
+    ? { method: body.method }
+    : { id: body.id, method: body.method };
 }
 
 function jsonRpcResult(
@@ -2407,10 +2426,11 @@ describe('McpServerClient', () => {
     });
     await vi.waitFor(() => {
       expect(
-        fetchStub.mock.calls.some(([, init]) => {
-          if (typeof init?.body !== 'string') return false;
-          return requestBody(init).method === 'initialize';
-        }),
+        fetchStub.mock.calls.some(
+          ([, init]) =>
+            hasStringInitBody(init) &&
+            requestBody(init).method === 'initialize',
+        ),
       ).toBe(true);
     });
     controller.abort(new Error('AUTH-SENTINEL shutdown reason'));

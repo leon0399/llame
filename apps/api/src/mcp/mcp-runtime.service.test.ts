@@ -128,13 +128,7 @@ describe('McpRuntimeService', () => {
     const snapshot = runtime.snapshotCandidates();
     expect(
       snapshot.map((candidate) =>
-        candidate &&
-        typeof candidate === 'object' &&
-        'state' in candidate &&
-        candidate.state === 'available' &&
-        'tool' in candidate
-          ? candidate.tool.id
-          : undefined,
+        candidate.state === 'available' ? candidate.tool.id : undefined,
       ),
     ).toEqual(['mcp__web__alpha', 'mcp__web__zebra']);
 

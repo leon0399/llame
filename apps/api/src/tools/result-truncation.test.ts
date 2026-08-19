@@ -123,7 +123,6 @@ describe('truncateOversizedResult', () => {
       })
       .parse(result).output;
     expect(output.content[0].type).toBe('text');
-    expect(typeof output.content[0].text).toBe('string');
     expect(output.content[0].text.length).toBeLessThan(60_000);
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
@@ -278,7 +277,6 @@ describe('truncateOversizedResult', () => {
       })
       .parse(result).output;
     expect(output.fetchedAt).toBe('2026-08-11T00:00:00.000Z');
-    expect(typeof output.page.section.paragraphs[0]).toBe('string');
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
 

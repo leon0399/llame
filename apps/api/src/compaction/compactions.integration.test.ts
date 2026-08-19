@@ -25,8 +25,12 @@ import {
 } from '../chats/context-builder';
 import { type Compaction } from '../db/schema';
 import { ModelsService } from '../models/models.service';
-import { FakeModelsService, type FakeTurn, cookieOf } from '../testing/support';
-import { isRecord } from '../unknown-record';
+import {
+  FakeModelsService,
+  type FakeTurn,
+  cookieOf,
+  expectRegisteredUserId,
+} from '../testing/support';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
@@ -77,13 +81,7 @@ d('compaction lineage over HTTP (#57)', () => {
     expect(res.status).toBe(201);
     cookie = cookieOf(res);
     const registerBody: unknown = res.body;
-    if (
-      !isRecord(registerBody) ||
-      !isRecord(registerBody.user) ||
-      typeof registerBody.user.id !== 'string'
-    ) {
-      throw new Error('Expected register response with user.id');
-    }
+    expectRegisteredUserId(registerBody);
     userId = registerBody.user.id;
   });
 

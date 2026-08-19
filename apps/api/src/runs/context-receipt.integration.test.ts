@@ -8,7 +8,7 @@ import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { modelContextSnapshots } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { isRecord } from '../unknown-record';
-import { cookieOf } from '../testing/support';
+import { cookieOf, expectRegisteredUserId } from '../testing/support';
 import { seedModelContextSnapshot } from './model-context-snapshot.test-fixture';
 import { RunsRepository } from './runs-repository';
 
@@ -32,13 +32,7 @@ d('GET /api/v1/runs/:id/context-receipt', () => {
       .send({ email, password, name });
     expect(response.status).toBe(201);
     const body: unknown = response.body;
-    if (
-      !isRecord(body) ||
-      !isRecord(body.user) ||
-      typeof body.user.id !== 'string'
-    ) {
-      throw new Error('Expected register response with user.id');
-    }
+    expectRegisteredUserId(body);
     return { id: body.user.id, cookie: cookieOf(response) };
   }
 

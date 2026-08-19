@@ -46,6 +46,15 @@ const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = any;
 
+/** Asserts a run-event payload carries a string `text` field. */
+function assertPayloadText(
+  payload: unknown,
+): asserts payload is { text: string } {
+  if (!isRecord(payload) || typeof payload.text !== 'string') {
+    throw new Error('Expected reasoning.delta payload with a text field');
+  }
+}
+
 function createMockModelClient(model: MockLanguageModelV3): ModelClient {
   return {
     model: 'mock',
@@ -235,12 +244,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
     expect(types.indexOf('reasoning.delta')).toBeGreaterThan(-1);
     const reasoning = events.find((e) => e.eventType === 'reasoning.delta')!;
     const reasoningPayload = reasoning.payload;
-    if (
-      !isRecord(reasoningPayload) ||
-      typeof reasoningPayload.text !== 'string'
-    ) {
-      throw new Error('Expected reasoning.delta payload with a text field');
-    }
+    assertPayloadText(reasoningPayload);
     expect(reasoningPayload.text).toContain('brief thought');
     // …and, WITHOUT the cross-flush, it would land AFTER model.delta — the P0
     // this test proves is fixed.

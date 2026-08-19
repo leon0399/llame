@@ -97,7 +97,7 @@ describeIfDb(
       });
 
       const jobId = await queue.enqueue(roundtrip, { hello: 'world' });
-      expect(typeof jobId).toBe('string');
+      expect(jobId).toEqual(expect.any(String));
 
       await waitFor(
         () => (received.length > 0 ? received[0] : undefined),
@@ -140,10 +140,10 @@ describeIfDb(
         { singletonKey: 'c2' },
       );
 
-      expect(typeof first).toBe('string');
+      expect(first).toEqual(expect.any(String));
       expect(second).toBeNull();
       expect(third).toBeNull();
-      expect(typeof otherKey).toBe('string');
+      expect(otherKey).toEqual(expect.any(String));
     });
 
     it('retries a failing job per policy until it succeeds', async () => {
@@ -211,12 +211,15 @@ describeIfDb(
     });
 
     it('fails a malformed payload at the parse guard without invoking the handler', async () => {
+      function assertHasNumberN(data: unknown): asserts data is { n: number } {
+        if (!isRecord(data) || typeof data.n !== 'number') {
+          throw new TypeError('expected { n: number }');
+        }
+      }
       const guarded = defineQueue<{ n: number }>({
         name: `${tag}-guarded`,
         parse: (data) => {
-          if (!isRecord(data) || typeof data.n !== 'number') {
-            throw new TypeError('expected { n: number }');
-          }
+          assertHasNumberN(data);
           return { n: data.n };
         },
       });
@@ -300,7 +303,7 @@ describeIfDb(
         { payload: 'never-delivered' },
         { startAfter: 120 },
       );
-      expect(typeof jobId).toBe('string');
+      expect(jobId).toEqual(expect.any(String));
 
       await queue.cancel(cancelQueue, jobId!);
 
@@ -371,7 +374,9 @@ describeIfDb(
           { retryLimit: 0 },
         ),
       ]);
-      expect(jobIds.every((id) => typeof id === 'string')).toBe(true);
+      expect(jobIds.every((id): id is string => typeof id === 'string')).toBe(
+        true,
+      );
 
       await waitFor(
         () => (completed.length >= 2 ? true : undefined),

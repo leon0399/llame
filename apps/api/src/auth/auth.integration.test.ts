@@ -64,8 +64,8 @@ d('auth e2e — real HTTP + Postgres', () => {
     tokenA = res.body.token;
     userAId = res.body.user?.id;
     cookieA = cookieOf(res);
-    expect(typeof userAId).toBe('string');
-    expect(typeof tokenA).toBe('string');
+    expect(userAId).toEqual(expect.any(String));
+    expect(tokenA).toEqual(expect.any(String));
     expect(tokenA.length).toBeGreaterThan(20);
     const setCookie = res.get('Set-Cookie')?.[0];
     expect(setCookie).toMatch(/HttpOnly/i);

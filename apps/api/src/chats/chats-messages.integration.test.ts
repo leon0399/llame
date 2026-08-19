@@ -23,6 +23,7 @@ import { isRecord } from '../unknown-record';
 import {
   FakeModelsService,
   cookieOf,
+  expectRegisteredUserId,
   parseSseEvents,
   streamedText,
 } from '../testing/support';
@@ -50,6 +51,32 @@ async function waitFor(
       throw new Error('Timed out waiting for condition');
     }
     await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+/** Asserts a listed message carries an ordering `createdAt`/`seq` pair. */
+function assertOrderedMessage(
+  value: unknown,
+): asserts value is { createdAt: string; seq: number } {
+  if (
+    !isRecord(value) ||
+    typeof value.createdAt !== 'string' ||
+    typeof value.seq !== 'number'
+  ) {
+    throw new Error('Expected a message with createdAt/seq');
+  }
+}
+
+/** Asserts a message's `usage` carries the two numeric token fields checked below. */
+function assertUsageTokens(
+  value: unknown,
+): asserts value is { cachedInputTokens: number; inputTokens: number } {
+  if (
+    !isRecord(value) ||
+    typeof value.cachedInputTokens !== 'number' ||
+    typeof value.inputTokens !== 'number'
+  ) {
+    throw new Error('Expected assistant usage with numeric token fields');
   }
 }
 
@@ -83,13 +110,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .send({ email, password, name });
     expect(res.status).toBe(201);
     const body: unknown = res.body;
-    if (
-      !isRecord(body) ||
-      !isRecord(body.user) ||
-      typeof body.user.id !== 'string'
-    ) {
-      throw new Error('Expected register response with user.id');
-    }
+    expectRegisteredUserId(body);
     return { cookie: cookieOf(res), userId: body.user.id };
   }
 
@@ -230,16 +251,8 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       throw new Error('Expected a messages array');
     }
     const [firstMessage, secondMessage]: unknown[] = ownerReadBody.messages;
-    if (
-      !isRecord(firstMessage) ||
-      typeof firstMessage.createdAt !== 'string' ||
-      typeof firstMessage.seq !== 'number' ||
-      !isRecord(secondMessage) ||
-      typeof secondMessage.createdAt !== 'string' ||
-      typeof secondMessage.seq !== 'number'
-    ) {
-      throw new Error('Expected two messages with createdAt/seq');
-    }
+    assertOrderedMessage(firstMessage);
+    assertOrderedMessage(secondMessage);
 
     expect(ownerRead.status).toBe(200);
     expect(ownerReadBody).toEqual({
@@ -409,15 +422,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       }),
     );
     const assistantUsage = assistantMessage?.usage;
-    if (
-      !isRecord(assistantUsage) ||
-      typeof assistantUsage.cachedInputTokens !== 'number' ||
-      typeof assistantUsage.inputTokens !== 'number'
-    ) {
-      throw new Error(
-        'Expected assistant usage with numeric cachedInputTokens/inputTokens',
-      );
-    }
+    assertUsageTokens(assistantUsage);
     expect(
       assistantUsage.cachedInputTokens / assistantUsage.inputTokens,
     ).toBeCloseTo(2 / 3);
@@ -586,22 +591,10 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(models.client.turns).toHaveLength(1);
 
     const messages = await listMessages(chatA);
-    expect(
-      messages.filter(
-        (m) =>
-          typeof m === 'object' &&
-          m !== null &&
-          (m as { id?: unknown }).id === userMessageId,
-      ),
-    ).toHaveLength(1);
-    expect(
-      messages.filter(
-        (m) =>
-          typeof m === 'object' &&
-          m !== null &&
-          (m as { inReplyTo?: unknown }).inReplyTo === userMessageId,
-      ),
-    ).toHaveLength(1);
+    expect(messages.filter((m) => m.id === userMessageId)).toHaveLength(1);
+    expect(messages.filter((m) => m.inReplyTo === userMessageId)).toHaveLength(
+      1,
+    );
   });
 
   /** Find chatA's run for a message and cancel it via the HTTP surface. */
@@ -730,22 +723,10 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(models.client.turns).toHaveLength(turnsAfterCancel);
 
     const messages = await listMessages(chatA);
-    expect(
-      messages.filter(
-        (m) =>
-          typeof m === 'object' &&
-          m !== null &&
-          (m as { id?: unknown }).id === userMessageId,
-      ),
-    ).toHaveLength(1);
-    expect(
-      messages.filter(
-        (m) =>
-          typeof m === 'object' &&
-          m !== null &&
-          (m as { inReplyTo?: unknown }).inReplyTo === userMessageId,
-      ),
-    ).toHaveLength(1);
+    expect(messages.filter((m) => m.id === userMessageId)).toHaveLength(1);
+    expect(messages.filter((m) => m.inReplyTo === userMessageId)).toHaveLength(
+      1,
+    );
   });
 
   // Rewritten for #48 single-flight: v0.1 allowed overlapping turns with
