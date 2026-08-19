@@ -21,20 +21,16 @@ export const TOOL_RECOVERY_REASONS = [
 
 export type ToolRecoveryReason = (typeof TOOL_RECOVERY_REASONS)[number];
 
-export const TOOL_RECOVERY_REASON_LABELS: Readonly<
-  Record<ToolRecoveryReason, string>
-> = {
+export const TOOL_RECOVERY_REASON_LABELS = {
   source_reconnected: 'server reconnected',
   protocol_supported: 'protocol supported',
   discovery_succeeded: 'tool discovery succeeded',
   tool_restored: 'tool restored',
   declaration_accepted: 'tool declaration accepted',
   name_collision_resolved: 'tool name collision resolved',
-};
+} satisfies Readonly<Record<ToolRecoveryReason, string>>;
 
-const RECOVERY_REASON_BY_UNAVAILABLE_REASON: Readonly<
-  Record<ToolUnavailableReason, ToolRecoveryReason>
-> = {
+const RECOVERY_REASON_BY_UNAVAILABLE_REASON = {
   source_connecting: 'source_reconnected',
   source_disconnected: 'source_reconnected',
   protocol_unsupported: 'protocol_supported',
@@ -42,7 +38,7 @@ const RECOVERY_REASON_BY_UNAVAILABLE_REASON: Readonly<
   tool_missing: 'tool_restored',
   declaration_refused: 'declaration_accepted',
   name_collision: 'name_collision_resolved',
-};
+} satisfies Readonly<Record<ToolUnavailableReason, ToolRecoveryReason>>;
 
 type UnavailableTransition = {
   readonly id: string;

@@ -2,6 +2,24 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-19
 
+- Enabled `anti-slop/no-known-value-widening` at error in
+  `apps/api/.oxlintrc.json` (Arc 2's third rule), after removing its
+  remaining 19 findings across the runs/chats/tools cluster and misc tail
+  (`run-execution.service.ts`, `run-stream-bridge.ts`, `tool-settlement.ts`,
+  `chats.controller.ts`, `reasoning-loop.integration.test.ts`,
+  `tool-availability-part.ts`, `tool-observation-part.ts`,
+  `schema-utils.ts`, `search-conversations.test.ts`, `turn-tool-catalog.ts`,
+  `compaction.ts`, `migration-journal.test.ts`, `models.controller.test.ts`,
+  `mcp-web-search-eval.test.ts`). Same repair idioms as the first layer:
+  named type aliases for anonymous return/binding shapes, `satisfies` for
+  closed-union lookup tables. `compaction.ts`'s `buildCompactionRequest`
+  reuses `context-builder.ts`'s existing `BuiltContext` interface (an exact
+  structural match) instead of duplicating it inline.
+  `schema-utils.ts`'s `DIALECT_CONSTRUCTORS` — a genuine string-keyed
+  dictionary already read with a runtime-`undefined`-aware caller — becomes
+  a `Map`, the same fix `PROMPT_ESCAPES` needed in the first layer, making
+  the caller's existing `| undefined` return type honestly match what the
+  lookup can produce. No behavior change.
 - Removed 17 of 36 `anti-slop/no-known-value-widening` findings (Arc 2's
   third rule, not enabled yet — 19 remain in the runs/chats/tools cluster) in
   the MCP + instance-config cluster: `mcp-server-client.ts` and its test,

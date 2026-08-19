@@ -227,11 +227,7 @@ function incrementOmittedCount(count: number): number {
 function boundCandidates(
   candidates: PairCandidate[],
   inheritedOmittedCount = 0,
-): {
-  pairs: ProjectedToolObservationPair[];
-  omittedCount: number;
-  omittedPartIndexes: number[];
-} {
+) {
   let omittedCount = inheritedOmittedCount;
   const omittedPartIndexes: number[] = [];
 

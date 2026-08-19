@@ -74,12 +74,14 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
   };
 }
 
+type FixtureStreamResponse = {
+  stream: ReadableStream<LanguageModelV3StreamPart>;
+};
+
 // One turn: reasoning (sub-threshold, stays buffered) -> text, no tool.
 // Without the cross-flush at the top of onTextDelta, the buffered reasoning
 // tail would only flush at onFinish — landing AFTER the answer in the log.
-function reasoningThenText(): {
-  stream: ReadableStream<LanguageModelV3StreamPart>;
-} {
+function reasoningThenText(): FixtureStreamResponse {
   const chunks: LanguageModelV3StreamPart[] = [
     { type: 'stream-start', warnings: [] },
     { type: 'reasoning-start', id: 'r1' },
@@ -104,9 +106,7 @@ function reasoningThenText(): {
 // out (no finish). Proves the onError path keeps BOTH the reasoning AND the
 // partial answer that already streamed -- same "show what the user actually
 // saw" honesty the codebase already applies to partial text on its own.
-function reasoningThenErrorMidAnswer(): {
-  stream: ReadableStream<LanguageModelV3StreamPart>;
-} {
+function reasoningThenErrorMidAnswer(): FixtureStreamResponse {
   const chunks: LanguageModelV3StreamPart[] = [
     { type: 'stream-start', warnings: [] },
     { type: 'reasoning-start', id: 'r1' },

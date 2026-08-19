@@ -27,7 +27,9 @@ type Row = {
   updatedAt: Date;
 };
 
-function fakeContext(rows: Row[], spy?: { userId?: string }): ToolContext {
+type CallerIdSpy = { userId?: string };
+
+function fakeContext(rows: Row[], spy?: CallerIdSpy): ToolContext {
   const db: Db = drizzle.mock({ schema });
   vi.spyOn(ChatsRepository.prototype, 'searchByOwner').mockResolvedValue(rows);
   const tenantDb: TenantRunner = {
@@ -60,7 +62,7 @@ describe('search_conversations', () => {
   });
 
   it('scopes the read to the context userId (not a model arg) and maps rows', async () => {
-    const spy: { userId?: string } = {};
+    const spy: CallerIdSpy = {};
     const context = fakeContext(
       [
         {

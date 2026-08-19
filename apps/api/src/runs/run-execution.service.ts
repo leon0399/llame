@@ -78,6 +78,15 @@ type AssistantTurnWrite = AssistantTurnPersistence & {
   telemetry: AssistantTurnTelemetry;
 };
 
+/** The assembled context+tools an execution attempt runs against. */
+type PreparedExecutionContext = {
+  system: string;
+  messages: ReturnType<typeof buildContext>['messages'];
+  untitled: boolean;
+  toolDeclarations: ModelToolDeclaration[];
+  tools: Awaited<ReturnType<typeof resolveBoundExecutableTools>>;
+};
+
 /**
  * The run reached a terminal state (superseded / cancelled / expired) before
  * execution could claim it — nothing was executed, nothing was appended.
@@ -276,13 +285,7 @@ function eventPayloadString(payload: unknown, key: string): string | undefined {
  * Request-time reservations keep synthetic results in occurrence order even
  * though their completion events are appended at terminalization.
  */
-function reconstructDurableAssistant(events: RunEvent[]): {
-  collector: ReturnType<typeof createAssistantPartCollector>;
-  openToolCalls: Map<
-    string,
-    { readonly toolName: string; readonly toolInput: unknown }
-  >;
-} {
+function reconstructDurableAssistant(events: RunEvent[]) {
   const collector = createAssistantPartCollector();
   const openToolCalls = new Map<
     string,
@@ -548,13 +551,7 @@ export class RunExecutionService {
     // Context assembly happens at execution time (not enqueue time): the run
     // reads the chat as it exists when it starts — compaction summary + live
     // window up to the triggering message (SPEC §9.5 puts this worker-side).
-    let prepared: {
-      system: string;
-      messages: ReturnType<typeof buildContext>['messages'];
-      untitled: boolean;
-      toolDeclarations: ModelToolDeclaration[];
-      tools: Awaited<ReturnType<typeof resolveBoundExecutableTools>>;
-    };
+    let prepared: PreparedExecutionContext;
     try {
       const context = await this.tenantDb.runAs(input.userId, async (tx) => {
         // Titling gate (#78): read the title as of execution start — the

@@ -435,10 +435,7 @@ export class ChatsController {
 type ChatStreamResponse = Writable &
   Pick<ExpressResponse, 'status' | 'setHeader' | 'headersSent'>;
 
-function requestAbortSignal(response: ChatStreamResponse): {
-  signal: AbortSignal;
-  cleanup: () => void;
-} {
+function requestAbortSignal(response: ChatStreamResponse) {
   const controller = new AbortController();
   const abort = () => {
     if (!controller.signal.aborted) {
