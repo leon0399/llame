@@ -64,6 +64,8 @@ export const cookieOf = (res: request.Response): string => {
  * @returns The parsed JSON values from each `data: ` event, excluding `[DONE]`
  */
 export function parseSseEvents(body: string): unknown[] {
+  // SAFETY: JSON.parse returns any; the final .map's assertion to unknown
+  // forces callers to narrow before use rather than silently inheriting any.
   return (
     body
       .split('\n\n')
@@ -92,9 +94,7 @@ export function streamedText(body: string): string {
   return parseSseEvents(body)
     .filter(
       (event): event is { type: 'text-delta'; delta: string } =>
-        typeof event === 'object' &&
-        event !== null &&
-        (event as { type?: unknown }).type === 'text-delta',
+        isRecord(event) && event.type === 'text-delta',
     )
     .map((event) => event.delta)
     .join('');

@@ -329,9 +329,9 @@ export function toCompactionResponse(
   compaction: Compaction,
   absorbedMessageCount: number | null,
 ): CompactionResponse {
-  // `usage` is untyped jsonb (no `.$type<>()` on the schema column) — narrow
-  // defensively rather than trust the shape; a malformed/foreign value degrades
-  // to "no stats" instead of throwing.
+  // SAFETY: `usage` is untyped jsonb (no `.$type<>()` on the schema column) —
+  // narrow defensively rather than trust the shape; a malformed/foreign value
+  // degrades to "no stats" instead of throwing.
   const usage = isRecord(compaction.usage)
     ? (compaction.usage as Partial<TurnTelemetry>)
     : null;

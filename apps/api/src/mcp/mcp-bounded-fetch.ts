@@ -35,6 +35,8 @@ function requestContext(
     return { httpMethod, rpcMethod: null };
   }
   try {
+    // SAFETY: JSON.parse returns any; asserting unknown forces isRecord's
+    // check below rather than silently inheriting any.
     const body = JSON.parse(init.body) as unknown;
     if (!isRecord(body)) {
       return { httpMethod, rpcMethod: null };

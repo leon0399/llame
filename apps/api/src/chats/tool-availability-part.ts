@@ -108,6 +108,9 @@ function isReasonEntries<TReason extends string>(
       !isExactRecord(entry, ['id', 'reason']) ||
       !isToolId(entry['id']) ||
       typeof entry['reason'] !== 'string' ||
+      // SAFETY: entry['reason'] is a plain string, just narrowed above;
+      // readonly TReason[]'s own .includes() only accepts TReason, so this
+      // widens the array to check membership of a general string.
       !(reasons as readonly string[]).includes(entry['reason']) ||
       (previous !== undefined && compareCodePoints(previous, entry['id']) >= 0)
     ) {

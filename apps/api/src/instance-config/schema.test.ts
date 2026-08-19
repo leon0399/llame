@@ -36,6 +36,8 @@ function throwingAccess(): SchemaFileAccess {
 
 describe('published schema — single artifact', () => {
   it('loadSchemaDocument returns exactly what is on disk at the published path', () => {
+    // SAFETY: JSON.parse returns any; asserting unknown forces toEqual's
+    // comparison to type-check without silently inheriting any.
     const onDisk = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8')) as unknown;
     expect(loadSchemaDocument()).toEqual(onDisk);
   });

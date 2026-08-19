@@ -52,20 +52,19 @@ export class SessionAuthGuard implements CanActivate {
 }
 
 function getRequestToken(request: AuthenticatedRequest): string | undefined {
-  const authorization = request.headers.authorization as
-    | string
-    | string[]
-    | undefined;
-  const bearerToken = extractBearerToken(
-    Array.isArray(authorization) ? authorization[0] : authorization,
-  );
+  // Node's IncomingHttpHeaders types (and documents) `authorization`/`cookie`
+  // as always a single string on this platform-express app — duplicates of
+  // these specific headers are discarded by Node's own parser, never
+  // combined into an array — so no defensive array handling is needed here.
+  const bearerToken = extractBearerToken(request.headers.authorization);
   if (bearerToken) {
     return bearerToken;
   }
 
-  const cookieHeader = request.headers.cookie as string | string[] | undefined;
-  const header = Array.isArray(cookieHeader) ? cookieHeader[0] : cookieHeader;
-  return header ? parseCookie(header)[SESSION_COOKIE_NAME] : undefined;
+  const cookieHeader = request.headers.cookie;
+  return cookieHeader
+    ? parseCookie(cookieHeader)[SESSION_COOKIE_NAME]
+    : undefined;
 }
 
 function extractBearerToken(header: string | undefined): string | undefined {

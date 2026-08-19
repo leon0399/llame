@@ -38,6 +38,10 @@ export class ProjectsRepository {
         .where(
           and(
             eq(pins.userId, ownerUserId),
+            // SAFETY: 'project' is a member of PinItemType
+            // ('chat' | 'project'); eq()'s inferred column-comparison
+            // parameter widens the literal to string in this position, so
+            // this pins it back to the enum type.
             eq(pins.itemType, 'project' as PinItemType),
             eq(pins.itemId, projects.id),
           ),

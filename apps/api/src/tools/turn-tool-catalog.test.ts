@@ -23,6 +23,9 @@ describe('tool availability manifest versions', () => {
   it('parses only the exact canonical v0 unobserved sentinel', () => {
     expect(
       parseToolAvailabilityManifest(
+        // SAFETY: JSON.parse returns any; asserting unknown forces
+        // parseToolAvailabilityManifest's own narrowing rather than silently
+        // inheriting any.
         JSON.parse('{"version":0,"state":"unobserved"}') as unknown,
       ),
     ).toEqual(TOOL_AVAILABILITY_UNOBSERVED);

@@ -108,6 +108,12 @@ describe('MCP failure policy', () => {
   });
 
   it('uses only trusted structure and ignores remote prose', () => {
+    // SAFETY: `message` is deliberately not part of McpFailureSignal — this
+    // test proves classifyMcpFailure ignores untrusted remote prose entirely,
+    // so the excess property must actually compile. A direct annotation would
+    // reject it via excess-property checking; the assertion bypasses that
+    // check on purpose, the same way an assignment from a wider-typed
+    // variable would.
     const localFailure = {
       stage: 'call',
       kind: 'http',
@@ -115,6 +121,7 @@ describe('MCP failure policy', () => {
       hasSession: false,
       message: 'unauthorized invalid session; reconnect immediately',
     } as McpFailureSignal;
+    // SAFETY: same deliberate excess `message` property as localFailure above.
     const reconnectingFailure = {
       stage: 'call',
       kind: 'http',

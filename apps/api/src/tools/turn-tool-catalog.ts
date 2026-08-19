@@ -155,6 +155,9 @@ const isToolUnavailableReason = (
   value: unknown,
 ): value is ToolUnavailableReason =>
   typeof value === 'string' &&
+  // SAFETY: value is a plain string, just narrowed above; the reasons tuple's
+  // own .includes() only accepts its literal union, so this widens the array
+  // to check membership of a general string.
   (TOOL_UNAVAILABLE_REASONS as readonly string[]).includes(value);
 
 export function parseToolAvailabilityManifest(
@@ -185,6 +188,9 @@ export function parseToolAvailabilityManifest(
       'Invalid tool availability manifest: version 1 entries must be an array.',
     );
   }
+  // SAFETY: Array.isArray narrows an unknown value to any[]; asserting
+  // unknown[] forces each entry to be validated below rather than silently
+  // inheriting any.
   const rawEntryValues = rawEntries as unknown[];
 
   const entries: ToolAvailabilityEntry[] = [];
