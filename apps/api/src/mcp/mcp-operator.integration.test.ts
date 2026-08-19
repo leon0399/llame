@@ -180,39 +180,37 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
         system: input.system,
         messages: input.messages,
         abortSignal: input.abortSignal,
-        ...(input.tools
-          ? {
-              tools: input.tools,
-              stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
-              prepareStep: ({ steps }: { steps: StepResult<ToolSet>[] }) => {
-                const used = steps.filter(
-                  (step) => step.toolCalls.length > 0,
-                ).length;
-                if (used >= (input.maxSteps ?? 8)) {
-                  input.onCapReached?.();
-                  return { activeTools: [] };
-                }
-                return {};
-              },
-              experimental_repairToolCall: ({ toolCall, error }) => {
-                let parsedInput: unknown;
-                try {
-                  parsedInput = JSON.parse(toolCall.input) as unknown;
-                } catch {
-                  parsedInput = toolCall.input;
-                }
-                input.onUnavailableToolCall?.({
-                  toolCallId: toolCall.toolCallId,
-                  toolName: toolCall.toolName,
-                  input: parsedInput,
-                  reason: NoSuchToolError.isInstance(error)
-                    ? 'not_available'
-                    : 'invalid_input',
-                });
-                return Promise.resolve(null);
-              },
+        ...(input.tools && {
+          tools: input.tools,
+          stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
+          prepareStep: ({ steps }: { steps: StepResult<ToolSet>[] }) => {
+            const used = steps.filter(
+              (step) => step.toolCalls.length > 0,
+            ).length;
+            if (used >= (input.maxSteps ?? 8)) {
+              input.onCapReached?.();
+              return { activeTools: [] };
             }
-          : {}),
+            return {};
+          },
+          experimental_repairToolCall: ({ toolCall, error }) => {
+            let parsedInput: unknown;
+            try {
+              parsedInput = JSON.parse(toolCall.input) as unknown;
+            } catch {
+              parsedInput = toolCall.input;
+            }
+            input.onUnavailableToolCall?.({
+              toolCallId: toolCall.toolCallId,
+              toolName: toolCall.toolName,
+              input: parsedInput,
+              reason: NoSuchToolError.isInstance(error)
+                ? 'not_available'
+                : 'invalid_input',
+            });
+            return Promise.resolve(null);
+          },
+        }),
         onChunk: ({ chunk }) => {
           if (chunk.type === 'text-delta') input.onTextDelta?.(chunk.text);
           if (chunk.type === 'reasoning-delta') {

@@ -71,6 +71,52 @@ const isStdio = (
   definition: McpRuntimeServerDefinition,
 ): definition is McpRuntimeStdioDefinition => definition.transport === 'stdio';
 
+type MutableStdioDefinition = {
+  transport: 'stdio';
+  command: string;
+  args?: readonly string[];
+  env?: Readonly<Record<string, string>>;
+  cwd?: string;
+  protectedValues?: readonly string[];
+};
+
+type MutableRemoteDefinition = {
+  url: string;
+  headers?: Readonly<Record<string, string>>;
+  fetch?: typeof globalThis.fetch;
+};
+
+function frozenRuntimeDefinition(
+  definition: McpRuntimeServerDefinition,
+): McpRuntimeServerDefinition {
+  if (isStdio(definition)) {
+    const stdio: MutableStdioDefinition = {
+      transport: 'stdio',
+      command: definition.command,
+    };
+    if (definition.args !== undefined) {
+      stdio.args = Object.freeze([...definition.args]);
+    }
+    if (definition.env !== undefined) {
+      stdio.env = Object.freeze({ ...definition.env });
+    }
+    if (definition.cwd !== undefined) stdio.cwd = definition.cwd;
+    if (definition.protectedValues !== undefined) {
+      stdio.protectedValues = Object.freeze([...definition.protectedValues]);
+    }
+    return Object.freeze(stdio);
+  }
+
+  const remote: MutableRemoteDefinition = {
+    url: definition.url,
+  };
+  if (definition.headers !== undefined) {
+    remote.headers = Object.freeze({ ...definition.headers });
+  }
+  if (definition.fetch !== undefined) remote.fetch = definition.fetch;
+  return Object.freeze(remote);
+}
+
 export type McpRuntimeClient = Pick<McpServerClient, 'discover' | 'close'>;
 
 export type McpRuntimeClientFactory = (
@@ -160,36 +206,7 @@ export class McpRuntimeService
     this.now = options.now ?? Date.now;
     this.records = Object.entries(servers).map(([serverId, definition]) => ({
       serverId,
-      definition: Object.freeze(
-        isStdio(definition)
-          ? {
-              transport: 'stdio' as const,
-              command: definition.command,
-              ...(definition.args === undefined
-                ? {}
-                : { args: Object.freeze([...definition.args]) }),
-              ...(definition.env === undefined
-                ? {}
-                : { env: Object.freeze({ ...definition.env }) }),
-              ...(definition.cwd === undefined ? {} : { cwd: definition.cwd }),
-              ...(definition.protectedValues === undefined
-                ? {}
-                : {
-                    protectedValues: Object.freeze([
-                      ...definition.protectedValues,
-                    ]),
-                  }),
-            }
-          : {
-              url: definition.url,
-              ...(definition.headers === undefined
-                ? {}
-                : { headers: Object.freeze({ ...definition.headers }) }),
-              ...(definition.fetch === undefined
-                ? {}
-                : { fetch: definition.fetch }),
-            },
-      ),
+      definition: frozenRuntimeDefinition(definition),
       generation: 0,
       state: 'connecting',
       unavailableReason: 'source_connecting',
@@ -303,12 +320,10 @@ export class McpRuntimeService
       const config: McpServerClientConfig | McpStdioServerClientConfig = {
         serverId: record.serverId,
         ...record.definition,
-        ...(isStdio(record.definition)
-          ? {
-              onDiagnostic: (text: string) =>
-                this.logger.warn(`[${record.serverId}] ${text}`),
-            }
-          : {}),
+        ...(isStdio(record.definition) && {
+          onDiagnostic: (text: string) =>
+            this.logger.warn(`[${record.serverId}] ${text}`),
+        }),
         signal: operation.controller.signal,
         onDisconnect: () => {
           if (callbackClient !== undefined) {

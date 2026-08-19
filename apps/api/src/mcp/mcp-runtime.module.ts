@@ -18,6 +18,48 @@ export const EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS: Readonly<
   Record<string, McpRuntimeServerDefinition>
 > = Object.freeze({});
 
+type MutableStdioDefinition = {
+  transport: 'stdio';
+  command: string;
+  args?: readonly string[];
+  env?: Readonly<Record<string, string>>;
+  cwd?: string;
+  protectedValues?: readonly string[];
+};
+
+type MutableRemoteDefinition = {
+  url: string;
+  headers?: Readonly<Record<string, string>>;
+};
+
+function runtimeDefinitionFor(
+  definition: InstanceConfigReader['config']['mcpServers'][string],
+): McpRuntimeServerDefinition {
+  if (definition.type === 'stdio') {
+    const stdio: MutableStdioDefinition = {
+      transport: 'stdio',
+      command: definition.command,
+    };
+    // Passed by reference: the config loader already froze these, so
+    // copying to re-freeze buys nothing.
+    if (definition.args !== undefined) stdio.args = definition.args;
+    if (definition.env !== undefined) stdio.env = definition.env;
+    if (definition.cwd !== undefined) stdio.cwd = definition.cwd;
+    if (definition.protectedValues !== undefined) {
+      stdio.protectedValues = definition.protectedValues;
+    }
+    return stdio;
+  }
+
+  const remote: MutableRemoteDefinition = {
+    url: definition.url,
+  };
+  if (definition.headers !== undefined) {
+    remote.headers = Object.freeze({ ...definition.headers });
+  }
+  return remote;
+}
+
 function runtimeServerDefinitions(
   instanceConfig: InstanceConfigReader,
 ): Readonly<Record<string, McpRuntimeServerDefinition>> {
@@ -28,33 +70,7 @@ function runtimeServerDefinitions(
     Object.fromEntries(
       entries.map(([serverId, definition]) => [
         serverId,
-        Object.freeze(
-          definition.type === 'stdio'
-            ? {
-                transport: 'stdio' as const,
-                command: definition.command,
-                // Passed by reference: the config loader already froze these,
-                // so copying to re-freeze buys nothing.
-                ...(definition.args === undefined
-                  ? {}
-                  : { args: definition.args }),
-                ...(definition.env === undefined
-                  ? {}
-                  : { env: definition.env }),
-                ...(definition.cwd === undefined
-                  ? {}
-                  : { cwd: definition.cwd }),
-                ...(definition.protectedValues === undefined
-                  ? {}
-                  : { protectedValues: definition.protectedValues }),
-              }
-            : {
-                url: definition.url,
-                ...(definition.headers === undefined
-                  ? {}
-                  : { headers: Object.freeze({ ...definition.headers }) }),
-              },
-        ),
+        Object.freeze(runtimeDefinitionFor(definition)),
       ]),
     ),
   );

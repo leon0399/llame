@@ -87,7 +87,7 @@ describe('MCP declaration admission', () => {
         protectedValues: [],
         definitions: [
           definition('search', {
-            ...($schema === undefined ? {} : { $schema }),
+            ...($schema !== undefined && { $schema }),
             type: 'object',
             properties: {},
           }),
