@@ -115,8 +115,7 @@ patch) → `quality/conditional-empty-object-spread-flip`.
 type predicate's own subject parameter (`function isFoo(value: unknown):
 value is Foo`) — TypeScript requires that parameter to stay `unknown` for
 the guard to be sound, no narrower type satisfies it, mirroring upstream's
-own `cause` carve-out for the identical structural reason. Effect: 135 →
-108.
+own `cause` carve-out for the identical structural reason. Effect: 135 → 108.
 
 **Mechanical fixes (A: 4, B: 1), landed**: `mcp-server-client.ts`'s
 `jsonResponse(message)` → `UnknownRecord | null`; `turn-telemetry.ts`'s
@@ -150,20 +149,20 @@ alone resolves 33 (7 overlap).
 copy-pasted boilerplate — every comment names what validates the value or
 which contract it mirrors). By justification class:
 
-| Class                                                                                                    | Count | Representative sites                                                                                                |
-| --------------------------------------------------------------------------------------------------------- | ----: | --------------------------------------------------------------------------------------------------------------------- |
-| Compound guard (`&&`/`\|\|` combining two checks) — a shape the structural exemption's single-check parse doesn't cover | 8 | `mcp-server-client.ts`'s `hasPortableMcpResultPayload`, `protected-values.ts`'s `canonicalJsonScalar`, `tool-observation-part.ts`'s `isCancelledMetadata`, `schema-utils.ts`'s `addDraft07HttpsMetaSchemaAlias`, `declaration-admission.ts`'s `safeRefusalId` |
-| Ternary-test validation — the check is the ternary's test, unwrapped shape not parsed                     |     8 | `run-execution.service.ts`'s `eventPayloadField`, `tool-observation-part.ts`'s `normalizeToolObservationOutcome`, `mcp-server-client.ts`'s `matchingRpcResponse`, `compactions.integration.test.ts`'s `contentText` |
-| Bare-identifier delegation to an already-validating sibling/parser (`parseXxx(value)`, not `.parse`/`isXxx`-shaped) | 9 | `canonical-json.ts`'s `canonicalJson`, `protected-values.ts`'s two public wrappers, `tool-observation-part.ts`'s two ledger builders, `run-stream-bridge.ts`'s `payloadString`/`payloadNumber`, `run-execution.service.ts`'s `eventPayloadString` |
-| Per-tool/per-schema arbitrary-argument boundaries (AI SDK / MCP wire protocol / queue payload contract)   |     8 | `mcp-server-client.ts`'s `McpToolExecutor`, `run-execution.service.ts`'s tool-io + `enqueueEvent` family (4), `runs-repository.ts`'s `append`, `queue/queue.ts`'s `parse` slot (2) |
-| Library-signature-mirroring (narrows an upstream `any`/generic parameter to `unknown`)                    |     6 | `auth-context.ts`'s Nest decorator factories (2), `app.setup.ts` (Express `.set`), `run-execution.service.ts`'s `tool({ execute })` callback, `schema-utils.ts`'s `JsonSchemaValidator` type, `mcp-test-fixture.ts`'s predicate callback |
-| Recursive JSON walker or its own scalar/depth classifier — the function IS the boundary, dispatch isn't a single first-use check | 3 | `mcp-server-client.ts`'s `serializedBytes`/`exceedsDepth`, `run-execution.service.ts`'s `toolActivityPart`                                                                                                                              |
-| Validated, but not as the function's *first* statement (real checks precede it)                          |     2 | `tools/runner.ts`'s `runTool` (`safeParseArgs` fires after 3 guard clauses), `schema-utils.ts`'s `safeParseArgs` (checks `schema`'s type before `args`)                                                                              |
-| Named validator with a non-matching naming convention (`validate(x)`, not `isXxx`)                        |     1 | `schema-utils.ts`'s `compileJsonSchemaValidator`'s inner `validate:`                                                                                                                                                                    |
-| Test fixture: deliberately arbitrary/invalid input, exercising real downstream validation                 |     7 | `evals/mcp-web-search-eval.test.ts` (4), `identity.dto.test.ts` (3, one per DTO)                                                                                                                                                        |
-| Test fixture: fake wire-protocol/JSON-serialization payload, caller controls shape by design               |     6 | `mcp-server-client.test.ts` (2), `mcp-operator.integration.test.ts`, `context-builder.test.ts`, `chats-rls.integration.test.ts`, `run-execution-tools.integration.test.ts`                                                            |
-| Opaque forward, several calls deep, into an already-validating boundary                                    |     1 | `compaction.ts`'s `estimateContextTokens`'s `previousToolObservationLedger`                                                                                                                                                             |
-| **Total**                                                                                                  |**52** |                                                                                                                                                                                                                                          |
+| Class                                                                                                                            |  Count | Representative sites                                                                                                                                                                                                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------- | -----: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Compound guard (`&&`/`\|\|` combining two checks) — a shape the structural exemption's single-check parse doesn't cover          |      8 | `mcp-server-client.ts`'s `hasPortableMcpResultPayload`, `protected-values.ts`'s `canonicalJsonScalar`, `tool-observation-part.ts`'s `isCancelledMetadata`, `schema-utils.ts`'s `addDraft07HttpsMetaSchemaAlias`, `declaration-admission.ts`'s `safeRefusalId` |
+| Ternary-test validation — the check is the ternary's test, unwrapped shape not parsed                                            |      8 | `run-execution.service.ts`'s `eventPayloadField`, `tool-observation-part.ts`'s `normalizeToolObservationOutcome`, `mcp-server-client.ts`'s `matchingRpcResponse`, `compactions.integration.test.ts`'s `contentText`                                           |
+| Bare-identifier delegation to an already-validating sibling/parser (`parseXxx(value)`, not `.parse`/`isXxx`-shaped)              |      9 | `canonical-json.ts`'s `canonicalJson`, `protected-values.ts`'s two public wrappers, `tool-observation-part.ts`'s two ledger builders, `run-stream-bridge.ts`'s `payloadString`/`payloadNumber`, `run-execution.service.ts`'s `eventPayloadString`             |
+| Per-tool/per-schema arbitrary-argument boundaries (AI SDK / MCP wire protocol / queue payload contract)                          |      8 | `mcp-server-client.ts`'s `McpToolExecutor`, `run-execution.service.ts`'s tool-io + `enqueueEvent` family (4), `runs-repository.ts`'s `append`, `queue/queue.ts`'s `parse` slot (2)                                                                            |
+| Library-signature-mirroring (narrows an upstream `any`/generic parameter to `unknown`)                                           |      6 | `auth-context.ts`'s Nest decorator factories (2), `app.setup.ts` (Express `.set`), `run-execution.service.ts`'s `tool({ execute })` callback, `schema-utils.ts`'s `JsonSchemaValidator` type, `mcp-test-fixture.ts`'s predicate callback                      |
+| Recursive JSON walker or its own scalar/depth classifier — the function IS the boundary, dispatch isn't a single first-use check |      3 | `mcp-server-client.ts`'s `serializedBytes`/`exceedsDepth`, `run-execution.service.ts`'s `toolActivityPart`                                                                                                                                                    |
+| Validated, but not as the function's _first_ statement (real checks precede it)                                                  |      2 | `tools/runner.ts`'s `runTool` (`safeParseArgs` fires after 3 guard clauses), `schema-utils.ts`'s `safeParseArgs` (checks `schema`'s type before `args`)                                                                                                       |
+| Named validator with a non-matching naming convention (`validate(x)`, not `isXxx`)                                               |      1 | `schema-utils.ts`'s `compileJsonSchemaValidator`'s inner `validate:`                                                                                                                                                                                          |
+| Test fixture: deliberately arbitrary/invalid input, exercising real downstream validation                                        |      7 | `evals/mcp-web-search-eval.test.ts` (4), `identity.dto.test.ts` (3, one per DTO)                                                                                                                                                                              |
+| Test fixture: fake wire-protocol/JSON-serialization payload, caller controls shape by design                                     |      6 | `mcp-server-client.test.ts` (2), `mcp-operator.integration.test.ts`, `context-builder.test.ts`, `chats-rls.integration.test.ts`, `run-execution-tools.integration.test.ts`                                                                                    |
+| Opaque forward, several calls deep, into an already-validating boundary                                                          |      1 | `compaction.ts`'s `estimateContextTokens`'s `previousToolObservationLedger`                                                                                                                                                                                   |
+| **Total**                                                                                                                        | **52** |                                                                                                                                                                                                                                                               |
 
 D1/D2 (the 11 catch-handler sites from the earlier taxonomy) needed **zero**
 manual disables — `allowErrorFamilyNames` resolved all of them, including
@@ -394,7 +393,7 @@ files:
 - **`openai-model-client.ts`**: `createOpenAIModelClient(config,
 dependencies?: {createOpenAI, streamText})`, both defaulting to the real
   SDK imports. `createOpenAI` types cleanly as `typeof createOpenAI`, but
-  `streamText` is a *generic* function
+  `streamText` is a _generic_ function
   (`<TOOLS extends ToolSet, OUTPUT extends Output>(...)`), and Vitest's
   mock-typing utilities (`vi.fn<T>()`, `vi.mocked(fn, {partial:true})`)
   can't preserve a mock's full generic signature — every attempt to type
@@ -488,9 +487,9 @@ rule is **not** enabled this round; the remaining 19 findings across 14 files
 carries the flip.
 
 The rule (`tools/oxlint/anti-slop/rules/no-known-value-widening.ts`) is purely
-syntactic — it flags a *known* value (an object/array/function/class/`new`/
+syntactic — it flags a _known_ value (an object/array/function/class/`new`/
 literal expression, or a stable `const` traced back to one) flowing into an
-*explicit* return/binding/property/assertion type that's `unknown`, `object`,
+_explicit_ return/binding/property/assertion type that's `unknown`, `object`,
 a non-empty anonymous type literal, or a `Record<>`/mapped/generic-container
 shape — regardless of whether the runtime value is actually safe. Two repair
 idioms cover nearly every site:
@@ -575,7 +574,7 @@ sites). `canonicalize`'s two overloads returned `unknown`/`Promise<unknown>`
 -shaped values for the general (non-`Record`) case, used internally for
 its own recursive array/object-value calls. Unlike most of this stash's
 sites, the explicit annotation can't simply be dropped here — TypeScript
-overload *signatures* have no implementation body to infer a return type
+overload _signatures_ have no implementation body to infer a return type
 from, so omitting it is a syntax error, not a style choice. Instead, a
 recursive `CanonicalJsonValue` type (mirroring `result-truncation.ts`'s
 own `CappedValue`, already established earlier in this same stash) replaces
@@ -1042,7 +1041,7 @@ override is acceptable.
 | done   | `no-reflect-get`                            | Zero; the four AI SDK proxy-forwarding sites consolidated into one owned helper with a source-verified inline exception.                                                                                                                                                                      |
 | queued | `no-runtime-typeof`                         | 202 diagnostics/77 files; replace ad hoc representation narrowing with boundary schemas and parsed domain values.                                                                                                                                                                             |
 | done   | `no-shape-in-symbol-names`                  | Zero across five scopes; prompt scenarios, rendered conversation nodes, and admitted MCP payloads now carry their domain roles.                                                                                                                                                               |
-| done   | `no-unknown-parameters`                     | Zero across `src/` + `evals/`; a third local rule patch (`allowWhenImmediatelyValidated`, `allowErrorFamilyNames`) resolved 51/103 structurally, the remaining 52 carry a per-site inline disable with a specific reason; enforced at error (both options on) in `apps/api/.oxlintrc.json`.    |
+| done   | `no-unknown-parameters`                     | Zero across `src/` + `evals/`; a third local rule patch (`allowWhenImmediatelyValidated`, `allowErrorFamilyNames`) resolved 51/103 structurally, the remaining 52 carry a per-site inline disable with a specific reason; enforced at error (both options on) in `apps/api/.oxlintrc.json`.   |
 | done   | `no-unknown-returns`                        | Zero; `CanonicalJsonValue` (mirroring `result-truncation.ts`'s `CappedValue`) replaces the two overloads' `unknown`/`Promise<unknown>` return contracts; enforced at error in `apps/api/.oxlintrc.json`.                                                                                      |
 | done   | `no-unknown-type-aliases`                   | Zero across five owned scopes and enforced through root plus workspace Oxlint.                                                                                                                                                                                                                |
 | done   | `no-unsafe-dictionary-type`                 | Zero across two layers (43 findings/28 files incl. one outside `src/`); shared `UnknownRecord` alias plus `JsonSchemaDocument` redirects for tool-input-schema sites; origin declaration carries this repo's second inline-disable precedent; enforced at error in `apps/api/.oxlintrc.json`. |
