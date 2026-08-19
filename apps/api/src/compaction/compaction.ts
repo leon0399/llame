@@ -132,15 +132,13 @@ export function estimateContextTokens(
   }
   const context = buildContext(history, {
     systemPrompt: '',
-    ...(previousSummary !== undefined
-      ? {
-          compaction: {
-            summary: previousSummary,
-            uptoSeq: Number.MIN_SAFE_INTEGER,
-            toolObservationLedger: previousToolObservationLedger,
-          },
-        }
-      : {}),
+    ...(previousSummary !== undefined && {
+      compaction: {
+        summary: previousSummary,
+        uptoSeq: Number.MIN_SAFE_INTEGER,
+        toolObservationLedger: previousToolObservationLedger,
+      },
+    }),
   });
   return Math.ceil(JSON.stringify(context.messages).length / 4);
 }
@@ -325,7 +323,7 @@ export function buildCompactionRequest(input: {
 }): BuiltContext {
   const { system, messages } = buildContext(input.absorb, {
     systemPrompt: input.system,
-    ...(input.previous ? { compaction: input.previous } : {}),
+    ...(input.previous && { compaction: input.previous }),
   });
 
   messages.push({

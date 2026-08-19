@@ -57,9 +57,9 @@ export function toDigestEntry(
     title: chat.title!,
     date: chat.updatedAt.toISOString().slice(0, 10),
     messageCount: chat.messageCount,
-    ...(excerpt.length > 0
-      ? { excerpt: truncateRecencyDigestExcerpt(excerpt) }
-      : {}),
+    ...(excerpt.length > 0 && {
+      excerpt: truncateRecencyDigestExcerpt(excerpt),
+    }),
   };
 }
 
@@ -143,7 +143,7 @@ export function deriveRecencyDigestDelta(input: {
     return {
       chatId: entry.chatId,
       pinned,
-      ...(entry.title ? { title: entry.title } : {}),
+      ...(entry.title && { title: entry.title }),
     };
   });
   if (entries.length === 0 && pinChanges.length === 0) return null;

@@ -32,17 +32,16 @@ export class RunsRepository {
     modelId: string;
     modelContextSnapshotId: string;
   }): Promise<Run> {
-    const [created] = await this.db
-      .insert(runs)
-      .values({
-        ...(input.id !== undefined ? { id: input.id } : {}),
-        chatId: input.chatId,
-        messageId: input.messageId,
-        userId: input.userId,
-        modelId: input.modelId,
-        modelContextSnapshotId: input.modelContextSnapshotId,
-      })
-      .returning();
+    const values: typeof runs.$inferInsert = {
+      chatId: input.chatId,
+      messageId: input.messageId,
+      userId: input.userId,
+      modelId: input.modelId,
+      modelContextSnapshotId: input.modelContextSnapshotId,
+    };
+    if (input.id !== undefined) values.id = input.id;
+
+    const [created] = await this.db.insert(runs).values(values).returning();
 
     return created;
   }
@@ -199,7 +198,7 @@ export class RunsRepository {
       .set({
         status: 'running_model' satisfies RunStatus,
         startedAt: new Date(),
-        ...(workerId !== undefined ? { workerId } : {}),
+        ...(workerId !== undefined && { workerId }),
       })
       .where(
         and(
@@ -295,7 +294,7 @@ export class RunsRepository {
       .set({
         status,
         finishedAt: new Date(),
-        ...(error !== undefined ? { error } : {}),
+        ...(error !== undefined && { error }),
       })
       .where(
         and(

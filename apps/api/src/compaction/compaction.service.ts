@@ -337,7 +337,7 @@ export class CompactionService {
         input.userId,
         {
           maxSeq: input.triggeringUserSeq - 1,
-          ...(previous ? { sinceSeq: previous.uptoSeq } : {}),
+          ...(previous && { sinceSeq: previous.uptoSeq }),
         },
       );
       const plan = planTransitionCompaction(
@@ -499,7 +499,7 @@ export class CompactionService {
       system: input.system,
       messages: input.messages,
       abortSignal: input.abortSignal,
-      ...(input.toolDeclarations.length > 0 ? { tools } : {}),
+      ...(input.toolDeclarations.length > 0 && { tools }),
       toolChoice: 'none',
     });
     const [text, toolCalls, usage, finishReason] = await Promise.all([

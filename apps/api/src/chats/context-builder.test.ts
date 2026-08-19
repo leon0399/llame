@@ -40,9 +40,9 @@ function typedContentParts(
     }
     return {
       type: part.type,
-      ...(typeof part.toolCallId === 'string'
-        ? { toolCallId: part.toolCallId }
-        : {}),
+      ...(typeof part.toolCallId === 'string' && {
+        toolCallId: part.toolCallId,
+      }),
     };
   });
 }

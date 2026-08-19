@@ -112,14 +112,13 @@ export class ProjectsRepository {
       }
     }
 
-    const fields = {
-      ...(patch.name !== undefined ? { name: patch.name } : {}),
-      ...(patch.archived === true && current.archivedAt === null
-        ? { archivedAt: new Date() }
-        : patch.archived === false
-          ? { archivedAt: null }
-          : {}),
-    };
+    const fields: Partial<typeof projects.$inferInsert> = {};
+    if (patch.name !== undefined) fields.name = patch.name;
+    if (patch.archived === true && current.archivedAt === null) {
+      fields.archivedAt = new Date();
+    } else if (patch.archived === false) {
+      fields.archivedAt = null;
+    }
 
     // Nothing to change: don't issue a no-op write. Return the current row
     // instead — still owner-scoped, so the caller gets the project on a

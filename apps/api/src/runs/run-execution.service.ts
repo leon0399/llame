@@ -260,13 +260,11 @@ function toolActivityPart(
         input,
         errorText: result.message,
         outcome: normalizeToolObservationOutcome(result.type, 'error'),
-        ...(result.type === 'cancelled'
-          ? {
-              resultProviderMetadata: {
-                llame: { cancelled: true as const },
-              },
-            }
-          : {}),
+        ...(result.type === 'cancelled' && {
+          resultProviderMetadata: {
+            llame: { cancelled: true as const },
+          },
+        }),
       };
 }
 
@@ -573,7 +571,7 @@ export class RunExecutionService {
           input.userId,
           {
             maxSeq: input.userMessage.seq,
-            ...(compaction ? { sinceSeq: compaction.uptoSeq } : {}),
+            ...(compaction && { sinceSeq: compaction.uptoSeq }),
           },
         );
 
@@ -588,15 +586,13 @@ export class RunExecutionService {
 
         const built = buildContext(toStoredMessages(history), {
           systemPrompt: snapshot.systemPrompt,
-          ...(compaction
-            ? {
-                compaction: {
-                  summary: compaction.summary,
-                  uptoSeq: compaction.uptoSeq,
-                  toolObservationLedger: compaction.toolObservationLedger,
-                },
-              }
-            : {}),
+          ...(compaction && {
+            compaction: {
+              summary: compaction.summary,
+              uptoSeq: compaction.uptoSeq,
+              toolObservationLedger: compaction.toolObservationLedger,
+            },
+          }),
         });
 
         return {
@@ -662,20 +658,18 @@ export class RunExecutionService {
             input.userId,
             {
               maxSeq: input.userMessage.seq,
-              ...(compaction ? { sinceSeq: compaction.uptoSeq } : {}),
+              ...(compaction && { sinceSeq: compaction.uptoSeq }),
             },
           );
           return buildContext(toStoredMessages(history), {
             systemPrompt: prepared.system,
-            ...(compaction
-              ? {
-                  compaction: {
-                    summary: compaction.summary,
-                    uptoSeq: compaction.uptoSeq,
-                    toolObservationLedger: compaction.toolObservationLedger,
-                  },
-                }
-              : {}),
+            ...(compaction && {
+              compaction: {
+                summary: compaction.summary,
+                uptoSeq: compaction.uptoSeq,
+                toolObservationLedger: compaction.toolObservationLedger,
+              },
+            }),
           });
         });
         prepared.messages = rebuilt.messages;
@@ -985,47 +979,45 @@ export class RunExecutionService {
         // Tool loop: pass the pre-filtered set + the operator step cap.
         // Absent when no tool is available → the answer-only single-
         // generation path (today's pre-tool-loop behavior).
-        ...(hasTools
-          ? {
-              tools: toolSet,
+        ...(hasTools && {
+          tools: toolSet,
+          maxSteps: maxStepsPerRun,
+          // Fires once, the moment the model client disables tools for
+          // the next step because maxStepsPerRun tool-requesting steps
+          // already ran (D6) — record it as a distinct run event; the
+          // cap-marker PART is persisted in onFinish once the run
+          // actually completes (a run that errors mid-loop after
+          // capping does not claim to have "completed with the cap").
+          onCapReached: () => {
+            capped = true;
+            enqueueEvent('run.step_cap_reached', {
+              stepsUsed: maxStepsPerRun,
               maxSteps: maxStepsPerRun,
-              // Fires once, the moment the model client disables tools for
-              // the next step because maxStepsPerRun tool-requesting steps
-              // already ran (D6) — record it as a distinct run event; the
-              // cap-marker PART is persisted in onFinish once the run
-              // actually completes (a run that errors mid-loop after
-              // capping does not claim to have "completed with the cap").
-              onCapReached: () => {
-                capped = true;
-                enqueueEvent('run.step_cap_reached', {
-                  stepsUsed: maxStepsPerRun,
-                  maxSteps: maxStepsPerRun,
-                });
-              },
-              // A tool call the model requested but that never passed the
-              // gate/schema check (unlisted/non-read_only/hallucinated name,
-              // or schema-invalid args) — recorded for durability/UI
-              // visibility (D3/D6 "recorded, non-fatal tool error"). No
-              // 'tool.started' event: the call never genuinely ran.
-              onUnavailableToolCall: ({
-                toolCallId,
-                toolName,
-                input: callInput,
-                reason,
-              }) => {
-                persistDelta(deltas.flush());
-                const result =
-                  reason === 'not_available'
-                    ? refusalResult(toolName)
-                    : invalidCallResult(toolName);
-                // No 'tool.started': the call never genuinely ran (a refusal
-                // is distinguished downstream by requested+completed with no
-                // started in between).
-                recordToolRequested(toolCallId, toolName, callInput);
-                recordToolCompleted(toolCallId, toolName, callInput, result);
-              },
-            }
-          : {}),
+            });
+          },
+          // A tool call the model requested but that never passed the
+          // gate/schema check (unlisted/non-read_only/hallucinated name,
+          // or schema-invalid args) — recorded for durability/UI
+          // visibility (D3/D6 "recorded, non-fatal tool error"). No
+          // 'tool.started' event: the call never genuinely ran.
+          onUnavailableToolCall: ({
+            toolCallId,
+            toolName,
+            input: callInput,
+            reason,
+          }) => {
+            persistDelta(deltas.flush());
+            const result =
+              reason === 'not_available'
+                ? refusalResult(toolName)
+                : invalidCallResult(toolName);
+            // No 'tool.started': the call never genuinely ran (a refusal
+            // is distinguished downstream by requested+completed with no
+            // started in between).
+            recordToolRequested(toolCallId, toolName, callInput);
+            recordToolCompleted(toolCallId, toolName, callInput, result);
+          },
+        }),
         onTextDelta: (text) => {
           streamedText += text;
           assistantPartCollector.text(text);
@@ -1561,9 +1553,9 @@ export class RunExecutionService {
             chatId: finished.chatId,
             inReplyTo: finished.messageId,
             parts: durableParts,
-            ...(input.synthesizedTurnTelemetry
-              ? { telemetry: input.synthesizedTurnTelemetry }
-              : {}),
+            ...(input.synthesizedTurnTelemetry && {
+              telemetry: input.synthesizedTurnTelemetry,
+            }),
           };
         }
         const assistantMessage = await this.persistAssistantMessage(

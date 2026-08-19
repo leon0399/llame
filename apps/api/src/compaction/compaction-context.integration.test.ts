@@ -162,19 +162,19 @@ function compactionClient(input: {
           });
         },
       });
+      const toolOptions: Pick<ModelStreamInput, 'tools' | 'toolChoice'> = {};
+      if (request.tools) {
+        toolOptions.tools = request.tools;
+        if (request.toolChoice !== undefined) {
+          toolOptions.toolChoice = request.toolChoice;
+        }
+      }
       return streamText({
         model,
         messages: request.messages,
         system: request.system,
         abortSignal: request.abortSignal,
-        ...(request.tools
-          ? {
-              tools: request.tools,
-              ...(request.toolChoice !== undefined
-                ? { toolChoice: request.toolChoice }
-                : {}),
-            }
-          : {}),
+        ...toolOptions,
       });
     },
   };

@@ -95,58 +95,77 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
     provider: 'mock',
     contextWindowTokens: 100_000,
     streamText(input: ModelStreamInput) {
+      if (input.tools) {
+        const tools = input.tools;
+        return streamText({
+          model,
+          system: input.system,
+          messages: input.messages,
+          abortSignal: input.abortSignal,
+          tools,
+          stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
+          prepareStep: ({ steps }: { steps: StepResult<ToolSet>[] }) => {
+            const priorToolSteps = steps.filter(
+              (step) => step.toolCalls.length > 0,
+            ).length;
+            if (priorToolSteps >= (input.maxSteps ?? 8)) {
+              input.onCapReached?.();
+              return { activeTools: [] };
+            }
+            return {};
+          },
+          experimental_repairToolCall: ({
+            toolCall,
+            error,
+          }: {
+            toolCall: {
+              toolCallId: string;
+              toolName: string;
+              // Matches the real LanguageModelV3ToolCall shape: input is
+              // ALWAYS a stringified JSON object at this layer, never
+              // pre-parsed — mirrors openai-model-client.ts's own
+              // parseToolCallInput best-effort parse.
+              input: string;
+            };
+            error: unknown;
+          }) => {
+            let parsedInput: unknown;
+            try {
+              parsedInput = JSON.parse(toolCall.input) as unknown;
+            } catch {
+              parsedInput = toolCall.input;
+            }
+            input.onUnavailableToolCall?.({
+              toolCallId: toolCall.toolCallId,
+              toolName: toolCall.toolName,
+              input: parsedInput,
+              reason: NoSuchToolError.isInstance(error)
+                ? ('not_available' as const)
+                : ('invalid_input' as const),
+            });
+            return Promise.resolve(null);
+          },
+          onChunk: ({ chunk }) => {
+            if (chunk.type === 'text-delta') {
+              input.onTextDelta?.(chunk.text);
+            } else if (chunk.type === 'reasoning-delta') {
+              input.onReasoningDelta?.(chunk.text);
+            }
+          },
+          onError: input.onError,
+          onFinish: (event) =>
+            input.onFinish?.({
+              text: event.text,
+              usage: event.usage,
+              finishReason: event.finishReason,
+            }),
+        });
+      }
       return streamText({
         model,
         system: input.system,
         messages: input.messages,
         abortSignal: input.abortSignal,
-        ...(input.tools
-          ? {
-              tools: input.tools,
-              stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
-              prepareStep: ({ steps }: { steps: StepResult<ToolSet>[] }) => {
-                const priorToolSteps = steps.filter(
-                  (step) => step.toolCalls.length > 0,
-                ).length;
-                if (priorToolSteps >= (input.maxSteps ?? 8)) {
-                  input.onCapReached?.();
-                  return { activeTools: [] };
-                }
-                return {};
-              },
-              experimental_repairToolCall: ({
-                toolCall,
-                error,
-              }: {
-                toolCall: {
-                  toolCallId: string;
-                  toolName: string;
-                  // Matches the real LanguageModelV3ToolCall shape: input is
-                  // ALWAYS a stringified JSON object at this layer, never
-                  // pre-parsed — mirrors openai-model-client.ts's own
-                  // parseToolCallInput best-effort parse.
-                  input: string;
-                };
-                error: unknown;
-              }) => {
-                let parsedInput: unknown;
-                try {
-                  parsedInput = JSON.parse(toolCall.input) as unknown;
-                } catch {
-                  parsedInput = toolCall.input;
-                }
-                input.onUnavailableToolCall?.({
-                  toolCallId: toolCall.toolCallId,
-                  toolName: toolCall.toolName,
-                  input: parsedInput,
-                  reason: NoSuchToolError.isInstance(error)
-                    ? ('not_available' as const)
-                    : ('invalid_input' as const),
-                });
-                return Promise.resolve(null);
-              },
-            }
-          : {}),
         onChunk: ({ chunk }) => {
           if (chunk.type === 'text-delta') {
             input.onTextDelta?.(chunk.text);
