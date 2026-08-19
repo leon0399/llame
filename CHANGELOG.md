@@ -2,6 +2,28 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-19
 
+- Enabled `anti-slop/no-conditional-empty-object-spread` at error in
+  `apps/api/.oxlintrc.json` (Arc 2's sixth rule), removing all 135 findings
+  across 41 files (fresh re-measurement — the queued 147/50 baseline was
+  stale). The rule flags `...(cond ? {props} : {})`, a ternary with one empty
+  branch used to conditionally omit an object key. Fixed with a hybrid idiom:
+  separate-statement construction (an explicitly-named-typed mutable
+  variable, `if (cond) target.key = value;` per conditional field) for
+  statement-position objects or literals with more than ~3 conditional
+  fields, and `cond && {k: v}` short-circuit for simple expression-position
+  sites with few conditional fields — spreading `false` is a
+  spec-guaranteed no-op that preserves the exact original omission
+  semantics. Discovered mid-remediation: the statement-construction idiom's
+  named-type requirement collides with the already-enforced
+  `anti-slop/no-known-value-widening` whenever the annotation is an
+  anonymous inline object-literal type; resolved by using a named type
+  reference (derived from the real consumer, e.g. `Parameters<typeof fn>[0]`,
+  or a small locally-declared type alias) everywhere, confirmed clean
+  against the whole tree. `instance-config/prompt-loader.ts`'s
+  Handlebars render-context builders got the extra-conservative treatment
+  (named-type everywhere, even single-conditional sites), since a
+  `SafeString` is truthy even wrapping an empty string. No behavior change;
+  `openapi.json` confirmed byte-identical.
 - Enabled `anti-slop/no-unsafe-dictionary-type` at error in
   `apps/api/.oxlintrc.json` (Arc 2's fifth rule), after redirecting the 4
   remaining sites that were literally "a tool's input schema as a JSON

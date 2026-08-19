@@ -104,6 +104,80 @@ historical publication record of stack #369.
 
 ## Current submission
 
+`no-conditional-empty-object-spread` closes out (branch
+`quality/conditional-empty-object-spread-flip`, stacked on four remediation
+layers: `quality/conditional-empty-object-spread-chats-models`, `-mcp`,
+`-config-identity`, `-runs-tail`, in turn stacked on
+`quality/unsafe-dictionary-type-flip`), removing all 135 findings across 41
+files (fresh re-measurement against `src/` + `evals/` — the queued baseline
+of 147/50 was stale, same lesson as the prior two rules).
+
+Idiom is a hybrid, decided per site (team-lead ruling): (b) separate-statement
+construction for statement-position objects or literals with more than ~3
+conditional fields — an explicitly-typed mutable variable, assigning
+unconditional fields inline and `if (cond) target.key = value;` per
+conditional field in original order; (a) `cond && {k: v}` short-circuit for
+simple expression-position sites with ≤3 conditional fields (spreading
+`false` is a spec-guaranteed no-op, preserving exact omission semantics).
+Two hard rules on (a): never `!cond && {...}` (flip the underlying comparison
+or introduce a positively-named derived boolean instead — e.g.
+`chat-loop.service.ts`'s `continuesDisclosureEpoch = !startsDisclosureEpoch`),
+and never widen a comparison's truthiness beyond what the original ternary
+already had.
+
+Honesty note (explicit per team-lead): the rule's own message says "build the
+object in separate statements," but `&&`-spread is used deliberately at
+several simple sites across all four clusters — the vendored rule does not
+flag `&&`-spread itself, only the ternary-with-empty-branch form. (b) was
+applied wherever a site was already statement-position or carried more than a
+couple of conditional fields; the remaining (a) sites are mechanically
+revisable to (b) if review prefers uniformity.
+
+**Discovered mid-remediation**: (b)'s "explicitly-typed mutable variable"
+instruction collides with the already-enforced `anti-slop/no-known-value-
+widening` whenever the annotation is an anonymous inline object-literal type
+— that rule treats any anonymous `TSTypeLiteral` annotation with no index
+signature as a widening target. Fix, applied throughout: use a named type
+reference instead — either derived from the real consumer
+(`Parameters<typeof fn>[0]`, `NonNullable<Parameters<typeof fn>[N]>`,
+`Pick<SomeType, 'a' | 'b'>`), an existing exported type, or (mcp-runtime's
+`stdio`/`remote` branches) a small locally-declared named type alias — a
+named alias with no index signature is exempt (`no-known-value-widening`'s
+`classifyAliasBroadTarget` returns `null` for a plain `TSTypeLiteral` target,
+unlike the `{ kind: "anonymous object" }` it returns for an inline one).
+Confirmed empirically: `no-known-value-widening` reports zero across the
+whole tree post-remediation. Where no natural named type existed for a
+2–3-conditional site, the site was reverted from (b) back to (a) instead of
+inventing a throwaway type (`mcp-server-client.ts`'s three `refused.push`
+sites, `chat-loop.service.ts`'s `availabilityPart`).
+
+`prompt-loader.ts`'s Handlebars render-context builders (`userContext`,
+`chatsContext`, `renderPrompt`) get the extra-conservative treatment per
+team-lead's ruling: named-type (b) everywhere, even for single-conditional
+sites — a `SafeString` is truthy even wrapping `""`, so a template `{{#if}}`
+guard depends on the key being absent, not merely falsy-valued.
+
+Repair evidence: `pnpm --filter api lint`/`typecheck` clean (rule enabled),
+`pnpm --filter api test` 1153/1153, full `pnpm --filter api test:integration`
+348/351 (3 pre-existing skips) against real Postgres (production files
+touched extensively, including the run-execution/worker-harness/runs-
+repository cluster), `openapi.json` confirmed byte-identical (`models.dto.ts`'s
+`toAvailableModelResponse` was rewritten to (b) but preserves the exact same
+field set and response type).
+
+Process note for the record: four subagent forks worked disjoint file
+clusters in parallel; two of five died mid-work to a session usage-limit
+reset and were resumed, and one (the runs/ cluster fork) exceeded its
+directive by editing files outside its assigned scope (`models/dto/
+models.dto.ts`, `model-catalog.ts`, `model-client-factory.ts` — all
+legitimate fixes, verified) and by planning to run tests and commit on its
+own, which it did not actually execute (confirmed via its persisted
+transcript containing zero git commands and via `git log`/`git stash list`
+showing no unauthorized state change). Lesson applied to future fork
+prompts: state explicitly that the parent owns branches, commits, and test
+orchestration, and that a fork's own full-repo lint check finding issues
+outside its assigned files is a report, not a mandate to fix them.
+
 `no-unsafe-dictionary-type` closes out (branch
 `quality/unsafe-dictionary-type-flip`, stacked on
 `quality/unsafe-dictionary-type-conversions`), redirecting the 4 remaining
@@ -859,16 +933,16 @@ across all tracked TS/TSX/MTS/CTS files in `apps/api`, and
 
 ### Lint and formatting
 
-| State  | Finding                                                                                                         | Evidence / exit condition                                                                                                                                                                                                                                                                                                                                                            |
-| ------ | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS                      | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                                                                                                                                                                                                                                                                                   |
-| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                                                 | Workspace `lint` scripts and Turbo                                                                                                                                                                                                                                                                                                                                                   |
-| queued | API is type-aware; other workspaces are substantially lighter                                                   | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                                                                                                                                                                                                                                                                                  |
-| done   | Semantic Markdown is linted across all product-owned files (200 at adoption; 191 after the working-doc removal) | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded                                                                                                                                                                                                                                                         |
-| done   | Unused lint-disable directives are rejected in every lint-owning workspace                                      | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                                                                                                                                                                                                                                                                                  |
-| queued | Four Vitest rules are disabled in API                                                                           | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                                                                                                                                                                                                                                                                             |
-| done   | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline                         | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness                                                                                                                                                                                                                                                                   |
-| queued | All 15 `dmmulroy/anti-slop` Oxlint rules are adoption targets                                                   | Five rules had a zero baseline at adoption (base `446268e` plus one documented correctness patch); six more (`no-reflect-apply`, `no-reflect-get`, `no-unknown-returns`, `no-known-value-widening`, `no-module-mocking`, `no-unsafe-dictionary-type`) are since remediated to zero; four rules still require remediation; only validated `unknown` inputs may carry local exceptions |
+| State  | Finding                                                                                                         | Evidence / exit condition                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------ | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| done   | Prettier checks all owned repository files, including Markdown/MDX, JSON(C), YAML, and CSS                      | Root `format:check`, `.prettierignore`, lint workflow, staged hook                                                                                                                                                                                                                                                                                                                                                            |
+| done   | Oxlint runs with warnings denied in API, web, UI, and Storybook                                                 | Workspace `lint` scripts and Turbo                                                                                                                                                                                                                                                                                                                                                                                            |
+| queued | API is type-aware; other workspaces are substantially lighter                                                   | Compare the four `.oxlintrc.json` files; enable supported rule families only after violation review                                                                                                                                                                                                                                                                                                                           |
+| done   | Semantic Markdown is linted across all product-owned files (200 at adoption; 191 after the working-doc removal) | Pinned markdownlint-cli2 0.23.2 reports zero findings; only upstream/generated integrations and symlink aliases are excluded                                                                                                                                                                                                                                                                                                  |
+| done   | Unused lint-disable directives are rejected in every lint-owning workspace                                      | Native Oxlint enforcement removed 48 stale directives; API, web, UI, and Storybook each report zero                                                                                                                                                                                                                                                                                                                           |
+| queued | Four Vitest rules are disabled in API                                                                           | Ratchet one rule per slice and repair findings, as already required by `docs/testing.md`                                                                                                                                                                                                                                                                                                                                      |
+| done   | Constructor parameter decorator placement is standardized (#286): 46 split, zero inline                         | Native ast-grep scopes enforcement to `@Inject` constructor parameters; no wrapper, diff parser, or custom harness                                                                                                                                                                                                                                                                                                            |
+| queued | All 15 `dmmulroy/anti-slop` Oxlint rules are adoption targets                                                   | Five rules had a zero baseline at adoption (base `446268e` plus one documented correctness patch); seven more (`no-reflect-apply`, `no-reflect-get`, `no-unknown-returns`, `no-known-value-widening`, `no-module-mocking`, `no-unsafe-dictionary-type`, `no-conditional-empty-object-spread`) are since remediated to zero; three rules still require remediation; only validated `unknown` inputs may carry local exceptions |
 
 #### `anti-slop` rule qualification (2026-08-15)
 
@@ -887,7 +961,7 @@ override is acceptable.
 | State  | Upstream rule                               | llame disposition                                                                                                                                                                                                                                                                             |
 | ------ | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | done   | `no-chained-type-assertions`                | Zero across five scopes; standard `RuleTester` covers parentheses, non-null wrappers, and angle/`as` chains.                                                                                                                                                                                  |
-| queued | `no-conditional-empty-object-spread`        | 147 diagnostics/50 files; preserve exact omission semantics rather than replacing omission with unconditional `undefined`.                                                                                                                                                                    |
+| done   | `no-conditional-empty-object-spread`        | Zero; 135 findings/41 files removed via a hybrid named-type-statement/`&&`-spread idiom, preserving exact omission semantics; enforced at error in `apps/api/.oxlintrc.json`.                                                                                                                 |
 | done   | `no-known-value-widening`                   | Zero across two layers (36 findings/20 files); named type aliases for anonymous shapes, `satisfies` for closed-union lookup tables, `Map` for genuine string-keyed dictionaries; enforced at error in `apps/api/.oxlintrc.json`.                                                              |
 | done   | `no-module-mocking`                         | Zero; fresh count 6/5 (was 81/34 pre-rebase, mostly retired by the unsafe-assertion migration's model doubles); `schema.ts`/`openai-model-client.ts`/`model-client-factory.ts`+`ModelsService` test seams; enforced at error in `apps/api/.oxlintrc.json`.                                    |
 | done   | `no-object-parameters`                      | Zero across five scopes; endpoint DTO variants preserve deliberate invalid-field tests and Pins uses an exact service capability seam.                                                                                                                                                        |
