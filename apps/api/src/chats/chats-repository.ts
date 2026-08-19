@@ -468,18 +468,15 @@ export class ChatsRepository {
       }
     }
 
-    const fields = {
-      ...(patch.title !== undefined ? { title: patch.title } : {}),
-      ...(patch.visibility !== undefined
-        ? { visibility: patch.visibility }
-        : {}),
-      ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
-      ...(patch.archived === true && current.archivedAt === null
-        ? { archivedAt: new Date() }
-        : patch.archived === false
-          ? { archivedAt: null }
-          : {}),
-    };
+    const fields: Partial<typeof chats.$inferInsert> = {};
+    if (patch.title !== undefined) fields.title = patch.title;
+    if (patch.visibility !== undefined) fields.visibility = patch.visibility;
+    if (patch.projectId !== undefined) fields.projectId = patch.projectId;
+    if (patch.archived === true && current.archivedAt === null) {
+      fields.archivedAt = new Date();
+    } else if (patch.archived === false) {
+      fields.archivedAt = null;
+    }
 
     // Nothing to change: don't issue a no-op write (which would needlessly bump
     // updatedAt). Return the current row instead — still owner-scoped, so the caller
@@ -865,19 +862,18 @@ export class MessagesRepository {
     usage?: unknown;
     inReplyTo?: string | null;
   }): Promise<Message> {
-    const [created] = await this.db
-      .insert(messages)
-      .values({
-        ...(input.id !== undefined ? { id: input.id } : {}),
-        chatId: input.chatId,
-        role: input.role,
-        senderUserId: input.senderUserId ?? null,
-        parts: input.parts,
-        attachments: input.attachments ?? [],
-        usage: input.usage,
-        inReplyTo: input.inReplyTo ?? null,
-      })
-      .returning();
+    const values: typeof messages.$inferInsert = {
+      chatId: input.chatId,
+      role: input.role,
+      senderUserId: input.senderUserId ?? null,
+      parts: input.parts,
+      attachments: input.attachments ?? [],
+      usage: input.usage,
+      inReplyTo: input.inReplyTo ?? null,
+    };
+    if (input.id !== undefined) values.id = input.id;
+
+    const [created] = await this.db.insert(messages).values(values).returning();
 
     return created;
   }
@@ -1080,13 +1076,16 @@ export async function findLiveWindow(
     options?.maxSeq !== undefined ? { beforeSeq: options.maxSeq } : undefined,
   );
 
+  const historyOptions: NonNullable<
+    Parameters<InstanceType<typeof MessagesRepository>['findByChatId']>[2]
+  > = {};
+  if (options?.maxSeq !== undefined) historyOptions.maxSeq = options.maxSeq;
+  if (compaction) historyOptions.sinceSeq = compaction.uptoSeq;
+
   const history = await new MessagesRepository(db).findByChatId(
     chatId,
     ownerUserId,
-    {
-      ...(options?.maxSeq !== undefined ? { maxSeq: options.maxSeq } : {}),
-      ...(compaction ? { sinceSeq: compaction.uptoSeq } : {}),
-    },
+    historyOptions,
   );
 
   return { compaction, history };

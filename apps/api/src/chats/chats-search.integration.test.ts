@@ -68,11 +68,12 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     await tenantDb.runAs(owner, async (tx) => {
       const chats = new ChatsRepository(tx);
       const messages = new MessagesRepository(tx);
-      await chats.createIfAbsent({
+      const createInput: Parameters<typeof chats.createIfAbsent>[0] = {
         id,
         ownerUserId: owner,
-        ...(title !== null ? { title } : {}),
-      });
+      };
+      if (title !== null) createInput.title = title;
+      await chats.createIfAbsent(createInput);
       for (const m of msgs) {
         await messages.create({
           chatId: id,

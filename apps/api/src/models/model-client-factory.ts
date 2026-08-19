@@ -31,19 +31,22 @@ export function createModelClient(
   const pricing = toTokenPrice(model.pricingUsdPer1M);
 
   switch (provider.type) {
-    case 'openai':
-      return dependencies.createOpenAIModelClient({
+    case 'openai': {
+      const openAIConfig: Parameters<typeof createOpenAIModelClient>[0] = {
         credential: provider.key ?? undefined,
         baseUrl: provider.baseUrl ?? undefined,
         nativeOpenAI: provider.id === 'openai',
         providerModelId: model.providerModelId,
         modelId: model.id,
         contextWindowTokens: model.contextWindowTokens,
-        ...(pricing !== undefined ? { pricing } : {}),
-        ...(model.compactionThresholdTokens !== undefined
-          ? { compactionThresholdTokens: model.compactionThresholdTokens }
-          : {}),
-      });
+      };
+      if (pricing !== undefined) openAIConfig.pricing = pricing;
+      if (model.compactionThresholdTokens !== undefined) {
+        openAIConfig.compactionThresholdTokens =
+          model.compactionThresholdTokens;
+      }
+      return dependencies.createOpenAIModelClient(openAIConfig);
+    }
     default: {
       // Unreachable while the JSON Schema's `providerType` enum stays in
       // sync with the cases above (config-loader rejects any other `type` at

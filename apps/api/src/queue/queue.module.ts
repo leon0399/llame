@@ -33,9 +33,9 @@ const pgBossImports = isOpenApiGeneration
           // suite's jobs from a shared 'pgboss' schema (observed as doubled
           // executions interleaving one run's event log). Each suite gets its
           // own schema; production leaves this unset.
-          ...(config.get<string>('PGBOSS_SCHEMA')
-            ? { schema: config.get<string>('PGBOSS_SCHEMA') }
-            : {}),
+          ...(config.get<string>('PGBOSS_SCHEMA') && {
+            schema: config.get<string>('PGBOSS_SCHEMA'),
+          }),
         }),
         inject: [ConfigService],
       }),
