@@ -191,6 +191,8 @@ type RpcRequestSummary = {
 function rpcRequest(init: RequestInit | undefined): RpcRequestSummary {
   if (!isString(init?.body)) return {};
   try {
+    // SAFETY: JSON.parse returns any; asserting unknown forces isRecord's
+    // check below rather than silently inheriting any.
     const body = JSON.parse(init.body) as unknown;
     if (!isRecord(body)) return {};
     const method = body['method'];
@@ -567,6 +569,9 @@ async function readMatchingSseResponse(
         if (data === undefined) continue;
         let message: unknown;
         try {
+          // SAFETY: JSON.parse returns any; asserting unknown forces
+          // matchingRpcResponse's own narrowing rather than silently
+          // inheriting any.
           message = JSON.parse(data) as unknown;
         } catch {
           throw new McpMatchingResponseError();
@@ -911,8 +916,12 @@ export class McpServerClient {
     }
 
     // The pinned client accepts a broader revision set than llame does, so the
-    // gate is llame's own. Reading it needs no cast: `MCPTransport` declares
-    // `protocolVersion`, and the client assigns it after the handshake.
+    // gate is llame's own.
+    // SAFETY: `transport` here is `StdioClientTransport`, whose own class
+    // type doesn't declare `protocolVersion` — but `MCPTransport` does, and
+    // the AI SDK client assigns that field onto the transport instance after
+    // the handshake completes, so it's genuinely present by the time this
+    // line runs.
     const negotiated = (transport as MCPTransport).protocolVersion;
     if (
       negotiated !== undefined &&

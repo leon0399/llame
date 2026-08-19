@@ -278,6 +278,10 @@ function assertValidRaw(
 
   const messages = (validate.errors ?? []).map((e) => {
     if (e.keyword === 'additionalProperties') {
+      // SAFETY: ajv's ErrorObject['params'] isn't discriminated by
+      // e.keyword — its type stays a generic union regardless of the
+      // runtime check above — but ajv's own docs guarantee the
+      // additionalProperties keyword's params always carries this shape.
       const extra = (e.params as { additionalProperty?: string })
         .additionalProperty;
       const base = e.instancePath === '' ? '' : e.instancePath;

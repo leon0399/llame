@@ -1018,6 +1018,13 @@ describe('buildContext', () => {
     it('reasoning and provider metadata are never replayed (2.11)', () => {
       const assistant = msg({
         role: 'assistant',
+        // SAFETY: MessagePart's open UnknownRecord fallback member accepts
+        // any of these object shapes at runtime, but spreading the
+        // separately-declared `toolParts` fixture alongside inline
+        // reasoning/provider-metadata literals makes TS infer a narrower
+        // combined array type than MessagePart[] — this fixture exists to
+        // prove ContextBuilder never replays reasoning/provider-metadata,
+        // not to exercise any particular part shape's validation.
         parts: [
           { type: 'reasoning', text: 'SECRET_REASONING' },
           { type: 'provider-metadata', secret: 'PROVIDER_SECRET' },

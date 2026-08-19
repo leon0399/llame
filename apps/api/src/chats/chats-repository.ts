@@ -143,6 +143,9 @@ export class ChatsRepository {
       .where(
         and(
           eq(pins.userId, ownerUserId),
+          // SAFETY: 'chat' is a member of PinItemType ('chat' | 'project');
+          // eq()'s inferred column-comparison parameter widens the literal to
+          // string in this position, so this pins it back to the enum type.
           eq(pins.itemType, 'chat' as PinItemType),
           eq(pins.itemId, chats.id),
         ),
@@ -230,6 +233,9 @@ export class ChatsRepository {
       .where(
         and(
           eq(pins.userId, ownerUserId),
+          // SAFETY: 'chat' is a member of PinItemType ('chat' | 'project');
+          // eq()'s inferred column-comparison parameter widens the literal to
+          // string in this position, so this pins it back to the enum type.
           eq(pins.itemType, 'chat' as PinItemType),
           inArray(pins.itemId, [...chatIds]),
         ),

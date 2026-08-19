@@ -100,6 +100,9 @@ export class TitleService {
     client: ModelClient,
     userText: string,
   ): Promise<string> {
+    // SAFETY: without an annotation, `role: 'user'` widens to string in this
+    // object literal; ModelMessage is a discriminated union keyed on the
+    // literal role, so this states the intended literal explicitly.
     const messages = [
       { role: 'user', content: titleUserPrompt(userText) },
     ] as AiModelMessage[];

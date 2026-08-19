@@ -258,8 +258,10 @@ describe('runTool', () => {
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(
       RESULT_TRUNCATE_CHARS,
     );
-    // The tool's own field survives the cut (#294) — shape preservation is
-    // covered in result-truncation.test.ts; this pins the runner wiring.
+    // SAFETY: toMatchObject only asserts at runtime, it doesn't narrow
+    // result's static type; `blob` isn't part of ToolResult's declared shape,
+    // it's the tool's own passthrough field (#294) — shape preservation is
+    // covered in result-truncation.test.ts, this just pins the runner wiring.
     expect((result as UnknownRecord).blob).toEqual(expect.any(String));
   });
 

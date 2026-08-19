@@ -37,6 +37,8 @@ export const KEYLESS_PLACEHOLDER_API_KEY = 'keyless-no-credential-configured';
  */
 function parseToolCallInput(raw: string) {
   try {
+    // SAFETY: JSON.parse returns any; asserting unknown forces the caller to
+    // narrow before use (the catch below is this function's own fallback).
     return JSON.parse(raw) as unknown;
   } catch {
     return raw;

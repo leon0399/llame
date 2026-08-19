@@ -131,6 +131,8 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
           }) => {
             let parsedInput: unknown;
             try {
+              // SAFETY: JSON.parse returns any; asserting unknown forces the
+              // caller to narrow before use rather than silently inheriting any.
               parsedInput = JSON.parse(toolCall.input) as unknown;
             } catch {
               parsedInput = toolCall.input;

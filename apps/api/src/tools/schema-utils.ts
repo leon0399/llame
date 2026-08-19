@@ -183,10 +183,17 @@ export function toFlexibleSchema(
   schema: z.ZodTypeAny | JsonSchemaDocument,
 ): FlexibleSchema<unknown> | null {
   if (isZodSchema(schema)) {
+    // SAFETY: schema is the umbrella z.ZodTypeAny, so asSchema<OBJECT>'s
+    // OBJECT type parameter can't infer this function's own `unknown`
+    // contract; this erases it to match toFlexibleSchema's declared return.
     return asSchema(schema) as FlexibleSchema<unknown>;
   }
   const validator = buildJsonSchemaValidator(schema);
   if (!validator) return null;
+  // SAFETY: jsonSchema<OBJECT>'s OBJECT type parameter defaults to unknown
+  // when uninferred here, matching toFlexibleSchema's declared return, but
+  // Schema<unknown> and FlexibleSchema<unknown> still need this assertion to
+  // line up structurally.
   return jsonSchema(schema, { validate: validator }) as FlexibleSchema<unknown>;
 }
 

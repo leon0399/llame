@@ -115,6 +115,8 @@ async function readRequestBody(request: IncomingMessage) {
     chunks.push(chunk);
   }
   if (chunks.length === 0) return null;
+  // SAFETY: JSON.parse returns any; asserting unknown forces callers to
+  // narrow before use rather than silently inheriting any.
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
 }
 

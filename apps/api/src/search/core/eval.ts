@@ -54,6 +54,9 @@ export function summarizeEval(
   const mean = (xs: number[]) =>
     xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length;
 
+  // SAFETY: each empty array literal infers as never[] without an
+  // annotation; these are pushed number values below (the per-query loop),
+  // so this states each field's intended element type up front.
   const overall = {
     recall: [] as number[],
     rr: [] as number[],

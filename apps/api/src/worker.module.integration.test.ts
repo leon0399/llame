@@ -106,6 +106,10 @@ describeIfDb(
         ).toBe(runtime);
         expect(runtime.snapshotCandidates()).toEqual([]);
 
+        // SAFETY: consume() is generic per queue definition, so vitest's spy
+        // types `definition` broadly across the differently-typed queues this
+        // test registers; every queue definition genuinely carries a `name`,
+        // this just reads it for the assertion below.
         const registeredQueues = consumeSpy.mock.calls.map(
           ([definition]) => (definition as { name: string }).name,
         );
