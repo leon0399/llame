@@ -141,11 +141,11 @@ function calculateCostUsd(input: {
   return Math.round(cost * 1_000_000_000_000) / 1_000_000_000_000;
 }
 
-function tokenCount(value: unknown): number {
+function tokenCount(value: number | undefined): number {
   return optionalTokenCount(value) ?? 0;
 }
 
-function optionalTokenCount(value: unknown): number | undefined {
+function optionalTokenCount(value: number | undefined): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     return undefined;
   }
