@@ -96,8 +96,8 @@ without the declaration there is nothing there to forward.
 **Interpolating a value marks it as a secret.** The resolved value of every
 `{env:…}` / `{path:…}` token in `command`, `args`, or `env` becomes a protected
 value: it is redacted from that server's diagnostic output, from tool results,
-and from errors. Literal text is never protected. Two consequences follow, and
-both bite in practice:
+and from errors. Literal text is never protected. Three consequences follow,
+and all three bite in practice:
 
 - **Do not interpolate a non-secret.** Protected values are matched as
   substrings across all tool traffic. Interpolating a per-deployment directory
@@ -115,6 +115,15 @@ both bite in practice:
 - **Do not inline a secret.** A credential written directly into the file rather
   than interpolated is not protected, so llame cannot redact it if the server
   echoes it back. Always use `{env:…}` or `{path:…}` for credentials.
+
+- **Put credentials in `env`, not `args`.** A resolved `args` value becomes
+  part of the child's command line, which on a POSIX host any other process can
+  read via `/proc/<pid>/cmdline` — llame's redaction covers its own logs,
+  diagnostics, and model input, but has no reach into what another process on
+  the same host can observe about a running child. `env` values do not have
+  this exposure: `/proc/<pid>/environ` is readable only by the owning user or
+  root. The example above follows this — the token lives in `env`, and `args`
+  only names it for docker to forward.
 
 `cwd` sets the child's working directory. Without it the child inherits llame's,
 which depends on how llame was started — set it if the server resolves relative
@@ -142,15 +151,19 @@ A configured stdio server runs **as the llame user, with llame's filesystem and
 network access, and is not sandboxed**. llame bounds the protocol it speaks with
 the server, not what the program itself does while running.
 
-That bound is also weaker than the remote one in a specific way worth knowing.
-A remote response is capped before it is parsed, so an endpoint cannot force
-llame to buffer without limit. The MCP client library reads a child's output
-without such a cap, and only splits a message once a newline arrives — so a
-local server that writes without ever emitting one can grow that buffer. llame's
-own limits on declaration size and retained catalog apply after a message is
-parsed, and cannot help before then. This is accepted rather than fixed: it is a
-robustness risk from a program the operator chose to install, not an avenue for
-a remote party.
+A local server's stdout is capped at the same 1 MiB before it is parsed, per
+message — the same pre-parse bound the remote transport applies to a response
+body or SSE event. The pinned MCP client library's own stdio reader has no such
+cap (it only splits a message once a newline arrives, and buffers without limit
+until one does), so llame owns the spawn and the stdout read path itself rather
+than delegating that one piece to the library, precisely so a local server that
+writes without ever emitting a newline cannot grow that buffer without bound. A
+server that exceeds the cap is stopped and treated the same as any other exited
+process: its tools are withdrawn and it is retried on the bounded stdio retry
+ladder below. What remains weaker than the remote transport is everything the
+byte cap cannot see: a local server still runs with the host access described
+above, and a bug or misbehavior that stays under the cap is not something llame
+can detect from the protocol alone.
 Configuring one is the same trust decision as installing software on that host —
 make it with the same care, and only for software you would install anyway.
 

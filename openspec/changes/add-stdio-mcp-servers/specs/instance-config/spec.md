@@ -110,7 +110,7 @@ An `mcpServers` entry whose `type` is `"stdio"` SHALL be shaped exactly as `{ ty
 
 Unknown fields, an empty `command`, a non-string argument, an empty variable name, and fields belonging to a remote entry SHALL fail startup naming only the configuration path, without printing resolved argument or environment values.
 
-The operator-facing surface SHALL state plainly that a configured stdio server executes on the llame host with llame's own filesystem and network access and is not sandboxed, so configuring one is a trust decision equivalent to installing software on that host.
+The operator-facing surface SHALL state plainly that a configured stdio server executes on the llame host with llame's own filesystem and network access and is not sandboxed, so configuring one is a trust decision equivalent to installing software on that host. It SHALL also state that a credential interpolated into `args` becomes part of that child process's argv, observable by another process on the host, and that `env` SHALL be used for credential values instead — the `mcp-tools` capability's protected-value redaction covers what llame itself logs, persists, and sends to a model, and cannot reach argv visible to another process.
 
 #### Scenario: Portable stdio entry loads
 
