@@ -439,7 +439,10 @@ function assertSupportedInitializeResponse(message: UnknownRecord): void {
   }
 }
 
-function jsonResponse(response: Response, message: unknown): Response {
+function jsonResponse(
+  response: Response,
+  message: UnknownRecord | null,
+): Response {
   const headers = new Headers(response.headers);
   headers.set('content-type', 'application/json');
   headers.delete('content-encoding');

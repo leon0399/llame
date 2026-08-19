@@ -16,6 +16,7 @@ import {
   partsToText,
   projectToolObservations,
   type MessagePart,
+  type ModelMessage,
   type StoredMessage,
 } from './context-builder';
 import {
@@ -29,7 +30,7 @@ import { modelMessageSchema } from 'ai';
  * assertions below — content is `string | Array<unknown>` at the type
  * level. */
 function typedContentParts(
-  content: unknown,
+  content: ModelMessage['content'],
 ): { type: string; toolCallId?: string }[] {
   if (!Array.isArray(content)) {
     throw new Error('Expected array message content');
