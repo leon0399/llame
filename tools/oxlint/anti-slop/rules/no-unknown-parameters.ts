@@ -39,13 +39,30 @@ function parameterName(parameter: Parameter, sourceText: string): string {
     : sourceText.replace(/\s*:\s*unknown\s*$/u, "");
 }
 
+/**
+ * Local correctness patch (see UPSTREAM.md): a type predicate's subject
+ * parameter (`function isFoo(value: unknown): value is Foo`) MUST be typed
+ * `unknown` for the guard to be sound — TypeScript rejects a narrower
+ * parameter type there. That is the canonical legitimate use this rule
+ * exists to funnel code toward, not an instance of the slop it targets.
+ * Returns the name of the one parameter a predicate return type exempts, or
+ * null if the owner has no predicate return type.
+ */
+function predicateSubjectName(node: ParameterOwner): string | null {
+  const predicate = node.returnType?.typeAnnotation;
+  if (predicate === null || predicate === undefined || predicate.type !== "TSTypePredicate") {
+    return null;
+  }
+  return predicate.parameterName.type === "Identifier" ? predicate.parameterName.name : null;
+}
+
 /** Disallow unknown inputs except explicitly named error-cause enrichment. */
 export const noUnknownParametersRule = defineRule({
   meta: {
     type: "problem",
     docs: {
       description:
-        "Disallow explicitly unknown function parameters except `cause`; decode unknown input at its I/O boundary instead.",
+        "Disallow explicitly unknown function parameters except `cause` or a type predicate's subject; decode unknown input at its I/O boundary instead.",
     },
     messages: {
       unknownParameter:
@@ -54,11 +71,13 @@ export const noUnknownParametersRule = defineRule({
   },
   createOnce(context) {
     const checkParameters = (node: ParameterOwner) => {
+      const guardedName = predicateSubjectName(node);
       for (const parameter of node.params) {
         const annotation = parameterAnnotation(parameter);
         if (annotation?.typeAnnotation.type !== "TSUnknownKeyword") continue;
         const name = parameterName(parameter, context.sourceCode.getText(parameter));
         if (name === "cause") continue;
+        if (name === guardedName) continue;
         context.report({
           node: annotation.typeAnnotation,
           messageId: "unknownParameter",

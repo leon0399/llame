@@ -9,7 +9,7 @@
     "dev": "turbo run dev dev:studio",
     "lint": "turbo run lint",
     "lint:root": "pnpm lint:anti-slop && oxlint --deny-warnings --report-unused-disable-directives --threads=1 e2e playwright.config.ts",
-    "lint:anti-slop": "tsc -p tools/oxlint/anti-slop/tsconfig.json && node --import tsx tools/oxlint/anti-slop/rules/no-chained-type-assertions.test.ts",
+    "lint:anti-slop": "tsc -p tools/oxlint/anti-slop/tsconfig.json && node --import tsx tools/oxlint/anti-slop/rules/no-chained-type-assertions.test.ts && node --import tsx tools/oxlint/anti-slop/rules/no-unknown-parameters.test.ts",
     "lint:ast-grep": "ast-grep scan --error --no-ignore hidden .",
     "lint:markdown": "markdownlint-cli2",
     "test": "turbo run test",
