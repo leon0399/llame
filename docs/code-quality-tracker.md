@@ -146,6 +146,46 @@ from the remediation so the flip alone is revertable. Repair evidence:
 1153/1153, focused `test:integration` on `chat-loop.integration.test.ts`
 19/19 against real Postgres.
 
+`no-reflect-get` (branch `quality/no-reflect-get`, stacked on
+`quality/no-reflect-apply`) is next in Arc 2's smallest-first order. The
+fresh count was 6 diagnostics across 6 files (the queued baseline's 4/4
+predates `vitest.integration.setup.ts`'s two `Reflect.get`/`Reflect.set`
+calls, added in the misc infra tail); a first, partial commit removed those
+two the same way as the `no-reflect-apply` slice's `HANDLER_INSTALLED`
+pattern (typed via `declare global` module augmentation instead of
+bypassing `NodeJS.Process`'s/Vitest's undocumented-global's types).
+
+The remaining 4 (`worker-harness.ts`, `testing/support.ts`,
+`models/fake-model-client.ts`, `models/openai-model-client.ts`) were the
+same pattern in every file: a pass-through `Proxy` `get` trap wrapping the
+AI SDK `streamText()` result to override 1–2 properties (`text`,
+`consumeStream`) while forwarding everything else via
+`Reflect.get(target, property, receiver)`. Rather than infer receiver
+sensitivity from the SDK's public types alone, the installed package's
+actual source (`node_modules/ai/dist/index.mjs`,
+`DefaultStreamTextResult`) settled it: `fullStream`/`textStream`/
+`partialOutputStream` all call a shared `teeStream()` method that MUTATES
+`this.baseStream` (`this.baseStream = stream2`) as a side effect of being
+read — a real, reachable, stateful, receiver-sensitive code path (none of
+these three properties are among the ones any wrapper overrides), not a
+theoretical concern. Given that finding, `Reflect.get` stays — but the
+four duplicated copies are now one owned helper,
+`models/stream-text-result-proxy.ts`'s `wrapStreamTextResult(target,
+overrides)`, generic over any target object and an overrides map of
+property name to `(target) => value`; each of the four call sites now
+passes only its own override logic. The helper's own `Reflect.get` fall-
+through carries the single inline `anti-slop/no-reflect-get` disable this
+migration has needed so far, with a written, source-verified rationale in
+both the file's doc comment and the disable comment itself — one
+documented, spec-correct exception site instead of four undocumented
+ones. `no-reflect-get` is now enforced at error in `apps/api/.oxlintrc.json`.
+Repair evidence: `pnpm --filter api lint`/`typecheck` clean, `pnpm
+--filter api test` 1153/1153, focused `test:integration` on
+`worker-concurrency`/`worker-liveness`/`worker-mode`/`chats-messages`/
+`shared-chats`/`compactions`/`memory`/`personalization`/`context-receipt`
+60/60 against real Postgres (abort-settlement and stream-consumption
+paths specifically exercised).
+
 ## Inventory
 
 ### Typing and assertions
@@ -452,7 +492,7 @@ override is acceptable.
 | queued | `no-module-mocking`                         | 81 diagnostics/34 files; replace module mocks with real dependency seams or faithful implementations, never overrides.                 |
 | done   | `no-object-parameters`                      | Zero across five scopes; endpoint DTO variants preserve deliberate invalid-field tests and Pins uses an exact service capability seam. |
 | done   | `no-reflect-apply`                          | Zero across three call sites in two files; enforced at error in `apps/api/.oxlintrc.json`.                                             |
-| queued | `no-reflect-get`                            | Four diagnostics/four files; parse boundaries or use typed property access.                                                            |
+| done   | `no-reflect-get`                            | Zero; the four AI SDK proxy-forwarding sites consolidated into one owned helper with a source-verified inline exception.               |
 | queued | `no-runtime-typeof`                         | 202 diagnostics/77 files; replace ad hoc representation narrowing with boundary schemas and parsed domain values.                      |
 | done   | `no-shape-in-symbol-names`                  | Zero across five scopes; prompt scenarios, rendered conversation nodes, and admitted MCP payloads now carry their domain roles.        |
 | queued | `no-unknown-parameters`                     | 142 diagnostics/64 files; only immediate validation may retain a local suppression with a specific explanation.                        |

@@ -9,6 +9,27 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `string`, so `node.type === 'X'` alone never narrows `node` itself; four
   new local type-predicate functions replace the check-then-cast pattern
   used across the prompt-file Handlebars AST validator. No behavior change.
+- Enabled `anti-slop/no-reflect-get` at error in `apps/api/.oxlintrc.json`,
+  after consolidating its remaining four findings. All four were the same
+  pattern: a pass-through `Proxy` `get` trap wrapping the AI SDK
+  `streamText()` result, using `Reflect.get(target, property, receiver)`.
+  Reading the installed AI SDK's own source (not just its types) settled
+  whether that matters: `DefaultStreamTextResult`'s `fullStream`/
+  `textStream`/`partialOutputStream` getters all call a shared
+  `teeStream()` method that mutates `this.baseStream` as a side effect of
+  being read — a real, receiver-sensitive path none of the four wrappers
+  override. `Reflect.get` stays, but the four duplicated copies are now
+  one owned helper (`models/stream-text-result-proxy.ts`'s
+  `wrapStreamTextResult`), carrying this migration's first inline
+  `anti-slop/no-reflect-get` disable with a written, source-verified
+  rationale — one documented exception site instead of four undocumented
+  ones.
+- Removed 2 of 6 `anti-slop/no-reflect-get` findings in
+  `vitest.integration.setup.ts` (not enabled — 4 remain, see
+  `docs/code-quality-tracker.md`). A `Symbol.for(...)`-keyed idempotency
+  flag on `process` and Vitest's own `__vitest_worker__` global are now
+  typed via `declare global` module augmentation instead of bypassing
+  `NodeJS.Process`'s type with `Reflect.get`/`Reflect.set`.
 - Enabled `anti-slop/no-reflect-apply` at error in `apps/api/.oxlintrc.json`
   (Arc 2's first queued rule), after removing its three findings across two
   files. `mcp-failure-policy.test.ts`'s two calls tested

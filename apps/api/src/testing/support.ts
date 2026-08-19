@@ -25,6 +25,7 @@ import {
 } from '../models/model-client';
 import type { TokenPrice } from '../models/model-catalog';
 import { ModelNotAvailableError } from '../models/models.service';
+import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 
 /** Extracts the llame session cookie pair from a response, or '' when absent. */
 export const cookieOf = (res: request.Response): string => {
@@ -329,25 +330,21 @@ export class FakeStreamingModelClient {
       },
     });
 
-    return new Proxy(result, {
-      get(target, property, receiver): unknown {
-        if (property === 'consumeStream') {
-          return async (...args: Parameters<typeof target.consumeStream>) => {
-            await target.consumeStream(...args);
+    return wrapStreamTextResult(result, {
+      consumeStream:
+        (target) =>
+        async (...args: Parameters<typeof target.consumeStream>) => {
+          await target.consumeStream(...args);
+          await waitForAbortSettlement();
+        },
+      text: (target) =>
+        (async () => {
+          try {
+            return await target.text;
+          } finally {
             await waitForAbortSettlement();
-          };
-        }
-        if (property === 'text') {
-          return (async () => {
-            try {
-              return await target.text;
-            } finally {
-              await waitForAbortSettlement();
-            }
-          })();
-        }
-        return Reflect.get(target, property, receiver);
-      },
+          }
+        })(),
     });
   }
 }

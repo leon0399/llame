@@ -37,6 +37,7 @@ import {
   type LlameConfig,
 } from '../instance-config/llame-config';
 import { ModelsService } from '../models/models.service';
+import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
 import {
@@ -204,25 +205,21 @@ class HarnessModelClient implements ModelClient {
         input.onFinish?.({ text: response, usage, finishReason }),
     });
 
-    return new Proxy(result, {
-      get(target, property, receiver): unknown {
-        if (property === 'consumeStream') {
-          return async (...args: Parameters<typeof target.consumeStream>) => {
-            await target.consumeStream(...args);
+    return wrapStreamTextResult(result, {
+      consumeStream:
+        (target) =>
+        async (...args: Parameters<typeof target.consumeStream>) => {
+          await target.consumeStream(...args);
+          await waitForAbortSettlement();
+        },
+      text: (target) =>
+        (async () => {
+          try {
+            return await target.text;
+          } finally {
             await waitForAbortSettlement();
-          };
-        }
-        if (property === 'text') {
-          return (async () => {
-            try {
-              return await target.text;
-            } finally {
-              await waitForAbortSettlement();
-            }
-          })();
-        }
-        return Reflect.get(target, property, receiver);
-      },
+          }
+        })(),
     });
   }
 }

@@ -7,6 +7,7 @@ import { MockLanguageModelV3 } from 'ai/test';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 
 import type { ModelClient, ModelStreamInput } from './model-client';
+import { wrapStreamTextResult } from './stream-text-result-proxy';
 
 export const ZERO_USAGE: LanguageModelUsage = {
   inputTokens: 0,
@@ -127,16 +128,9 @@ export function createFakeModelClient(
         },
       });
 
-      return new Proxy(result, {
-        get(target, property, receiver): unknown {
-          if (property === 'text') {
-            return Promise.all([target.text, completion]).then(
-              ([text]) => text,
-            );
-          }
-
-          return Reflect.get(target, property, receiver);
-        },
+      return wrapStreamTextResult(result, {
+        text: (target) =>
+          Promise.all([target.text, completion]).then(([text]) => text),
       });
     },
   };

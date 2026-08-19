@@ -31,13 +31,26 @@ process.env.PGBOSS_SCHEMA = `${prefix}_pgboss_${Math.random().toString(36).slice
 // listener makes Vitest skip that RPC report; this monitor covers exceptions
 // that reach `uncaughtException`.
 // Registered once per worker (guarded on `process`) — this setup file
-// re-evaluates per test file in the same worker.
+// re-evaluates per test file in the same worker. A module-level flag would
+// reset on every re-evaluation, so the guard lives on `process` itself,
+// which persists; the symbol key is typed via module augmentation instead
+// of Reflect.get/set, which would bypass NodeJS.Process's own type.
 const HANDLER_INSTALLED = Symbol.for('llame_integration_error_handlers');
-if (!Reflect.get(process, HANDLER_INSTALLED)) {
-  Reflect.set(process, HANDLER_INSTALLED, true);
+declare global {
+  namespace NodeJS {
+    interface Process {
+      [HANDLER_INSTALLED]?: boolean;
+    }
+  }
+  // Vitest's own worker-context global — undocumented and untyped upstream,
+  // so it's read defensively via isRecord below rather than trusted as-is.
+  var __vitest_worker__: unknown;
+}
+if (!process[HANDLER_INSTALLED]) {
+  process[HANDLER_INSTALLED] = true;
 
   process.on('uncaughtExceptionMonitor', (err) => {
-    const w: unknown = Reflect.get(globalThis, '__vitest_worker__');
+    const w = globalThis.__vitest_worker__;
     const file =
       isRecord(w) && typeof w.filepath === 'string' ? w.filepath : 'unknown';
     console.error(
