@@ -5,7 +5,7 @@ import {
   type ServerResponse,
 } from 'node:http';
 
-import { isRecord } from '../unknown-record';
+import { isRecord, isString } from '../unknown-record';
 
 type FixtureResponseBase = {
   readonly status?: number;
@@ -121,7 +121,7 @@ async function readRequestBody(request: IncomingMessage) {
 function readRpcMethod(body: unknown): string | null {
   if (!isRecord(body)) return null;
   const method = body['method'];
-  return typeof method === 'string' ? method : null;
+  return isString(method) ? method : null;
 }
 
 function readCursor(body: unknown): string | null {
@@ -129,7 +129,7 @@ function readCursor(body: unknown): string | null {
   const params = body['params'];
   if (!isRecord(params)) return null;
   const cursor = params['cursor'];
-  return typeof cursor === 'string' ? cursor : null;
+  return isString(cursor) ? cursor : null;
 }
 
 function responseKey(httpMethod: string, rpcMethod: string | null): string {
@@ -244,7 +244,7 @@ export async function createMcpTestFixture(
   if (address === null) {
     throw new TypeError('MCP fixture server did not start listening.');
   }
-  if (typeof address === 'string') {
+  if (isString(address)) {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
         if (error) reject(error);

@@ -1039,7 +1039,7 @@ override is acceptable.
 | done   | `no-object-parameters`                      | Zero across five scopes; endpoint DTO variants preserve deliberate invalid-field tests and Pins uses an exact service capability seam.                                                                                                                                                        |
 | done   | `no-reflect-apply`                          | Zero across three call sites in two files; enforced at error in `apps/api/.oxlintrc.json`.                                                                                                                                                                                                    |
 | done   | `no-reflect-get`                            | Zero; the four AI SDK proxy-forwarding sites consolidated into one owned helper with a source-verified inline exception.                                                                                                                                                                      |
-| queued | `no-runtime-typeof`                         | 202 diagnostics/77 files; replace ad hoc representation narrowing with boundary schemas and parsed domain values.                                                                                                                                                                             |
+| done   | `no-runtime-typeof`                         | Zero across `src/` + `evals/` (148/56 fresh baseline with `allowInTypeGuards: true`, 188/65 raw); two irreducible per-site disables (diagnostic `${typeof value}` interpolation in a thrown message); enforced at error (`allowInTypeGuards: true`) in `apps/api/.oxlintrc.json`.             |
 | done   | `no-shape-in-symbol-names`                  | Zero across five scopes; prompt scenarios, rendered conversation nodes, and admitted MCP payloads now carry their domain roles.                                                                                                                                                               |
 | done   | `no-unknown-parameters`                     | Zero across `src/` + `evals/`; a third local rule patch (`allowWhenImmediatelyValidated`, `allowErrorFamilyNames`) resolved 51/103 structurally, the remaining 52 carry a per-site inline disable with a specific reason; enforced at error (both options on) in `apps/api/.oxlintrc.json`.   |
 | done   | `no-unknown-returns`                        | Zero; `CanonicalJsonValue` (mirroring `result-truncation.ts`'s `CappedValue`) replaces the two overloads' `unknown`/`Promise<unknown>` return contracts; enforced at error in `apps/api/.oxlintrc.json`.                                                                                      |
@@ -1051,6 +1051,115 @@ override is acceptable.
 The remaining 1,117 diagnostics are remediation inventory, not a tolerated
 baseline. Adopt rules in reviewable layers rather than enabling the all-on preset
 over unrepaired source; newness is not a rejection criterion.
+
+#### `no-runtime-typeof` remediation (2026-08-19, closed)
+
+`no-runtime-typeof` ships an upstream `allowInTypeGuards` option (default
+`false`) that exempts a `typeof` check lexically inside a function returning a
+type predicate (`x is T`) — used as-is, not patched. A fresh full-tree
+`src/` + `evals/` measurement via scratch config (the JS-plugin
+`-D anti-slop/<rule>` CLI flag silently matches nothing for this rule; see the
+`no-reflect-apply` entry above for the technique) found 188 diagnostics/65
+files raw, 148/56 with `allowInTypeGuards: true` — this is the rule this
+migration ships with.
+
+Every finding was read and classified into three buckets before any
+non-mechanical fix, given the elevated risk this rule carries: replacing a
+`typeof` check with a schema/parsed value can silently convert a graceful
+fallback into a throw. **Governing invariant for the whole migration:
+preserve the current failure behavior exactly** — a site that falls back
+today keeps falling back (same default/skip/null), a site that throws today
+keeps throwing; no site's mismatch behavior changes as a side effect of this
+rule.
+
+The mechanical layer (68 findings, zero production-risk, no approval
+needed) landed first:
+
+- Two new shared primitives in `unknown-record.ts` — `isString`/`isNumber`/
+  `isBoolean`, siblings of the existing `isRecord` — turn a bare `typeof x
+=== 'type'` comparison into a named type predicate. This is the rule's own
+  reward path (`allowInTypeGuards`), not a workaround: the check is
+  byte-identical, it now just lives inside a function whose return type
+  documents the contract. This became the primary remediation mechanism for
+  the rest of the migration too (see below) — a lighter, equally
+  behavior-preserving alternative to introducing Zod per site, since the
+  invariant above cares about outcome parity, not the validation library.
+- `src/testing/support.ts` gained `expectRegisteredUserId` (an `asserts body
+is {user:{id:string}}` guard), replacing nine byte-identical
+  `isRecord(body) && isRecord(body.user) && typeof body.user.id === 'string'`
+  blocks duplicated across integration suites (auth, chats, compaction,
+  memory, personalization, runs, worker-mode, evals).
+  `recency-digest-part.ts`'s two findings were the same fix at one remove: the
+  `typeof` calls sat inside an unannotated `.every((change) => …)` callback
+  nested inside `isRecencyDigestPart`, an actual `value is
+RecencyDigestPart` predicate — the _callback_ needed its own predicate
+  annotation, since `allowInTypeGuards` only walks up to the nearest
+  enclosing function.
+- A handful of sites were dead/redundant checks the migration incidentally
+  exposed: `chats-messages.integration.test.ts`'s `.filter()` predicates
+  re-checked `typeof m === 'object'` against an already-Drizzle-typed
+  `Message[]`; `mcp-runtime.service.test.ts` re-checked a value already
+  narrowed by a real discriminated union (`TurnToolCandidate`);
+  `turn-telemetry.ts`'s `optionalTokenCount` re-checked `typeof value ===
+'number'` against a parameter already typed `number | undefined` (so the
+  check is exactly `value === undefined`); two `result-truncation.test.ts`
+  assertions re-checked a value a preceding `z.object(...).parse()` call had
+  already both validated and typed as `string`. All five were simplified or
+  deleted outright, not disabled.
+
+The remaining 88 findings split:
+
+- **~30 sites mirror an external contract or the type system's own
+  primitive-union limits** — `canonical-json.ts`'s canonicalizer, the
+  `pgErrorCode` postgres-driver `.cause`-chain readers (duplicated
+  byte-for-byte across `chats.service.ts`/`identity.service.ts`/
+  `pins.service.ts`; consolidating pending its own commit),
+  `result-truncation.ts`/`protected-values.ts`'s unknown-JSON-value walkers,
+  and `MessagePart`'s open `UnknownRecord` fallback member (which prevents
+  TS from excluding it from a `.type === 'text'` narrow — flagged as a
+  follow-up below, not fixed here). The `isString`/`isNumber`/`isBoolean`
+  predicates collapse most of these too; the only sites expected to keep an
+  inline disable are the two `` `...type ${typeof value}` `` template-literal
+  diagnostics (describing a value's type in an error message, not narrowing
+  it — no predicate form applies) and whatever a per-site
+  `Array.isArray`-conjunct audit doesn't let through cleanly (`isRecord`
+  excludes arrays; a couple of call sites need that difference checked
+  before the swap).
+- **~50 sites are new boundary parses**, split by path: ~10 sit on a durable
+  execution path (`run-execution.service.ts`, `run-stream-bridge.ts`,
+  `chats-repository.ts`, `compaction.ts`) and currently fail gracefully
+  (skip/default/null) rather than throw — remediated under the same
+  behavior-preservation invariant, predicate swap only, no new throw; the
+  rest are boot-time config parsing (already throws), queue-job `parse()`
+  (already throws), or request-path/MCP-admission reads that already
+  gracefully degrade.
+
+Every finding turned out reducible to a predicate swap except two: the
+`` `...type ${typeof value}` `` template-literal diagnostics in
+`canonical-json.ts` and `result-truncation.ts`, naming the rejected value's
+runtime type inside an already-unreachable-by-every-accepted-branch thrown
+message — no predicate form applies to a value used only for its `typeof`
+string, not narrowed. Those two carry the only inline disables in this
+migration. `pgErrorCode` (duplicated byte-for-byte across
+`chats.service.ts`/`identity.service.ts`/`pins.service.ts`) was consolidated
+into `src/db/pg-error.ts` with direct unit coverage, in its own commit,
+verified byte-identical before merging.
+
+`no-runtime-typeof` is now enforced at error (`allowInTypeGuards: true`) in
+`apps/api/.oxlintrc.json`, closing this rule. Repair evidence: `pnpm --filter
+api lint`/`typecheck` clean, `pnpm --filter api test` 1158/1158, full
+`pnpm --filter api test:integration` (mandatory given the durable-replay
+sites touched), `pnpm --filter api build` confirms `openapi.json`
+byte-identical (`chats.dto.ts` changed).
+
+**Follow-up (queued, not fixed in this migration):** `MessagePart`
+(`context-builder.ts`) is a discriminated union with an open `UnknownRecord`
+fallback member, which is why `context-builder.ts:159` and
+`run-execution.service.ts`'s three text-append sites need a runtime
+`isString` check at all — TS cannot exclude the fallback member from a
+`.type === 'text'` narrow. Properly discriminating the union (or dropping
+the open fallback) would delete those now-load-bearing predicate calls;
+out of scope here since it touches the persisted message-part contract.
 
 ### Complexity and structure
 
@@ -1401,6 +1510,7 @@ replacement and manual failure proof, and never use it as a waiver or ignore buc
 | queued | Gate runtime budgets are unrecorded                                                                                                                                   | Record local and CI duration before making mutation or expensive analysis blocking                                                                                                                                                                                                                                                                     |
 | queued | Quality work must update `CHANGELOG.md`; roadmap entries are removed only when shipped                                                                                | Follow root documentation contract in implementation layers                                                                                                                                                                                                                                                                                            |
 | queued | `isExactRecord` is hand-duplicated verbatim in three files (`model-context-part.ts`, `recency-digest-part.ts`, `tool-availability-part.ts`)                           | Consolidate into one shared helper; surfaced while converting the trio's `Record<string, unknown>` return-type predicates to `UnknownRecord` for `no-unsafe-dictionary-type` — out of that rule's scope, not fixed there                                                                                                                               |
+| queued | `MessagePart` (`context-builder.ts`) is a discriminated union with an open `UnknownRecord` fallback member, so TS cannot exclude it from a `.type === 'text'` narrow  | Properly discriminate the union (or drop the open fallback); would delete the now-load-bearing `isString` checks at `context-builder.ts:159` and `run-execution.service.ts`'s three text-append sites — surfaced while remediating `no-runtime-typeof`, out of that rule's scope since it touches the persisted message-part contract                  |
 
 ### Documentation, specification, and ownership drift
 

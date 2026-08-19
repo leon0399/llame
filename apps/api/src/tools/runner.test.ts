@@ -260,7 +260,7 @@ describe('runTool', () => {
     );
     // The tool's own field survives the cut (#294) — shape preservation is
     // covered in result-truncation.test.ts; this pins the runner wiring.
-    expect(typeof (result as UnknownRecord).blob).toBe('string');
+    expect((result as UnknownRecord).blob).toEqual(expect.any(String));
   });
 
   it('fails closed when truncation receives a malformed oversized projection', async () => {

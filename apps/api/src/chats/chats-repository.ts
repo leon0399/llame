@@ -9,6 +9,7 @@
  */
 
 import { assertNotArchived } from '../db/assert-not-archived';
+import { isRecord } from '../unknown-record';
 
 import {
   and,
@@ -1101,9 +1102,12 @@ export function isCompletedAssistantTurn(message: {
   usage?: unknown;
 }): boolean {
   const usage = message.usage;
-  if (typeof usage !== 'object' || usage === null || !('status' in usage)) {
+  // Not `isRecord`'s own array exclusion changing anything here: an array
+  // `usage` has no `status` property either way, so both branches already
+  // agreed on "complete" before this swap.
+  if (!isRecord(usage) || !('status' in usage)) {
     return true;
   }
 
-  return (usage as { status?: unknown }).status === 'completed';
+  return usage['status'] === 'completed';
 }

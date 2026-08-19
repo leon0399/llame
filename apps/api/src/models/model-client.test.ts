@@ -106,7 +106,7 @@ describe('ModelClient', () => {
       onError,
       onFinish,
     });
-    expect(typeof streamTextCall?.onAbort).toBe('function');
+    expect(streamTextCall?.onAbort).toEqual(expect.any(Function));
   });
 
   it('passes a non-empty placeholder apiKey for keyless compatible endpoints (#162)', () => {
@@ -156,7 +156,7 @@ describe('ModelClient', () => {
       onError: undefined,
       onFinish: undefined,
     });
-    expect(typeof streamTextCall?.onAbort).toBe('function');
+    expect(streamTextCall?.onAbort).toEqual(expect.any(Function));
   });
 
   it('targets an OpenAI-compatible endpoint when a base URL is provided', () => {

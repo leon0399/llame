@@ -1,4 +1,10 @@
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import {
+  isBoolean,
+  isNumber,
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '../unknown-record';
 import { type ToolResult } from './types';
 
 /** ~16KB result cap (D5/D6): oversized tool output is truncated, visibly. */
@@ -94,7 +100,7 @@ function capValues(
   path = '',
   keepAllEntries = false,
 ): CappedValue {
-  if (typeof value === 'string') {
+  if (isString(value)) {
     return cutStringAtCodePointBoundary(value, limit);
   }
   if (Array.isArray(value)) {
@@ -119,12 +125,13 @@ function capValues(
   if (
     value === null ||
     value === undefined ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
+    isNumber(value) ||
+    isBoolean(value)
   ) {
     return value;
   }
   throw new TypeError(
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- diagnostic interpolation naming the rejected value's runtime type in the thrown message, not narrowing it; no predicate form applies to a value already excluded from every accepted branch above.
     `Cannot truncate a tool-result value of type ${typeof value}.`,
   );
 }

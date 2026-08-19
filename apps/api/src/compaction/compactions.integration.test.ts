@@ -25,8 +25,13 @@ import {
 } from '../chats/context-builder';
 import { type Compaction } from '../db/schema';
 import { ModelsService } from '../models/models.service';
-import { FakeModelsService, type FakeTurn, cookieOf } from '../testing/support';
-import { isRecord } from '../unknown-record';
+import {
+  FakeModelsService,
+  type FakeTurn,
+  cookieOf,
+  expectRegisteredUserId,
+} from '../testing/support';
+import { isString } from '../unknown-record';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
@@ -77,13 +82,7 @@ d('compaction lineage over HTTP (#57)', () => {
     expect(res.status).toBe(201);
     cookie = cookieOf(res);
     const registerBody: unknown = res.body;
-    if (
-      !isRecord(registerBody) ||
-      !isRecord(registerBody.user) ||
-      typeof registerBody.user.id !== 'string'
-    ) {
-      throw new Error('Expected register response with user.id');
-    }
+    expectRegisteredUserId(registerBody);
     userId = registerBody.user.id;
   });
 
@@ -135,9 +134,9 @@ d('compaction lineage over HTTP (#57)', () => {
   // ModelMessage.content is string | parts — the v0.1 loop always sends
   // flattened strings, but stringify defensively so lint (and a future
   // structured-parts regression) can't hide behind '[object Object]'.
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated inline by the ternary test below (`typeof content === 'string' ? content : JSON.stringify(content)`); the check is the ternary's test, a shape the structural exemption's `if`/`return`-of-boolean parse doesn't unwrap.
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated inline by the ternary test below (`isString(content) ? content : JSON.stringify(content)`); the check is the ternary's test, a shape the structural exemption's `if`/`return`-of-boolean parse doesn't unwrap.
   function contentText(content: unknown): string {
-    return typeof content === 'string' ? content : JSON.stringify(content);
+    return isString(content) ? content : JSON.stringify(content);
   }
 
   function texts(turn: FakeTurn): string {

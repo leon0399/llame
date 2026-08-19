@@ -1,6 +1,7 @@
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 import { redactProtectedString } from './protected-values';
+import { isString } from '../unknown-record';
 
 /**
  * Upper bound on diagnostic text retained per server, in UTF-16 code units —
@@ -81,7 +82,7 @@ export class DiagnosticBuffer {
   append(chunk: Buffer | string): void {
     if (this.retained >= MAX_DIAGNOSTIC_CHARS) return;
 
-    const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    const text = isString(chunk) ? chunk : chunk.toString('utf8');
     const room = MAX_DIAGNOSTIC_CHARS - this.retained;
     // When the cap forces truncation, cut at a line boundary rather than mid
     // text. An arbitrary cut can split a protected value in half, and a half

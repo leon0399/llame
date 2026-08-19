@@ -13,7 +13,7 @@ import request from 'supertest';
 
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
-import { cookieOf } from '../testing/support';
+import { cookieOf, expectRegisteredUserId } from '../testing/support';
 import { isRecord } from '../unknown-record';
 import { type UpdatePersonalizationDto } from './dto/personalization.dto';
 import { PERSONALIZATION_CAPS } from './personalization.constants';
@@ -31,6 +31,17 @@ describe('/api/v1/me/personalization (HTTP)', () => {
   let cookieB = '';
   let userAId = '';
 
+  function assertNullableAbout(
+    body: unknown,
+  ): asserts body is { about: string | null } {
+    if (
+      !isRecord(body) ||
+      (typeof body.about !== 'string' && body.about !== null)
+    ) {
+      throw new Error('Expected personalization response with about');
+    }
+  }
+
   async function register(
     email: string,
     name: string,
@@ -39,13 +50,7 @@ describe('/api/v1/me/personalization (HTTP)', () => {
       .post('/auth/v1/register')
       .send({ email, password, name });
     const body: unknown = res.body;
-    if (
-      !isRecord(body) ||
-      !isRecord(body.user) ||
-      typeof body.user.id !== 'string'
-    ) {
-      throw new Error('Expected register response with user.id');
-    }
+    expectRegisteredUserId(body);
     return { cookie: cookieOf(res), userId: body.user.id };
   }
 
@@ -129,12 +134,7 @@ describe('/api/v1/me/personalization (HTTP)', () => {
 
   it('rejects a field over its cap, naming the field and storing nothing', async () => {
     const beforeBody: unknown = (await get(cookieA).expect(200)).body;
-    if (
-      !isRecord(beforeBody) ||
-      (typeof beforeBody.about !== 'string' && beforeBody.about !== null)
-    ) {
-      throw new Error('Expected personalization response with about');
-    }
+    assertNullableAbout(beforeBody);
     const before = beforeBody;
 
     const res = await patch(cookieA, {

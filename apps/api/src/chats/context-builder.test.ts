@@ -23,8 +23,20 @@ import {
   TOOL_REPLAY_CALL_LIMIT,
   TOOL_REPLAY_TURN_LIMIT,
 } from './tool-observation-part';
-import { isRecord } from '../unknown-record';
+import { isRecord, isString } from '../unknown-record';
 import { modelMessageSchema } from 'ai';
+
+function assertTypedContentPart(
+  part: unknown,
+): asserts part is { type: string; toolCallId?: unknown } {
+  if (!isRecord(part) || typeof part.type !== 'string') {
+    throw new Error('Expected a typed content part');
+  }
+}
+
+function hasStringToolCallId(part: unknown): part is { toolCallId: string } {
+  return isRecord(part) && typeof part.toolCallId === 'string';
+}
 
 /** Narrows a `ModelMessage.content` value to typed-part records for
  * assertions below — content is `string | Array<unknown>` at the type
@@ -36,14 +48,10 @@ function typedContentParts(
     throw new Error('Expected array message content');
   }
   return content.map((part) => {
-    if (!isRecord(part) || typeof part.type !== 'string') {
-      throw new Error('Expected a typed content part');
-    }
+    assertTypedContentPart(part);
     return {
       type: part.type,
-      ...(typeof part.toolCallId === 'string' && {
-        toolCallId: part.toolCallId,
-      }),
+      ...(hasStringToolCallId(part) && { toolCallId: part.toolCallId }),
     };
   });
 }
@@ -204,8 +212,9 @@ describe('buildContext', () => {
       const userMessages = result.filter((m) => m.role === 'user');
       // At least one message should have a sender prefix
       const hasSenderPrefix = userMessages.some((m) => {
-        const content =
-          typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+        const content = isString(m.content)
+          ? m.content
+          : JSON.stringify(m.content);
         return (
           content.includes('[user-alice]') ||
           content.includes('[user-bob]') ||
@@ -230,8 +239,9 @@ describe('buildContext', () => {
 
       const assistantMessages = result.filter((m) => m.role === 'assistant');
       assistantMessages.forEach((m) => {
-        const content =
-          typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+        const content = isString(m.content)
+          ? m.content
+          : JSON.stringify(m.content);
         expect(content).not.toContain('[');
       });
     });
@@ -243,10 +253,9 @@ describe('buildContext', () => {
       const { messages: result } = buildContext(messages, { systemPrompt });
 
       const userResult = result.find((m) => m.role === 'user');
-      const content =
-        typeof userResult!.content === 'string'
-          ? userResult!.content
-          : JSON.stringify(userResult!.content);
+      const content = isString(userResult!.content)
+        ? userResult!.content
+        : JSON.stringify(userResult!.content);
 
       expect(content).toContain('Hello');
     });

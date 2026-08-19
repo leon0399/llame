@@ -1273,9 +1273,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       );
       const callEvents = events.filter(
         (event) =>
-          typeof event.payload === 'object' &&
-          event.payload !== null &&
-          'toolCallId' in event.payload &&
+          isRecord(event.payload) &&
           event.payload.toolCallId === 'json-invalid-call',
       );
       expect(callEvents.map((event) => event.eventType)).toEqual([
@@ -1511,9 +1509,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         if (
           eventType === 'tool.completed' &&
           (persistentlyFailCompletion || !failedSettlementWrite) &&
-          typeof payload === 'object' &&
-          payload !== null &&
-          'toolCallId' in payload &&
+          isRecord(payload) &&
           payload.toolCallId === 'cooperative-call'
         ) {
           failedSettlementWrite = true;

@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 
-import { type UnknownRecord } from './unknown-record';
+import {
+  isBoolean,
+  isNumber,
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from './unknown-record';
 
 export const compareCodePoints = (left: string, right: string): number => {
   const leftScalars = Array.from(left, (scalar) => scalar.codePointAt(0) ?? 0);
@@ -38,7 +44,9 @@ export function canonicalize(value: unknown): CanonicalJsonValue {
   if (Array.isArray(value)) {
     return value.map(canonicalize);
   }
-  if (value !== null && typeof value === 'object') {
+  // The array branch above already returned, so `isRecord`'s own
+  // `!Array.isArray` conjunct is a no-op here, not a behavior change.
+  if (isRecord(value)) {
     return Object.fromEntries(
       Object.entries(value)
         .sort(([left], [right]) => compareCodePoints(left, right))
@@ -51,12 +59,13 @@ export function canonicalize(value: unknown): CanonicalJsonValue {
   if (
     value === null ||
     value === undefined ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
+    isString(value) ||
+    isNumber(value) ||
+    isBoolean(value)
   ) {
     return value;
   }
+  // eslint-disable-next-line anti-slop/no-runtime-typeof -- diagnostic interpolation naming the rejected value's runtime type in the thrown message, not narrowing it; no predicate form applies to a value already excluded from every accepted branch above.
   throw new TypeError(`Cannot canonicalize a value of type ${typeof value}.`);
 }
 

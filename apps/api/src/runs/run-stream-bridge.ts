@@ -13,7 +13,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { isRecord } from '../unknown-record';
+import { isNumber, isRecord, isString } from '../unknown-record';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
 /** UI-message stream chunk subset the bridge emits (AI SDK v1 protocol). */
@@ -69,13 +69,13 @@ function payloadField(payload: unknown, key: string) {
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `payloadField` above, which validates via `!isRecord(payload)` as its own first statement; bare-identifier delegation, not itself a validating call.
 function payloadString(payload: unknown, key: string): string | undefined {
   const value = payloadField(payload, key);
-  return typeof value === 'string' ? value : undefined;
+  return isString(value) ? value : undefined;
 }
 
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `payloadField` above, which validates via `!isRecord(payload)` as its own first statement; bare-identifier delegation, not itself a validating call.
 function payloadNumber(payload: unknown, key: string): number | undefined {
   const value = payloadField(payload, key);
-  return typeof value === 'number' ? value : undefined;
+  return isNumber(value) ? value : undefined;
 }
 
 /**
@@ -261,7 +261,7 @@ export function createRunEventTranslator(
             output.type === 'cancelled';
           if (status === 'error') {
             const errorText =
-              isRecord(output) && typeof output.message === 'string'
+              isRecord(output) && isString(output.message)
                 ? output.message
                 : 'The tool failed.';
             return [

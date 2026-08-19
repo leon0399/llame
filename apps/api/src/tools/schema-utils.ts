@@ -11,6 +11,7 @@ import { type FlexibleSchema, asSchema, jsonSchema } from 'ai';
 import { type z } from 'zod';
 
 import { type JsonSchemaDocument } from './types';
+import { isRecord, isString } from '../unknown-record';
 
 export function isZodSchema(
   schema: z.ZodTypeAny | JsonSchemaDocument,
@@ -52,21 +53,21 @@ function normalizedDialectUri(dialect: string): string {
 }
 
 function schemaDialect(doc: JsonSchemaDocument): string {
-  return typeof doc.$schema === 'string' ? doc.$schema : 'draft-07 (default)';
+  return isString(doc.$schema) ? doc.$schema : 'draft-07 (default)';
 }
 
 function resolveAjvConstructor(
   doc: JsonSchemaDocument,
 ): typeof Ajv | undefined {
   const dialect = doc.$schema;
-  if (typeof dialect !== 'string') return Ajv;
+  if (!isString(dialect)) return Ajv;
   return DIALECT_CONSTRUCTORS.get(normalizedDialectUri(dialect));
 }
 
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `typeof dialect !== 'string' || normalizedDialectUri(dialect) !== '...'` below -- a typeof check combined with a derived comparison via `||`, a shape the structural exemption's single-check parse doesn't cover.
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `!isString(dialect) || normalizedDialectUri(dialect) !== '...'` below -- a type-guard call combined with a derived comparison via `||`, a shape the structural exemption's single-check parse doesn't cover.
 function addDraft07HttpsMetaSchemaAlias(ajv: Ajv, dialect: unknown): void {
   if (
-    typeof dialect !== 'string' ||
+    !isString(dialect) ||
     normalizedDialectUri(dialect) !== 'https://json-schema.org/draft-07/schema'
   ) {
     return;
@@ -75,11 +76,7 @@ function addDraft07HttpsMetaSchemaAlias(ajv: Ajv, dialect: unknown): void {
   const draft07MetaSchema = ajv.getSchema(
     'http://json-schema.org/draft-07/schema',
   )?.schema;
-  if (
-    draft07MetaSchema === null ||
-    typeof draft07MetaSchema !== 'object' ||
-    Array.isArray(draft07MetaSchema)
-  ) {
+  if (!isRecord(draft07MetaSchema)) {
     throw new Error('draft-07 meta-schema is unavailable');
   }
   ajv.addMetaSchema({

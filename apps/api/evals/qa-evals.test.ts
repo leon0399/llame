@@ -44,8 +44,11 @@ import { configureApp } from './../src/app.setup';
 import { TenantDbService } from './../src/db/tenant-db.service';
 import { CompactionsRepository } from './../src/chats/chats-repository';
 import { type Compaction } from './../src/db/schema';
-import { cookieOf, streamedText } from '../src/testing/support';
-import { isRecord } from '../src/unknown-record';
+import {
+  cookieOf,
+  expectRegisteredUserId,
+  streamedText,
+} from '../src/testing/support';
 
 const enabled =
   process.env.RUN_MODEL_EVALS === '1' && !!process.env.POSTGRES_URL;
@@ -101,13 +104,7 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
     expect(res.status).toBe(201);
     cookie = cookieOf(res);
     const body: unknown = res.body;
-    if (
-      !isRecord(body) ||
-      !isRecord(body.user) ||
-      typeof body.user.id !== 'string'
-    ) {
-      throw new Error('Expected register response with user.id');
-    }
+    expectRegisteredUserId(body);
     userId = body.user.id;
   });
 

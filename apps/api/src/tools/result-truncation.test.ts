@@ -6,6 +6,7 @@ import {
   truncateOversizedResult,
 } from './result-truncation';
 import { type ToolResult } from './types';
+import { isRecord, isString } from '../unknown-record';
 
 function size(result: ToolResult): number {
   return JSON.stringify(result).length;
@@ -23,9 +24,9 @@ function isWellFormed(value: string): boolean {
 }
 
 function stringLeaves(value: unknown): string[] {
-  if (typeof value === 'string') return [value];
+  if (isString(value)) return [value];
   if (Array.isArray(value)) return value.flatMap(stringLeaves);
-  if (typeof value === 'object' && value !== null) {
+  if (isRecord(value)) {
     return Object.values(value).flatMap(stringLeaves);
   }
   return [];
@@ -123,7 +124,6 @@ describe('truncateOversizedResult', () => {
       })
       .parse(result).output;
     expect(output.content[0].type).toBe('text');
-    expect(typeof output.content[0].text).toBe('string');
     expect(output.content[0].text.length).toBeLessThan(60_000);
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
@@ -278,7 +278,6 @@ describe('truncateOversizedResult', () => {
       })
       .parse(result).output;
     expect(output.fetchedAt).toBe('2026-08-11T00:00:00.000Z');
-    expect(typeof output.page.section.paragraphs[0]).toBe('string');
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
 

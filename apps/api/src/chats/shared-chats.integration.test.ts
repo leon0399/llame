@@ -18,10 +18,26 @@ import { configureApp } from '../app.setup';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository } from '../chats/chats-repository';
 import { isRecord } from '../unknown-record';
-import { cookieOf } from '../testing/support';
+import { cookieOf, expectRegisteredUserId } from '../testing/support';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
+
+/** Asserts a fork response body carries a string `id`. */
+function assertForkId(body: unknown): asserts body is { id: string } {
+  if (!isRecord(body) || typeof body.id !== 'string') {
+    throw new Error('Expected fork response with id');
+  }
+}
+
+/** Asserts a chat response body carries a string `visibility`. */
+function assertChatVisibility(
+  body: unknown,
+): asserts body is { visibility: string } {
+  if (!isRecord(body) || typeof body.visibility !== 'string') {
+    throw new Error('Expected chat response with visibility');
+  }
+}
 
 d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
   let app: INestApplication<import('http').Server>;
@@ -54,13 +70,7 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
     expect(res.status).toBe(201);
     cookie = cookieOf(res);
     const registerBody: unknown = res.body;
-    if (
-      !isRecord(registerBody) ||
-      !isRecord(registerBody.user) ||
-      typeof registerBody.user.id !== 'string'
-    ) {
-      throw new Error('Expected register response with user.id');
-    }
+    expectRegisteredUserId(registerBody);
     userId = registerBody.user.id;
 
     // Seeded directly (no HTTP empty-chat endpoint, #86) — starts private.
@@ -201,13 +211,7 @@ d(
       expect(ownerRes.status).toBe(201);
       ownerCookie = cookieOf(ownerRes);
       const ownerBody: unknown = ownerRes.body;
-      if (
-        !isRecord(ownerBody) ||
-        !isRecord(ownerBody.user) ||
-        typeof ownerBody.user.id !== 'string'
-      ) {
-        throw new Error('Expected register response with user.id');
-      }
+      expectRegisteredUserId(ownerBody);
       ownerId = ownerBody.user.id;
 
       const visitorRes = await request(http)
@@ -268,9 +272,7 @@ d(
 
       expect(forkRes.status).toBe(201);
       const forkBody: unknown = forkRes.body;
-      if (!isRecord(forkBody) || typeof forkBody.id !== 'string') {
-        throw new Error('Expected fork response with id');
-      }
+      assertForkId(forkBody);
       const forkedId = forkBody.id;
       expect(forkedId).not.toBe(publicChatId);
 
@@ -292,9 +294,7 @@ d(
         .set('Cookie', ownerCookie);
       expect(sourceStillOwners.status).toBe(200);
       const sourceBody: unknown = sourceStillOwners.body;
-      if (!isRecord(sourceBody) || typeof sourceBody.visibility !== 'string') {
-        throw new Error('Expected chat response with visibility');
-      }
+      assertChatVisibility(sourceBody);
       expect(sourceBody.visibility).toBe('public');
     });
   },

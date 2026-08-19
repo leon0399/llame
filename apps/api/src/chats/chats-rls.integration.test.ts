@@ -52,6 +52,13 @@ const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 type SqlClient = any;
 
+/** Asserts a raw `sql` template-tag row carries a string `id`. */
+function assertRowId(r: unknown): asserts r is { id: string } {
+  if (!isRecord(r) || typeof r.id !== 'string') {
+    throw new Error('Expected a session row with a string id');
+  }
+}
+
 describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
   let sql: SqlClient;
   let db: Db;
@@ -336,11 +343,9 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       const rawRows = await sql`
         SELECT id FROM sessions WHERE id IN (${live.id}, ${expired.id})`;
       const rawIds = rawRows.map(
-        // eslint-disable-next-line anti-slop/no-unknown-parameters -- row shape from a raw `sql` template tag (postgres.js), validated inline via `isRecord(r) && typeof r.id === 'string'` before use; a compound guard the structural exemption's "single first-use check" shape doesn't parse, not a missing validation.
+        // eslint-disable-next-line anti-slop/no-unknown-parameters -- row shape from a raw `sql` template tag (postgres.js), validated inline via the `assertRowId` type-guard call below; an `assert`-named call, a shape the structural exemption's `is[A-Z]`-prefixed pattern doesn't recognize.
         (r: unknown) => {
-          if (!isRecord(r) || typeof r.id !== 'string') {
-            throw new Error('Expected a session row with a string id');
-          }
+          assertRowId(r);
           return r.id;
         },
       );

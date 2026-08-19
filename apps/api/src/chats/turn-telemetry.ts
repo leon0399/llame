@@ -146,7 +146,7 @@ function tokenCount(value: number | undefined): number {
 }
 
 function optionalTokenCount(value: number | undefined): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+  if (value === undefined || !Number.isFinite(value) || value < 0) {
     return undefined;
   }
 

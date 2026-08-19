@@ -33,6 +33,7 @@ import {
   TOOL_REPLAY_TURN_LIMIT,
 } from '../chats/tool-observation-part';
 import type { StoredMessage } from '../chats/context-builder';
+import { isString } from '../unknown-record';
 
 let seqCounter = 0;
 function msg(
@@ -395,7 +396,7 @@ describe('buildCompactionRequest', () => {
     });
     const rendered = request.messages
       .map(({ content }) =>
-        typeof content === 'string' ? content : JSON.stringify(content),
+        isString(content) ? content : JSON.stringify(content),
       )
       .join('\n');
 
@@ -463,9 +464,7 @@ describe('buildCompactionRequest', () => {
       ),
     });
     const rendered = request.messages
-      .map((m) =>
-        typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-      )
+      .map((m) => (isString(m.content) ? m.content : JSON.stringify(m.content)))
       .join('\n');
     expect(rendered.indexOf('budget $3000')).toBeLessThan(
       rendered.indexOf('$4000'),

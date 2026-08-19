@@ -25,10 +25,10 @@ import { RunEventsRepository, RunsRepository } from './runs/runs-repository';
 import { ModelsService } from './models/models.service';
 import {
   cookieOf,
+  expectRegisteredUserId,
   FakeStreamingModelClient,
   parseSseEvents,
 } from './testing/support';
-import { isRecord } from './unknown-record';
 import { z } from 'zod';
 
 const hasDb = !!process.env.POSTGRES_URL;
@@ -154,13 +154,7 @@ d('queue-executed runs behind the stream bridge', () => {
     expect(res.status).toBe(201);
     cookie = cookieOf(res);
     const body: unknown = res.body;
-    if (
-      !isRecord(body) ||
-      !isRecord(body.user) ||
-      typeof body.user.id !== 'string'
-    ) {
-      throw new Error('Expected register response with user.id');
-    }
+    expectRegisteredUserId(body);
     userId = body.user.id;
   });
 

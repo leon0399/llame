@@ -1,4 +1,4 @@
-import { isRecord } from './src/unknown-record';
+import { isRecord, isString } from './src/unknown-record';
 
 /**
  * Per-suite pg-boss schema (see queue.module.ts): integration suites run
@@ -51,8 +51,7 @@ if (!process[HANDLER_INSTALLED]) {
 
   process.on('uncaughtExceptionMonitor', (err) => {
     const w = globalThis.__vitest_worker__;
-    const file =
-      isRecord(w) && typeof w.filepath === 'string' ? w.filepath : 'unknown';
+    const file = isRecord(w) && isString(w.filepath) ? w.filepath : 'unknown';
     console.error(
       `[integration/${file}] uncaughtException (leaked handle?):`,
       err,

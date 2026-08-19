@@ -4,6 +4,7 @@ import { and, eq, gte, ne, or, sql } from 'drizzle-orm';
 import { type Db, TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { searchChatDocuments } from '../db/schema/search';
+import { isRecord } from '../unknown-record';
 import {
   CHUNKER_VERSION,
   chunkConversation,
@@ -13,12 +14,7 @@ import {
  *  lost a write race against a concurrent rebuild of the same chat; safe to retry
  *  (the retry's fresh snapshot sees the winner's commit and converges). */
 function isSerializationFailure(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === '40001'
-  );
+  return isRecord(error) && error['code'] === '40001';
 }
 
 /**

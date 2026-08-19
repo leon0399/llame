@@ -17,7 +17,7 @@ import {
 } from './chats-repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
-import { isRecord } from '../unknown-record';
+import { pgErrorCode } from '../db/pg-error';
 import { toSharedChatResponse } from './dto/chats.dto';
 
 /** Title for a forked chat. */
@@ -442,13 +442,4 @@ export class ChatsService {
     void this.reindexDispatch.enqueueChatReindex(forked.id, ownerUserId);
     return forked;
   }
-}
-
-/** Extract the Postgres SQLSTATE from a raw driver error or a Drizzle wrapper. */
-function pgErrorCode(err: unknown): string | undefined {
-  if (!isRecord(err)) return undefined;
-  if (typeof err.code === 'string') return err.code;
-  return isRecord(err.cause) && typeof err.cause.code === 'string'
-    ? err.cause.code
-    : undefined;
 }

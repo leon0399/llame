@@ -1,4 +1,5 @@
 import { type ModelToolDeclaration } from '../db/schema';
+import { isRecord, isString } from '../unknown-record';
 import { TOOL_REGISTRY } from '../tools/registry';
 import { resolveJsonSchema, toFlexibleSchema } from '../tools/schema-utils';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
@@ -90,12 +91,10 @@ export async function resolveBoundExecutableTools(
   for (const declaration of declarations) {
     if (
       !declaration ||
-      typeof declaration.id !== 'string' ||
+      !isString(declaration.id) ||
       declaration.id.length === 0 ||
-      typeof declaration.description !== 'string' ||
-      declaration.inputSchema === null ||
-      Array.isArray(declaration.inputSchema) ||
-      typeof declaration.inputSchema !== 'object'
+      !isString(declaration.description) ||
+      !isRecord(declaration.inputSchema)
     ) {
       invalidDeclaration(
         'expected a non-empty id, description, and JSON schema',

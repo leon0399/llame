@@ -20,7 +20,12 @@ import {
   ValidateNested,
 } from 'class-validator';
 import type { Chat, Compaction, Message, MessageRole } from '../../db/schema';
-import { isRecord, type UnknownRecord } from '../../unknown-record';
+import {
+  isNumber,
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '../../unknown-record';
 import { isTextPart } from '../context-builder';
 import type { TurnTelemetry } from '../turn-telemetry';
 
@@ -30,17 +35,17 @@ export const CHAT_MESSAGES_MAX_SAFE_SEQ = Number.MAX_SAFE_INTEGER;
 
 const SAFE_INTEGER_QUERY_PATTERN = /^(0|[1-9]\d*)$/;
 
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- parses a raw HTTP query-string value (string | undefined at the framework boundary, `unknown` because query values are untyped) into a safe integer or a `NaN` sentinel; the whole function body IS the validation, branching sequentially through undefined/null, `typeof number`, then a string-pattern regex -- no single first-use check to point at.
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- parses a raw HTTP query-string value (string | undefined at the framework boundary, `unknown` because query values are untyped) into a safe integer or a `NaN` sentinel; the whole function body IS the validation, branching sequentially through undefined/null, a numeric type-guard, then a string-pattern regex -- no single first-use check to point at.
 function parseSafeIntegerQueryValue(value: unknown): number | null | undefined {
   if (value === undefined || value === null) {
     return value;
   }
 
-  if (typeof value === 'number') {
+  if (isNumber(value)) {
     return Number.isSafeInteger(value) ? value : Number.NaN;
   }
 
-  if (typeof value !== 'string' || !SAFE_INTEGER_QUERY_PATTERN.test(value)) {
+  if (!isString(value) || !SAFE_INTEGER_QUERY_PATTERN.test(value)) {
     return Number.NaN;
   }
 
@@ -327,12 +332,9 @@ export function toCompactionResponse(
   // `usage` is untyped jsonb (no `.$type<>()` on the schema column) — narrow
   // defensively rather than trust the shape; a malformed/foreign value degrades
   // to "no stats" instead of throwing.
-  const usage =
-    compaction.usage !== null &&
-    typeof compaction.usage === 'object' &&
-    !Array.isArray(compaction.usage)
-      ? (compaction.usage as Partial<TurnTelemetry>)
-      : null;
+  const usage = isRecord(compaction.usage)
+    ? (compaction.usage as Partial<TurnTelemetry>)
+    : null;
 
   return {
     uptoSeq: compaction.uptoSeq,
@@ -340,11 +342,9 @@ export function toCompactionResponse(
     createdAt: compaction.createdAt,
     stats: {
       absorbedMessageCount,
-      beforeTokens:
-        typeof usage?.inputTokens === 'number' ? usage.inputTokens : null,
-      afterTokens:
-        typeof usage?.outputTokens === 'number' ? usage.outputTokens : null,
-      modelId: typeof usage?.modelId === 'string' ? usage.modelId : null,
+      beforeTokens: isNumber(usage?.inputTokens) ? usage.inputTokens : null,
+      afterTokens: isNumber(usage?.outputTokens) ? usage.outputTokens : null,
+      modelId: isString(usage?.modelId) ? usage.modelId : null,
     },
   };
 }

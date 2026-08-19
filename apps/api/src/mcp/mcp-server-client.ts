@@ -6,7 +6,12 @@ import {
 } from '@ai-sdk/mcp';
 
 import { type ToolResult } from '../tools/types';
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import {
+  isNumber,
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '../unknown-record';
 import {
   admitMcpToolDefinitions,
   type AdmittedMcpToolDefinition,
@@ -184,15 +189,15 @@ type RpcRequestSummary = {
 };
 
 function rpcRequest(init: RequestInit | undefined): RpcRequestSummary {
-  if (typeof init?.body !== 'string') return {};
+  if (!isString(init?.body)) return {};
   try {
     const body = JSON.parse(init.body) as unknown;
     if (!isRecord(body)) return {};
     const method = body['method'];
     const id = body['id'];
     const summary: RpcRequestSummary = {};
-    if (typeof method === 'string') summary.method = method;
-    if (typeof id === 'string' || typeof id === 'number') summary.id = id;
+    if (isString(method)) summary.method = method;
+    if (isString(id) || isNumber(id)) summary.id = id;
     return summary;
   } catch {
     return {};
@@ -340,7 +345,7 @@ function failureHttpStatus(error: unknown): number | undefined {
       typeof errorRecord(candidate)?.['statusCode'] === 'number',
   );
   const status = failure?.['statusCode'];
-  return typeof status === 'number' ? status : undefined;
+  return isNumber(status) ? status : undefined;
 }
 
 function safeOperationError(
@@ -437,7 +442,7 @@ function assertSupportedInitializeResponse(message: UnknownRecord): void {
   if (!isRecord(result)) return;
   const protocolVersion = result['protocolVersion'];
   if (
-    typeof protocolVersion === 'string' &&
+    isString(protocolVersion) &&
     !isSupportedMcpProtocolVersion(protocolVersion)
   ) {
     throw new McpProtocolUnsupportedError();

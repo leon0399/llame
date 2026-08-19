@@ -7,7 +7,7 @@ import {
   hashWithDomain,
 } from '../canonical-json';
 import { type ModelToolDeclaration } from '../db/schema';
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '../unknown-record';
 import { admitToolInputSchema } from './schema-utils';
 import { asciiCaseFoldToolId, isToolId, matchesAllowedToolId } from './tool-id';
 import { type Tool, type ToolClassification } from './types';
@@ -208,7 +208,7 @@ export function parseToolAvailabilityManifest(
     if (
       state === 'available' &&
       hasExactKeys(rawEntry, ['declarationHash', 'id', 'state']) &&
-      typeof declarationHash === 'string' &&
+      isString(declarationHash) &&
       /^[0-9a-f]{64}$/.test(declarationHash)
     ) {
       entries.push({

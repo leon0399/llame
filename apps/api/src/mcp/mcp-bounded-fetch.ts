@@ -1,4 +1,4 @@
-import { isRecord } from '../unknown-record';
+import { isRecord, isString } from '../unknown-record';
 
 export class McpBodyLimitError extends Error {
   constructor(limit: number) {
@@ -31,7 +31,7 @@ function requestContext(
   const httpMethod = (
     init?.method ?? (request instanceof Request ? request.method : 'GET')
   ).toUpperCase();
-  if (typeof init?.body !== 'string') {
+  if (!isString(init?.body)) {
     return { httpMethod, rpcMethod: null };
   }
   try {
@@ -42,7 +42,7 @@ function requestContext(
     const method = body['method'];
     return {
       httpMethod,
-      rpcMethod: typeof method === 'string' ? method : null,
+      rpcMethod: isString(method) ? method : null,
     };
   } catch {
     return { httpMethod, rpcMethod: null };
@@ -53,8 +53,7 @@ function requestBodySize(
   body: BodyInit | null | undefined,
 ): number | undefined {
   if (body === undefined || body === null) return 0;
-  if (typeof body === 'string')
-    return new TextEncoder().encode(body).byteLength;
+  if (isString(body)) return new TextEncoder().encode(body).byteLength;
   if (body instanceof URLSearchParams) {
     return new TextEncoder().encode(body.toString()).byteLength;
   }

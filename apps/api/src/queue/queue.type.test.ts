@@ -72,6 +72,6 @@ void typeAssertions;
 
 describe('typed queue surface', () => {
   it('is enforced at compile time (see @ts-expect-error assertions above)', () => {
-    expect(typeof defineQueue).toBe('function');
+    expect(defineQueue).toEqual(expect.any(Function));
   });
 });

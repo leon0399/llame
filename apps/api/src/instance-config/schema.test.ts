@@ -15,6 +15,15 @@ import {
 } from './schema';
 import { isRecord } from '../unknown-record';
 
+function assertIsString(
+  value: unknown,
+  message: string,
+): asserts value is string {
+  if (typeof value !== 'string') {
+    throw new Error(message);
+  }
+}
+
 function throwingAccess(): SchemaFileAccess {
   return {
     readFile: () => {
@@ -62,11 +71,10 @@ describe('published schema — single artifact', () => {
       );
     }
     const { pattern } = $defs.interpolationToken;
-    if (typeof pattern !== 'string') {
-      throw new Error(
-        'expected schema.$defs.interpolationToken.pattern to be a string',
-      );
-    }
+    assertIsString(
+      pattern,
+      'expected schema.$defs.interpolationToken.pattern to be a string',
+    );
     // WHOLE_VALUE_TOKEN_PATTERN is anchored with ^...$; the JSON Schema
     // "pattern" keyword is implicitly unanchored-but-substring-matched by
     // some engines, so the schema copy is written the same anchored way —

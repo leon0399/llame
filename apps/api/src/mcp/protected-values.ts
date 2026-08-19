@@ -1,4 +1,4 @@
-import { isRecord } from '../unknown-record';
+import { isBoolean, isNumber, isRecord, isString } from '../unknown-record';
 
 export const PROTECTED_VALUE_REDACTION_MARKER = '[REDACTED]';
 
@@ -32,12 +32,12 @@ function containsProtectedString(
   );
 }
 
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `value === null || typeof value === 'boolean'` below -- two checks combined with `||`, a shape the structural exemption's single-check parse doesn't cover; this scalar-classification helper is one branch of the recursive JSON walker below.
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `value === null || isBoolean(value)` below -- two checks combined with `||`, a shape the structural exemption's single-check parse doesn't cover; this scalar-classification helper is one branch of the recursive JSON walker below.
 function canonicalJsonScalar(value: unknown): string | undefined {
-  if (value === null || typeof value === 'boolean') {
+  if (value === null || isBoolean(value)) {
     return JSON.stringify(value);
   }
-  if (typeof value === 'number' && Number.isFinite(value)) {
+  if (isNumber(value) && Number.isFinite(value)) {
     return JSON.stringify(value);
   }
   return undefined;
@@ -106,7 +106,7 @@ function containsNormalizedProtectedValueJson(
   value: unknown,
   protectedValues: readonly string[],
 ): boolean {
-  if (typeof value === 'string') {
+  if (isString(value)) {
     return containsProtectedString(value, protectedValues);
   }
 
@@ -148,7 +148,7 @@ function sanitizeNormalizedProtectedValueJson(
   value: unknown,
   protectedValues: readonly string[],
 ): ProtectedValueSanitizationResult {
-  if (typeof value === 'string') {
+  if (isString(value)) {
     return {
       success: true,
       value: redactProtectedString(value, protectedValues),

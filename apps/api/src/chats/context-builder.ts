@@ -30,7 +30,7 @@ import {
   renderRecencyDigestReminder,
   type RecencyDigestPart,
 } from './recency-digest-part';
-import { type UnknownRecord } from '../unknown-record';
+import { isString, type UnknownRecord } from '../unknown-record';
 import {
   projectCompactionToolObservationLedger,
   projectToolObservations,
@@ -155,8 +155,7 @@ export function createConversationCheckpoint(
 export function renderConversationCheckpoint(
   checkpoint: ConversationCheckpoint | string,
 ): string {
-  const summary =
-    typeof checkpoint === 'string' ? checkpoint : checkpoint.summary;
+  const summary = isString(checkpoint) ? checkpoint : checkpoint.summary;
   return `${CONVERSATION_CHECKPOINT_START}\n${summary}\n${CONVERSATION_CHECKPOINT_END}`;
 }
 

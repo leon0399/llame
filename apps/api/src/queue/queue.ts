@@ -16,7 +16,7 @@
  * with a mismatched handler, is a compile error, not a runtime surprise.
  */
 
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '../unknown-record';
 
 /** DI token for the Queue implementation (NestJS has no interface tokens). */
 export const QUEUE = Symbol('QUEUE');
@@ -250,7 +250,7 @@ export function expectString(
   queue: string,
 ): string {
   const raw = value[field];
-  if (typeof raw !== 'string' || raw.length === 0) {
+  if (!isString(raw) || raw.length === 0) {
     throw new TypeError(
       `Malformed '${queue}' job: expected non-empty string '${field}'`,
     );

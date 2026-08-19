@@ -31,7 +31,7 @@ import {
   MessagesRepository,
 } from './chats-repository';
 import { type MessagePart } from './context-builder';
-import { isRecord } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '../unknown-record';
 import { RunAbortRegistry, type RunAborter } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
 import {
@@ -623,26 +623,30 @@ export class ChatLoopService {
 }
 
 /**
+ * True for any non-null `object` — deliberately NOT `isRecord`, which also
+ * excludes arrays: an `Error.cause` chain walk must keep visiting a
+ * pathological array-shaped cause exactly as it does today, not stop early.
+ */
+function isCauseChainLink(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
  * Postgres unique_violation on the per-chat single-flight partial index.
  * Walks the cause chain — drizzle wraps the postgres.js error.
  */
 export function isInflightUniqueViolation(error: unknown): boolean {
   for (
     let current = error;
-    typeof current === 'object' && current !== null;
-    current = (current as { cause?: unknown }).cause
+    isCauseChainLink(current);
+    current = current['cause']
   ) {
-    const candidate = current as {
-      code?: unknown;
-      constraint_name?: unknown;
-      message?: unknown;
-    };
     const mentionsIndex =
-      (typeof candidate.constraint_name === 'string' &&
-        candidate.constraint_name.includes('runs_chat_inflight_unique')) ||
-      (typeof candidate.message === 'string' &&
-        candidate.message.includes('runs_chat_inflight_unique'));
-    if (candidate.code === '23505' && mentionsIndex) {
+      (isString(current['constraint_name']) &&
+        current['constraint_name'].includes('runs_chat_inflight_unique')) ||
+      (isString(current['message']) &&
+        current['message'].includes('runs_chat_inflight_unique'));
+    if (current['code'] === '23505' && mentionsIndex) {
       return true;
     }
   }

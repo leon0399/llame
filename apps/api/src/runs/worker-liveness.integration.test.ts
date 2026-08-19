@@ -48,6 +48,15 @@ const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 vi.setConfig({ testTimeout: 60_000 });
 
+/** Asserts a `run.expired` event payload carries a string `message`. */
+function assertExpiredMessage(
+  payload: unknown,
+): asserts payload is { message: string } {
+  if (!isRecord(payload) || typeof payload.message !== 'string') {
+    throw new Error('Expected run.expired payload with a message');
+  }
+}
+
 describeIfDb(
   'Durable run workers — in-process timeout budget (design D7 mechanism 1)',
   () => {
@@ -93,12 +102,7 @@ describeIfDb(
       const expiredEvent = events.find((e) => e.eventType === 'run.expired');
       expect(expiredEvent).toBeDefined();
       const expiredPayload = expiredEvent?.payload;
-      if (
-        !isRecord(expiredPayload) ||
-        typeof expiredPayload.message !== 'string'
-      ) {
-        throw new Error('Expected run.expired payload with a message');
-      }
+      assertExpiredMessage(expiredPayload);
       expect(expiredPayload.message).toMatch(/timed out/i);
       expect(events.map((e) => e.eventType)).not.toContain('run.cancelled');
     });
@@ -202,12 +206,7 @@ describeIfDb(
       const expiredEvent = events.find((e) => e.eventType === 'run.expired');
       expect(expiredEvent).toBeDefined();
       const expiredPayload = expiredEvent?.payload;
-      if (
-        !isRecord(expiredPayload) ||
-        typeof expiredPayload.message !== 'string'
-      ) {
-        throw new Error('Expected run.expired payload with a message');
-      }
+      assertExpiredMessage(expiredPayload);
       expect(expiredPayload.message).toMatch(/retries exhausted/i);
     });
   },

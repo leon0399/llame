@@ -94,7 +94,7 @@ export function isRecencyDigestPart(
     !data['entries'].every(isEntry) ||
     !Array.isArray(data['pinChanges']) ||
     !data['pinChanges'].every(
-      (change) =>
+      (change): change is UnknownRecord & { title: string; pinned: boolean } =>
         isExactRecord(change, ['pinned', 'title']) &&
         typeof change['title'] === 'string' &&
         change['title'].trim().length > 0 &&

@@ -2,6 +2,41 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-19
 
+- Started `anti-slop/no-runtime-typeof` remediation (Arc 2's eighth rule; not
+  yet enabled). Fresh measurement: 148 diagnostics/56 files with the
+  upstream `allowInTypeGuards` option (188/65 raw), matching the queued
+  baseline exactly. Landed the mechanical layer (68 findings, zero
+  behavior/production risk): two new shared type-guard primitives
+  (`isString`/`isNumber`/`isBoolean` in `unknown-record.ts`, siblings of the
+  existing `isRecord`) turn a bare `typeof x === 'type'` comparison into a
+  named predicate the rule's `allowInTypeGuards` option already exempts; a
+  new shared `expectRegisteredUserId` test helper replaces nine
+  byte-identical inline register-response assertions; several sites were
+  outright dead/redundant `typeof` re-checks against an already-typed value
+  (deleted, not disabled). No behavior change; `pnpm --filter api
+lint`/`typecheck` clean, `pnpm --filter api test` 1153/1153. See
+  `docs/code-quality-tracker.md` for the full bucket classification and the
+  remaining work.
+- Closed `anti-slop/no-runtime-typeof` remediation, enabling it at error
+  (`allowInTypeGuards: true`) in `apps/api/.oxlintrc.json`. Every remaining
+  finding resolved to the same `isString`/`isNumber`/`isBoolean`/`isRecord`
+  predicate swap, including the 10 findings on a durable execution path
+  (`run-execution.service.ts`, `run-stream-bridge.ts`,
+  `chats-repository.ts`, `compaction.ts`) — preserved exactly under a
+  behavior-preservation invariant (a site that fell back gracefully still
+  falls back identically; nothing was upgraded to a throw). Consolidated
+  the byte-identical `pgErrorCode` duplicated across `chats.service.ts`,
+  `identity.service.ts`, and `pins.service.ts` into a single
+  `src/db/pg-error.ts` with direct unit coverage. Only two sites keep an
+  inline disable (`` `...type ${typeof value}` `` diagnostic message
+  interpolation, not narrowing — no predicate form applies). No behavior
+  change; `pnpm --filter api lint`/`typecheck` clean, `pnpm --filter api
+test` 1158/1158, full `pnpm --filter api test:integration`, `pnpm
+--filter api build` confirms `openapi.json` byte-identical. See
+  `docs/code-quality-tracker.md` for the closeout narrative and a queued
+  follow-up on `MessagePart`'s open-union type-design smell this
+  remediation surfaced but didn't fix.
+
 - Enabled `anti-slop/no-unknown-parameters` at error in `apps/api/.oxlintrc.json`
   (Arc 2's seventh rule), closing out remediation that spanned a type-predicate
   rule patch and mechanical fixes from earlier this week. Added a third local

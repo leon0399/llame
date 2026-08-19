@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { tool, type ToolSet } from 'ai';
 
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import { isRecord } from '../unknown-record';
+import { isNumber, isRecord, isString } from '../unknown-record';
 import {
   type Message,
   type ModelToolDeclaration,
@@ -178,7 +178,7 @@ export function createAssistantPartCollector() {
   const appendText = (text: string) => {
     if (text.length === 0) return;
     const last = collected.at(-1);
-    if (last?.type === 'text' && typeof last.text === 'string') {
+    if (last?.type === 'text' && isString(last.text)) {
       last.text += text;
       return;
     }
@@ -188,7 +188,7 @@ export function createAssistantPartCollector() {
   const appendReasoning = (text: string) => {
     if (text.length === 0) return;
     const last = collected.at(-1);
-    if (last?.type === 'reasoning' && typeof last.text === 'string') {
+    if (last?.type === 'reasoning' && isString(last.text)) {
       last.text += text;
       return;
     }
@@ -227,7 +227,7 @@ export function createAssistantPartCollector() {
         .filter((part): part is MessagePart => part.type !== 'pending-tool')
         .map((part) =>
           part.type === 'reasoning' &&
-          typeof part.text === 'string' &&
+          isString(part.text) &&
           part.text.length > REASONING_PERSIST_MAX
             ? {
                 ...part,
@@ -277,7 +277,7 @@ function eventPayloadField(payload: unknown, key: string) {
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `eventPayloadField` above, which validates via `isRecord(payload)` as its own ternary test; bare-identifier delegation, not itself a validating call.
 function eventPayloadString(payload: unknown, key: string): string | undefined {
   const value = eventPayloadField(payload, key);
-  return typeof value === 'string' ? value : undefined;
+  return isString(value) ? value : undefined;
 }
 
 /**
@@ -307,7 +307,7 @@ function reconstructDurableAssistant(events: RunEvent[]) {
     if (event.eventType === 'run.step_cap_reached') {
       const stepsUsed = eventPayloadField(event.payload, 'stepsUsed');
       const maxSteps = eventPayloadField(event.payload, 'maxSteps');
-      if (typeof stepsUsed === 'number' && typeof maxSteps === 'number') {
+      if (isNumber(stepsUsed) && isNumber(maxSteps)) {
         collector.capNotice({
           type: 'data-cap-notice',
           data: { stepsUsed, maxSteps },
@@ -351,8 +351,8 @@ function reconstructDurableAssistant(events: RunEvent[]) {
       result = { ...output, status };
     } else if (
       status === 'error' &&
-      typeof output['type'] === 'string' &&
-      typeof output['message'] === 'string'
+      isString(output['type']) &&
+      isString(output['message'])
     ) {
       result = { status, type: output['type'], message: output['message'] };
     } else {

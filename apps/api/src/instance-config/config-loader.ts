@@ -29,7 +29,12 @@ import { createModelPromptLoader } from './prompt-loader';
 import { getRegisteredToolIds } from '../tools/registry';
 import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import {
+  isNumber,
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '../unknown-record';
 
 const DEFAULT_CONFIG_FILENAME = 'llame.config.json';
 
@@ -245,7 +250,7 @@ function assertNoDuplicateProperties(text: string, configPath: string): void {
 function formatConfigPath(pathSegments: readonly (string | number)[]): string {
   return pathSegments
     .map((segment, index) =>
-      typeof segment === 'number'
+      isNumber(segment)
         ? `[${segment}]`
         : index === 0
           ? segment
@@ -337,7 +342,7 @@ function resolveNullableString(opts: {
     // env-var fallback (D5).
     return null;
   }
-  if (typeof raw !== 'string') {
+  if (!isString(raw)) {
     throw new InstanceConfigError(`${configPath}: must be a string`);
   }
   const resolved = resolveInterpolatedString(raw, configPath, env).trim();
@@ -384,7 +389,7 @@ function resolveNumeric(opts: {
     }
     return null;
   }
-  if (typeof raw === 'number') {
+  if (isNumber(raw)) {
     assertPositiveInteger(raw, configPath, min);
     return raw;
   }
@@ -392,7 +397,7 @@ function resolveNumeric(opts: {
   // Schema validation already guaranteed `raw` is a whole-value
   // {env:...}/{path:...} token string at this point; re-check at runtime
   // rather than trust that guarantee silently.
-  if (typeof raw !== 'string') {
+  if (!isString(raw)) {
     throw new InstanceConfigError(
       `${configPath}: must be a number or a {env:}/{path:} token string`,
     );
@@ -437,9 +442,7 @@ function requireResolvedNumber(
 }
 
 function isStringArray(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) && value.every((item) => typeof item === 'string')
-  );
+  return Array.isArray(value) && value.every(isString);
 }
 
 /**
