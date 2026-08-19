@@ -24,6 +24,38 @@ The base of this directory is vendored from
   signature, or a predicate on a different parameter, is still flagged. The
   standard Oxlint `RuleTester` regression lives beside the rule. Upstream
   `main` was still the pinned commit when the patch was added on 2026-08-19.
+- Local correctness patch: `no-unknown-parameters` gains an options schema,
+  mirroring `no-runtime-typeof`'s `allowInTypeGuards` shape (both booleans,
+  default `false`, opt-in per Oxlint config). Upstream's own exemption
+  mechanism for this rule is already a hardcoded parameter name (`cause`), so
+  a configurable exemption is consistent with its design, not a departure
+  from it.
+  - `allowWhenImmediatelyValidated`: exempts a parameter whose first use in
+    the function body validates that same parameter -- a type-guard call
+    (`isFoo(value)`), a `typeof`/`instanceof` narrowing check, or a schema
+    parse (`Schema.parse(value)` / `.safeParse(value)`), optionally wrapped
+    in a negation. The rule's own message instructs callers to "run the
+    expected schema or parser at the I/O boundary before calling this
+    function"; when the function itself immediately does exactly that, it
+    satisfies the rule's intent rather than violating it. Deliberately
+    conservative: an undetermined first use (no body, empty body, or an
+    unrecognized first-statement shape) is never exempted, so false
+    negatives (still flagged, needing a per-site disable) are expected and
+    acceptable, but a false positive (silently exempting genuinely
+    unvalidated input) is not.
+  - `allowErrorFamilyNames`: extends the rule's own `cause` carve-out to the
+    rest of the error family -- `error`, `err`, `reason` -- covering
+    error-classification helpers and catch bindings that inspect an unknown
+    thrown value without ever wrapping it into an actual `cause`. Kept as a
+    small fixed name set gated by one boolean, not an arbitrary configurable
+    allowlist array -- an array invites incrementally adding generic names
+    (`value`, `input`, `data`) over time, which would rubber-stamp the rule's
+    own target population instead of extending a specific, narrow, load-
+    bearing exemption.
+  - The standard Oxlint `RuleTester` regression lives beside the rule,
+    covering both options' exempted and still-flagged (negative) cases.
+    Upstream `main` was still the pinned commit when the patch was added on
+    2026-08-19.
 
 Update by reviewing the upstream diff, running its `install.mjs` into a temporary
 directory, and reconciling every local patch above before replacement. Remove a
