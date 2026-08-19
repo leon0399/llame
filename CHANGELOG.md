@@ -9,7 +9,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `string`, so `node.type === 'X'` alone never narrows `node` itself; four
   new local type-predicate functions replace the check-then-cast pattern
   used across the prompt-file Handlebars AST validator. No behavior change.
-
+- Removed all 30 `typescript/no-unsafe-type-assertion` findings across the
+  `src/chats/` integration-test cluster (`reasoning-loop`, `chats-messages`,
+  `shared-chats`), replacing casts with typed AI SDK stream fixtures, the
+  shared `isRecord` guard, and `zod`-parsed HTTP response bodies. Native
+  inventory falls from 196/68 to 169/66; 3 casts remain in
+  `reasoning-loop.integration.test.ts` pending a parallel slice's
+  `RunExecutionService` capability types.
 - Upgraded Next.js 16.2.12 → 16.3.0 (#416, tracker #412) — a no-breaking-
   changes minor that turns on Turbopack dev memory eviction, the FileSystem
   build cache, native Node stream SSR, and prefetch inlining by default, and
@@ -20,7 +26,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `apps/web/AGENTS.md` instead. Instant Navigations, `catchError` boundaries,
   TS7 build type checking, and CI build-cache persistence are adopted
   separately (#417–#420).
-
 - Removed 38 `typescript/no-unsafe-type-assertion` findings from the
   run-execution tool-loop test boundary: the native inventory falls from 196
   diagnostics/68 files to 158/67. `RunExecutionService`'s constructor now
@@ -34,7 +39,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `LanguageModelV3StreamPart[]` chunks, which also corrected fixture data
   that had drifted to a stale usage/finish-reason shape behind the removed
   casts. No behavior change.
-
 - Bumped the paired `oxlint`/`@oxlint/plugins` lint engine 1.77.0 → 1.78.0, now
   past the seven-day release cooldown that deferred it at anti-slop
   qualification. All five lint scopes and the vendored-plugin `RuleTester`
