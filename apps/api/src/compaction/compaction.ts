@@ -18,6 +18,7 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { buildCompactionToolObservationLedger } from '../chats/tool-observation-part';
+import { isString } from '../unknown-record';
 import type { CompactionToolObservationLedgerV1 } from '../db/schema';
 import { isCompletedAssistantTurn } from '../chats/chats-repository';
 import { type ModelToolDeclaration } from '../db/schema';
@@ -106,7 +107,7 @@ Under "Open Questions and Next Steps", include only questions and next steps alr
 
 /** Accept only non-empty text from a compaction inference. */
 export function normalizeCompactionSummary(value: unknown): string | null {
-  if (typeof value !== 'string') {
+  if (!isString(value)) {
     return null;
   }
   const summary = value.trim();
