@@ -80,23 +80,24 @@ export class PgBossQueueService implements Queue {
       await this.boss.updateQueue(dead, deadPolicy);
     }
     // Mutable, per-boot-idempotent fields (updateQueue COALESCEs each).
-    const updatable = {
-      retryLimit: opts.retryLimit,
-      retryDelay: opts.retryDelay,
-      retryBackoff: opts.retryBackoff,
-      // Native liveness (design D7): omitted unless the definition sets it —
-      // DEFAULT_QUEUE_OPTIONS deliberately carries no value here, so an
-      // unset field stays NULL/disabled instead of opting every queue in.
-      ...(opts.heartbeatSeconds !== undefined
-        ? { heartbeatSeconds: opts.heartbeatSeconds }
-        : {}),
-      // With deadLetter disabled the field is omitted, which leaves any
-      // previously-configured dead-letter target in place — detaching a live
-      // queue's DLQ is an explicit migration, not a boot-time default.
-      ...(opts.deadLetter
-        ? { deadLetter: deadLetterQueueName(queue.name) }
-        : {}),
-    };
+    const updatable: NonNullable<Parameters<typeof this.boss.updateQueue>[1]> =
+      {
+        retryLimit: opts.retryLimit,
+        retryDelay: opts.retryDelay,
+        retryBackoff: opts.retryBackoff,
+      };
+    // Native liveness (design D7): omitted unless the definition sets it —
+    // DEFAULT_QUEUE_OPTIONS deliberately carries no value here, so an
+    // unset field stays NULL/disabled instead of opting every queue in.
+    if (opts.heartbeatSeconds !== undefined) {
+      updatable.heartbeatSeconds = opts.heartbeatSeconds;
+    }
+    // With deadLetter disabled the field is omitted, which leaves any
+    // previously-configured dead-letter target in place — detaching a live
+    // queue's DLQ is an explicit migration, not a boot-time default.
+    if (opts.deadLetter) {
+      updatable.deadLetter = deadLetterQueueName(queue.name);
+    }
     // The admission policy (dedup/throttle by state, default `standard`) is
     // IMMUTABLE in pg-boss v12 — updateQueue rejects a `policy` field ("queue
     // policy cannot be changed after creation"). So it is set ONLY at createQueue;
@@ -114,28 +115,27 @@ export class PgBossQueueService implements Queue {
     data: PayloadOf<Q>,
     options?: EnqueueOptions,
   ): Promise<string | null> {
-    return this.boss.send(queue.name, data, {
-      ...(options?.priority !== undefined
-        ? { priority: options.priority }
-        : {}),
-      ...(options?.startAfter !== undefined
-        ? { startAfter: options.startAfter }
-        : {}),
-      ...(options?.retryLimit !== undefined
-        ? { retryLimit: options.retryLimit }
-        : {}),
-      ...(options?.retryDelay !== undefined
-        ? { retryDelay: options.retryDelay }
-        : {}),
-      ...(options?.retryBackoff !== undefined
-        ? { retryBackoff: options.retryBackoff }
-        : {}),
-      // Coalescing key — meaningful only under a de-duplicating queue policy
-      // (QueueOptions.policy); a no-op for dedup on a standard queue.
-      ...(options?.singletonKey !== undefined
-        ? { singletonKey: options.singletonKey }
-        : {}),
-    });
+    const sendOptions: EnqueueOptions = {};
+    if (options?.priority !== undefined)
+      sendOptions.priority = options.priority;
+    if (options?.startAfter !== undefined) {
+      sendOptions.startAfter = options.startAfter;
+    }
+    if (options?.retryLimit !== undefined) {
+      sendOptions.retryLimit = options.retryLimit;
+    }
+    if (options?.retryDelay !== undefined) {
+      sendOptions.retryDelay = options.retryDelay;
+    }
+    if (options?.retryBackoff !== undefined) {
+      sendOptions.retryBackoff = options.retryBackoff;
+    }
+    // Coalescing key — meaningful only under a de-duplicating queue policy
+    // (QueueOptions.policy); a no-op for dedup on a standard queue.
+    if (options?.singletonKey !== undefined) {
+      sendOptions.singletonKey = options.singletonKey;
+    }
+    return this.boss.send(queue.name, data, sendOptions);
   }
 
   // See enqueue for the variance-escape bound.
@@ -158,9 +158,9 @@ export class PgBossQueueService implements Queue {
       {
         batchSize: 1,
         localConcurrency: options?.concurrency ?? 1,
-        ...(options?.pollingIntervalSeconds !== undefined
-          ? { pollingIntervalSeconds: options.pollingIntervalSeconds }
-          : {}),
+        ...(options?.pollingIntervalSeconds !== undefined && {
+          pollingIntervalSeconds: options.pollingIntervalSeconds,
+        }),
       },
       async (jobs: PgBossJob<PayloadOf<Q>>[]) => {
         const definition: QueueDefinition<PayloadOf<Q>> = queue;

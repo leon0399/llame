@@ -145,11 +145,12 @@ export function toTokenPrice(
   if (pricing?.input === undefined || pricing.output === undefined) {
     return undefined;
   }
-  return {
+  const price: TokenPrice = {
     inputUsdPer1M: pricing.input,
-    ...(pricing.cachedInput !== undefined
-      ? { cachedInputUsdPer1M: pricing.cachedInput }
-      : {}),
     outputUsdPer1M: pricing.output,
   };
+  if (pricing.cachedInput !== undefined) {
+    price.cachedInputUsdPer1M = pricing.cachedInput;
+  }
+  return price;
 }

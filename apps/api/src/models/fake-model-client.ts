@@ -79,6 +79,17 @@ export function createFakeModelClient(
         resolveCompletion = resolve;
         rejectCompletion = reject;
       });
+      const toolOptions: Pick<
+        Parameters<typeof streamText>[0],
+        'tools' | 'toolChoice'
+      > = {};
+      if (input.tools) {
+        toolOptions.tools = input.tools;
+        if (input.toolChoice !== undefined) {
+          toolOptions.toolChoice = input.toolChoice;
+        }
+      }
+
       const result = streamText({
         model: new MockLanguageModelV3({
           provider: 'fake',
@@ -91,14 +102,7 @@ export function createFakeModelClient(
         messages: input.messages,
         system: input.system,
         abortSignal: input.abortSignal,
-        ...(input.tools
-          ? {
-              tools: input.tools,
-              ...(input.toolChoice !== undefined
-                ? { toolChoice: input.toolChoice }
-                : {}),
-            }
-          : {}),
+        ...toolOptions,
         onChunk: ({ chunk }) => {
           if (chunk.type === 'text-delta') {
             input.onTextDelta?.(chunk.text);

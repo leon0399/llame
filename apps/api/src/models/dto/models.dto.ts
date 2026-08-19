@@ -86,26 +86,25 @@ export class ModelDomainErrorResponse {
 export function toAvailableModelResponse(
   model: PublicModelCatalogEntry,
 ): AvailableModelResponse {
-  return {
+  const response: AvailableModelResponse = {
     id: model.id,
     source: model.source,
-    ...(model.name !== undefined ? { name: model.name } : {}),
-    ...(model.description !== undefined
-      ? { description: model.description }
-      : {}),
-    ...(model.tags !== undefined ? { tags: [...model.tags] } : {}),
-    ...(model.icon !== undefined ? { icon: model.icon } : {}),
     contextWindowTokens: model.contextWindowTokens,
-    ...(model.pricingUsdPer1M !== undefined
-      ? { pricingUsdPer1M: model.pricingUsdPer1M }
-      : {}),
-    ...(model.knowledgeCutoff !== undefined
-      ? { knowledgeCutoff: model.knowledgeCutoff }
-      : {}),
-    ...(model.reasoning !== undefined ? { reasoning: model.reasoning } : {}),
-    ...(model.website !== undefined ? { website: model.website } : {}),
-    ...(model.apiDocs !== undefined ? { apiDocs: model.apiDocs } : {}),
-    ...(model.modelPage !== undefined ? { modelPage: model.modelPage } : {}),
-    ...(model.releasedAt !== undefined ? { releasedAt: model.releasedAt } : {}),
   };
+  if (model.name !== undefined) response.name = model.name;
+  if (model.description !== undefined) response.description = model.description;
+  if (model.tags !== undefined) response.tags = [...model.tags];
+  if (model.icon !== undefined) response.icon = model.icon;
+  if (model.pricingUsdPer1M !== undefined) {
+    response.pricingUsdPer1M = model.pricingUsdPer1M;
+  }
+  if (model.knowledgeCutoff !== undefined) {
+    response.knowledgeCutoff = model.knowledgeCutoff;
+  }
+  if (model.reasoning !== undefined) response.reasoning = model.reasoning;
+  if (model.website !== undefined) response.website = model.website;
+  if (model.apiDocs !== undefined) response.apiDocs = model.apiDocs;
+  if (model.modelPage !== undefined) response.modelPage = model.modelPage;
+  if (model.releasedAt !== undefined) response.releasedAt = model.releasedAt;
+  return response;
 }

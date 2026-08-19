@@ -571,6 +571,7 @@ export class ChatLoopService {
       (activeCompaction !== undefined &&
         previousRun !== undefined &&
         activeCompaction.createdAt > previousRun.createdAt);
+    const continuesDisclosureEpoch = !startsDisclosureEpoch;
     const digestRebaked =
       activeCompaction !== undefined &&
       previousRun !== undefined &&
@@ -579,9 +580,9 @@ export class ChatLoopService {
     const availabilityPart = createToolAvailabilityPart({
       runId: turnInput.targetRunId,
       current: effectiveContext.toolAvailabilityManifest,
-      ...(!startsDisclosureEpoch
-        ? { previous: previousSnapshot.toolAvailabilityManifest }
-        : {}),
+      ...(continuesDisclosureEpoch && {
+        previous: previousSnapshot.toolAvailabilityManifest,
+      }),
     });
     const modelSwitchPart =
       previousRun && previousRun.modelId !== turnInput.modelId
