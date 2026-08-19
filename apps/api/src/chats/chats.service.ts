@@ -17,6 +17,7 @@ import {
 } from './chats-repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { isRecord } from '../unknown-record';
 import { toSharedChatResponse } from './dto/chats.dto';
 
 /** Title for a forked chat. */
@@ -445,6 +446,9 @@ export class ChatsService {
 
 /** Extract the Postgres SQLSTATE from a raw driver error or a Drizzle wrapper. */
 function pgErrorCode(err: unknown): string | undefined {
-  const e = err as { code?: string; cause?: { code?: string } };
-  return e?.code ?? e?.cause?.code;
+  if (!isRecord(err)) return undefined;
+  if (typeof err.code === 'string') return err.code;
+  return isRecord(err.cause) && typeof err.cause.code === 'string'
+    ? err.cause.code
+    : undefined;
 }

@@ -44,6 +44,7 @@ import {
 import { TenantDbService } from '../db/tenant-db.service';
 import { SessionsRepository } from '../auth/sessions.repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { isRecord } from '../unknown-record';
 import { ChatsService } from './chats.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -334,7 +335,12 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       // expired rows anyway, so it would pass even if the delete no-opped.
       const rawRows = await sql`
         SELECT id FROM sessions WHERE id IN (${live.id}, ${expired.id})`;
-      const rawIds = rawRows.map((r) => (r as { id: string }).id);
+      const rawIds = rawRows.map((r: unknown) => {
+        if (!isRecord(r) || typeof r.id !== 'string') {
+          throw new Error('Expected a session row with a string id');
+        }
+        return r.id;
+      });
       expect(rawIds).toContain(live.id);
       expect(rawIds).not.toContain(expired.id);
     } finally {

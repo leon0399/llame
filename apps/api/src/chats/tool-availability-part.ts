@@ -111,7 +111,7 @@ function isReasonEntries<TReason extends string>(
       !isExactRecord(entry, ['id', 'reason']) ||
       !isToolId(entry['id']) ||
       typeof entry['reason'] !== 'string' ||
-      !reasons.includes(entry['reason'] as TReason) ||
+      !(reasons as readonly string[]).includes(entry['reason']) ||
       (previous !== undefined && compareCodePoints(previous, entry['id']) >= 0)
     ) {
       return false;

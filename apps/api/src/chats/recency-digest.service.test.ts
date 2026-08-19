@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { drizzle } from 'drizzle-orm/postgres-js';
 
+import * as schema from '../db/schema';
 import { type Chat } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
@@ -179,7 +181,7 @@ describe('recency digest baseline', () => {
       .mockImplementation((chatIds) =>
         Promise.resolve(new Map(chatIds.map((chatId) => [chatId, 1]))),
       );
-    const tx = {} as Db;
+    const tx: Db = drizzle.mock({ schema });
     const tenantDb: TenantRunner = {
       runAs: (_owner, fn) => fn(tx),
     };

@@ -3,6 +3,15 @@ import {
   REASONING_PERSIST_MAX,
   assistantParts,
 } from '../runs/run-execution.service';
+import { isRecord } from '../unknown-record';
+
+function isPartWithText(part: unknown): part is { type: string; text: string } {
+  return (
+    isRecord(part) &&
+    typeof part.type === 'string' &&
+    typeof part.text === 'string'
+  );
+}
 
 describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
   it('preserves reasoning/text/tool occurrence order instead of regrouping parts on reload', () => {
@@ -83,7 +92,10 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
       reasoningText: huge,
       toolParts: [],
       text: 'answer',
-    }) as [{ type: string; text: string }, { type: string; text: string }];
+    });
+    if (!isPartWithText(reasoning) || !isPartWithText(text)) {
+      throw new Error('Expected reasoning and text parts with a text field');
+    }
     expect(reasoning.type).toBe('reasoning');
     // Truncated to the cap + a marker; never the full oversized blob.
     expect(reasoning.text.length).toBe(REASONING_PERSIST_MAX + 1);

@@ -681,7 +681,7 @@ describeIfDb(
       // separate, already-committed writer mark the blocker terminal right
       // before it runs — no sleep/timing, fully deterministic.
       const original: RunsRepository['findActiveByChatId'] =
-        // eslint-disable-next-line @typescript-eslint/unbound-method -- deliberately grabbed unbound: re-invoked below via .call(this, ...) with an explicit receiver, not as a free-standing function.
+        // eslint-disable-next-line @typescript-eslint/unbound-method -- deliberately grabbed unbound: re-invoked below via Reflect.apply with an explicit receiver, not as a free-standing function.
         RunsRepository.prototype.findActiveByChatId;
       const spy = vi
         .spyOn(RunsRepository.prototype, 'findActiveByChatId')
@@ -697,9 +697,10 @@ describeIfDb(
               'cancelled',
             ),
           );
-          return original.call(this, queriedChatId, queriedUserId) as Promise<
-            Run | undefined
-          >;
+          // `Function.prototype.call`'s generic overload doesn't preserve
+          // `original`'s real return type here (a tsgo gap); `Reflect.apply`
+          // does, giving `Promise<Run | undefined>` with no cast needed.
+          return Reflect.apply(original, this, [queriedChatId, queriedUserId]);
         });
 
       try {

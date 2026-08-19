@@ -22,7 +22,30 @@ import {
   TOOL_REPLAY_CALL_LIMIT,
   TOOL_REPLAY_TURN_LIMIT,
 } from './tool-observation-part';
+import { isRecord } from '../unknown-record';
 import { modelMessageSchema } from 'ai';
+
+/** Narrows a `ModelMessage.content` value to typed-part records for
+ * assertions below — content is `string | Array<unknown>` at the type
+ * level. */
+function typedContentParts(
+  content: unknown,
+): { type: string; toolCallId?: string }[] {
+  if (!Array.isArray(content)) {
+    throw new Error('Expected array message content');
+  }
+  return content.map((part) => {
+    if (!isRecord(part) || typeof part.type !== 'string') {
+      throw new Error('Expected a typed content part');
+    }
+    return {
+      type: part.type,
+      ...(typeof part.toolCallId === 'string'
+        ? { toolCallId: part.toolCallId }
+        : {}),
+    };
+  });
+}
 
 // Minimal message factory. `seq` auto-increments in creation order, which matches
 // the intended conversation order of the fixtures below; override it to test
@@ -270,8 +293,10 @@ describe('buildContext', () => {
       expect(serialized).toContain('TOOL_SNIPPET_REPLAYED');
       // The assistant message carries the tool-call part alongside the text.
       const assistantMsg = result.find((m) => m.role === 'assistant');
-      expect(Array.isArray(assistantMsg!.content)).toBe(true);
-      const content = assistantMsg!.content as unknown[];
+      const content = assistantMsg?.content;
+      if (!Array.isArray(content)) {
+        throw new Error('Expected assistant message content to be an array');
+      }
       expect(content).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ type: 'tool-call', toolCallId: 'call-1' }),
@@ -854,12 +879,12 @@ describe('buildContext', () => {
       const toolResultMsg = messages.find((m) => m.role === 'tool');
       expect(toolCallMsg).toBeDefined();
       expect(toolResultMsg).toBeDefined();
-      const calls = (
-        toolCallMsg!.content as { type: string; toolCallId?: string }[]
-      ).filter((p) => p.type === 'tool-call');
-      const results = (
-        toolResultMsg!.content as { type: string; toolCallId?: string }[]
-      ).filter((p) => p.type === 'tool-result');
+      const calls = typedContentParts(toolCallMsg!.content).filter(
+        (p) => p.type === 'tool-call',
+      );
+      const results = typedContentParts(toolResultMsg!.content).filter(
+        (p) => p.type === 'tool-result',
+      );
       expect(calls.length).toBeGreaterThan(0);
       expect(calls.map((c) => c.toolCallId)).toEqual(
         results.map((r) => r.toolCallId),
