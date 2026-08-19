@@ -150,6 +150,6 @@ export function createStdioTransport(
     // echoes a credential on a startup error would write it to llame's own
     // diagnostic stream, where the protected-value boundary cannot reach it.
     stderr: 'pipe',
-    ...(config.cwd === undefined ? {} : { cwd: config.cwd }),
+    ...(config.cwd !== undefined && { cwd: config.cwd }),
   });
 }

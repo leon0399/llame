@@ -178,8 +178,8 @@ class McpMatchingResponseError extends Error {
 }
 
 type RpcRequestSummary = {
-  readonly id?: string | number;
-  readonly method?: string;
+  id?: string | number;
+  method?: string;
 };
 
 function rpcRequest(init: RequestInit | undefined): RpcRequestSummary {
@@ -189,10 +189,10 @@ function rpcRequest(init: RequestInit | undefined): RpcRequestSummary {
     if (!isRecord(body)) return {};
     const method = body['method'];
     const id = body['id'];
-    return {
-      ...(typeof method === 'string' ? { method } : {}),
-      ...(typeof id === 'string' || typeof id === 'number' ? { id } : {}),
-    };
+    const summary: RpcRequestSummary = {};
+    if (typeof method === 'string') summary.method = method;
+    if (typeof id === 'string' || typeof id === 'number') summary.id = id;
+    return summary;
   } catch {
     return {};
   }
@@ -796,18 +796,19 @@ export class McpServerClient {
       }
       return response;
     };
+    const httpTransport: Parameters<typeof createMCPClient>[0]['transport'] = {
+      type: 'http',
+      url: config.url,
+      redirect: 'error',
+      fetch: protocolGuardedFetch,
+    };
+    if (transportHeaders !== undefined)
+      httpTransport.headers = transportHeaders;
+
     let client: MCPClient;
     try {
       client = await createMCPClient({
-        transport: {
-          type: 'http',
-          url: config.url,
-          ...(transportHeaders === undefined
-            ? {}
-            : { headers: transportHeaders }),
-          redirect: 'error',
-          fetch: protocolGuardedFetch,
-        },
+        transport: httpTransport,
         maxRetries: 0,
         initializationOptions: { signal: initializationSignal },
         onUncaughtError: () => undefined,
@@ -981,10 +982,11 @@ export class McpServerClient {
         throw new McpDiscoveryLimitError('pages');
       }
       pageCount += 1;
-      const page = await this.client.listTools({
-        ...(cursor === undefined ? {} : { params: { cursor } }),
+      const listToolsOptions: Parameters<MCPClient['listTools']>[0] = {
         options: { signal },
-      });
+      };
+      if (cursor !== undefined) listToolsOptions.params = { cursor };
+      const page = await this.client.listTools(listToolsOptions);
       assertDiscoveryActive(signal, startedAt);
       if (page.tools.length > MAX_TOOLS_PER_PAGE) {
         throw new McpDiscoveryLimitError('tools_per_page');
@@ -1018,14 +1020,14 @@ export class McpServerClient {
       if (serializedBytes(rawTool) > MAX_DECLARATION_BYTES) {
         refused.push({
           index,
-          ...(id === undefined ? {} : { id }),
           reason: 'declaration_too_large',
+          ...(id !== undefined && { id }),
         });
       } else if (exceedsDepth(rawTool.inputSchema, MAX_SCHEMA_DEPTH)) {
         refused.push({
           index,
-          ...(id === undefined ? {} : { id }),
           reason: 'schema_too_deep',
+          ...(id !== undefined && { id }),
         });
       } else {
         boundedTools.push(rawTool);
@@ -1041,11 +1043,13 @@ export class McpServerClient {
     });
     assertDiscoveryActive(signal, startedAt);
     refused.push(
-      ...admission.refused.map(({ index, id, reason }) => ({
-        index: originalIndexes[index],
-        ...(id === undefined ? {} : { id }),
-        reason,
-      })),
+      ...admission.refused.map(({ index, id, reason }) => {
+        return {
+          index: originalIndexes[index],
+          reason,
+          ...(id !== undefined && { id }),
+        };
+      }),
     );
     let retainedCatalogBytes = 0;
     for (const definition of admission.admitted) {
@@ -1187,9 +1191,9 @@ export class McpServerClient {
             disposition: classifyMcpFailure({
               stage: 'call',
               kind,
-              ...(kind === 'http'
-                ? { status: failureHttpStatus(trustedError) }
-                : {}),
+              ...(kind === 'http' && {
+                status: failureHttpStatus(trustedError),
+              }),
               hasSession: this.protectedValueState.sessionId !== undefined,
             }),
             result: safeFailureResult('invalid_output'),
@@ -1199,9 +1203,7 @@ export class McpServerClient {
           disposition: classifyMcpFailure({
             stage: 'call',
             kind,
-            ...(kind === 'http'
-              ? { status: failureHttpStatus(trustedError) }
-              : {}),
+            ...(kind === 'http' && { status: failureHttpStatus(trustedError) }),
             hasSession: this.protectedValueState.sessionId !== undefined,
           }),
           result: safeFailureResult(kind),

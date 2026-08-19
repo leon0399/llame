@@ -107,9 +107,9 @@ function initializedFixtureScripts(input: {
     ],
     'notifications/initialized': [{ kind: 'raw', status: 204, body: '' }],
     'tools/list': input.listResponses,
-    ...(input.callResponses === undefined
-      ? {}
-      : { 'tools/call': input.callResponses }),
+    ...(input.callResponses !== undefined && {
+      'tools/call': input.callResponses,
+    }),
     $delete: input.deleteResponses ?? [{ kind: 'raw', status: 204, body: '' }],
   } satisfies Readonly<Record<string, readonly McpFixtureResponse[]>>;
 }
@@ -1211,7 +1211,7 @@ describe('McpServerClient', () => {
       const pageTools = largeTools.slice(pageIndex * 3, pageIndex * 3 + 3);
       return jsonRpcResult(pageIndex + 1, {
         tools: pageTools,
-        ...(pageIndex === 5 ? {} : { nextCursor: `page-${pageIndex + 2}` }),
+        ...(pageIndex !== 5 && { nextCursor: `page-${pageIndex + 2}` }),
       });
     });
     const { fixture, client } = await connectFixture({ listResponses });
@@ -1231,7 +1231,7 @@ describe('McpServerClient', () => {
       jsonRpcResult(pageIndex + 1, {
         tools: [],
         padding: 'p'.repeat(950 * 1024),
-        ...(pageIndex === 8 ? {} : { nextCursor: `page-${pageIndex + 2}` }),
+        ...(pageIndex !== 8 && { nextCursor: `page-${pageIndex + 2}` }),
       }),
     );
     const { fixture, client } = await connectFixture({ listResponses });

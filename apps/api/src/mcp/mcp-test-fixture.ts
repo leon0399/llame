@@ -61,9 +61,9 @@ export function mcpStreamableHttpInitialize(
 
   return {
     kind: 'json',
-    ...(input.sessionId === undefined
-      ? {}
-      : { headers: { 'mcp-session-id': input.sessionId } }),
+    ...(input.sessionId !== undefined && {
+      headers: { 'mcp-session-id': input.sessionId },
+    }),
     body: {
       jsonrpc: '2.0',
       id: 0,

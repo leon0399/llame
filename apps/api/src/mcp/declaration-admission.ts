@@ -282,7 +282,7 @@ export async function admitMcpToolDefinitions(input: {
     const refuse = (reason: McpDeclarationRefusalReason): void => {
       refused.push({
         index,
-        ...(refusalId === undefined ? {} : { id: refusalId }),
+        ...(refusalId !== undefined && { id: refusalId }),
         reason,
       });
     };
