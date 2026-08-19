@@ -32,7 +32,7 @@ import { resolveBoundExecutableTools } from '../runs/snapshot-tool-execution';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import { type MessagePart } from '../chats/context-builder';
+import { type TextPart } from '../chats/context-builder';
 import {
   createToolAvailabilityPart,
   renderToolAvailabilityReminder,
@@ -535,6 +535,9 @@ describe('operator-configured MCP production acceptance', () => {
       expect(context.toolDeclarations.map(({ id }) => id)).toEqual([TOOL_ID]);
       expect(canonicalJson(context)).not.toContain('mcp__web__*');
       chatId = crypto.randomUUID();
+      const userMessageParts: TextPart[] = [
+        { type: 'text', text: 'Find the fixture evidence.' },
+      ];
       const seeded = await tenantDb.runAs(userId, async (tx) => {
         await new ChatsRepository(tx).createIfAbsent({
           id: chatId!,
@@ -545,7 +548,7 @@ describe('operator-configured MCP production acceptance', () => {
           chatId: chatId!,
           role: 'user',
           senderUserId: userId,
-          parts: [{ type: 'text', text: 'Find the fixture evidence.' }],
+          parts: userMessageParts,
         });
         const snapshot = await new ModelContextSnapshotsRepository(
           tx,
@@ -581,18 +584,21 @@ describe('operator-configured MCP production acceptance', () => {
         userMessage: {
           id: seeded.userMessage.id,
           seq: seeded.userMessage.seq,
-          parts: seeded.userMessage.parts as MessagePart[],
+          parts: userMessageParts,
         },
         client: createMockModelClient(firstModel),
       });
       await result.consumeStream?.();
 
+      const laterUserMessageParts: TextPart[] = [
+        { type: 'text', text: 'Replay that evidence.' },
+      ];
       const later = await tenantDb.runAs(userId, async (tx) => {
         const userMessage = await new MessagesRepository(tx).create({
           chatId: chatId!,
           role: 'user',
           senderUserId: userId,
-          parts: [{ type: 'text', text: 'Replay that evidence.' }],
+          parts: laterUserMessageParts,
         });
         const run = await new RunsRepository(tx).create({
           chatId: chatId!,
@@ -617,7 +623,7 @@ describe('operator-configured MCP production acceptance', () => {
         userMessage: {
           id: later.userMessage.id,
           seq: later.userMessage.seq,
-          parts: later.userMessage.parts as MessagePart[],
+          parts: laterUserMessageParts,
         },
         client: createMockModelClient(replayModel),
       });

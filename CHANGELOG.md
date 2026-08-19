@@ -9,6 +9,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `string`, so `node.type === 'X'` alone never narrows `node` itself; four
   new local type-predicate functions replace the check-then-cast pattern
   used across the prompt-file Handlebars AST validator. No behavior change.
+- Removed 9 of 11 `typescript/no-unsafe-type-assertion` findings across the
+  MCP runtime cluster (`mcp-runtime.service.test.ts`,
+  `mcp-runtime.module.test.ts`, `mcp-operator.integration.test.ts`). A shared
+  `TenantRunner` fake replaces four forged-empty `TenantDbService` casts;
+  `Reflect.getMetadata` results stay `unknown` instead of casting to
+  `readonly unknown[]`; typed `TextPart[]` literals replace two read-back
+  `MessagePart[]` casts. Native inventory falls from 143/60 to 134/58; 2
+  casts remain in `mcp-operator.integration.test.ts` pending the same
+  `RunExecutionService` capability types as the other deferred slices.
 - Removed 26 of 27 `typescript/no-unsafe-type-assertion` findings across the
   memory/compaction cluster (`compaction.service.ts`,
   `compaction-context.integration.test.ts`, `compactions.integration.test.ts`,

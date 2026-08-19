@@ -13,9 +13,16 @@ import {
   type McpDiscoveryResult,
 } from './mcp-server-client';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
-import { type TenantDbService } from '../db/tenant-db.service';
+import { type TenantRunner } from '../db/tenant-db.service';
 
 const MINUTE_MS = 60_000;
+
+/** Executor contexts below never reach `.runAs` — every case resolves before executing. */
+const fakeTenantDb: TenantRunner = {
+  runAs: () => {
+    throw new Error('runAs should not be called by these executor contexts');
+  },
+};
 
 type Deferred<T> = {
   readonly promise: Promise<T>;
@@ -461,7 +468,7 @@ describe('McpRuntimeService', () => {
         {
           userId: 'user-1',
           chatId: 'chat-1',
-          tenantDb: {} as TenantDbService,
+          tenantDb: fakeTenantDb,
           toolCallId: 'call-1',
           abortSignal: abortController.signal,
         },
@@ -633,7 +640,7 @@ describe('McpRuntimeService', () => {
         {
           userId: 'user-1',
           chatId: 'chat-1',
-          tenantDb: {} as TenantDbService,
+          tenantDb: fakeTenantDb,
           toolCallId: 'call-1',
         },
         { query: 'evidence' },
@@ -696,7 +703,7 @@ describe('McpRuntimeService', () => {
           {
             userId: 'user-1',
             chatId: 'chat-1',
-            tenantDb: {} as TenantDbService,
+            tenantDb: fakeTenantDb,
             toolCallId: 'call-1',
           },
           { query: 'evidence' },
@@ -741,7 +748,7 @@ describe('McpRuntimeService', () => {
         {
           userId: 'user-1',
           chatId: 'chat-1',
-          tenantDb: {} as TenantDbService,
+          tenantDb: fakeTenantDb,
           toolCallId: 'call-1',
         },
         { query: 'evidence' },
