@@ -30,7 +30,7 @@ function loader(access?: PromptFileAccess) {
   return createModelPromptLoader({
     configPath,
     defaultPromptPath,
-    ...(access ? { access } : {}),
+    ...(access && { access }),
   });
 }
 

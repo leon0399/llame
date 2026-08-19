@@ -670,11 +670,15 @@ function userContext(user: PromptUserInput | undefined) {
   const hasAuthored = Object.values(authored).some(
     (value) => value !== undefined,
   );
-  const context = {
-    ...(hasAuthored ? { personalization: authored } : {}),
-    ...(name === undefined ? {} : { name }),
-    ...(email === undefined ? {} : { email }),
+  type UserPromptContext = {
+    personalization?: typeof authored;
+    name?: typeof name;
+    email?: typeof email;
   };
+  const context: UserPromptContext = {};
+  if (hasAuthored) context.personalization = authored;
+  if (name !== undefined) context.name = name;
+  if (email !== undefined) context.email = email;
 
   return Object.keys(context).length === 0 ? undefined : context;
 }
@@ -714,9 +718,16 @@ function chatsContext(chats: PromptChatsInput | undefined) {
     return undefined;
   }
 
-  return {
-    ...(pinned === undefined ? {} : { pinned }),
-    ...(recent === undefined ? {} : { recent }),
+  type ChatsPromptContext = {
+    pinned?: typeof pinned;
+    recent?: typeof recent;
+    pinnedShown: typeof chats.pinnedShown;
+    pinnedTotal: typeof chats.pinnedTotal;
+    recentShown: typeof chats.recentShown;
+    recentTotal: typeof chats.recentTotal;
+    compiledOn: ReturnType<typeof promptValue>;
+  };
+  const result: ChatsPromptContext = {
     // Numbers, not strings. `promptValue` wraps its result in a SafeString,
     // and a SafeString is an object — so a stringified `0` is TRUTHY, and an
     // operator writing `{{#if chats.pinnedShown}}Showing …{{/if}}` would get
@@ -728,6 +739,9 @@ function chatsContext(chats: PromptChatsInput | undefined) {
     recentTotal: chats.recentTotal,
     compiledOn: promptValue(chats.compiledOn),
   };
+  if (pinned !== undefined) result.pinned = pinned;
+  if (recent !== undefined) result.recent = recent;
+  return result;
 }
 
 function renderPrompt(
@@ -742,14 +756,22 @@ function renderPrompt(
   // `assertSupportedTemplate`.
   const projectedUser = userContext(user);
   const projectedChats = chatsContext(chats);
-  const context = {
+  type RenderPromptContext = {
+    model: {
+      id: ReturnType<typeof promptValue>;
+      name: ReturnType<typeof promptValue>;
+    };
+    user?: typeof projectedUser;
+    chats?: typeof projectedChats;
+  };
+  const context: RenderPromptContext = {
     model: {
       id: promptValue(model.id),
       name: promptValue(model.name),
     },
-    ...(projectedUser === undefined ? {} : { user: projectedUser }),
-    ...(projectedChats === undefined ? {} : { chats: projectedChats }),
   };
+  if (projectedUser !== undefined) context.user = projectedUser;
+  if (projectedChats !== undefined) context.chats = projectedChats;
 
   return template(context);
 }

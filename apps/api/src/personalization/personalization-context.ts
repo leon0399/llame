@@ -64,11 +64,9 @@ export function resolvePromptUserInput(input: {
     preferredName: profile?.preferredName ?? undefined,
     about: profile?.about ?? undefined,
     responsePreferences: profile?.responsePreferences ?? undefined,
-    ...(wantsAccountIdentity(profile)
-      ? {
-          name: input.account?.name ?? undefined,
-          email: input.account?.email ?? undefined,
-        }
-      : {}),
+    ...(wantsAccountIdentity(profile) && {
+      name: input.account?.name ?? undefined,
+      email: input.account?.email ?? undefined,
+    }),
   };
 }

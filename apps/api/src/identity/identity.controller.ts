@@ -65,7 +65,7 @@ export class IdentityController {
     const unit = await this.identity.createRootOrg({
       userId,
       name: input.name,
-      ...(input.type ? { type: input.type } : {}),
+      ...(input.type && { type: input.type }),
     });
     return toOrgUnitResponse(unit);
   }
@@ -86,7 +86,7 @@ export class IdentityController {
       userId,
       parentId,
       name: input.name,
-      ...(input.type ? { type: input.type } : {}),
+      ...(input.type && { type: input.type }),
     });
     return toOrgUnitResponse(unit);
   }
@@ -137,13 +137,14 @@ export class IdentityController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() input: UpdateOrgUnitDto,
   ): Promise<OrgUnitResponse> {
-    const unit = await this.identity.updateOrgUnit({
+    const updateInput: Parameters<typeof this.identity.updateOrgUnit>[0] = {
       userId,
       orgUnitId: id,
-      ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(input.settings !== undefined ? { settings: input.settings } : {}),
-      ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
-    });
+    };
+    if (input.name !== undefined) updateInput.name = input.name;
+    if (input.settings !== undefined) updateInput.settings = input.settings;
+    if (input.parentId !== undefined) updateInput.parentId = input.parentId;
+    const unit = await this.identity.updateOrgUnit(updateInput);
     return toOrgUnitResponse(unit);
   }
 

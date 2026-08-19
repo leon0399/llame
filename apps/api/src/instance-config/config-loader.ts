@@ -11,6 +11,7 @@ import {
 import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
+  type McpRemoteServerConfig,
   type McpServerConfig,
   type McpStdioServerConfig,
   type ProviderConfig,
@@ -555,11 +556,12 @@ function resolveMcpServers(
     }
 
     const headers = resolveMcpHeaders(serverPath, entry.headers, env);
-    resolved[serverId] = {
+    const remoteConfig: McpRemoteServerConfig = {
       type: 'streamable-http',
       url: resolvedUrl,
-      ...(headers === undefined ? {} : { headers }),
     };
+    if (headers !== undefined) remoteConfig.headers = headers;
+    resolved[serverId] = remoteConfig;
   }
 
   return resolved;
@@ -643,16 +645,14 @@ function resolveStdioServer(
     }
   }
 
-  return {
-    type: 'stdio',
-    command,
-    ...(args === undefined ? {} : { args: Object.freeze(args) }),
-    ...(childEnv === undefined ? {} : { env: Object.freeze(childEnv) }),
-    ...(entry.cwd === undefined ? {} : { cwd: entry.cwd }),
-    ...(protectedValues.length === 0
-      ? {}
-      : { protectedValues: Object.freeze([...new Set(protectedValues)]) }),
-  };
+  const config: McpStdioServerConfig = { type: 'stdio', command };
+  if (args !== undefined) config.args = Object.freeze(args);
+  if (childEnv !== undefined) config.env = Object.freeze(childEnv);
+  if (entry.cwd !== undefined) config.cwd = entry.cwd;
+  if (protectedValues.length > 0) {
+    config.protectedValues = Object.freeze([...new Set(protectedValues)]);
+  }
+  return config;
 }
 
 function resolveMcpHeaders(
@@ -839,8 +839,8 @@ function resolveModels(
 
     const prompt = promptLoader.resolve({
       id: entry.id,
-      ...(entry.name !== undefined ? { name: entry.name } : {}),
-      ...(systemPromptFile !== undefined ? { systemPromptFile } : {}),
+      ...(entry.name !== undefined && { name: entry.name }),
+      ...(systemPromptFile !== undefined && { systemPromptFile }),
     });
 
     return {
@@ -848,9 +848,9 @@ function resolveModels(
       source: 'system' as const,
       contextWindowTokens,
       ...prompt,
-      ...(compactionThresholdTokens !== undefined
-        ? { compactionThresholdTokens }
-        : {}),
+      ...(compactionThresholdTokens !== undefined && {
+        compactionThresholdTokens,
+      }),
     };
   });
 }

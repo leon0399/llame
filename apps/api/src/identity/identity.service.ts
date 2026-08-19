@@ -114,7 +114,7 @@ export class IdentityService {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const unit = await new OrgUnitsRepository(tx).createRoot({
         name: input.name,
-        ...(input.type ? { type: input.type } : {}),
+        ...(input.type && { type: input.type }),
         createdBy: input.userId,
       });
       await new MembershipsRepository(tx).grant({
@@ -149,7 +149,7 @@ export class IdentityService {
         const unit = await repo.createChild({
           parent,
           name: input.name,
-          ...(input.type ? { type: input.type } : {}),
+          ...(input.type && { type: input.type }),
           createdBy: input.userId,
         });
         // No membership row is granted on a fresh child (unlike root
