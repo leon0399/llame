@@ -79,7 +79,7 @@ const COMPACTION_MARKDOWN_SECTIONS = COMPACTION_SECTION_HEADINGS.map(
  * the replayed system prompt would work too and is rejected: that changes the
  * prefix and makes the whole (deliberately large) call cold.
  */
-const STANDING_CONTEXT_EXCLUSION = `Do not carry any content out of the <user_personalization>, <user_chat_history>, or <chat-recency-update> blocks into the summary. They describe standing owner context rather than this conversation, are re-supplied on every request, and must not be frozen into this checkpoint. Constraints and preferences the user stated within the conversation itself still belong in the summary.`;
+const STANDING_CONTEXT_EXCLUSION = `Do not carry any content out of the <user_personalization>, <user_chat_history>, or <chat-recency-update> blocks into the summary. Do not carry the system-supplied temporal context line (the line stating context as of a date) into the summary either. These describe standing context rather than this conversation, are re-supplied on every request, and must not be frozen into this checkpoint. Dates, deadlines, or intervals the user or assistant established within the conversation itself still belong in the summary.`;
 
 export const COMPACTION_INSTRUCTION = `Create a concise operational handoff for a future model continuing this conversation.
 

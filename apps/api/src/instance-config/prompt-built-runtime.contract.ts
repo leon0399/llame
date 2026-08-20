@@ -21,12 +21,20 @@ const model = {
 };
 const resolved = prompt.resolve(model);
 
+const contractAnchor = {
+  systemTime: '2000-01-01 00:00+00:00',
+  systemTimezone: 'UTC',
+};
+
 // Rendered with no per-user context, exactly as the boot probe does — the
 // packaged default must stand up for an owner who has personalized nothing.
 if (
   resolved.systemPromptSource !== 'project_default' ||
-  renderSystemPromptTemplate(resolved.systemPromptTemplate, model).trim()
-    .length === 0
+  renderSystemPromptTemplate({
+    template: resolved.systemPromptTemplate,
+    model,
+    anchor: contractAnchor,
+  }).trim().length === 0
 ) {
   throw new Error(
     'Built runtime failed to load and render the packaged default system prompt',

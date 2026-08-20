@@ -5,7 +5,13 @@ import * as schema from '../db/schema';
 import { type Chat } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import { type TemporalAnchor } from '../instance-config/prompt-loader';
 import { resolveAdvertisedTools } from '../tools/registry';
+
+const TEST_ANCHOR: TemporalAnchor = {
+  systemTime: '2000-01-01 00:00+00:00',
+  systemTimezone: 'UTC',
+};
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import {
   buildRecencyDigestBaseline,
@@ -261,8 +267,16 @@ describe('recency digest baseline', () => {
       compiledOn: new Date('2026-08-12T00:00:00.000Z'),
     });
 
-    const first = service.render(model, undefined, baseline);
-    const second = service.render(model, undefined, baseline);
+    const first = service.render({
+      model,
+      anchor: TEST_ANCHOR,
+      chats: baseline,
+    });
+    const second = service.render({
+      model,
+      anchor: TEST_ANCHOR,
+      chats: baseline,
+    });
     expect(second).toBe(first);
     expect(first).not.toContain('never-render-this-id');
   });
@@ -287,15 +301,15 @@ describe('recency digest baseline', () => {
       recentTotal: 1,
       compiledOn: new Date('2026-08-12T00:00:00.000Z'),
     });
-    new SystemPromptsService().render(
-      {
+    new SystemPromptsService().render({
+      model: {
         id: 'model',
         systemPromptTemplate:
           '{{#each chats.pinned}}{{title}} {{excerpt}}{{/each}}',
       },
-      undefined,
-      baseline,
-    );
+      anchor: TEST_ANCHOR,
+      chats: baseline,
+    });
     const withDigest = resolveAdvertisedTools(allowed);
 
     expect(withDigest.map(({ id }) => id)).toEqual(

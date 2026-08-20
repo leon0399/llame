@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import {
   type PromptChatsInput,
   type PromptUserInput,
+  type TemporalAnchor,
   renderSystemPromptTemplate,
 } from '../instance-config/prompt-loader';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
@@ -12,6 +13,13 @@ export type RenderableModel = Pick<
   SystemModelCatalogEntry,
   'id' | 'name' | 'systemPromptTemplate'
 >;
+
+export type SystemPromptRenderInput = {
+  model: RenderableModel;
+  anchor: TemporalAnchor;
+  user?: PromptUserInput;
+  chats?: PromptChatsInput;
+};
 
 /**
  * Renders a model's complete system prompt for one run.
@@ -37,16 +45,13 @@ export type RenderableModel = Pick<
  */
 @Injectable()
 export class SystemPromptsService {
-  render(
-    model: RenderableModel,
-    user?: PromptUserInput,
-    chats?: PromptChatsInput,
-  ): string {
-    return renderSystemPromptTemplate(
-      model.systemPromptTemplate,
-      model,
-      user,
-      chats,
-    );
+  render(input: SystemPromptRenderInput): string {
+    return renderSystemPromptTemplate({
+      template: input.model.systemPromptTemplate,
+      model: input.model,
+      anchor: input.anchor,
+      user: input.user,
+      chats: input.chats,
+    });
   }
 }

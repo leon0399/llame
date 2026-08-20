@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   createModelPromptLoader,
   type PromptUserInput,
+  type TemporalAnchor,
   renderSystemPromptTemplate,
 } from '../instance-config/prompt-loader';
 import { type PromptChatsInput } from '../models/model-catalog';
@@ -15,13 +16,24 @@ import { type PromptChatsInput } from '../models/model-catalog';
  */
 const MODEL = { id: 'system:openai:test', name: 'Test Model' };
 
+const TEST_ANCHOR: TemporalAnchor = {
+  systemTime: '2026-08-19 16:36+02:00',
+  systemTimezone: 'Europe/Madrid',
+};
+
 const template = () =>
   createModelPromptLoader({
     configPath: path.resolve(__dirname, '../../llame.config.json'),
   }).resolve(MODEL).systemPromptTemplate;
 
 const render = (user?: PromptUserInput, chats?: PromptChatsInput) =>
-  renderSystemPromptTemplate(template(), MODEL, user, chats);
+  renderSystemPromptTemplate({
+    template: template(),
+    model: MODEL,
+    anchor: TEST_ANCHOR,
+    user,
+    chats,
+  });
 
 function removeDigestBlock(source: string): string {
   const start = source.indexOf('{{#if chats}}');
@@ -257,7 +269,11 @@ describe('packaged default prompt — chat recency digest', () => {
     const source = template();
 
     expect(render()).toBe(
-      renderSystemPromptTemplate(removeDigestBlock(source), MODEL),
+      renderSystemPromptTemplate({
+        template: removeDigestBlock(source),
+        model: MODEL,
+        anchor: TEST_ANCHOR,
+      }),
     );
   });
 

@@ -759,7 +759,15 @@ describe('ChatLoopService effective-context transaction binding', () => {
     expect(createMessage.mock.invocationCallOrder[0]).toBeLessThan(
       createRun.mock.invocationCallOrder[0],
     );
-    expect(render).toHaveBeenCalledWith(model, undefined, baseline);
+    expect(render).toHaveBeenCalledOnce();
+    const renderInput = render.mock.calls[0][0];
+    expect(renderInput).toMatchObject({
+      model,
+      user: undefined,
+      chats: baseline,
+    });
+    expect(renderInput).toHaveProperty('anchor.systemTime');
+    expect(renderInput).toHaveProperty('anchor.systemTimezone');
   });
   it('persists a prior-snapshot delta part bound to the same target Run before the user text', async () => {
     const previousRun: Run = {

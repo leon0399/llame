@@ -10,7 +10,15 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { InstanceConfigError } from './instance-config.error';
-import { renderSystemPromptTemplate } from './prompt-loader';
+import {
+  renderSystemPromptTemplate,
+  type TemporalAnchor,
+} from './prompt-loader';
+
+const TEST_ANCHOR: TemporalAnchor = {
+  systemTime: '2000-01-01 00:00+00:00',
+  systemTimezone: 'UTC',
+};
 import { loadInstanceConfig, resolveConfigPath } from './config-loader';
 import { BUILT_IN_DEFAULTS } from './llame-config';
 
@@ -88,7 +96,11 @@ function modelFixtureJson(modelId: string): string {
 
 function renderFirstModel(): string {
   const model = loadInstanceConfig().models[0];
-  return renderSystemPromptTemplate(model.systemPromptTemplate, model);
+  return renderSystemPromptTemplate({
+    template: model.systemPromptTemplate,
+    model,
+    anchor: TEST_ANCHOR,
+  });
 }
 
 describe('resolveConfigPath', () => {
@@ -1065,7 +1077,11 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
       const model = loadInstanceConfig().models[0];
       expect(model).toMatchObject({ systemPromptSource: 'model_override' });
       expect(
-        renderSystemPromptTemplate(model.systemPromptTemplate, model),
+        renderSystemPromptTemplate({
+          template: model.systemPromptTemplate,
+          model,
+          anchor: TEST_ANCHOR,
+        }),
       ).toBe('Relative prompt for m');
     });
 
@@ -1085,7 +1101,11 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
       const model = loadInstanceConfig().models[0];
       expect(model).toMatchObject({ systemPromptSource: 'model_override' });
       expect(
-        renderSystemPromptTemplate(model.systemPromptTemplate, model),
+        renderSystemPromptTemplate({
+          template: model.systemPromptTemplate,
+          model,
+          anchor: TEST_ANCHOR,
+        }),
       ).toBe('Absolute prompt');
     });
 
@@ -1141,7 +1161,11 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
       const model = loadInstanceConfig().models[0];
       expect(model.systemPromptSource).toBe('project_default');
       expect(
-        renderSystemPromptTemplate(model.systemPromptTemplate, model),
+        renderSystemPromptTemplate({
+          template: model.systemPromptTemplate,
+          model,
+          anchor: TEST_ANCHOR,
+        }),
       ).toMatch(/\S/);
       expect(model).not.toHaveProperty('systemPromptFile');
     });

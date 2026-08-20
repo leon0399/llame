@@ -182,9 +182,10 @@ contain credentials or host-sensitive data. The configured path remains
 server-only and is stripped from the public model catalog.
 
 **Prompt files are Handlebars templates.** Renderable paths are the model's
-`{{model.id}}`/`{{model.name}}`, the requesting owner's per-user paths, and the
-requesting chat's top-level `chats` digest paths; `${...}` has no meaning and
-is ordinary text.
+`{{model.id}}`/`{{model.name}}`, the unconditional temporal-anchor paths
+`{{context.systemTime}}`/`{{context.systemTimezone}}`, the requesting owner's
+per-user paths, and the requesting chat's top-level `chats` digest paths;
+`${...}` has no meaning and is ordinary text.
 
 - **The renderable allowlist** is `PROMPT_CONTEXT_PATHS` in
   `instance-config/prompt-loader.ts` — later capabilities extend that constant,
@@ -209,9 +210,10 @@ is ordinary text.
   over it evaluate true. Values are trimmed, and whitespace-only counts as
   absent.
 - **Neutralization is split by field kind**, applied when the context is built.
-  Model, account-identity, and digest-metadata values (`model.*`, `user.name`,
-  `user.email`, `chats.*Shown`, `chats.*Total`, `chats.compiledOn`) escape
-  exactly `&`, `<`, `>` and nothing else. Owner-authored values
+  Model, account-identity, temporal-anchor, and digest-metadata values
+  (`model.*`, `user.name`, `user.email`, `context.*`, `chats.*Shown`,
+  `chats.*Total`, `chats.compiledOn`) escape exactly `&`, `<`, `>` and nothing
+  else. Owner-authored values
   (`user.personalization.*`) and all digest item fields instead pass through
   the tag-balance sanitizer
   (`instance-config/authored-text.ts`, mirrored byte-for-byte in
@@ -271,6 +273,14 @@ is ordinary text.
   personalization framing around no personalization content. Empty collections
   are omitted, then `chats` itself is omitted when neither list would render;
   metadata has no meaning and is omitted with it.
+- **Temporal-anchor paths are unconditional**: `context.systemTime` renders an
+  absolute timestamp with a numeric UTC offset (e.g. `2026-08-19 16:36+02:00`),
+  and `context.systemTimezone` renders the IANA identifier (e.g.
+  `Europe/Madrid`). Both are always present. `context` is NOT a gate-only
+  subject — `{{#if context}}` fails boot. The anchor is derived from the latest
+  compaction's `createdAt` (falling back to `chat.createdAt`), frozen until the
+  next compaction, and formatted in the instance's local timezone (governed by
+  the `TZ` environment variable; unset or invalid `TZ` yields UTC).
 - **Boot renders the cross product of the `user` and `chats` gates**, absent and
   populated for each, and keeps the `rendered prompt is empty` failure. The
   gates are independent and `unless` can invert either, so varying them in
