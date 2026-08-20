@@ -115,6 +115,14 @@ const EXPECTED_OPERATION_IDS = [
   'updateRun',
 ] as const;
 
+const EXPECTED_ORG_UNIT_CONFLICT_CODES = [
+  'CONCURRENT_TREE_CHANGE',
+  'DUPLICATE_MEMBERSHIP',
+  'HAS_CHILDREN',
+  'LAST_OWNER',
+  'MOVE_INTO_OWN_SUBTREE',
+] as const;
+
 type OperationEntry = {
   method: (typeof HTTP_METHODS)[number];
   path: string;
@@ -217,6 +225,18 @@ describe('committed OpenAPI contract', () => {
 
     expect(schema.required).toContain('directRole');
     expect(directRole.nullable).toBe(true);
+  });
+
+  it('keeps the complete sorted organization conflict code enum', () => {
+    const schema = schemaObjectSchema.parse(
+      document.components?.schemas?.OrgUnitConflictErrorResponse,
+    );
+    const properties = z
+      .record(z.string(), z.unknown())
+      .parse(schema.properties);
+    const code = schemaObjectSchema.parse(properties.code);
+
+    expect(code.enum).toEqual(EXPECTED_ORG_UNIT_CONFLICT_CODES);
   });
 
   it.each([

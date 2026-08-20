@@ -5,6 +5,7 @@ const ORG_UNIT_CONFLICT_CODES = [
   'DUPLICATE_MEMBERSHIP',
   'HAS_CHILDREN',
   'LAST_OWNER',
+  'MOVE_INTO_OWN_SUBTREE',
 ] as const;
 
 export class ErrorResponse {
