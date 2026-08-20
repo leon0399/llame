@@ -3,7 +3,7 @@
 **Status:** Approved for implementation planning  
 **Date:** 2026-08-21  
 **Scope:** Replace handwritten non-streaming web API transport and duplicate
-contract types with committed Orval output, delivered as a six-PR stack.
+contract types with committed Orval output, delivered as a seven-PR stack.
 
 ## Context
 
@@ -315,6 +315,7 @@ master
 <- generated-api-client/project-pins
 <- generated-api-client/org-units
 <- generated-api-client/chat-runs
+<- generated-api-client/finalize
 ```
 
 ### 1. Contract
@@ -347,9 +348,13 @@ classification and the most complex optimistic-update behavior.
 
 Migrate non-streaming chat and run operations, retain explicit streaming and
 SSR policies, remove Ky and duplicate DTOs, clean migration orphans, and update
-current architecture documentation and shipped chronology. Delete this design
-spec and its implementation plan after every durable decision has moved into
-the owning documentation, configuration, tests, or code comments.
+current architecture documentation and shipped chronology.
+
+### 7. Finalize
+
+Delete this design spec and its implementation plan after verifying that every
+durable decision has moved into the owning documentation, configuration, tests,
+or code comments. This layer contains no functional implementation changes.
 
 Intermediate layers may contain both Ky and generated Fetch services, but each
 is deployable. The top layer is the completion gate: no Ky dependency, no
@@ -375,10 +380,11 @@ contract projection, build tooling, and client implementation without changing
 product behavior.
 
 The design spec and implementation plan are temporary execution artifacts. They
-remain committed while the stack is under review so each layer has shared
-context, then the final stack layer removes them. `SPEC.md`, workspace
-instructions, generated-client instructions, tests, configuration, and the
-changelog retain the durable decisions without preserving process scaffolding.
+remain committed while the functional stack is under review so each layer has
+shared context. A separate finalization PR removes them after functional
+completion. `SPEC.md`, workspace instructions, generated-client instructions,
+tests, configuration, and the changelog retain the durable decisions without
+preserving process scaffolding.
 
 ## Acceptance Criteria
 
