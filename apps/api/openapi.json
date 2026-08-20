@@ -3526,8 +3526,7 @@
               "CONCURRENT_TREE_CHANGE",
               "DUPLICATE_MEMBERSHIP",
               "HAS_CHILDREN",
-              "LAST_OWNER",
-              "MOVE_INTO_OWN_SUBTREE"
+              "LAST_OWNER"
             ]
           }
         },
