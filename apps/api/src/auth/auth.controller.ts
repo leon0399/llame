@@ -18,6 +18,7 @@ import {
   ApiCookieAuth,
   ApiCreatedResponse,
   ApiOkResponse,
+  ApiOperation,
   ApiParam,
   ApiTags,
   ApiTooManyRequestsResponse,
@@ -52,6 +53,7 @@ export class AuthController {
   // Brute-force / mass-signup ceiling (#68), per client IP.
   @Throttle({ default: { ttl: 60_000, limit: AUTH_RATE_LIMIT_PER_MINUTE } })
   @Post('register')
+  @ApiOperation({ operationId: 'registerUser' })
   @ApiCreatedResponse({ type: AuthTokenResponse })
   @ApiConflictResponse({ description: 'Email already registered' })
   @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded' })
@@ -82,6 +84,7 @@ export class AuthController {
   // Credential brute-force ceiling (#68): each attempt costs a bcrypt compare.
   @Throttle({ default: { ttl: 60_000, limit: AUTH_RATE_LIMIT_PER_MINUTE } })
   @Post('login')
+  @ApiOperation({ operationId: 'loginUser' })
   @HttpCode(200)
   @ApiOkResponse({ type: AuthTokenResponse })
   @ApiUnauthorizedResponse({ description: 'Invalid credentials' })
@@ -107,6 +110,7 @@ export class AuthController {
   }
 
   @Get('me')
+  @ApiOperation({ operationId: 'getCurrentUser' })
   @ApiBearerAuth('bearer')
   @ApiCookieAuth('cookie')
   @ApiOkResponse({ type: PublicUserResponse })
@@ -116,6 +120,7 @@ export class AuthController {
   }
 
   @Get('sessions')
+  @ApiOperation({ operationId: 'listSessions' })
   @ApiBearerAuth('bearer')
   @ApiCookieAuth('cookie')
   @ApiOkResponse({ type: SessionsResponse })
@@ -128,6 +133,7 @@ export class AuthController {
   }
 
   @Get('sessions/current')
+  @ApiOperation({ operationId: 'getCurrentSession' })
   @ApiBearerAuth('bearer')
   @ApiCookieAuth('cookie')
   @ApiOkResponse({ type: SessionResponse })
@@ -140,6 +146,7 @@ export class AuthController {
   }
 
   @Delete('sessions/current')
+  @ApiOperation({ operationId: 'logoutUser' })
   @ApiBearerAuth('bearer')
   @ApiCookieAuth('cookie')
   @ApiOkResponse({ type: SessionRevocationResponse })
@@ -162,6 +169,7 @@ export class AuthController {
   }
 
   @Delete('sessions/:id')
+  @ApiOperation({ operationId: 'revokeSession' })
   @ApiBearerAuth('bearer')
   @ApiCookieAuth('cookie')
   @ApiParam({ name: 'id', format: 'uuid' })
@@ -176,6 +184,7 @@ export class AuthController {
   }
 
   @Delete('sessions')
+  @ApiOperation({ operationId: 'revokeSessions' })
   @ApiBearerAuth('bearer')
   @ApiCookieAuth('cookie')
   @ApiOkResponse({ type: SessionRevocationResponse })

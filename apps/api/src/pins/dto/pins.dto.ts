@@ -1,5 +1,4 @@
-import { ApiExtraModels, ApiProperty, getSchemaPath } from '@nestjs/swagger';
-import type { PinItemType } from '../../db/schema';
+import { ApiProperty, getSchemaPath } from '@nestjs/swagger';
 import type { PinnedRow } from '../pins-repository';
 
 // The two pinnable item types. The value validated for the `:itemType` path
@@ -38,13 +37,9 @@ export class ProjectRefCard {
   archivedAt!: Date | null;
 }
 
-// A pinned item: pin metadata + the item's per-type card. `itemType` is the
-// discriminator (on the wrapper, so the cards stay free of a `kind` field);
-// `pinnedAt` is the type-agnostic ordering key. `item` is a oneOf of the cards.
-@ApiExtraModels(ChatRefCard, ProjectRefCard)
-export class PinnedItemResponse {
-  @ApiProperty({ enum: Object.values(PIN_ITEM_TYPES) })
-  itemType!: PinItemType;
+export class ChatPinnedItemResponse {
+  @ApiProperty({ enum: [PIN_ITEM_TYPES.chat] })
+  itemType!: 'chat';
 
   @ApiProperty({ format: 'uuid' })
   itemId!: string;
@@ -52,27 +47,56 @@ export class PinnedItemResponse {
   @ApiProperty({ format: 'date-time' })
   pinnedAt!: Date;
 
-  @ApiProperty({
-    oneOf: [
-      { $ref: getSchemaPath(ChatRefCard) },
-      { $ref: getSchemaPath(ProjectRefCard) },
-    ],
-    description:
-      'The item, shaped per itemType: a ChatRefCard for chat, a ProjectRefCard for project.',
-  })
-  item!: ChatRefCard | ProjectRefCard;
+  @ApiProperty({ type: ChatRefCard })
+  item!: ChatRefCard;
 }
 
+export class ProjectPinnedItemResponse {
+  @ApiProperty({ enum: [PIN_ITEM_TYPES.project] })
+  itemType!: 'project';
+
+  @ApiProperty({ format: 'uuid' })
+  itemId!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  pinnedAt!: Date;
+
+  @ApiProperty({ type: ProjectRefCard })
+  item!: ProjectRefCard;
+}
+
+export type PinnedItemResponse =
+  | ChatPinnedItemResponse
+  | ProjectPinnedItemResponse;
+
+export const PINNED_ITEM_RESPONSE_SCHEMA = {
+  oneOf: [
+    { $ref: getSchemaPath(ChatPinnedItemResponse) },
+    { $ref: getSchemaPath(ProjectPinnedItemResponse) },
+  ],
+  discriminator: {
+    propertyName: 'itemType',
+    mapping: {
+      chat: getSchemaPath(ChatPinnedItemResponse),
+      project: getSchemaPath(ProjectPinnedItemResponse),
+    },
+  },
+};
+
 export function toPinnedItemResponse(row: PinnedRow): PinnedItemResponse {
-  const item: ChatRefCard | ProjectRefCard =
-    row.itemType === 'chat'
-      ? { id: row.itemId, title: row.title, archivedAt: row.archivedAt }
-      : { id: row.itemId, name: row.name, archivedAt: row.archivedAt };
+  if (row.itemType === 'chat') {
+    return {
+      itemType: row.itemType,
+      itemId: row.itemId,
+      pinnedAt: row.pinnedAt,
+      item: { id: row.itemId, title: row.title, archivedAt: row.archivedAt },
+    };
+  }
 
   return {
     itemType: row.itemType,
     itemId: row.itemId,
     pinnedAt: row.pinnedAt,
-    item,
+    item: { id: row.itemId, name: row.name, archivedAt: row.archivedAt },
   };
 }

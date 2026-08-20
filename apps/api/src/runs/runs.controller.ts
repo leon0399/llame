@@ -18,6 +18,7 @@ import {
   ApiConflictResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
+  ApiOperation,
   ApiParam,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -69,6 +70,7 @@ export class RunsController {
   ) {}
 
   @Get(':id')
+  @ApiOperation({ operationId: 'getRun' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: RunResponse })
   @ApiUnauthorizedResponse()
@@ -82,6 +84,7 @@ export class RunsController {
   }
 
   @Get(':id/context-receipt')
+  @ApiOperation({ operationId: 'getRunContextReceipt' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ContextReceiptResponse })
   @ApiUnauthorizedResponse()
@@ -117,6 +120,7 @@ export class RunsController {
    * Idempotent: re-cancelling an already cancel-requested run returns 200.
    */
   @Patch(':id')
+  @ApiOperation({ operationId: 'updateRun' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiBody({ type: UpdateRunDto })
   @ApiOkResponse({ type: RunResponse })
@@ -156,6 +160,8 @@ export class RunsController {
    * closes immediately.
    */
   @Get(':id/events')
+  @ApiOperation({ operationId: 'streamRunEvents' })
+  @ApiTags('streaming')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({
     description:

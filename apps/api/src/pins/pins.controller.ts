@@ -12,9 +12,11 @@ import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiCookieAuth,
+  ApiExtraModels,
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
+  ApiOperation,
   ApiParam,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -23,8 +25,11 @@ import { CurrentUser } from '../auth/auth-context';
 import { type PinItemType } from '../db/schema';
 import { PinsService } from './pins.service';
 import {
+  ChatPinnedItemResponse,
   PIN_ITEM_TYPES,
+  PINNED_ITEM_RESPONSE_SCHEMA,
   PinnedItemResponse,
+  ProjectPinnedItemResponse,
   toPinnedItemResponse,
 } from './dto/pins.dto';
 
@@ -34,12 +39,16 @@ import {
 @ApiTags('pins')
 @ApiBearerAuth('bearer')
 @ApiCookieAuth('cookie')
+@ApiExtraModels(ChatPinnedItemResponse, ProjectPinnedItemResponse)
 @Controller('api/v1/pins')
 export class PinsController {
   constructor(private readonly pinsService: PinsService) {}
 
   @Get()
-  @ApiOkResponse({ type: PinnedItemResponse, isArray: true })
+  @ApiOperation({ operationId: 'listPins' })
+  @ApiOkResponse({
+    schema: { type: 'array', items: PINNED_ITEM_RESPONSE_SCHEMA },
+  })
   @ApiUnauthorizedResponse()
   async listPins(@CurrentUser() userId: string): Promise<PinnedItemResponse[]> {
     const rows = await this.pinsService.listPins(userId);
@@ -48,9 +57,10 @@ export class PinsController {
 
   // Idempotent pin. 200 (not 201): the operation may create nothing (re-pin).
   @Put(':itemType/:itemId')
+  @ApiOperation({ operationId: 'pinItem' })
   @ApiParam({ name: 'itemType', enum: Object.values(PIN_ITEM_TYPES) })
   @ApiParam({ name: 'itemId', format: 'uuid' })
-  @ApiOkResponse({ type: PinnedItemResponse })
+  @ApiOkResponse({ schema: PINNED_ITEM_RESPONSE_SCHEMA })
   @ApiBadRequestResponse({
     description: 'Unknown itemType or malformed itemId (not a UUID)',
   })
@@ -70,6 +80,7 @@ export class PinsController {
 
   // Idempotent unpin.
   @Delete(':itemType/:itemId')
+  @ApiOperation({ operationId: 'unpinItem' })
   @HttpCode(204)
   @ApiParam({ name: 'itemType', enum: Object.values(PIN_ITEM_TYPES) })
   @ApiParam({ name: 'itemId', format: 'uuid' })

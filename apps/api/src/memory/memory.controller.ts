@@ -3,6 +3,7 @@ import {
   ApiBearerAuth,
   ApiCookieAuth,
   ApiOkResponse,
+  ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -33,6 +34,7 @@ export class MemoryController {
   ) {}
 
   @Get()
+  @ApiOperation({ operationId: 'getMemory' })
   @ApiOkResponse({ type: MemoryResponse })
   @ApiUnauthorizedResponse()
   async getMemory(@CurrentUser() userId: string): Promise<MemoryResponse> {
@@ -40,6 +42,7 @@ export class MemoryController {
   }
 
   @Patch()
+  @ApiOperation({ operationId: 'updateMemory' })
   @ApiOkResponse({ type: MemoryResponse })
   @ApiUnauthorizedResponse()
   async updateMemory(

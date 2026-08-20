@@ -19,6 +19,7 @@ import {
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
+  ApiOperation,
   ApiParam,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -44,6 +45,7 @@ export class ProjectsController {
   constructor(private readonly projectsService: ProjectsService) {}
 
   @Post()
+  @ApiOperation({ operationId: 'createProject' })
   @ApiCreatedResponse({ type: ProjectResponse })
   @ApiUnauthorizedResponse()
   async createProject(
@@ -55,6 +57,7 @@ export class ProjectsController {
   }
 
   @Get()
+  @ApiOperation({ operationId: 'listProjects' })
   @ApiOkResponse({ type: ProjectResponse, isArray: true })
   @ApiUnauthorizedResponse()
   async getProjects(
@@ -66,6 +69,7 @@ export class ProjectsController {
   }
 
   @Get(':id')
+  @ApiOperation({ operationId: 'getProject' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ProjectResponse })
   @ApiBadRequestResponse({ description: 'Malformed project id (not a UUID)' })
@@ -86,6 +90,7 @@ export class ProjectsController {
   // PATCH (partial update) of a project resource — RESTful, not an RPC-style
   // verb endpoint (mirrors ChatsController.updateChat).
   @Patch(':id')
+  @ApiOperation({ operationId: 'updateProject' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ProjectResponse })
   @ApiBadRequestResponse({ description: 'Malformed project id (not a UUID)' })
@@ -107,6 +112,7 @@ export class ProjectsController {
   // Hard delete. Owner-scoped (RLS + ownerUserId); the FK on chats.project_id
   // is ON DELETE SET NULL, so filed chats are unfiled, never destroyed.
   @Delete(':id')
+  @ApiOperation({ operationId: 'deleteProject' })
   @HttpCode(204)
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiNoContentResponse()

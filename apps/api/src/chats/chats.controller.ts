@@ -26,6 +26,7 @@ import {
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
+  ApiOperation,
   ApiParam,
   ApiResponse,
   ApiTags,
@@ -127,6 +128,8 @@ export class ChatsController {
    * "no active run" (no existence leak).
    */
   @Get(':id/stream')
+  @ApiOperation({ operationId: 'resumeChatStream' })
+  @ApiTags('streaming')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({
     description: 'AI SDK v5 UI-message stream (SSE) replaying the active run',
@@ -168,6 +171,7 @@ export class ChatsController {
   }
 
   @Get()
+  @ApiOperation({ operationId: 'listChats' })
   @ApiOkResponse({ type: ChatListItemResponse, isArray: true })
   @ApiBadRequestResponse({ description: 'Malformed projectId (not a UUID)' })
   @ApiUnauthorizedResponse()
@@ -189,6 +193,7 @@ export class ChatsController {
   // here and never captured by the `:id` param route (which would then reject
   // "search" via ParseUUIDPipe → 400). NestJS/Express match by declaration order.
   @Get('search')
+  @ApiOperation({ operationId: 'searchChats' })
   @ApiOkResponse({ type: ChatSearchResponse })
   @ApiBadRequestResponse({ description: 'Invalid search query' })
   @ApiUnauthorizedResponse()
@@ -205,6 +210,7 @@ export class ChatsController {
   }
 
   @Get(':id')
+  @ApiOperation({ operationId: 'getChat' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ChatResponse })
   @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
@@ -230,6 +236,7 @@ export class ChatsController {
   // via the shared-chat view (a cross-tenant/foreign id 404s exactly like
   // before; embedding a field doesn't change that).
   @Get(':id/messages')
+  @ApiOperation({ operationId: 'getChatMessages' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ChatMessagesResponse })
   @ApiBadRequestResponse({
@@ -267,6 +274,8 @@ export class ChatsController {
   // their first message — there is no separate empty-chat endpoint. Model selection is validated
   // first, so unavailable models create nothing.
   @Post(':id/messages')
+  @ApiOperation({ operationId: 'createChatMessage' })
+  @ApiTags('streaming')
   @HttpCode(200)
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiBody({ type: CreateMessageDto })
@@ -355,6 +364,7 @@ export class ChatsController {
 
   // PATCH (partial update) of a chat resource — RESTful, not an RPC-style verb endpoint.
   @Patch(':id')
+  @ApiOperation({ operationId: 'updateChat' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ChatResponse })
   @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
@@ -379,6 +389,7 @@ export class ChatsController {
   // Hard delete. Owner-scoped (RLS + ownerUserId); the FK cascade removes the
   // chat's messages, compactions, runs → run_events in one statement.
   @Delete(':id')
+  @ApiOperation({ operationId: 'deleteChat' })
   @HttpCode(204)
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiNoContentResponse()
@@ -404,6 +415,7 @@ export class ChatsController {
   // not owned by the caller yields 404 and copies nothing (RLS + the
   // owner-scoped lookups in the service).
   @Post(':id/forks')
+  @ApiOperation({ operationId: 'forkChat' })
   @HttpCode(201)
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiBody({ type: ForkChatDto })

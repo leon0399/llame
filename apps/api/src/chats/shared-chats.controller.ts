@@ -15,6 +15,7 @@ import {
   ApiCreatedResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
+  ApiOperation,
   ApiParam,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -57,6 +58,7 @@ export class SharedChatsController {
    */
   @Public()
   @Get(':id')
+  @ApiOperation({ operationId: 'getSharedChat' })
   @Header('Cache-Control', 'no-store')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: SharedChatResponse })
@@ -89,6 +91,7 @@ export class SharedChatsController {
    * existence oracle).
    */
   @Post(':id/forks')
+  @ApiOperation({ operationId: 'forkSharedChat' })
   @HttpCode(201)
   @ApiBearerAuth('bearer')
   @ApiCookieAuth('cookie')

@@ -10,6 +10,7 @@ import {
   ApiCookieAuth,
   ApiOkResponse,
   ApiResponse,
+  ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -34,6 +35,7 @@ export class ModelsController {
   ) {}
 
   @Get()
+  @ApiOperation({ operationId: 'listModels' })
   @ApiOkResponse({ type: ModelsResponse })
   @ApiUnauthorizedResponse()
   @ApiResponse({
