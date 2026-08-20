@@ -60,9 +60,9 @@ Rendering the anchor discloses the instance's timezone to every user of that ins
 - **WHEN** the anchor renders on an instance whose local timezone offset is not a whole number of hours
 - **THEN** the rendered offset states the exact hours and minutes
 
-A resolved zone that is **absent or degenerate** SHALL fall back to UTC. A misconfigured or unset environment can resolve to no zone at all, or to a placeholder identifier that names no real zone; either would otherwise render a meaningless or literally undefined timezone label into every user's prompt. The fallback SHALL be UTC rather than a startup failure, because the timezone comes from the process environment rather than from llame's own operator config, and UTC is a correct and honest reading. The condition SHALL be logged so a misconfiguration is discoverable rather than silent.
+A resolved zone that is **absent or degenerate** SHALL fall back to UTC. A misconfigured environment (e.g. `TZ` set to a non-existent zone, or set to an empty string) can resolve to no zone at all, or to a placeholder identifier that names no real zone; either would otherwise render a meaningless or literally undefined timezone label into every user's prompt. When `TZ` is unset, Node uses the operating system's configured timezone, which is the native and correct behavior — an unset `TZ` is not a misconfiguration. The fallback SHALL be UTC rather than a startup failure, because the timezone comes from the process environment rather than from llame's own operator config, and UTC is a correct and honest reading. The condition SHALL be logged so a misconfiguration is discoverable rather than silent.
 
-#### Scenario: Instance timezone is misconfigured or unset
+#### Scenario: Instance timezone is misconfigured
 
 - **WHEN** the environment resolves to no timezone, or to a placeholder that names no real zone
 - **THEN** the anchor renders in UTC with a zero offset and the identifier `UTC`
@@ -108,7 +108,7 @@ A per-request clock SHALL NOT be introduced ahead of the cached prefix under any
 
 #### Scenario: Run after a compaction
 
-- **WHEN** a run is prepared after the chat has been compacted
+- **WHEN** a run is prepared after the chat has been compacted and the compaction time differs from the previous anchor source at minute precision
 - **THEN** the rendered anchor differs from the previous run's
 - **AND** a new effective-context snapshot is minted, as any changed prompt input requires
 
@@ -156,5 +156,5 @@ Dated content already carried in the prompt — notably the recency digest's per
 #### Scenario: Digest entry is placed against the anchor
 
 - **WHEN** a prompt renders both the anchor and a digest entry carrying a last-activity date
-- **THEN** the entry's date and the anchor are expressed on the same absolute, timezone-explicit basis, so the interval between them is determinable
+- **THEN** the anchor provides the timezone-explicit reference point against which the entry's date-only value can be interpreted, even though the entry itself is a UTC calendar date without an offset
 - **AND** the digest's own compilation date is still rendered, unchanged
