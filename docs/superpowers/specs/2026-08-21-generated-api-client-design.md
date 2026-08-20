@@ -77,6 +77,7 @@ apps/web/
     generated/
       auth/
       chats/
+      me/
       memory/
       models/
       org-units/
@@ -84,7 +85,6 @@ apps/web/
       pins/
       projects/
       runs/
-      models/
 ```
 
 `AGENTS.md` documents generated-file ownership, regeneration commands,
@@ -98,10 +98,12 @@ Contract correctness precedes client migration.
 
 ### Stable Operation IDs
 
-Nest's Swagger document creation uses an `operationIdFactory` that returns the
-controller method name. Current method names are unique and domain-oriented.
-OpenAPI linting enforces global uniqueness so a future collision fails at the
-contract boundary instead of silently renaming generated functions.
+Each controller operation declares an explicit, domain-oriented
+`@ApiOperation({ operationId })`. Operation IDs are public contract identifiers,
+not values derived from controller or method names. A contract assertion checks
+that every operation has an ID, that IDs are globally unique, and that the
+committed ID set changes only through an intentional contract diff. Controller
+and method refactors therefore cannot silently rename generated functions.
 
 ### Correlated Unions
 
@@ -144,17 +146,29 @@ making the remaining debt visible.
 
 ## Orval Generation
 
-Orval is exact-pinned. The baseline configuration uses:
+Orval is exact-pinned. The relevant baseline configuration shape is:
 
-```text
-mode: tags-split
-client: fetch
-schemas: generated/models
-forceSuccessResponse: true
-includeHttpResponseReturnType: false
-useRuntimeFetcher: true
-formatter: prettier
+```typescript
+output: {
+  mode: "tags-split",
+  client: "fetch",
+  schemas: "./lib/api/generated/models",
+  override: {
+    fetch: {
+      forceSuccessResponse: true,
+      includeHttpResponseReturnType: false,
+      useRuntimeFetcher: true,
+    },
+  },
+}
 ```
+
+The generation command runs Prettier over the output. Generated endpoint URLs
+remain relative; the OpenAPI document does not supply an absolute server URL,
+and generation assertions reject absolute endpoint URLs. The injected Fetch
+policy, not Orval URL generation, resolves those paths against the environment's
+API origin. `useRuntimeFetcher` provides the per-call Fetch injection only; it
+does not perform origin resolution.
 
 Generated operations return success data directly. Failed responses throw an
 error carrying a status and parsed `info` body. `lib/api/errors.ts` provides a
@@ -269,12 +283,15 @@ from OpenAPI.
 Focused checks prove:
 
 - Operation IDs are unique and controller-independent.
+- Every operation declares an explicit operation ID, and the committed ID set
+  changes only through an intentional contract update.
 - Streaming operations carry the exclusion tag.
 - `PinnedItemResponse` generates a correlated discriminated union.
 - Required nullable enums preserve `null`.
 - Empty success responses generate `void`.
 - Selected typed errors preserve their status and body type.
 - Repeated generation is deterministic and leaves a clean tree.
+- Generated endpoint URLs remain relative and begin with the API path prefix.
 
 ### Fetch Policies
 
@@ -295,9 +312,11 @@ optimistic behavior, rollback, and cross-resource invalidation. Ky and
 `FakeHTTPError` mocks are replaced with generated-function boundaries or
 protocol-shaped errors.
 
-No new product behavior requires a new E2E scenario. The final layer runs
-existing auth, project, organization, chat, and streaming flows for behavioral
-parity.
+The final functional layer runs existing auth, project, organization, chat, and
+streaming flows for behavioral parity. It also adds one focused public-share
+parity scenario: an anonymous visitor can open a shared chat without being
+redirected to login. This covers the optional-auth transport boundary that the
+current E2E suite does not exercise directly.
 
 Each stack layer passes affected unit tests, lint, typecheck, format check, and
 sequential workspace builds. The completed stack additionally runs full schema
@@ -347,8 +366,9 @@ classification and the most complex optimistic-update behavior.
 ### 6. Chat And Runs
 
 Migrate non-streaming chat and run operations, retain explicit streaming and
-SSR policies, remove Ky and duplicate DTOs, clean migration orphans, and update
-current architecture documentation and shipped chronology.
+SSR policies, migrate the `me`-tagged active-runs request, remove Ky and
+duplicate DTOs, clean migration orphans, add anonymous public-share parity
+coverage, and update current architecture documentation and shipped chronology.
 
 ### 7. Finalize
 
@@ -357,9 +377,10 @@ durable decision has moved into the owning documentation, configuration, tests,
 or code comments. This layer contains no functional implementation changes.
 
 Intermediate layers may contain both Ky and generated Fetch services, but each
-is deployable. The top layer is the completion gate: no Ky dependency, no
-handwritten contract duplicates, no component imports from generated code, and
-unchanged streaming behavior.
+is deployable. The sixth layer is the functional completion gate: no Ky
+dependency, no handwritten contract duplicates, no component imports from
+generated code, and unchanged streaming behavior. The seventh layer is only the
+planning-artifact cleanup gate.
 
 Before submission, rebase upstack and verify the saved parent chain with
 `gh stack view --json`. Stack merge remains an explicit user-authorized action.
