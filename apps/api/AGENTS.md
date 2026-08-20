@@ -279,8 +279,9 @@ per-user paths, and the requesting chat's top-level `chats` digest paths;
   `Europe/Madrid`). Both are always present. `context` is NOT a gate-only
   subject — `{{#if context}}` fails boot. The anchor is derived from the latest
   compaction's `createdAt` (falling back to `chat.createdAt`), frozen until the
-  next compaction, and formatted in the instance's local timezone (governed by
-  the `TZ` environment variable; unset or invalid `TZ` yields UTC).
+  next compaction, and formatted in the instance's local timezone (the OS
+  timezone when `TZ` is unset, or the `TZ` value when set; an invalid `TZ`
+  that resolves to no real zone falls back to UTC with a logged warning).
 - **Boot renders the cross product of the `user` and `chats` gates**, absent and
   populated for each, and keeps the `rendered prompt is empty` failure. The
   gates are independent and `unless` can invert either, so varying them in
