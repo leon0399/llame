@@ -196,18 +196,19 @@ function renderContextItems(parts: readonly MessagePart[]): RunContextItem[] {
   );
   return orderContextItems(
     items.map((part) => ({ producer: part.data.producer, part })),
-  ).flatMap(({ producer, part }) => {
+  ).map(({ producer, part }) => {
     const text = renderContextItemPart(part);
-    if (text === null) return [];
     const form = resolveForm(part);
-    return [
-      {
-        producer,
-        ...(form !== undefined && { form }),
-        residency: 'rail' as const,
-        text,
-      },
-    ];
+    return {
+      producer,
+      ...(form !== undefined && { form }),
+      residency: 'rail' as const,
+      // An item this reader cannot interpret renders as nothing but is still
+      // recorded, with empty text marking what was dropped. Omitting it would
+      // turn a declared fail-closed omission into an undetectable loss — the
+      // opposite of what the record is for.
+      text: text ?? '',
+    };
   });
 }
 
@@ -326,9 +327,15 @@ export function buildContext(
 
   // The summary leads the history — the stand-in for everything it superseded.
   if (compaction !== undefined) {
-    result.push({
-      role: 'user',
-      content: renderConversationCheckpoint(compaction.summary),
+    const checkpoint = renderConversationCheckpoint(compaction.summary);
+    result.push({ role: 'user', content: checkpoint });
+    // Recorded like any other item: it is bind-time, so unlike a
+    // persisted-derived item it cannot be reconstructed from anything later.
+    contextItems.push({
+      producer: 'compaction',
+      form: COMPACTION_CHECKPOINT_FORM,
+      residency: 'rail',
+      text: checkpoint,
     });
     const compactedObservations = projectCompactionToolObservationLedger(
       compaction.toolObservationLedger,
@@ -358,11 +365,14 @@ export function buildContext(
     if (m.role === 'user') {
       const items = renderContextItems(m.parts);
       contextItems.push(...items);
+      const renderedItems = items.flatMap((item) =>
+        item.text.length > 0 ? [item.text] : [],
+      );
       // User-authored text is neutralized on the way into model context so it
       // cannot emit a reserved delimiter and forge an item beside the genuine
       // ones. The stored message is untouched.
       const content = assembleUserContent({
-        renderedItems: items.map((item) => item.text),
+        renderedItems,
         visibleText: sanitizeAuthoredText(attributedText),
       });
       result.push({ role: 'user', content });

@@ -614,7 +614,31 @@ describe('buildContext', () => {
       );
     });
 
-    it('records nothing for a producer this reader cannot interpret', () => {
+    it('records the compaction checkpoint, which nothing else can reconstruct', () => {
+      const later = msg({
+        seq: 9,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [{ type: 'text', text: 'after the checkpoint' }],
+      });
+
+      const result = buildContext([later], {
+        systemPrompt,
+        compaction: { summary: 'earlier history', uptoSeq: 8 },
+      });
+
+      // Bind-time: unlike a persisted-derived item it cannot be rebuilt from
+      // anything later, so omitting it would leave every compacted run with a
+      // permanently incomplete record.
+      expect(result.contextItems[0]).toMatchObject({
+        producer: 'compaction',
+        form: 'checkpoint',
+        residency: 'rail',
+      });
+      expect(result.contextItems[0].text).toBe(result.messages[0].content);
+    });
+
+    it('records an item it cannot interpret, with empty text marking the omission', () => {
       const unknown = msg({
         seq: 2,
         role: 'user',
@@ -636,7 +660,17 @@ describe('buildContext', () => {
 
       const result = buildContext([unknown], { systemPrompt });
 
-      expect(result.contextItems).toEqual([]);
+      // Renders as nothing to the model, but is still recorded: dropping it
+      // would turn a declared fail-closed omission into an undetectable
+      // version-skew loss, which is the opposite of what the record is for.
+      expect(result.contextItems).toEqual([
+        {
+          producer: 'from-a-newer-api',
+          form: 'notice',
+          residency: 'rail',
+          text: '',
+        },
+      ]);
       expect(contentText(result.messages[0].content)).toBe('Continue.');
     });
 

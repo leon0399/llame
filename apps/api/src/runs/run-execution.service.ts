@@ -601,22 +601,13 @@ export class RunExecutionService {
           }),
         });
 
-        // Recorded in the same tenant transaction that built it: the
-        // rendered wording is not reproducible from a durable part once a
-        // renderer changes, and a bind-time item is not reproducible at all,
-        // so this record is the authority for what the run injected.
-        await new RunsRepository(tx).recordContextItems(
-          input.runId,
-          input.userId,
-          built.contextItems,
-        );
-
         return {
           ...built,
           snapshot,
           untitled: chat?.title === null,
         };
       });
+      let contextItems = context.contextItems;
       prepared = {
         system: context.system,
         messages: context.messages,
@@ -689,6 +680,10 @@ export class RunExecutionService {
           });
         });
         prepared.messages = rebuilt.messages;
+        // Transition compaction replaces the request wholesale, so the items
+        // recorded must be the rebuilt set — the initial build's items were
+        // never sent.
+        contextItems = rebuilt.contextItems;
         if (
           !requestFitsContextWindow({
             system: prepared.system,
@@ -703,6 +698,17 @@ export class RunExecutionService {
           );
         }
       }
+      // Recorded only once the request is final: before this point a
+      // transition compaction can still replace it, and a preparation failure
+      // means no request was ever made. Recording earlier would durably assert
+      // a request the model never received.
+      await this.tenantDb.runAs(input.userId, (tx) =>
+        new RunsRepository(tx).recordContextItems(
+          input.runId,
+          input.userId,
+          contextItems,
+        ),
+      );
     } catch (error) {
       if (input.abortSignal?.aborted) {
         await this.settleAbortedRun(input);
