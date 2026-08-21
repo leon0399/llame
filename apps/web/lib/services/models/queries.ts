@@ -1,41 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { api, buildApiUrl } from "@/lib/api/client";
+import { listModels } from "../../api/generated/models/models";
+import type {
+  AvailableModelResponse,
+  ModelsResponse as GeneratedModelsResponse,
+} from "../../api/generated/models";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 
-export type AvailableModel = {
-  id: string;
-  source: "system";
-  name?: string;
-  description?: string;
-  tags?: string[];
-  icon?: string;
-  // Required, execution-critical (mirrors the API contract): every model
-  // declares its context window; it drives the server-side compaction trigger.
-  contextWindowTokens: number;
-  pricingUsdPer1M?: {
-    input?: number;
-    cachedInput?: number;
-    output?: number;
-  };
-  knowledgeCutoff?: string;
-  reasoning?: boolean;
-  website?: string;
-  apiDocs?: string;
-  modelPage?: string;
-  releasedAt?: string;
-};
-
-export type ModelsResponse = {
-  defaultModelId: string;
-  models: AvailableModel[];
-};
+export type AvailableModel = AvailableModelResponse;
+export type ModelsResponse = GeneratedModelsResponse;
 
 export const modelQueryKeys = {
   all: ["models"] as const,
 };
 
+function authenticatedFetch(): typeof fetch {
+  return createAuthenticatedBrowserFetch(globalThis.fetch);
+}
+
 export const fetchModels = async (): Promise<ModelsResponse> =>
-  api.get(buildApiUrl("/api/v1/models")).json<ModelsResponse>();
+  listModels(undefined, authenticatedFetch());
 
 export const useModelsQuery = () =>
   useQuery({

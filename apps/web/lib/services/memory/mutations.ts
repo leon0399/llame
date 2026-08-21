@@ -1,20 +1,26 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { api, buildApiUrl } from "../../api/client";
+import { updateMemory as updateMemoryEndpoint } from "../../api/generated/memory/memory";
+import type {
+  MemoryResponse,
+  UpdateMemoryDto,
+} from "../../api/generated/models";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import { memoryQueryKeys } from "./queries";
-import type { MemorySettings, MemorySettingsUpdate } from "./types";
 
 export const memoryMutationKeys = {
   all: ["memory", "mutations"] as const,
   update: () => [...memoryMutationKeys.all, "update"] as const,
 };
 
+function authenticatedFetch(): typeof fetch {
+  return createAuthenticatedBrowserFetch(globalThis.fetch);
+}
+
 export async function updateMemory(
-  input: MemorySettingsUpdate,
-): Promise<MemorySettings> {
-  return api
-    .patch(buildApiUrl("/api/v1/me/memory"), { json: input })
-    .json<MemorySettings>();
+  input: UpdateMemoryDto,
+): Promise<MemoryResponse> {
+  return updateMemoryEndpoint(input, undefined, authenticatedFetch());
 }
 
 /**
@@ -33,11 +39,11 @@ export function useUpdateMemoryMutation() {
     mutationFn: updateMemory,
     onMutate: async (input) => {
       await queryClient.cancelQueries({ queryKey: memoryQueryKeys.mine() });
-      const previous = queryClient.getQueryData<MemorySettings>(
+      const previous = queryClient.getQueryData<MemoryResponse>(
         memoryQueryKeys.mine(),
       );
       if (previous) {
-        queryClient.setQueryData<MemorySettings>(memoryQueryKeys.mine(), {
+        queryClient.setQueryData<MemoryResponse>(memoryQueryKeys.mine(), {
           ...previous,
           ...input,
         });

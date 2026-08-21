@@ -1,9 +1,9 @@
 import { fn } from "storybook/test";
 
-import type { MemorySettingsUpdate } from "../types";
+import type { UpdateMemoryDto } from "../../../api/generated/models";
 
 export const updateMemoryMutate =
-  fn<(input: MemorySettingsUpdate) => void>().mockName("updateMemoryMutate");
+  fn<(input: UpdateMemoryDto) => void>().mockName("updateMemoryMutate");
 
 export const useUpdateMemoryMutation = fn(
   (): {

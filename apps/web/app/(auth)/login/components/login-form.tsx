@@ -25,9 +25,12 @@ import {
   FormMessage,
 } from "@workspace/ui/components/form";
 
-import { login, authQueryKeys } from "@/lib/services/auth/queries";
+import {
+  authQueryKeys,
+  isInvalidCredentialsError,
+  login,
+} from "@/lib/services/auth/queries";
 import { useQueryClient } from "@tanstack/react-query";
-import { HTTPError } from "ky";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -86,12 +89,8 @@ export function LoginForm() {
       );
       router.push(safeInternalPath(callbackUrl));
     } catch (error) {
-      // A 401 is genuinely bad credentials; anything else (network, 5xx,
-      // misconfig) must not be mislabeled as a wrong password.
-      const isInvalidCredentials =
-        error instanceof HTTPError && error.response.status === 401;
       form.setError("root", {
-        message: isInvalidCredentials
+        message: isInvalidCredentialsError(error)
           ? "Invalid email or password"
           : "Something went wrong. Please try again.",
       });

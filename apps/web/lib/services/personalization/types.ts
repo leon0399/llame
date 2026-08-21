@@ -1,31 +1,31 @@
+import type {
+  PersonalizationResponse,
+  UpdatePersonalizationDto,
+} from "../../api/generated/models";
+
+export type { PersonalizationResponse, UpdatePersonalizationDto };
+
+/** Feature-facing alias for the generated response contract. */
+export type Personalization = PersonalizationResponse;
+
 /**
- * Mirrors `PersonalizationResponse` / `UpdatePersonalizationDto` in
- * `apps/api/src/personalization/dto/personalization.dto.ts`. Field names match
- * the prompt-template context paths exactly (`user.personalization.*`), so the
- * settings vocabulary and what an operator writes in a prompt file cannot drift
- * apart.
+ * The generated request currently emits nullable strings as object-shaped
+ * fields because of an OpenAPI metadata limitation. Keep the feature facade
+ * faithful to the runtime DTO while retaining generated boolean fields.
  */
-export type Personalization = {
-  preferredName: string | null;
-  about: string | null;
-  responsePreferences: string | null;
-  /** Master switch over all per-user prompt context, including identity. */
-  enabled: boolean;
-  /** Additionally gates the account display name and email address. */
-  shareAccountIdentity: boolean;
+export type PersonalizationUpdate = Omit<
+  UpdatePersonalizationDto,
+  "preferredName" | "about" | "responsePreferences"
+> & {
+  preferredName?: string | null;
+  about?: string | null;
+  responsePreferences?: string | null;
 };
 
 /**
- * A partial update. An omitted key leaves the stored value untouched; an
- * explicit `null` clears it — the two mean different things, so the editor must
- * not collapse them by sending `""` for a cleared field.
- */
-export type PersonalizationUpdate = Partial<Personalization>;
-
-/**
  * Server-enforced caps, duplicated here so the editor can show remaining
- * characters before a round trip. The API rejects anything longer regardless —
- * this is a courtesy, never the enforcement.
+ * characters before a round trip. The API rejects anything longer regardless
+ * — this is a courtesy, never the enforcement.
  *
  * Keep in sync with `PERSONALIZATION_CAPS` in
  * `apps/api/src/personalization/personalization.constants.ts`.
