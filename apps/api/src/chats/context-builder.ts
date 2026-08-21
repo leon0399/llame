@@ -137,11 +137,18 @@ export interface BuildContextOptions {
  * claim in different words.
  */
 export function renderConversationCheckpoint(summary: string): string {
-  return renderContextItem({
+  const rendered = renderContextItem({
     producer: 'compaction',
     form: COMPACTION_CHECKPOINT_FORM,
     body: renderCompactionCheckpoint(summary),
   });
+  // `compaction` is a recognized producer, so the renderer's fail-closed branch
+  // is unreachable here; throwing rather than emitting an empty checkpoint
+  // keeps that a loud contradiction instead of a silently missing summary.
+  if (rendered === null) {
+    throw new TypeError('compaction is not a recognized context-item producer');
+  }
+  return rendered;
 }
 
 /**
