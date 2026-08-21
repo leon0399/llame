@@ -244,6 +244,22 @@ synchronize through an application protocol. Live execution streams, executor
 recovery journals, and portable semantic checkpoints are separate layers rather
 than one replicated process log.
 
+Portable resource identity is authority-scoped:
+`(authority_id, resource_kind, resource_id)`. The authority is a stable logical
+governance namespace, not a node, user, endpoint, account, or public key. A
+Personal Realm's ID is its authority namespace. llame-owned resources use opaque
+offline-generated UUIDs inside that namespace; names, URLs, provider locators,
+database sequences, and timestamps remain metadata or local projections.
+
+Portable episodic mutations are immutable atomic semantic batches from
+authority-scoped writer streams. Writer streams are distinct from nodes, replicas,
+and users: retention does not grant authorship, disposable node credentials do not
+rewrite history, and a multi-user hub does not expose one cross-tenant writer
+sequence. Batches carry typed operations, causal dependencies, stable resource
+references, and integrity evidence. There is no generic row patch or wall-clock
+last-write-wins rule. Concurrent Chat continuations become explicit branches;
+deletion is an explicit retained record, never inferred from absence.
+
 A Personal Realm may present resources from work, family, school, community, or
 other authorities without merging their accounts, ownership, or policy. Foreign
 resources are mounted into the user's view; each retains one governing authority
@@ -261,8 +277,10 @@ Decision provenance and rejected alternatives remain in the
 [local-node and distributed-execution research](docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md),
 the
 [multi-authority federation research](docs/research/product-vision/2026-08-21-multi-authority-federation-models.md),
+the
+[federated runtime topology decision](docs/research/product-vision/2026-08-22-federated-runtime-topology.md),
 and the
-[federated runtime topology decision](docs/research/product-vision/2026-08-22-federated-runtime-topology.md).
+[federated resource identity decision](docs/research/product-vision/2026-08-22-federated-resource-identity-and-change-envelope.md).
 
 ## Staged horizons
 
