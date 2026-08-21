@@ -5,6 +5,10 @@ the direction explored with Leo before it is promoted into `VISION.md`, capabili
 specifications, or the roadmap. It distinguishes agreed product direction from
 candidate implementation mechanisms and unresolved decisions.
 
+Updated later on 2026-08-21 with the subsequent decisions on Run authority,
+Workspace affinity and outage recovery, node enrollment, and the permanent
+single-owner-personal-node versus multi-user-hub boundary.
+
 ## 1. Why this checkpoint exists
 
 The discussion started from a desired first-party CLI experience similar to
@@ -85,9 +89,9 @@ The synchronization topology should initially be hub-and-spoke, not arbitrary
 peer-to-peer replication:
 
 ```text
-                    optional upstream llame node
+                    optional multi-user hub service
                    /            |              \
-          desktop node     another host     Android node
+        personal node     another host     Android node
         CLI + daemon + UI   daemon + CLI     assistant + UI
              |                    |
      registered Workspaces   registered Workspaces
@@ -100,6 +104,12 @@ offer capabilities. Workspaces contain user-selected project files. Sandboxes
 provide reproducible execution environments. These are separate concepts even
 when a single desktop process initially implements several of them.
 
+Personal nodes and the hub are not symmetric deployments. A personal node is an
+implicitly single-owner local store. The hub is the existing authenticated,
+multi-user, tenant-isolated service and holds one isolated personal replica per
+account. They share portable resource and synchronization contracts, not
+necessarily a database schema or runtime framework.
+
 The differentiator is not "agents on many devices." It is late-bound,
 capability-aware execution with durable conversational continuity: a Run can begin
 where the user asks, remain there for ordinary reasoning, and acquire or transfer
@@ -110,8 +120,10 @@ to a more capable execution context only when the task requires it.
 | Term                   | Meaning                                                                                                                                    | Not the same as                                         |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
 | **Surface**            | A user interaction surface such as CLI, web, desktop, or Android system assistant.                                                         | Node, executor, or storage authority.                   |
+| **Host**               | A physical device or OS environment that may run one or more llame node instances.                                                         | Node identity or user identity.                         |
 | **Node**               | An independently operable llame installation with local identity, durable state, configuration, and zero or more executors.                | A UI surface or a single Run.                           |
-| **Upstream node**      | The optional account-linked synchronization and coordination hub. It may also execute Runs.                                                | Mandatory control plane for local operation.            |
+| **Personal node**      | A single-owner local node with no internal user tenancy. It may remain unlinked or link to one hub account.                                | Multi-user service or physical host.                    |
+| **Hub service**        | The optional account-linked, multi-user synchronization and coordination service. It may also execute Runs.                                | Mandatory control plane for local operation.            |
 | **Executor / worker**  | A capability endpoint able to perform some execution, such as inference, tools, shell work, or sandboxed code work.                        | Node identity or Workspace.                             |
 | **Agent Profile**      | Prompt, model preferences, Skills, tool defaults, and optional memory behavior.                                                            | User identity, machine identity, Workspace, or sandbox. |
 | **Chat**               | The durable continuity container for messages, Runs, lineage, and current contextual bindings.                                             | One process or one model call.                          |
@@ -143,6 +155,10 @@ directory or repository mounted into it.
 - Multiple surfaces on one host should normally share a node and durable store.
   They should not each create independent full replicas merely because they are
   different UIs.
+- A host or even one OS user may deliberately run multiple node instances for
+  separate llame profiles or accounts. Each instance has its own node identity,
+  store, configuration, credentials, sockets, Workspace registry, sandbox state,
+  caches, and logs.
 - The upstream installation is optional for local operation. Linking adds sync,
   remote coordination, and access to capabilities available elsewhere.
 
@@ -185,12 +201,20 @@ state:
 1. llame asks for explicit confirmation;
 2. the node exports its portable personal state to the upstream node;
 3. it imports the upstream personal state;
-4. both sides reconcile replicas of the same identities; and
+4. both sides reconcile replicas of the same resource identities; and
 5. distinct resources remain distinct rather than being merged by name.
 
 This is full bidirectional synchronization, not "remote overwrites local" or
 "local becomes a client." The exact transaction, resumability, and rollback model
 remain open.
+
+The personal node is single-owner and stores no local `user_id`. Its portable
+records retain globally stable resource IDs, revisions, payloads, and originating
+node IDs but do not assert authoritative upstream ownership. During sync, the hub
+derives `owner_user_id` from the authenticated enrolled-node relationship and
+stamps it server-side. On download, the hub scopes records through its normal
+tenant isolation and the personal node stores the authorized result without an
+owner column.
 
 ### 5.4 Workspace registration and discovery
 
@@ -279,6 +303,20 @@ results, selected context, and a context receipt. Each execution segment remains
 immutable and records its node, model, tools, Workspace, and context. Reusing an
 opaque provider session may be an adapter optimization, never the correctness
 contract.
+
+Each active Run branch has exactly one authoritative node. The initiating node
+owns it initially. A cross-node continuation durably freezes the source at a
+known event, records the target and a newer authority epoch through the hub, and
+allows only the acknowledged target to append further events. Authority transfers
+to the target executor rather than remaining permanently at the hub. It remains
+there until the Run terminates or another explicit handoff occurs; the hub acts as
+handoff arbiter, transport, and replica.
+
+If an authoritative executor disappears after beginning work, another node cannot
+silently seize the same branch: the executor may still be advancing offline or
+may have performed side effects. Recovery waits for it or creates a visible fork
+from the last confirmed event with the interrupted segment marked
+`outcome_unknown`.
 
 ### 5.7 Android execution boundary
 
@@ -436,6 +474,107 @@ Node-local providers and credentials remain supported. The unresolved routing
 policy decides which eligible model is selected within the Workspace's allowed
 destinations and the Run's requirements.
 
+### 5.14 Sticky Workspace affinity and transparent recovery
+
+**Agreed direction — high confidence**
+
+Entering a Workspace makes its executor the Chat's preferred placement for future
+Runs. Most follow-ups should route directly back to that node without a
+preliminary hub model call. This is sticky affinity, not permanent authority or a
+hard availability dependency: every new Run receives its own authority and still
+reauthorizes current Workspace policy.
+
+The Chat durably retains its active Workspace and preferred executor. The current
+Run separately records its effective Workspace and executor. Temporary loss of
+access detaches only the effective Run context; it does not perform a durable
+`ExitWorkspace` or discard the Chat's preference.
+
+Availability changes are part of the transparency contract. When a Workspace or
+its node becomes unavailable, the model receives a recorded context transition
+that names the previous Workspace, explains that its filesystem and tools are no
+longer available, identifies the fallback context, and prohibits assumptions
+about current Workspace state. The UI presents the same transition and choices.
+When access returns, the model and UI receive a corresponding availability delta;
+the notice is emitted once per transition or context-rebaseline boundary rather
+than repeated unchanged on every call.
+
+The outage UI exposes three actions:
+
+1. **Wait for the original environment.** Keep the Run durably pending and resume
+   automatically when the executor returns.
+2. **Run temporarily with automatic recovery.** Continue on an eligible fallback
+   without Workspace access, preserve the Chat binding, and transfer back at the
+   next safe model/tool boundary after the original environment recovers.
+3. **Exit Workspace completely.** Perform durable `ExitWorkspace`, clear the Chat
+   binding and executor affinity, and do not return automatically.
+
+`ExitWorkspace` is distinct from a future `ExitWorktree`: leaving a derived
+worktree may return to its parent checkout without leaving the Workspace.
+
+### 5.15 Workspace outage policy
+
+**Agreed direction — high confidence**
+
+The persistent per-Workspace policy uses the same vocabulary as the incident UI:
+
+```yaml
+on_workspace_unavailable: ask | wait | fallback | exit
+```
+
+- `ask` pauses and presents the three incident actions.
+- `wait` automatically queues until the original environment recovers.
+- `fallback` automatically starts the temporary detached execution and returns
+  when the original environment recovers.
+- `exit` automatically performs durable `ExitWorkspace` and continues unbound.
+
+Every automatic action remains visible to the user and model and may be overridden
+for the current incident. "Remember this choice" changes the Workspace policy.
+There is no hidden timeout or hidden fallback while waiting.
+
+Recovery preference cannot override other authority. A fallback executor must
+satisfy Workspace permissions and inference-egress policy. If no eligible
+fallback exists, including when Workspace egress policy prohibits it, `fallback`
+degrades to `wait` and discloses why. If side effects from a lost authoritative
+segment may be in flight, automatic fallback or exit creates an explicit
+`outcome_unknown` fork rather than pretending to continue the same branch; the
+harness may still require incident-specific confirmation for operations that
+cannot safely be duplicated.
+
+### 5.16 Node enrollment and deployment roles
+
+**Agreed direction — high confidence**
+
+Node identity is distinct from user identity. Each node instance generates a
+stable cryptographic `node_id` and keypair. OAuth authenticates the user only to
+authorize enrollment; the hub registers the public key and issues a narrow,
+renewable synchronization and coordination credential bound to that node. The
+daemon never stores the user's general hub session or the hub's provider secrets.
+
+Enrollment is revocable and shown in account UI with the node's name,
+capabilities, synchronization state, and enrollment time. Revocation prevents
+future synchronization, inference brokering, and Run routing but cannot retract
+data already mirrored to the device. Re-enrollment is a new trust decision.
+
+The deployment split is permanent rather than a planned migration:
+
+- a **personal node** is an implicitly single-owner local store with no user table
+  or per-record `user_id`;
+- the **hub service** is the current multi-user stack with authentication,
+  explicit ownership, RLS, memberships, and policy; and
+- an **executor** is an independently described capability that may belong to a
+  personal node or be managed by a hub.
+
+One personal-node instance is unlinked or linked to one hub account. Multiple
+instances may run under one OS user for different llame users or profiles. That is
+application isolation, not a security boundary: processes under the same OS user
+can potentially read one another's files and credentials. Mutually untrusted
+people require separate OS users, containers/VMs, or the multi-user hub.
+
+Registering the same writable Workspace with multiple daemon instances should be
+rejected or strongly warned by default because concurrent agents can corrupt the
+checkout. A deliberately shared arrangement needs explicit isolation such as
+separate worktrees or read-only access.
+
 ## 6. Candidate mechanisms, not product commitments
 
 The following mechanism remains promising:
@@ -464,19 +603,25 @@ Environment definitions may synchronize to all personal nodes, but only
 execution-capable nodes realize them. Android can retain the definition metadata
 without pretending it can build or run the environment.
 
-Storage and framework choices are intentionally not decided here. Git is suitable
-for mergeable knowledge and configuration histories; it does not solve ordered
-Chat events, grants, audit records, queue ownership, or transactional account
-linking. Whether a local node uses SQLite, Postgres, an append-only log, or another
-store must follow the replication contract rather than precede it. Likewise,
-NestJS may remain the API and worker framework without becoming the protocol or
-domain model.
+Storage engines remain intentionally undecided. Git is suitable for mergeable
+knowledge and configuration histories; it does not solve ordered Chat events,
+grants, audit records, queue ownership, or transactional account linking. Whether
+a personal node uses SQLite, an append-only log, or another embedded store must
+follow the replication contract rather than precede it. The hub retains its
+multi-user Postgres ownership and RLS responsibilities. NestJS may remain its API
+and worker framework without becoming the portable protocol or domain model.
 
 ## 7. Important corrections and rejected conflations
 
 These corrections are durable constraints on further design:
 
 - **Surface is not node.** A CLI and desktop UI can share one local node.
+- **Host is not node.** One host or OS user may run multiple independently
+  identified personal-node instances.
+- **Node is not user.** Enrollment associates a cryptographic node identity with
+  a hub account; it does not make the machine the person.
+- **Personal node is not multi-user hub.** Personal nodes use an implicit local
+  owner; the hub derives explicit ownership at its authenticated boundary.
 - **Workspace is not sandbox.** Project files are mounted into an execution
   environment; they are not the environment definition.
 - **Workspace contents are not personal-state synchronization.** Registration and
@@ -499,7 +644,11 @@ These corrections are durable constraints on further design:
   source are separate actions.
 - **Automatic placement is not mandatory placement.** Many questions should stay
   on the initiating executor.
-- **The upstream node is a synchronization hub, not a prerequisite for local
+- **Workspace binding is not current Workspace availability.** A Run may be
+  transparently detached while the Chat retains its preferred Workspace.
+- **Revocation is not remote erasure.** A hub can stop trusting a node but cannot
+  guarantee deletion of data already mirrored to it.
+- **The hub service is a synchronization hub, not a prerequisite for local
   agency.**
 
 ## 8. Relationship to current llame direction
@@ -518,15 +667,21 @@ This direction is consistent with several existing commitments:
   not yet provide the project-filesystem Workspace described here and that its
   operational state remains Postgres-backed.
 
-This discussion materially extends the earlier direction in four areas:
+This discussion materially extends the earlier direction in seven areas:
 
 1. a linked machine is not only a remotely controlled Worker; it can be an
    autonomous personal node with a full personal mirror;
 2. CLI and Android are local-capable surfaces over the same logical node contract,
    with intentionally different executor capabilities;
-3. one Run may contain durable execution segments placed on different nodes; and
+3. one Run may contain durable execution segments placed on different nodes;
 4. account linking and offline reconciliation become first-class product
-   contracts rather than deployment details.
+   contracts rather than deployment details;
+5. Run advancement uses transferable single-node authority rather than permanent
+   hub ownership;
+6. Workspace affinity, loss, fallback, and recovery become explicit model-visible
+   and UI-visible state transitions; and
+7. single-owner personal nodes and the multi-user hub become permanent deployment
+   roles connected by a portable sync protocol.
 
 There is also a real tension with a simple "central control plane plus workers"
 model. Once personal nodes can originate durable state while unlinked, the
@@ -541,19 +696,21 @@ No current shipped contract changes merely because this research note exists.
 Resolve these roughly in dependency order. Premature framework selection would
 create false constraints.
 
-1. **Run ownership and coordination.** Define who owns a Run before, during, and
-   after a cross-node execution segment; which node may advance it; how leases,
-   retries, cancellation, and outcome uncertainty work; and whether the upstream
-   node is coordinator, replica, or both.
-2. **Node identity and enrollment.** Define local identity before linking, account
-   mapping, device keys, trust establishment, explicit confirmation, revocation,
-   loss, encryption at rest, remote erasure semantics, and recovery.
+1. **Authority-handoff mechanics.** Specify epochs or fencing, the durable handoff
+   record, source freeze and target acknowledgement, retry and cancellation,
+   reconnect behavior, and classification of uncertain side effects. The
+   ownership direction is settled; the protocol is not.
+2. **Enrollment and device-loss mechanics.** Specify key storage and rotation,
+   enrollment confirmation, revocation delivery, encryption at rest, backup,
+   recovery, and account-transfer behavior. Node/user separation and the
+   OAuth-authorized enrollment direction are settled.
 3. **Operational replication protocol.** Specify the portable event model for
    Chats, Runs, messages, approvals, audits, compaction, context receipts, stable
    IDs, ordering, resumability, fork reconciliation, and schema evolution.
-4. **Workspace binding lifecycle.** Specify Chat binding, `ExitWorkspace`, switching,
-   archival, access-mode changes, reauthorization, retention, and the difference
-   between same-node entry and cross-node continuation.
+4. **Workspace binding details.** Specify switching, archival, access-mode
+   changes, reauthorization, retention, availability detection and debounce, and
+   the exact recovery behavior for active versus not-yet-started Runs. Sticky
+   affinity and the four outage modes are settled.
 5. **Workspace registry privacy and liveness.** Define handle creation, path
    redaction, labels, capability advertisement, online/offline state, stale
    registrations, and what metadata each surface may see.
@@ -587,10 +744,11 @@ create false constraints.
 14. **Android contract.** Define offline model support, Android assistant
     integration, bounded device tools, local storage, remote Run steering,
     handoff, waiting, and user-visible executor state.
-15. **Framework and storage decomposition.** Only after the protocols exist,
-    decide what remains in NestJS, which domain types belong in shared TypeScript
-    packages, and what local and upstream persistence engines implement the
-    contract.
+15. **Protocol and storage decomposition.** Define the portable schemas and
+    conformance boundary shared by personal nodes and the hub, then decide which
+    domain types belong in shared TypeScript packages and which embedded store
+    implements the personal-node side. The hub remains the multi-user service
+    boundary; its current implementation is NestJS/Postgres.
 16. **Roadmap decomposition.** Split the direction into independently valuable
     horizons. Personal Knowledge Spaces remain the nearer-term priority; full
     node replication and distributed execution should not be disguised as one
@@ -598,16 +756,17 @@ create false constraints.
 
 ## 10. Recommended next discussion
 
-Start with **Run ownership and cross-node execution segments**. It is the highest
-leverage unresolved contract because it constrains permissions, event replication,
-offline behavior, executor placement, cancellation, retries, and the meaning of a
-Chat that continues across nodes.
+Start with the **operational replication protocol**. Transferable Run authority,
+single-owner personal nodes, and the multi-user hub are now settled at the product
+level. They cannot be made coherent until the portable record and event boundary
+is explicit.
 
 The first concrete question should be:
 
-> When an upstream-originated Run continues on a local daemon, which node is
-> authoritative for advancing the Run, and what durable handoff record prevents
-> both nodes from executing the same segment concurrently?
+> What is the smallest portable record and event envelope that allows a
+> single-owner personal node and the multi-user hub to reconcile Chats, Runs, and
+> configuration without sharing a database schema or accepting client-authored
+> ownership?
 
 Do not choose Postgres versus SQLite, NixOS versus a Nix-built OCI image, or NestJS
 module boundaries before answering that question. Those are implementation
