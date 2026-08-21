@@ -26,7 +26,13 @@ export const listModels = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: listModelsError; status?: number } =
       new globalThis.Error();
-    const data: listModelsError = body ? JSON.parse(body) : {};
+    const data: listModelsError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;

@@ -22,7 +22,7 @@ import { loginUser } from "./generated/auth/auth";
 import { listChats } from "./generated/chats/chats";
 import { createChildOrgUnit } from "./generated/org-units/org-units";
 import type { createChildOrgUnitError } from "./generated/org-units/org-units";
-import { getGetCurrentUserUrl } from "./generated/auth/auth";
+import { getCurrentUser, getGetCurrentUserUrl } from "./generated/auth/auth";
 import { listModels } from "./generated/models/models";
 import { getListPinsUrl, listPins, unpinItem } from "./generated/pins/pins";
 
@@ -194,6 +194,29 @@ describe("generated API contract", () => {
     await expect(
       createChildOrgUnit("org-1", { name: "Child" }, undefined, fetchMock),
     ).rejects.toMatchObject({ status: 409, info: errorBody });
+  });
+
+  it("preserves status and raw text for non-JSON errors", async () => {
+    const rawBody = "<html><body>unauthorized</body></html>";
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(rawBody, { status: 401 }));
+
+    await expect(getCurrentUser(undefined, fetchMock)).rejects.toMatchObject({
+      status: 401,
+      info: rawBody,
+    });
+  });
+
+  it("keeps empty error bodies safe", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 401 }));
+
+    await expect(getCurrentUser(undefined, fetchMock)).rejects.toMatchObject({
+      status: 401,
+      info: {},
+    });
   });
 
   it("keeps generated endpoint URLs relative and excludes streaming", () => {

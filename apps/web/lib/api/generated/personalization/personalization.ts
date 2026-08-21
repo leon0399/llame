@@ -31,7 +31,13 @@ export const getPersonalization = async (
       info?: getPersonalizationError;
       status?: number;
     } = new globalThis.Error();
-    const data: getPersonalizationError = body ? JSON.parse(body) : {};
+    const data: getPersonalizationError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -64,7 +70,13 @@ export const updatePersonalization = async (
       info?: updatePersonalizationError;
       status?: number;
     } = new globalThis.Error();
-    const data: updatePersonalizationError = body ? JSON.parse(body) : {};
+    const data: updatePersonalizationError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;

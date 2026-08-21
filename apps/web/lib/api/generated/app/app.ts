@@ -23,7 +23,13 @@ export const getHealth = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: any; status?: number } =
       new globalThis.Error();
-    const data = body ? JSON.parse(body) : {};
+    const data = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;

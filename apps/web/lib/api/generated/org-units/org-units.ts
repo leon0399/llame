@@ -41,7 +41,13 @@ export const createRootOrgUnit = async (
       info?: createRootOrgUnitError;
       status?: number;
     } = new globalThis.Error();
-    const data: createRootOrgUnitError = body ? JSON.parse(body) : {};
+    const data: createRootOrgUnitError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -71,7 +77,13 @@ export const listOrgUnits = async (
       info?: listOrgUnitsError;
       status?: number;
     } = new globalThis.Error();
-    const data: listOrgUnitsError = body ? JSON.parse(body) : {};
+    const data: listOrgUnitsError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -106,7 +118,13 @@ export const createChildOrgUnit = async (
       info?: createChildOrgUnitError;
       status?: number;
     } = new globalThis.Error();
-    const data: createChildOrgUnitError = body ? JSON.parse(body) : {};
+    const data: createChildOrgUnitError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -135,7 +153,13 @@ export const getOrgUnit = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: getOrgUnitError; status?: number } =
       new globalThis.Error();
-    const data: getOrgUnitError = body ? JSON.parse(body) : {};
+    const data: getOrgUnitError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -174,7 +198,13 @@ export const updateOrgUnit = async (
       info?: updateOrgUnitError;
       status?: number;
     } = new globalThis.Error();
-    const data: updateOrgUnitError = body ? JSON.parse(body) : {};
+    const data: updateOrgUnitError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -206,7 +236,13 @@ export const deleteOrgUnit = async (
       info?: deleteOrgUnitError;
       status?: number;
     } = new globalThis.Error();
-    const data: deleteOrgUnitError = body ? JSON.parse(body) : {};
+    const data: deleteOrgUnitError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -237,7 +273,13 @@ export const listOrgUnitMemberships = async (
       info?: listOrgUnitMembershipsError;
       status?: number;
     } = new globalThis.Error();
-    const data: listOrgUnitMembershipsError = body ? JSON.parse(body) : {};
+    const data: listOrgUnitMembershipsError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -272,7 +314,13 @@ export const grantOrgUnitMembership = async (
       info?: grantOrgUnitMembershipError;
       status?: number;
     } = new globalThis.Error();
-    const data: grantOrgUnitMembershipError = body ? JSON.parse(body) : {};
+    const data: grantOrgUnitMembershipError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -311,7 +359,13 @@ export const changeOrgUnitMembershipRole = async (
       info?: changeOrgUnitMembershipRoleError;
       status?: number;
     } = new globalThis.Error();
-    const data: changeOrgUnitMembershipRoleError = body ? JSON.parse(body) : {};
+    const data: changeOrgUnitMembershipRoleError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -344,7 +398,13 @@ export const revokeOrgUnitMembership = async (
       info?: revokeOrgUnitMembershipError;
       status?: number;
     } = new globalThis.Error();
-    const data: revokeOrgUnitMembershipError = body ? JSON.parse(body) : {};
+    const data: revokeOrgUnitMembershipError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -375,7 +435,13 @@ export const getMyOrgUnitEffectiveRole = async (
       info?: getMyOrgUnitEffectiveRoleError;
       status?: number;
     } = new globalThis.Error();
-    const data: getMyOrgUnitEffectiveRoleError = body ? JSON.parse(body) : {};
+    const data: getMyOrgUnitEffectiveRoleError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;

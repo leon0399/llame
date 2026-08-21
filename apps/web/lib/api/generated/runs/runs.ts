@@ -31,7 +31,13 @@ export const getRun = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: getRunError; status?: number } =
       new globalThis.Error();
-    const data: getRunError = body ? JSON.parse(body) : {};
+    const data: getRunError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -63,7 +69,13 @@ export const updateRun = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: updateRunError; status?: number } =
       new globalThis.Error();
-    const data: updateRunError = body ? JSON.parse(body) : {};
+    const data: updateRunError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -94,7 +106,13 @@ export const getRunContextReceipt = async (
       info?: getRunContextReceiptError;
       status?: number;
     } = new globalThis.Error();
-    const data: getRunContextReceiptError = body ? JSON.parse(body) : {};
+    const data: getRunContextReceiptError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;

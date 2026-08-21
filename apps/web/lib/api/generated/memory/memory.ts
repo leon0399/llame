@@ -26,7 +26,13 @@ export const getMemory = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: getMemoryError; status?: number } =
       new globalThis.Error();
-    const data: getMemoryError = body ? JSON.parse(body) : {};
+    const data: getMemoryError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -59,7 +65,13 @@ export const updateMemory = async (
       info?: updateMemoryError;
       status?: number;
     } = new globalThis.Error();
-    const data: updateMemoryError = body ? JSON.parse(body) : {};
+    const data: updateMemoryError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;

@@ -41,7 +41,13 @@ export const listActiveRuns = async (
       info?: listActiveRunsError;
       status?: number;
     } = new globalThis.Error();
-    const data: listActiveRunsError = body ? JSON.parse(body) : {};
+    const data: listActiveRunsError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;

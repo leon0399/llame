@@ -29,7 +29,13 @@ export const listPins = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: listPinsError; status?: number } =
       new globalThis.Error();
-    const data: listPinsError = body ? JSON.parse(body) : {};
+    const data: listPinsError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -61,7 +67,13 @@ export const pinItem = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: pinItemError; status?: number } =
       new globalThis.Error();
-    const data: pinItemError = body ? JSON.parse(body) : {};
+    const data: pinItemError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -96,7 +108,13 @@ export const unpinItem = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: unpinItemError; status?: number } =
       new globalThis.Error();
-    const data: unpinItemError = body ? JSON.parse(body) : {};
+    const data: unpinItemError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;

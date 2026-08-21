@@ -36,7 +36,13 @@ export const createProject = async (
       info?: createProjectError;
       status?: number;
     } = new globalThis.Error();
-    const data: createProjectError = body ? JSON.parse(body) : {};
+    const data: createProjectError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -79,7 +85,13 @@ export const listProjects = async (
       info?: listProjectsError;
       status?: number;
     } = new globalThis.Error();
-    const data: listProjectsError = body ? JSON.parse(body) : {};
+    const data: listProjectsError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -108,7 +120,13 @@ export const getProject = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: getProjectError; status?: number } =
       new globalThis.Error();
-    const data: getProjectError = body ? JSON.parse(body) : {};
+    const data: getProjectError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -142,7 +160,13 @@ export const updateProject = async (
       info?: updateProjectError;
       status?: number;
     } = new globalThis.Error();
-    const data: updateProjectError = body ? JSON.parse(body) : {};
+    const data: updateProjectError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -173,7 +197,13 @@ export const deleteProject = async (
       info?: deleteProjectError;
       status?: number;
     } = new globalThis.Error();
-    const data: deleteProjectError = body ? JSON.parse(body) : {};
+    const data: deleteProjectError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;

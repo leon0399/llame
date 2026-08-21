@@ -40,7 +40,13 @@ export const registerUser = async (
       info?: registerUserError;
       status?: number;
     } = new globalThis.Error();
-    const data: registerUserError = body ? JSON.parse(body) : {};
+    const data: registerUserError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -71,7 +77,13 @@ export const loginUser = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: loginUserError; status?: number } =
       new globalThis.Error();
-    const data: loginUserError = body ? JSON.parse(body) : {};
+    const data: loginUserError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -101,7 +113,13 @@ export const getCurrentUser = async (
       info?: getCurrentUserError;
       status?: number;
     } = new globalThis.Error();
-    const data: getCurrentUserError = body ? JSON.parse(body) : {};
+    const data: getCurrentUserError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -131,7 +149,13 @@ export const listSessions = async (
       info?: listSessionsError;
       status?: number;
     } = new globalThis.Error();
-    const data: listSessionsError = body ? JSON.parse(body) : {};
+    const data: listSessionsError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -174,7 +198,13 @@ export const revokeSessions = async (
       info?: revokeSessionsError;
       status?: number;
     } = new globalThis.Error();
-    const data: revokeSessionsError = body ? JSON.parse(body) : {};
+    const data: revokeSessionsError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -204,7 +234,13 @@ export const getCurrentSession = async (
       info?: getCurrentSessionError;
       status?: number;
     } = new globalThis.Error();
-    const data: getCurrentSessionError = body ? JSON.parse(body) : {};
+    const data: getCurrentSessionError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -232,7 +268,13 @@ export const logoutUser = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: logoutUserError; status?: number } =
       new globalThis.Error();
-    const data: logoutUserError = body ? JSON.parse(body) : {};
+    const data: logoutUserError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -263,7 +305,13 @@ export const revokeSession = async (
       info?: revokeSessionError;
       status?: number;
     } = new globalThis.Error();
-    const data: revokeSessionError = body ? JSON.parse(body) : {};
+    const data: revokeSessionError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;

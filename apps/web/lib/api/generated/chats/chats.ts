@@ -51,7 +51,13 @@ export const listChats = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: listChatsError; status?: number } =
       new globalThis.Error();
-    const data: listChatsError = body ? JSON.parse(body) : {};
+    const data: listChatsError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -92,7 +98,13 @@ export const searchChats = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: searchChatsError; status?: number } =
       new globalThis.Error();
-    const data: searchChatsError = body ? JSON.parse(body) : {};
+    const data: searchChatsError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -121,7 +133,13 @@ export const getChat = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: getChatError; status?: number } =
       new globalThis.Error();
-    const data: getChatError = body ? JSON.parse(body) : {};
+    const data: getChatError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -153,7 +171,13 @@ export const updateChat = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: updateChatError; status?: number } =
       new globalThis.Error();
-    const data: updateChatError = body ? JSON.parse(body) : {};
+    const data: updateChatError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -182,7 +206,13 @@ export const deleteChat = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: deleteChatError; status?: number } =
       new globalThis.Error();
-    const data: deleteChatError = body ? JSON.parse(body) : {};
+    const data: deleteChatError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -229,7 +259,13 @@ export const getChatMessages = async (
       info?: getChatMessagesError;
       status?: number;
     } = new globalThis.Error();
-    const data: getChatMessagesError = body ? JSON.parse(body) : {};
+    const data: getChatMessagesError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -261,7 +297,13 @@ export const forkChat = async (
   if (!res.ok) {
     const err: globalThis.Error & { info?: forkChatError; status?: number } =
       new globalThis.Error();
-    const data: forkChatError = body ? JSON.parse(body) : {};
+    const data: forkChatError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -308,7 +350,13 @@ export const getSharedChat = async (
       info?: getSharedChatError;
       status?: number;
     } = new globalThis.Error();
-    const data: getSharedChatError = body ? JSON.parse(body) : {};
+    const data: getSharedChatError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
@@ -339,7 +387,13 @@ export const forkSharedChat = async (
       info?: forkSharedChatError;
       status?: number;
     } = new globalThis.Error();
-    const data: forkSharedChatError = body ? JSON.parse(body) : {};
+    const data: forkSharedChatError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
     err.info = data;
     err.status = res.status;
     throw err;
