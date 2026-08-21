@@ -84,10 +84,12 @@ jobs:
         with:
           turbo-cache: build
 
-      - run: pnpm exec turbo run build
+      - run: pnpm exec turbo run build --concurrency=1
 
-      # The api build regenerates openapi.json — a drifted checked-in copy is
-      # a failure, not a silent fixup.
+      # Regenerate the API schema and portable web client in dependency order;
+      # a drifted checked-in copy is a failure, not a silent fixup.
+      - run: pnpm generate:api-schema
+      - run: pnpm generate:web-client
       - run: git diff --exit-code
 
   integration:

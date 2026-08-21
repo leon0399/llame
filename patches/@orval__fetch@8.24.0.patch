@@ -1,0 +1,40 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 2c7c0b53d4e2ed0af6c07f8d3be4e22f3c546d89..2f028e21162bdb9feab051f49963d88df833d7b1 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -159,2 +159,2 @@
+-	const successName = `${responseTypeName}Success`;
+-	const errorName = `${responseTypeName}Error`;
++	const successName = override.fetch.includeHttpResponseReturnType ? `${responseTypeName}Success` : responseTypeName;
++	const errorName = override.fetch.includeHttpResponseReturnType ? `${responseTypeName}Error` : `${typeName}Error`;
+@@ -173 +173 @@
+-${override.fetch.forceSuccessResponse && hasSuccess ? "" : `export type ${responseTypeName} = (${hasError && hasSuccess ? `${successName} | ${errorName}` : hasSuccess ? successName : errorName})\n\n`}` : "";
++${override.fetch.forceSuccessResponse && hasSuccess ? "" : `export type ${responseTypeName} = (${hasError && hasSuccess ? `${successName} | ${errorName}` : hasSuccess ? successName : errorName})\n\n`}` : override.fetch.forceSuccessResponse && hasError ? `export type ${errorName} = (${response.types.errors.map((r) => r.value || "unknown").join(" | ")})\n\n` : "";
+@@ -179,2 +179,5 @@
+-	const fetchFnParam = useRuntimeFetcher && isRequestOptions && !mutator ? ", fetchFn?: typeof globalThis.fetch" : "";
+-	const args = `${toObjectString(props, "implementation")} ${isRequestOptions ? getRequestOptionsType(mutator) : ""}${fetchFnParam}`;
++	const fetchFnParam = useRuntimeFetcher && isRequestOptions && !mutator ? ", fetchFn: typeof globalThis.fetch" : "";
++	const requestFunctionProps = toObjectString(props, "implementation");
++	const requiredRequestFunctionProps = useRuntimeFetcher && isRequestOptions && !mutator ? requestFunctionProps.replace(/(\w+)\?: ([^,\n]+)/g, "$1: $2 | undefined = undefined") : requestFunctionProps;
++	const requestOptionsType = useRuntimeFetcher && isRequestOptions && !mutator ? "options: RequestInit | undefined" : isRequestOptions ? getRequestOptionsType(mutator) : "";
++	const args = `${requiredRequestFunctionProps} ${requestOptionsType}${fetchFnParam}`;
+@@ -211,3 +211,10 @@
+-	const errorBodyExpression = hasMixedErrorContentTypes ? `errorBody ? (errorContentType.includes('json') ? JSON.parse(errorBody${reviver}) : errorBody) : {}` : errorAlwaysJson ? `errorBody ? JSON.parse(errorBody${reviver}) : {}` : `errorBody !== null ? errorBody : {}`;
+-	const throwOnErrorBodyExpression = hasMixedErrorContentTypes ? `body ? (errorContentType.includes('json') ? JSON.parse(body${reviver}) : body) : {}` : errorAlwaysJson ? `body ? JSON.parse(body${reviver}) : {}` : `body !== null ? body : ''`;
+-	const throwOnErrorDataExpression = isNdJson ? `body ? JSON.parse(body${reviver}) : {}` : isBlob ? errorBodyExpression : throwOnErrorBodyExpression;
++	const parseJsonWithFallback = (bodyExpression) => `(() => {
++    try {
++      return ${bodyExpression} ? JSON.parse(${bodyExpression}${reviver}) : {};
++    } catch {
++      return ${bodyExpression};
++    }
++  })()`;
++	const errorBodyExpression = hasMixedErrorContentTypes ? `errorBody ? (errorContentType.includes('json') ? ${parseJsonWithFallback("errorBody")} : errorBody) : {}` : errorAlwaysJson ? parseJsonWithFallback("errorBody") : `errorBody !== null ? errorBody : {}`;
++	const throwOnErrorBodyExpression = hasMixedErrorContentTypes ? `body ? (errorContentType.includes('json') ? ${parseJsonWithFallback("body")} : body) : {}` : errorAlwaysJson ? parseJsonWithFallback("body") : `body !== null ? body : ''`;
++	const throwOnErrorDataExpression = isNdJson ? parseJsonWithFallback("body") : isBlob ? errorBodyExpression : throwOnErrorBodyExpression;
+@@ -220 +229 @@
+-    const err: globalThis.Error & {info?: ${hasError ? `${errorName}${override.fetch.includeHttpResponseReturnType ? "['data']" : ""}` : "any"}, status?: number} = new globalThis.Error();
++    const err: globalThis.Error & {info?: ${hasError ? `${errorName}${override.fetch.includeHttpResponseReturnType ? "['data']" : ""}` : "any"}, status?: number} = new globalThis.Error(\`${verb.toUpperCase()} \${${getUrlFnName}(${getUrlFnProperties})} failed (\${${isNdJson ? "stream" : "res"}.status})\`);
+@@ -226 +227 @@
+-	const fetchFnCall = useRuntimeFetcher && isRequestOptions ? "(fetchFn ?? fetch)" : "fetch";
++	const fetchFnCall = useRuntimeFetcher && isRequestOptions && !mutator ? "fetchFn" : "fetch";

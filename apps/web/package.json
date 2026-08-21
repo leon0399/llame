@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "generate:client": "orval --config orval.config.ts",
     "start": "next start",
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "lint:fix": "oxlint --deny-warnings --fix",
@@ -48,6 +49,7 @@
     "@workspace/config-typescript": "workspace:*",
     "jsdom": "^28.1.0",
     "oxlint": "catalog:",
+    "orval": "8.24.0",
     "storybook": "catalog:",
     "typescript": "catalog:",
     "vite-tsconfig-paths": "^6.1.1",

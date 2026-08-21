@@ -101,3 +101,6 @@ allowBuilds:
 # fails (children missing on ThemeProviderProps, NextError not a JSX component)
 # on the identical dependency versions. Revisit when tsgo/TS handle the layout.
 enableGlobalVirtualStore: false
+
+patchedDependencies:
+  "@orval/fetch@8.24.0": patches/@orval__fetch@8.24.0.patch
