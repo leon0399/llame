@@ -1,0 +1,12 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 2c7c0b53d4e2ed0af6c07f8d3be4e22f3c546d89..2f028e21162bdb9feab051f49963d88df833d7b1 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -159,2 +159,2 @@
+-	const successName = `${responseTypeName}Success`;
+-	const errorName = `${responseTypeName}Error`;
++	const successName = override.fetch.includeHttpResponseReturnType ? `${responseTypeName}Success` : responseTypeName;
++	const errorName = override.fetch.includeHttpResponseReturnType ? `${responseTypeName}Error` : `${typeName}Error`;
+@@ -173 +173 @@
+-${override.fetch.forceSuccessResponse && hasSuccess ? "" : `export type ${responseTypeName} = (${hasError && hasSuccess ? `${successName} | ${errorName}` : hasSuccess ? successName : errorName})\n\n`}` : "";
++${override.fetch.forceSuccessResponse && hasSuccess ? "" : `export type ${responseTypeName} = (${hasError && hasSuccess ? `${successName} | ${errorName}` : hasSuccess ? successName : errorName})\n\n`}` : override.fetch.forceSuccessResponse && hasError ? `export type ${errorName} = (${response.types.errors.map((r) => r.value || "unknown").join(" | ")})\n\n` : "";

@@ -32,7 +32,10 @@
     "db:generate": "pnpm --filter api db:generate",
     "db:studio": "pnpm --filter api db:studio",
     "db:psql": "docker compose exec -e PGPASSWORD=app postgres psql -U app -d llame",
-    "db:provision-rls": "docker compose exec -T -e PGPASSWORD=postgres postgres psql -U postgres -d llame -v ON_ERROR_STOP=1 < docker/postgres/rls-function-owner.sql"
+    "db:provision-rls": "docker compose exec -T -e PGPASSWORD=postgres postgres psql -U postgres -d llame -v ON_ERROR_STOP=1 < docker/postgres/rls-function-owner.sql",
+    "generate:api-schema": "pnpm --filter api build",
+    "generate:web-client": "pnpm --filter web generate:client",
+    "generate:api-client": "pnpm generate:api-schema && pnpm generate:web-client"
   },
   "devDependencies": {
     "@ast-grep/cli": "0.44.0",
