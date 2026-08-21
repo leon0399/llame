@@ -6,6 +6,13 @@ This note preserves the alternatives, evidence, scenario analysis, and resulting
 decision. The adjacent checkpoint carries only the accepted contract and remaining
 open questions.
 
+Updated later on 2026-08-21 with the selected boundary between Git-backed
+knowledge publication and database-native episodic synchronization, then with the
+replica-completeness boundary and candidate-only fallback under uncertainty.
+Updates on 2026-08-22 record semantic replication change batches, the separate
+single-authority control protocol for active execution, simple-first planning,
+fenced handoff, and disposable node enrollment.
+
 ## 1. The actual question
 
 The motivating experience is broader than synchronizing one person's devices:
@@ -236,6 +243,22 @@ executors. The current proposal warns that its time condition uses an agent-set
 timestamp and can be backdated, so it is not a sufficient permission or
 revocation mechanism.
 
+Two later Buzz specifications add useful safety boundaries without making Buzz a
+replication architecture for llame. NIP-RS makes a full-state load terminate as
+either _complete_ or _cannot prove complete_. Its incomplete state may still
+merge monotonic additions, but cannot authorize canonicalization, coordinate
+deletion, deletion-record compaction, physical purge, or a successful destructive
+claim. The algorithm
+is specialized to read-state registers and relay behavior; llame should borrow the
+completeness boundary, not copy the protocol.
+
+Buzz's Git-on-object-storage design makes immutable content-addressed objects
+visible through one authoritative manifest pointer advanced by compare-and-swap.
+Relay events are derived notifications, not the commit point. llame does not need
+that storage layout, but it should preserve the generic rule: accepted state moves
+only through an authority-side update fenced to the exact state used to validate
+the candidate.
+
 A single global Nostr pubkey for one person across family, school, and work would
 also create unwanted cross-domain correlation and difficult key recovery. Portable
 signing identities are valuable; automatic global person linkage is not.
@@ -249,6 +272,8 @@ Sources:
 - [Buzz architecture](https://github.com/block/buzz/blob/main/ARCHITECTURE.md)
 - [Buzz Nostr integration and relay membership](https://github.com/block/buzz/blob/main/NOSTR.md)
 - [Buzz NIP-OA owner-agent provenance](https://github.com/block/buzz/blob/main/docs/nips/NIP-OA.md)
+- [Buzz NIP-RS completeness boundary](https://github.com/block/buzz/blob/aeb741fd31044ec560d953b0986dec2e7e93e2c6/docs/nips/NIP-RS.md)
+- [Buzz Git refs over object storage](https://github.com/block/buzz/blob/aeb741fd31044ec560d953b0986dec2e7e93e2c6/docs/git-on-object-storage.md)
 
 ## 5. Materially different product models
 
@@ -329,14 +354,16 @@ authorities.
 ### Model G — Git remotes are the federation protocol
 
 Every Knowledge Space is a Git repository. Membership maps to fetch/push rights;
-offline writes become branches; reconciliation becomes merge or pull request.
+offline writes become branches; reconciliation becomes merge or a
+provider-native proposal such as a pull or merge request.
 
 **Strengths:** human-auditable; excellent for Markdown; matches the intended
 knowledge review model; public Git-backed KBs are natural.
 
 **Failure:** Git does not model Chat history, operational state, fine-grained
-authorization, revocation, secrets, inference policy, or safe multi-tenant object
-isolation. It is a substrate for some Spaces, not the federation architecture.
+authorization, revocation, secrets, inference policy, safe multi-tenant object
+isolation, or forge review semantics. It is a substrate for some Spaces, not the
+federation architecture or complete publication workflow.
 
 ### Model H — AT-Protocol-style signed repositories
 
@@ -474,7 +501,7 @@ The profile may have zero or more **Authority Connections**. A connection states
 > On authority `A`, this local profile authenticated as foreign subject `S`.
 
 It does not assert a globally trusted `samePerson` relationship. The binding is
-local to the profile or its home realm. Each foreign authority continues to
+local to the profile or its Personal Realm. Each foreign authority continues to
 authorize its own subject using its own membership graph.
 
 This preserves the prior one-linked-hub-account rule while supporting many work,
@@ -553,7 +580,8 @@ state. It submits one of:
 
 - an online mutation validated and serialized by the governing authority;
 - a signed tentative operation that the authority may accept or reject; or
-- for Git-backed knowledge, a branch or patch proposed for merge/review.
+- for Git-backed knowledge, a branch or patch published through that Space's
+  configured direct-Git or forge review workflow.
 
 This avoids multi-master ACL and revision state. "Offline writable" means
 "allowed to produce candidates while offline," not "entitled to commit state the
@@ -600,10 +628,302 @@ A public llame KB should be mountable without an identity link:
 - update explicitly or under a declared subscription policy;
 - treat upstream as read-only;
 - create a distinct personal or shared fork for local changes; and
-- contribute back through the upstream's native patch or pull-request workflow.
+- contribute back through the upstream's configured patch, pull-request, or
+  merge-request workflow.
 
 Copying or absorbing it creates new content under a different authority and must
 preserve source provenance. It does not mutate the public source.
+
+### 7.10 Git history and publication workflows are separate layers
+
+Every Git-backed Knowledge Space has a Git-compatible accepted history. A Run
+starts from an exact accepted commit and authors candidate commits in an isolated
+branch/worktree or jj workspace. Cross-node and cross-provider interchange uses
+Git-compatible commits and refs even when jj supplies the local authoring UX.
+
+Publishing those commits composes two responsibilities:
+
+1. repository operations and transport: commit, branch, fetch, and push; and
+2. a provider-aware change-workflow adapter that submits, observes, updates,
+   withdraws, or accepts a candidate when policy and permission allow.
+
+Initial modes include local-only history, raw Git direct updates, raw Git branch
+proposals, GitHub pull requests, GitLab merge requests, and Forgejo pull requests.
+A pull or merge request is not an alternative to Git transport; it layers review,
+checks, policy, and acceptance over Git objects and refs.
+
+Adapters normalize a durable proposal lifecycle while reporting provider
+capabilities and retaining provider-specific metadata. They must not flatten
+different review requirements, protected-ref rules, CI, merge queues, or
+acceptance permissions into false equivalence. The governing authority decides
+which revision becomes accepted.
+
+#### Completeness, head relation, and candidate fallback
+
+Git ancestry and replica completeness answer different questions:
+
+| Axis                     | States                                                  | Question answered                                                  |
+| ------------------------ | ------------------------------------------------------- | ------------------------------------------------------------------ |
+| Replica coverage         | verified complete, partial, or unknown                  | Has all authority state required for this operation been observed? |
+| Subject-to-accepted head | current, fast-forwardable, behind, diverged, or unknown | How does a named local or candidate revision relate to that head?  |
+
+For the second axis, `current` means the subject OID equals the observed accepted
+head; `fast-forwardable` means the accepted head is an ancestor of the subject;
+`behind` means the subject is an ancestor of the accepted head; `diverged` means
+neither is an ancestor of the other; and `unknown` means the required head or
+object graph was not established.
+
+A client that has not fetched the current authority head can observe no local
+conflict while still having unknown coverage and an unknown head relation. Stable
+UUIDs avoid identity collisions but do not prove that no event, deletion record,
+ref movement, or concurrent candidate is missing.
+
+An incomplete replica may author commits from an exact accepted base and may
+publish them as a branch or provider proposal when policy permits. This is a safe
+fallback because it preserves work without claiming canonical state. Direct
+accepted-ref mutation, deletion inferred from absence, pruning, deletion-record
+compaction, physical purge, canonical replacement, and completed-reconciliation claims remain
+blocked until the actor has a current, fenced authority view. This does not block
+the governing authority from evaluating the preserved candidate from a fresh
+authoritative observation, nor a separately authorized explicit resource deletion
+that records a new authoritative deletion.
+
+The governing authority performs acceptance from a fresh authoritative
+observation. It revalidates permission and policy, checks the candidate's exact
+base OID and history against the current accepted head, and advances the accepted
+ref only through an expected-old-ref compare-and-swap or equivalent
+protected-ref fence. A lost race or stale/diverged base preserves the candidate
+for explicit fast-forward, merge, rebase, fork, review, rejection, or user
+reconciliation.
+
+For Personal Knowledge Spaces, the governing authority is the Personal Realm, not
+a permanent canonical node. Which enrolled replica or configured remote may act
+for its current accepted ref, and how it proves that view current, remains an
+operational-replication decision.
+
+Accordingly, `pull` decomposes into fetch, coverage establishment, head-relation
+classification, and a selected reconciliation action. When authority access is
+unavailable, the honest fallback is to retain the base-anchored candidate, queue
+or publish it as tentative when allowed, and retry validation later—not to infer
+convergence from silence.
+
+### 7.11 Personal episodic history synchronizes outside Git
+
+Chats, branches, Runs, messages, lineage, durable approval and audit records,
+compaction checkpoints, context receipts, and deletion records remain
+database-native episodic state. The hub keeps its multi-tenant Postgres and RLS
+boundary. A personal node uses an embedded transactional store, with the exact
+engine still open and SQLite the leading candidate.
+
+Personal replicas exchange that state automatically through a portable llame
+application protocol, not Git, PostgreSQL replication, or user-managed export.
+Stable IDs and causal anchors make changes idempotent and permit concurrent
+continuations to become explicit forks. Each local mutation atomically commits
+canonical domain state and an immutable semantic `ChangeBatch`; receivers
+authenticate, validate, apply, and retain that original batch idempotently. A
+replication journal supports incremental replay and forwarding, while per-link
+outboxes, acknowledgements, retries, cursors, and deduplication remain local
+delivery state.
+
+There is one reconciliation function for a replica's first contact and every
+later synchronization. It negotiates supported scope and known frontiers, then
+uses a snapshot, change batches, or both under identical validation,
+authorization, conflict, idempotency, and coverage rules. A new replica merely has
+no accepted frontier. A snapshot at frontier `F` is a compact representation of
+the same state produced by the journal through `F`, not a separate import,
+overwrite, or merge behavior; any replica whose retained journal gap cannot be
+filled may use that path. This rejects row/WAL replication without requiring every
+internal table to become event-sourced, and the existing `run_events` table is not
+the replication journal or cross-node cursor.
+
+Generated summaries remain derived episodic artifacts. Compaction checkpoints
+synchronize because they affect later model context. A fork summary may be
+regenerated until used, but its exact injected form is then preserved in the
+consuming Run's context receipt. UI summaries remain rebuildable projections.
+Only explicit promotion turns Chat-derived material into Git-backed knowledge.
+
+### 7.12 Active execution control is routed, not multi-writer replicated
+
+Chat history, execution placement, and one Run are different lifetimes. A durable
+placement/session binds one active Chat branch to its preferred executor, sandbox,
+optional Workspace, recovery policy, and current authority epoch across multiple
+Runs. Different branches may use different placements.
+
+The current executor remains the only authority allowed to advance active
+execution. Local and hosted nodes share one modular Node Protocol contract, not one
+implementation stack. Its mandatory `core.*` module negotiates identity, versions,
+roles, and capabilities; separately versioned and authorized `realm.*`,
+`execution.*`, `sync.*`, and `admin.*` modules respectively expose durable domain
+operations, live execution, replica synchronization, and privileged node
+management. Nodes advertise only the modules and capabilities they implement.
+Ordinary tunnels do not expose `admin.*` by default, and model-facing tools remain
+a separate harness contract rather than generic protocol access.
+
+A local surface calls `execution.*` directly; a remote surface reaches the exact
+same module through an authenticated reverse tunnel. The tunnel service supplies
+rendezvous, presence, routing, authorization, and connection fencing but does not
+become a Run state mirror or command authority.
+
+The executor returns a complete current semantic snapshot and a revision, streams
+later deltas, and accepts idempotent epoch-targeted commands such as cancellation,
+an exact permission decision, a follow-up, or `ExitWorkspace`. Reconnection reads a
+fresh snapshot before resubscribing, repairing delta gaps without a hub-owned event
+journal. Raw queue jobs, leases, process handles, provider credentials, abort
+handles, heartbeat rows, and active tool state remain local to the executor.
+
+The initial tunnel does not accept commands while the executor is unreachable.
+Surfaces may retain unsent local drafts, but commands are neither accepted nor
+remotely pending until the authoritative API acknowledges them. Delayed offline
+delivery would require an explicit later outbox protocol. Uncertain external side
+effects remain `outcome_unknown`.
+
+Durable state replication, live session control, and authority handoff remain
+separate protocols. Observing or synchronizing a Run record never authorizes a
+replica to enqueue or re-execute it.
+
+### 7.13 Active Run durability uses semantic checkpoints, not event mirroring
+
+Three alternatives were considered:
+
+1. **Terminal-only publication:** keep all intermediate state at the executor and
+   publish only the final message and Run result. This is operationally simple but
+   loses too much truth when a long-running executor disappears after presenting
+   output, receiving approval, or attempting a side effect.
+2. **Portable live event sourcing:** replicate every model delta, tool-progress
+   event, and stream chunk. This maximizes replay but recreates a central Run
+   mirror, couples federation to provider and worker event shapes, raises sync and
+   retention cost, and risks treating hidden reasoning as portable product state.
+3. **Semantic checkpoints with local recovery:** keep the high-frequency recovery
+   journal at the executor while synchronizing normalized facts at externally
+   meaningful boundaries. This is the selected direction.
+
+The resulting model has three layers: a live `execution.*` snapshot and delta
+stream, an executor-local durable recovery journal, and portable Realm semantic
+checkpoints carried by the application synchronization protocol. Product-visible
+output is journaled locally before delivery, but remote replication is not a
+precondition for offline operation. The journal may use a native Claude Code or
+Codex session representation or llame's existing `run_events`; none of those raw
+formats becomes a Node Protocol or federation schema.
+
+Portable facts include Run acceptance and lineage, placement authority epochs,
+permission requests and decisions, write-capable tool intent before dispatch,
+normalized tool outcome before model continuation, completed assistant semantic
+blocks, context and compaction checkpoints, handoff or segment boundaries, and
+terminal settlement. Raw tokens, reasoning deltas, stdout chunks, transient
+progress, process state, queue leases, and provider internals remain local.
+
+This split preserves useful recovery without claiming stronger durability than
+eventual Personal Realm replication provides. A same-node restart may recover from
+the local journal. A permanently lost node leaves other replicas at their latest
+synchronized semantic checkpoint; later side effects become `outcome_unknown`,
+and incomplete unsynchronized output is lost or explicitly unconfirmed. The
+system does not manufacture completion from a disappeared executor.
+
+### 7.14 Authorship starts simple but remains capability-scoped
+
+The first delivery need not implement the complete multi-replica authorship
+matrix. It may use one Personal Realm mutation authority or defer concurrent
+writable mirrors. This is a product-stage simplification rather than evidence that
+one physical node is the permanent personal home.
+
+The north-star rule is that replica retention and record authorship are separate
+capabilities. An enrolled replica may eventually author additive personal history
+offline, while Run checkpoints remain attributable only to the current fenced
+executor, sensitive personal control records receive separate rules, and foreign
+resource mutations remain governed by their own authority. A replica may forward
+any valid portable record without becoming its author.
+
+This direction rejects both premature generic capability infrastructure and an
+equally premature equal-writer assumption. Stable identities, causal parents,
+origin provenance, and executor epochs are retained from the simple model so the
+later capability-scoped design does not require rewriting accepted history. The
+exact first-delivery linked writer policy remains intentionally unresolved.
+
+### 7.15 Execution handoff starts with hub-backed fencing
+
+The first cross-node handoff design uses the linked hub as a per-placement
+fencing authority. A target prepares without executing; the source freezes new
+dispatch and commits a checkpoint plus handoff barrier; the hub atomically
+compares and advances the source node and epoch to the target; and only then may
+the target begin a new execution segment. That compare-and-swap, rather than a
+distributed transaction or message-delivery assumption, is the authority commit
+point.
+
+A forced fallback may advance the same register from the last portable checkpoint
+when the recovery policy permits it. Work or side effects after that checkpoint
+remain `outcome_unknown`. Without a reachable fencing authority, the system may
+wait, exit, or create a visible fork, but it cannot claim same-branch continuation.
+
+The north star keeps the singular fenced placement register while removing the
+linked hub as a permanent topology requirement. Direct source-sealed handoff,
+peer-hosted fencing, coordinator migration, and automated lease or failure
+detection are later follow-ups. They must preserve the same epoch, checkpoint,
+barrier, and uncertain-outcome semantics rather than creating a second execution
+authority model.
+
+### 7.16 Enrollment starts with disposable node identity
+
+The first linked-node lifecycle uses a locally generated keypair and `node_id`.
+OAuth or device linking authorizes the hub to enroll the public identity for one
+account, after which narrow renewable credentials remain bound to proof of that
+node key. Unlink or remote revocation permanently invalidates the enrollment.
+
+The same local profile may link again, but it generates a new keypair and
+`node_id`; the revoked identity remains historical provenance and is never
+resurrected. The initial design does not export private keys, recover an old node
+identity, or rotate its key while preserving that identity.
+
+Revocation stops future hub-mediated synchronization, tunnels, inference
+brokering, and Run routing. It cannot erase retained local data, disable standalone
+offline use, or prove physical key destruction. Identity-preserving rotation,
+hardware-backed keys, encrypted recovery, multi-peer revocation propagation,
+hub-loss re-homing, and offline-authorship cutoffs are explicit north-star
+follow-ups rather than hidden requirements of the first enrollment flow.
+
+### 7.17 First delivery synchronizes the resumable episodic core
+
+The first linked node-to-hub synchronization capability carries only the
+normalized personal state required to render, audit, fork, and safely resume a
+Chat: Chats, branches, messages and parts, lineage, Runs and execution-segment
+metadata, portable semantic and compaction checkpoints, context receipts,
+Run-scoped one-time approvals, normalized tool and side-effect receipts, and the
+artifact metadata needed to interpret those records. A context receipt also
+preserves the frozen Run-effective Agent Profile and instructions or their exact
+revision; this does not make the mutable profile itself part of v1 sync.
+
+Mutable Agent Profile heads and edit history, general settings, persistent
+permission policies, and deletion semantics wait for their own authorship,
+conflict, retention, and authorization contracts. Knowledge Space content uses
+Git publication adapters, while artifact payload transfer is a separate
+policy-controlled protocol. Secrets, node-local provider and Sandbox
+configuration, Workspace paths or registry state, raw execution events and
+deltas, queue or process mechanics, and rebuildable projections never enter the
+generic Personal Realm journal.
+
+This scope restriction is a delivery boundary, not different bootstrap
+semantics. A new replica and an existing replica reconcile the same supported
+record classes through the same function.
+
+### 7.18 First delivery uses sender backfill for causal ordering
+
+The first node-to-hub contract requires senders to retain unacknowledged
+`ChangeBatch` records and send them in causal order. A receiver applies a complete
+batch atomically or not at all. If otherwise-authorized dependencies are absent,
+it returns their identities without accepting or partially applying the batch;
+the sender backfills them and retries. When incremental history is unavailable,
+the same reconciliation function may use a consistent snapshot at a proven
+frontier.
+
+The same batch identity and payload is idempotent. The same identity with a
+different payload is an integrity failure. Missing dependencies are temporarily
+inapplicable, while unauthorized dependencies are rejected. Valid sibling
+continuations remain explicit forks rather than last-write-wins conflicts, and
+their lineage must be independent of delivery order.
+
+The receiver does not need a durable out-of-order quarantine in the first
+topology. That becomes a north-star follow-up only when multi-peer or multi-hop
+delivery makes the original sender unavailable often enough to justify its
+retention, revalidation, migration, and resource-exhaustion complexity.
 
 ## 8. Scenario stress test
 
@@ -618,9 +938,13 @@ less trusted sink.
 
 If the family authority grants `offline-propose`, Leo's personal node records a
 candidate commit or operation with the family Space's identity and base revision.
-On reconnect, the family authority revalidates current membership and policy, then
-accepts, rejects, or requests reconciliation. The local edit is never silently
-represented as already accepted family state.
+On reconnect, the configured publication adapter maps a Git candidate onto the
+family Space's raw Git, GitHub, GitLab, Forgejo, or later provider workflow. The
+family authority revalidates current membership and policy, compares that base to
+its current accepted head, and fences any accepted-ref update to the head it
+observed. A stale or divergent candidate remains available for merge, rebase,
+review, or rejection. The local edit is never silently represented as already
+accepted family state merely because no conflict was visible while offline.
 
 ### 8.3 Leo's wife sees family and her work
 
@@ -649,14 +973,18 @@ stronger revocation than the topology can deliver.
 `online-only` mounts become unavailable and trigger the same model/UI transparency
 contract as unavailable tools or Workspaces. Permitted replicas remain readable
 according to their lease and policy. They do not become the new governing
-authority automatically; recovery or migration is a separate action.
+authority automatically; recovery or migration is a separate action. Any
+base-anchored candidate or published proposal remains tentative until that
+authority or an explicitly migrated successor validates and fences acceptance.
 
 ### 8.7 Leo asks to absorb one Space into another
 
 The agent needs read/export permission on the source and write permission on the
 destination. It creates destination-owned content with source provenance. Source
 deletion remains a separate user action, consistent with the earlier Knowledge
-Space decision.
+Space decision. If the destination authority becomes unavailable mid-flight, the
+honest fallback is to preserve the destination candidate or proposal and surface
+that absorption is pending rather than completed.
 
 ## 9. What to omit unless evidence changes
 
@@ -694,6 +1022,47 @@ these invariants:
 6. Model public Git repositories as read-only sources with explicit forks.
 7. Use standard OAuth/OIDC connection mechanics before inventing global identity
    or server trust protocols.
+8. Separate Git repository transport from provider-aware publication and review
+   workflows.
+9. Keep Chats database-native and synchronize their portable episodic state
+   through the llame application protocol rather than Git or database replication.
+10. Track replica coverage independently from revision ancestry; absence of an
+    observed conflict never proves completeness.
+11. Permit incomplete replicas to preserve and publish base-anchored candidates,
+    but not to mutate accepted state or perform destructive reconciliation.
+12. Fence accepted-state changes to the exact authoritative observation that
+    validated them; notifications and proposal status are derived, not commit
+    points.
+13. Replicate personal episodic mutations as atomic semantic change batches, not
+    table rows, WAL records, or wholesale event-sourced projections.
+14. Use one modular, capability-negotiated Node Protocol contract across local and
+    hosted nodes without requiring one stack; keep active execution
+    single-authority behind its `execution.*` module, reached directly or through
+    an authenticated tunnel, while raw queue and Run state remain executor-local.
+15. Separate the live execution stream, executor-local recovery journal, and
+    portable Realm semantic checkpoints; do not promote raw executor events into
+    the synchronization contract.
+16. Scope durable execution placement to a Chat branch/session rather than making
+    Workspace or executor affinity a Chat-global scalar.
+17. Permit a single-authority first implementation, but keep replica retention
+    distinct from record authorship so capability-scoped multi-replica authorship
+    can be added without changing accepted identities or provenance.
+18. Begin cross-node handoff with a linked-hub compare-and-swap fence; later
+    coordination topologies may move that role but may not permit same-branch
+    forced failover without a reachable singular fencing authority.
+19. Treat initial node enrollment identities as disposable: revocation is
+    permanent and relinking creates a new principal, while key recovery and
+    multi-peer revocation remain later capabilities.
+20. Use one reconciliation function for first contact and later synchronization;
+    a snapshot is a compact journal prefix, never a separate import, overwrite, or
+    conflict model.
+21. Keep first-delivery synchronization limited to the normalized resumable
+    Chat/Run core; mutable policy and configuration resources, Git knowledge,
+    artifact payloads, secrets, and executor-local mechanics retain their own
+    contracts.
+22. In first delivery, apply a causally complete `ChangeBatch` atomically or not
+    at all; let the sender backfill missing dependencies and reserve durable
+    receiver-side staging for a topology that proves it necessary.
 
 Phase A does not require an immediate schema migration merely to prefix every
 existing UUID. It does require that no contract start treating an installation's
@@ -729,6 +1098,52 @@ federation or ownerless database federation:
   does not merge those subjects into a globally trusted person identity.
 - Every shared Space has one governing authority for membership, accepted
   revisions, retention, replication permission, and information-flow policy.
+- Git-backed Knowledge Spaces retain Git-compatible history while configured
+  publication adapters map candidate revisions onto raw Git, GitHub, GitLab,
+  Forgejo, or later provider workflows.
+- Replica coverage remains distinct from Git head relation. Incomplete replicas
+  may create and publish exact-base candidate revisions, while only the governing
+  authority may validate and fence their transition into accepted state.
+- Personal Chats and their execution checkpoints remain database-native episodic
+  state synchronized through portable semantic change batches; they are not
+  Git-backed Knowledge Spaces, database replicas, or projections rebuilt from the
+  existing `run_events` log.
+- Active Runs use three durability layers: the `execution.*` live stream, an
+  executor-local recovery journal, and portable semantic checkpoints. Visible
+  output is journaled locally before delivery, while cross-node recovery remains
+  bounded by the last synchronized checkpoint rather than pretending eventual
+  replication is quorum durability.
+- Initial delivery may retain a single-authority authoring model. The north star
+  remains capability-scoped: holding a full replica permits retention and
+  forwarding, not fabrication of every record kind. Exact linked-sync writer
+  policy is deferred until that delivery stage is designed.
+- Active Chat branches retain branch-scoped execution placements. Their current
+  executor exposes the common Node Protocol's `execution.*` module directly or
+  through a tunnel while remaining the only authority allowed to advance the Run.
+- Initial handoff uses the linked hub as the placement's compare-and-swap fencing
+  service. A graceful transfer freezes and checkpoints the source before the epoch
+  advances; a forced transfer starts from the last portable checkpoint and
+  preserves uncertain effects. Without a fence, fallback forks rather than
+  claiming same-branch continuation. Peer-hosted or movable fencing remains a
+  later follow-up.
+- Initial node enrollment uses a disposable locally generated cryptographic
+  identity. Unlink or remote revocation permanently invalidates it; relinking
+  creates a new node principal. Revocation blocks future hub-mediated activity but
+  is not remote wipe. Identity-preserving rotation, recovery, and multi-peer
+  revocation are later follow-ups.
+- A replica's first and later synchronization sessions use the same reconciliation
+  function and conflict semantics. A new replica merely lacks a frontier; a
+  snapshot is a compact journal prefix selected by that function, not a special
+  first-link import or overwrite path.
+- First delivery synchronizes the bounded resumable Chat/Run core in every
+  session. Mutable profile, setting, persistent-policy, and deletion resources
+  wait for explicit per-resource reconciliation rules; Git knowledge, artifact
+  payloads, secrets, and executor-local mechanics remain separate protocols or
+  state classes.
+- First delivery sends batches in causal order and handles missing dependencies
+  through sender backfill and retry. Receivers do not partially apply or durably
+  stage incomplete batches; valid sibling continuations remain automatic forks,
+  while batch-identity payload mismatches fail closed.
 - Foreign resources are mounted into a user's view and are never silently
   absorbed into the Personal Realm.
 - Every Chat or Run branch has a destination authority. A source may contribute
@@ -752,7 +1167,7 @@ Ship independently useful standalone and hub installations first:
 - no cross-authority account connections;
 - explicit import and export;
 - public Git-backed knowledge as a pinned read-only source with explicit updates,
-  forks, and upstream contribution;
+  forks, and contribution through its configured publication adapter;
 - personal full mirroring only within the Personal Realm when that capability
   arrives; and
 - source provenance retained for every copy or absorption.
@@ -798,7 +1213,10 @@ merely because a replica was reachable when the governing authority was not.
   authority.
 - **Defer:** arbitrary hub-to-hub event federation, Matrix-style ownerless state,
   and peer-to-peer shared ACLs.
-- **Use selectively, not wholesale:** Git for knowledge history and proposals;
+- **Use selectively, not wholesale:** Git for knowledge history and interchange;
+  raw Git or forge-aware adapters for knowledge publication; application-level
+  database synchronization for personal episodic history; Buzz's
+  complete-or-cannot-prove-complete boundary and authority-side CAS fencing;
   Nostr/Buzz-style signed events for possible actor/delegation provenance;
   capabilities for narrow executor delegation; and CRDTs only for data types with
   an independently justified merge model.
@@ -815,6 +1233,19 @@ The sequence reduces simultaneous unknowns while preserving the north star. Its
 main failure mode is allowing Phase A's closed-world assumptions to leak into
 durable identities, import semantics, or Chat persistence. Section 10's invariants
 are therefore part of the decision, not optional cleanup for Phase B.
+
+### 11.5 Vision status and promotion discipline
+
+This federation exploration is closed for product direction. Detailed schemas,
+algorithms, and conformance behavior are not prerequisites for that closure and
+should not be appended as another research checklist. They belong in a focused
+capability artifact when a delivery stage makes them actionable.
+
+Simple-first contracts may omit generality, but they may not erase stable
+identity, provenance, authority, fencing, or honest failure semantics required by
+the north star. Follow-ups remain research until product evidence promotes them;
+they are neither speculative Phase A implementation nor unsequenced roadmap
+promises.
 
 Confidence: **high** in the authority model and A → B → C sequence; **moderate**
 in signed event envelopes as a later provenance mechanism; **low** that llame
