@@ -1,91 +1,120 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { post, patch, del, FakeHTTPError } = vi.hoisted(() => {
-  class FakeHTTPError extends Error {
-    response: { status: number };
-    constructor(status: number) {
-      super(`HTTP ${status}`);
-      this.response = { status };
-    }
-  }
-  return { post: vi.fn(), patch: vi.fn(), del: vi.fn(), FakeHTTPError };
-});
+const createProjectEndpoint = vi.hoisted(() => vi.fn());
+const updateProjectEndpoint = vi.hoisted(() => vi.fn());
+const deleteProjectEndpoint = vi.hoisted(() => vi.fn());
+const updateChatEndpoint = vi.hoisted(() => vi.fn());
+const authenticatedFetch = vi.hoisted(() => vi.fn());
+const createAuthenticatedBrowserFetch = vi.hoisted(() => vi.fn());
 
-vi.mock("ky", () => ({ HTTPError: FakeHTTPError }));
-vi.mock("../../api/client", () => ({
-  api: { post, patch, delete: del },
-  buildApiUrl: (path: string) => `http://api${path}`,
+vi.mock("../../api/generated/projects/projects", () => ({
+  createProject: createProjectEndpoint,
+  updateProject: updateProjectEndpoint,
+  deleteProject: deleteProjectEndpoint,
+}));
+vi.mock("../../api/generated/chats/chats", () => ({
+  updateChat: updateChatEndpoint,
+}));
+vi.mock("../../api/fetch", () => ({
+  createAuthenticatedBrowserFetch,
 }));
 
 import {
   createProject,
   deleteProject,
   fileChat,
+  setProjectArchive,
   updateProject,
 } from "./mutations";
 
-function jsonResolved<T>(value: T) {
-  return { json: () => Promise.resolve(value) };
-}
+createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
 
 afterEach(() => {
-  post.mockReset();
-  patch.mockReset();
-  del.mockReset();
+  vi.clearAllMocks();
+  createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
 });
 
 describe("createProject", () => {
-  it("POSTs /projects with the name", async () => {
-    post.mockReturnValue(jsonResolved({ id: "p1" }));
+  it("creates a project through the generated authenticated endpoint", async () => {
+    createProjectEndpoint.mockResolvedValue({ id: "p1" });
     await createProject("Acme");
-    expect(post).toHaveBeenCalledWith("http://api/api/v1/projects", {
-      json: { name: "Acme" },
-    });
+    expect(createProjectEndpoint).toHaveBeenCalledWith(
+      { name: "Acme" },
+      undefined,
+      authenticatedFetch,
+    );
   });
 });
 
 describe("updateProject", () => {
-  it("PATCHes /projects/:id with the new name", async () => {
-    patch.mockReturnValue(jsonResolved({ id: "p1" }));
+  it("renames a project through the generated authenticated endpoint", async () => {
+    updateProjectEndpoint.mockResolvedValue({ id: "p1" });
     await updateProject("p1", "Renamed");
-    expect(patch).toHaveBeenCalledWith("http://api/api/v1/projects/p1", {
-      json: { name: "Renamed" },
-    });
+    expect(updateProjectEndpoint).toHaveBeenCalledWith(
+      "p1",
+      { name: "Renamed" },
+      undefined,
+      authenticatedFetch,
+    );
+  });
+});
+
+describe("setProjectArchive", () => {
+  it("updates archive state through the generated authenticated endpoint", async () => {
+    updateProjectEndpoint.mockResolvedValue({ id: "p1" });
+    await setProjectArchive("p1", true);
+    expect(updateProjectEndpoint).toHaveBeenCalledWith(
+      "p1",
+      { archived: true },
+      undefined,
+      authenticatedFetch,
+    );
   });
 });
 
 describe("deleteProject", () => {
-  it("DELETEs /projects/:id", async () => {
-    del.mockResolvedValue(undefined);
+  it("deletes a project through the generated authenticated endpoint", async () => {
+    deleteProjectEndpoint.mockResolvedValue(undefined);
     await deleteProject("p1");
-    expect(del).toHaveBeenCalledWith("http://api/api/v1/projects/p1");
+    expect(deleteProjectEndpoint).toHaveBeenCalledWith(
+      "p1",
+      undefined,
+      authenticatedFetch,
+    );
   });
 
   it("swallows a 404 (already deleted) as success", async () => {
-    del.mockRejectedValue(new FakeHTTPError(404));
+    deleteProjectEndpoint.mockRejectedValue({ status: 404, info: {} });
     await expect(deleteProject("gone")).resolves.toBeUndefined();
   });
 
   it("rethrows non-404 errors", async () => {
-    del.mockRejectedValue(new FakeHTTPError(500));
-    await expect(deleteProject("p1")).rejects.toBeInstanceOf(FakeHTTPError);
+    const error = { status: 500, info: {} };
+    deleteProjectEndpoint.mockRejectedValue(error);
+    await expect(deleteProject("p1")).rejects.toBe(error);
   });
 });
 
 describe("fileChat", () => {
-  it("PATCHes /chats/:id with a project uuid to file the chat", async () => {
-    patch.mockResolvedValue(undefined);
+  it("updates the chat through the generated endpoint when filing it", async () => {
+    updateChatEndpoint.mockResolvedValue(undefined);
     await fileChat("c1", "p1");
-    expect(patch).toHaveBeenCalledWith("http://api/api/v1/chats/c1", {
-      json: { projectId: "p1" },
-    });
+    expect(updateChatEndpoint).toHaveBeenCalledWith(
+      "c1",
+      { projectId: "p1" },
+      undefined,
+      authenticatedFetch,
+    );
   });
 
-  it("PATCHes /chats/:id with null to unfile the chat", async () => {
-    patch.mockResolvedValue(undefined);
+  it("updates the chat with null when unfiling it", async () => {
+    updateChatEndpoint.mockResolvedValue(undefined);
     await fileChat("c1", null);
-    expect(patch).toHaveBeenCalledWith("http://api/api/v1/chats/c1", {
-      json: { projectId: null },
-    });
+    expect(updateChatEndpoint).toHaveBeenCalledWith(
+      "c1",
+      { projectId: null },
+      undefined,
+      authenticatedFetch,
+    );
   });
 });

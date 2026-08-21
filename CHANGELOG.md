@@ -17,6 +17,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   use generated endpoints while retaining handwritten TanStack Query/cache
   behavior; robust auth outcomes cover non-JSON 401s, and duplicated feature
   types are reduced.
+- **Project and pin API migration**: project and pin feature services now use
+  generated authenticated endpoints while preserving feature-owned query keys,
+  optimistic cache behavior, cross-resource invalidation, and idempotent 404
+  handling.
 - **Unified context-injection rail** (#463): every server-authored context item
   — model change, tool-availability transition, recency-digest delta and
   supersession, and the compaction checkpoint — now renders through one

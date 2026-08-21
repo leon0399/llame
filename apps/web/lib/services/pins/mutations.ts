@@ -3,9 +3,13 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { HTTPError } from "ky";
 
-import { api, buildApiUrl } from "../../api/client";
+import { getApiErrorStatus } from "../../api/errors";
+import {
+  pinItem as pinItemEndpoint,
+  unpinItem as unpinItemEndpoint,
+} from "../../api/generated/pins/pins";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import { toast } from "@workspace/ui/components/sonner";
 import { chatQueryKeys } from "../chat/queries";
 import { projectQueryKeys } from "../project/queries";
@@ -52,9 +56,12 @@ export async function pinItem(
   itemType: PinItemType,
   itemId: string,
 ): Promise<PinnedItem> {
-  return api
-    .put(buildApiUrl(`/api/v1/pins/${itemType}/${itemId}`))
-    .json<PinnedItem>();
+  return pinItemEndpoint(
+    itemType,
+    itemId,
+    undefined,
+    createAuthenticatedBrowserFetch(globalThis.fetch),
+  );
 }
 
 type PinVariables =
@@ -123,12 +130,17 @@ export async function unpinItem(
   itemId: string,
 ): Promise<void> {
   try {
-    await api.delete(buildApiUrl(`/api/v1/pins/${itemType}/${itemId}`));
+    await unpinItemEndpoint(
+      itemType,
+      itemId,
+      undefined,
+      createAuthenticatedBrowserFetch(globalThis.fetch),
+    );
   } catch (error) {
     // 404 = already unpinned (e.g. a double-click's second request). That IS
     // the desired end state, so treat unpin as idempotent rather than erroring
     // — mirrors deleteChat/deleteProject's own 404-as-success handling.
-    if (error instanceof HTTPError && error.response.status === 404) return;
+    if (getApiErrorStatus(error) === 404) return;
     throw error;
   }
 }

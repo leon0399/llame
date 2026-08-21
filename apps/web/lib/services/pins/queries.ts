@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { api, buildApiUrl } from "../../api/client";
+import { listPins as listPinsEndpoint } from "../../api/generated/pins/pins";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import type { PinnedItem } from "./types";
 
 // Serializable-array key factory (TkDodo's "Effective React Query Keys"),
@@ -10,8 +11,11 @@ export const pinQueryKeys = {
   list: () => [...pinQueryKeys.all, "list"] as const,
 };
 
-export const fetchPins = () =>
-  api.get(buildApiUrl("/api/v1/pins")).json<PinnedItem[]>();
+export const fetchPins = (): Promise<PinnedItem[]> =>
+  listPinsEndpoint(
+    undefined,
+    createAuthenticatedBrowserFetch(globalThis.fetch),
+  );
 
 /**
  * The caller's pinned items, mixed chats+projects, most-recently-pinned first
