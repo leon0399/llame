@@ -58,7 +58,13 @@ export interface ContextItemPart {
   readonly data: {
     readonly v: 1;
     readonly producer: string;
-    readonly form?: ContextItemForm;
+    /**
+     * As PARSED, not as recognized: validation accepts any string here, so
+     * typing it as the closed union would let a caller pass a future form
+     * straight into rendering as though it were recognized. `resolveForm` is
+     * the only narrowing to `ContextItemForm`.
+     */
+    readonly form?: string;
     readonly runId: string;
     readonly payload: UnknownRecord;
   };
@@ -203,7 +209,12 @@ export function renderContextItem(input: {
   readonly producer: string;
   readonly form: ContextItemForm | undefined;
   readonly body: string;
-}): string {
+}): string | null {
+  // Fail closed HERE rather than relying on a producer dispatch returning null
+  // further out: this is the only function that can put an envelope in front of
+  // the model, so an older worker reading a newer API's producer must be unable
+  // to emit it even if a future caller forgets the check.
+  if (!isRecognizedProducer(input.producer)) return null;
   const attributes = [
     `producer="${escapeXmlAttribute(input.producer)}"`,
     ...(input.form === undefined
