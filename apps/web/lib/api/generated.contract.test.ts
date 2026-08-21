@@ -208,6 +208,21 @@ describe("generated API contract", () => {
     });
   });
 
+  it("preserves status and raw text for malformed JSON errors", async () => {
+    const rawBody = "{bad json";
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(rawBody, {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(getCurrentUser(undefined, fetchMock)).rejects.toMatchObject({
+      status: 401,
+      info: rawBody,
+    });
+  });
+
   it("keeps empty error bodies safe", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
