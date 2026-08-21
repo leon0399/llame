@@ -573,6 +573,9 @@ describe('buildContext', () => {
       const checkpoint = contentText(result.messages[0].content);
       expect(checkpoint).toContain('&lt;/system-reminder&gt;');
       expect(checkpoint.match(/<\/system-reminder>/g)).toHaveLength(1);
+    });
+  });
+
   describe('per-run record of injected items', () => {
     const switchItem = {
       type: 'data-context',
