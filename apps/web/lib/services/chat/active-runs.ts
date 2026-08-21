@@ -1,6 +1,11 @@
-import { HTTPError } from "ky";
-
-import { api, buildApiUrl } from "../../api/client";
+import { getRun } from "../../api/generated/runs/runs";
+import { listActiveRuns } from "../../api/generated/me/me";
+import type {
+  ActiveRunResponse,
+  RunResponse,
+} from "../../api/generated/models";
+import { getApiErrorStatus } from "../../api/errors";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 
 // Feature key factory (apps/web/AGENTS.md convention), mirroring chatQueryKeys
 // in ./queries.ts: generic resource -> specific resource/subresource.
@@ -10,7 +15,7 @@ export const activeRunsQueryKeys = {
   run: (runId: string) => [...activeRunsQueryKeys.all, "run", runId] as const,
 };
 
-export type Run = { id: string; status: string };
+export type Run = Pick<RunResponse, "id" | "status">;
 
 /**
  * Poll a run's status (owner-scoped server-side). Returns null on 404 — the run
@@ -19,9 +24,9 @@ export type Run = { id: string; status: string };
  */
 export async function fetchRun(runId: string): Promise<Run | null> {
   try {
-    return await api.get(buildApiUrl(`/api/v1/runs/${runId}`)).json<Run>();
+    return await getRun(runId, undefined, authenticatedFetch());
   } catch (error) {
-    if (error instanceof HTTPError && error.response.status === 404) {
+    if (getApiErrorStatus(error) === 404) {
       return null;
     }
     throw error;
@@ -29,20 +34,14 @@ export async function fetchRun(runId: string): Promise<Run | null> {
 }
 
 /** One of the caller's in-flight runs (from `GET /api/v1/me/runs?status=active`). */
-export type ActiveRun = {
-  runId: string;
-  chatId: string;
-  // Nullable: a chat's title is generated asynchronously (#78) and may still
-  // be null while a run against it is active.
-  chatTitle: string | null;
-  status: string;
-  createdAt: string;
-};
+export type ActiveRun = ActiveRunResponse;
 
 export async function fetchActiveRuns(): Promise<ActiveRun[]> {
-  const url = new URL(buildApiUrl("/api/v1/me/runs"));
-  url.searchParams.set("status", "active");
-  return api.get(url.toString()).json<ActiveRun[]>();
+  return listActiveRuns({ status: "active" }, undefined, authenticatedFetch());
+}
+
+function authenticatedFetch(): typeof fetch {
+  return createAuthenticatedBrowserFetch(globalThis.fetch);
 }
 
 /**

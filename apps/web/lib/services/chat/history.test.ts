@@ -1,7 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 import {
-  buildChatMessagesHistoryUrl,
   messageRenderKey,
   mergeTrustedModelContextParts,
   modelSwitchPart,
@@ -9,36 +8,6 @@ import {
   shouldAdoptServerHistory,
   toChatUiMessages,
 } from "./history";
-
-describe("buildChatMessagesHistoryUrl", () => {
-  const originalApiUrl = process.env.NEXT_PUBLIC_API_URL;
-
-  afterEach(() => {
-    if (originalApiUrl === undefined) {
-      delete process.env.NEXT_PUBLIC_API_URL;
-    } else {
-      process.env.NEXT_PUBLIC_API_URL = originalApiUrl;
-    }
-  });
-
-  it("builds the chat history endpoint URL", () => {
-    process.env.NEXT_PUBLIC_API_URL = "https://api.example.com/";
-
-    expect(buildChatMessagesHistoryUrl("chat-1")).toBe(
-      "https://api.example.com/api/v1/chats/chat-1/messages",
-    );
-  });
-
-  it("adds history pagination query params", () => {
-    process.env.NEXT_PUBLIC_API_URL = "https://api.example.com/";
-
-    expect(
-      buildChatMessagesHistoryUrl("chat-1", { limit: 50, beforeSeq: 42 }),
-    ).toBe(
-      "https://api.example.com/api/v1/chats/chat-1/messages?limit=50&beforeSeq=42",
-    );
-  });
-});
 
 describe("toChatUiMessages", () => {
   it("maps persisted chat messages to AI SDK UI messages", () => {

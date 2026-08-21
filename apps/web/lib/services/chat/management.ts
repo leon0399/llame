@@ -1,7 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { HTTPError } from "ky";
 
-import { api, buildApiUrl } from "../../api/client";
+import {
+  deleteChat as deleteChatEndpoint,
+  updateChat,
+} from "../../api/generated/chats/chats";
+import { getApiErrorStatus } from "../../api/errors";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import { toast } from "@workspace/ui/components/sonner";
 import { pinQueryKeys } from "../pins/queries";
 import { chatQueryKeys } from "./queries";
@@ -19,7 +23,12 @@ import { chatQueryKeys } from "./queries";
  * GET /pins — the pins cache holds its own denormalized copy of the title.
  */
 export async function renameChat(id: string, title: string): Promise<void> {
-  await api.patch(buildApiUrl(`/api/v1/chats/${id}`), { json: { title } });
+  await updateChat(
+    id,
+    { title },
+    undefined,
+    createAuthenticatedBrowserFetch(globalThis.fetch),
+  );
 }
 
 export function useRenameChat() {
@@ -41,7 +50,12 @@ export async function setChatArchive(
   id: string,
   archived: boolean,
 ): Promise<void> {
-  await api.patch(buildApiUrl(`/api/v1/chats/${id}`), { json: { archived } });
+  await updateChat(
+    id,
+    { archived },
+    undefined,
+    createAuthenticatedBrowserFetch(globalThis.fetch),
+  );
 }
 
 export function useSetChatArchive() {
@@ -64,11 +78,15 @@ export function useSetChatArchive() {
 
 export async function deleteChat(id: string): Promise<void> {
   try {
-    await api.delete(buildApiUrl(`/api/v1/chats/${id}`));
+    await deleteChatEndpoint(
+      id,
+      undefined,
+      createAuthenticatedBrowserFetch(globalThis.fetch),
+    );
   } catch (error) {
     // 404 = already gone (e.g. a double-click's second request). That IS the
     // desired end state, so treat delete as idempotent rather than erroring.
-    if (error instanceof HTTPError && error.response.status === 404) return;
+    if (getApiErrorStatus(error) === 404) return;
     throw error;
   }
 }
@@ -91,7 +109,12 @@ export async function setChatVisibility(
   id: string,
   visibility: ChatVisibility,
 ): Promise<void> {
-  await api.patch(buildApiUrl(`/api/v1/chats/${id}`), { json: { visibility } });
+  await updateChat(
+    id,
+    { visibility },
+    undefined,
+    createAuthenticatedBrowserFetch(globalThis.fetch),
+  );
 }
 
 export function useSetChatVisibility() {

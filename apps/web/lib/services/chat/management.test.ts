@@ -1,63 +1,70 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { patch, del, FakeHTTPError } = vi.hoisted(() => {
-  class FakeHTTPError extends Error {
-    response: { status: number };
-    constructor(status: number) {
-      super(`HTTP ${status}`);
-      this.response = { status };
-    }
-  }
-  return { patch: vi.fn(), del: vi.fn(), FakeHTTPError };
-});
+const { updateChat, deleteChatEndpoint } = vi.hoisted(() => ({
+  updateChat: vi.fn(),
+  deleteChatEndpoint: vi.fn(),
+}));
 
-vi.mock("ky", () => ({ HTTPError: FakeHTTPError }));
-vi.mock("../../api/client", () => ({
-  api: { patch, delete: del },
-  buildApiUrl: (path: string) => `http://api${path}`,
+vi.mock("../../api/generated/chats/chats", () => ({
+  updateChat,
+  deleteChat: deleteChatEndpoint,
+}));
+vi.mock("../../api/fetch", () => ({
+  createAuthenticatedBrowserFetch: () => vi.fn(),
 }));
 
 import { deleteChat, renameChat, setChatVisibility } from "./management";
 
 afterEach(() => {
-  patch.mockReset();
-  del.mockReset();
+  updateChat.mockReset();
+  deleteChatEndpoint.mockReset();
 });
 
 describe("renameChat", () => {
   it("PATCHes /chats/:id with the new title", async () => {
-    patch.mockResolvedValue(undefined);
+    updateChat.mockResolvedValue(undefined);
     await renameChat("c1", "New title");
-    expect(patch).toHaveBeenCalledWith("http://api/api/v1/chats/c1", {
-      json: { title: "New title" },
-    });
+    expect(updateChat).toHaveBeenCalledWith(
+      "c1",
+      { title: "New title" },
+      undefined,
+      expect.any(Function),
+    );
   });
 });
 
 describe("setChatVisibility", () => {
   it("PATCHes /chats/:id with the visibility", async () => {
-    patch.mockResolvedValue(undefined);
+    updateChat.mockResolvedValue(undefined);
     await setChatVisibility("c1", "public");
-    expect(patch).toHaveBeenCalledWith("http://api/api/v1/chats/c1", {
-      json: { visibility: "public" },
-    });
+    expect(updateChat).toHaveBeenCalledWith(
+      "c1",
+      { visibility: "public" },
+      undefined,
+      expect.any(Function),
+    );
   });
 });
 
 describe("deleteChat", () => {
   it("DELETEs /chats/:id", async () => {
-    del.mockResolvedValue(undefined);
+    deleteChatEndpoint.mockResolvedValue(undefined);
     await deleteChat("c1");
-    expect(del).toHaveBeenCalledWith("http://api/api/v1/chats/c1");
+    expect(deleteChatEndpoint).toHaveBeenCalledWith(
+      "c1",
+      undefined,
+      expect.any(Function),
+    );
   });
 
   it("swallows a 404 (already deleted) as success", async () => {
-    del.mockRejectedValue(new FakeHTTPError(404));
+    deleteChatEndpoint.mockRejectedValue({ status: 404, info: {} });
     await expect(deleteChat("gone")).resolves.toBeUndefined();
   });
 
   it("rethrows non-404 errors", async () => {
-    del.mockRejectedValue(new FakeHTTPError(500));
-    await expect(deleteChat("c1")).rejects.toBeInstanceOf(FakeHTTPError);
+    const error = { status: 500, info: {} };
+    deleteChatEndpoint.mockRejectedValue(error);
+    await expect(deleteChat("c1")).rejects.toBe(error);
   });
 });

@@ -6,13 +6,17 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { isToday, isYesterday, subMonths, subWeeks } from "date-fns";
-import { HTTPError } from "ky";
-import { api, buildApiUrl } from "../../api/client";
+import { getChatMessages, listChats } from "../../api/generated/chats/chats";
+import type {
+  ChatListItemResponse,
+  ListChatsParams,
+} from "../../api/generated/models";
+import { getApiErrorStatus } from "../../api/errors";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import {
-  buildChatMessagesHistoryUrl,
   type ChatHistory,
-  type ChatMessagesResponse,
   type Compaction,
+  normalizeChatMessagesResponse,
   toChatUiMessages,
 } from "./history";
 import {
@@ -20,20 +24,13 @@ import {
   paginateAllMessages,
 } from "./paginate-messages";
 
-export type ChatResponse = {
-  id: string;
-  // null = untitled (server-side generation pending); render a localized placeholder.
-  title: string | null;
-  visibility: "private" | "public";
-  createdAt: string;
-  updatedAt: string;
-  // Text-only excerpt of the latest message, truncated server-side; empty for
-  // tool-only turns, null for a chat without messages. List reads only.
-  lastMessage: string | null;
-  // Project the chat is filed into (projects-foundation); null = unfiled.
-  projectId: string | null;
-  // Archive state (chat-project-archive); null = not archived.
-  archivedAt: string | null;
+/** Component-facing chat shape, based on the generated list contract. */
+export type ChatResponse = Omit<
+  ChatListItemResponse,
+  "lastMessage" | "ownerUserId"
+> & {
+  lastMessage?: string | null;
+  ownerUserId?: string;
 };
 
 // NOTE: no pinnedAt field here. Pin state lives only in the pins subsystem
@@ -114,9 +111,27 @@ export const fetchChats = (
     searchParams.projectId = filters.projectId;
   if (filters?.pinned !== undefined) searchParams.pinned = filters.pinned;
   if (filters?.archived !== undefined) searchParams.archived = filters.archived;
-  const sp =
-    Object.keys(searchParams).length > 0 ? { searchParams } : undefined;
-  return api.get(buildApiUrl("/api/v1/chats"), sp).json<ChatResponse[]>();
+  const params: ListChatsParams | undefined =
+    Object.keys(searchParams).length > 0
+      ? {
+          ...(searchParams.projectId
+            ? { projectId: searchParams.projectId }
+            : {}),
+          ...(searchParams.pinned
+            ? { pinned: searchParams.pinned as ListChatsParams["pinned"] }
+            : {}),
+          ...(searchParams.archived
+            ? {
+                archived: searchParams.archived as ListChatsParams["archived"],
+              }
+            : {}),
+        }
+      : undefined;
+  return listChats(
+    params,
+    context?.signal === undefined ? undefined : { signal: context.signal },
+    createAuthenticatedBrowserFetch(globalThis.fetch),
+  );
 };
 
 // Compaction (#57) arrives EMBEDDED in the messages response (#136 — folded
@@ -133,19 +148,19 @@ export const fetchChatMessages = async ({
 }: QueryFunctionContext<ChatMessagesQueryKey>): Promise<ChatHistory> => {
   let compaction: Compaction | null = null;
   const messages = await paginateAllMessages((beforeSeq) =>
-    api
-      .get(
-        buildChatMessagesHistoryUrl(chatId, {
-          limit: CHAT_HISTORY_PAGE_SIZE,
-          ...(beforeSeq !== undefined ? { beforeSeq } : {}),
-        }),
-        { signal },
-      )
-      .json<ChatMessagesResponse>()
-      .then((page) => {
-        compaction = page.compaction;
-        return page;
-      }),
+    getChatMessages(
+      encodeURIComponent(chatId),
+      {
+        limit: CHAT_HISTORY_PAGE_SIZE,
+        ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+      },
+      { signal },
+      createAuthenticatedBrowserFetch(globalThis.fetch),
+    ).then((page) => {
+      const normalized = normalizeChatMessagesResponse(page);
+      compaction = normalized.compaction;
+      return normalized;
+    }),
   );
   return { messages: toChatUiMessages({ messages }), compaction };
 };
@@ -194,7 +209,7 @@ export function useChatMessagesQuery({
 }
 
 export function isChatHistoryMissing(error: unknown): boolean {
-  return error instanceof HTTPError && error.response.status === 404;
+  return getApiErrorStatus(error) === 404;
 }
 
 export function useChatsQuery(filters?: ChatListFilters) {

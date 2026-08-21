@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { buildApiUrl } from "../../api/client";
+import type { ChatMessagesResponse as GeneratedChatMessagesResponse } from "../../api/generated/models";
 
 export type ChatMessageResponse = {
   id: string;
@@ -46,6 +46,19 @@ export type ChatMessagesResponse = {
   messages: ChatMessageResponse[];
   compaction: Compaction | null;
 };
+
+/** Adapt the generated unknown-part wire contract to the AI SDK UI facade. */
+export function normalizeChatMessagesResponse(
+  response: GeneratedChatMessagesResponse,
+): ChatMessagesResponse {
+  return {
+    compaction: response.compaction,
+    messages: response.messages.map((message) => ({
+      ...message,
+      parts: message.parts as UIMessage["parts"],
+    })),
+  };
+}
 
 /** The combined shape `ChatPage` renders from — one query, one fetch. */
 export type ChatHistory = {
@@ -187,30 +200,6 @@ export function messageRenderKey(
       ? (runIdFromMessageMetadata(message.metadata) ?? message.id)
       : message.id;
   return `${message.role}:${identity}`;
-}
-
-export type ChatMessagesHistoryOptions = {
-  limit?: number;
-  beforeSeq?: number;
-};
-
-export function buildChatMessagesHistoryUrl(
-  chatId: string,
-  options: ChatMessagesHistoryOptions = {},
-): string {
-  const url = new URL(
-    buildApiUrl(`/api/v1/chats/${encodeURIComponent(chatId)}/messages`),
-  );
-
-  if (options.limit !== undefined) {
-    url.searchParams.set("limit", String(options.limit));
-  }
-
-  if (options.beforeSeq !== undefined) {
-    url.searchParams.set("beforeSeq", String(options.beforeSeq));
-  }
-
-  return url.toString();
 }
 
 type ChatUiMessageResponse = ChatMessageResponse & {

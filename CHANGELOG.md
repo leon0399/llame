@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-21
 
+- **Chat and runs API migration**: non-streaming chat, run, active-run, history,
+  search, export, management, fork, and public-share requests now use the
+  committed generated Fetch bindings. Handwritten Query/cache and SSR policies
+  remain in feature services; AI SDK streaming stays explicit. Removed Ky and
+  the legacy client boundary, and added anonymous public-share E2E parity.
 - **OpenAPI contract hardening** (#467): assigned explicit stable operation IDs,
   classified streaming endpoints, corrected the pin union/discriminator,
   nullability, and error schemas, added a quiet Redocly correctness gate, and

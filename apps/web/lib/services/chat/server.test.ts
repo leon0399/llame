@@ -38,9 +38,11 @@ describe("fetchInitialChatMessages", () => {
 
   it("aborts stalled history reads", async () => {
     const fetchMock = vi.fn(
-      (_input: RequestInfo | URL, init?: RequestInit) =>
+      (input: RequestInfo | URL, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => {
+          const request =
+            input instanceof Request ? input : new Request(input, init);
+          request.signal.addEventListener("abort", () => {
             reject(new DOMException("Aborted", "AbortError"));
           });
         }),
@@ -50,12 +52,12 @@ describe("fetchInitialChatMessages", () => {
     const result = fetchInitialChatMessages("chat-1");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
-    expect(fetchMock).toHaveBeenCalledWith(
+    const [request] = fetchMock.mock.calls[0]!;
+    expect(request).toBeInstanceOf(Request);
+    expect((request as Request).url).toBe(
       "http://localhost:3001/api/v1/chats/chat-1/messages?limit=100",
-      expect.objectContaining({
-        signal: expect.any(AbortSignal),
-      }),
     );
+    expect((request as Request).signal).toBeInstanceOf(AbortSignal);
 
     // Constructed (not awaited) before advancing timers so the rejection
     // handler attaches before the abort fires — awaiting inline here would
@@ -79,11 +81,13 @@ describe("fetchInitialChatMessages", () => {
         }),
     );
     const fetchMock = vi.fn<typeof fetch>(
-      (_input: RequestInfo | URL, init?: RequestInit) => {
-        requestSignal = init?.signal ?? undefined;
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const request =
+          input instanceof Request ? input : new Request(input, init);
+        requestSignal = request.signal;
 
         const response = new Response(null, { status: 200 });
-        vi.spyOn(response, "json").mockImplementation(readBody);
+        vi.spyOn(response, "text").mockImplementation(readBody);
         return Promise.resolve(response);
       },
     );

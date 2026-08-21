@@ -1,7 +1,15 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@workspace/ui/components/sonner";
 
-import { api, buildApiUrl } from "../../api/client";
+import {
+  forkSharedChat as forkSharedChatEndpoint,
+  getSharedChat as getSharedChatEndpoint,
+} from "../../api/generated/chats/chats";
+import type { SharedChatResponse } from "../../api/generated/models";
+import {
+  createAuthenticatedBrowserFetch,
+  createOptionalAuthFetch,
+} from "../../api/fetch";
 import { chatQueryKeys, type ChatResponse } from "./queries";
 
 /**
@@ -31,16 +39,13 @@ export async function fetchSharedChat(
   id: string,
   options?: { limit?: number; beforeSeq?: number },
 ): Promise<SharedChat> {
-  return api
-    .get(buildApiUrl(`/api/v1/shared/chats/${id}`), {
-      searchParams: {
-        ...(options?.limit !== undefined ? { limit: options.limit } : {}),
-        ...(options?.beforeSeq !== undefined
-          ? { beforeSeq: options.beforeSeq }
-          : {}),
-      },
-    })
-    .json<SharedChat>();
+  const response = await getSharedChatEndpoint(
+    id,
+    options,
+    undefined,
+    createOptionalAuthFetch(globalThis.fetch),
+  );
+  return normalizeSharedChat(response);
 }
 
 /**
@@ -51,9 +56,32 @@ export async function fetchSharedChat(
  * before this is ever called).
  */
 export async function forkSharedChat(id: string): Promise<ChatResponse> {
-  return api
-    .post(buildApiUrl(`/api/v1/shared/chats/${id}/forks`))
-    .json<ChatResponse>();
+  const response = await forkSharedChatEndpoint(
+    id,
+    undefined,
+    createAuthenticatedBrowserFetch(globalThis.fetch),
+  );
+  return response;
+}
+
+function normalizeSharedChat(response: SharedChatResponse): SharedChat {
+  return {
+    id: response.id,
+    title: response.title,
+    messages: response.messages.map((message) => ({
+      id: message.id,
+      seq: message.seq,
+      role: message.role,
+      parts: message.parts.filter(isTextPart),
+      createdAt: message.createdAt,
+    })),
+  };
+}
+
+function isTextPart(
+  part: Record<string, unknown>,
+): part is { type: "text"; text: string } {
+  return part.type === "text" && typeof part.text === "string";
 }
 
 export function useForkSharedChat() {

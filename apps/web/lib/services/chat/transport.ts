@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { buildApiUrl } from "../../api/client";
+import { buildApiUrl } from "../../api/fetch";
 
 type PrepareSendMessagesOptions = {
   messages: Array<Pick<UIMessage, "id" | "parts">>;
