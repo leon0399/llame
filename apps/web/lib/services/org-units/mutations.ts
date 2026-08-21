@@ -1,6 +1,15 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { api, buildApiUrl } from "../../api/client";
+import {
+  changeOrgUnitMembershipRole as changeOrgUnitMembershipRoleEndpoint,
+  createChildOrgUnit,
+  createRootOrgUnit,
+  deleteOrgUnit as deleteOrgUnitEndpoint,
+  grantOrgUnitMembership,
+  revokeOrgUnitMembership,
+  updateOrgUnit as updateOrgUnitEndpoint,
+} from "../../api/generated/org-units/org-units";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import { withOrgUnitsErrors } from "./errors";
 import { orgUnitsQueryKeys } from "./queries";
 import type {
@@ -42,15 +51,17 @@ export const orgUnitsMutationKeys = {
   revoke: () => [...orgUnitsMutationKeys.all, "revoke"] as const,
 };
 
+function authenticatedFetch(): typeof fetch {
+  return createAuthenticatedBrowserFetch(globalThis.fetch);
+}
+
 export async function createRootOrg(input: {
   name: string;
 }): Promise<OrgUnitResponse> {
   return withOrgUnitsErrors(() =>
-    api
-      // No explicit type: the API's createRoot defaults a root to
-      // 'organization' — the invariant lives server-side, for every client.
-      .post(buildApiUrl("/api/v1/org-units"), { json: input })
-      .json<OrgUnitResponse>(),
+    // No explicit type: the API's createRoot defaults a root to
+    // 'organization' — the invariant lives server-side, for every client.
+    createRootOrgUnit(input, undefined, authenticatedFetch()),
   );
 }
 
@@ -58,6 +69,7 @@ export function useCreateRootOrg() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: orgUnitsMutationKeys.createRoot(),
+    scope: { id: "org-units-tree" },
     mutationFn: createRootOrg,
     // No optimistic insert: the server generates id/path/memberCount — an
     // invented row would be wrong in visible ways until the refetch below
@@ -74,11 +86,12 @@ export async function createChildOrg(input: {
   type?: OrgUnitType;
 }): Promise<OrgUnitResponse> {
   return withOrgUnitsErrors(() =>
-    api
-      .post(buildApiUrl(`/api/v1/org-units/${input.parentId}/children`), {
-        json: { name: input.name, ...(input.type ? { type: input.type } : {}) },
-      })
-      .json<OrgUnitResponse>(),
+    createChildOrgUnit(
+      input.parentId,
+      { name: input.name, ...(input.type ? { type: input.type } : {}) },
+      undefined,
+      authenticatedFetch(),
+    ),
   );
 }
 
@@ -86,6 +99,7 @@ export function useCreateChildOrg() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: orgUnitsMutationKeys.createChild(),
+    scope: { id: "org-units-tree" },
     mutationFn: createChildOrg,
     // No optimistic insert — same reasoning as useCreateRootOrg: the
     // server assigns id/path/type-default, so invalidate-on-success only.
@@ -105,9 +119,7 @@ export async function updateOrgUnit(
 ): Promise<OrgUnitResponse> {
   const { orgUnitId, ...body } = input;
   return withOrgUnitsErrors(() =>
-    api
-      .patch(buildApiUrl(`/api/v1/org-units/${orgUnitId}`), { json: body })
-      .json<OrgUnitResponse>(),
+    updateOrgUnitEndpoint(orgUnitId, body, undefined, authenticatedFetch()),
   );
 }
 
@@ -121,6 +133,7 @@ export function useUpdateOrgUnit() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: orgUnitsMutationKeys.update(),
+    scope: { id: "org-units-tree" },
     mutationFn: updateOrgUnit,
     onMutate: async (variables) => {
       await queryClient.cancelQueries({ queryKey: orgUnitsQueryKeys.lists() });
@@ -176,7 +189,7 @@ export function useUpdateOrgUnit() {
 
 export async function deleteOrgUnit(orgUnitId: string): Promise<void> {
   await withOrgUnitsErrors(() =>
-    api.delete(buildApiUrl(`/api/v1/org-units/${orgUnitId}`)),
+    deleteOrgUnitEndpoint(orgUnitId, undefined, authenticatedFetch()),
   );
 }
 
@@ -184,6 +197,7 @@ export function useDeleteOrgUnit() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: orgUnitsMutationKeys.delete(),
+    scope: { id: "org-units-tree" },
     mutationFn: deleteOrgUnit,
     onMutate: async (orgUnitId) => {
       await queryClient.cancelQueries({ queryKey: orgUnitsQueryKeys.lists() });
@@ -228,9 +242,12 @@ export async function grantMembership(
   input: GrantMembershipInput,
 ): Promise<void> {
   await withOrgUnitsErrors(() =>
-    api.post(buildApiUrl(`/api/v1/org-units/${input.orgUnitId}/memberships`), {
-      json: { userId: input.userId, role: input.role },
-    }),
+    grantOrgUnitMembership(
+      input.orgUnitId,
+      { userId: input.userId, role: input.role },
+      undefined,
+      authenticatedFetch(),
+    ),
   );
 }
 
@@ -238,6 +255,7 @@ export function useGrantMembership() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: orgUnitsMutationKeys.grant(),
+    scope: { id: "org-unit-memberships" },
     mutationFn: grantMembership,
     // No optimistic insert: the server generates the membership row's id
     // and createdAt — invalidate-on-success only, same rule as the org
@@ -266,14 +284,13 @@ export async function changeMembershipRole(
   input: ChangeMembershipRoleInput,
 ): Promise<MembershipResponse> {
   return withOrgUnitsErrors(() =>
-    api
-      .patch(
-        buildApiUrl(
-          `/api/v1/org-units/${input.orgUnitId}/memberships/${input.userId}`,
-        ),
-        { json: { role: input.role } },
-      )
-      .json<MembershipResponse>(),
+    changeOrgUnitMembershipRoleEndpoint(
+      input.orgUnitId,
+      input.userId,
+      { role: input.role },
+      undefined,
+      authenticatedFetch(),
+    ),
   );
 }
 
@@ -281,6 +298,7 @@ export function useChangeMembershipRole() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: orgUnitsMutationKeys.changeRole(),
+    scope: { id: "org-unit-memberships" },
     mutationFn: changeMembershipRole,
     onMutate: async (variables) => {
       const key = orgUnitsQueryKeys.memberships(variables.orgUnitId);
@@ -327,10 +345,11 @@ export async function revokeMembership(
   input: RevokeMembershipInput,
 ): Promise<void> {
   await withOrgUnitsErrors(() =>
-    api.delete(
-      buildApiUrl(
-        `/api/v1/org-units/${input.orgUnitId}/memberships/${input.userId}`,
-      ),
+    revokeOrgUnitMembership(
+      input.orgUnitId,
+      input.userId,
+      undefined,
+      authenticatedFetch(),
     ),
   );
 }
@@ -339,6 +358,7 @@ export function useRevokeMembership() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: orgUnitsMutationKeys.revoke(),
+    scope: { id: "org-unit-memberships" },
     mutationFn: revokeMembership,
     onMutate: async (variables) => {
       const key = orgUnitsQueryKeys.memberships(variables.orgUnitId);

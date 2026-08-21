@@ -1,4 +1,8 @@
-import { HTTPError } from "ky";
+import {
+  getApiErrorInfo,
+  getApiErrorStatus,
+  isApiError,
+} from "../../api/errors";
 
 /**
  * org-admin-ui spec's domain-error vocabulary (D6 / spec "Domain error
@@ -26,31 +30,34 @@ export class OrgUnitsApiError extends Error {
   }
 }
 
-async function readApiError(
-  error: HTTPError,
-): Promise<{ message?: string; code?: string }> {
-  try {
-    const body = (await error.response.json()) as {
-      message?: string | string[];
-      code?: string;
-    };
-    return {
-      message: Array.isArray(body.message)
-        ? body.message.join(" ")
-        : body.message,
-      code: body.code,
-    };
-  } catch {
-    return {};
-  }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function readApiError(error: unknown): { message?: string; code?: string } {
+  const info = getApiErrorInfo(error);
+  if (!isRecord(info)) return {};
+
+  const message = info.message;
+  const messageText =
+    typeof message === "string"
+      ? message
+      : Array.isArray(message)
+        ? message
+            .filter((value): value is string => typeof value === "string")
+            .join(" ")
+        : undefined;
+
+  return {
+    message: messageText || undefined,
+    code: typeof info.code === "string" ? info.code : undefined,
+  };
 }
 
 /**
- * Classify a ky `HTTPError` from the org-units API into the domain-error
- * vocabulary above. Reads the response body ONCE and returns a plain `Error`
- * subclass with a synchronously-readable `.kind`/`.message` — ky's
- * `HTTPError` body is otherwise only readable asynchronously, which is
- * awkward to consume from a mutation's (synchronous) `onError`.
+ * Classify a generated Fetch error from the org-units API into the
+ * domain-error vocabulary above. The generated boundary exposes a numeric
+ * status and unknown `info`; only structurally recognized fields are read.
  *
  * Status → kind mapping (org-admin-ui spec + design.md D6):
  * - 403 → "forbidden" — never re-implement authorization locally; explain
@@ -58,16 +65,15 @@ async function readApiError(
  * - 404 → "not-found" — no existence leak in copy.
  * - 409 → disambiguated by the body's machine-readable `code`
  *   (identity.service.ts's ORG_UNITS_ERROR_CODES: LAST_OWNER /
- *   DUPLICATE_MEMBERSHIP / HAS_CHILDREN / CONCURRENT_TREE_CHANGE), with the
- *   pre-`code` message-text regexes kept only as a fallback for older API
- *   builds — a copy edit server-side must never downgrade "transfer
- *   ownership first" into generic retry guidance.
+ *   DUPLICATE_MEMBERSHIP / HAS_CHILDREN / CONCURRENT_TREE_CHANGE). The
+ *   feature owns the resulting UI copy; server-provided text is only used for
+ *   the documented validation detail.
  * - 422 → move-into-own-subtree validation.
  */
 export async function classifyOrgUnitsError(
   error: unknown,
 ): Promise<OrgUnitsApiError> {
-  if (!(error instanceof HTTPError)) {
+  if (!isApiError(error)) {
     return new OrgUnitsApiError(
       0,
       "unknown",
@@ -75,8 +81,16 @@ export async function classifyOrgUnitsError(
     );
   }
 
-  const status = error.response.status;
-  const { message: apiMessage, code } = await readApiError(error);
+  const status = getApiErrorStatus(error);
+  if (status === undefined) {
+    return new OrgUnitsApiError(
+      0,
+      "unknown",
+      "Something went wrong. Please try again.",
+    );
+  }
+
+  const { message: apiMessage, code } = readApiError(error);
 
   if (status === 403) {
     return new OrgUnitsApiError(
@@ -89,20 +103,14 @@ export async function classifyOrgUnitsError(
     return new OrgUnitsApiError(404, "not-found", "Not found.");
   }
   if (status === 409) {
-    if (
-      code === "LAST_OWNER" ||
-      (!code && apiMessage && /transfer ownership/i.test(apiMessage))
-    ) {
+    if (code === "LAST_OWNER") {
       return new OrgUnitsApiError(
         409,
         "last-owner",
         "You’re the last owner here — transfer ownership first. Use the role control next to another member to make them owner, then try again.",
       );
     }
-    if (
-      code === "DUPLICATE_MEMBERSHIP" ||
-      (!code && apiMessage && /already a member/i.test(apiMessage))
-    ) {
+    if (code === "DUPLICATE_MEMBERSHIP") {
       return new OrgUnitsApiError(
         409,
         "duplicate-membership",
@@ -133,7 +141,7 @@ export async function classifyOrgUnitsError(
   return new OrgUnitsApiError(
     status,
     "unknown",
-    apiMessage ?? "Something went wrong. Please try again.",
+    "Something went wrong. Please try again.",
   );
 }
 

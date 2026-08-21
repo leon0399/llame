@@ -1,7 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { HTTPError } from "ky";
 
-import { api, buildApiUrl } from "../../api/client";
+import {
+  getMyOrgUnitEffectiveRole,
+  listOrgUnitMemberships,
+  listOrgUnits,
+} from "../../api/generated/org-units/org-units";
+import { getApiErrorStatus } from "../../api/errors";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import { classifyOrgUnitsError, withOrgUnitsErrors } from "./errors";
 import type {
   EffectiveRoleResponse,
@@ -24,7 +29,7 @@ export const orgUnitsQueryKeys = {
 
 export async function fetchOrgUnits(): Promise<OrgUnitResponse[]> {
   return withOrgUnitsErrors(() =>
-    api.get(buildApiUrl("/api/v1/org-units")).json<OrgUnitResponse[]>(),
+    listOrgUnits(undefined, createAuthenticatedBrowserFetch(globalThis.fetch)),
   );
 }
 
@@ -40,16 +45,25 @@ export async function fetchMemberships(
   orgUnitId: string,
 ): Promise<MembershipResponse[]> {
   return withOrgUnitsErrors(() =>
-    api
-      .get(buildApiUrl(`/api/v1/org-units/${orgUnitId}/memberships`))
-      .json<MembershipResponse[]>(),
+    listOrgUnitMemberships(
+      orgUnitId,
+      undefined,
+      createAuthenticatedBrowserFetch(globalThis.fetch),
+    ),
   );
+}
+
+function requireOrgUnitId(orgUnitId: string | undefined): string {
+  if (orgUnitId === undefined) {
+    throw new Error("orgUnitId is required when the query is enabled");
+  }
+  return orgUnitId;
 }
 
 export function useMembershipsQuery(orgUnitId: string | undefined) {
   return useQuery({
     queryKey: orgUnitsQueryKeys.memberships(orgUnitId ?? ""),
-    queryFn: () => fetchMemberships(orgUnitId as string),
+    queryFn: () => fetchMemberships(requireOrgUnitId(orgUnitId)),
     enabled: orgUnitId !== undefined,
   });
 }
@@ -64,11 +78,13 @@ export async function fetchMyEffectiveRole(
   orgUnitId: string,
 ): Promise<EffectiveRoleResponse | null> {
   try {
-    return await api
-      .get(buildApiUrl(`/api/v1/org-units/${orgUnitId}/memberships/me`))
-      .json<EffectiveRoleResponse>();
+    return await getMyOrgUnitEffectiveRole(
+      orgUnitId,
+      undefined,
+      createAuthenticatedBrowserFetch(globalThis.fetch),
+    );
   } catch (error) {
-    if (error instanceof HTTPError && error.response.status === 404) {
+    if (getApiErrorStatus(error) === 404) {
       return null;
     }
     throw await classifyOrgUnitsError(error);
@@ -78,7 +94,7 @@ export async function fetchMyEffectiveRole(
 export function useMyEffectiveRoleQuery(orgUnitId: string | undefined) {
   return useQuery({
     queryKey: orgUnitsQueryKeys.myRole(orgUnitId ?? ""),
-    queryFn: () => fetchMyEffectiveRole(orgUnitId as string),
+    queryFn: () => fetchMyEffectiveRole(requireOrgUnitId(orgUnitId)),
     enabled: orgUnitId !== undefined,
     retry: false,
   });
