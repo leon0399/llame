@@ -15,6 +15,7 @@ import {
   runEvents,
   runs,
   type Run,
+  type RunContextItem,
   type RunEvent,
   type RunStatus,
 } from '../db/schema';
@@ -186,6 +187,24 @@ export class RunsRepository {
    * admits (design D7 risk) is bounded by markFinished's first-writer-wins
    * guard: at most one terminal outcome ever survives.
    */
+  /**
+   * Record what this run injected on the context rail, as rendered.
+   *
+   * Owner-scoped like every other write here, and idempotent: a retry rebuilds
+   * the same items for a persisted-derived producer and overwrites with an
+   * equal value. Never widens the run's status.
+   */
+  async recordContextItems(
+    runId: string,
+    userId: string,
+    items: RunContextItem[],
+  ): Promise<void> {
+    await this.db
+      .update(runs)
+      .set({ contextItems: items })
+      .where(and(eq(runs.id, runId), eq(runs.userId, userId)));
+  }
+
   async markStarted(
     runId: string,
     userId: string,

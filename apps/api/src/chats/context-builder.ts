@@ -15,6 +15,7 @@
 
 import type { ModelMessage } from 'ai';
 
+import { type RunContextItem } from '../db/schema/chats';
 import {
   assembleUserContent,
   isContextItemPart,
@@ -27,6 +28,7 @@ import {
   renderCompactionCheckpoint,
   renderContextItemPart,
 } from './context-item-producers';
+import { resolveForm } from './context-item';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { type UnknownRecord } from '../unknown-record';
 import {
@@ -162,12 +164,22 @@ export function partsToText(parts: readonly unknown[]): string {
     .join('\n');
 }
 
-export interface BuiltContext {
-  /** The static system prompt, delivered via the model provider's native system channel
-   * (not as a message in `messages`) — byte-identical across turns, prompt-cache-friendly. */
+/** What a provider request needs: the stable prefix plus history. */
+export interface ModelRequestContext {
   system: string;
-  /** History only — oldest→newest. No system entry. */
   messages: ModelMessage[];
+}
+
+export interface BuiltContext extends ModelRequestContext {
+  /**
+   * Every context item this build injected, as rendered.
+   *
+   * Returned rather than re-derivable: an item's wording is not reproducible
+   * from its durable part once a renderer changes, and a bind-time item is not
+   * reproducible at all — so the caller records this, and the record is the
+   * authority for what the run injected.
+   */
+  contextItems: RunContextItem[];
 }
 
 /**
@@ -178,15 +190,24 @@ export interface BuiltContext {
  * failing its producer's validation — contributes nothing rather than being
  * emitted as opaque content.
  */
-function renderContextItems(parts: readonly MessagePart[]): string[] {
+function renderContextItems(parts: readonly MessagePart[]): RunContextItem[] {
   const items = parts.filter((part): part is ContextItemPart =>
     isContextItemPart(part),
   );
   return orderContextItems(
     items.map((part) => ({ producer: part.data.producer, part })),
-  ).flatMap(({ part }) => {
-    const rendered = renderContextItemPart(part);
-    return rendered === null ? [] : [rendered];
+  ).flatMap(({ producer, part }) => {
+    const text = renderContextItemPart(part);
+    if (text === null) return [];
+    const form = resolveForm(part);
+    return [
+      {
+        producer,
+        ...(form !== undefined && { form }),
+        residency: 'rail' as const,
+        text,
+      },
+    ];
   });
 }
 
@@ -301,6 +322,7 @@ export function buildContext(
   const ordered = [...history].sort((a, b) => a.seq - b.seq);
 
   const result: ModelMessage[] = [];
+  const contextItems: RunContextItem[] = [];
 
   // The summary leads the history — the stand-in for everything it superseded.
   if (compaction !== undefined) {
@@ -334,11 +356,13 @@ export function buildContext(
         : visibleText;
 
     if (m.role === 'user') {
+      const items = renderContextItems(m.parts);
+      contextItems.push(...items);
       // User-authored text is neutralized on the way into model context so it
       // cannot emit a reserved delimiter and forge an item beside the genuine
       // ones. The stored message is untouched.
       const content = assembleUserContent({
-        renderedItems: renderContextItems(m.parts),
+        renderedItems: items.map((item) => item.text),
         visibleText: sanitizeAuthoredText(attributedText),
       });
       result.push({ role: 'user', content });
@@ -353,5 +377,5 @@ export function buildContext(
     }
   }
 
-  return { system: systemPrompt, messages: result };
+  return { system: systemPrompt, messages: result, contextItems };
 }

@@ -573,6 +573,82 @@ describe('buildContext', () => {
       const checkpoint = contentText(result.messages[0].content);
       expect(checkpoint).toContain('&lt;/system-reminder&gt;');
       expect(checkpoint.match(/<\/system-reminder>/g)).toHaveLength(1);
+  describe('per-run record of injected items', () => {
+    const switchItem = {
+      type: 'data-context',
+      data: {
+        v: 1,
+        producer: 'effective-context-change',
+        form: 'notice',
+        runId: '11111111-1111-4111-8111-111111111111',
+        payload: {
+          cause: 'model',
+          fromModelId: 'system:openai:old',
+          toModelId: 'system:openai:new',
+        },
+      },
+    } as const;
+
+    it('records each rendered item with its producer, form, and residency', () => {
+      const triggering = msg({
+        seq: 1,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [switchItem, { type: 'text', text: 'Continue.' }],
+      });
+
+      const result = buildContext([triggering], { systemPrompt });
+
+      expect(result.contextItems).toHaveLength(1);
+      expect(result.contextItems[0]).toMatchObject({
+        producer: 'effective-context-change',
+        form: 'notice',
+        residency: 'rail',
+      });
+      expect(result.contextItems[0].text).toContain('The active model changed');
+      // What was recorded is exactly what the model was sent, not a
+      // reconstruction: an item's wording is not reproducible from its part
+      // once a renderer changes.
+      expect(result.contextItems[0].text).toBe(
+        contentText(result.messages[0].content).split('\n\n')[0],
+      );
+    });
+
+    it('records nothing for a producer this reader cannot interpret', () => {
+      const unknown = msg({
+        seq: 2,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [
+          {
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'from-a-newer-api',
+              form: 'notice',
+              runId: '11111111-1111-4111-8111-111111111111',
+              payload: { anything: true },
+            },
+          },
+          { type: 'text', text: 'Continue.' },
+        ],
+      });
+
+      const result = buildContext([unknown], { systemPrompt });
+
+      expect(result.contextItems).toEqual([]);
+      expect(contentText(result.messages[0].content)).toBe('Continue.');
+    });
+
+    it('records an empty list for a turn that injected nothing', () => {
+      const plain = msg({
+        seq: 3,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [{ type: 'text', text: 'Just a question.' }],
+      });
+
+      expect(buildContext([plain], { systemPrompt }).contextItems).toEqual([]);
     });
   });
 

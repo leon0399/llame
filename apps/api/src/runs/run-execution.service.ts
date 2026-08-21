@@ -601,6 +601,16 @@ export class RunExecutionService {
           }),
         });
 
+        // Recorded in the same tenant transaction that built it: the
+        // rendered wording is not reproducible from a durable part once a
+        // renderer changes, and a bind-time item is not reproducible at all,
+        // so this record is the authority for what the run injected.
+        await new RunsRepository(tx).recordContextItems(
+          input.runId,
+          input.userId,
+          built.contextItems,
+        );
+
         return {
           ...built,
           snapshot,
