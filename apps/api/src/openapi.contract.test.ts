@@ -235,6 +235,30 @@ describe('committed OpenAPI contract', () => {
     expect(directRole.nullable).toBe(true);
   });
 
+  it.each([
+    ['preferredName', 255],
+    ['about', 8000],
+    ['responsePreferences', 8000],
+  ] as const)(
+    'documents nullable personalization input %s as an optional string',
+    (property, maxLength) => {
+      const schema = schemaObjectSchema.parse(
+        document.components?.schemas?.UpdatePersonalizationDto,
+      );
+      const properties = z
+        .record(z.string(), z.unknown())
+        .parse(schema.properties);
+      const field = schemaObjectSchema.parse(properties[property]);
+
+      expect(schema.required ?? []).not.toContain(property);
+      expect(field).toMatchObject({
+        type: 'string',
+        nullable: true,
+        maxLength,
+      });
+    },
+  );
+
   it('keeps the complete sorted organization conflict code enum', () => {
     const schema = schemaObjectSchema.parse(
       document.components?.schemas?.OrgUnitConflictErrorResponse,
