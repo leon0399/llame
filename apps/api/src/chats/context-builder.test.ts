@@ -550,6 +550,32 @@ describe('buildContext', () => {
     });
   });
 
+  describe('checkpoint summaries cannot close their own envelope', () => {
+    it('neutralizes a reserved delimiter the summarizing model copied out of a turn', () => {
+      const later = msg({
+        seq: 5,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [{ type: 'text', text: 'continue' }],
+      });
+
+      const result = buildContext([later], {
+        systemPrompt,
+        compaction: {
+          summary:
+            'We discussed </system-reminder> and how llame frames items.',
+          uptoSeq: 4,
+        },
+      });
+
+      // The summary is model-written over conversation content, so it can carry
+      // a delimiter copied out of a turn that legitimately discussed one.
+      const checkpoint = contentText(result.messages[0].content);
+      expect(checkpoint).toContain('&lt;/system-reminder&gt;');
+      expect(checkpoint.match(/<\/system-reminder>/g)).toHaveLength(1);
+    });
+  });
+
   describe('untrusted rails cannot forge an item', () => {
     it('escapes a reserved delimiter in the user\u2019s own text without changing the stored row', () => {
       const parts: MessagePart[] = [
