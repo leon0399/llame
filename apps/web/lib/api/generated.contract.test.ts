@@ -17,9 +17,12 @@ import type {
   ProjectPinnedItemResponse,
   ProjectRefCard,
 } from "./generated/models";
+import { loginUser } from "./generated/auth/auth";
+import { listChats } from "./generated/chats/chats";
 import { createChildOrgUnit } from "./generated/org-units/org-units";
 import type { createChildOrgUnitError } from "./generated/org-units/org-units";
 import { getGetCurrentUserUrl } from "./generated/auth/auth";
+import { listModels } from "./generated/models/models";
 import { getListPinsUrl, listPins, unpinItem } from "./generated/pins/pins";
 
 const generatedRoot = join(import.meta.dirname, "generated");
@@ -32,6 +35,13 @@ function generatedTypeScriptFiles(directory: string): string[] {
       : entry.name.endsWith(".ts")
         ? [path]
         : [];
+  });
+}
+
+function generatedEndpointTypeScriptFiles(directory: string): string[] {
+  return generatedTypeScriptFiles(directory).filter((file) => {
+    const source = readFileSync(file, "utf8");
+    return /export const \w+ = async \(/.test(source);
   });
 }
 
@@ -168,7 +178,8 @@ describe("generated API contract", () => {
     expect(getGetCurrentUserUrl()).toBe("/auth/v1/me");
 
     const files = generatedTypeScriptFiles(generatedRoot);
-    const endpointFiles = files.filter((file) => !file.includes("/models/"));
+    const endpointFiles = generatedEndpointTypeScriptFiles(generatedRoot);
+    expect(endpointFiles).toContain(join(generatedRoot, "models", "models.ts"));
     const endpointSource = endpointFiles
       .map((file) => readFileSync(file, "utf8"))
       .join("\n");
@@ -230,35 +241,93 @@ describe("generated API contract", () => {
     expect(isGeneratedInternalImport(endpointFile, specifier)).toBe(false);
   });
 
-  it("passes the injected fetch implementation to generated endpoints", async () => {
-    const fetchMock = vi
+  it("passes the injected fetch implementation to representative endpoints", async () => {
+    const listModelsFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("{}", { status: 200 }));
+    const loginFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("{}", { status: 200 }));
+    const listChatsFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("[]", { status: 200 }));
+    const listPinsFetch = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response("[]", { status: 200 }));
 
-    await expect(listPins(undefined, fetchMock)).resolves.toEqual([]);
-    expect(fetchMock).toHaveBeenCalledWith(
+    await listModels(undefined, listModelsFetch);
+    await loginUser(
+      { email: "user@example.com", password: "secret" },
+      undefined,
+      loginFetch,
+    );
+    await listChats({ projectId: "project-1" }, undefined, listChatsFetch);
+    await listPins(undefined, listPinsFetch);
+
+    expect(listModelsFetch).toHaveBeenCalledWith(
+      "/api/v1/models",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(loginFetch).toHaveBeenCalledWith(
+      "/auth/v1/login",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ email: "user@example.com", password: "secret" }),
+      }),
+    );
+    expect(listChatsFetch).toHaveBeenCalledWith(
+      "/api/v1/chats?projectId=project-1",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(listPinsFetch).toHaveBeenCalledWith(
       "/api/v1/pins",
       expect.objectContaining({ method: "GET" }),
     );
   });
 
   it("requires an injected fetch policy in generated endpoint signatures", () => {
-    const endpointSource = generatedTypeScriptFiles(generatedRoot)
-      .filter((file) => !file.includes("/models/"))
-      .map((file) => readFileSync(file, "utf8"))
-      .join("\n");
-
-    expect(endpointSource).toMatch(
-      /options: RequestInit \| undefined,\n  fetchFn: typeof globalThis\.fetch/,
+    const endpointFiles = generatedEndpointTypeScriptFiles(generatedRoot);
+    expect(endpointFiles).toContain(join(generatedRoot, "models", "models.ts"));
+    expect(endpointFiles).not.toContain(
+      join(generatedRoot, "models", "availableModelResponse.ts"),
     );
-    expect(endpointSource).not.toMatch(/fetchFn\?: typeof globalThis\.fetch/);
+
+    const endpointSources = endpointFiles.map((file) =>
+      readFileSync(file, "utf8"),
+    );
+    for (const source of endpointSources) {
+      expect(source).toMatch(
+        /options: RequestInit \| undefined,\n  fetchFn: typeof globalThis\.fetch/,
+      );
+      expect(source).not.toMatch(/fetchFn\?: typeof globalThis\.fetch/);
+    }
+
+    const endpointSource = endpointSources.join("\n");
+
     expect(endpointSource).not.toContain("fetchFn ?? fetch");
 
-    const callWithoutFetch = () => {
-      // @ts-expect-error Generated endpoints require the runtime Fetch policy.
-      return listPins(undefined);
-    };
-    expect(callWithoutFetch).toBeTypeOf("function");
+    const callsWithoutFetch = [
+      () => {
+        // @ts-expect-error Generated endpoints require the runtime Fetch policy.
+        return listModels(undefined);
+      },
+      () => {
+        // @ts-expect-error Generated endpoints require the runtime Fetch policy.
+        return loginUser(
+          { email: "user@example.com", password: "secret" },
+          undefined,
+        );
+      },
+      () => {
+        // @ts-expect-error Generated endpoints require the runtime Fetch policy.
+        return listChats(undefined, undefined);
+      },
+      () => {
+        // @ts-expect-error Generated endpoints require the runtime Fetch policy.
+        return listPins(undefined);
+      },
+    ];
+    expect(callsWithoutFetch).toHaveLength(4);
   });
 
   it("fails closed when the generated endpoint fetch policy is omitted", async () => {
