@@ -143,6 +143,92 @@ Artifacts start small. A single Markdown, text, or code file should not require 
 repository-scale workflow. Larger coding artifacts may use Git when versioning
 and collaboration justify it.
 
+### Local capability is not a thin client
+
+llame should eventually present one coherent personal system through first-party
+web, CLI, desktop, and Android surfaces. A Surface is only an interaction point. A Node is an
+independently operable installation with local identity, durable state,
+configuration, and available executors; several surfaces may share one Node.
+
+A personal Node is single-owner and remains useful without an account or network
+connection. It may store personal context, use locally configured inference and
+tools, and originate Chats and Runs while unlinked. An optional multi-user hub
+adds synchronization, remote coordination, and capabilities available elsewhere;
+it is not a prerequisite for local agency and does not turn the Node into a thin
+client.
+
+Home is the user-facing collection of durable personal context and artifacts. The
+Personal Realm is its logical ownership and reconciliation boundary for portable
+personal state. It may have replicas on desktop personal Nodes used through CLI
+or desktop surfaces, Android personal Nodes, other trusted Nodes, and an
+optionally linked hub account; no physical replica is inherently the one
+canonical home. The intended personal contract is a full
+mirror of each supported portable resource, with resource-specific reconciliation
+and explicit exclusions for secrets, device configuration, host paths, Workspace
+contents, sandbox instances, caches, and policy-restricted shared data.
+
+Linking an existing standalone Node is explicit and bidirectional. Local and
+remote resources synchronize by stable identity; distinct resources remain
+distinct rather than being merged by name. Unlinking revokes that cryptographic
+enrollment but neither logs the local owner out nor promises remote erasure of
+already retained copies.
+
+### Execution follows intent and capability
+
+Surface, Node, executor, Workspace, and Sandbox remain separate boundaries. A
+Workspace is a user-selected project directory, repository, or file collection. A
+Sandbox is the isolated, reproducible system environment into which approved
+Workspace views are mounted. A Run may answer on its initiating executor, enter a
+Workspace only after the task reveals that need, or transfer at a safe checkpoint
+to an eligible executor.
+
+Workspace entry is requested by the model but authorized and performed by the
+trusted harness. A CLI Run advertises only the directory in which it was started.
+A host daemon exposes only directories the user registered explicitly. llame does
+not clone repositories or copy Workspace contents onto a user's machine merely
+because a Run wants them. Git worktrees or other copy-on-write checkouts are
+derived Workspace views, not synchronized replicas.
+
+After entry, a Chat branch normally retains affinity to that Workspace and
+executor across follow-up Runs. Placement changes, Workspace loss, fallback, and
+recovery are narrated to both model and user. The user can wait, run temporarily
+without the Workspace and recover automatically, or exit it. At every instant one
+executor has authority to advance an active Run; synchronization or observation
+does not grant another replica permission to execute it.
+
+Android follows the same local-node contract with fewer capabilities: local
+inference, synchronized personal context, bounded device integrations, and remote
+Run steering. It does not pretend to provide a generic project filesystem,
+container Sandbox, shell, or Git worktree. Workspace-dependent work transfers to
+an eligible executor or waits honestly.
+
+### Authority and synchronization are resource-scoped
+
+No universal transport owns every kind of state. Knowledge Spaces use
+human-readable files and Git-compatible history, with raw Git or forge-aware
+publication adapters. Chats and Runs remain database-native episodic state and
+synchronize through an application protocol. Live execution streams, executor
+recovery journals, and portable semantic checkpoints are separate layers rather
+than one replicated process log.
+
+A Personal Realm may present resources from work, family, school, community, or
+other authorities without merging their accounts, ownership, or policy. Foreign
+resources are mounted into the user's view; each retains one governing authority
+for membership, accepted revisions, retention, replication, and information flow.
+Offline shared writes remain proposals unless that authority defines a stronger
+merge contract.
+
+Long-lived foreign and inference-provider credentials stay at their owning Node
+or broker. An executor receives a proxied operation or narrow delegation, not the
+reusable upstream secret. Credential secrecy does not imply data locality:
+Workspace policy must separately decide whether context may reach an upstream
+model and whether that requires approval.
+
+Decision provenance and rejected alternatives remain in the
+[local-node and distributed-execution research](docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md)
+and the
+[multi-authority federation research](docs/research/product-vision/2026-08-21-multi-authority-federation-models.md).
+
 ## Staged horizons
 
 ### Active: external tool connectivity
@@ -162,9 +248,15 @@ not isolated infrastructure.
 - Agent Profiles, child Chats/Runs, bounded orchestration, and external harnesses.
 - Installed Apps, event-driven workflows, email/calendar connectors, and linked
   messaging channels.
-- Enrolled user-machine Workers and replaceable sandbox backends.
+- A first-party CLI, local-capable personal Nodes, optional linking, and portable
+  Personal Realm synchronization.
+- Workspace-aware execution across enrolled user machines, with explicit
+  directory registration, reproducible Sandboxes, and derived Git worktrees.
+- An offline-capable Android system-assistant surface that can also steer remote
+  Runs.
 - Shared family, team, and organization knowledge with explicit information-flow
-  rules.
+  rules, followed later by live foreign-authority mounts and policy-controlled
+  shared replication.
 - Versioned Skills, prompts, and runtime configuration that agents may improve
   within granted boundaries.
 - Self-maintenance that diagnoses llame itself and proposes changes through normal
@@ -173,6 +265,11 @@ not isolated infrastructure.
 Ordering inside this list is intentionally unresolved. A horizon enters the
 roadmap only when its user job, boundaries, dependencies, and acceptance path are
 clear.
+
+Within the distributed direction, closed standalone and personal operation comes
+first; live connections to foreign authorities come later; offline shared
+replication comes last and only under explicit authority policy. Each earlier mode
+remains supported rather than becoming a temporary migration stage.
 
 ## Explicit deferrals
 
@@ -184,8 +281,11 @@ The current release sequence does not include:
 - semantic fact extraction, automatic memory injection, or a knowledge graph;
 - arbitrary write-capable MCP tools, on either transport;
 - model-directed shell execution or a production sandbox fabric;
-- child-agent orchestration, persistent per-agent machines, or remote coding
+- a first-party CLI, standalone personal Nodes, Personal Realm synchronization,
+  remote Workspace dispatch, or cross-node execution handoff;
+- child-agent orchestration, persistent per-agent machines, or external coding
   harness dispatch;
+- multi-authority mounts or offline replication of shared resources;
 - workflow builders, autonomous email/calendar actions, multi-channel bots, or
   Home Assistant control; and
 - automatic merge or deployment of self-authored changes.
