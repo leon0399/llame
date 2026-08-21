@@ -345,7 +345,12 @@ rail notice only when history was conditioned on the old value — announce
 stay silent on **behavioral** ones (tone, format, working style), where the only
 history conditioned on them is the model's own non-authoritative output.
 
-**Every run records what it injected**, as rendered, in `runs.context_items`.
+**Every run records what it injected**, as rendered, in `runs.context_items`,
+including the bind-time compaction checkpoint and any item this reader could not
+interpret — the latter with empty text, so a version-skew omission is auditable
+rather than invisible. The record is written once the request is final, after a
+transition compaction may have replaced it, so it states what the model actually
+received or nothing at all.
 This is written rather than derived because an item's wording is not reproducible
 from its durable part once a renderer changes, and a bind-time item is not
 reproducible at all. It is owner-only (`runs` carries `runs_owner` and no
@@ -359,9 +364,13 @@ written — the same property the recency digest already documents for prompts a
 receipts, stated once here so every producer carrying such content inherits it
 rather than rediscovering it.
 
-**Rollout.** Adding a producer or a form is additive. Changing the envelope
-itself (a new field on `data-context`) is not: exact-key-set validation makes it
-a coordinated API/worker revision boundary. Land backward-compatible readers
+**Rollout.** Adding a producer or a form is additive in the sense that an older
+worker will not reject the part — but **deploy producer-aware workers before any
+API authors that producer**, because an older worker renders nothing for a
+producer it does not know and the item is silently absent from the model's view
+for that Run. Changing the envelope itself (a new field on `data-context`) is a
+coordinated API/worker revision boundary outright: exact-key-set validation
+rejects it. Land backward-compatible readers
 first, deploy workers that understand the change before any API authors it,
 then quiesce old writers and drain accepted Runs before the writer cutover. On
 rollback, stop new authoring first and drain Runs accepted by the newer API
