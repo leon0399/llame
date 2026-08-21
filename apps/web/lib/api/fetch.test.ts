@@ -75,6 +75,43 @@ describe("Fetch policies", () => {
     expect(request.signal.aborted).toBe(true);
   });
 
+  it("constructs a POST request once while applying the browser policy", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    const requestConstructor = vi.fn();
+    const NativeRequest = globalThis.Request;
+    class TrackedRequest extends NativeRequest {
+      constructor(input: RequestInfo | URL, init?: RequestInit) {
+        requestConstructor();
+        super(input, init);
+      }
+    }
+    vi.stubGlobal("Request", TrackedRequest);
+    const fetchWithAuth = createAuthenticatedBrowserFetch(fetchMock);
+    const body = JSON.stringify({ message: "hello" });
+
+    try {
+      await fetchWithAuth("/api/v1/chats/chat-1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      });
+    } finally {
+      vi.stubGlobal("Request", NativeRequest);
+    }
+
+    expect(requestConstructor).toHaveBeenCalledOnce();
+    const [input] = fetchMock.mock.calls[0]!;
+    expect(input).toBeInstanceOf(Request);
+    expect(input).toMatchObject({
+      credentials: "include",
+      method: "POST",
+      url: "https://api.example.com/api/v1/chats/chat-1/messages",
+    });
+    expect(await (input as Request).text()).toBe(body);
+  });
+
   it("clears the registered query client and redirects on an unexpected browser 401", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

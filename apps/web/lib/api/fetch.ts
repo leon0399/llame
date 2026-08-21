@@ -38,20 +38,11 @@ function createResolvedRequest(
   init: RequestInit | undefined,
   credentials: RequestCredentials | undefined,
 ): Request {
-  const request =
-    input instanceof Request
-      ? new Request(input, init)
-      : new Request(resolveApiUrl(input), init);
-  const resolvedRequest = new Request(resolveApiUrl(request), request);
+  const requestInput = input instanceof Request ? input : resolveApiUrl(input);
+  const requestInit =
+    credentials === undefined ? init : { ...init, credentials };
 
-  if (
-    credentials === undefined ||
-    resolvedRequest.credentials === credentials
-  ) {
-    return resolvedRequest;
-  }
-
-  return new Request(resolvedRequest, { credentials });
+  return new Request(requestInput, requestInit);
 }
 
 function isCredentialSubmission(requestUrl: string): boolean {
