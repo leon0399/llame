@@ -1,18 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  buildContext,
-  type MessagePart,
-  type ModelMessage,
-} from './context-builder';
-import { renderContextItemPart } from './context-item-producers';
+import { buildContext, type MessagePart } from './context-builder';
 import {
   createTemporalItem,
   isTemporalPayload,
+  renderContextItemPart,
 } from './context-item-producers';
 import { type ContextItemPart } from './context-item';
 import { formatTemporalAnchor } from '../prompts/temporal-anchor';
-import { isRecord, isString } from '../unknown-record';
+import { contentBlockTexts, contentText } from '../testing/support';
 
 const RUN_ID = '11111111-2222-4333-8444-555555555555';
 const INSTANT = new Date('2026-08-19T16:36:00.000Z');
@@ -145,17 +141,6 @@ describe('temporal rendering', () => {
   });
 });
 
-/** Text of each content block, so a message's blocks can be asserted apart. */
-const blockTexts = (content: ModelMessage['content']): string[] => {
-  if (isString(content)) return [content];
-  return content.map((block) =>
-    isRecord(block) && isString(block['text']) ? block['text'] : '',
-  );
-};
-
-const blockText = (content: ModelMessage['content']): string =>
-  blockTexts(content).join('\n\n');
-
 describe('temporal rows in assembled context', () => {
   const systemPrompt = 'You are llame.';
   const msg = (input: {
@@ -197,7 +182,7 @@ describe('temporal rows in assembled context', () => {
   it('dates every user turn and no assistant turn', () => {
     const result = buildContext(conversation, { systemPrompt });
 
-    const rendered = result.messages.map((m) => blockText(m.content));
+    const rendered = result.messages.map((m) => contentText(m.content));
     expect(rendered[0]).toContain('Message received: 2026-08-19 18:36+02:00');
     expect(rendered[0]).toContain('First question.');
     expect(rendered[1]).toBe('Reply.');
@@ -208,7 +193,7 @@ describe('temporal rows in assembled context', () => {
 
   it('renders the row ahead of the user text, in its own block', () => {
     const [first] = buildContext(conversation, { systemPrompt }).messages;
-    const blocks = blockTexts(first.content);
+    const blocks = contentBlockTexts(first.content);
     expect(blocks).toHaveLength(2);
     expect(blocks[0]).toContain('Message received:');
     expect(blocks[1]).toBe('First question.');
@@ -248,7 +233,7 @@ describe('temporal rows in assembled context', () => {
 
     // A single block, which the provider adapter collapses back to a plain
     // string — the same wire form the turn had before the rail existed.
-    expect(blockTexts(result.messages[0].content)).toEqual([
+    expect(contentBlockTexts(result.messages[0].content)).toEqual([
       'sent before rows existed',
     ]);
     expect(result.contextItems).toEqual([]);

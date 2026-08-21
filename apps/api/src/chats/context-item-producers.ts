@@ -606,14 +606,20 @@ const ISO_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
  * identifier is required for — it carries no daylight-saving rule, so a row
  * stored with one would render a wrong wall-clock time for half the year.
  */
+const knownTimeZones = new Set<string>();
+
 function isKnownTimeZone(value: string): boolean {
+  if (knownTimeZones.has(value)) return true;
   if (!/^[A-Za-z]/.test(value)) return false;
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: value });
-    return true;
   } catch {
     return false;
   }
+  // Every persisted row revalidates on every request, so remember the answer:
+  // the set of zones a deployment ever sees is small and never shrinks.
+  knownTimeZones.add(value);
+  return true;
 }
 
 export function isTemporalPayload(value: unknown): value is TemporalPayload {

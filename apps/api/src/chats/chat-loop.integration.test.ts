@@ -23,7 +23,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
-import { expectTemporalRow, withoutTemporalRow } from '../testing/support';
+import { expectMessageParts } from '../testing/support';
 import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -491,7 +491,7 @@ describeIfDb(
       expect(first?.id).toBe(firstRun.id);
       expect(secondReceipt?.systemPrompt).toBe(firstReceipt?.systemPrompt);
       expect(secondReceipt?.systemPrompt).not.toContain('Withheld new source');
-      expect(withoutTemporalRow(messages.at(-1)?.parts ?? [])).toEqual([
+      expectMessageParts(messages.at(-1)?.parts ?? [], [
         { type: 'text', text: 'withdrawn target turn' },
       ]);
     });
@@ -510,7 +510,7 @@ describeIfDb(
       }));
       expect(before.chat?.recencyDigestBaseline).toBeNull();
       expect(before.chat?.recencyDigestTold).toBeNull();
-      expect(withoutTemporalRow(before.messages[0].parts)).toEqual([
+      expectMessageParts(before.messages[0].parts, [
         { type: 'text', text: 'setting is off' },
       ]);
 
@@ -528,7 +528,7 @@ describeIfDb(
         ]),
       );
       expect(after.chat?.recencyDigestTold).not.toBeNull();
-      expect(withoutTemporalRow(after.messages[1].parts)).toEqual([
+      expectMessageParts(after.messages[1].parts, [
         { type: 'text', text: 'setting is on again' },
       ]);
     });
@@ -921,33 +921,38 @@ describeIfDb(
         await new MessagesRepository(tx).findByChatId(chatId, userId),
         await new RunsRepository(tx).findByChatId(chatId, userId),
       ]);
-      expect(withoutTemporalRow(messages[0].parts)).toEqual([
-        { type: 'text', text: 'first' },
-      ]);
-      expect(withoutTemporalRow(messages[1].parts)).toEqual([
-        { type: 'text', text: 'same model' },
-      ]);
       // Every turn is dated, including the ones carrying no other item.
-      expectTemporalRow(messages[0].parts, runs[0].id);
-      expectTemporalRow(messages[1].parts, runs[1].id);
-      expect(withoutTemporalRow(messages[2].parts)).toEqual([
-        {
-          type: 'data-context',
-          data: {
-            v: 1,
-            producer: 'effective-context-change',
-            form: 'notice',
-            runId: runs[2].id,
-            payload: {
-              cause: 'model',
-              fromModelId: modelA,
-              toModelId: modelB,
+      expectMessageParts(
+        messages[0].parts,
+        [{ type: 'text', text: 'first' }],
+        runs[0].id,
+      );
+      expectMessageParts(
+        messages[1].parts,
+        [{ type: 'text', text: 'same model' }],
+        runs[1].id,
+      );
+      expectMessageParts(
+        messages[2].parts,
+        [
+          {
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'effective-context-change',
+              form: 'notice',
+              runId: runs[2].id,
+              payload: {
+                cause: 'model',
+                fromModelId: modelA,
+                toModelId: modelB,
+              },
             },
           },
-        },
-        { type: 'text', text: 'switch after failure' },
-      ]);
-      expectTemporalRow(messages[2].parts, runs[2].id);
+          { type: 'text', text: 'switch after failure' },
+        ],
+        runs[2].id,
+      );
       expect(runs[1].status).toBe('failed');
       expect(dispatchCalls[2]).toEqual(
         expect.objectContaining({
@@ -1000,10 +1005,9 @@ describeIfDb(
       );
       // The forged client parts are gone; the server's own temporal row is
       // the only non-text part that survives persistence.
-      expect(withoutTemporalRow(persisted?.parts ?? [])).toEqual([
+      expectMessageParts(persisted?.parts ?? [], [
         { type: 'text', text: 'legitimate text' },
       ]);
-      expectTemporalRow(persisted?.parts ?? []);
     });
 
     it('binds later prompt/tool changes only to later runs and keeps a reclaimed run on its original snapshot', async () => {

@@ -33,6 +33,35 @@ export function resolveInstanceTimezone(logger?: Logger): string {
   return resolved;
 }
 
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * One formatter per zone, reused for the process's life.
+ *
+ * Construction is the expensive part of `Intl` (locale and tz-data
+ * resolution); formatting with a built one is cheap. Every user turn's
+ * persisted timestamp re-renders on every request, so a conversation of n
+ * turns would otherwise construct O(n^2) formatters over its life. The map is
+ * self-bounding — there are only so many IANA zones — and a formatter is
+ * stateless, so reuse cannot leak one call's result into another's.
+ */
+function formatterFor(timeZone: string): Intl.DateTimeFormat {
+  const cached = formatters.get(timeZone);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZoneName: 'longOffset',
+  });
+  formatters.set(timeZone, formatter);
+  return formatter;
+}
+
 /**
  * Formats a temporal anchor from a single `Intl.DateTimeFormat` result so the
  * offset and the zone identifier cannot disagree.
@@ -45,16 +74,7 @@ export function formatTemporalAnchor(
   instant: Date,
   timeZone: string,
 ): TemporalAnchor {
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-    timeZoneName: 'longOffset',
-  });
+  const formatter = formatterFor(timeZone);
 
   const parts = formatter.formatToParts(instant);
   const get = (type: Intl.DateTimeFormatPartTypes) =>

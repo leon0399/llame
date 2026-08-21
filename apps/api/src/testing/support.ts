@@ -30,7 +30,7 @@ import {
 import type { TokenPrice } from '../models/model-catalog';
 import { ModelNotAvailableError } from '../models/models.service';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
-import { isRecord } from '../unknown-record';
+import { isRecord, isString } from '../unknown-record';
 
 /**
  * Asserts a register (or any auth) response body carries `user.id` as a
@@ -489,4 +489,33 @@ export function expectTemporalRow(
   expect(isTemporalPayload(rows[0].data.payload)).toBe(true);
   expect(rows[0].data.form).toBe('snapshot');
   if (runId !== undefined) expect(rows[0].data.runId).toBe(runId);
+}
+
+/**
+ * Assert a turn's parts: the temporal row, plus everything else exactly.
+ *
+ * The two halves are one call because they are one claim — a spec that
+ * stripped the row without also asserting it would quietly stop checking that
+ * turns are stamped at all.
+ */
+export function expectMessageParts(
+  parts: readonly unknown[],
+  expected: readonly unknown[],
+  runId?: string,
+): void {
+  expect(withoutTemporalRow(parts)).toEqual(expected);
+  expectTemporalRow(parts, runId);
+}
+
+/** Text of each content block, so a message's blocks can be asserted apart. */
+export function contentBlockTexts(content: ModelMessage['content']): string[] {
+  if (isString(content)) return [content];
+  return content.map((block) =>
+    isRecord(block) && isString(block['text']) ? block['text'] : '',
+  );
+}
+
+/** One message's content flattened, blocks joined as the model reads them. */
+export function contentText(content: ModelMessage['content']): string {
+  return contentBlockTexts(content).join('\n\n');
 }
