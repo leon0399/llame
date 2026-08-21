@@ -173,6 +173,33 @@ export function createContextItemPart(input: {
   return part;
 }
 
+export interface ClientTextPart {
+  readonly type: 'text';
+  readonly text: string;
+}
+
+/**
+ * Defense-in-depth for direct service callers that bypass the HTTP DTO: a
+ * client may author text and nothing else. Every context item is server-authored,
+ * so a client-supplied item-shaped part is discarded rather than trusted.
+ */
+export function sanitizeClientMessageParts(
+  parts: readonly unknown[],
+): ClientTextPart[] {
+  return parts.flatMap((part) => {
+    if (
+      !isRecord(part) ||
+      !('type' in part) ||
+      part.type !== 'text' ||
+      !('text' in part) ||
+      !isString(part.text)
+    ) {
+      return [];
+    }
+    return [{ type: 'text' as const, text: part.text }];
+  });
+}
+
 export const CONTEXT_ITEM_TAG = 'system-reminder';
 
 /**

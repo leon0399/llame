@@ -72,9 +72,9 @@ import { type Tool, type ToolContext } from '../tools/types';
 import { isRecord, type UnknownRecord } from '../unknown-record';
 import { turnTelemetryLogger } from './turn-telemetry';
 import {
-  createModelSwitchPart,
-  renderModelSwitchReminder,
-} from './model-context-part';
+  createModelChangeItem,
+  renderContextItemPart,
+} from './context-item-producers';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -1686,7 +1686,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const service = serviceWithTools({ allowed: [] });
     const chatId = crypto.randomUUID();
     const targetRunId = crypto.randomUUID();
-    const switchPart = createModelSwitchPart({
+    const switchPart = createModelChangeItem({
       fromModelId: 'source-model',
       toModelId: 'target-model',
       runId: targetRunId,
@@ -1784,7 +1784,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
     expect(calls[0].system).toBe(seeded.targetSnapshot.systemPrompt);
     expect(Object.keys(calls[0].tools ?? {})).toEqual(['search_conversations']);
     expect(calls[0].messages).toEqual([
-      { role: 'user', content: 'Old visible request.' },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Old visible request.' }],
+      },
       { role: 'assistant', content: 'Old visible answer.' },
       {
         role: 'assistant',
@@ -1808,7 +1811,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
       },
       {
         role: 'user',
-        content: `${renderModelSwitchReminder(switchPart)}\n\nContinue on target.`,
+        content: [
+          { type: 'text', text: renderContextItemPart(switchPart) ?? '' },
+          { type: 'text', text: 'Continue on target.' },
+        ],
       },
     ]);
     const providerInput = JSON.stringify(calls[0]);

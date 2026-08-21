@@ -64,7 +64,7 @@ import {
   type ToolAvailabilityManifestV1,
   type ToolUnavailableReason,
 } from '../tools/turn-tool-catalog';
-import { type ToolAvailabilityPart } from './tool-availability-part';
+import { type ContextItemPart } from './context-item';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -191,13 +191,18 @@ describeIfDb(
 
     const availabilityPart = (
       parts: readonly unknown[],
-    ): ToolAvailabilityPart | undefined =>
+    ): ContextItemPart | undefined =>
       parts.find(
-        (part): part is ToolAvailabilityPart =>
+        (part): part is ContextItemPart =>
           typeof part === 'object' &&
           part !== null &&
           'type' in part &&
-          part.type === 'data-tool-availability',
+          part.type === 'data-context' &&
+          'data' in part &&
+          typeof part.data === 'object' &&
+          part.data !== null &&
+          'producer' in part.data &&
+          part.data.producer === 'tool-availability',
       );
 
     const finish = (
@@ -919,12 +924,17 @@ describeIfDb(
       expect(messages[1].parts).toEqual([{ type: 'text', text: 'same model' }]);
       expect(messages[2].parts).toEqual([
         {
-          type: 'data-model-context',
+          type: 'data-context',
           data: {
-            kind: 'model_switch',
-            fromModelId: modelA,
-            toModelId: modelB,
+            v: 1,
+            producer: 'effective-context-change',
+            form: 'notice',
             runId: runs[2].id,
+            payload: {
+              cause: 'model',
+              fromModelId: modelA,
+              toModelId: modelB,
+            },
           },
         },
         { type: 'text', text: 'switch after failure' },
@@ -1077,19 +1087,23 @@ describeIfDb(
         degraded,
       );
       expect(availabilityPart(first.userMessage.parts)?.data).toEqual({
-        version: 1,
-        kind: 'initial',
+        v: 1,
+        producer: 'tool-availability',
+        form: 'notice',
         runId: first.runId,
-        added: [],
-        removed: [],
-        unavailable: [
-          {
-            id: 'mcp__docs__lookup',
-            reason: 'source_disconnected',
-          },
-        ],
-        becameUnavailable: [],
-        nowAvailable: [],
+        payload: {
+          kind: 'initial',
+          added: [],
+          removed: [],
+          unavailable: [
+            {
+              id: 'mcp__docs__lookup',
+              reason: 'source_disconnected',
+            },
+          ],
+          becameUnavailable: [],
+          nowAvailable: [],
+        },
       });
       await finish(first.runId, 'failed');
 
@@ -1108,14 +1122,14 @@ describeIfDb(
         'tool recovered',
         healthy,
       );
-      expect(availabilityPart(recovered.userMessage.parts)?.data).toMatchObject(
-        {
-          kind: 'delta',
-          nowAvailable: [
-            { id: 'mcp__docs__lookup', reason: 'source_reconnected' },
-          ],
-        },
-      );
+      expect(
+        availabilityPart(recovered.userMessage.parts)?.data.payload,
+      ).toMatchObject({
+        kind: 'delta',
+        nowAvailable: [
+          { id: 'mcp__docs__lookup', reason: 'source_reconnected' },
+        ],
+      });
       await finish(recovered.runId, 'cancelled');
 
       const transientFlap = await persistWithContext(
@@ -1127,7 +1141,9 @@ describeIfDb(
       await finish(transientFlap.runId, 'expired');
 
       const removed = await persistWithContext(chatId, 'tool removed', empty);
-      expect(availabilityPart(removed.userMessage.parts)?.data).toMatchObject({
+      expect(
+        availabilityPart(removed.userMessage.parts)?.data.payload,
+      ).toMatchObject({
         kind: 'delta',
         removed: ['mcp__docs__lookup'],
       });
@@ -1139,7 +1155,7 @@ describeIfDb(
         degraded,
       );
       expect(
-        availabilityPart(newlyUnavailable.userMessage.parts)?.data,
+        availabilityPart(newlyUnavailable.userMessage.parts)?.data.payload,
       ).toMatchObject({
         kind: 'delta',
         added: [],
@@ -1260,7 +1276,7 @@ describeIfDb(
         );
         if (!recoveredJob) throw new Error('Expected recovered Run dispatch');
         expect(
-          availabilityPart(recoveredJob.userMessage.parts)?.data,
+          availabilityPart(recoveredJob.userMessage.parts)?.data.payload,
         ).toMatchObject({
           kind: 'delta',
           nowAvailable: [
@@ -1365,7 +1381,7 @@ describeIfDb(
         degraded,
       );
       expect(
-        availabilityPart(firstAfterCompaction.userMessage.parts)?.data,
+        availabilityPart(firstAfterCompaction.userMessage.parts)?.data.payload,
       ).toMatchObject({
         kind: 'initial',
         unavailable: [
@@ -1442,7 +1458,9 @@ describeIfDb(
         'accepted after rollback',
         degraded,
       );
-      expect(availabilityPart(accepted.userMessage.parts)?.data).toMatchObject({
+      expect(
+        availabilityPart(accepted.userMessage.parts)?.data.payload,
+      ).toMatchObject({
         kind: 'initial',
         unavailable: [{ id: 'mcp__docs__lookup', reason: 'discovery_failed' }],
       });

@@ -42,14 +42,13 @@ import {
   RecencyDigestService,
   type RecencyDigestResolver,
 } from '../chats/recency-digest.service';
+import {} from '../chats/context-item';
 import {
-  createModelSwitchPart,
-  renderModelSwitchReminder,
-} from '../chats/model-context-part';
-import {
-  CONVERSATION_CHECKPOINT_START,
-  type MessagePart,
-} from '../chats/context-builder';
+  COMPACTION_CHECKPOINT_ENVELOPE_PREFIX,
+  createModelChangeItem,
+  renderContextItemPart,
+} from '../chats/context-item-producers';
+import { type MessagePart } from '../chats/context-builder';
 import {
   RUN_TIMEOUT_ABORT_REASON,
   RunExecutionService,
@@ -824,7 +823,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         usage: { status: 'completed' },
       });
       const targetRunId = crypto.randomUUID();
-      const switchPart = createModelSwitchPart({
+      const switchPart = createModelChangeItem({
         fromModelId: 'source-model',
         toModelId: 'target-model',
         runId: targetRunId,
@@ -926,7 +925,12 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const compaction = createCompactionService({
       createClient: createSourceClient,
     });
-    const targetDelegate = createFakeModelClient(['target response'], 500);
+    // Synthetic bound, sized to fit exactly one transition checkpoint plus the
+    // switch item. Raised from 500 when the unified envelope added a measured
+    // ~17 tokens to a checkpoint and ~24 to a notice (attributes plus the
+    // one-line provenance statement) — the budget was calibrated to the old
+    // per-producer delimiters, not to a behaviour change.
+    const targetDelegate = createFakeModelClient(['target response'], 600);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -991,13 +995,16 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     expect(targetCalls[0].messages[0].role).toBe('user');
     expect(targetCalls[0].messages[0].content).toMatch(
       new RegExp(
-        `^${CONVERSATION_CHECKPOINT_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+        `^${COMPACTION_CHECKPOINT_ENVELOPE_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
       ),
     );
     expect(targetCalls[0].messages[0].content).toContain(summary);
     expect(targetCalls[0].messages.at(-1)).toEqual({
       role: 'user',
-      content: `${renderModelSwitchReminder(seeded.switchPart)}\n\nCURRENT TRIGGER`,
+      content: [
+        { type: 'text', text: renderContextItemPart(seeded.switchPart) ?? '' },
+        { type: 'text', text: 'CURRENT TRIGGER' },
+      ],
     });
     expect(JSON.stringify(targetCalls[0])).not.toContain(
       seeded.sourceSnapshot.systemPrompt,

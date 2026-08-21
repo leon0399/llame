@@ -14,11 +14,13 @@ import type {
 } from 'ai';
 
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
+import { canonicalize, type CanonicalJsonValue } from '../canonical-json';
 import type {
   CompactionToolObservation,
   CompactionToolObservationLedgerV1,
 } from '../db/schema/chats';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '../unknown-record';
+import { type ToolResult } from '../tools/types';
 import type { MessagePart } from './context-builder';
 
 export const TOOL_PART_PREFIX = 'tool-';
@@ -148,6 +150,53 @@ function resolveResultBody(part: StoredToolPart): string | null {
   return isString(part.errorText) && part.errorText.length > 0
     ? part.errorText
     : null;
+}
+
+/**
+ * Neutralize reserved delimiters in a tool result **before the model sees it**.
+ *
+ * `resultText` below already does this for a persisted observation replayed on
+ * a later turn, but a result returned during the turn that produced it reaches
+ * the model through the SDK's own tool-result message, before any replay path
+ * runs. Tool output is remote-authored on the MCP path, so without this a
+ * server can emit a complete context-item envelope beside the genuine ones.
+ *
+ * Applied to what is SENT, never to what is recorded: the stored observation
+ * keeps the tool's exact output.
+ */
+export function neutralizeToolResult(result: ToolResult): ToolResult {
+  if (result.status === 'error') {
+    return {
+      status: 'error',
+      type: result.type,
+      message: sanitizeAuthoredText(result.message),
+    };
+  }
+  const { status, ...rest } = result;
+  return { status, ...neutralizeJsonStrings(rest) };
+}
+
+function neutralizeJsonStrings(value: UnknownRecord): UnknownRecord {
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      neutralizeValue(canonicalize(entry)),
+    ]),
+  );
+}
+
+function neutralizeValue(value: CanonicalJsonValue): CanonicalJsonValue {
+  if (isString(value)) return sanitizeAuthoredText(value);
+  if (Array.isArray(value)) return value.map(neutralizeValue);
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        neutralizeValue(entry),
+      ]),
+    );
+  }
+  return value;
 }
 
 function resultText(outcome: string, body: string | null): string {

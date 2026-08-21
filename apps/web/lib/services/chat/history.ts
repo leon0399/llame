@@ -53,13 +53,26 @@ export type ChatHistory = {
   compaction: Compaction | null;
 };
 
+/**
+ * A server-authored context item carrying a model change.
+ *
+ * Every injected context item shares the `data-context` part type; the
+ * `producer` tells them apart. This app renders only the model-change
+ * boundary, so it narrows to that one producer and treats every other item as
+ * something it does not display.
+ */
 export type ModelSwitchPart = {
-  type: "data-model-context";
+  type: "data-context";
   data: {
-    kind: "model_switch";
-    fromModelId: string;
-    toModelId: string;
+    v: 1;
+    producer: "effective-context-change";
+    form: "notice";
     runId: string;
+    payload: {
+      cause: "model";
+      fromModelId: string;
+      toModelId: string;
+    };
   };
 };
 
@@ -78,24 +91,44 @@ function isExactRecord(
   );
 }
 
+export function isContextItemPart(
+  value: unknown,
+): value is { type: "data-context"; data: Record<string, unknown> } {
+  return (
+    isExactRecord(value, ["type", "data"]) &&
+    value.type === "data-context" &&
+    typeof value.data === "object" &&
+    value.data !== null &&
+    !Array.isArray(value.data)
+  );
+}
+
 export function isModelSwitchPart(value: unknown): value is ModelSwitchPart {
-  if (!isExactRecord(value, ["type", "data"])) return false;
-  if (value.type !== "data-model-context") return false;
+  if (!isContextItemPart(value)) return false;
   if (
-    !isExactRecord(value.data, ["kind", "fromModelId", "toModelId", "runId"])
+    !isExactRecord(value.data, ["v", "producer", "form", "runId", "payload"])
   ) {
     return false;
   }
-  const { kind, fromModelId, toModelId, runId } = value.data;
+  const { v, producer, form, runId, payload } = value.data;
+  if (
+    v !== 1 ||
+    producer !== "effective-context-change" ||
+    form !== "notice" ||
+    typeof runId !== "string" ||
+    !UUID_PATTERN.test(runId) ||
+    !isExactRecord(payload, ["cause", "fromModelId", "toModelId"])
+  ) {
+    return false;
+  }
+  const { cause, fromModelId, toModelId } = payload;
   return (
-    kind === "model_switch" &&
+    cause === "model" &&
     typeof fromModelId === "string" &&
     fromModelId.trim().length > 0 &&
     typeof toModelId === "string" &&
     toModelId.trim().length > 0 &&
-    fromModelId !== toModelId &&
-    typeof runId === "string" &&
-    UUID_PATTERN.test(runId)
+    fromModelId !== toModelId
   );
 }
 
@@ -122,14 +155,11 @@ export function mergeTrustedModelContextParts(
   );
 
   return liveMessages.map((message) => {
+    // Every context item is server-authored control metadata, never visible
+    // chat content — one branch covers every producer, including ones this
+    // app does not know about.
     const visibleParts = message.parts.filter(
-      (part) =>
-        !(
-          typeof part === "object" &&
-          part !== null &&
-          "type" in part &&
-          part.type === "data-model-context"
-        ),
+      (part) => !isContextItemPart(part),
     );
     const trusted = trustedByMessageId.get(message.id);
     return {

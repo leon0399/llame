@@ -32,8 +32,11 @@ import {
   partsToText,
   type MessagePart,
 } from '../chats/context-builder';
-import { isModelSwitchPart } from '../chats/model-context-part';
-import { normalizeToolObservationOutcome } from '../chats/tool-observation-part';
+import { isModelChangeItem } from '../chats/context-item-producers';
+import {
+  neutralizeToolResult,
+  normalizeToolObservationOutcome,
+} from '../chats/tool-observation-part';
 import { createDeltaBuffer } from './delta-buffer';
 import {
   InstanceConfigService,
@@ -627,7 +630,7 @@ export class RunExecutionService {
           reservedOutputTokens,
         })
       ) {
-        if (!input.userMessage.parts.some(isModelSwitchPart)) {
+        if (!input.userMessage.parts.some(isModelChangeItem)) {
           throw new ContextIncompatibleError(
             'The complete request exceeds the target model context window and no model-switch source context is available.',
           );
@@ -919,9 +922,11 @@ export class RunExecutionService {
             if (input.abortSignal?.aborted) {
               await parentAbortSettlement;
             } else {
+              // The observation records the tool's exact output; only what the
+              // model reads is neutralized.
               recordToolCompleted(toolCallId, declaration.id, args, result);
             }
-            return result;
+            return neutralizeToolResult(result);
           },
         }),
       ]),

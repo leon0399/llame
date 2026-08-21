@@ -33,7 +33,7 @@ import {
   TOOL_REPLAY_TURN_LIMIT,
 } from '../chats/tool-observation-part';
 import type { StoredMessage } from '../chats/context-builder';
-import { isString } from '../unknown-record';
+import { isRecord, isString } from '../unknown-record';
 
 let seqCounter = 0;
 function msg(
@@ -55,6 +55,17 @@ function msg(
 beforeEach(() => {
   seqCounter = 0;
 });
+
+/** User content is a block array now; flatten it for text assertions. */
+function contentText(content: unknown): string {
+  if (isString(content)) return content;
+  if (!Array.isArray(content)) return JSON.stringify(content);
+  return content
+    .map((part) =>
+      isRecord(part) && isString(part['text']) ? part['text'] : '',
+    )
+    .join('\n\n');
+}
 
 describe('estimateContextTokens', () => {
   it('estimates ~chars/4 across history and summary', () => {
@@ -355,7 +366,9 @@ describe('buildCompactionRequest', () => {
     // summarizer prompt would invalidate the whole provider prompt-cache prefix.
     expect(request.system).toBe(CHAT_SYSTEM);
     expect(request.messages[0].role).toBe('user');
-    expect(request.messages[0].content).toContain('plan a trip to Japan');
+    expect(contentText(request.messages[0].content)).toContain(
+      'plan a trip to Japan',
+    );
     expect(request.messages[1].role).toBe('assistant');
     const last = request.messages[request.messages.length - 1];
     expect(last).toEqual({ role: 'user', content: COMPACTION_INSTRUCTION });
@@ -372,18 +385,22 @@ describe('buildCompactionRequest', () => {
     const affectedTurn = msg('Use the docs lookup once it recovers.');
     affectedTurn.parts = [
       {
-        type: 'data-tool-availability',
+        type: 'data-context',
         data: {
-          version: 1,
-          kind: 'delta',
+          v: 1,
+          producer: 'tool-availability',
+          form: 'notice',
           runId: '11111111-1111-4111-8111-111111111111',
-          added: [],
-          removed: [],
-          unavailable: [],
-          becameUnavailable: [
-            { id: 'mcp__docs__lookup', reason: 'source_disconnected' },
-          ],
-          nowAvailable: [],
+          payload: {
+            kind: 'delta',
+            added: [],
+            removed: [],
+            unavailable: [],
+            becameUnavailable: [
+              { id: 'mcp__docs__lookup', reason: 'source_disconnected' },
+            ],
+            nowAvailable: [],
+          },
         },
       },
       { type: 'text', text: 'Use the docs lookup once it recovers.' },
@@ -395,12 +412,12 @@ describe('buildCompactionRequest', () => {
       absorb: [affectedTurn],
     });
     const rendered = request.messages
-      .map(({ content }) =>
-        isString(content) ? content : JSON.stringify(content),
-      )
+      .map(({ content }) => contentText(content))
       .join('\n');
 
-    expect(rendered).toContain('<runtime-tool-availability>');
+    // The availability item reaches the summarizer through the shared
+    // envelope; the retired per-producer delimiter no longer exists.
+    expect(rendered).toContain('producer="tool-availability"');
     expect(rendered).toContain('mcp__docs__lookup');
     expect(rendered).toContain('server disconnected');
     expect(request.messages.at(-1)).toEqual({
@@ -464,7 +481,7 @@ describe('buildCompactionRequest', () => {
       ),
     });
     const rendered = request.messages
-      .map((m) => (isString(m.content) ? m.content : JSON.stringify(m.content)))
+      .map((m) => contentText(m.content))
       .join('\n');
     expect(rendered.indexOf('budget $3000')).toBeLessThan(
       rendered.indexOf('$4000'),
@@ -523,7 +540,7 @@ describe('buildCompactionRequest', () => {
 
     // 150 absorbed turns + trailing instruction — nothing dropped.
     expect(request.messages).toHaveLength(151);
-    expect(request.messages[0].content).toContain('turn 0');
+    expect(contentText(request.messages[0].content)).toContain('turn 0');
   });
 
   it('skips persisted system and tool rows like portable live replay does', () => {
