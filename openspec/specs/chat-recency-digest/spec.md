@@ -232,7 +232,7 @@ Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rul
 
 ### Requirement: Changes after the baseline are appended as events, never as a restated list
 
-Between baselines, changes SHALL reach the model as appended server-authored reminders on the message rail, positioned in the same slot as the existing model-switch and tool-availability reminders. An append SHALL describe **what happened**, not the current state of either list, and SHALL never restate the digest.
+Between baselines, changes SHALL reach the model as appended server-authored context items on the rail the `context-injection` capability defines, ordered as that capability specifies. The envelope, the per-item provenance framing, and the placement rule are owned by that capability and SHALL NOT be restated here. An append SHALL describe **what happened**, not the current state of either list, and SHALL never restate the digest.
 
 There SHALL be exactly **one** event: a chat **entered the told-set**, or **its pin state changed** relative to what the told-set records. Events SHALL be derived by comparison against stored state and SHALL NOT be derived from timestamps.
 
@@ -253,7 +253,7 @@ Gaining a title SHALL NOT be specified as the event. It is the most common _reas
 
 An append SHALL carry the same per-entry shape as a baseline entry, including the capped excerpt, so that an appended chat and a baseline chat are equally usable. Multiple events occurring between two runs SHALL be batched into a single append.
 
-When the baseline is re-resolved at compaction, a single **supersession marker** SHALL be appended stating that the list has been refreshed and that earlier chat-list updates in the conversation are superseded. No supersession marker SHALL be emitted on a model switch, because nothing is superseded. When a delta and a model switch fall on the same turn, both reminders SHALL be emitted independently with no combined or special-cased form.
+When the baseline is re-resolved at compaction, a single **supersession marker** SHALL be appended stating that the list has been refreshed and that earlier chat-list updates in the conversation are superseded. It SHALL be expressed through the rail's `snapshot` form, whose defined meaning is that a later snapshot from the same producer supersedes an earlier one, rather than through a marker shape private to this capability. No supersession marker SHALL be emitted on a model switch, because nothing is superseded. When a delta and an effective-context change fall on the same turn, both items SHALL be emitted independently with no combined or special-cased form.
 
 Appends SHALL be persisted with the message they accompany and SHALL NOT be rewritten or retracted.
 
@@ -310,8 +310,8 @@ No ceiling SHALL be imposed on how many appends accumulate between re-resolution
 #### Scenario: A delta and a model switch coincide
 
 - **WHEN** a run is enqueued that both switches models and carries a pending digest event
-- **THEN** the model-switch reminder and the digest append are both emitted
-- **AND** neither is suppressed, merged, or reordered relative to the shipped reminder slot
+- **THEN** the effective-context-change item and the digest append are both emitted
+- **AND** neither is suppressed, merged, or reordered relative to the order the `context-injection` capability specifies
 
 #### Scenario: Compaction emits a supersession marker
 

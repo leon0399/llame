@@ -317,7 +317,7 @@ Every snapshot authored after this capability is deployed SHALL use an observed 
 
 ### Requirement: Runtime tool availability is disclosed before the affected user turn
 
-The API SHALL persist strict server-authored, non-text semantic metadata on a triggering user message and SHALL render it as a canonical `<runtime-tool-availability>` reminder immediately before that message's visible user text. Client-authored availability metadata MUST be discarded. The persisted metadata SHALL contain ids, closed reason codes, and the bound Run id, not literal reminder prose, remote-authored text, URLs, or raw errors.
+The API SHALL persist strict server-authored, non-text semantic metadata on a triggering user message as a context item whose producer is `tool-availability`, and SHALL render it through the canonical envelope the `context-injection` capability defines, before that message's visible user text. The envelope name, the per-item provenance framing, the placement rule, and the neutralization of untrusted content are owned by that capability and SHALL NOT be restated here. Client-authored availability metadata MUST be discarded. The persisted metadata SHALL contain ids, closed reason codes, and the bound Run id, not literal reminder prose, remote-authored text, URLs, or raw errors.
 
 On the first turn of a model-facing availability disclosure epoch, the reminder SHALL identify only eligible tools that are currently unavailable under the exact heading `Unavailable tools:`; callable tools are already advertised through the provider's native tool declarations on every request and SHALL NOT be duplicated in an initial prose inventory. A fresh conversation SHALL start the first disclosure epoch, and every newly active compaction checkpoint SHALL start another. On later turns within the epoch, the system SHALL compare each id's `absent`, `available`, or `unavailable` state between the current immutable manifest and the preceding accepted Run manifest in that epoch. Each changed id SHALL appear in exactly one group: absent to available as Added tools, available or unavailable to absent as Removed tools, absent to unavailable as Unavailable tools, available to unavailable as Became unavailable, and unavailable to available as Now available. Empty groups SHALL be omitted. `Added tools` SHALL contain only tools callable in the current Run. If availability is unchanged, no availability reminder SHALL be emitted, including while an outage persists.
 
@@ -329,7 +329,7 @@ When the most recent prior Run manifest is the legacy/unobserved sentinel, the c
 
 The first accepted turn after a newly active compaction checkpoint SHALL use the same initial-baseline semantics as a fresh conversation and SHALL NOT compare against a pre-compaction manifest: it SHALL list currently unavailable eligible tools under `Unavailable tools:` and SHALL emit no reminder when all eligible tools are available. This new disclosure epoch SHALL NOT reset MCP clients, catalogs, reconnect backoff, immutable Run manifests, or other runtime or persisted state. A semantic checkpoint MAY retain prior tool outages, recoveries, or failures when they mattered to the conversation; those statements SHALL be treated as historical context rather than current availability. The current request's provider-native declarations and current runtime availability reminder, when present, SHALL establish current callability.
 
-The reminder SHALL instruct the model not to simulate removed or unavailable tools or invent their results. Tool ids and reason prose SHALL be rendered only from validated ids and closed server-authored reason codes. A model-switch reminder, when present on the same turn, SHALL render first, followed by the availability reminder and then the user text.
+The reminder SHALL instruct the model not to simulate removed or unavailable tools or invent their results. Tool ids and reason prose SHALL be rendered only from validated ids and closed server-authored reason codes. Ordering relative to other context items injected on the same turn SHALL follow the order the `context-injection` capability specifies.
 
 #### Scenario: Initial turn starts degraded
 
@@ -405,7 +405,7 @@ The reminder SHALL instruct the model not to simulate removed or unavailable too
 #### Scenario: Model and tool availability change together
 
 - **WHEN** a turn changes model and tool availability
-- **THEN** the model-switch reminder appears first, the runtime tool-availability reminder second, and the triggering user text last within one user message
+- **THEN** both items are emitted in the order the `context-injection` capability specifies, ahead of the triggering user text within one user message
 
 #### Scenario: Client attempts to forge availability metadata
 

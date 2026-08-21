@@ -1,8 +1,10 @@
+# context-injection
+
 ## Purpose
 
 The single rail on which llame injects server-authored context into a chat's model-visible conversation: one envelope, one provenance framing an operator cannot delete, one vocabulary of producer, form, and residency, and one durable record of what was actually injected. Producers own what their item says and when it fires; this capability owns everything they share, so that adding a context surface is an additive change rather than a new convention.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Server-authored context is injected as discrete items on one rail
 
@@ -110,6 +112,8 @@ When more than one item is injected on the same turn, they SHALL render in a **f
 2. `tool-availability`
 3. `recency-digest`
 
+This list governs items **attached to a turn**. A producer whose item is carried by a message of its own — the compaction checkpoint is the only one today — is ordered by its placement rule instead, and SHALL NOT be read as absent from the vocabulary merely because it is absent from this list. A checkpoint necessarily leads the history it supersedes, which is a stronger constraint than any precedence order could express.
+
 A producer added later SHALL be appended to this list, and the list SHALL be extended in the rail's own specification rather than negotiated between producers.
 
 When one producer contributes **more than one item** on the same turn, those items SHALL render in the order that producer emitted them, ahead of the next producer's items. Emission order is load-bearing within a producer: a supersession and a subsequent delta from the same producer are only interpretable in the order they occurred, since a delta rendered before the supersession that precedes it reads as already superseded. Producers SHALL NOT order themselves relative to each other, and an item SHALL NOT be merged into, or suppressed by, another item. Identical inputs SHALL therefore produce identical model-visible output.
@@ -168,6 +172,8 @@ An announcement SHALL be injected as a rail item when the changed content is **a
 An announcement SHALL state that earlier turns predate the changed content and that they are not to be treated as contradicting it.
 
 Disclosure to the **owner** SHALL be unconditional and independent of this rule: every change to the effective context SHALL be recorded in that Run's record whether or not it is announced to the model.
+
+**This requirement is not yet satisfied for every prefix contribution, and the gap SHALL be stated rather than implied.** Only the model cause of an effective-context change is detected today; a personalization edit or an operator prompt reload changes prefix-resident content without producing an announcement, so an owner who supplies a fact the assistant previously said it lacked still leaves the conversation carrying an unexplained contradiction. Detecting the remaining causes requires the binder to record why it minted a new snapshot, which no shipped path does, and is owned separately. Likewise, the owner-disclosure clause is satisfied today only for changes that produce a rail item: a behavioral change renders nothing, and the per-Run record holds rendered items, so it currently carries no entry for one. Both gaps are deferred rather than descoped — the rule stands as the contract the deferred work is written against, and a reader of this capability SHALL NOT infer that the assertional-announce branch is implemented.
 
 #### Scenario: Assertional prefix content changes mid-conversation
 
@@ -285,7 +291,11 @@ A durable part SHALL carry **semantics rather than rendered prose**: identifiers
 
 Each Run SHALL record the context items injected into the request it executed, as they were rendered, together with each item's producer, form, and residency. The record SHALL be **owner-scoped and enforced at the datastore**, and SHALL NOT be exposed to a non-owner, to a public share, to an ordinary transcript export, or to a search projection.
 
-Recording SHALL NOT rely on re-rendering an item later: an item's rendered text is not reproducible from a durable part once its renderer changes, and a bind-time item is not reproducible at all. The record SHALL therefore be the authority for what a past Run injected.
+Recording SHALL NOT rely on re-rendering an item later: an item's rendered text is not reproducible from a durable part once its renderer changes, and a bind-time item is not reproducible at all. The record SHALL therefore be the authority for what a past Run injected, and SHALL include every item the Run injected — the bind-time checkpoint among them.
+
+An item that rendered as nothing, because its producer was unrecognized, SHALL still appear in the record, marked as having contributed no text. Omitting it would turn a declared fail-closed omission into an undetectable loss, which is the opposite of what the record exists for.
+
+The record SHALL state what was **actually sent**. When a request is rebuilt before dispatch — as transition compaction does — the record SHALL reflect the rebuilt request rather than the discarded one, and a Run whose preparation fails before any request is made SHALL record nothing rather than a request the model never received.
 
 The record SHALL be kept **separately from the effective-context snapshot**, which is addressed by its content and reused across Runs whose prompt, declarations, source, and availability manifest are identical, while injected items vary per turn under exactly those conditions.
 
