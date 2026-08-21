@@ -375,12 +375,17 @@ describe("ChatPage — model context transparency", () => {
         ...useChatMessages[1]!,
         parts: [
           {
-            type: "data-model-context",
+            type: "data-context",
             data: {
-              kind: "model_switch",
-              fromModelId: "model-a",
-              toModelId: "model-b",
+              v: 1,
+              producer: "effective-context-change",
+              form: "notice",
               runId,
+              payload: {
+                cause: "model",
+                fromModelId: "model-a",
+                toModelId: "model-b",
+              },
             },
           },
           { type: "text", text: "Triggering request" },
@@ -407,10 +412,9 @@ describe("ChatPage — model context transparency", () => {
   // Server-authored context parts are persisted on the user message and come
   // back through the messages API, so the transcript sees every one of them.
   // A part type with no case falls through to the "unsupported part type"
-  // span — literal debug text in the owner's chat. `data-tool-availability`
-  // shipped in exactly that state, and `data-recency-digest` would have
-  // followed it, because the existing guard was only ever asserted for the
-  // model-switch part. Assert the whole family renders nothing.
+  // span — literal debug text in the owner's chat. Every producer now shares
+  // one part type, so one branch covers the whole family INCLUDING a producer
+  // this build does not know about, which is what the last case pins.
   it("renders no visible content for server-authored context parts", () => {
     const chatId = "chat-server-parts";
     const runId = "11111111-2222-4333-8444-555555555555";
@@ -419,29 +423,60 @@ describe("ChatPage — model context transparency", () => {
     // component. On a page reload the persisted parts arrive exactly here.
     const serverParts = [
       {
-        type: "data-model-context",
+        type: "data-context",
         data: {
-          kind: "model_switch",
-          fromModelId: "model-a",
-          toModelId: "model-b",
+          v: 1,
+          producer: "effective-context-change",
+          form: "notice",
           runId,
+          payload: {
+            cause: "model",
+            fromModelId: "model-a",
+            toModelId: "model-b",
+          },
         },
       },
-      { type: "data-tool-availability", data: { runId, entries: [] } },
       {
-        type: "data-recency-digest",
+        type: "data-context",
         data: {
-          kind: "delta",
+          v: 1,
+          producer: "tool-availability",
+          form: "notice",
           runId,
-          entries: [
-            {
-              title: "Another chat",
-              date: "2026-08-13",
-              messageCount: 2,
-              pinned: false,
-            },
-          ],
-          pinChanges: [],
+          payload: { kind: "delta", added: [], removed: [] },
+        },
+      },
+      {
+        type: "data-context",
+        data: {
+          v: 1,
+          producer: "recency-digest",
+          form: "notice",
+          runId,
+          payload: {
+            entries: [
+              {
+                title: "Another chat",
+                date: "2026-08-13",
+                messageCount: 2,
+                pinned: false,
+              },
+            ],
+            pinChanges: [],
+          },
+        },
+      },
+      // A producer this build does not recognize. Under the old per-type
+      // branches this is exactly what would have printed debug text into the
+      // owner's transcript; one branch on the shared type covers it.
+      {
+        type: "data-context",
+        data: {
+          v: 1,
+          producer: "from-a-newer-api",
+          form: "notice",
+          runId,
+          payload: { anything: true },
         },
       },
     ];

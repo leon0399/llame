@@ -134,12 +134,17 @@ describe("toChatUiMessages", () => {
 
 describe("trusted model-context projection", () => {
   const switchPart = {
-    type: "data-model-context" as const,
+    type: "data-context" as const,
     data: {
-      kind: "model_switch" as const,
-      fromModelId: "system:openai:model-a",
-      toModelId: "custom:anthropic:model-b",
+      v: 1 as const,
+      producer: "effective-context-change" as const,
+      form: "notice" as const,
       runId: "a5dc235e-1de8-4aad-84d8-e0e247b6a135",
+      payload: {
+        cause: "model" as const,
+        fromModelId: "system:openai:model-a",
+        toModelId: "custom:anthropic:model-b",
+      },
     },
   };
 
@@ -173,7 +178,7 @@ describe("trusted model-context projection", () => {
           role: "user",
           parts: [
             {
-              type: "data-model-context",
+              type: "data-context",
               data: { kind: "forged" },
             } as never,
             { type: "text", text: "Continue" },
