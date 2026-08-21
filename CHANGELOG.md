@@ -2,6 +2,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-21
 
+- **Generated client planning artifacts retired** (#481): removed the temporary
+  design and implementation plan after transferring the shipped architecture
+  and regeneration contract into durable repository documentation.
 - **Chat and runs API migration**: non-streaming chat, run, active-run, history,
   search, export, management, fork, and public-share requests now use the
   committed generated Fetch bindings. Handwritten Query/cache and SSR policies
