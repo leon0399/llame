@@ -497,6 +497,50 @@ describeIfDb('executeRun tool-loop persistence', () => {
     return { chatId, messageId, key, ...seeded };
   }
 
+  /**
+   * One content-addressed snapshot, reused by two runs whose turns differ only
+   * in the context items they carry — the exact condition under which a
+   * snapshot is reused while injected items are not, and therefore the reason
+   * the record cannot live on the snapshot.
+   *
+   * The second turn is seeded only after the first completes: per-chat
+   * single-flight forbids two non-terminal runs.
+   */
+  async function seedSharedSnapshotTurn(
+    key: string,
+    chatId: string,
+    parts: readonly UnknownRecord[],
+    snapshotId?: string,
+  ) {
+    return tenantDb.runAs(userId, async (tx) => {
+      await new ChatsRepository(tx).createIfAbsent({
+        id: chatId,
+        ownerUserId: userId,
+        title: 'Shared snapshot',
+      });
+      const snapshot =
+        snapshotId === undefined
+          ? await seedModelContextSnapshot(tx, userId, key, [
+              'search_conversations',
+            ])
+          : { id: snapshotId };
+      const message = await new MessagesRepository(tx).create({
+        chatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [...parts],
+      });
+      const run = await new RunsRepository(tx).create({
+        chatId,
+        messageId: message.id,
+        userId,
+        modelId: `test:${key}`,
+        modelContextSnapshotId: snapshot.id,
+      });
+      return { snapshot, message, run };
+    });
+  }
+
   function recordingClient(calls: ModelStreamInput[]): ModelClient {
     const delegate = createMockModelClient(
       new MockLanguageModelV3({
@@ -1682,6 +1726,78 @@ describeIfDb('executeRun tool-loop persistence', () => {
     },
   );
 
+  it('records per run, not per snapshot, when two runs reuse one snapshot', async () => {
+    const key = `shared-${crypto.randomUUID()}`;
+    const chatId = crypto.randomUUID();
+    const service = serviceWithTools();
+
+    const run = async (seeded: {
+      message: { id: string; seq: number; parts: unknown[] };
+      run: { id: string };
+    }) => {
+      const result = await service.executeRun({
+        runId: seeded.run.id,
+        chatId,
+        userId,
+        userMessage: {
+          id: seeded.message.id,
+          seq: seeded.message.seq,
+          parts: seeded.message.parts.filter(isRecord),
+        },
+        client: recordingClient([]),
+      });
+      await result.consumeStream?.();
+    };
+
+    const plain = await seedSharedSnapshotTurn(key, chatId, [
+      { type: 'text', text: 'first turn, no items' },
+    ]);
+    await run(plain);
+
+    const withItem = await seedSharedSnapshotTurn(
+      key,
+      chatId,
+      [
+        {
+          type: 'data-context',
+          data: {
+            v: 1,
+            producer: 'recency-digest',
+            form: 'snapshot',
+            runId: crypto.randomUUID(),
+            payload: {},
+          },
+        },
+        { type: 'text', text: 'second turn, carrying an item' },
+      ],
+      plain.snapshot.id,
+    );
+    await run(withItem);
+
+    const [plainRow, itemRow] = await tenantDb.runAs(userId, async (tx) => {
+      const repo = new RunsRepository(tx);
+      return Promise.all([
+        repo.findById(plain.run.id, userId),
+        repo.findById(withItem.run.id, userId),
+      ]);
+    });
+
+    // Both bound the SAME content-addressed snapshot; only the second injected
+    // an item. A record living on the snapshot could not represent both.
+    expect(plainRow?.modelContextSnapshotId).toBe(
+      itemRow?.modelContextSnapshotId,
+    );
+    expect(plainRow?.contextItems ?? []).toEqual([]);
+    expect(itemRow?.contextItems).toEqual([
+      {
+        producer: 'recency-digest',
+        form: 'snapshot',
+        residency: 'rail',
+        text: expect.any(String),
+      },
+    ]);
+  });
+
   it('assembles a model switch as target snapshot context, portable visible history, reminder, then new user text', async () => {
     const service = serviceWithTools({ allowed: [] });
     const chatId = crypto.randomUUID();
@@ -1817,6 +1933,27 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ],
       },
     ]);
+    // Task 4.2: the record is what was SENT, asserted end to end rather than
+    // at the buildContext boundary — an item's wording is not reproducible
+    // from its part once a renderer changes, so a reconstruction would not
+    // catch a drift between the two.
+    const recorded = await tenantDb.runAs(userId, async (tx) =>
+      new RunsRepository(tx).findById(seeded.targetRun.id, userId),
+    );
+    expect(recorded?.contextItems).toEqual([
+      {
+        producer: 'effective-context-change',
+        form: 'notice',
+        residency: 'rail',
+        text: renderContextItemPart(switchPart),
+      },
+    ]);
+    const sentBlocks = calls[0].messages.at(-1)?.content;
+    expect(Array.isArray(sentBlocks) && sentBlocks[0]).toMatchObject({
+      type: 'text',
+      text: recorded?.contextItems?.[0].text,
+    });
+
     const providerInput = JSON.stringify(calls[0]);
     expect(providerInput).not.toContain(seeded.sourceSnapshot.systemPrompt);
     expect(providerInput).not.toContain('SECRET REASONING ARTIFACT');
