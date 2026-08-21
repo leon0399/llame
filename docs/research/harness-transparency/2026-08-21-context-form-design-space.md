@@ -20,7 +20,7 @@ Three further forms were sketched during design and are recorded here instead of
 `catalog`, `instructions`, `recall`. Each has a plausible future llame producer already named in the
 proposal's own "queued behind that tax" list — Skills, agentic-mode `AGENTS.md`-style instruction
 files, and #198 episodic recall
-(`openspec/changes/unify-context-injection/proposal.md:5`) — but none of those producers exist yet,
+(`openspec/changes/unify-context-injection/proposal.md`, "Why") — but none of those producers exist yet,
 so specifying the form ahead of an implementation would mean guessing at fields no consumer has
 validated. This document exists so that when one of those producers ships, its author adopts a
 considered shape instead of inventing a fourth vocabulary that happens to overlap with these three.
@@ -67,10 +67,8 @@ epoch only when there is no previous manifest to diff against
 (`apps/api/src/chats/tool-availability-part.ts:198-230`). If a future Skills producer adopted
 DeepSeek's full-republish-on-digest-change contract while tool availability keeps its delta
 contract, that is exactly the "two producers silently disagree about what their shared form means"
-failure the design doc warns about generally — and the design doc already carries this as an
-explicit open question: "Whether `catalog` gains a second contract when tool availability's
-delta-within-epoch semantics are revisited, or whether availability moves to full republish. …the
-form's contract is stated for the one that arrives first"
+failure the design doc warns about generally — and the design doc carries the unresolved
+contract as its one open question, deferred on the grounds that no producer emits `catalog` yet
 (`openspec/changes/unify-context-injection/design.md`, Open Questions). Nothing here resolves that;
 it is restated because Skills, not tool availability, may now be the one that arrives first.
 
@@ -100,7 +98,7 @@ ranked below system instructions and the user's own requests, distinct from a on
 that it persists as standing guidance rather than reporting an event.
 
 **The llame producer.** Agentic-mode `AGENTS.md`-style instruction files — queued in the same
-proposal sentence as Skills and #198 (`openspec/changes/unify-context-injection/proposal.md:5`).
+proposal sentence as Skills and #198 (`openspec/changes/unify-context-injection/proposal.md`, "Why").
 
 **Prior art.** DeepSeek Harness's `@deepseek-ai/dsh-agent-instructions` package is the fullest
 worked example available in the surveyed checkouts
