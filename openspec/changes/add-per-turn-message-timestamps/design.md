@@ -76,4 +76,8 @@ None. Whether a model presented with both surfaces honors the fresher value over
 
 ## Migration Plan
 
-None. No schema change, no migration, and no coordinated rollout: the row rides the existing `data-context` part type, and a worker that does not recognize the `temporal` producer renders nothing for it rather than failing. Existing chats simply carry no rows on turns that predate the change. Rollback is reverting the code; rows already written render as nothing to a reverted reader.
+No schema change and no migration: the row rides the existing `data-context` part type, and a worker that does not recognize the `temporal` producer renders nothing for it rather than rejecting the part.
+
+Deployment order still matters, per the rail's documented rule: **deploy producer-aware workers before the api starts authoring the producer.** An older worker does not fail on the row, it silently renders nothing for it, so a turn stamped by a new api and executed by an old worker reaches the model undated. This is an ordering constraint, not a revision boundary — no quiesce, no drain.
+
+Existing chats simply carry no rows on turns that predate the change. Rollback is reverting the code; rows already written stay in `messages.parts` and render as nothing to a reverted reader.

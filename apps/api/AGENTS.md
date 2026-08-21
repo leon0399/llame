@@ -325,6 +325,35 @@ an additive change rather than a coordinated API/worker revision boundary; do no
 in `docs/research/harness-transparency/2026-08-21-context-form-design-space.md`
 rather than specified.
 
+**Producers, in the rail's fixed precedence order:**
+`effective-context-change`, `tool-availability`, `recency-digest`, `temporal`
+for items attached to a turn, plus `compaction`, whose checkpoint is ordered by
+its placement rule (it leads the history it supersedes) rather than by this
+list. A producer added later is appended.
+
+`temporal` stamps **every** user message with when its turn was received —
+`Message received: 2026-08-19 18:36+02:00 (Europe/Madrid)`, the anchor's shape.
+Three properties are load-bearing and easy to break:
+
+- The payload stores the **instant and the zone together**. Rendering therefore
+  reads neither the clock nor `TZ`, so a worker cannot disagree with the api that
+  accepted the turn, and moving the instance's timezone does not rewrite rows
+  already sent. Do not "simplify" this into re-resolving the zone at render.
+- The wording says **received**, never "current", and is identical on the newest
+  turn and the oldest. A row that claimed the present instant would be false on
+  replay, and wording that changed once a turn stopped being newest would mutate
+  a persisted message's rendering — losing the byte-identity that keeps the
+  provider's prefix cache valid across turns. That byte-identity is the entire
+  reason this row is stored rather than computed per request.
+- The zone must be an **IANA identifier**: `Intl` also accepts a bare UTC offset
+  (`+02:00`), which carries no daylight-saving rule, so the validator requires a
+  leading letter as well as `Intl` acceptance.
+
+The rows are ordinary turn content: they are superseded with the turns a
+checkpoint absorbs, and `COMPACTION_INSTRUCTION` deliberately says nothing about
+them (unlike the standing-context exclusions, which exist for values re-supplied
+every request).
+
 **Residency decides whether a change re-renders the prompt or appends an item.**
 Prefix-resident content is re-supplied in full every request inside the cached
 prefix: cheap to read, expensive to change, because a change invalidates the

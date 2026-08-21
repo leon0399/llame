@@ -25,6 +25,7 @@ import {
 } from './context-item';
 import { compareCodePoints } from '../canonical-json';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
+import { formatTemporalAnchor } from '../prompts/temporal-anchor';
 import { type RecencyDigestEntry } from '../db/schema';
 import { isToolId } from '../tools/tool-id';
 import {
@@ -571,6 +572,106 @@ function renderRecencyDigestSupersession(): string {
 }
 
 /* ------------------------------------------------------------------ *
+ * temporal
+ * ------------------------------------------------------------------ */
+
+/**
+ * When a turn was received, stored with the turn it annotates.
+ *
+ * The zone is stored ALONGSIDE the instant rather than resolved at render:
+ * rendering then consults neither the clock nor the process environment, so a
+ * worker cannot disagree with the api that accepted the turn, and an instance
+ * that later moves timezone does not rewrite what it already told the model.
+ *
+ * Scalar, not a list of readings. #454's reading of the same instant in the
+ * owner's timezone is computed at render from THIS instant — storing it would
+ * freeze a preference the owner can change and would need rewriting across
+ * history when they do.
+ */
+export interface TemporalPayload extends UnknownRecord {
+  /** `Date.prototype.toISOString()` output — UTC, millisecond precision. */
+  readonly instant: string;
+  readonly timeZone: string;
+}
+
+const ISO_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * A zone is known when `Intl` accepts it; there is no allowlist to drift from
+ * the runtime's own tz database. `Intl` throws `RangeError` for an unknown
+ * identifier, which is the check.
+ *
+ * The leading-letter test is NOT redundant: ECMA-402 also accepts a UTC offset
+ * string (`+02:00`) as a time zone, and an offset is exactly what an IANA
+ * identifier is required for — it carries no daylight-saving rule, so a row
+ * stored with one would render a wrong wall-clock time for half the year.
+ */
+function isKnownTimeZone(value: string): boolean {
+  if (!/^[A-Za-z]/.test(value)) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function isTemporalPayload(value: unknown): value is TemporalPayload {
+  if (!isExactRecord(value, ['instant', 'timeZone'])) return false;
+  const { instant, timeZone } = value;
+  return (
+    isString(instant) &&
+    ISO_INSTANT_PATTERN.test(instant) &&
+    !Number.isNaN(Date.parse(instant)) &&
+    isString(timeZone) &&
+    isKnownTimeZone(timeZone)
+  );
+}
+
+export function createTemporalItem(input: {
+  readonly runId: string;
+  readonly instant: Date;
+  readonly timeZone: string;
+}): ContextItemPart {
+  const payload: TemporalPayload = {
+    instant: input.instant.toISOString(),
+    timeZone: input.timeZone,
+  };
+  if (!isTemporalPayload(payload)) {
+    throw new TypeError('Invalid server-authored temporal metadata');
+  }
+  return createContextItemPart({
+    producer: 'temporal',
+    // `snapshot`: state as of the moment it was taken, not an event report.
+    // Supersession never arises — each turn's row describes its own turn — but
+    // the form classifies the content, and that is what the vocabulary is for.
+    form: 'snapshot',
+    runId: input.runId,
+    payload,
+  });
+}
+
+/**
+ * Receipt, never the present instant, and worded identically on the newest
+ * turn and the oldest.
+ *
+ * A row that claimed "now" would be false the moment it is replayed, and a row
+ * whose wording changed once its turn stopped being the newest would mutate a
+ * persisted message's rendering — forfeiting the byte-identity that is the
+ * whole reason this row is stored rather than computed per request.
+ *
+ * One line: the rail's per-item framing is paid for on every item, and a
+ * second sentence here would be paid for on every turn of every conversation.
+ */
+function renderTemporal(payload: TemporalPayload): string {
+  const { systemTime, systemTimezone } = formatTemporalAnchor(
+    new Date(payload.instant),
+    payload.timeZone,
+  );
+  return `Message received: ${systemTime} (${systemTimezone})`;
+}
+
+/* ------------------------------------------------------------------ *
  * compaction
  * ------------------------------------------------------------------ */
 
@@ -662,6 +763,9 @@ export function renderContextItemBody(part: ContextItemPart): string | null {
     return isRecencyDigestDeltaPayload(payload)
       ? renderRecencyDigestDelta(payload)
       : null;
+  }
+  if (producer === 'temporal') {
+    return isTemporalPayload(payload) ? renderTemporal(payload) : null;
   }
   return null;
 }

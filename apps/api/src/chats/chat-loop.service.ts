@@ -64,6 +64,7 @@ import {
   createModelChangeItem,
   createRecencyDigestDeltaItem,
   createRecencyDigestSupersessionItem,
+  createTemporalItem,
   createToolAvailabilityItem,
   deriveToolAvailabilityPayload,
 } from './context-item-producers';
@@ -635,11 +636,21 @@ export class ChatLoopService {
             runId: turnInput.targetRunId,
           })
         : undefined;
+    // Stamped unconditionally, in the same zone the anchor above was resolved
+    // in, so a turn's two temporal surfaces agree by construction. The instant
+    // is captured here rather than read back from `created_at`: the renderer
+    // receives the part alone, never the message that carries it.
+    const temporalPart = createTemporalItem({
+      runId: turnInput.targetRunId,
+      instant: new Date(),
+      timeZone: instanceTimezone,
+    });
     const messageParts: MessagePart[] = [
       ...(modelSwitchPart ? [modelSwitchPart] : []),
       ...(availabilityPart ? [availabilityPart] : []),
       ...(digestSupersessionPart ? [digestSupersessionPart] : []),
       ...(digestDeltaPart ? [digestDeltaPart] : []),
+      temporalPart,
       ...turnInput.message.parts,
     ];
 

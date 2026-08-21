@@ -306,6 +306,35 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
     ]);
   });
 
+  it('strips the temporal row, so a share discloses neither send times nor the instance timezone', () => {
+    const message = fakeMessage({
+      role: 'user',
+      parts: [
+        {
+          type: 'data-context',
+          data: {
+            v: 1,
+            producer: 'temporal',
+            form: 'snapshot',
+            runId: '11111111-2222-4333-8444-555555555555',
+            payload: {
+              instant: '2026-08-19T16:36:00.000Z',
+              timeZone: 'Europe/Madrid',
+            },
+          },
+        },
+        { type: 'text', text: 'the visible question' },
+      ],
+    });
+
+    const dto = toSharedChatResponse(fakeChat, [message]);
+
+    expect(dto.messages[0].parts).toEqual([
+      { type: 'text', text: 'the visible question' },
+    ]);
+    expect(JSON.stringify(dto)).not.toContain('Europe/Madrid');
+  });
+
   it('strips the data-cap-notice step-cap marker part from the public payload', () => {
     const message = fakeMessage({
       parts: [

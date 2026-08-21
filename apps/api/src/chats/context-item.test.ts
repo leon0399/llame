@@ -219,6 +219,21 @@ describe('ordering', () => {
     ]);
   });
 
+  it('renders the temporal row last among attached producers', () => {
+    const ordered = orderContextItems([
+      { producer: 'temporal', id: 'received' },
+      { producer: 'recency-digest', id: 'digest' },
+      { producer: 'effective-context-change', id: 'switch' },
+    ]);
+    // Closest to the user's text: the row dates the turn it rides on, so it
+    // reads as part of that turn rather than as one more standing notice.
+    expect(ordered.map((item) => item.id)).toEqual([
+      'switch',
+      'digest',
+      'received',
+    ]);
+  });
+
   it('sorts an unrecognized producer last without dropping it', () => {
     const ordered = orderContextItems([
       { producer: 'from-a-newer-api', id: 'unknown' },

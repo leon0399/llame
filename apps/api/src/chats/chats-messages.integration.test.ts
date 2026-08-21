@@ -26,6 +26,7 @@ import {
   expectRegisteredUserId,
   parseSseEvents,
   streamedText,
+  expectTemporalRow,
 } from '../testing/support';
 
 const hasDb = !!process.env.POSTGRES_URL;
@@ -390,12 +391,15 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       (message) =>
         message.role === 'assistant' && message.inReplyTo === userMessageId,
     );
+    expectTemporalRow(
+      messages.find((message) => message.id === userMessageId)?.parts ?? [],
+    );
     expect(messages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: userMessageId,
           role: 'user',
-          parts: [{ type: 'text', text: 'Hello' }],
+          parts: [expect.anything(), { type: 'text', text: 'Hello' }],
         }),
         expect.objectContaining({
           role: 'assistant',

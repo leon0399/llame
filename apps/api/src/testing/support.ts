@@ -5,6 +5,10 @@
  * schema, fake behavior) can't silently miss a copy.
  */
 
+import { expect } from 'vitest';
+
+import { isContextItemPart } from '../chats/context-item';
+import { isTemporalPayload } from '../chats/context-item-producers';
 import type request from 'supertest';
 import type {
   LanguageModelV3StreamPart,
@@ -456,4 +460,33 @@ export async function waitFor<T>(
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+}
+
+/**
+ * Every user message now carries a `temporal` row stating when its turn was
+ * received. Specs that assert an exact `parts` array care about the OTHER
+ * parts, and cannot pin this one: its instant is the moment the turn was
+ * accepted and its zone is whatever the host resolves.
+ *
+ * Strip it here and assert it with `expectTemporalRow` where it is the point,
+ * rather than restating a matcher for it in every spec.
+ */
+export function withoutTemporalRow<T>(parts: readonly T[]): T[] {
+  return parts.filter(
+    (part) => !(isContextItemPart(part) && part.data.producer === 'temporal'),
+  );
+}
+
+/** Assert the turn carries exactly one well-formed temporal row. */
+export function expectTemporalRow(
+  parts: readonly unknown[],
+  runId?: string,
+): void {
+  const rows = parts
+    .filter(isContextItemPart)
+    .filter((part) => part.data.producer === 'temporal');
+  expect(rows).toHaveLength(1);
+  expect(isTemporalPayload(rows[0].data.payload)).toBe(true);
+  expect(rows[0].data.form).toBe('snapshot');
+  if (runId !== undefined) expect(rows[0].data.runId).toBe(runId);
 }
