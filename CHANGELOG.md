@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-22
 
+- **Federated runtime topology**: selected one capability-negotiated Node Protocol
+  and conformance boundary with implementation-specific runtimes. The hosted hub
+  retains NestJS/PostgreSQL/RLS/pg-boss; personal desktop and Android Nodes remain
+  lightweight, single-owner, and offline-capable. Recorded concrete CLI, Android,
+  remote-control, hub, and external-executor scenarios without promoting the
+  decision into the shipped specification or roadmap.
 - **Distributed agent direction**: recorded the local-node, Workspace, Sandbox,
   execution-handoff, Personal Realm, and multi-authority federation discussion;
   promoted the durable north-star boundaries into `VISION.md`; sequenced the

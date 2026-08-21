@@ -180,6 +180,31 @@ distinct rather than being merged by name. Unlinking revokes that cryptographic
 enrollment but neither logs the local owner out nor promises remote erasure of
 already retained copies.
 
+### One protocol, plural runtimes
+
+First-party Surfaces use one versioned, capability-negotiated Node Protocol; they
+do not grow separate in-process and network feature paths. This is a shared
+product contract, not a requirement to deploy one server stack everywhere. A
+Surface and Node may be packaged together, but the logical boundary remains.
+
+The hosted multi-user hub retains NestJS, PostgreSQL, RLS, and pg-boss. A desktop
+or CLI-hosted personal Node uses a lightweight single-owner runtime and an
+embedded transactional store. Android implements an honestly limited native Node
+subset rather than carrying the server stack or pretending to provide Workspace
+execution. Executor adapters may implement only the execution capabilities they
+own.
+
+The shared boundary is schemas, stable semantics, generated clients where useful,
+and cross-implementation conformance fixtures. Storage layouts, ORM repositories,
+queues, dependency injection, and tenancy enforcement remain implementation
+details. Pure domain algorithms become shared code only after real reuse proves
+their boundary; llame will not pre-build a universal storage abstraction.
+
+In-process dispatch, local IPC or loopback, direct network connections, and
+authenticated reverse tunnels preserve the same operation, authorization,
+idempotency, error, and recovery semantics. A cheaper local transport does not
+grant a Surface a privileged alternate agent loop.
+
 ### Execution follows intent and capability
 
 Surface, Node, executor, Workspace, and Sandbox remain separate boundaries. A
@@ -233,9 +258,11 @@ Workspace policy must separately decide whether context may reach an upstream
 model and whether that requires approval.
 
 Decision provenance and rejected alternatives remain in the
-[local-node and distributed-execution research](docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md)
+[local-node and distributed-execution research](docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md),
+the
+[multi-authority federation research](docs/research/product-vision/2026-08-21-multi-authority-federation-models.md),
 and the
-[multi-authority federation research](docs/research/product-vision/2026-08-21-multi-authority-federation-models.md).
+[federated runtime topology decision](docs/research/product-vision/2026-08-22-federated-runtime-topology.md).
 
 ## Staged horizons
 
