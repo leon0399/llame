@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { api, buildApiUrl } from "../../api/client";
-import type { Personalization } from "./types";
+import { getPersonalization } from "../../api/generated/personalization/personalization";
+import type { PersonalizationResponse } from "../../api/generated/models";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 
 // Serializable-array key factory (same convention as orgUnitsQueryKeys /
 // chatQueryKeys): generic resource → specific resource.
@@ -10,10 +11,12 @@ export const personalizationQueryKeys = {
   mine: () => [...personalizationQueryKeys.all, "me"] as const,
 };
 
-export async function fetchPersonalization(): Promise<Personalization> {
-  return api
-    .get(buildApiUrl("/api/v1/me/personalization"))
-    .json<Personalization>();
+function authenticatedFetch(): typeof fetch {
+  return createAuthenticatedBrowserFetch(globalThis.fetch);
+}
+
+export async function fetchPersonalization(): Promise<PersonalizationResponse> {
+  return getPersonalization(undefined, authenticatedFetch());
 }
 
 /**

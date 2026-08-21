@@ -1,20 +1,24 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { api, buildApiUrl } from "../../api/client";
+import { updatePersonalization as updatePersonalizationEndpoint } from "../../api/generated/personalization/personalization";
+import type { PersonalizationResponse } from "../../api/generated/models";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import { personalizationQueryKeys } from "./queries";
-import type { Personalization, PersonalizationUpdate } from "./types";
+import type { PersonalizationUpdate } from "./types";
 
 export const personalizationMutationKeys = {
   all: ["personalization", "mutations"] as const,
   update: () => [...personalizationMutationKeys.all, "update"] as const,
 };
 
+function authenticatedFetch(): typeof fetch {
+  return createAuthenticatedBrowserFetch(globalThis.fetch);
+}
+
 export async function updatePersonalization(
   input: PersonalizationUpdate,
-): Promise<Personalization> {
-  return api
-    .patch(buildApiUrl("/api/v1/me/personalization"), { json: input })
-    .json<Personalization>();
+): Promise<PersonalizationResponse> {
+  return updatePersonalizationEndpoint(input, undefined, authenticatedFetch());
 }
 
 /**
@@ -42,11 +46,11 @@ export function useUpdatePersonalizationMutation() {
       await queryClient.cancelQueries({
         queryKey: personalizationQueryKeys.mine(),
       });
-      const previous = queryClient.getQueryData<Personalization>(
+      const previous = queryClient.getQueryData<PersonalizationResponse>(
         personalizationQueryKeys.mine(),
       );
       if (previous) {
-        queryClient.setQueryData<Personalization>(
+        queryClient.setQueryData<PersonalizationResponse>(
           personalizationQueryKeys.mine(),
           { ...previous, ...input },
         );

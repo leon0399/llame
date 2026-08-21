@@ -1,61 +1,82 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { get } = vi.hoisted(() => ({
-  get: vi.fn(),
+const listModels = vi.hoisted(() => vi.fn());
+const authenticatedFetch = vi.hoisted(() => vi.fn());
+const createAuthenticatedBrowserFetch = vi.hoisted(() => vi.fn());
+const useQuery = vi.hoisted(() => vi.fn());
+
+vi.mock("../../api/generated/models/models", () => ({ listModels }));
+vi.mock("../../api/fetch", () => ({
+  createAuthenticatedBrowserFetch,
 }));
+vi.mock("@tanstack/react-query", () => ({ useQuery }));
 
-vi.mock("@/lib/api/client", () => ({
-  api: { get },
-  buildApiUrl: (path: string) => `http://api${path}`,
-}));
+import {
+  fetchModels,
+  hasModelId,
+  modelDisplayName,
+  modelQueryKeys,
+  useModelsQuery,
+} from "./queries";
+import type { AvailableModel } from "./queries";
 
-import { fetchModels, modelDisplayName } from "./queries";
-
-function jsonResolved<T>(value: T) {
-  return { json: () => Promise.resolve(value) };
-}
+createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
 
 afterEach(() => {
-  get.mockReset();
+  vi.clearAllMocks();
+  createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
 });
 
+const model: AvailableModel = {
+  id: "system:openai:gpt-5.4-mini",
+  source: "system",
+  name: "GPT-5.4 mini",
+  contextWindowTokens: 128_000,
+};
+
 describe("fetchModels", () => {
-  it("fetches the authenticated models envelope from /api/v1/models", async () => {
+  it("fetches the authenticated models envelope through the generated endpoint", async () => {
     const response = {
-      defaultModelId: "system:openai:gpt-5.4-mini",
-      models: [
-        {
-          id: "system:openai:gpt-5.4-mini",
-          source: "system",
-          name: "GPT-5.4 mini",
-          contextWindowTokens: 128_000,
-        },
-      ],
+      defaultModelId: model.id,
+      models: [model],
     };
-    get.mockReturnValue(jsonResolved(response));
+    listModels.mockResolvedValue(response);
 
     await expect(fetchModels()).resolves.toEqual(response);
-    expect(get).toHaveBeenCalledWith("http://api/api/v1/models");
+
+    expect(listModels).toHaveBeenCalledWith(undefined, authenticatedFetch);
+    expect(createAuthenticatedBrowserFetch).toHaveBeenCalledWith(
+      globalThis.fetch,
+    );
   });
 });
 
-describe("modelDisplayName", () => {
+describe("useModelsQuery", () => {
+  it("preserves the model query key and one-minute stale time", () => {
+    useModelsQuery();
+
+    expect(useQuery).toHaveBeenCalledWith({
+      queryKey: modelQueryKeys.all,
+      queryFn: fetchModels,
+      staleTime: 60_000,
+    });
+  });
+});
+
+describe("model helpers", () => {
   it("uses a loaded model name when available", () => {
-    expect(
-      modelDisplayName("system:openai:gpt-5.4-mini", [
-        {
-          id: "system:openai:gpt-5.4-mini",
-          source: "system",
-          name: "GPT-5.4 mini",
-          contextWindowTokens: 128_000,
-        },
-      ]),
-    ).toBe("GPT-5.4 mini");
+    expect(modelDisplayName(model.id, [model])).toBe("GPT-5.4 mini");
   });
 
   it("falls back to the opaque id without parsing provider-like prefixes", () => {
     expect(modelDisplayName("openrouter:openai:o3-pro", [])).toBe(
       "openrouter:openai:o3-pro",
     );
+  });
+
+  it("reports whether an opaque model id is in the loaded catalog", () => {
+    expect(hasModelId([model], model.id)).toBe(true);
+    expect(hasModelId([model], "system:openai:missing")).toBe(false);
+    expect(hasModelId([model], undefined)).toBe(false);
   });
 });

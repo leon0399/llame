@@ -1,43 +1,55 @@
 import { useQuery } from "@tanstack/react-query";
-import { api, buildApiUrl, handleUnauthorizedResponse } from "../../api/client";
 
-export type PublicUserResponse = {
-  id: string;
-  name: string | null;
-  email: string | null;
-  emailVerified: string | null;
-  image: string | null;
-};
+import {
+  getCurrentUser,
+  loginUser,
+  logoutUser,
+  registerUser,
+  revokeSessions,
+} from "../../api/generated/auth/auth";
+import { getApiErrorStatus } from "../../api/errors";
+import {
+  createAuthenticatedBrowserFetch,
+  createOptionalAuthFetch,
+  handleUnauthorizedResponse,
+} from "../../api/fetch";
+import type {
+  AuthTokenResponse,
+  PublicUserResponse,
+} from "../../api/generated/models";
+import { InvalidCredentialsError } from "./errors";
 
-export type AuthTokenResponse = {
-  token: string;
-  user: PublicUserResponse;
-  session: {
-    id: string;
-    userAgent: string | null;
-    ip: string | null;
-    createdAt: string;
-    lastSeenAt: string;
-    expires: string;
-    current: boolean;
-  };
-};
+export type { AuthTokenResponse, PublicUserResponse };
+export { InvalidCredentialsError, isInvalidCredentialsError } from "./errors";
 
 export const authQueryKeys = {
   me: ["auth", "me"] as const,
 };
 
+function authenticatedFetch(): typeof fetch {
+  return createAuthenticatedBrowserFetch(globalThis.fetch);
+}
+
+function optionalAuthFetch(): typeof fetch {
+  return createOptionalAuthFetch(globalThis.fetch);
+}
+
 export async function fetchMe(): Promise<PublicUserResponse> {
-  return api.get(buildApiUrl("/auth/v1/me")).json<PublicUserResponse>();
+  return getCurrentUser(undefined, authenticatedFetch());
 }
 
 export async function login(input: {
   email: string;
   password: string;
 }): Promise<AuthTokenResponse> {
-  return api
-    .post(buildApiUrl("/auth/v1/login"), { json: input })
-    .json<AuthTokenResponse>();
+  try {
+    return await loginUser(input, undefined, authenticatedFetch());
+  } catch (error) {
+    if (getApiErrorStatus(error) === 401) {
+      throw new InvalidCredentialsError();
+    }
+    throw error;
+  }
 }
 
 export async function register(input: {
@@ -45,16 +57,14 @@ export async function register(input: {
   email: string;
   password: string;
 }): Promise<AuthTokenResponse> {
-  return api
-    .post(buildApiUrl("/auth/v1/register"), { json: input })
-    .json<AuthTokenResponse>();
+  return registerUser(input, undefined, authenticatedFetch());
 }
 
 export async function logout(): Promise<void> {
   // Always clear client auth state + redirect, even if the server revoke fails
   // (network/5xx) — otherwise the UI is stranded thinking it's still signed in.
   try {
-    await api.delete(buildApiUrl("/auth/v1/sessions/current")).json();
+    await logoutUser(undefined, authenticatedFetch());
   } finally {
     handleUnauthorizedResponse();
   }
@@ -62,11 +72,7 @@ export async function logout(): Promise<void> {
 
 export async function logoutAllSessions(): Promise<void> {
   try {
-    await api
-      .delete(buildApiUrl("/auth/v1/sessions"), {
-        searchParams: { scope: "all" },
-      })
-      .json();
+    await revokeSessions({ scope: "all" }, undefined, authenticatedFetch());
   } finally {
     handleUnauthorizedResponse();
   }
@@ -84,23 +90,18 @@ export function useMe() {
 /**
  * Like `fetchMe`, but for a page reachable WITHOUT a session (e.g. the
  * public /shared/[id] view): a 401 here means "not signed in", not "session
- * revoked, redirect to login". Uses a plain `fetch`, not the shared `api` ky
- * client — that client's `afterResponse` hook globally redirects to /login on
- * ANY 401 (correct for the authenticated app shell, wrong here: an anonymous
- * visitor viewing a public share must never be bounced to /login just for
- * checking whether a "fork to continue" button should render).
+ * revoked, redirect to login". Uses the optional-auth policy so the shared
+ * browser policy never clears the cache or redirects on this expected result.
  */
 export async function fetchMeOptional(): Promise<PublicUserResponse | null> {
-  const response = await fetch(buildApiUrl("/auth/v1/me"), {
-    credentials: "include",
-  });
-  if (response.status === 401) {
-    return null;
+  try {
+    return await getCurrentUser(undefined, optionalAuthFetch());
+  } catch (error) {
+    if (getApiErrorStatus(error) === 401) {
+      return null;
+    }
+    throw error;
   }
-  if (!response.ok) {
-    throw new Error(`Failed to check auth state: ${response.status}`);
-  }
-  return response.json() as Promise<PublicUserResponse>;
 }
 
 export function useMeOptional() {

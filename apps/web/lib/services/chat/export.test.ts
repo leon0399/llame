@@ -2,11 +2,21 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { get } = vi.hoisted(() => ({ get: vi.fn() }));
+const { get, fetchModels } = vi.hoisted(() => ({
+  get: vi.fn(),
+  fetchModels: vi.fn(),
+}));
 
 vi.mock("../../api/client", () => ({
   api: { get },
   buildApiUrl: (path: string) => `http://api${path}`,
+}));
+vi.mock("../models/queries", () => ({
+  fetchModels,
+  modelDisplayName: (
+    modelId: string,
+    models?: readonly { id: string; name?: string }[],
+  ) => models?.find((model) => model.id === modelId)?.name ?? modelId,
 }));
 
 import { exportChatAsMarkdown } from "./export";
@@ -19,6 +29,7 @@ const originalRevokeObjectURL = URL.revokeObjectURL;
 
 afterEach(() => {
   get.mockReset();
+  fetchModels.mockReset();
   vi.useRealTimers();
   URL.createObjectURL = originalCreateObjectURL;
   URL.revokeObjectURL = originalRevokeObjectURL;
@@ -47,6 +58,7 @@ describe("exportChatAsMarkdown", () => {
           ],
         }),
     });
+    fetchModels.mockRejectedValue(new Error("models unavailable"));
 
     const createObjectURL = vi.fn(() => "blob:fake-url");
     const revokeObjectURL = vi.fn();
@@ -71,38 +83,36 @@ describe("exportChatAsMarkdown", () => {
 
   it("resolves assistant model names from /models when exporting", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout"] });
-    get.mockImplementation((url: string) => ({
+    get.mockImplementation(() => ({
       json: () =>
-        Promise.resolve(
-          url.endsWith("/api/v1/models")
-            ? {
-                defaultModelId: "system:openai:gpt-4o",
-                models: [
-                  {
-                    id: "system:openai:gpt-4o",
-                    source: "system",
-                    name: "GPT-4o",
-                  },
-                ],
-              }
-            : {
-                messages: [
-                  {
-                    id: "m1",
-                    chatId: "c1",
-                    seq: 1,
-                    role: "assistant",
-                    senderUserId: null,
-                    parts: [{ type: "text", text: "Hi" }],
-                    attachments: [],
-                    usage: { modelId: "system:openai:gpt-4o" },
-                    inReplyTo: null,
-                    createdAt: "2026-01-01T00:00:00.000Z",
-                  },
-                ],
-              },
-        ),
+        Promise.resolve({
+          messages: [
+            {
+              id: "m1",
+              chatId: "c1",
+              seq: 1,
+              role: "assistant",
+              senderUserId: null,
+              parts: [{ type: "text", text: "Hi" }],
+              attachments: [],
+              usage: { modelId: "system:openai:gpt-4o" },
+              inReplyTo: null,
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
+          ],
+        }),
     }));
+    fetchModels.mockResolvedValue({
+      defaultModelId: "system:openai:gpt-4o",
+      models: [
+        {
+          id: "system:openai:gpt-4o",
+          source: "system",
+          name: "GPT-4o",
+          contextWindowTokens: 128_000,
+        },
+      ],
+    });
     let exportedBlob: Blob | undefined;
     URL.createObjectURL = vi.fn((blob: Blob) => {
       exportedBlob = blob;
@@ -115,7 +125,7 @@ describe("exportChatAsMarkdown", () => {
 
     await exportChatAsMarkdown("chat-1", "My Chat");
 
-    expect(get).toHaveBeenCalledWith("http://api/api/v1/models");
+    expect(fetchModels).toHaveBeenCalledOnce();
     expect(clickSpy).toHaveBeenCalledTimes(1);
     await expect(exportedBlob?.text()).resolves.toContain(
       "**Assistant** · GPT-4o",

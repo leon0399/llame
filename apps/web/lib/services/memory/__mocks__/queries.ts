@@ -1,6 +1,6 @@
 import { fn } from "storybook/test";
 
-import type { MemorySettings } from "../types";
+import type { MemoryResponse } from "../../../api/generated/models";
 
 /**
  * Re-declared rather than re-exported from `../queries`, and it has to stay
@@ -20,7 +20,7 @@ export const refetchMemory = fn().mockName("refetchMemory");
 
 export const useMemoryQuery = fn(
   (): {
-    data: MemorySettings | undefined;
+    data: MemoryResponse | undefined;
     isPending: boolean;
     isError: boolean;
     refetch: typeof refetchMemory;

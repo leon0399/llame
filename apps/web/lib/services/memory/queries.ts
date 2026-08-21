@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { api, buildApiUrl } from "../../api/client";
-import type { MemorySettings } from "./types";
+import { getMemory } from "../../api/generated/memory/memory";
+import type { MemoryResponse } from "../../api/generated/models";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 
 // Serializable-array key factory: generic resource → the caller's resource.
 export const memoryQueryKeys = {
@@ -9,8 +10,12 @@ export const memoryQueryKeys = {
   mine: () => [...memoryQueryKeys.all, "me"] as const,
 };
 
-export async function fetchMemory(): Promise<MemorySettings> {
-  return api.get(buildApiUrl("/api/v1/me/memory")).json<MemorySettings>();
+function authenticatedFetch(): typeof fetch {
+  return createAuthenticatedBrowserFetch(globalThis.fetch);
+}
+
+export async function fetchMemory(): Promise<MemoryResponse> {
+  return getMemory(undefined, authenticatedFetch());
 }
 
 /**
