@@ -195,6 +195,15 @@ describe('committed OpenAPI contract', () => {
       { $ref: '#/components/schemas/ChatPinnedItemResponse' },
       { $ref: '#/components/schemas/ProjectPinnedItemResponse' },
     ]);
+    expect(schema.items).toMatchObject({
+      discriminator: {
+        propertyName: 'itemType',
+        mapping: {
+          chat: '#/components/schemas/ChatPinnedItemResponse',
+          project: '#/components/schemas/ProjectPinnedItemResponse',
+        },
+      },
+    });
 
     const schemas = document.components?.schemas ?? {};
     expect(schemas.ChatPinnedItemResponse).toMatchObject({
