@@ -20,6 +20,7 @@ import {
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
+  ApiOperation,
   ApiParam,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -27,6 +28,10 @@ import {
 } from '@nestjs/swagger';
 
 import { CurrentUser } from '../auth/auth-context';
+import {
+  OrgUnitConflictErrorResponse,
+  OrgUnitValidationErrorResponse,
+} from '../common/dto/error-response.dto';
 import { IdentityService } from './identity.service';
 import {
   ChangeMembershipRoleDto,
@@ -54,6 +59,7 @@ export class IdentityController {
   constructor(private readonly identity: IdentityService) {}
 
   @Post()
+  @ApiOperation({ operationId: 'createRootOrgUnit' })
   @HttpCode(201)
   @ApiBody({ type: CreateOrgUnitDto })
   @ApiCreatedResponse({ type: OrgUnitResponse })
@@ -71,11 +77,16 @@ export class IdentityController {
   }
 
   @Post(':id/children')
+  @ApiOperation({ operationId: 'createChildOrgUnit' })
   @HttpCode(201)
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiBody({ type: CreateOrgUnitDto })
   @ApiCreatedResponse({ type: OrgUnitResponse })
   @ApiNotFoundResponse({ description: 'Parent unit not found / not visible' })
+  @ApiConflictResponse({
+    type: OrgUnitConflictErrorResponse,
+    description: 'Org tree changed concurrently — retry',
+  })
   @ApiUnauthorizedResponse()
   async createChildOrg(
     @CurrentUser() userId: string,
@@ -92,6 +103,7 @@ export class IdentityController {
   }
 
   @Get()
+  @ApiOperation({ operationId: 'listOrgUnits' })
   @ApiOkResponse({ type: OrgUnitResponse, isArray: true })
   @ApiUnauthorizedResponse()
   async listOrgUnits(
@@ -102,6 +114,7 @@ export class IdentityController {
   }
 
   @Get(':id')
+  @ApiOperation({ operationId: 'getOrgUnit' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: OrgUnitResponse })
   @ApiNotFoundResponse({ description: 'Org unit not found / not visible' })
@@ -118,6 +131,7 @@ export class IdentityController {
   // fields are present (RESTful, not RPC verb handles per AGENTS.md). `parentId:
   // null` promotes to root; a unit id moves under it; absence leaves it in place.
   @Patch(':id')
+  @ApiOperation({ operationId: 'updateOrgUnit' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiBody({ type: UpdateOrgUnitDto })
   @ApiOkResponse({ type: OrgUnitResponse })
@@ -127,8 +141,12 @@ export class IdentityController {
   @ApiForbiddenResponse({
     description: 'Caller lacks the admin-tier this update requires',
   })
-  @ApiConflictResponse({ description: 'Org tree changed concurrently — retry' })
+  @ApiConflictResponse({
+    type: OrgUnitConflictErrorResponse,
+    description: 'Org tree changed concurrently — retry',
+  })
   @ApiUnprocessableEntityResponse({
+    type: OrgUnitValidationErrorResponse,
     description: 'Cannot move an org unit into its own subtree',
   })
   @ApiUnauthorizedResponse()
@@ -150,12 +168,16 @@ export class IdentityController {
 
   // Leaf-only (FK RESTRICT — no silent subtree cascade); owner-tier on the path.
   @Delete(':id')
+  @ApiOperation({ operationId: 'deleteOrgUnit' })
   @HttpCode(204)
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiNoContentResponse()
   @ApiNotFoundResponse({ description: 'Org unit not found / not visible' })
   @ApiForbiddenResponse({ description: 'Owner-tier required to delete' })
-  @ApiConflictResponse({ description: 'Org unit still has child units' })
+  @ApiConflictResponse({
+    type: OrgUnitConflictErrorResponse,
+    description: 'Org unit still has child units',
+  })
   @ApiUnauthorizedResponse()
   async deleteOrgUnit(
     @CurrentUser() userId: string,
@@ -165,6 +187,7 @@ export class IdentityController {
   }
 
   @Get(':id/memberships')
+  @ApiOperation({ operationId: 'listOrgUnitMemberships' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: MembershipResponse, isArray: true })
   @ApiNotFoundResponse({ description: 'Org unit not found / not visible' })
@@ -178,11 +201,15 @@ export class IdentityController {
   }
 
   @Post(':id/memberships')
+  @ApiOperation({ operationId: 'grantOrgUnitMembership' })
   @HttpCode(204)
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiBody({ type: GrantMembershipDto })
   @ApiNoContentResponse({ description: 'Membership granted' })
-  @ApiConflictResponse({ description: 'User is already a member of this unit' })
+  @ApiConflictResponse({
+    type: OrgUnitConflictErrorResponse,
+    description: 'User is already a member of this unit',
+  })
   @ApiForbiddenResponse({
     description:
       'Caller lacks admin-tier on this org unit or an ancestor (owner-tier for role "owner")',
@@ -203,6 +230,7 @@ export class IdentityController {
   }
 
   @Patch(':id/memberships/:userId')
+  @ApiOperation({ operationId: 'changeOrgUnitMembershipRole' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiParam({ name: 'userId' })
   @ApiBody({ type: ChangeMembershipRoleDto })
@@ -212,6 +240,7 @@ export class IdentityController {
     description: 'Caller lacks the admin/owner-tier this role change requires',
   })
   @ApiConflictResponse({
+    type: OrgUnitConflictErrorResponse,
     description: 'Would demote the last owner of a root org unit',
   })
   @ApiUnauthorizedResponse()
@@ -233,6 +262,7 @@ export class IdentityController {
   // Self-leave (any role — D2's last-owner trigger is the actual guard) or an
   // admin/owner-tier caller revoking another member.
   @Delete(':id/memberships/:userId')
+  @ApiOperation({ operationId: 'revokeOrgUnitMembership' })
   @HttpCode(204)
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiParam({ name: 'userId' })
@@ -242,6 +272,7 @@ export class IdentityController {
     description: 'Caller is neither the member nor admin/owner-tier here',
   })
   @ApiConflictResponse({
+    type: OrgUnitConflictErrorResponse,
     description: 'Would remove the last owner of a root org unit',
   })
   @ApiUnauthorizedResponse()
@@ -254,6 +285,7 @@ export class IdentityController {
   }
 
   @Get(':id/memberships/me')
+  @ApiOperation({ operationId: 'getMyOrgUnitEffectiveRole' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: EffectiveRoleResponse })
   @ApiNotFoundResponse({

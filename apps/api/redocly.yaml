@@ -1,0 +1,26 @@
+apis:
+  llame:
+    root: ./openapi.json
+
+extends:
+  - spec
+
+rules:
+  component-name-unique: error
+  no-duplicated-enum-values: error
+  no-enum-type-mismatch: error
+  no-identical-paths: error
+  no-invalid-schema-examples: error
+  no-required-schema-properties-undefined: error
+  no-schema-type-mismatch: error
+  no-unresolved-refs: error
+  operation-description: warn
+  operation-operationId: error
+  operation-operationId-unique: error
+  operation-operationId-url-safe: error
+  operation-parameters-unique: error
+  operation-summary: warn
+  path-parameters-defined: error
+  spec-components-invalid-map-name: error
+  spec-strict-refs: error
+  struct: error

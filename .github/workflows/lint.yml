@@ -38,6 +38,10 @@ jobs:
         with:
           turbo-cache: lint
 
+      # OpenAPI correctness gate; the full warning audit remains available via
+      # pnpm openapi:lint without adding its summary/description warnings here.
+      - run: pnpm openapi:lint:ci
+
       # Oxlint across root E2E and every workspace; type-aware rules via
       # tsgolint in apps/api. The Turbo graph owns the root lint dependency.
       - run: pnpm exec turbo run lint

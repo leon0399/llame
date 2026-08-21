@@ -3,6 +3,7 @@ import {
   ApiBearerAuth,
   ApiCookieAuth,
   ApiOkResponse,
+  ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -28,6 +29,7 @@ export class PersonalizationController {
   constructor(private readonly personalization: PersonalizationService) {}
 
   @Get()
+  @ApiOperation({ operationId: 'getPersonalization' })
   @ApiOkResponse({ type: PersonalizationResponse })
   @ApiUnauthorizedResponse()
   async getPersonalization(
@@ -39,6 +41,7 @@ export class PersonalizationController {
   }
 
   @Patch()
+  @ApiOperation({ operationId: 'updatePersonalization' })
   @ApiOkResponse({ type: PersonalizationResponse })
   @ApiUnauthorizedResponse()
   async updatePersonalization(

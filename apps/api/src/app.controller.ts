@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { ApiOperation } from '@nestjs/swagger';
 import { AppService } from './app.service';
 import { Public } from './auth/public.decorator';
 
@@ -9,6 +10,7 @@ export class AppController {
   // Liveness probe — deliberately public (no data, no tenant surface).
   @Public()
   @Get()
+  @ApiOperation({ operationId: 'getHealth' })
   getHello(): string {
     return this.appService.getHello();
   }

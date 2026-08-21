@@ -3,19 +3,20 @@
   "paths": {
     "/": {
       "get": {
-        "operationId": "AppController_getHello",
+        "operationId": "getHealth",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
         },
+        "summary": "",
         "tags": ["App"]
       }
     },
     "/auth/v1/register": {
       "post": {
-        "operationId": "AuthController_register",
+        "operationId": "registerUser",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -45,12 +46,13 @@
             "description": "Rate limit exceeded"
           }
         },
+        "summary": "",
         "tags": ["auth"]
       }
     },
     "/auth/v1/login": {
       "post": {
-        "operationId": "AuthController_login",
+        "operationId": "loginUser",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -80,12 +82,13 @@
             "description": "Rate limit exceeded"
           }
         },
+        "summary": "",
         "tags": ["auth"]
       }
     },
     "/auth/v1/me": {
       "get": {
-        "operationId": "AuthController_me",
+        "operationId": "getCurrentUser",
         "parameters": [],
         "responses": {
           "200": {
@@ -110,12 +113,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["auth"]
       }
     },
     "/auth/v1/sessions": {
       "get": {
-        "operationId": "AuthController_sessions",
+        "operationId": "listSessions",
         "parameters": [],
         "responses": {
           "200": {
@@ -140,10 +144,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["auth"]
       },
       "delete": {
-        "operationId": "AuthController_revokeSessions",
+        "operationId": "revokeSessions",
         "parameters": [
           {
             "name": "scope",
@@ -179,12 +184,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["auth"]
       }
     },
     "/auth/v1/sessions/current": {
       "get": {
-        "operationId": "AuthController_currentSession",
+        "operationId": "getCurrentSession",
         "parameters": [],
         "responses": {
           "200": {
@@ -209,10 +215,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["auth"]
       },
       "delete": {
-        "operationId": "AuthController_logout",
+        "operationId": "logoutUser",
         "parameters": [],
         "responses": {
           "200": {
@@ -237,12 +244,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["auth"]
       }
     },
     "/auth/v1/sessions/{id}": {
       "delete": {
-        "operationId": "AuthController_revokeSession",
+        "operationId": "revokeSession",
         "parameters": [
           {
             "name": "id",
@@ -280,12 +288,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["auth"]
       }
     },
     "/api/v1/chats/{id}/stream": {
       "get": {
-        "operationId": "ChatsController_resumeChatStream",
+        "operationId": "resumeChatStream",
         "parameters": [
           {
             "name": "id",
@@ -326,12 +335,13 @@
             "bearer": []
           }
         ],
-        "tags": ["chats"]
+        "summary": "",
+        "tags": ["chats", "streaming"]
       }
     },
     "/api/v1/chats": {
       "get": {
-        "operationId": "ChatsController_getChats",
+        "operationId": "listChats",
         "parameters": [
           {
             "name": "projectId",
@@ -390,12 +400,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["chats"]
       }
     },
     "/api/v1/chats/search": {
       "get": {
-        "operationId": "ChatsController_searchChats",
+        "operationId": "searchChats",
         "parameters": [
           {
             "name": "q",
@@ -447,12 +458,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["chats"]
       }
     },
     "/api/v1/chats/{id}": {
       "get": {
-        "operationId": "ChatsController_getChatById",
+        "operationId": "getChat",
         "parameters": [
           {
             "name": "id",
@@ -493,10 +505,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["chats"]
       },
       "patch": {
-        "operationId": "ChatsController_updateChat",
+        "operationId": "updateChat",
         "parameters": [
           {
             "name": "id",
@@ -547,10 +560,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["chats"]
       },
       "delete": {
-        "operationId": "ChatsController_deleteChat",
+        "operationId": "deleteChat",
         "parameters": [
           {
             "name": "id",
@@ -584,12 +598,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["chats"]
       }
     },
     "/api/v1/chats/{id}/messages": {
       "get": {
-        "operationId": "ChatsController_getChatMessages",
+        "operationId": "getChatMessages",
         "parameters": [
           {
             "name": "id",
@@ -655,10 +670,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["chats"]
       },
       "post": {
-        "operationId": "ChatsController_createMessage",
+        "operationId": "createChatMessage",
         "parameters": [
           {
             "name": "id",
@@ -732,12 +748,13 @@
             "bearer": []
           }
         ],
-        "tags": ["chats"]
+        "summary": "",
+        "tags": ["chats", "streaming"]
       }
     },
     "/api/v1/chats/{id}/forks": {
       "post": {
-        "operationId": "ChatsController_forkChat",
+        "operationId": "forkChat",
         "parameters": [
           {
             "name": "id",
@@ -785,12 +802,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["chats"]
       }
     },
     "/api/v1/me/runs": {
       "get": {
-        "operationId": "MeRunsController_active",
+        "operationId": "listActiveRuns",
         "parameters": [
           {
             "name": "status",
@@ -828,12 +846,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["me"]
       }
     },
     "/api/v1/shared/chats/{id}": {
       "get": {
-        "operationId": "SharedChatsController_getSharedChat",
+        "operationId": "getSharedChat",
         "parameters": [
           {
             "name": "id",
@@ -885,12 +904,13 @@
             "description": "Chat not found or not public"
           }
         },
+        "summary": "",
         "tags": ["chats"]
       }
     },
     "/api/v1/shared/chats/{id}/forks": {
       "post": {
-        "operationId": "SharedChatsController_forkSharedChat",
+        "operationId": "forkSharedChat",
         "parameters": [
           {
             "name": "id",
@@ -928,12 +948,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["chats"]
       }
     },
     "/api/v1/models": {
       "get": {
-        "operationId": "ModelsController_listModels",
+        "operationId": "listModels",
         "parameters": [],
         "responses": {
           "200": {
@@ -968,12 +989,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["models"]
       }
     },
     "/api/v1/me/personalization": {
       "get": {
-        "operationId": "PersonalizationController_getPersonalization",
+        "operationId": "getPersonalization",
         "parameters": [],
         "responses": {
           "200": {
@@ -998,10 +1020,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["personalization"]
       },
       "patch": {
-        "operationId": "PersonalizationController_updatePersonalization",
+        "operationId": "updatePersonalization",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -1036,12 +1059,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["personalization"]
       }
     },
     "/api/v1/runs/{id}": {
       "get": {
-        "operationId": "RunsController_getRun",
+        "operationId": "getRun",
         "parameters": [
           {
             "name": "id",
@@ -1071,10 +1095,11 @@
             "description": "Run not found or not owned"
           }
         },
+        "summary": "",
         "tags": ["runs"]
       },
       "patch": {
-        "operationId": "RunsController_updateRun",
+        "operationId": "updateRun",
         "parameters": [
           {
             "name": "id",
@@ -1117,12 +1142,13 @@
             "description": "Run already finished"
           }
         },
+        "summary": "",
         "tags": ["runs"]
       }
     },
     "/api/v1/runs/{id}/context-receipt": {
       "get": {
-        "operationId": "RunsController_getContextReceipt",
+        "operationId": "getRunContextReceipt",
         "parameters": [
           {
             "name": "id",
@@ -1152,12 +1178,13 @@
             "description": "Run not found or not owned"
           }
         },
+        "summary": "",
         "tags": ["runs"]
       }
     },
     "/api/v1/runs/{id}/events": {
       "get": {
-        "operationId": "RunsController_streamRunEvents",
+        "operationId": "streamRunEvents",
         "parameters": [
           {
             "name": "id",
@@ -1197,12 +1224,13 @@
             "description": "Run not found or not owned"
           }
         },
-        "tags": ["runs"]
+        "summary": "",
+        "tags": ["runs", "streaming"]
       }
     },
     "/api/v1/me/memory": {
       "get": {
-        "operationId": "MemoryController_getMemory",
+        "operationId": "getMemory",
         "parameters": [],
         "responses": {
           "200": {
@@ -1227,10 +1255,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["memory"]
       },
       "patch": {
-        "operationId": "MemoryController_updateMemory",
+        "operationId": "updateMemory",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -1265,12 +1294,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["memory"]
       }
     },
     "/api/v1/projects": {
       "post": {
-        "operationId": "ProjectsController_createProject",
+        "operationId": "createProject",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -1305,10 +1335,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["projects"]
       },
       "get": {
-        "operationId": "ProjectsController_getProjects",
+        "operationId": "listProjects",
         "parameters": [
           {
             "name": "archived",
@@ -1355,12 +1386,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["projects"]
       }
     },
     "/api/v1/projects/{id}": {
       "get": {
-        "operationId": "ProjectsController_getProjectById",
+        "operationId": "getProject",
         "parameters": [
           {
             "name": "id",
@@ -1401,10 +1433,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["projects"]
       },
       "patch": {
-        "operationId": "ProjectsController_updateProject",
+        "operationId": "updateProject",
         "parameters": [
           {
             "name": "id",
@@ -1455,10 +1488,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["projects"]
       },
       "delete": {
-        "operationId": "ProjectsController_deleteProject",
+        "operationId": "deleteProject",
         "parameters": [
           {
             "name": "id",
@@ -1492,12 +1526,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["projects"]
       }
     },
     "/api/v1/pins": {
       "get": {
-        "operationId": "PinsController_listPins",
+        "operationId": "listPins",
         "parameters": [],
         "responses": {
           "200": {
@@ -1507,7 +1542,21 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/PinnedItemResponse"
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/ChatPinnedItemResponse"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ProjectPinnedItemResponse"
+                      }
+                    ],
+                    "discriminator": {
+                      "propertyName": "itemType",
+                      "mapping": {
+                        "chat": "#/components/schemas/ChatPinnedItemResponse",
+                        "project": "#/components/schemas/ProjectPinnedItemResponse"
+                      }
+                    }
                   }
                 }
               }
@@ -1525,12 +1574,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["pins"]
       }
     },
     "/api/v1/pins/{itemType}/{itemId}": {
       "put": {
-        "operationId": "PinsController_pin",
+        "operationId": "pinItem",
         "parameters": [
           {
             "name": "itemType",
@@ -1557,7 +1607,21 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PinnedItemResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ChatPinnedItemResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ProjectPinnedItemResponse"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "itemType",
+                    "mapping": {
+                      "chat": "#/components/schemas/ChatPinnedItemResponse",
+                      "project": "#/components/schemas/ProjectPinnedItemResponse"
+                    }
+                  }
                 }
               }
             }
@@ -1580,10 +1644,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["pins"]
       },
       "delete": {
-        "operationId": "PinsController_unpin",
+        "operationId": "unpinItem",
         "parameters": [
           {
             "name": "itemType",
@@ -1623,12 +1688,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["pins"]
       }
     },
     "/api/v1/org-units": {
       "post": {
-        "operationId": "IdentityController_createRootOrg",
+        "operationId": "createRootOrgUnit",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -1663,10 +1729,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["org-units"]
       },
       "get": {
-        "operationId": "IdentityController_listOrgUnits",
+        "operationId": "listOrgUnits",
         "parameters": [],
         "responses": {
           "200": {
@@ -1694,12 +1761,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["org-units"]
       }
     },
     "/api/v1/org-units/{id}/children": {
       "post": {
-        "operationId": "IdentityController_createChildOrg",
+        "operationId": "createChildOrgUnit",
         "parameters": [
           {
             "name": "id",
@@ -1737,6 +1805,16 @@
           },
           "404": {
             "description": "Parent unit not found / not visible"
+          },
+          "409": {
+            "description": "Org tree changed concurrently — retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUnitConflictErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1747,12 +1825,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["org-units"]
       }
     },
     "/api/v1/org-units/{id}": {
       "get": {
-        "operationId": "IdentityController_getOrgUnit",
+        "operationId": "getOrgUnit",
         "parameters": [
           {
             "name": "id",
@@ -1790,10 +1869,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["org-units"]
       },
       "patch": {
-        "operationId": "IdentityController_updateOrgUnit",
+        "operationId": "updateOrgUnit",
         "parameters": [
           {
             "name": "id",
@@ -1836,10 +1916,24 @@
             "description": "Org unit (or the target parentId) not found / not visible"
           },
           "409": {
-            "description": "Org tree changed concurrently — retry"
+            "description": "Org tree changed concurrently — retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUnitConflictErrorResponse"
+                }
+              }
+            }
           },
           "422": {
-            "description": "Cannot move an org unit into its own subtree"
+            "description": "Cannot move an org unit into its own subtree",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUnitValidationErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1850,10 +1944,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["org-units"]
       },
       "delete": {
-        "operationId": "IdentityController_deleteOrgUnit",
+        "operationId": "deleteOrgUnit",
         "parameters": [
           {
             "name": "id",
@@ -1879,7 +1974,14 @@
             "description": "Org unit not found / not visible"
           },
           "409": {
-            "description": "Org unit still has child units"
+            "description": "Org unit still has child units",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUnitConflictErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1890,12 +1992,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["org-units"]
       }
     },
     "/api/v1/org-units/{id}/memberships": {
       "get": {
-        "operationId": "IdentityController_listMemberships",
+        "operationId": "listOrgUnitMemberships",
         "parameters": [
           {
             "name": "id",
@@ -1936,10 +2039,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["org-units"]
       },
       "post": {
-        "operationId": "IdentityController_grantMembership",
+        "operationId": "grantOrgUnitMembership",
         "parameters": [
           {
             "name": "id",
@@ -1975,7 +2079,14 @@
             "description": "User or org unit not found"
           },
           "409": {
-            "description": "User is already a member of this unit"
+            "description": "User is already a member of this unit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUnitConflictErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1986,12 +2097,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["org-units"]
       }
     },
     "/api/v1/org-units/{id}/memberships/{userId}": {
       "patch": {
-        "operationId": "IdentityController_changeMembershipRole",
+        "operationId": "changeOrgUnitMembershipRole",
         "parameters": [
           {
             "name": "id",
@@ -2042,7 +2154,14 @@
             "description": "Membership not found / not visible"
           },
           "409": {
-            "description": "Would demote the last owner of a root org unit"
+            "description": "Would demote the last owner of a root org unit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUnitConflictErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2053,10 +2172,11 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["org-units"]
       },
       "delete": {
-        "operationId": "IdentityController_revokeMembership",
+        "operationId": "revokeOrgUnitMembership",
         "parameters": [
           {
             "name": "id",
@@ -2090,7 +2210,14 @@
             "description": "Membership not found / not visible"
           },
           "409": {
-            "description": "Would remove the last owner of a root org unit"
+            "description": "Would remove the last owner of a root org unit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUnitConflictErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2101,12 +2228,13 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["org-units"]
       }
     },
     "/api/v1/org-units/{id}/memberships/me": {
       "get": {
-        "operationId": "IdentityController_getMyEffectiveRole",
+        "operationId": "getMyOrgUnitEffectiveRole",
         "parameters": [
           {
             "name": "id",
@@ -2144,6 +2272,7 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": ["org-units"]
       }
     }
@@ -2885,19 +3014,19 @@
         "type": "object",
         "properties": {
           "preferredName": {
-            "type": "object",
+            "type": "string",
             "maxLength": 255,
             "nullable": true,
             "description": "What the assistant should call you. Null clears it."
           },
           "about": {
-            "type": "object",
+            "type": "string",
             "maxLength": 8000,
             "nullable": true,
             "description": "Role, work context, and languages, as prose. Null clears it. Counts against every request for you, so a maxed-out value is a material share of a small model context window."
           },
           "responsePreferences": {
-            "type": "object",
+            "type": "string",
             "maxLength": 8000,
             "nullable": true,
             "description": "How answers should be delivered. Null clears it. These are delivery preferences of bounded authority: they cannot grant tools, relax tool authorization, or override safety constraints."
@@ -3243,6 +3372,27 @@
         },
         "required": ["id", "title", "archivedAt"]
       },
+      "ChatPinnedItemResponse": {
+        "type": "object",
+        "properties": {
+          "itemType": {
+            "type": "string",
+            "enum": ["chat"]
+          },
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pinnedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "item": {
+            "$ref": "#/components/schemas/ChatRefCard"
+          }
+        },
+        "required": ["itemType", "itemId", "pinnedAt", "item"]
+      },
       "ProjectRefCard": {
         "type": "object",
         "properties": {
@@ -3261,12 +3411,12 @@
         },
         "required": ["id", "name", "archivedAt"]
       },
-      "PinnedItemResponse": {
+      "ProjectPinnedItemResponse": {
         "type": "object",
         "properties": {
           "itemType": {
             "type": "string",
-            "enum": ["chat", "project"]
+            "enum": ["project"]
           },
           "itemId": {
             "type": "string",
@@ -3277,15 +3427,7 @@
             "type": "string"
           },
           "item": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/ChatRefCard"
-              },
-              {
-                "$ref": "#/components/schemas/ProjectRefCard"
-              }
-            ],
-            "description": "The item, shaped per itemType: a ChatRefCard for chat, a ProjectRefCard for project."
+            "$ref": "#/components/schemas/ProjectRefCard"
           }
         },
         "required": ["itemType", "itemId", "pinnedAt", "item"]
@@ -3366,6 +3508,30 @@
           "directRole"
         ]
       },
+      "OrgUnitConflictErrorResponse": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "CONCURRENT_TREE_CHANGE",
+              "DUPLICATE_MEMBERSHIP",
+              "HAS_CHILDREN",
+              "LAST_OWNER"
+            ]
+          }
+        },
+        "required": ["statusCode", "error", "message", "code"]
+      },
       "UpdateOrgUnitDto": {
         "type": "object",
         "properties": {
@@ -3386,6 +3552,25 @@
             "description": "Move under this parent id. Explicit null promotes the unit to root. Omit to leave the unit where it is."
           }
         }
+      },
+      "OrgUnitValidationErrorResponse": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "enum": ["MOVE_INTO_OWN_SUBTREE"]
+          }
+        },
+        "required": ["statusCode", "error", "message", "code"]
       },
       "MembershipResponse": {
         "type": "object",

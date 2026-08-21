@@ -25,6 +25,7 @@ import { PERSONALIZATION_CAPS } from '../personalization.constants';
  */
 export class UpdatePersonalizationDto {
   @ApiPropertyOptional({
+    type: String,
     maxLength: PERSONALIZATION_CAPS.preferredName,
     nullable: true,
     description: 'What the assistant should call you. Null clears it.',
@@ -35,6 +36,7 @@ export class UpdatePersonalizationDto {
   preferredName?: string | null;
 
   @ApiPropertyOptional({
+    type: String,
     maxLength: PERSONALIZATION_CAPS.about,
     nullable: true,
     description:
@@ -46,6 +48,7 @@ export class UpdatePersonalizationDto {
   about?: string | null;
 
   @ApiPropertyOptional({
+    type: String,
     maxLength: PERSONALIZATION_CAPS.responsePreferences,
     nullable: true,
     description:

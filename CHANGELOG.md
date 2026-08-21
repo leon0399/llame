@@ -2,6 +2,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-21
 
+- **OpenAPI contract hardening** (#467): assigned explicit stable operation IDs,
+  classified streaming endpoints, corrected the pin union/discriminator,
+  nullability, and error schemas, added a quiet Redocly correctness gate, and
+  added contract/runtime drift tests.
 - **Unified context-injection rail** (#463): every server-authored context item
   — model change, tool-availability transition, recency-digest delta and
   supersession, and the compaction checkpoint — now renders through one

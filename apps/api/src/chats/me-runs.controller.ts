@@ -3,6 +3,7 @@ import {
   ApiBearerAuth,
   ApiCookieAuth,
   ApiOkResponse,
+  ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -30,6 +31,7 @@ export class MeRunsController {
   constructor(private readonly tenantDb: TenantDbService) {}
 
   @Get()
+  @ApiOperation({ operationId: 'listActiveRuns' })
   @ApiOkResponse({ type: ActiveRunResponse, isArray: true })
   @ApiUnauthorizedResponse()
   async active(
