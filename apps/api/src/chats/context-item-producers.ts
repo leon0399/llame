@@ -25,6 +25,10 @@ import {
 } from './context-item';
 import { compareCodePoints } from '../canonical-json';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
+import {
+  formatTemporalAnchor,
+  isIanaTimeZone,
+} from '../prompts/temporal-anchor';
 import { type RecencyDigestEntry } from '../db/schema';
 import { isToolId } from '../tools/tool-id';
 import {
@@ -571,6 +575,117 @@ function renderRecencyDigestSupersession(): string {
 }
 
 /* ------------------------------------------------------------------ *
+ * temporal
+ * ------------------------------------------------------------------ */
+
+/**
+ * When a turn was received, stored with the turn it annotates.
+ *
+ * The zone is stored ALONGSIDE the instant rather than resolved at render:
+ * rendering then consults neither the clock nor the process environment, so a
+ * worker cannot disagree with the api that accepted the turn, and an instance
+ * that later moves timezone does not rewrite what it already told the model.
+ *
+ * Scalar, not a list of readings. #454's reading of the same instant in the
+ * owner's timezone is computed at render from THIS instant — storing it would
+ * freeze a preference the owner can change and would need rewriting across
+ * history when they do.
+ */
+export interface TemporalPayload extends UnknownRecord {
+  /** `Date.prototype.toISOString()` output — UTC, millisecond precision. */
+  readonly instant: string;
+  readonly timeZone: string;
+}
+
+const ISO_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * A zone is known when it names an IANA identifier `Intl` accepts; there is no
+ * allowlist to drift from the runtime's own tz database. `Intl` throws
+ * `RangeError` for an unknown identifier, which is the second check.
+ *
+ * The identifier test is not redundant with `Intl` acceptance — ECMA-402 also
+ * accepts a bare UTC offset — and it stays here as defense in depth even now
+ * that `resolveInstanceTimezone` rejects an offset at the source: a persisted
+ * row revalidates on every replay, where the value's provenance is whatever
+ * the column holds.
+ */
+const knownTimeZones = new Set<string>();
+
+function isKnownTimeZone(value: string): boolean {
+  if (knownTimeZones.has(value)) return true;
+  if (!isIanaTimeZone(value)) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value });
+  } catch {
+    return false;
+  }
+  // Every persisted row revalidates on every request, so remember the answer:
+  // the set of zones a deployment ever sees is small and never shrinks.
+  knownTimeZones.add(value);
+  return true;
+}
+
+export function isTemporalPayload(value: unknown): value is TemporalPayload {
+  if (!isExactRecord(value, ['instant', 'timeZone'])) return false;
+  const { instant, timeZone } = value;
+  if (!isString(instant) || !ISO_INSTANT_PATTERN.test(instant)) return false;
+  // Round-trip rather than `Date.parse`, which silently rolls a calendar-
+  // invalid date forward: `2026-02-30T…` parses to March 2, so a corrupted row
+  // would render a plausible wrong date instead of nothing at all. The NaN
+  // guard comes first because `toISOString` THROWS on an invalid date rather
+  // than returning something that fails the comparison.
+  const parsed = new Date(instant);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== instant) {
+    return false;
+  }
+  return isString(timeZone) && isKnownTimeZone(timeZone);
+}
+
+export function createTemporalItem(input: {
+  readonly runId: string;
+  readonly instant: Date;
+  readonly timeZone: string;
+}): ContextItemPart {
+  const payload: TemporalPayload = {
+    instant: input.instant.toISOString(),
+    timeZone: input.timeZone,
+  };
+  if (!isTemporalPayload(payload)) {
+    throw new TypeError('Invalid server-authored temporal metadata');
+  }
+  return createContextItemPart({
+    producer: 'temporal',
+    // `snapshot`: state as of the moment it was taken, not an event report.
+    // Supersession never arises — each turn's row describes its own turn — but
+    // the form classifies the content, and that is what the vocabulary is for.
+    form: 'snapshot',
+    runId: input.runId,
+    payload,
+  });
+}
+
+/**
+ * Receipt, never the present instant, and worded identically on the newest
+ * turn and the oldest.
+ *
+ * A row that claimed "now" would be false the moment it is replayed, and a row
+ * whose wording changed once its turn stopped being the newest would mutate a
+ * persisted message's rendering — forfeiting the byte-identity that is the
+ * whole reason this row is stored rather than computed per request.
+ *
+ * One line: the rail's per-item framing is paid for on every item, and a
+ * second sentence here would be paid for on every turn of every conversation.
+ */
+function renderTemporal(payload: TemporalPayload): string {
+  const { systemTime, systemTimezone } = formatTemporalAnchor(
+    new Date(payload.instant),
+    payload.timeZone,
+  );
+  return `Message received: ${systemTime} (${systemTimezone})`;
+}
+
+/* ------------------------------------------------------------------ *
  * compaction
  * ------------------------------------------------------------------ */
 
@@ -662,6 +777,9 @@ export function renderContextItemBody(part: ContextItemPart): string | null {
     return isRecencyDigestDeltaPayload(payload)
       ? renderRecencyDigestDelta(payload)
       : null;
+  }
+  if (producer === 'temporal') {
+    return isTemporalPayload(payload) ? renderTemporal(payload) : null;
   }
   return null;
 }

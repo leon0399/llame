@@ -111,6 +111,7 @@ When more than one item is injected on the same turn, they SHALL render in a **f
 1. `effective-context-change`
 2. `tool-availability`
 3. `recency-digest`
+4. `temporal`
 
 This list governs items **attached to a turn**. A producer whose item is carried by a message of its own — the compaction checkpoint is the only one today — is ordered by its placement rule instead, and SHALL NOT be read as absent from the vocabulary merely because it is absent from this list. A checkpoint necessarily leads the history it supersedes, which is a stronger constraint than any precedence order could express.
 
@@ -129,6 +130,12 @@ When one producer contributes **more than one item** on the same turn, those ite
 - **WHEN** a producer emits a supersession and a later delta before the same user message
 - **THEN** both render under that producer's slot in the order they were emitted
 - **AND** the delta does not precede the supersession it follows
+
+#### Scenario: A temporal item accompanies other items on one turn
+
+- **WHEN** a turn carries both an availability change and the temporal item
+- **THEN** the temporal item renders last among the attached items, immediately ahead of the user's visible text
+- **AND** it renders in its own envelope like any other item
 
 ### Requirement: Residency determines whether a change re-renders the prompt or appends an item
 

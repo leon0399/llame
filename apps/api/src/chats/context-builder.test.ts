@@ -8,6 +8,7 @@
  * - single-sender chat produces no sender prefix
  */
 
+import { contentText } from '../testing/support';
 import {
   buildContext,
   partsToText,
@@ -22,7 +23,7 @@ import {
   TOOL_REPLAY_CALL_LIMIT,
   TOOL_REPLAY_TURN_LIMIT,
 } from './tool-observation-part';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord } from '../unknown-record';
 import { modelMessageSchema } from 'ai';
 
 /**
@@ -30,15 +31,6 @@ import { modelMessageSchema } from 'ai';
  * one for the user's own text. Flatten it for assertions about what the model
  * reads; assertions about the BOUNDARY between items assert on the blocks.
  */
-function contentText(content: ModelMessage['content']): string {
-  if (isString(content)) return content;
-  return content
-    .map((part) =>
-      isRecord(part) && isString(part['text']) ? part['text'] : '',
-    )
-    .join('\n\n');
-}
-
 function assertTypedContentPart(
   part: unknown,
 ): asserts part is { type: string; toolCallId?: unknown } {

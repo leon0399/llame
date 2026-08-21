@@ -31,8 +31,9 @@ function hasStringText(value: unknown): value is { text: string } {
 }
 
 const textOf = (parts: unknown[]): string | undefined => {
-  if (!Array.isArray(parts) || !hasStringText(parts[0])) return undefined;
-  return parts[0].text;
+  if (!Array.isArray(parts)) return undefined;
+  const text = parts.find(hasStringText);
+  return text?.text;
 };
 
 describeIfDb('forkChat — copy correctness + RLS', () => {
@@ -82,7 +83,22 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         chatId: chat.id,
         role: 'user',
         senderUserId: owner,
-        parts: [{ type: 'text', text: 'q1' }],
+        parts: [
+          {
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'temporal',
+              form: 'snapshot',
+              runId: '11111111-2222-4333-8444-555555555555',
+              payload: {
+                instant: '2026-08-19T16:36:00.000Z',
+                timeZone: 'Europe/Madrid',
+              },
+            },
+          },
+          { type: 'text', text: 'q1' },
+        ],
       });
       const asst1 = await messages.create({
         chatId: chat.id,
@@ -123,6 +139,21 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     );
     // Only up to + including asst1 (2 of the 4 source messages), in order.
     expect(copied.map((m) => textOf(m.parts))).toEqual(['q1', 'a1']);
+    // A turn's temporal row travels with it: the copy records when the
+    // ORIGINAL turn was received, which is what it is a copy of.
+    expect(copied[0].parts[0]).toEqual({
+      type: 'data-context',
+      data: {
+        v: 1,
+        producer: 'temporal',
+        form: 'snapshot',
+        runId: '11111111-2222-4333-8444-555555555555',
+        payload: {
+          instant: '2026-08-19T16:36:00.000Z',
+          timeZone: 'Europe/Madrid',
+        },
+      },
+    });
     // in_reply_to REMAPPED to the copied user turn, not the original id.
     const [copiedUser, copiedAsst] = copied;
     expect(copiedAsst.inReplyTo).toBe(copiedUser.id);

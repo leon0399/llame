@@ -47,6 +47,7 @@ export const CONTEXT_ITEM_PRODUCERS = [
   'effective-context-change',
   'tool-availability',
   'recency-digest',
+  'temporal',
   'compaction',
 ] as const;
 

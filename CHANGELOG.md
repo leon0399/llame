@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-21
 
+- **Per-turn message timestamps** (#408): every user message now carries a
+  server-authored row on the context rail stating when its turn was received,
+  in the temporal anchor's format. The row is persisted with the turn and
+  immutable, so replays render it identically and no message's serialized form
+  changes between requests, leaving provider-side prefix caching intact. It
+  states receipt rather than the present instant — a replayed row could not
+  truthfully claim otherwise — and is superseded along with the turns a
+  compaction checkpoint absorbs.
 - **Generated client planning artifacts retired** (#481): removed the temporary
   design and implementation plan after transferring the shipped architecture
   and regeneration contract into durable repository documentation.

@@ -7,6 +7,7 @@
  * savepoint conflicts, rollback, RLS, and single-flight behavior end to end.
  */
 
+import { expectMessageParts, expectTemporalRow } from '../testing/support';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { Logger } from '@nestjs/common';
@@ -561,7 +562,8 @@ describe('ChatLoopService effective-context transaction binding', () => {
     expect(digestPart.data.payload).toMatchObject({
       entries: [{ title: 'Resurfaced through activity', pinned: false }],
     });
-    expect(persisted?.parts[1]).toEqual({ type: 'text', text: 'hello' });
+    expect(persisted?.parts[2]).toEqual({ type: 'text', text: 'hello' });
+    expectTemporalRow(persisted?.parts ?? []);
     expect(updateRecencyDigestTold).toHaveBeenCalledWith('chat-id', 'user-id', [
       {
         chatId: 'resurfaced',
@@ -613,9 +615,9 @@ describe('ChatLoopService effective-context transaction binding', () => {
 
     expect(resolveCandidate).not.toHaveBeenCalled();
     expect(updateRecencyDigestTold).not.toHaveBeenCalled();
-    expect(createMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ parts: [{ type: 'text', text: 'hello' }] }),
-    );
+    expectMessageParts(createMessage.mock.calls[0][0].parts, [
+      { type: 'text', text: 'hello' },
+    ]);
   });
 
   it('logs only the failure kind when rendering a stored digest fails', async () => {
@@ -675,11 +677,9 @@ describe('ChatLoopService effective-context transaction binding', () => {
       },
     });
 
-    expect(createMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        parts: [{ type: 'text', text: 'hello' }],
-      }),
-    );
+    expectMessageParts(createMessage.mock.calls[0][0].parts, [
+      { type: 'text', text: 'hello' },
+    ]);
   });
 
   it('prepends a server-authored switch part bound to the exact pre-generated target run after a failed prior run', async () => {
@@ -742,26 +742,26 @@ describe('ChatLoopService effective-context transaction binding', () => {
     expect(runInput.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
-    expect(createMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        parts: [
-          {
-            type: 'data-context',
-            data: {
-              v: 1,
-              producer: 'effective-context-change',
-              form: 'notice',
-              runId: runInput.id,
-              payload: {
-                cause: 'model',
-                fromModelId: previousRun.modelId,
-                toModelId: model.id,
-              },
+    expectMessageParts(
+      createMessage.mock.calls[0][0].parts,
+      [
+        {
+          type: 'data-context',
+          data: {
+            v: 1,
+            producer: 'effective-context-change',
+            form: 'notice',
+            runId: runInput.id,
+            payload: {
+              cause: 'model',
+              fromModelId: previousRun.modelId,
+              toModelId: model.id,
             },
           },
-          { type: 'text', text: 'hello' },
-        ],
-      }),
+        },
+        { type: 'text', text: 'hello' },
+      ],
+      runInput.id,
     );
     expect(createMessage.mock.invocationCallOrder[0]).toBeLessThan(
       createRun.mock.invocationCallOrder[0],
@@ -814,29 +814,29 @@ describe('ChatLoopService effective-context transaction binding', () => {
     await service.createMessageStream(input);
 
     const runInput = createRun.mock.calls[0][0];
-    expect(createMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        parts: [
-          {
-            type: 'data-context',
-            data: {
-              v: 1,
-              producer: 'tool-availability',
-              form: 'notice',
-              runId: runInput.id,
-              payload: {
-                kind: 'delta',
-                added: [],
-                removed: ['search_conversations'],
-                unavailable: [],
-                becameUnavailable: [],
-                nowAvailable: [],
-              },
+    expectMessageParts(
+      createMessage.mock.calls[0][0].parts,
+      [
+        {
+          type: 'data-context',
+          data: {
+            v: 1,
+            producer: 'tool-availability',
+            form: 'notice',
+            runId: runInput.id,
+            payload: {
+              kind: 'delta',
+              added: [],
+              removed: ['search_conversations'],
+              unavailable: [],
+              becameUnavailable: [],
+              nowAvailable: [],
             },
           },
-          { type: 'text', text: 'hello' },
-        ],
-      }),
+        },
+        { type: 'text', text: 'hello' },
+      ],
+      runInput.id,
     );
     expect(createMessage.mock.invocationCallOrder[0]).toBeLessThan(
       createRun.mock.invocationCallOrder[0],
@@ -903,29 +903,29 @@ describe('ChatLoopService effective-context transaction binding', () => {
     await service.createMessageStream(input);
 
     const runInput = createRun.mock.calls[0][0];
-    expect(createMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        parts: [
-          {
-            type: 'data-context',
-            data: {
-              v: 1,
-              producer: 'tool-availability',
-              form: 'notice',
-              runId: runInput.id,
-              payload: {
-                kind: 'initial',
-                added: [],
-                removed: [],
-                unavailable: [{ id, reason: 'source_disconnected' }],
-                becameUnavailable: [],
-                nowAvailable: [],
-              },
+    expectMessageParts(
+      createMessage.mock.calls[0][0].parts,
+      [
+        {
+          type: 'data-context',
+          data: {
+            v: 1,
+            producer: 'tool-availability',
+            form: 'notice',
+            runId: runInput.id,
+            payload: {
+              kind: 'initial',
+              added: [],
+              removed: [],
+              unavailable: [{ id, reason: 'source_disconnected' }],
+              becameUnavailable: [],
+              nowAvailable: [],
             },
           },
-          { type: 'text', text: 'hello' },
-        ],
-      }),
+        },
+        { type: 'text', text: 'hello' },
+      ],
+      runInput.id,
     );
   });
 
@@ -999,22 +999,22 @@ describe('ChatLoopService effective-context transaction binding', () => {
     await service.createMessageStream(input);
 
     const runInput = createRun.mock.calls[0][0];
-    expect(createMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        parts: [
-          {
-            type: 'data-context',
-            data: {
-              v: 1,
-              producer: 'recency-digest',
-              form: 'snapshot',
-              runId: runInput.id,
-              payload: {},
-            },
+    expectMessageParts(
+      createMessage.mock.calls[0][0].parts,
+      [
+        {
+          type: 'data-context',
+          data: {
+            v: 1,
+            producer: 'recency-digest',
+            form: 'snapshot',
+            runId: runInput.id,
+            payload: {},
           },
-          { type: 'text', text: 'hello' },
-        ],
-      }),
+        },
+        { type: 'text', text: 'hello' },
+      ],
+      runInput.id,
     );
   });
 
@@ -1090,22 +1090,22 @@ describe('ChatLoopService effective-context transaction binding', () => {
     await service.createMessageStream(input);
 
     const runInput = createRun.mock.calls[0][0];
-    expect(createMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        parts: [
-          {
-            type: 'data-context',
-            data: {
-              v: 1,
-              producer: 'recency-digest',
-              form: 'snapshot',
-              runId: runInput.id,
-              payload: {},
-            },
+    expectMessageParts(
+      createMessage.mock.calls[0][0].parts,
+      [
+        {
+          type: 'data-context',
+          data: {
+            v: 1,
+            producer: 'recency-digest',
+            form: 'snapshot',
+            runId: runInput.id,
+            payload: {},
           },
-          { type: 'text', text: 'hello' },
-        ],
-      }),
+        },
+        { type: 'text', text: 'hello' },
+      ],
+      runInput.id,
     );
   });
 
@@ -1167,9 +1167,9 @@ describe('ChatLoopService effective-context transaction binding', () => {
 
     await service.createMessageStream(input);
 
-    expect(createMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ parts: [{ type: 'text', text: 'hello' }] }),
-    );
+    expectMessageParts(createMessage.mock.calls[0][0].parts, [
+      { type: 'text', text: 'hello' },
+    ]);
   });
 
   it('does not emit a digest supersession marker after compaction digest resolution failed or on a model switch', async () => {
@@ -1231,11 +1231,16 @@ describe('ChatLoopService effective-context transaction binding', () => {
     await service.createMessageStream(input);
 
     const runInput = createRun.mock.calls[0][0];
-    expect(createMessage).toHaveBeenCalledWith({
-      id: 'message-id',
-      chatId: 'chat-id',
-      senderUserId: 'user-id',
-      parts: [
+    expect(createMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'message-id',
+        chatId: 'chat-id',
+        senderUserId: 'user-id',
+      }),
+    );
+    expectMessageParts(
+      createMessage.mock.calls[0][0].parts,
+      [
         {
           type: 'data-context',
           data: {
@@ -1252,6 +1257,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
         },
         { type: 'text', text: 'hello' },
       ],
-    });
+      runInput.id,
+    );
   });
 });
