@@ -34,13 +34,13 @@ the shape change in `cutover` is atomic and cannot be split further.
 - [x] 3.10 Replace the per-part-type branches in `apps/web/app/(chat)/components/chat-page.tsx` with one branch keyed on the unified part type rendering nothing, and verify a test asserts no `unsupported part type` text appears for an unknown producer
 - [x] 3.11 Verify the shipped model-switch boundary still renders from the unified part and that no new context is surfaced in the UI by this layer
 - [x] 3.12 Author the hand-authored cleanup migration stripping legacy `data-model-context`, `data-tool-availability`, and `data-recency-digest` parts from `messages.parts`, and record it in the `apps/api/AGENTS.md` migration exception ledger with its regeneration and verification requirements
-- [ ] 3.13 Verify by integration test that no legacy context part remains after the migration, and that a chat predating the cutover loads without error despite losing its context parts
+- [x] 3.13 Verify by integration test that no legacy context part remains after the migration, and that a chat predating the cutover loads without error despite losing its context parts
 
 ## 4. context-injection/receipt — per-run record of injected items
 
 - [x] 4.1 Add the additive `runs.context_items` jsonb column with a generated migration, and verify a schema test asserts it inherits `runs_owner` RLS and appears in no public-read path
-- [ ] 4.2 Record each Run's rendered items with producer, form, and residency at bind time, and verify an integration test asserts the record matches the request actually sent
-- [ ] 4.3 Verify by test that two Runs reusing one content-addressed effective-context snapshot each record their own distinct items
+- [x] 4.2 Record each Run's rendered items with producer, form, and residency at bind time, and verify an integration test asserts the record matches the request actually sent
+- [x] 4.3 Verify by test that two Runs reusing one content-addressed effective-context snapshot each record their own distinct items
 - [x] 4.4 Verify by test that the record is absent from public-share responses, transcript exports, and search projections
 
 ## 5. context-injection/prompt — packaged prompt and operator documentation
