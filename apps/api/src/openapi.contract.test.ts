@@ -28,8 +28,21 @@ const responseObjectSchema = z
 
 const referenceObjectSchema = z.object({ $ref: z.string() });
 
+const pinnedItemSchema = z
+  .object({
+    discriminator: z.object({
+      mapping: z.object({
+        chat: z.literal('#/components/schemas/ChatPinnedItemResponse'),
+        project: z.literal('#/components/schemas/ProjectPinnedItemResponse'),
+      }),
+      propertyName: z.literal('itemType'),
+    }),
+    oneOf: z.array(referenceObjectSchema),
+  })
+  .passthrough();
+
 const pinnedListSchema = z.object({
-  items: z.object({ oneOf: z.array(referenceObjectSchema) }).passthrough(),
+  items: pinnedItemSchema,
   type: z.literal('array'),
 });
 
@@ -161,6 +174,17 @@ function response(
   return result;
 }
 
+function pinnedItemResponseSchema(
+  method: OperationEntry['method'],
+  path: string,
+): z.infer<typeof pinnedItemSchema> {
+  const schema = response(method, path, '200').content?.['application/json']
+    ?.schema;
+  return pinnedItemSchema.parse(
+    method === 'get' ? pinnedListSchema.parse(schema).items : schema,
+  );
+}
+
 describe('committed OpenAPI contract', () => {
   it('uses an intentional globally unique set of domain operation IDs', () => {
     const ids = operations().map(({ operation }) =>
@@ -185,17 +209,16 @@ describe('committed OpenAPI contract', () => {
     },
   );
 
-  it('models pinned items as correlated whole-object branches', () => {
-    const schema = pinnedListSchema.parse(
-      response('get', '/api/v1/pins', '200').content?.['application/json']
-        ?.schema,
-    );
-
-    expect(schema.items.oneOf).toEqual([
-      { $ref: '#/components/schemas/ChatPinnedItemResponse' },
-      { $ref: '#/components/schemas/ProjectPinnedItemResponse' },
-    ]);
-    expect(schema.items).toMatchObject({
+  it('models pinned items as correlated branches across list and pin responses', () => {
+    const pinnedSchemas = [
+      pinnedItemResponseSchema('get', '/api/v1/pins'),
+      pinnedItemResponseSchema('put', '/api/v1/pins/{itemType}/{itemId}'),
+    ];
+    const expectedPinnedSchema = {
+      oneOf: [
+        { $ref: '#/components/schemas/ChatPinnedItemResponse' },
+        { $ref: '#/components/schemas/ProjectPinnedItemResponse' },
+      ],
       discriminator: {
         propertyName: 'itemType',
         mapping: {
@@ -203,7 +226,12 @@ describe('committed OpenAPI contract', () => {
           project: '#/components/schemas/ProjectPinnedItemResponse',
         },
       },
-    });
+    };
+
+    expect(pinnedSchemas).toEqual([
+      expect.objectContaining(expectedPinnedSchema),
+      expect.objectContaining(expectedPinnedSchema),
+    ]);
 
     const schemas = document.components?.schemas ?? {};
     expect(schemas.ChatPinnedItemResponse).toMatchObject({
