@@ -13,6 +13,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Deterministic schema/client commands and the CI drift gate cover regeneration,
   with a narrow checked-in `@orval/fetch@8.24.0` patch; feature services and
   streaming remain explicit handwritten layers.
+- **Core API service migration**: auth, models, memory, and personalization now
+  use generated endpoints while retaining handwritten TanStack Query/cache
+  behavior; robust auth outcomes cover non-JSON 401s, and duplicated feature
+  types are reduced.
 - **Unified context-injection rail** (#463): every server-authored context item
   — model change, tool-availability transition, recency-digest delta and
   supersession, and the compaction checkpoint — now renders through one
