@@ -180,6 +180,34 @@ that render it before any API authors it. Rollback stops digest authoring first,
 accepted Runs, and only then rolls binaries back. Persisted digest parts remain durable
 conversation history; deleting them would falsify the context a prior Run received.
 
+**The unified `data-context` part changes what counts as a boundary.** Every
+server-authored context item now shares one part type, discriminated by a
+`producer` and an optional `form`, and an unrecognized value of either is
+tolerated: an unknown `form` is read as absent, and an unknown `producer` parses,
+is recorded, and renders nothing. Adding a producer or a form is therefore an
+ordinary additive change, not a coordinated rollout — which is the point of the
+tolerance, and why it must not be tightened into a rejection.
+
+What remains a coordinated boundary is a change to the **envelope itself** — a
+new field on `data-context` — because the envelope is validated by exact key set.
+Land backward-compatible readers first, deploy workers that understand the change
+before any API authors it, then quiesce old writers and drain accepted Runs
+before the writer cutover. Rollback stops new authoring first and drains Runs
+accepted by the newer API before rolling binaries back.
+
+Tolerance changes the failure mode rather than removing the discipline: a worker
+that does not know a producer renders nothing for it, so a version skew loses
+context silently in the model's view — but the item is still recorded in
+`runs.context_items`, so the loss is visible in the record rather than invisible
+everywhere.
+
+One departure from the rule above: the `20260821030000_context_item_cutover`
+migration **deleted** the retired `data-model-context`, `data-tool-availability`,
+and `data-recency-digest` parts instead of reshaping them, because no instance
+held history worth carrying through the boundary. Rollback restores the code
+path, not the rows, and a chat predating the cutover has no context parts and no
+model-switch boundary.
+
 For `data-tool-availability`, first apply the backward-compatible preparation
 migration: the new snapshot columns have v0 defaults and both the legacy and
 availability-aware conflict indexes remain, so old API writers continue to
