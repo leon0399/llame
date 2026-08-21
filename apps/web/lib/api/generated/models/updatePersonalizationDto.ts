@@ -5,9 +5,6 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
-import type { UpdatePersonalizationDtoAbout } from "./updatePersonalizationDtoAbout";
-import type { UpdatePersonalizationDtoPreferredName } from "./updatePersonalizationDtoPreferredName";
-import type { UpdatePersonalizationDtoResponsePreferences } from "./updatePersonalizationDtoResponsePreferences";
 
 export interface UpdatePersonalizationDto {
   /**
@@ -15,19 +12,19 @@ export interface UpdatePersonalizationDto {
    * @maxLength 255
    * @nullable
    */
-  preferredName?: UpdatePersonalizationDtoPreferredName;
+  preferredName?: string | null;
   /**
    * Role, work context, and languages, as prose. Null clears it. Counts against every request for you, so a maxed-out value is a material share of a small model context window.
    * @maxLength 8000
    * @nullable
    */
-  about?: UpdatePersonalizationDtoAbout;
+  about?: string | null;
   /**
    * How answers should be delivered. Null clears it. These are delivery preferences of bounded authority: they cannot grant tools, relax tool authorization, or override safety constraints.
    * @maxLength 8000
    * @nullable
    */
-  responsePreferences?: UpdatePersonalizationDtoResponsePreferences;
+  responsePreferences?: string | null;
   /** Master switch over all per-user prompt context. Turning it off also stops account identity, not just authored text. */
   enabled?: boolean;
   /** Send your account display name and email address to the model provider the operator has configured — which in a multi-user instance may be a third party with no relationship to you. Defaults to false, and applies only where the configured prompt references those values. */

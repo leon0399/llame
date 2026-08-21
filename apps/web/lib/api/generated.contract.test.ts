@@ -16,6 +16,7 @@ import type {
   OrgUnitResponse,
   ProjectPinnedItemResponse,
   ProjectRefCard,
+  UpdatePersonalizationDto,
 } from "./generated/models";
 import { loginUser } from "./generated/auth/auth";
 import { listChats } from "./generated/chats/chats";
@@ -102,6 +103,28 @@ function isGeneratedInternalImport(sourceFile: string, specifier: string) {
 }
 
 describe("generated API contract", () => {
+  it("keeps personalization input fields nullable strings", () => {
+    const source = readFileSync(
+      join(generatedRoot, "models", "updatePersonalizationDto.ts"),
+      "utf8",
+    );
+
+    expect(source).toMatch(/preferredName\?: string \| null;/);
+    expect(source).toMatch(/about\?: string \| null;/);
+    expect(source).toMatch(/responsePreferences\?: string \| null;/);
+
+    const update: UpdatePersonalizationDto = {
+      preferredName: "Ada",
+      about: "Engineer",
+      responsePreferences: "Concise",
+    };
+    expect(update).toEqual({
+      preferredName: "Ada",
+      about: "Engineer",
+      responsePreferences: "Concise",
+    });
+  });
+
   it("keeps nullable direct roles nullable", () => {
     const directRole: OrgUnitResponse["directRole"] = null;
 
