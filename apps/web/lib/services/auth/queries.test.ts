@@ -38,6 +38,7 @@ import {
   useMeOptional,
 } from "./queries";
 import { InvalidCredentialsError, isInvalidCredentialsError } from "./errors";
+import type { PublicUserResponse } from "../../api/generated/models";
 
 const authenticatedFetch = policies.authenticatedFetch;
 const optionalAuthFetch = policies.optionalAuthFetch;
@@ -150,9 +151,16 @@ describe("auth transport boundaries", () => {
   });
 
   it("uses optional-auth for the nullable current-user probe", async () => {
-    endpoints.getCurrentUser.mockResolvedValue(null);
+    const user: PublicUserResponse = {
+      id: "u1",
+      name: "A",
+      email: "leo@example.com",
+      emailVerified: null,
+      image: null,
+    };
+    endpoints.getCurrentUser.mockResolvedValue(user);
 
-    await expect(fetchMeOptional()).resolves.toBeNull();
+    await expect(fetchMeOptional()).resolves.toEqual(user);
     expect(endpoints.getCurrentUser).toHaveBeenCalledWith(
       undefined,
       optionalAuthFetch,
