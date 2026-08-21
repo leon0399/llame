@@ -21,6 +21,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   generated authenticated endpoints while preserving feature-owned query keys,
   optimistic cache behavior, cross-resource invalidation, and idempotent 404
   handling.
+- **Organization API migration**: organization-unit and membership services now
+  use generated authenticated Fetch endpoints while preserving handwritten
+  query keys, serialized optimistic mutations, membership invalidation, and
+  feature-owned coded error copy.
 - **Unified context-injection rail** (#463): every server-authored context item
   — model change, tool-availability transition, recency-digest delta and
   supersession, and the compaction checkpoint — now renders through one
