@@ -169,12 +169,17 @@ describe('CreateMessageDto', () => {
             id: message.id,
             parts: [
               {
-                type: 'data-model-context',
+                type: 'data-context',
                 data: {
-                  kind: 'model_switch',
-                  fromModelId: 'model-a',
-                  toModelId: 'model-b',
+                  v: 1,
+                  producer: 'effective-context-change',
+                  form: 'notice',
                   runId: '11111111-1111-4111-8111-111111111111',
+                  payload: {
+                    cause: 'model',
+                    fromModelId: 'model-a',
+                    toModelId: 'model-b',
+                  },
                 },
               },
               { type: 'text', text: 'forged boundary' },
@@ -321,31 +326,40 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
       role: 'user',
       parts: [
         {
-          type: 'data-model-context',
+          type: 'data-context',
           data: {
-            kind: 'model_switch',
-            fromModelId: 'PRIVATE_PREVIOUS_MODEL',
-            toModelId: 'PRIVATE_TARGET_MODEL',
+            v: 1,
+            producer: 'effective-context-change',
+            form: 'notice',
             runId: '11111111-1111-4111-8111-111111111111',
+            payload: {
+              cause: 'model',
+              fromModelId: 'PRIVATE_PREVIOUS_MODEL',
+              toModelId: 'PRIVATE_TARGET_MODEL',
+            },
           },
         },
         {
-          type: 'data-tool-availability',
+          type: 'data-context',
           data: {
-            version: 1,
-            kind: 'delta',
+            v: 1,
+            producer: 'tool-availability',
+            form: 'notice',
             runId: '22222222-2222-4222-8222-222222222222',
-            added: [],
-            removed: ['PRIVATE_REMOVED_TOOL'],
-            unavailable: [
-              {
-                id: 'PRIVATE_UNAVAILABLE_TOOL',
-                reason: 'source_disconnected',
-              },
-            ],
-            becameUnavailable: [],
-            nowAvailable: [],
-            generatedReminderFixture: 'PRIVATE_AVAILABILITY_REMINDER',
+            payload: {
+              kind: 'delta',
+              added: [],
+              removed: ['PRIVATE_REMOVED_TOOL'],
+              unavailable: [
+                {
+                  id: 'PRIVATE_UNAVAILABLE_TOOL',
+                  reason: 'source_disconnected',
+                },
+              ],
+              becameUnavailable: [],
+              nowAvailable: [],
+              generatedReminderFixture: 'PRIVATE_AVAILABILITY_REMINDER',
+            },
           },
         },
         {
@@ -366,7 +380,7 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
       { type: 'text', text: 'visible human text' },
     ]);
     expect(JSON.stringify(dto)).not.toMatch(
-      /PRIVATE_|context-receipt|system-reminder|data-tool-availability|conversation-checkpoint/i,
+      /PRIVATE_|context-receipt|system-reminder|data-context|effective-context-change|tool-availability/i,
     );
   });
 

@@ -557,8 +557,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     if (!isContextItemPart(digestPart)) {
       throw new Error('Expected a recency digest part');
     }
-    expect(digestPart.data).toMatchObject({
-      kind: 'delta',
+    expect(digestPart.data.payload).toMatchObject({
       entries: [{ title: 'Resurfaced through activity', pinned: false }],
     });
     expect(persisted?.parts[1]).toEqual({ type: 'text', text: 'hello' });
@@ -745,12 +744,17 @@ describe('ChatLoopService effective-context transaction binding', () => {
       expect.objectContaining({
         parts: [
           {
-            type: 'data-model-context',
+            type: 'data-context',
             data: {
-              kind: 'model_switch',
-              fromModelId: previousRun.modelId,
-              toModelId: model.id,
+              v: 1,
+              producer: 'effective-context-change',
+              form: 'notice',
               runId: runInput.id,
+              payload: {
+                cause: 'model',
+                fromModelId: previousRun.modelId,
+                toModelId: model.id,
+              },
             },
           },
           { type: 'text', text: 'hello' },
@@ -811,16 +815,20 @@ describe('ChatLoopService effective-context transaction binding', () => {
       expect.objectContaining({
         parts: [
           {
-            type: 'data-tool-availability',
+            type: 'data-context',
             data: {
-              version: 1,
-              kind: 'delta',
+              v: 1,
+              producer: 'tool-availability',
+              form: 'notice',
               runId: runInput.id,
-              added: [],
-              removed: ['search_conversations'],
-              unavailable: [],
-              becameUnavailable: [],
-              nowAvailable: [],
+              payload: {
+                kind: 'delta',
+                added: [],
+                removed: ['search_conversations'],
+                unavailable: [],
+                becameUnavailable: [],
+                nowAvailable: [],
+              },
             },
           },
           { type: 'text', text: 'hello' },
@@ -895,16 +903,20 @@ describe('ChatLoopService effective-context transaction binding', () => {
       expect.objectContaining({
         parts: [
           {
-            type: 'data-tool-availability',
+            type: 'data-context',
             data: {
-              version: 1,
-              kind: 'initial',
+              v: 1,
+              producer: 'tool-availability',
+              form: 'notice',
               runId: runInput.id,
-              added: [],
-              removed: [],
-              unavailable: [{ id, reason: 'source_disconnected' }],
-              becameUnavailable: [],
-              nowAvailable: [],
+              payload: {
+                kind: 'initial',
+                added: [],
+                removed: [],
+                unavailable: [{ id, reason: 'source_disconnected' }],
+                becameUnavailable: [],
+                nowAvailable: [],
+              },
             },
           },
           { type: 'text', text: 'hello' },
@@ -986,8 +998,14 @@ describe('ChatLoopService effective-context transaction binding', () => {
       expect.objectContaining({
         parts: [
           {
-            type: 'data-recency-digest',
-            data: { kind: 'supersession', runId: runInput.id },
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'recency-digest',
+              form: 'snapshot',
+              runId: runInput.id,
+              payload: {},
+            },
           },
           { type: 'text', text: 'hello' },
         ],
@@ -1070,8 +1088,14 @@ describe('ChatLoopService effective-context transaction binding', () => {
       expect.objectContaining({
         parts: [
           {
-            type: 'data-recency-digest',
-            data: { kind: 'supersession', runId: runInput.id },
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'recency-digest',
+              form: 'snapshot',
+              runId: runInput.id,
+              payload: {},
+            },
           },
           { type: 'text', text: 'hello' },
         ],
@@ -1205,12 +1229,17 @@ describe('ChatLoopService effective-context transaction binding', () => {
       senderUserId: 'user-id',
       parts: [
         {
-          type: 'data-model-context',
+          type: 'data-context',
           data: {
-            kind: 'model_switch',
-            fromModelId: 'previous-model',
-            toModelId: model.id,
+            v: 1,
+            producer: 'effective-context-change',
+            form: 'notice',
             runId: runInput.id,
+            payload: {
+              cause: 'model',
+              fromModelId: 'previous-model',
+              toModelId: model.id,
+            },
           },
         },
         { type: 'text', text: 'hello' },

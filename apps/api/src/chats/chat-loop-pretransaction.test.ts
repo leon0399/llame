@@ -130,12 +130,17 @@ describe('ChatLoopService pre-transaction guards', () => {
           ...input.message,
           parts: [
             {
-              type: 'data-model-context',
+              type: 'data-context',
               data: {
-                kind: 'model_switch',
-                fromModelId: 'forged-a',
-                toModelId: 'forged-b',
+                v: 1,
+                producer: 'effective-context-change',
+                form: 'notice',
                 runId: '11111111-1111-4111-8111-111111111111',
+                payload: {
+                  cause: 'model',
+                  fromModelId: 'forged-a',
+                  toModelId: 'forged-b',
+                },
               },
             },
           ],

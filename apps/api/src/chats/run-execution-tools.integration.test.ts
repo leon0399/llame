@@ -71,7 +71,6 @@ import { hashToolDeclaration } from '../tools/turn-tool-catalog';
 import { type Tool, type ToolContext } from '../tools/types';
 import { isRecord, type UnknownRecord } from '../unknown-record';
 import { turnTelemetryLogger } from './turn-telemetry';
-import {} from './context-item';
 import {
   createModelChangeItem,
   renderContextItemPart,
@@ -1785,7 +1784,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
     expect(calls[0].system).toBe(seeded.targetSnapshot.systemPrompt);
     expect(Object.keys(calls[0].tools ?? {})).toEqual(['search_conversations']);
     expect(calls[0].messages).toEqual([
-      { role: 'user', content: 'Old visible request.' },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Old visible request.' }],
+      },
       { role: 'assistant', content: 'Old visible answer.' },
       {
         role: 'assistant',
@@ -1809,7 +1811,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
       },
       {
         role: 'user',
-        content: `${renderContextItemPart(switchPart) ?? ''}\n\nContinue on target.`,
+        content: [
+          { type: 'text', text: renderContextItemPart(switchPart) ?? '' },
+          { type: 'text', text: 'Continue on target.' },
+        ],
       },
     ]);
     const providerInput = JSON.stringify(calls[0]);

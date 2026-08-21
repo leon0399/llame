@@ -925,7 +925,12 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const compaction = createCompactionService({
       createClient: createSourceClient,
     });
-    const targetDelegate = createFakeModelClient(['target response'], 500);
+    // Synthetic bound, sized to fit exactly one transition checkpoint plus the
+    // switch item. Raised from 500 when the unified envelope added a measured
+    // ~17 tokens to a checkpoint and ~24 to a notice (attributes plus the
+    // one-line provenance statement) — the budget was calibrated to the old
+    // per-producer delimiters, not to a behaviour change.
+    const targetDelegate = createFakeModelClient(['target response'], 600);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -996,7 +1001,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     expect(targetCalls[0].messages[0].content).toContain(summary);
     expect(targetCalls[0].messages.at(-1)).toEqual({
       role: 'user',
-      content: `${renderContextItemPart(seeded.switchPart) ?? ''}\n\nCURRENT TRIGGER`,
+      content: [
+        { type: 'text', text: renderContextItemPart(seeded.switchPart) ?? '' },
+        { type: 'text', text: 'CURRENT TRIGGER' },
+      ],
     });
     expect(JSON.stringify(targetCalls[0])).not.toContain(
       seeded.sourceSnapshot.systemPrompt,
