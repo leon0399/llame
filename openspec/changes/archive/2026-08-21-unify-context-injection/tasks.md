@@ -50,7 +50,7 @@ the shape change in `cutover` is atomic and cannot be split further.
 - [x] 5.3 Record the residency decision procedure and the receipt non-erasure disclosure in `apps/api/AGENTS.md`, and verify `pnpm lint:markdown` passes
 - [x] 5.4 Add the coordinated rollout entry to `apps/api/AGENTS.md` and `docs/scaling.md` matching design.md's Migration Plan, including that stripped parts are not recoverable by rollback
 - [x] 5.5 Add the dated `CHANGELOG.md` entry and verify `ROADMAP.md` needs no removal for this change
-- [x] 5.6 Run `pnpm --filter api test`, `pnpm --filter api test:integration`, `pnpm --filter api build`, `pnpm --filter web build`, `pnpm lint`, and `pnpm lint:markdown`, and verify all pass with no suite silently skipped
+- [x] 5.6 Run `pnpm --filter api test`, `pnpm --filter api test:integration`, `pnpm --filter api build`, `pnpm --filter web test`, `pnpm --filter web build`, `pnpm lint`, and `pnpm lint:markdown`, and verify all pass with no suite silently skipped. **`pnpm --filter web test` is named explicitly because omitting it is how this task was first marked done while seven web tests were failing — `--filter web build` passes with them red, and only CI's cross-workspace turbo run would have caught it**
 
 ## 6. context-injection/close — sync and archive
 
