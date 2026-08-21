@@ -1,46 +1,67 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Hoisted so the vi.mock factories (also hoisted) can close over them.
-const { get, FakeHTTPError } = vi.hoisted(() => {
-  // Minimal stand-in for ky's HTTPError (instanceof + .response.status).
-  class FakeHTTPError extends Error {
-    response: { status: number };
-    constructor(status: number) {
-      super(`HTTP ${status}`);
-      this.response = { status };
-    }
-  }
-  return { get: vi.fn(), FakeHTTPError };
-});
-
-vi.mock("../../api/client", () => ({
-  api: { get: (...a: unknown[]) => ({ json: () => get(...a) }) },
-  buildApiUrl: (path: string) => `http://api${path}`,
+const { getRun, listActiveRuns, fetchWithAuth } = vi.hoisted(() => ({
+  getRun: vi.fn(),
+  listActiveRuns: vi.fn(),
+  fetchWithAuth: vi.fn(),
 }));
-vi.mock("ky", () => ({ HTTPError: FakeHTTPError }));
+
+vi.mock("../../api/generated/runs/runs", () => ({ getRun }));
+vi.mock("../../api/generated/me/me", () => ({ listActiveRuns }));
+vi.mock("../../api/fetch", () => ({
+  createAuthenticatedBrowserFetch: () => fetchWithAuth,
+}));
 
 import { activeRunsToTrackArgs, fetchRun, type ActiveRun } from "./active-runs";
 
 afterEach(() => {
-  get.mockReset();
+  getRun.mockReset();
+  listActiveRuns.mockReset();
 });
 
 describe("fetchRun", () => {
   it("GETs the run and returns it", async () => {
-    get.mockResolvedValue({ id: "run-1", status: "running_model" });
+    getRun.mockResolvedValue({ id: "run-1", status: "running_model" });
     const run = await fetchRun("run-1");
-    expect(get).toHaveBeenCalledWith("http://api/api/v1/runs/run-1");
+    expect(getRun).toHaveBeenCalledWith(
+      "run-1",
+      undefined,
+      expect.any(Function),
+    );
     expect(run).toEqual({ id: "run-1", status: "running_model" });
   });
 
   it("returns null on 404 (run gone — e.g. chat deleted)", async () => {
-    get.mockRejectedValue(new FakeHTTPError(404));
+    getRun.mockRejectedValue({ status: 404, info: { message: "gone" } });
     await expect(fetchRun("gone")).resolves.toBeNull();
   });
 
   it("propagates non-404 errors", async () => {
-    get.mockRejectedValue(new FakeHTTPError(500));
-    await expect(fetchRun("run-x")).rejects.toBeInstanceOf(FakeHTTPError);
+    const error = { status: 500, info: { message: "down" } };
+    getRun.mockRejectedValue(error);
+    await expect(fetchRun("run-x")).rejects.toBe(error);
+  });
+
+  it("uses the generated me binding for active runs", async () => {
+    listActiveRuns.mockResolvedValue([
+      {
+        runId: "run-1",
+        chatId: "chat-1",
+        chatTitle: "Chat",
+        status: "running_model",
+        createdAt: "2026-07-03T00:00:00.000Z",
+      },
+    ]);
+
+    await expect(
+      (await import("./active-runs")).fetchActiveRuns(),
+    ).resolves.toHaveLength(1);
+    expect(listActiveRuns).toHaveBeenCalledWith(
+      { status: "active" },
+      undefined,
+      expect.any(Function),
+    );
   });
 });
 

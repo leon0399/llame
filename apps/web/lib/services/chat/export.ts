@@ -1,8 +1,8 @@
-import { api } from "../../api/client";
+import { getChatMessages } from "../../api/generated/chats/chats";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import {
-  buildChatMessagesHistoryUrl,
+  normalizeChatMessagesResponse,
   type ChatMessageResponse,
-  type ChatMessagesResponse,
 } from "./history";
 import {
   CHAT_HISTORY_PAGE_SIZE,
@@ -14,14 +14,15 @@ import { fetchModels } from "../models/queries";
 /** Fetch a chat's FULL message history (owner-scoped), paginating the cursor. */
 function fetchAllMessages(chatId: string): Promise<ChatMessageResponse[]> {
   return paginateAllMessages((beforeSeq) =>
-    api
-      .get(
-        buildChatMessagesHistoryUrl(chatId, {
-          limit: CHAT_HISTORY_PAGE_SIZE,
-          ...(beforeSeq !== undefined ? { beforeSeq } : {}),
-        }),
-      )
-      .json<ChatMessagesResponse>(),
+    getChatMessages(
+      encodeURIComponent(chatId),
+      {
+        limit: CHAT_HISTORY_PAGE_SIZE,
+        ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+      },
+      undefined,
+      createAuthenticatedBrowserFetch(globalThis.fetch),
+    ).then(normalizeChatMessagesResponse),
   );
 }
 

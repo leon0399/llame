@@ -13,12 +13,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-const { patch, del } = vi.hoisted(() => ({ patch: vi.fn(), del: vi.fn() }));
+const { updateChat, deleteChatEndpoint } = vi.hoisted(() => ({
+  updateChat: vi.fn(),
+  deleteChatEndpoint: vi.fn(),
+}));
 const toastError = vi.hoisted(() => vi.fn());
 
-vi.mock("../../api/client", () => ({
-  api: { patch, delete: del },
-  buildApiUrl: (path: string) => `http://api${path}`,
+vi.mock("../../api/generated/chats/chats", () => ({
+  updateChat,
+  deleteChat: deleteChatEndpoint,
+}));
+vi.mock("../../api/fetch", () => ({
+  createAuthenticatedBrowserFetch: () => vi.fn(),
 }));
 vi.mock("@workspace/ui/components/sonner", () => ({
   toast: { error: toastError },
@@ -36,14 +42,14 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 
 afterEach(() => {
-  patch.mockReset();
-  del.mockReset();
+  updateChat.mockReset();
+  deleteChatEndpoint.mockReset();
   toastError.mockReset();
 });
 
 describe("useRenameChat", () => {
   it("toasts on failure instead of failing silently", async () => {
-    patch.mockRejectedValue(new Error("network down"));
+    updateChat.mockRejectedValue(new Error("network down"));
     const { result } = renderHook(() => useRenameChat(), { wrapper });
 
     result.current.mutate({ id: "c1", title: "New title" });
@@ -55,7 +61,7 @@ describe("useRenameChat", () => {
 
 describe("useDeleteChat", () => {
   it("toasts on failure instead of failing silently", async () => {
-    del.mockRejectedValue(new Error("network down"));
+    deleteChatEndpoint.mockRejectedValue(new Error("network down"));
     const { result } = renderHook(() => useDeleteChat(), { wrapper });
 
     result.current.mutate("c1");

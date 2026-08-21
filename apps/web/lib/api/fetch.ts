@@ -23,6 +23,12 @@ export function getApiUrl(): string {
   return apiUrl.replace(/\/+$/, "");
 }
 
+/** Resolve an API-relative path for the explicit AI SDK streaming transports. */
+export function buildApiUrl(path: string): string {
+  const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
+  return `${getApiUrl()}/${normalizedPath}`;
+}
+
 function resolveApiUrl(input: RequestInfo | URL): string {
   const value = input instanceof Request ? input.url : input.toString();
 
@@ -88,6 +94,14 @@ export function createAuthenticatedBrowserFetch(
     handleAuthenticatedResponse(request.url, response);
     return response;
   };
+}
+
+/** Fetch entrypoint retained for the explicit AI SDK streaming transports. */
+export function authAwareFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  return createAuthenticatedBrowserFetch(globalThis.fetch)(input, init);
 }
 
 export function createOptionalAuthFetch(fetchImpl: typeof fetch): typeof fetch {

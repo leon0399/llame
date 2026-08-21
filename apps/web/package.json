@@ -26,7 +26,6 @@
     "date-fns": "^4.1.0",
     "framer-motion": "^12.23.6",
     "js-cookie": "^3.0.7",
-    "ky": "^1.8.1",
     "lucide-react": "catalog:",
     "next": "catalog:",
     "next-themes": "catalog:",

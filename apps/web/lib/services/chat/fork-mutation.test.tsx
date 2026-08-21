@@ -7,12 +7,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-const { post } = vi.hoisted(() => ({ post: vi.fn() }));
+const { forkChatEndpoint } = vi.hoisted(() => ({ forkChatEndpoint: vi.fn() }));
 const toastError = vi.hoisted(() => vi.fn());
 
-vi.mock("../../api/client", () => ({
-  api: { post },
-  buildApiUrl: (path: string) => `http://api${path}`,
+vi.mock("../../api/generated/chats/chats", () => ({
+  forkChat: forkChatEndpoint,
+}));
+vi.mock("../../api/fetch", () => ({
+  createAuthenticatedBrowserFetch: () => vi.fn(),
 }));
 vi.mock("@workspace/ui/components/sonner", () => ({
   toast: { error: toastError },
@@ -30,15 +32,13 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 
 afterEach(() => {
-  post.mockReset();
+  forkChatEndpoint.mockReset();
   toastError.mockReset();
 });
 
 describe("useForkChat", () => {
   it("toasts on failure instead of failing silently", async () => {
-    post.mockReturnValue({
-      json: () => Promise.reject(new Error("network down")),
-    });
+    forkChatEndpoint.mockRejectedValue(new Error("network down"));
     const { result } = renderHook(() => useForkChat(), { wrapper });
 
     result.current.mutate({ chatId: "chat-1", fromMessageId: "msg-1" });

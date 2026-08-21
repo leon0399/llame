@@ -63,7 +63,7 @@ import {
 } from "ai";
 import { MessageUsage } from "./message-usage";
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
-import { authAwareFetch } from "@/lib/api/client";
+import { authAwareFetch } from "@/lib/api/fetch";
 import {
   buildChatMessagesUrl,
   NO_MODEL_SELECTED_ERROR,

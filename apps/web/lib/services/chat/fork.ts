@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { api, buildApiUrl } from "../../api/client";
+import { forkChat as forkChatEndpoint } from "../../api/generated/chats/chats";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import { toast } from "@workspace/ui/components/sonner";
 import { chatQueryKeys, type ChatResponse } from "./queries";
 
@@ -10,17 +11,17 @@ import { chatQueryKeys, type ChatResponse } from "./queries";
  * (clone) — the sidebar's "Fork" menu item, as opposed to the per-message
  * "fork from here" action.
  */
-export function forkChat(
+export async function forkChat(
   chatId: string,
   fromMessageId?: string,
 ): Promise<ChatResponse> {
-  return api
-    .post(buildApiUrl(`/api/v1/chats/${chatId}/forks`), {
-      // JSON.stringify drops an undefined property, so an omitted
-      // fromMessageId reaches the API as an absent field, not `null`.
-      json: { fromMessageId },
-    })
-    .json<ChatResponse>();
+  const response = await forkChatEndpoint(
+    chatId,
+    { fromMessageId },
+    undefined,
+    createAuthenticatedBrowserFetch(globalThis.fetch),
+  );
+  return response;
 }
 
 export function useForkChat() {

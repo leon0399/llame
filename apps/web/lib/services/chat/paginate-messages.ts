@@ -13,8 +13,8 @@ export const CHAT_HISTORY_MAX_PAGES = 20;
 
 /**
  * Load a chat's history (up to `maxPages` pages, newest-first walk) by
- * following the `beforeSeq` cursor. `fetchPage` is injected (ky client, SSR
- * raw-fetch, or a test fake), so this loop is pure. Each page is oldest-first;
+ * following the `beforeSeq` cursor. `fetchPage` is injected (browser, SSR raw
+ * fetch, or a test fake), so this loop is pure. Each page is oldest-first;
  * older pages are prepended, yielding a globally oldest→newest array.
  *
  * Generic over any message shape carrying a `seq` cursor (not just the owner

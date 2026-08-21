@@ -1,27 +1,28 @@
 import type { UIMessage } from "ai";
-import { HTTPError } from "ky";
 import {
   queryOptions,
   type QueryFunctionContext,
   useQuery,
 } from "@tanstack/react-query";
 
-import { api, buildApiUrl } from "../../api/client";
+import { getRunContextReceipt, updateRun } from "../../api/generated/runs/runs";
+import type {
+  ContextReceiptResponse,
+  ContextReceiptToolResponse,
+} from "../../api/generated/models";
+import { getApiErrorStatus } from "../../api/errors";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 
-export type ContextReceiptTool = {
-  id: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-};
-
-export type RunContextReceipt = {
-  modelId: string;
-  promptSource: "project_default" | "model_override";
-  systemPrompt: string;
-  tools: ContextReceiptTool[];
-  contentHash: string;
-  createdAt: string;
-};
+export type ContextReceiptTool = ContextReceiptToolResponse;
+export type RunContextReceipt = Pick<
+  ContextReceiptResponse,
+  | "modelId"
+  | "promptSource"
+  | "systemPrompt"
+  | "tools"
+  | "contentHash"
+  | "createdAt"
+>;
 
 export const runQueryKeys = {
   all: ["runs"] as const,
@@ -36,12 +37,11 @@ export function fetchRunContextReceipt({
   queryKey: [, runId],
   signal,
 }: QueryFunctionContext<ContextReceiptQueryKey>): Promise<RunContextReceipt> {
-  return api
-    .get(
-      buildApiUrl(`/api/v1/runs/${encodeURIComponent(runId)}/context-receipt`),
-      { signal },
-    )
-    .json<RunContextReceipt>();
+  return getRunContextReceipt(
+    encodeURIComponent(runId),
+    { signal },
+    createAuthenticatedBrowserFetch(globalThis.fetch),
+  );
 }
 
 export function runContextReceiptQueryOptions(runId: string) {
@@ -87,14 +87,15 @@ export function runIdToCancel(
  */
 export async function cancelRun(runId: string): Promise<void> {
   try {
-    await api.patch(buildApiUrl(`/api/v1/runs/${runId}`), {
-      json: { status: "cancelled" },
-    });
+    await updateRun(
+      runId,
+      { status: "cancelled" },
+      undefined,
+      createAuthenticatedBrowserFetch(globalThis.fetch),
+    );
   } catch (error) {
-    if (
-      error instanceof HTTPError &&
-      (error.response.status === 404 || error.response.status === 409)
-    ) {
+    const status = getApiErrorStatus(error);
+    if (status === 404 || status === 409) {
       return;
     }
     throw error;

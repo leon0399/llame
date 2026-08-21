@@ -1,11 +1,14 @@
 import type { Route } from "next";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
+import { getChatMessages } from "../../api/generated/chats/chats";
+import { getApiErrorStatus } from "../../api/errors";
+import { createServerFetch } from "../../api/fetch";
 import {
-  buildChatMessagesHistoryUrl,
   type ChatHistory,
   type ChatMessagesResponse,
   type Compaction,
+  normalizeChatMessagesResponse,
   toChatUiMessages,
 } from "./history";
 import {
@@ -38,38 +41,38 @@ async function fetchHistoryPage(
   );
 
   try {
-    const response = await fetch(
-      buildChatMessagesHistoryUrl(chatId, {
+    const response = await getChatMessages(
+      encodeURIComponent(chatId),
+      {
         limit: CHAT_HISTORY_PAGE_SIZE,
         ...(beforeSeq !== undefined ? { beforeSeq } : {}),
-      }),
+      },
       {
         headers: { Cookie: `${SESSION_COOKIE_NAME}=${cookieValue}` },
         cache: "no-store",
         signal: controller.signal,
       },
+      createServerFetch(globalThis.fetch),
     );
 
-    if (response.status === 401) {
+    return normalizeChatMessagesResponse(response);
+  } catch (error) {
+    const status = getApiErrorStatus(error);
+
+    if (status === 401) {
       redirect(loginRedirectPath(chatId, phase));
     }
 
-    if (response.status === 400) {
+    if (status === 400) {
       notFound();
     }
 
-    if (response.status === 404) {
+    if (status === 404) {
       if (allowMissing) return null;
       notFound();
     }
 
-    if (!response.ok) {
-      throw new Error(
-        `Failed to load chat ${chatId} history (${response.status})`,
-      );
-    }
-
-    return (await response.json()) as ChatMessagesResponse;
+    throw error;
   } finally {
     clearTimeout(timeoutId);
   }

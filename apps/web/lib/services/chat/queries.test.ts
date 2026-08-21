@@ -1,7 +1,20 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HTTPError, type NormalizedOptions } from "ky";
 import type { ChatHistory } from "./history";
+
+const { getChatMessages, listChats } = vi.hoisted(() => ({
+  getChatMessages: vi.fn(),
+  listChats: vi.fn(),
+}));
+
+vi.mock("../../api/generated/chats/chats", () => ({
+  getChatMessages,
+  listChats,
+}));
+vi.mock("../../api/fetch", () => ({
+  createAuthenticatedBrowserFetch: () => vi.fn(),
+}));
+
 import {
   type ChatResponse,
   chatMessagesQueryOptions,
@@ -12,12 +25,16 @@ import {
   seedChatMessagesQueryData,
 } from "./queries";
 
-function kyHttpError(status: number): HTTPError {
-  return new HTTPError(
-    new Response(null, { status }),
-    new Request("http://localhost/api/v1/chats/chat-1/messages"),
-    {} as NormalizedOptions,
-  );
+function generatedApiError(
+  status: number,
+): Error & { status: number; info: unknown } {
+  const error = new Error(`HTTP ${status}`) as Error & {
+    status: number;
+    info: unknown;
+  };
+  error.status = status;
+  error.info = {};
+  return error;
 }
 
 describe("groupChatsByTimePeriod", () => {
@@ -111,12 +128,12 @@ describe("chat message query options", () => {
       throw new Error("sent-draft recovery must expose a retry predicate");
     }
 
-    const missing = kyHttpError(404);
+    const missing = generatedApiError(404);
     expect(retry(0, missing)).toBe(true);
     expect(retry(1, missing)).toBe(true);
     expect(retry(2, missing)).toBe(false);
-    expect(retry(0, kyHttpError(401))).toBe(false);
-    expect(retry(0, kyHttpError(500))).toBe(false);
+    expect(retry(0, generatedApiError(401))).toBe(false);
+    expect(retry(0, generatedApiError(500))).toBe(false);
     expect(retry(0, new Error("network failure"))).toBe(false);
     expect(options).not.toHaveProperty("retryDelay");
     expect(options).not.toHaveProperty("refetchInterval");
@@ -127,9 +144,9 @@ describe("chat message query options", () => {
     [401, false],
     [500, false],
   ])(
-    "classifies ky HTTP status %s as history absence: %s",
+    "classifies generated HTTP status %s as history absence: %s",
     (status, expected) => {
-      expect(isChatHistoryMissing(kyHttpError(status))).toBe(expected);
+      expect(isChatHistoryMissing(generatedApiError(status))).toBe(expected);
     },
   );
 
@@ -141,13 +158,7 @@ describe("chat message query options", () => {
   );
 
   it("derives the chat message request from the query function context", async () => {
-    const fetchMock = vi.fn<typeof fetch>(async () => {
-      return new Response(JSON.stringify({ messages: [], compaction: null }), {
-        headers: { "content-type": "application/json" },
-        status: 200,
-      });
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    getChatMessages.mockResolvedValue({ messages: [], compaction: null });
 
     const options = chatMessagesQueryOptions("closed-over-chat");
     const queryFn = options.queryFn as (context: {
@@ -161,23 +172,12 @@ describe("chat message query options", () => {
       signal: abortController.signal,
     });
 
-    const firstCall = fetchMock.mock.calls[0];
-    expect(firstCall).toBeDefined();
-
-    const [request, init] = firstCall!;
-    const requestUrl =
-      request instanceof Request ? request.url : String(request);
-    const requestSignal =
-      request instanceof Request ? request.signal : init?.signal;
-
-    expect(requestUrl).toBe(
-      "http://localhost:3001/api/v1/chats/query-key-chat/messages?limit=100",
+    expect(getChatMessages).toHaveBeenCalledWith(
+      "query-key-chat",
+      { limit: 100 },
+      { signal: abortController.signal },
+      expect.any(Function),
     );
-    expect(requestSignal?.aborted).toBe(false);
-
-    abortController.abort();
-
-    expect(requestSignal?.aborted).toBe(true);
   });
 
   it("overwrites stale chat message cache with SSR-provided messages", () => {

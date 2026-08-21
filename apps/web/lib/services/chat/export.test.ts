@@ -2,14 +2,16 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { get, fetchModels } = vi.hoisted(() => ({
-  get: vi.fn(),
+const { getChatMessages, fetchModels } = vi.hoisted(() => ({
+  getChatMessages: vi.fn(),
   fetchModels: vi.fn(),
 }));
 
-vi.mock("../../api/client", () => ({
-  api: { get },
-  buildApiUrl: (path: string) => `http://api${path}`,
+vi.mock("../../api/generated/chats/chats", () => ({
+  getChatMessages,
+}));
+vi.mock("../../api/fetch", () => ({
+  createAuthenticatedBrowserFetch: () => vi.fn(),
 }));
 vi.mock("../models/queries", () => ({
   fetchModels,
@@ -28,7 +30,7 @@ const originalCreateObjectURL = URL.createObjectURL;
 const originalRevokeObjectURL = URL.revokeObjectURL;
 
 afterEach(() => {
-  get.mockReset();
+  getChatMessages.mockReset();
   fetchModels.mockReset();
   vi.useRealTimers();
   URL.createObjectURL = originalCreateObjectURL;
@@ -39,24 +41,21 @@ afterEach(() => {
 describe("exportChatAsMarkdown", () => {
   it("downloads the full history as a Markdown file, deferring the object-URL revoke", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout"] });
-    get.mockReturnValue({
-      json: () =>
-        Promise.resolve({
-          messages: [
-            {
-              id: "m1",
-              chatId: "c1",
-              seq: 1,
-              role: "user",
-              senderUserId: "u1",
-              parts: [{ type: "text", text: "Hi" }],
-              attachments: [],
-              usage: null,
-              inReplyTo: null,
-              createdAt: "2026-01-01T00:00:00.000Z",
-            },
-          ],
-        }),
+    getChatMessages.mockResolvedValue({
+      messages: [
+        {
+          id: "m1",
+          chatId: "c1",
+          seq: 1,
+          role: "user",
+          senderUserId: "u1",
+          parts: [{ type: "text", text: "Hi" }],
+          attachments: [],
+          usage: null,
+          inReplyTo: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
     });
     fetchModels.mockRejectedValue(new Error("models unavailable"));
 
@@ -83,25 +82,22 @@ describe("exportChatAsMarkdown", () => {
 
   it("resolves assistant model names from /models when exporting", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout"] });
-    get.mockImplementation(() => ({
-      json: () =>
-        Promise.resolve({
-          messages: [
-            {
-              id: "m1",
-              chatId: "c1",
-              seq: 1,
-              role: "assistant",
-              senderUserId: null,
-              parts: [{ type: "text", text: "Hi" }],
-              attachments: [],
-              usage: { modelId: "system:openai:gpt-4o" },
-              inReplyTo: null,
-              createdAt: "2026-01-01T00:00:00.000Z",
-            },
-          ],
-        }),
-    }));
+    getChatMessages.mockResolvedValue({
+      messages: [
+        {
+          id: "m1",
+          chatId: "c1",
+          seq: 1,
+          role: "assistant",
+          senderUserId: null,
+          parts: [{ type: "text", text: "Hi" }],
+          attachments: [],
+          usage: { modelId: "system:openai:gpt-4o" },
+          inReplyTo: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
     fetchModels.mockResolvedValue({
       defaultModelId: "system:openai:gpt-4o",
       models: [

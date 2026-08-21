@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { api, buildApiUrl } from "../../api/client";
+import { searchChats as searchChatsEndpoint } from "../../api/generated/chats/chats";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import { chatQueryKeys } from "./queries";
 
 /**
@@ -25,11 +26,11 @@ export async function searchChats(
   q: string,
   signal?: AbortSignal,
 ): Promise<ChatSearchResult[]> {
-  const url = new URL(buildApiUrl("/api/v1/chats/search"));
-  url.searchParams.set("q", q);
-  const { results } = await api
-    .get(url.toString(), { signal })
-    .json<{ results: ChatSearchResult[] }>();
+  const { results } = await searchChatsEndpoint(
+    { q },
+    signal === undefined ? undefined : { signal },
+    createAuthenticatedBrowserFetch(globalThis.fetch),
+  );
   return results;
 }
 

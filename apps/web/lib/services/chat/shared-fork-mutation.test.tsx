@@ -12,12 +12,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-const { post } = vi.hoisted(() => ({ post: vi.fn() }));
+const { forkSharedChatEndpoint } = vi.hoisted(() => ({
+  forkSharedChatEndpoint: vi.fn(),
+}));
 const toastError = vi.hoisted(() => vi.fn());
 
-vi.mock("../../api/client", () => ({
-  api: { post: (...a: unknown[]) => ({ json: () => post(...a) }) },
-  buildApiUrl: (path: string) => `http://api${path}`,
+vi.mock("../../api/generated/chats/chats", () => ({
+  forkSharedChat: forkSharedChatEndpoint,
+}));
+vi.mock("../../api/fetch", () => ({
+  createAuthenticatedBrowserFetch: () => vi.fn(),
 }));
 vi.mock("@workspace/ui/components/sonner", () => ({
   toast: { error: toastError },
@@ -35,13 +39,13 @@ function makeWrapper(queryClient: QueryClient) {
 }
 
 afterEach(() => {
-  post.mockReset();
+  forkSharedChatEndpoint.mockReset();
   toastError.mockReset();
 });
 
 describe("useForkSharedChat", () => {
   it("toasts on failure instead of failing silently", async () => {
-    post.mockRejectedValue(new Error("network down"));
+    forkSharedChatEndpoint.mockRejectedValue(new Error("network down"));
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -61,7 +65,7 @@ describe("useForkSharedChat", () => {
   });
 
   it("invalidates the chat list on success, so the new chat appears without a refresh", async () => {
-    post.mockResolvedValue({ id: "new-chat" });
+    forkSharedChatEndpoint.mockResolvedValue({ id: "new-chat" });
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
