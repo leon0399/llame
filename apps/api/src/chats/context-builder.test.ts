@@ -576,6 +576,119 @@ describe('buildContext', () => {
     });
   });
 
+  describe('per-run record of injected items', () => {
+    const switchItem = {
+      type: 'data-context',
+      data: {
+        v: 1,
+        producer: 'effective-context-change',
+        form: 'notice',
+        runId: '11111111-1111-4111-8111-111111111111',
+        payload: {
+          cause: 'model',
+          fromModelId: 'system:openai:old',
+          toModelId: 'system:openai:new',
+        },
+      },
+    } as const;
+
+    it('records each rendered item with its producer, form, and residency', () => {
+      const triggering = msg({
+        seq: 1,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [switchItem, { type: 'text', text: 'Continue.' }],
+      });
+
+      const result = buildContext([triggering], { systemPrompt });
+
+      expect(result.contextItems).toHaveLength(1);
+      expect(result.contextItems[0]).toMatchObject({
+        producer: 'effective-context-change',
+        form: 'notice',
+        residency: 'rail',
+      });
+      expect(result.contextItems[0].text).toContain('The active model changed');
+      // What was recorded is exactly what the model was sent, not a
+      // reconstruction: an item's wording is not reproducible from its part
+      // once a renderer changes.
+      expect(result.contextItems[0].text).toBe(
+        contentText(result.messages[0].content).split('\n\n')[0],
+      );
+    });
+
+    it('records the compaction checkpoint, which nothing else can reconstruct', () => {
+      const later = msg({
+        seq: 9,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [{ type: 'text', text: 'after the checkpoint' }],
+      });
+
+      const result = buildContext([later], {
+        systemPrompt,
+        compaction: { summary: 'earlier history', uptoSeq: 8 },
+      });
+
+      // Bind-time: unlike a persisted-derived item it cannot be rebuilt from
+      // anything later, so omitting it would leave every compacted run with a
+      // permanently incomplete record.
+      expect(result.contextItems[0]).toMatchObject({
+        producer: 'compaction',
+        form: 'checkpoint',
+        residency: 'rail',
+      });
+      expect(result.contextItems[0].text).toBe(result.messages[0].content);
+    });
+
+    it('records an item it cannot interpret, with empty text marking the omission', () => {
+      const unknown = msg({
+        seq: 2,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [
+          {
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'from-a-newer-api',
+              form: 'notice',
+              runId: '11111111-1111-4111-8111-111111111111',
+              payload: { anything: true },
+            },
+          },
+          { type: 'text', text: 'Continue.' },
+        ],
+      });
+
+      const result = buildContext([unknown], { systemPrompt });
+
+      // Renders as nothing to the model, but is still recorded: dropping it
+      // would turn a declared fail-closed omission into an undetectable
+      // version-skew loss, which is the opposite of what the record is for.
+      expect(result.contextItems).toEqual([
+        {
+          producer: 'from-a-newer-api',
+          form: 'notice',
+          residency: 'rail',
+          text: '',
+        },
+      ]);
+      expect(contentText(result.messages[0].content)).toBe('Continue.');
+    });
+
+    it('records an empty list for a turn that injected nothing', () => {
+      const plain = msg({
+        seq: 3,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [{ type: 'text', text: 'Just a question.' }],
+      });
+
+      expect(buildContext([plain], { systemPrompt }).contextItems).toEqual([]);
+    });
+  });
+
   describe('untrusted rails cannot forge an item', () => {
     it('escapes a reserved delimiter in the user\u2019s own text without changing the stored row', () => {
       const parts: MessagePart[] = [

@@ -15,6 +15,7 @@ import {
   runEvents,
   runs,
   type Run,
+  type RunContextItem,
   type RunEvent,
   type RunStatus,
 } from '../db/schema';
@@ -252,6 +253,31 @@ export class RunsRepository {
    * Returns the updated run, or undefined when the guard (or scope) missed —
    * the caller disambiguates terminal vs. missing with a follow-up read.
    */
+  /**
+   * Record what this run injected on the context rail, as rendered.
+   *
+   * Owner-scoped like every other write here, and idempotent: a retry rebuilds
+   * the same items for a persisted-derived producer and overwrites with an
+   * equal value. Never widens the run's status.
+   *
+   * Returns the updated row like every sibling mutator, because this column is
+   * the authority for what a past run injected: an owner-scoped WHERE that
+   * matched nothing would otherwise commit successfully while the authority
+   * silently held no record — the exact failure the column exists to prevent.
+   */
+  async recordContextItems(
+    runId: string,
+    userId: string,
+    items: RunContextItem[],
+  ): Promise<Run | undefined> {
+    const [updated] = await this.db
+      .update(runs)
+      .set({ contextItems: items })
+      .where(and(eq(runs.id, runId), eq(runs.userId, userId)))
+      .returning();
+    return updated;
+  }
+
   async requestCancel(runId: string, userId: string): Promise<Run | undefined> {
     const [updated] = await this.db
       .update(runs)
