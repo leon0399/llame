@@ -64,17 +64,7 @@ This list was compiled on {{chats.compiledOn}} and may be older than the current
 ### Pinned chats
 
 {{#each chats.pinned}}
-Title: {{title}};
-Last activity: {{date}};
-Messages at compilation: {{messageCount}}
-{{#if excerpt}}
-Opening excerpt:
-
-```text
-{{excerpt}}
-```
-
-{{/if}}
+Title: {{title}}; Last activity: {{date}}; Messages at compilation: {{messageCount}}{{#if excerpt}}; Opening excerpt: {{excerpt}}{{/if}}
 {{/each}}
 {{/if}}
 {{#if chats.recent}}

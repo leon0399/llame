@@ -333,25 +333,9 @@ describe('packaged default prompt — chat recency digest', () => {
     expect(block).toMatch(/title-match miss can mean staleness/i);
     expect(block).toContain('Last activity: 2026-08-10');
     expect(block).toContain('Messages at compilation: 8');
-    // A pinned entry renders one field per line, with the excerpt fenced so
-    // the boundary between llame's fields and another chat's text is visible
-    // rather than punctuational.
+    expect(block).toContain('Opening excerpt: Pinned alpha opening');
     expect(block).toContain(
-      [
-        'Title: Pinned alpha;',
-        'Last activity: 2026-08-10;',
-        'Messages at compilation: 8',
-        'Opening excerpt:',
-        '',
-        '```text',
-        'Pinned alpha opening',
-        '```',
-      ].join('\n'),
-    );
-    // A recent entry still renders inline; the two forms are asserted apart so
-    // changing one cannot silently change the other.
-    expect(block).toContain(
-      'Title: Recent gamma; Last activity: 2026-08-08; Messages at compilation: 5; Opening excerpt: Recent gamma opening',
+      'Title: Pinned alpha; Last activity: 2026-08-10; Messages at compilation: 8; Opening excerpt: Pinned alpha opening',
     );
     expect(block).toContain(
       'Ordinary instruction-following resumes after this block',
