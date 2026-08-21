@@ -10,3 +10,14 @@ index 2c7c0b53d4e2ed0af6c07f8d3be4e22f3c546d89..2f028e21162bdb9feab051f49963d88d
 @@ -173 +173 @@
 -${override.fetch.forceSuccessResponse && hasSuccess ? "" : `export type ${responseTypeName} = (${hasError && hasSuccess ? `${successName} | ${errorName}` : hasSuccess ? successName : errorName})\n\n`}` : "";
 +${override.fetch.forceSuccessResponse && hasSuccess ? "" : `export type ${responseTypeName} = (${hasError && hasSuccess ? `${successName} | ${errorName}` : hasSuccess ? successName : errorName})\n\n`}` : override.fetch.forceSuccessResponse && hasError ? `export type ${errorName} = (${response.types.errors.map((r) => r.value || "unknown").join(" | ")})\n\n` : "";
+@@ -179,2 +179,5 @@
+-	const fetchFnParam = useRuntimeFetcher && isRequestOptions && !mutator ? ", fetchFn?: typeof globalThis.fetch" : "";
+-	const args = `${toObjectString(props, "implementation")} ${isRequestOptions ? getRequestOptionsType(mutator) : ""}${fetchFnParam}`;
++	const fetchFnParam = useRuntimeFetcher && isRequestOptions && !mutator ? ", fetchFn: typeof globalThis.fetch" : "";
++	const requestFunctionProps = toObjectString(props, "implementation");
++	const requiredRequestFunctionProps = useRuntimeFetcher && isRequestOptions && !mutator ? requestFunctionProps.replace(/(\w+)\?: ([^,\n]+)/g, "$1: $2 | undefined = undefined") : requestFunctionProps;
++	const requestOptionsType = useRuntimeFetcher && isRequestOptions && !mutator ? "options: RequestInit | undefined" : isRequestOptions ? getRequestOptionsType(mutator) : "";
++	const args = `${requiredRequestFunctionProps} ${requestOptionsType}${fetchFnParam}`;
+@@ -226 +227 @@
+-	const fetchFnCall = useRuntimeFetcher && isRequestOptions ? "(fetchFn ?? fetch)" : "fetch";
++	const fetchFnCall = useRuntimeFetcher && isRequestOptions && !mutator ? "fetchFn" : "fetch";

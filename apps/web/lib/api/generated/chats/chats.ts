@@ -38,11 +38,11 @@ export const getListChatsUrl = (params?: ListChatsParams) => {
 };
 
 export const listChats = async (
-  params?: ListChatsParams,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  params: ListChatsParams | undefined = undefined,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ChatListItemResponse[]> => {
-  const res = await (fetchFn ?? fetch)(getListChatsUrl(params), {
+  const res = await fetchFn(getListChatsUrl(params), {
     ...options,
     method: "GET",
   });
@@ -80,10 +80,10 @@ export const getSearchChatsUrl = (params: SearchChatsParams) => {
 
 export const searchChats = async (
   params: SearchChatsParams,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ChatSearchResponse> => {
-  const res = await (fetchFn ?? fetch)(getSearchChatsUrl(params), {
+  const res = await fetchFn(getSearchChatsUrl(params), {
     ...options,
     method: "GET",
   });
@@ -109,10 +109,10 @@ export const getGetChatUrl = (id: string) => {
 
 export const getChat = async (
   id: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ChatResponse> => {
-  const res = await (fetchFn ?? fetch)(getGetChatUrl(id), {
+  const res = await fetchFn(getGetChatUrl(id), {
     ...options,
     method: "GET",
   });
@@ -139,10 +139,10 @@ export const getUpdateChatUrl = (id: string) => {
 export const updateChat = async (
   id: string,
   updateChatDto: UpdateChatDto,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ChatResponse> => {
-  const res = await (fetchFn ?? fetch)(getUpdateChatUrl(id), {
+  const res = await fetchFn(getUpdateChatUrl(id), {
     ...options,
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -170,10 +170,10 @@ export const getDeleteChatUrl = (id: string) => {
 
 export const deleteChat = async (
   id: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<void> => {
-  const res = await (fetchFn ?? fetch)(getDeleteChatUrl(id), {
+  const res = await fetchFn(getDeleteChatUrl(id), {
     ...options,
     method: "DELETE",
   });
@@ -214,11 +214,11 @@ export const getGetChatMessagesUrl = (
 
 export const getChatMessages = async (
   id: string,
-  params?: GetChatMessagesParams,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  params: GetChatMessagesParams | undefined = undefined,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ChatMessagesResponse> => {
-  const res = await (fetchFn ?? fetch)(getGetChatMessagesUrl(id, params), {
+  const res = await fetchFn(getGetChatMessagesUrl(id, params), {
     ...options,
     method: "GET",
   });
@@ -247,10 +247,10 @@ export const getForkChatUrl = (id: string) => {
 export const forkChat = async (
   id: string,
   forkChatDto: ForkChatDto,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ChatResponse> => {
-  const res = await (fetchFn ?? fetch)(getForkChatUrl(id), {
+  const res = await fetchFn(getForkChatUrl(id), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -293,11 +293,11 @@ export const getGetSharedChatUrl = (
 
 export const getSharedChat = async (
   id: string,
-  params?: GetSharedChatParams,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  params: GetSharedChatParams | undefined = undefined,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<SharedChatResponse> => {
-  const res = await (fetchFn ?? fetch)(getGetSharedChatUrl(id, params), {
+  const res = await fetchFn(getGetSharedChatUrl(id, params), {
     ...options,
     method: "GET",
   });
@@ -325,10 +325,10 @@ export const getForkSharedChatUrl = (id: string) => {
 
 export const forkSharedChat = async (
   id: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ChatResponse> => {
-  const res = await (fetchFn ?? fetch)(getForkSharedChatUrl(id), {
+  const res = await fetchFn(getForkSharedChatUrl(id), {
     ...options,
     method: "POST",
   });

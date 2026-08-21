@@ -19,10 +19,10 @@ export const getGetRunUrl = (id: string) => {
 
 export const getRun = async (
   id: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<RunResponse> => {
-  const res = await (fetchFn ?? fetch)(getGetRunUrl(id), {
+  const res = await fetchFn(getGetRunUrl(id), {
     ...options,
     method: "GET",
   });
@@ -49,10 +49,10 @@ export const getUpdateRunUrl = (id: string) => {
 export const updateRun = async (
   id: string,
   updateRunDto: UpdateRunDto,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<RunResponse> => {
-  const res = await (fetchFn ?? fetch)(getUpdateRunUrl(id), {
+  const res = await fetchFn(getUpdateRunUrl(id), {
     ...options,
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -80,10 +80,10 @@ export const getGetRunContextReceiptUrl = (id: string) => {
 
 export const getRunContextReceipt = async (
   id: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ContextReceiptResponse> => {
-  const res = await (fetchFn ?? fetch)(getGetRunContextReceiptUrl(id), {
+  const res = await fetchFn(getGetRunContextReceiptUrl(id), {
     ...options,
     method: "GET",
   });

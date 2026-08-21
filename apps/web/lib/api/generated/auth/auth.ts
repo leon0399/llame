@@ -24,10 +24,10 @@ export const getRegisterUserUrl = () => {
 
 export const registerUser = async (
   registerDto: RegisterDto,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<AuthTokenResponse> => {
-  const res = await (fetchFn ?? fetch)(getRegisterUserUrl(), {
+  const res = await fetchFn(getRegisterUserUrl(), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -57,10 +57,10 @@ export const getLoginUserUrl = () => {
 
 export const loginUser = async (
   loginDto: LoginDto,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<AuthTokenResponse> => {
-  const res = await (fetchFn ?? fetch)(getLoginUserUrl(), {
+  const res = await fetchFn(getLoginUserUrl(), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -87,10 +87,10 @@ export const getGetCurrentUserUrl = () => {
 };
 
 export const getCurrentUser = async (
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<PublicUserResponse> => {
-  const res = await (fetchFn ?? fetch)(getGetCurrentUserUrl(), {
+  const res = await fetchFn(getGetCurrentUserUrl(), {
     ...options,
     method: "GET",
   });
@@ -117,10 +117,10 @@ export const getListSessionsUrl = () => {
 };
 
 export const listSessions = async (
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<SessionsResponse> => {
-  const res = await (fetchFn ?? fetch)(getListSessionsUrl(), {
+  const res = await fetchFn(getListSessionsUrl(), {
     ...options,
     method: "GET",
   });
@@ -159,11 +159,11 @@ export const getRevokeSessionsUrl = (params?: RevokeSessionsParams) => {
 };
 
 export const revokeSessions = async (
-  params?: RevokeSessionsParams,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  params: RevokeSessionsParams | undefined = undefined,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<SessionRevocationResponse> => {
-  const res = await (fetchFn ?? fetch)(getRevokeSessionsUrl(params), {
+  const res = await fetchFn(getRevokeSessionsUrl(params), {
     ...options,
     method: "DELETE",
   });
@@ -190,10 +190,10 @@ export const getGetCurrentSessionUrl = () => {
 };
 
 export const getCurrentSession = async (
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<SessionResponse> => {
-  const res = await (fetchFn ?? fetch)(getGetCurrentSessionUrl(), {
+  const res = await fetchFn(getGetCurrentSessionUrl(), {
     ...options,
     method: "GET",
   });
@@ -220,10 +220,10 @@ export const getLogoutUserUrl = () => {
 };
 
 export const logoutUser = async (
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<SessionRevocationResponse> => {
-  const res = await (fetchFn ?? fetch)(getLogoutUserUrl(), {
+  const res = await fetchFn(getLogoutUserUrl(), {
     ...options,
     method: "DELETE",
   });
@@ -249,10 +249,10 @@ export const getRevokeSessionUrl = (id: string) => {
 
 export const revokeSession = async (
   id: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<SessionRevocationResponse> => {
-  const res = await (fetchFn ?? fetch)(getRevokeSessionUrl(id), {
+  const res = await fetchFn(getRevokeSessionUrl(id), {
     ...options,
     method: "DELETE",
   });

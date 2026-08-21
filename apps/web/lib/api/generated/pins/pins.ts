@@ -17,10 +17,10 @@ export const getListPinsUrl = () => {
 };
 
 export const listPins = async (
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<(ChatPinnedItemResponse | ProjectPinnedItemResponse)[]> => {
-  const res = await (fetchFn ?? fetch)(getListPinsUrl(), {
+  const res = await fetchFn(getListPinsUrl(), {
     ...options,
     method: "GET",
   });
@@ -49,10 +49,10 @@ export const getPinItemUrl = (itemType: "chat" | "project", itemId: string) => {
 export const pinItem = async (
   itemType: "chat" | "project",
   itemId: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ChatPinnedItemResponse | ProjectPinnedItemResponse> => {
-  const res = await (fetchFn ?? fetch)(getPinItemUrl(itemType, itemId), {
+  const res = await fetchFn(getPinItemUrl(itemType, itemId), {
     ...options,
     method: "PUT",
   });
@@ -84,10 +84,10 @@ export const getUnpinItemUrl = (
 export const unpinItem = async (
   itemType: "chat" | "project",
   itemId: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<void> => {
-  const res = await (fetchFn ?? fetch)(getUnpinItemUrl(itemType, itemId), {
+  const res = await fetchFn(getUnpinItemUrl(itemType, itemId), {
     ...options,
     method: "DELETE",
   });

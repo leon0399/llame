@@ -27,10 +27,10 @@ export const getListActiveRunsUrl = (params: ListActiveRunsParams) => {
 
 export const listActiveRuns = async (
   params: ListActiveRunsParams,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ActiveRunResponse[]> => {
-  const res = await (fetchFn ?? fetch)(getListActiveRunsUrl(params), {
+  const res = await fetchFn(getListActiveRunsUrl(params), {
     ...options,
     method: "GET",
   });

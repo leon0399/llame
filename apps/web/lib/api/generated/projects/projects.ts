@@ -20,10 +20,10 @@ export const getCreateProjectUrl = () => {
 
 export const createProject = async (
   createProjectDto: CreateProjectDto,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ProjectResponse> => {
-  const res = await (fetchFn ?? fetch)(getCreateProjectUrl(), {
+  const res = await fetchFn(getCreateProjectUrl(), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -64,11 +64,11 @@ export const getListProjectsUrl = (params?: ListProjectsParams) => {
 };
 
 export const listProjects = async (
-  params?: ListProjectsParams,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  params: ListProjectsParams | undefined = undefined,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ProjectResponse[]> => {
-  const res = await (fetchFn ?? fetch)(getListProjectsUrl(params), {
+  const res = await fetchFn(getListProjectsUrl(params), {
     ...options,
     method: "GET",
   });
@@ -96,10 +96,10 @@ export const getGetProjectUrl = (id: string) => {
 
 export const getProject = async (
   id: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ProjectResponse> => {
-  const res = await (fetchFn ?? fetch)(getGetProjectUrl(id), {
+  const res = await fetchFn(getGetProjectUrl(id), {
     ...options,
     method: "GET",
   });
@@ -126,10 +126,10 @@ export const getUpdateProjectUrl = (id: string) => {
 export const updateProject = async (
   id: string,
   updateProjectDto: UpdateProjectDto,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ProjectResponse> => {
-  const res = await (fetchFn ?? fetch)(getUpdateProjectUrl(id), {
+  const res = await fetchFn(getUpdateProjectUrl(id), {
     ...options,
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -159,10 +159,10 @@ export const getDeleteProjectUrl = (id: string) => {
 
 export const deleteProject = async (
   id: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<void> => {
-  const res = await (fetchFn ?? fetch)(getDeleteProjectUrl(id), {
+  const res = await fetchFn(getDeleteProjectUrl(id), {
     ...options,
     method: "DELETE",
   });

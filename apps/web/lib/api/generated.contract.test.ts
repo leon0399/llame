@@ -241,4 +241,36 @@ describe("generated API contract", () => {
       expect.objectContaining({ method: "GET" }),
     );
   });
+
+  it("requires an injected fetch policy in generated endpoint signatures", () => {
+    const endpointSource = generatedTypeScriptFiles(generatedRoot)
+      .filter((file) => !file.includes("/models/"))
+      .map((file) => readFileSync(file, "utf8"))
+      .join("\n");
+
+    expect(endpointSource).toMatch(
+      /options: RequestInit \| undefined,\n  fetchFn: typeof globalThis\.fetch/,
+    );
+    expect(endpointSource).not.toMatch(/fetchFn\?: typeof globalThis\.fetch/);
+    expect(endpointSource).not.toContain("fetchFn ?? fetch");
+
+    const callWithoutFetch = () => {
+      // @ts-expect-error Generated endpoints require the runtime Fetch policy.
+      return listPins(undefined);
+    };
+    expect(callWithoutFetch).toBeTypeOf("function");
+  });
+
+  it("fails closed when the generated endpoint fetch policy is omitted", async () => {
+    const globalFetch = vi.spyOn(globalThis, "fetch");
+
+    try {
+      await expect(
+        Reflect.apply(listPins, undefined, [undefined, undefined]),
+      ).rejects.toThrow(TypeError);
+      expect(globalFetch).not.toHaveBeenCalled();
+    } finally {
+      globalFetch.mockRestore();
+    }
+  });
 });

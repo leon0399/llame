@@ -17,10 +17,10 @@ export const getGetPersonalizationUrl = () => {
 };
 
 export const getPersonalization = async (
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<PersonalizationResponse> => {
-  const res = await (fetchFn ?? fetch)(getGetPersonalizationUrl(), {
+  const res = await fetchFn(getGetPersonalizationUrl(), {
     ...options,
     method: "GET",
   });
@@ -48,10 +48,10 @@ export const getUpdatePersonalizationUrl = () => {
 
 export const updatePersonalization = async (
   updatePersonalizationDto: UpdatePersonalizationDto,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<PersonalizationResponse> => {
-  const res = await (fetchFn ?? fetch)(getUpdatePersonalizationUrl(), {
+  const res = await fetchFn(getUpdatePersonalizationUrl(), {
     ...options,
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },

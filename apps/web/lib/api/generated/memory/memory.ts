@@ -14,10 +14,10 @@ export const getGetMemoryUrl = () => {
 };
 
 export const getMemory = async (
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<MemoryResponse> => {
-  const res = await (fetchFn ?? fetch)(getGetMemoryUrl(), {
+  const res = await fetchFn(getGetMemoryUrl(), {
     ...options,
     method: "GET",
   });
@@ -43,10 +43,10 @@ export const getUpdateMemoryUrl = () => {
 
 export const updateMemory = async (
   updateMemoryDto: UpdateMemoryDto,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<MemoryResponse> => {
-  const res = await (fetchFn ?? fetch)(getUpdateMemoryUrl(), {
+  const res = await fetchFn(getUpdateMemoryUrl(), {
     ...options,
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },

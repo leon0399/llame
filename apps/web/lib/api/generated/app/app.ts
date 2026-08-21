@@ -11,10 +11,10 @@ export const getGetHealthUrl = () => {
 };
 
 export const getHealth = async (
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<void> => {
-  const res = await (fetchFn ?? fetch)(getGetHealthUrl(), {
+  const res = await fetchFn(getGetHealthUrl(), {
     ...options,
     method: "GET",
   });

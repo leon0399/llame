@@ -25,10 +25,10 @@ export const getCreateRootOrgUnitUrl = () => {
 
 export const createRootOrgUnit = async (
   createOrgUnitDto: CreateOrgUnitDto,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<OrgUnitResponse> => {
-  const res = await (fetchFn ?? fetch)(getCreateRootOrgUnitUrl(), {
+  const res = await fetchFn(getCreateRootOrgUnitUrl(), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -57,10 +57,10 @@ export const getListOrgUnitsUrl = () => {
 };
 
 export const listOrgUnits = async (
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<OrgUnitResponse[]> => {
-  const res = await (fetchFn ?? fetch)(getListOrgUnitsUrl(), {
+  const res = await fetchFn(getListOrgUnitsUrl(), {
     ...options,
     method: "GET",
   });
@@ -90,10 +90,10 @@ export const getCreateChildOrgUnitUrl = (id: string) => {
 export const createChildOrgUnit = async (
   id: string,
   createOrgUnitDto: CreateOrgUnitDto,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<OrgUnitResponse> => {
-  const res = await (fetchFn ?? fetch)(getCreateChildOrgUnitUrl(id), {
+  const res = await fetchFn(getCreateChildOrgUnitUrl(id), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -123,10 +123,10 @@ export const getGetOrgUnitUrl = (id: string) => {
 
 export const getOrgUnit = async (
   id: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<OrgUnitResponse> => {
-  const res = await (fetchFn ?? fetch)(getGetOrgUnitUrl(id), {
+  const res = await fetchFn(getGetOrgUnitUrl(id), {
     ...options,
     method: "GET",
   });
@@ -158,10 +158,10 @@ export const getUpdateOrgUnitUrl = (id: string) => {
 export const updateOrgUnit = async (
   id: string,
   updateOrgUnitDto: UpdateOrgUnitDto,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<OrgUnitResponse> => {
-  const res = await (fetchFn ?? fetch)(getUpdateOrgUnitUrl(id), {
+  const res = await fetchFn(getUpdateOrgUnitUrl(id), {
     ...options,
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -192,10 +192,10 @@ export const getDeleteOrgUnitUrl = (id: string) => {
 
 export const deleteOrgUnit = async (
   id: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<void> => {
-  const res = await (fetchFn ?? fetch)(getDeleteOrgUnitUrl(id), {
+  const res = await fetchFn(getDeleteOrgUnitUrl(id), {
     ...options,
     method: "DELETE",
   });
@@ -223,10 +223,10 @@ export const getListOrgUnitMembershipsUrl = (id: string) => {
 
 export const listOrgUnitMemberships = async (
   id: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<MembershipResponse[]> => {
-  const res = await (fetchFn ?? fetch)(getListOrgUnitMembershipsUrl(id), {
+  const res = await fetchFn(getListOrgUnitMembershipsUrl(id), {
     ...options,
     method: "GET",
   });
@@ -256,10 +256,10 @@ export const getGrantOrgUnitMembershipUrl = (id: string) => {
 export const grantOrgUnitMembership = async (
   id: string,
   grantMembershipDto: GrantMembershipDto,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<void> => {
-  const res = await (fetchFn ?? fetch)(getGrantOrgUnitMembershipUrl(id), {
+  const res = await fetchFn(getGrantOrgUnitMembershipUrl(id), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -295,18 +295,15 @@ export const changeOrgUnitMembershipRole = async (
   id: string,
   userId: string,
   changeMembershipRoleDto: ChangeMembershipRoleDto,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<MembershipResponse> => {
-  const res = await (fetchFn ?? fetch)(
-    getChangeOrgUnitMembershipRoleUrl(id, userId),
-    {
-      ...options,
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", ...options?.headers },
-      body: JSON.stringify(changeMembershipRoleDto),
-    },
-  );
+  const res = await fetchFn(getChangeOrgUnitMembershipRoleUrl(id, userId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(changeMembershipRoleDto),
+  });
 
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
@@ -333,16 +330,13 @@ export const getRevokeOrgUnitMembershipUrl = (id: string, userId: string) => {
 export const revokeOrgUnitMembership = async (
   id: string,
   userId: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<void> => {
-  const res = await (fetchFn ?? fetch)(
-    getRevokeOrgUnitMembershipUrl(id, userId),
-    {
-      ...options,
-      method: "DELETE",
-    },
-  );
+  const res = await fetchFn(getRevokeOrgUnitMembershipUrl(id, userId), {
+    ...options,
+    method: "DELETE",
+  });
 
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
@@ -367,10 +361,10 @@ export const getGetMyOrgUnitEffectiveRoleUrl = (id: string) => {
 
 export const getMyOrgUnitEffectiveRole = async (
   id: string,
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<EffectiveRoleResponse> => {
-  const res = await (fetchFn ?? fetch)(getGetMyOrgUnitEffectiveRoleUrl(id), {
+  const res = await fetchFn(getGetMyOrgUnitEffectiveRoleUrl(id), {
     ...options,
     method: "GET",
   });

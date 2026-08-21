@@ -14,10 +14,10 @@ export const getListModelsUrl = () => {
 };
 
 export const listModels = async (
-  options?: RequestInit,
-  fetchFn?: typeof globalThis.fetch,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
 ): Promise<ModelsResponse> => {
-  const res = await (fetchFn ?? fetch)(getListModelsUrl(), {
+  const res = await fetchFn(getListModelsUrl(), {
     ...options,
     method: "GET",
   });
