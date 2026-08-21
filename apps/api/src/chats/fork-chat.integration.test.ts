@@ -141,10 +141,13 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     expect(copied.map((m) => textOf(m.parts))).toEqual(['q1', 'a1']);
     // A turn's temporal row travels with it: the copy records when the
     // ORIGINAL turn was received, which is what it is a copy of.
-    expect(copied[0].parts[0]).toMatchObject({
+    expect(copied[0].parts[0]).toEqual({
       type: 'data-context',
       data: {
+        v: 1,
         producer: 'temporal',
+        form: 'snapshot',
+        runId: '11111111-2222-4333-8444-555555555555',
         payload: {
           instant: '2026-08-19T16:36:00.000Z',
           timeZone: 'Europe/Madrid',

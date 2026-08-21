@@ -52,6 +52,8 @@ describe('temporal payload validation', () => {
     ['a calendar date only', { instant: '2026-08-19' }],
     ['an unknown timezone', { timeZone: 'Mars/Olympus' }],
     ['a UTC offset in place of a zone', { timeZone: '+02:00' }],
+    ['a calendar-invalid date', { instant: '2026-02-30T16:36:00.000Z' }],
+    ['an out-of-range hour', { instant: '2026-08-19T24:36:00.000Z' }],
     ['a non-string instant', { instant: 1_755_620_160_000 }],
   ])('rejects %s', (_label, override) => {
     expect(

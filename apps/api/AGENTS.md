@@ -346,8 +346,12 @@ Three properties are load-bearing and easy to break:
   provider's prefix cache valid across turns. That byte-identity is the entire
   reason this row is stored rather than computed per request.
 - The zone must be an **IANA identifier**: `Intl` also accepts a bare UTC offset
-  (`+02:00`), which carries no daylight-saving rule, so the validator requires a
-  leading letter as well as `Intl` acceptance.
+  (`+02:00`), which carries no daylight-saving rule. `resolveInstanceTimezone`
+  rejects an offset at the source — a POSIX `TZ` such as `GMT+2` really does
+  resolve to `+02:00`, and stamping it would both mis-render half the year and
+  break the IANA identifier the anchor promises — falling back to UTC with the
+  same logged warning as a degenerate zone. The producer revalidates anyway,
+  because a persisted row is checked on every replay.
 
 The rows are ordinary turn content: they are superseded with the turns a
 checkpoint absorbs, and `COMPACTION_INSTRUCTION` deliberately says nothing about

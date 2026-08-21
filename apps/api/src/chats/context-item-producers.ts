@@ -25,7 +25,10 @@ import {
 } from './context-item';
 import { compareCodePoints } from '../canonical-json';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
-import { formatTemporalAnchor } from '../prompts/temporal-anchor';
+import {
+  formatTemporalAnchor,
+  isIanaTimeZone,
+} from '../prompts/temporal-anchor';
 import { type RecencyDigestEntry } from '../db/schema';
 import { isToolId } from '../tools/tool-id';
 import {
@@ -597,20 +600,21 @@ export interface TemporalPayload extends UnknownRecord {
 const ISO_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 /**
- * A zone is known when `Intl` accepts it; there is no allowlist to drift from
- * the runtime's own tz database. `Intl` throws `RangeError` for an unknown
- * identifier, which is the check.
+ * A zone is known when it names an IANA identifier `Intl` accepts; there is no
+ * allowlist to drift from the runtime's own tz database. `Intl` throws
+ * `RangeError` for an unknown identifier, which is the second check.
  *
- * The leading-letter test is NOT redundant: ECMA-402 also accepts a UTC offset
- * string (`+02:00`) as a time zone, and an offset is exactly what an IANA
- * identifier is required for — it carries no daylight-saving rule, so a row
- * stored with one would render a wrong wall-clock time for half the year.
+ * The identifier test is not redundant with `Intl` acceptance — ECMA-402 also
+ * accepts a bare UTC offset — and it stays here as defense in depth even now
+ * that `resolveInstanceTimezone` rejects an offset at the source: a persisted
+ * row revalidates on every replay, where the value's provenance is whatever
+ * the column holds.
  */
 const knownTimeZones = new Set<string>();
 
 function isKnownTimeZone(value: string): boolean {
   if (knownTimeZones.has(value)) return true;
-  if (!/^[A-Za-z]/.test(value)) return false;
+  if (!isIanaTimeZone(value)) return false;
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: value });
   } catch {
@@ -625,13 +629,17 @@ function isKnownTimeZone(value: string): boolean {
 export function isTemporalPayload(value: unknown): value is TemporalPayload {
   if (!isExactRecord(value, ['instant', 'timeZone'])) return false;
   const { instant, timeZone } = value;
-  return (
-    isString(instant) &&
-    ISO_INSTANT_PATTERN.test(instant) &&
-    !Number.isNaN(Date.parse(instant)) &&
-    isString(timeZone) &&
-    isKnownTimeZone(timeZone)
-  );
+  if (!isString(instant) || !ISO_INSTANT_PATTERN.test(instant)) return false;
+  // Round-trip rather than `Date.parse`, which silently rolls a calendar-
+  // invalid date forward: `2026-02-30T…` parses to March 2, so a corrupted row
+  // would render a plausible wrong date instead of nothing at all. The NaN
+  // guard comes first because `toISOString` THROWS on an invalid date rather
+  // than returning something that fails the comparison.
+  const parsed = new Date(instant);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== instant) {
+    return false;
+  }
+  return isString(timeZone) && isKnownTimeZone(timeZone);
 }
 
 export function createTemporalItem(input: {

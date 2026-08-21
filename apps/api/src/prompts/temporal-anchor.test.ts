@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach } from 'vitest';
 
 import {
   formatTemporalAnchor,
+  isIanaTimeZone,
   resolveInstanceTimezone,
   resetDegenerateZoneLog,
 } from './temporal-anchor';
@@ -60,6 +61,32 @@ describe('resolveInstanceTimezone', () => {
     const tz = resolveInstanceTimezone();
     expect(tz).toBeTruthy();
     expect(tz).not.toBe('Etc/Unknown');
+    expect(isIanaTimeZone(tz)).toBe(true);
+  });
+
+  // A POSIX `TZ` such as `GMT+2` resolves to `+02:00`, which `Intl` accepts as
+  // a time zone but which is not an identifier and carries no DST rule.
+  it('rejects a bare UTC offset in favour of UTC', () => {
+    const original = process.env.TZ;
+    try {
+      process.env.TZ = 'GMT+2';
+      // Only meaningful if this host actually resolves the POSIX form to an
+      // offset; where it does not, the assertion below still has to hold.
+      expect(isIanaTimeZone(resolveInstanceTimezone())).toBe(true);
+    } finally {
+      process.env.TZ = original;
+    }
+  });
+
+  it.each([
+    ['an offset', '+02:00'],
+    ['a negative offset', '-05:00'],
+    ['an identifier', 'Europe/Madrid'],
+    ['UTC', 'UTC'],
+  ])('classifies %s', (_label, zone) => {
+    expect(isIanaTimeZone(zone)).toBe(
+      !zone.startsWith('+') && !zone.startsWith('-'),
+    );
   });
 });
 
