@@ -24,7 +24,7 @@
  */
 
 import { compareCodePoints } from '../canonical-json';
-import { isString, type UnknownRecord } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '../unknown-record';
 
 /**
  * Forms with a producer in this revision. A form is NOT defined ahead of a
@@ -81,16 +81,10 @@ function isExactRecord(
   expectedKeys: readonly string[],
 ): value is UnknownRecord {
   return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
+    isRecord(value) &&
     Object.keys(value).sort(compareCodePoints).join('\0') ===
       [...expectedKeys].sort(compareCodePoints).join('\0')
   );
-}
-
-function isPayload(value: unknown): value is UnknownRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -120,7 +114,7 @@ export function isContextItemPart(value: unknown): value is ContextItemPart {
     !PRODUCER_PATTERN.test(data['producer']) ||
     !isString(data['runId']) ||
     !UUID_PATTERN.test(data['runId']) ||
-    !isPayload(data['payload'])
+    !isRecord(data['payload'])
   ) {
     return false;
   }
