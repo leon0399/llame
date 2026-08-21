@@ -1,0 +1,90 @@
+## Context
+
+See proposal.md — Why. Three constraints shape the approach.
+
+**Providers accept three roles.** `system`, `user`, `assistant`. A "context" role does not exist on the wire and cannot be invented, so any distinct treatment of injected context is an internal part type and a display lane projected onto the `user` role.
+
+**Exact-key-set validation is load-bearing in both directions.** `isExactRecord` is what makes client-authored control metadata unforgeable, and it is also why every new part type is a coordinated API/worker revision boundary: an older reader rejects any added field, and `context-builder.ts` drops a non-validating part **silently**.
+
+**Prior art converges.** Claude Code wraps every injected context — skill listings, instruction files, memory, staleness notices — in one `<system-reminder>`, explains the convention in a dedicated system-prompt section, and uses the tag prefix as a structural discriminator during message normalization. DeepSeek Harness logs injected context as an ordinary `user/message` event carrying a required `MessageSource` (producer) and an independent `ContextForm` (`instructions`/`catalog`/`snapshot`/`notice`/`relay`/`recall`), renders a distinct `CONTEXT` lane from it, and documents that the form vocabulary is semantic rather than visual and that an unknown value is presented as opaque content; its `AGENTS.md` loader carries `{ action, scope, path, digest }` in the typed source with _"model-visible text contains no hidden state markers"_ and escapes literal `</system-reminder>` out of repository-controlled content. Hermes prefixes recalled material with an explicit "treat as data, not new input" note. No studied implementation ships sibling tag names.
+
+## Goals / Non-Goals
+
+**Goals:**
+
+- One contract a future context producer is written against, so that adding one is additive rather than a coordinated revision boundary.
+- A classification rule that answers "prefix re-render or rail append?" deterministically, rather than per-feature judgment.
+- Provenance framing the model can rely on and an operator cannot delete.
+- A durable record of what was actually injected, sufficient for a later audit surface to be truthful about old runs.
+
+**Non-Goals:**
+
+- Owner-facing rendering of context items (#464) or the trajectory viewer (#465). This change surfaces nothing new in the UI.
+- Decomposing the rendered system prompt into per-contribution provenance.
+- Changing what any shipped producer emits, or when.
+- Any read endpoint over the new per-run record.
+
+## Decisions
+
+**Wire role stays `user`; `context` is an internal part type.** Alternative — a fourth provider role — is not expressible. Alternative — synthesizing one injected item per message, as DeepSeek does — is rejected: their log is their own, whereas llame renders to provider APIs where consecutive same-role messages are a portability risk taken for a cosmetic gain. Items stay inside the triggering user message.
+
+**One envelope per item, discriminated by attributes.** `<system-reminder producer="…" form="…">`. Alternative — one wrapper containing per-producer inner tags (`<relevant-conversations>`, `<tool-availability>`) — reintroduces the vocabulary being collapsed one level in: every inner name must enter the reserved-tag set and stay synchronized forever, the framing preamble is stated positionally rather than co-located with what it frames (so any later split, reorder, or partial summarization orphans it), and independently-versioned items become one rendered blob. Alternative — flat prose with no discriminator — forces every semantic into wording. Attributes also carry meaning the model can act on: `catalog` means _this replaces the previous one_, `notice` means _this supersedes nothing_.
+
+**One `text` content block per item, not a joined string.** Verified against `@ai-sdk/openai@3.0.79`: `apps/api/src/models/openai-model-client.ts` routes native OpenAI through the Responses API, which always maps user content to an array of `input_text` blocks, and every other endpoint through Chat Completions, which has an explicit single-text-part fast path collapsing to a plain string and preserves two or more text parts as separate `{type:"text"}` entries. A turn carrying no injected item therefore serializes exactly as today. The gain over concatenation is that the boundary between server-authored framing and user text becomes structural rather than a `\n\n` convention user input can imitate.
+
+**One persisted part type, with a cleanup migration rather than a reshape.** Legacy parts are deleted, not rewritten. A reshape preserves owner-visible history — the shipped model-switch boundary renders from these rows, and a later trajectory view would read them — but no instance currently holds history worth that cost, and `CLAUDE.local.md` forbids carrying obsolete paths forward. The alternative of leaving legacy rows in place unvalidated was rejected as strictly worse than deleting them: it keeps dead rows _and_ an unvalidatable shape. The consequence is recorded rather than glossed: chats predating the cutover lose their context parts and their model-switch boundaries. This choice is only available while the data is disposable, and the reasoning should be re-examined before any comparable boundary once an instance holds real history.
+
+**One persisted part type at all.** Alternative — keep three types and unify only rendering — leaves four validator copies, the web swallow-list, and a coordinated rollout per future producer. Alternative — add shared fields to the existing three — is equally breaking under exact-key-set validation while keeping the duplication. Three producers is the cheapest this migration will ever be; Skills, instruction files, #408, and #198 would make it seven. Per `CLAUDE.local.md`, the migration removes the old shapes rather than adding a compatibility layer.
+
+**Strict envelope, strict known payloads, opaque unknown producer.** Keeping exact-key-set validation on the _set of producers_ is precisely what makes extension a revision boundary. An unknown producer parses, is recorded in the receipt, and renders as nothing. This does not remove deploy ordering — a worker that does not know a producer still cannot render it — but converts a silent hard drop into a declared, receipt-visible, fail-closed one.
+
+**Framing lives in the envelope and in the packaged prompt.** An operator replaces the prompt wholesale via `systemPromptFile`, so a prompt-only explanation is deletable by config. Alternative — producer-owned framing, as DeepSeek does — is rejected because llame's future producers include owner-authored skills, and because a core-owned envelope makes the escaping rule enforceable in one place. Alternative — appending a core-owned segment to every rendered prompt — would contradict `model-system-prompts` §250's "sole top-level system prompt".
+
+**Residency is the extension contract.** Prefix-resident facts are re-supplied in full every turn inside the cached prefix: cheap to read, expensive to change. Rail-resident facts are appended once and accumulate until compaction: free to add, paid for in every later turn. The procedure — event → rail; state changing less often than compaction → prefix; state changing more often → frozen prefix baseline plus rail deltas re-baked at compaction — is the digest's shipped idiom generalized. It also explains a divergence from prior art: DeepSeek rails its skills catalog because a catalog that changes mid-session would invalidate the cached prefix on every change.
+
+**Announce assertional prefix changes; stay silent on behavioral ones.** A prefix change needs no notice for its _content_ — the model reads the new prefix. It earns one when history was conditioned on the old value. Facts the model may previously have denied or lacked qualify; tone, format, and working style do not, because prior turns there are only the model's own non-authoritative output. The worked case is a personalization edit after the assistant answered "I don't know", which is a defect in shipped behavior and is tracked in #466.
+
+**The checkpoint is rail-framed but separately stored.** Its `parentId` lineage and `uptoSeq` supersession query cannot be expressed as a message part, and it is one-per-chat rather than one-per-turn. It carries `form: 'checkpoint'` rather than `recall`: it supersedes this chat's own history rather than recalling material from elsewhere, and #198's recall keeps the narrower meaning. Alternative — leaving `<conversation-checkpoint>` outside the rail — would leave two vocabularies making the same "treat as data" claim and keep a second reserved tag name forever.
+
+**A dimension with an owning producer is reported by that producer.** `effective-context-change` reports only dimensions no other producer owns, so an availability change is not double-reported. Alternative — enumerating changed dimensions ("model, tools") — is rejected on two counts: tools are unchanged in the overwhelming majority of model switches, so the enumeration is nearly always a single word, and every future dimension would need enumeration support. One cause per item; multiple causes render as multiple envelopes.
+
+**Two lifecycles, not three.** With rendered items recorded per run for every producer, "bind-time, receipt-recorded" is just bind-time; the axis is whether a durable part exists. What a third lifecycle was groping at is a different property — whether a payload carries content sourced from outside this chat — and the consequence there is not lifecycle but erasure: recording such an item in the receipt relocates the deletion problem rather than solving it. The digest already discloses this (_"deleting a source chat is not erasure from those existing prompts or receipts"_); the rail states it once, generalized.
+
+**Escaping covers the user and tool rails, never assistant output.** A forged envelope in a user message sits in the same role and the same message as genuine ones; MCP tool results are remote-authored. Assistant output is excluded on two grounds: a model does not treat its own prior turns as authoritative, and llame's users legitimately discuss llame's own prompt architecture, so an assistant turn containing `<system-reminder>` in a code block is normal content that must not be corrupted on replay.
+
+**The snapshot is not merged into the per-run item record.** `model_context_snapshots` is content-addressed and reused (`model_context_snapshots_owner_content_avail_source_uidx`) while items vary per turn with all four hashed inputs identical, so merging breaks the dedup prefix caching depends on. Independently, an operator-authored Handlebars template interleaves operator prose with `{{user.…}}` / `{{chats.…}}` / `{{context.…}}` arbitrarily, so its rendered output cannot be decomposed into labeled contributions — the snapshot stores one rendered artifact because that is the only honest unit it has. The unification is at the receipt and vocabulary level: one per-run effective-context record referencing both, one `producer`/`form`/`residency` vocabulary describing every contribution.
+
+**The form vocabulary ships only what has a producer.** `notice`, `snapshot`, and `checkpoint` have producers in this change; `catalog`, `instructions`, and `recall` do not, and specifying them would be normative text nothing executes. They are recorded instead as noncanonical research provenance under `docs/research/harness-transparency/`, so a future producer adopts an existing term rather than inventing a redundant one. What makes this safe rather than merely tidy is the tolerance rule: an unrecognized form is treated as absent, so adding one later is additive rather than a coordinated revision boundary. `action` and `digest` are dropped from the envelope for the same reason — the only shipped supersession is what `snapshot` already means, while set/replace/remove with content identity is what instruction files will need, which is not this change. The cost is stated rather than hidden: adding an optional envelope field later is an envelope change, unlike adding a producer or a form.
+
+**Ordering is a fixed producer precedence list.** `tool-calling` currently carries the only concrete ordering sentence, covering two producers. Moving it to the rail without restating it would delete a shipped rule, so the rail states the list explicitly and extends it when a producer is added. Alternative — ordering derived from form, or from registration order — was rejected as indirection over a list of three.
+
+**Framing is two-layered, and only one layer is guaranteed.** The packaged prompt carries the full description of the convention and is paid for once inside the cached prefix; each item carries one line, plus a precedence statement when its payload contains third-party content. Producer-specific framing prose is owned by the producer and is expected to be revised against evaluation of model behavior rather than frozen in a spec string — llame has no evaluation harness for framing prose today, so this is an expectation the spec leaves room for rather than a mechanism this change delivers. The prompt layer is deletable by an operator override; the item layer is not, which is why the precedence statement lives there rather than only in the prompt.
+
+**Constraint recorded for the first bounded producer, deliberately not specified.** No producer in this change caps or truncates an item's content, so a "bounded items disclose what they omitted" requirement would be a contract nothing can violate and no test can exercise — the same reason `catalog` was cut. It is recorded here instead: the first producer that bounds an item's content must state that the content was reduced and what class of content was omitted, because content that was cut reads as content that does not exist. `instructions` is the producer that makes it live; DeepSeek's loader already emits a visible budget notice naming omitted and truncated paths.
+
+**The per-run record is a jsonb column on `runs`.** It inherits `runs_owner` RLS with no new policy, sits beside the existing `runs.error` jsonb, and `runs` is not in the `public_read` set, so owner-only visibility is structural. Alternative — a `run_context_items` table — buys cross-run queryability that no product surface asks for, at the cost of its own policies and foreign key. Alternative — reusing `run_events` — was rejected despite needing no schema change at all: that table is the **streaming** surface, shaped for cursor replay and bridged to the client, so recording items there would push injected item prose down the event stream on every run, surfacing in the UI what this change deliberately does not surface. The accepted risk is that a later trajectory view wanting to page or filter items by producer would prefer rows to a blob.
+
+## Risks / Trade-offs
+
+- **A legacy part survives the cleanup and then fails validation silently** → the migration asserts that no legacy context part remains in `messages.parts` afterwards, so a missed shape fails the migration rather than lingering as an unvalidatable part.
+- **A mixed-revision deployment renders nothing for an unknown producer** → this is the designed fail-closed behavior, but it still requires the existing deploy ordering (workers that understand a producer before any API authors it). The runbook entry states it.
+- **Wire shape changes on reminder-carrying turns** → only those turns, and only for endpoints on the Chat Completions path; multi-block text content is assumed supported.
+- **Per-item framing costs tokens on every injected item** → held to one line; the explanation lives in the packaged prompt, which is inside the cached prefix and paid once.
+- **The per-run item record is written before anything reads it** → accepted deliberately: deferring the storage costs a second migration and a second coordinated writer boundary, and #408's bind-time rows are unreconstructable by definition.
+- **Receipt records inherit the digest's non-erasure property** → disclosed once at rail level rather than rediscovered per producer; not mitigated, because the record's purpose is durability.
+
+## Migration Plan
+
+This is a coordinated API/worker revision boundary, following the pattern `apps/api/AGENTS.md` records for `data-tool-availability`.
+
+1. Land the backward-compatible preparation: the unified part module, the `runs.context_items` column, and readers that accept `data-context`, while old writers remain active.
+2. Deploy workers that render `data-context` before any API authors it.
+3. Quiesce old API writers and drain accepted Runs.
+4. Apply the writer cutover and the cleanup migration stripping legacy context parts from existing `messages.parts` rows.
+5. Update `apps/web` in step with the cutover — `history.ts` and `chat-page.tsx` are keyed to the old shapes.
+
+Rollback: stop new authoring first and drain Runs accepted by the newer API before rolling binaries back. Stripped parts are **not recoverable** — rollback restores the code path, not the deleted rows — and the `runs.context_items` column stays in place, additive and ignored by older readers. The process choreography is retained despite the trivial data side, because an accepted Run enqueued by an older API and executed by a newer worker carries parts that worker cannot render.
+
+## Open Questions
+
+- Whether a future `catalog` form carries full-republish or delta-within-epoch semantics, given that llame's shipped tool availability uses deltas while both studied implementations republish. Deferrable: no producer emits `catalog`, and the tension is recorded in the research provenance rather than resolved here.
