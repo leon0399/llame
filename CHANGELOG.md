@@ -10,8 +10,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   prompt describes the convention. `data-model-context`,
   `data-tool-availability`, and `data-recency-digest` collapse into a single
   `data-context` part; an unrecognized `form` is treated as absent and an
-  unrecognized `producer` renders nothing, so adding either is additive rather
-  than a coordinated API/worker boundary. Items render one text block each
+  unrecognized `producer` renders nothing while still being recorded, so an
+  older reader degrades instead of rejecting a newer writer's part — producer-
+  aware workers still deploy before any API authors that producer. Items render one text block each
   inside the triggering user message, in a fixed producer precedence order that
   preserves emission order within a producer. The compaction summarization
   instruction's digest exclusion now names the envelope together with the
