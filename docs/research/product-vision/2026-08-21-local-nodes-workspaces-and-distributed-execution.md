@@ -7,7 +7,11 @@ candidate implementation mechanisms and unresolved decisions.
 
 Updated later on 2026-08-21 with the subsequent decisions on Run authority,
 Workspace affinity and outage recovery, node enrollment, and the permanent
-single-owner-personal-node versus multi-user-hub boundary.
+single-owner-personal-node versus multi-user-hub boundary. A later update records
+the deliberately minimal unlink and relink contract. The adjacent
+[multi-authority federation research](2026-08-21-multi-authority-federation-models.md)
+preserves the subsequent alternatives, scenario analysis, and accepted staged
+direction.
 
 ## 1. Why this checkpoint exists
 
@@ -447,9 +451,11 @@ necessarily imply permission to copy one into the other.
 **Agreed prioritization — high confidence**
 
 Personal Knowledge Spaces come first. Shared and organization-governed spaces are
-later. Their eventual governing policy should choose among full mirror, read-only
-cache, and online-only access. Organization requirements must not inflate the
-personal synchronization MVP.
+later. Their governing authority may select `online-only`, `offline-read`, or
+`offline-propose`; `full-replica` remains initially reserved for Personal Realm
+data until a shared data type has explicit reconciliation and revocation
+semantics. Organization requirements must not inflate the personal synchronization
+MVP.
 
 ### 5.13 Inference and Workspace egress policy
 
@@ -575,6 +581,79 @@ rejected or strongly warned by default because concurrent agents can corrupt the
 checkout. A deliberately shared arrangement needs explicit isolation such as
 separate worktrees or read-only access.
 
+### 5.17 Unlink and relink boundaries
+
+**Agreed direction — high confidence**
+
+Unlinking is a two-sided trust operation, not a local preference toggle. It revokes
+the node's currently enrolled cryptographic identity and credentials at the hub,
+then removes the local enrollment credential. It stops future synchronization,
+inference brokering, and Run routing but deletes no local or hub data.
+
+If the hub is unreachable, the node cannot truthfully report completed
+cryptographic revocation. The user must retry when online or revoke the enrollment
+from another authenticated hub surface. A merely local disconnect remains visibly
+incomplete until the hub has revoked the enrollment.
+
+The first version deliberately avoids cross-account corpus transfer:
+
+- a populated profile may re-enroll with the same hub account and perform normal
+  bidirectional reconciliation;
+- an empty profile may link to another account through the ordinary first-link
+  flow; and
+- a populated profile previously linked to another account cannot use ordinary
+  linking. The user creates another profile or explicitly erases/exports the old
+  one.
+
+The node retains enough non-secret previous-link metadata to distinguish those
+cases without adding per-record local `user_id`. No cross-account migration,
+identity-rewriting, or confirmation maze is designed until real demand exists.
+
+### 5.18 Multi-authority resource federation
+
+**Agreed direction — high confidence; operational protocols unresolved**
+
+A **Personal Realm** is one logical ownership and reconciliation boundary with
+many trusted physical replicas. CLI, Android, desktop, other personal nodes, and
+an optionally linked hub account may all originate personal changes; none is
+inherently the one canonical physical home. Personal replica enrollment remains
+distinct from access to foreign authorities.
+
+A local profile may connect to any number of work, family, school, community, or
+other authorities. Each connection binds the profile to an authority-local
+subject; it does not assert a globally trusted identity merge. Every shared Space
+has one governing authority for membership, accepted revisions, retention,
+replication permission, and information-flow policy. Its durable identity is
+authority-qualified rather than an installation-local id treated as globally
+sufficient.
+
+Foreign resources are **mounted** into the user's view and are never silently
+absorbed into the Personal Realm. Every Chat or Run branch has a destination
+authority. A source may contribute content only when its policy permits flow to
+that destination, executor, and inference provider; otherwise the system must
+offer an appropriately scoped branch or exclude the source. Long-lived foreign
+credentials stay with their connection broker, while executors receive proxied
+operations or narrow, short-lived delegation.
+
+The selected delivery sequence is:
+
+1. **Phase A — closed installations with explicit exchange:** standalone and hub
+   products, explicit import/export, and pinned read-only Git sources with
+   explicit forks and provenance;
+2. **Phase B — live multi-authority connections:** online mounts whose reads and
+   writes remain authorized by their governing authority, without mandatory
+   persistent copies; and
+3. **Phase C — policy-controlled shared replication:** `online-only`,
+   `offline-read`, and `offline-propose` modes, with explicit migration and fork
+   lineage.
+
+Phase A remains a supported disconnected mode after later phases ship. Mandatory
+full mirroring of every connected upstream, one universal llame identity/data
+authority, ownerless shared ACL state, and automatic hub-to-hub federation are not
+the selected direction. The complete option set and decision rationale remain in
+the
+[multi-authority federation research](2026-08-21-multi-authority-federation-models.md).
+
 ## 6. Candidate mechanisms, not product commitments
 
 The following mechanism remains promising:
@@ -648,6 +727,8 @@ These corrections are durable constraints on further design:
   transparently detached while the Chat retains its preferred Workspace.
 - **Revocation is not remote erasure.** A hub can stop trusting a node but cannot
   guarantee deletion of data already mirrored to it.
+- **Unlink is not local logout.** It includes hub-side cryptographic enrollment
+  revocation and deletes no mirrored data.
 - **The hub service is a synchronization hub, not a prerequisite for local
   agency.**
 
@@ -667,7 +748,7 @@ This direction is consistent with several existing commitments:
   not yet provide the project-filesystem Workspace described here and that its
   operational state remains Postgres-backed.
 
-This discussion materially extends the earlier direction in seven areas:
+This discussion materially extends the earlier direction in eight areas:
 
 1. a linked machine is not only a remotely controlled Worker; it can be an
    autonomous personal node with a full personal mirror;
@@ -681,7 +762,10 @@ This discussion materially extends the earlier direction in seven areas:
 6. Workspace affinity, loss, fallback, and recovery become explicit model-visible
    and UI-visible state transitions; and
 7. single-owner personal nodes and the multi-user hub become permanent deployment
-   roles connected by a portable sync protocol.
+   roles connected by a portable sync protocol; and
+8. one Personal Realm may present mounted resources from many independently
+   governed authorities without merging identities, ownership, or replication
+   policy.
 
 There is also a real tension with a simple "central control plane plus workers"
 model. Once personal nodes can originate durable state while unlinked, the
@@ -701,12 +785,16 @@ create false constraints.
    reconnect behavior, and classification of uncertain side effects. The
    ownership direction is settled; the protocol is not.
 2. **Enrollment and device-loss mechanics.** Specify key storage and rotation,
-   enrollment confirmation, revocation delivery, encryption at rest, backup,
-   recovery, and account-transfer behavior. Node/user separation and the
-   OAuth-authorized enrollment direction are settled.
-3. **Operational replication protocol.** Specify the portable event model for
-   Chats, Runs, messages, approvals, audits, compaction, context receipts, stable
-   IDs, ordering, resumability, fork reconciliation, and schema evolution.
+   enrollment confirmation, revocation delivery, encryption at rest, backup, and
+   recovery. Node/user separation, OAuth-authorized enrollment, cryptographic
+   unlink, and the deliberately restricted relink behavior are settled.
+3. **Personal Realm operational replication.** The authority map is settled at
+   the product level: trusted Personal Realm replicas may originate personal
+   state, every shared Space retains one governing authority, every Chat or Run
+   branch has a destination authority, and active Run execution remains
+   single-authority. Specify the portable event model for Chats, Runs, messages,
+   approvals, audits, compaction, context receipts, stable IDs, ordering,
+   resumability, per-resource merge/fork/proposal/rejection, and schema evolution.
 4. **Workspace binding details.** Specify switching, archival, access-mode
    changes, reauthorization, retention, availability detection and debounce, and
    the exact recovery behavior for active versus not-yet-started Runs. Sticky
@@ -735,9 +823,11 @@ create false constraints.
 11. **Knowledge synchronization and absorption.** Specify same-ID Git conflict
     handling, repository transport, revision authenticity, the absorption Skill,
     provenance, and the optional UI advisory signal.
-12. **Shared and organization knowledge.** Later, define governance-controlled
-    full mirror, read-only cache, online-only modes, and cross-boundary information
-    flow.
+12. **Shared and organization knowledge policy mechanics.** The directional modes
+    are selected: `online-only`, `offline-read`, and `offline-propose`, while
+    `full-replica` is initially personal-only. Later define authorization leases,
+    retained-copy handling, revalidation, candidate acceptance, revocation,
+    migration, and cross-boundary information flow.
 13. **CLI contract.** Define new versus resumed Chats, cwd-only advertisement,
     daemon discovery, shared local store, local provider configuration, link and
     unlink behavior, and degraded operation.
@@ -756,17 +846,18 @@ create false constraints.
 
 ## 10. Recommended next discussion
 
-Start with the **operational replication protocol**. Transferable Run authority,
-single-owner personal nodes, and the multi-user hub are now settled at the product
-level. They cannot be made coherent until the portable record and event boundary
-is explicit.
+Start with the **Personal Realm operational replication model**. The
+multi-authority boundary is settled at the product level: personal state may be
+originated by trusted Personal Realm replicas, while mounted shared Spaces retain
+one governing authority. The next dependency is the per-resource reconciliation
+contract, not another topology comparison.
 
 The first concrete question should be:
 
-> What is the smallest portable record and event envelope that allows a
-> single-owner personal node and the multi-user hub to reconcile Chats, Runs, and
-> configuration without sharing a database schema or accepting client-authored
-> ownership?
+> For each Personal Realm resource type—Knowledge Space, Chat branch, Run record,
+> message, approval, memory, configuration, and artifact—which enrolled replicas
+> may author it while disconnected, and does reconnection merge, fork, propose,
+> reject, or require explicit user reconciliation?
 
 Do not choose Postgres versus SQLite, NixOS versus a Nix-built OCI image, or NestJS
 module boundaries before answering that question. Those are implementation
