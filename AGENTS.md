@@ -23,13 +23,13 @@ The product overview (what llame is) is short and always relevant, so it is impo
 
 pnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 22.19 (pinned to 22.23.1 in `.node-version`); `nix develop` or direnv gives a ready shell; pnpm 10). Workspaces: `apps/*`, `packages/*`.
 
-| Path                         | Role                                                                                        | Stack (details in its own `AGENTS.md`)                                         |
-| ---------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `apps/web`                   | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB               | Next.js 16 (App Router), React 19, TanStack Query, AI SDK (chat transport), ky |
-| `apps/api`                   | API/services + **sole database owner**; ships co-located and dedicated worker entrypoints   | NestJS 11, Drizzle + postgres.js, pg-boss                                      |
-| `apps/storybook`             | Component workbench + browser interaction tests for `packages/ui` stories                   | Storybook 10 (nextjs-vite), Vitest browser mode                                |
-| `packages/ui`                | Shared shadcn/ui component library (`@workspace/ui`); stories co-located next to components | shadcn/ui, Tailwind, React 19                                                  |
-| `packages/config-typescript` | Shared `tsconfig` bases                                                                     | —                                                                              |
+| Path                         | Role                                                                                        | Stack (details in its own `AGENTS.md`)                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `apps/web`                   | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB               | Next.js 16 (App Router), React 19, TanStack Query, generated Orval Fetch bindings, AI SDK (chat streaming) |
+| `apps/api`                   | API/services + **sole database owner**; ships co-located and dedicated worker entrypoints   | NestJS 11, Drizzle + postgres.js, pg-boss                                                                  |
+| `apps/storybook`             | Component workbench + browser interaction tests for `packages/ui` stories                   | Storybook 10 (nextjs-vite), Vitest browser mode                                                            |
+| `packages/ui`                | Shared shadcn/ui component library (`@workspace/ui`); stories co-located next to components | shadcn/ui, Tailwind, React 19                                                                              |
+| `packages/config-typescript` | Shared `tsconfig` bases                                                                     | —                                                                                                          |
 
 Each app/package has its own `AGENTS.md` (auto-loaded when you work in that directory) with concrete commands, structure, and gotchas. **Keep this file high-level — put implementation detail in the child file, not here.**
 
