@@ -58,7 +58,12 @@ afterEach(() => {
 
 describe("personalization mutation transport", () => {
   it("PATCHes the caller's profile through the generated authenticated endpoint", async () => {
-    const input = { preferredName: "Leo", enabled: false };
+    const input = {
+      preferredName: null,
+      about: "Builds llame",
+      responsePreferences: null,
+      enabled: false,
+    };
     const response = { ...initial, ...input };
     updatePersonalizationEndpoint.mockResolvedValue(response);
 

@@ -1,10 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { updatePersonalization as updatePersonalizationEndpoint } from "../../api/generated/personalization/personalization";
-import type {
-  PersonalizationResponse,
-  UpdatePersonalizationDto,
-} from "../../api/generated/models";
+import type { PersonalizationResponse } from "../../api/generated/models";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import { personalizationQueryKeys } from "./queries";
 import type { PersonalizationUpdate } from "./types";
@@ -21,14 +18,7 @@ function authenticatedFetch(): typeof fetch {
 export async function updatePersonalization(
   input: PersonalizationUpdate,
 ): Promise<PersonalizationResponse> {
-  // The generated request model currently describes nullable strings as
-  // objects, while the API runtime accepts string|null. The feature facade
-  // keeps the correct runtime shape and narrows at this generated boundary.
-  return updatePersonalizationEndpoint(
-    input as UpdatePersonalizationDto,
-    undefined,
-    authenticatedFetch(),
-  );
+  return updatePersonalizationEndpoint(input, undefined, authenticatedFetch());
 }
 
 /**

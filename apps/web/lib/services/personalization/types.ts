@@ -8,19 +8,8 @@ export type { PersonalizationResponse, UpdatePersonalizationDto };
 /** Feature-facing alias for the generated response contract. */
 export type Personalization = PersonalizationResponse;
 
-/**
- * The generated request currently emits nullable strings as object-shaped
- * fields because of an OpenAPI metadata limitation. Keep the feature facade
- * faithful to the runtime DTO while retaining generated boolean fields.
- */
-export type PersonalizationUpdate = Omit<
-  UpdatePersonalizationDto,
-  "preferredName" | "about" | "responsePreferences"
-> & {
-  preferredName?: string | null;
-  about?: string | null;
-  responsePreferences?: string | null;
-};
+/** Feature-facing alias for the generated partial update contract. */
+export type PersonalizationUpdate = UpdatePersonalizationDto;
 
 /**
  * Server-enforced caps, duplicated here so the editor can show remaining
