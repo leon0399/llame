@@ -1,5 +1,29 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-21
+
+- **Unified context-injection rail** (#463): every server-authored context item
+  — model change, tool-availability transition, recency-digest delta and
+  supersession, and the compaction checkpoint — now renders through one
+  `<system-reminder producer="…" form="…">` envelope carrying a one-line
+  provenance statement no operator prompt can remove, and the packaged default
+  prompt describes the convention. `data-model-context`,
+  `data-tool-availability`, and `data-recency-digest` collapse into a single
+  `data-context` part; an unrecognized `form` is treated as absent and an
+  unrecognized `producer` renders nothing while still being recorded, so an
+  older reader degrades instead of rejecting a newer writer's part — producer-
+  aware workers still deploy before any API authors that producer. Items render one text block each
+  inside the triggering user message, in a fixed producer precedence order that
+  preserves emission order within a producer. The compaction summarization
+  instruction's digest exclusion now names the envelope together with the
+  excluded producer, since a per-producer delimiter no longer exists to name.
+  Visible user text and live in-turn tool results are neutralized against
+  reserved delimiters; assistant output deliberately is not. `runs.context_items`
+  records what each run injected, as rendered, owner-only and not yet read by any
+  surface. **Breaking:** legacy context parts are deleted rather than reshaped,
+  so a chat predating the cutover loses its context parts and its model-switch
+  boundary.
+
 # 2026-08-20
 
 - **Temporal anchor in system prompt** (#334): the model now receives a

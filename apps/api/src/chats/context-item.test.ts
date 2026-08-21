@@ -163,6 +163,20 @@ describe('rendering', () => {
     ).toBeNull();
   });
 
+  it('self-identifies with no help from the system prompt', () => {
+    // An operator may replace the packaged prompt wholesale, taking the
+    // explanation of this convention with it. The per-item line is what
+    // survives that, so it is produced by the renderer rather than supplied by
+    // a producer or read from config — there is no code path that omits it.
+    const rendered = renderContextItem({
+      producer: 'recency-digest',
+      form: 'notice',
+      body: 'anything',
+    });
+    expect(rendered).toContain(CONTEXT_ITEM_PROVENANCE);
+    expect(CONTEXT_ITEM_PROVENANCE).toMatch(/not written by the user/i);
+  });
+
   it('escapes attribute values, which a recognized producer name still needs', () => {
     // No shipped producer contains a metacharacter, but the escape is what
     // keeps that a property of the renderer rather than of the vocabulary.

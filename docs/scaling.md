@@ -180,6 +180,42 @@ that render it before any API authors it. Rollback stops digest authoring first,
 accepted Runs, and only then rolls binaries back. Persisted digest parts remain durable
 conversation history; deleting them would falsify the context a prior Run received.
 
+**The unified `data-context` part changes what counts as a boundary.** Every
+server-authored context item now shares one part type, discriminated by a
+`producer` and an optional `form`, and an unrecognized value of either is
+tolerated: an unknown `form` is read as absent, and an unknown `producer` parses,
+is recorded, and renders nothing. That tolerance is what keeps a newer API's part
+from being **rejected** by an older worker — it is not a licence to deploy
+writers first.
+
+**Deploy producer-aware workers before any API authors that producer.** An older
+worker accepts the envelope and then renders nothing for the producer it does not
+know, so the item is silently absent from the model's view for the life of that
+Run — and an omitted item may be exactly the tool-availability or instruction
+control the turn depended on. What tolerance buys is that the surrounding request
+still executes instead of failing whole; the ordering requirement is unchanged.
+
+What remains a coordinated boundary is a change to the **envelope itself** — a
+new field on `data-context` — because the envelope is validated by exact key set.
+Land backward-compatible readers first, deploy workers that understand the change
+before any API authors it, then quiesce old writers and drain accepted Runs
+before the writer cutover. Rollback stops new authoring first and drains Runs
+accepted by the newer API before rolling binaries back.
+
+Tolerance changes the failure mode rather than removing the discipline. A worker
+that does not know a producer renders nothing for it, so the model never sees the
+item; the loss is recoverable after the fact because the item is still recorded in
+`runs.context_items` with empty text marking the omission, and its part remains in
+`messages.parts`. That makes a version skew auditable rather than invisible — it
+does not make it harmless.
+
+One departure from the rule above: the `20260821030000_context_item_cutover`
+migration **deleted** the retired `data-model-context`, `data-tool-availability`,
+and `data-recency-digest` parts instead of reshaping them, because no instance
+held history worth carrying through the boundary. Rollback restores the code
+path, not the rows, and a chat predating the cutover has no context parts and no
+model-switch boundary.
+
 For `data-tool-availability`, first apply the backward-compatible preparation
 migration: the new snapshot columns have v0 defaults and both the legacy and
 availability-aware conflict indexes remain, so old API writers continue to

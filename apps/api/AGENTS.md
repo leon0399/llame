@@ -308,6 +308,76 @@ per-user paths, and the requesting chat's top-level `chats` digest paths;
 - A template whose content is only expressions and whitespace fails boot as
   empty, evaluated against the template rather than rendered output.
 
+### The context-injection rail
+
+Every server-authored contribution to a chat's model-visible conversation that is
+not part of the system prompt is a **context item** on one rail: a single
+`<system-reminder producer="…" form="…">` envelope carrying a one-line
+provenance statement no operator config can remove. Producers supply the body,
+never the framing, so escaping and provenance are enforced in one place.
+
+`producer` says who authored an item; `form` says what kind of content it is
+(`notice`, `snapshot`, `checkpoint` — the forms that have a producer). An
+unrecognized `form` is treated as absent and an unrecognized `producer` parses,
+is recorded, and renders **nothing**. That tolerance is what makes adding either
+an additive change rather than a coordinated API/worker revision boundary; do not
+"tighten" it into a rejection. Anticipated forms without a producer are recorded
+in `docs/research/harness-transparency/2026-08-21-context-form-design-space.md`
+rather than specified.
+
+**Residency decides whether a change re-renders the prompt or appends an item.**
+Prefix-resident content is re-supplied in full every request inside the cached
+prefix: cheap to read, expensive to change, because a change invalidates the
+prefix for the whole conversation. Rail-resident content is appended once and
+paid for in every later turn until compaction. Classify a new context surface
+with this procedure:
+
+1. An account of something that happened → rail-resident.
+2. A complete statement of current state that changes **less often** than
+   compaction → prefix-resident.
+3. A complete statement of current state that changes **more often** than
+   compaction → a frozen prefix baseline plus rail deltas, re-baked at
+   compaction. Never put a frequently-changing complete statement in the prefix.
+
+Independently: a prefix change is **silent to the model by default**. It earns a
+rail notice only when history was conditioned on the old value — announce
+**assertional** changes (facts the model may previously have denied or lacked),
+stay silent on **behavioral** ones (tone, format, working style), where the only
+history conditioned on them is the model's own non-authoritative output.
+
+**Every run records what it injected**, as rendered, in `runs.context_items`,
+including the bind-time compaction checkpoint and any item this reader could not
+interpret — the latter with empty text, so a version-skew omission is auditable
+rather than invisible. The record is written once the request is final, after a
+transition compaction may have replaced it, so it states what the model actually
+received or nothing at all.
+This is written rather than derived because an item's wording is not reproducible
+from its durable part once a renderer changes, and a bind-time item is not
+reproducible at all. It is owner-only (`runs` carries `runs_owner` and no
+public-read policy) and is deliberately absent from `toRunResponse` — nothing
+reads it yet.
+
+**Disclosed limit:** an item whose content originates outside the chat it was
+injected into is **not erasable through that content's own source**. Deleting the
+source chat, or withdrawing consent for it, does not reach a record already
+written — the same property the recency digest already documents for prompts and
+receipts, stated once here so every producer carrying such content inherits it
+rather than rediscovering it.
+
+**Rollout.** Adding a producer or a form is additive in the sense that an older
+worker will not reject the part — but **deploy producer-aware workers before any
+API authors that producer**, because an older worker renders nothing for a
+producer it does not know and the item is silently absent from the model's view
+for that Run. Changing the envelope itself (a new field on `data-context`) is a
+coordinated API/worker revision boundary outright: exact-key-set validation
+rejects it. Land backward-compatible readers
+first, deploy workers that understand the change before any API authors it,
+then quiesce old writers and drain accepted Runs before the writer cutover. On
+rollback, stop new authoring first and drain Runs accepted by the newer API
+before rolling binaries back. Note that the `20260821030000_context_item_cutover`
+migration **deleted** legacy parts rather than reshaping them: rollback restores
+the code path, not the rows.
+
 ### Memory settings consent
 
 `shareRecentChats` defaults off and is independent of personalization. Enabling it sends
