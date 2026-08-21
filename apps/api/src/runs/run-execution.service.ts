@@ -702,13 +702,20 @@ export class RunExecutionService {
       // transition compaction can still replace it, and a preparation failure
       // means no request was ever made. Recording earlier would durably assert
       // a request the model never received.
-      await this.tenantDb.runAs(input.userId, (tx) =>
+      const recorded = await this.tenantDb.runAs(input.userId, (tx) =>
         new RunsRepository(tx).recordContextItems(
           input.runId,
           input.userId,
           contextItems,
         ),
       );
+      // A miss means the owner-scoped row is gone — the chat was deleted out
+      // from under a claimed run. Executing past that would send a request on
+      // behalf of a run nobody can see, and would leave the authority record
+      // empty for it; both are worse than stopping here.
+      if (!recorded) {
+        throw new RunNotRunnableError(input.runId);
+      }
     } catch (error) {
       if (input.abortSignal?.aborted) {
         await this.settleAbortedRun(input);
