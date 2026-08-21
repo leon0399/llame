@@ -40,7 +40,9 @@ export const createRootOrgUnit = async (
     const err: globalThis.Error & {
       info?: createRootOrgUnitError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `POST ${getCreateRootOrgUnitUrl()} failed (${res.status})`,
+    );
     const data: createRootOrgUnitError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -76,7 +78,9 @@ export const listOrgUnits = async (
     const err: globalThis.Error & {
       info?: listOrgUnitsError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `GET ${getListOrgUnitsUrl()} failed (${res.status})`,
+    );
     const data: listOrgUnitsError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -117,7 +121,9 @@ export const createChildOrgUnit = async (
     const err: globalThis.Error & {
       info?: createChildOrgUnitError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `POST ${getCreateChildOrgUnitUrl(id)} failed (${res.status})`,
+    );
     const data: createChildOrgUnitError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -152,7 +158,9 @@ export const getOrgUnit = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: getOrgUnitError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(
+        `GET ${getGetOrgUnitUrl(id)} failed (${res.status})`,
+      );
     const data: getOrgUnitError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -197,7 +205,9 @@ export const updateOrgUnit = async (
     const err: globalThis.Error & {
       info?: updateOrgUnitError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `PATCH ${getUpdateOrgUnitUrl(id)} failed (${res.status})`,
+    );
     const data: updateOrgUnitError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -235,7 +245,9 @@ export const deleteOrgUnit = async (
     const err: globalThis.Error & {
       info?: deleteOrgUnitError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `DELETE ${getDeleteOrgUnitUrl(id)} failed (${res.status})`,
+    );
     const data: deleteOrgUnitError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -272,7 +284,9 @@ export const listOrgUnitMemberships = async (
     const err: globalThis.Error & {
       info?: listOrgUnitMembershipsError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `GET ${getListOrgUnitMembershipsUrl(id)} failed (${res.status})`,
+    );
     const data: listOrgUnitMembershipsError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -313,7 +327,9 @@ export const grantOrgUnitMembership = async (
     const err: globalThis.Error & {
       info?: grantOrgUnitMembershipError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `POST ${getGrantOrgUnitMembershipUrl(id)} failed (${res.status})`,
+    );
     const data: grantOrgUnitMembershipError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -358,7 +374,9 @@ export const changeOrgUnitMembershipRole = async (
     const err: globalThis.Error & {
       info?: changeOrgUnitMembershipRoleError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `PATCH ${getChangeOrgUnitMembershipRoleUrl(id, userId)} failed (${res.status})`,
+    );
     const data: changeOrgUnitMembershipRoleError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -397,7 +415,9 @@ export const revokeOrgUnitMembership = async (
     const err: globalThis.Error & {
       info?: revokeOrgUnitMembershipError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `DELETE ${getRevokeOrgUnitMembershipUrl(id, userId)} failed (${res.status})`,
+    );
     const data: revokeOrgUnitMembershipError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -434,7 +454,9 @@ export const getMyOrgUnitEffectiveRole = async (
     const err: globalThis.Error & {
       info?: getMyOrgUnitEffectiveRoleError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `GET ${getGetMyOrgUnitEffectiveRoleUrl(id)} failed (${res.status})`,
+    );
     const data: getMyOrgUnitEffectiveRoleError = (() => {
       try {
         return body ? JSON.parse(body) : {};

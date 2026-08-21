@@ -35,7 +35,9 @@ export const createProject = async (
     const err: globalThis.Error & {
       info?: createProjectError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `POST ${getCreateProjectUrl()} failed (${res.status})`,
+    );
     const data: createProjectError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -84,7 +86,9 @@ export const listProjects = async (
     const err: globalThis.Error & {
       info?: listProjectsError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `GET ${getListProjectsUrl(params)} failed (${res.status})`,
+    );
     const data: listProjectsError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -119,7 +123,9 @@ export const getProject = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: getProjectError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(
+        `GET ${getGetProjectUrl(id)} failed (${res.status})`,
+      );
     const data: getProjectError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -159,7 +165,9 @@ export const updateProject = async (
     const err: globalThis.Error & {
       info?: updateProjectError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `PATCH ${getUpdateProjectUrl(id)} failed (${res.status})`,
+    );
     const data: updateProjectError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -196,7 +204,9 @@ export const deleteProject = async (
     const err: globalThis.Error & {
       info?: deleteProjectError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `DELETE ${getDeleteProjectUrl(id)} failed (${res.status})`,
+    );
     const data: deleteProjectError = (() => {
       try {
         return body ? JSON.parse(body) : {};

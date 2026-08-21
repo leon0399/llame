@@ -22,7 +22,7 @@ export const getHealth = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: any; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(`GET ${getGetHealthUrl()} failed (${res.status})`);
     const data = (() => {
       try {
         return body ? JSON.parse(body) : {};

@@ -39,7 +39,9 @@ export const registerUser = async (
     const err: globalThis.Error & {
       info?: registerUserError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `POST ${getRegisterUserUrl()} failed (${res.status})`,
+    );
     const data: registerUserError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -76,7 +78,7 @@ export const loginUser = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: loginUserError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(`POST ${getLoginUserUrl()} failed (${res.status})`);
     const data: loginUserError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -112,7 +114,9 @@ export const getCurrentUser = async (
     const err: globalThis.Error & {
       info?: getCurrentUserError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `GET ${getGetCurrentUserUrl()} failed (${res.status})`,
+    );
     const data: getCurrentUserError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -148,7 +152,9 @@ export const listSessions = async (
     const err: globalThis.Error & {
       info?: listSessionsError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `GET ${getListSessionsUrl()} failed (${res.status})`,
+    );
     const data: listSessionsError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -197,7 +203,9 @@ export const revokeSessions = async (
     const err: globalThis.Error & {
       info?: revokeSessionsError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `DELETE ${getRevokeSessionsUrl(params)} failed (${res.status})`,
+    );
     const data: revokeSessionsError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -233,7 +241,9 @@ export const getCurrentSession = async (
     const err: globalThis.Error & {
       info?: getCurrentSessionError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `GET ${getGetCurrentSessionUrl()} failed (${res.status})`,
+    );
     const data: getCurrentSessionError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -267,7 +277,9 @@ export const logoutUser = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: logoutUserError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(
+        `DELETE ${getLogoutUserUrl()} failed (${res.status})`,
+      );
     const data: logoutUserError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -304,7 +316,9 @@ export const revokeSession = async (
     const err: globalThis.Error & {
       info?: revokeSessionError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `DELETE ${getRevokeSessionUrl(id)} failed (${res.status})`,
+    );
     const data: revokeSessionError = (() => {
       try {
         return body ? JSON.parse(body) : {};

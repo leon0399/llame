@@ -40,7 +40,9 @@ export const listActiveRuns = async (
     const err: globalThis.Error & {
       info?: listActiveRunsError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `GET ${getListActiveRunsUrl(params)} failed (${res.status})`,
+    );
     const data: listActiveRunsError = (() => {
       try {
         return body ? JSON.parse(body) : {};

@@ -30,7 +30,9 @@ export const getPersonalization = async (
     const err: globalThis.Error & {
       info?: getPersonalizationError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `GET ${getGetPersonalizationUrl()} failed (${res.status})`,
+    );
     const data: getPersonalizationError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -69,7 +71,9 @@ export const updatePersonalization = async (
     const err: globalThis.Error & {
       info?: updatePersonalizationError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `PATCH ${getUpdatePersonalizationUrl()} failed (${res.status})`,
+    );
     const data: updatePersonalizationError = (() => {
       try {
         return body ? JSON.parse(body) : {};

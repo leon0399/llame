@@ -193,7 +193,11 @@ describe("generated API contract", () => {
 
     await expect(
       createChildOrgUnit("org-1", { name: "Child" }, undefined, fetchMock),
-    ).rejects.toMatchObject({ status: 409, info: errorBody });
+    ).rejects.toMatchObject({
+      message: "POST /api/v1/org-units/org-1/children failed (409)",
+      status: 409,
+      info: errorBody,
+    });
   });
 
   it("preserves status and raw text for non-JSON errors", async () => {

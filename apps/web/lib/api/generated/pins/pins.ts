@@ -28,7 +28,7 @@ export const listPins = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: listPinsError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(`GET ${getListPinsUrl()} failed (${res.status})`);
     const data: listPinsError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -66,7 +66,9 @@ export const pinItem = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: pinItemError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(
+        `PUT ${getPinItemUrl(itemType, itemId)} failed (${res.status})`,
+      );
     const data: pinItemError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -107,7 +109,9 @@ export const unpinItem = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: unpinItemError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(
+        `DELETE ${getUnpinItemUrl(itemType, itemId)} failed (${res.status})`,
+      );
     const data: unpinItemError = (() => {
       try {
         return body ? JSON.parse(body) : {};

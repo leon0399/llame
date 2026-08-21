@@ -50,7 +50,9 @@ export const listChats = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: listChatsError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(
+        `GET ${getListChatsUrl(params)} failed (${res.status})`,
+      );
     const data: listChatsError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -97,7 +99,9 @@ export const searchChats = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: searchChatsError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(
+        `GET ${getSearchChatsUrl(params)} failed (${res.status})`,
+      );
     const data: searchChatsError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -132,7 +136,7 @@ export const getChat = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: getChatError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(`GET ${getGetChatUrl(id)} failed (${res.status})`);
     const data: getChatError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -170,7 +174,9 @@ export const updateChat = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: updateChatError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(
+        `PATCH ${getUpdateChatUrl(id)} failed (${res.status})`,
+      );
     const data: updateChatError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -205,7 +211,9 @@ export const deleteChat = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: deleteChatError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(
+        `DELETE ${getDeleteChatUrl(id)} failed (${res.status})`,
+      );
     const data: deleteChatError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -258,7 +266,9 @@ export const getChatMessages = async (
     const err: globalThis.Error & {
       info?: getChatMessagesError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `GET ${getGetChatMessagesUrl(id, params)} failed (${res.status})`,
+    );
     const data: getChatMessagesError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -296,7 +306,7 @@ export const forkChat = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: forkChatError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(`POST ${getForkChatUrl(id)} failed (${res.status})`);
     const data: forkChatError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -349,7 +359,9 @@ export const getSharedChat = async (
     const err: globalThis.Error & {
       info?: getSharedChatError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `GET ${getGetSharedChatUrl(id, params)} failed (${res.status})`,
+    );
     const data: getSharedChatError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -386,7 +398,9 @@ export const forkSharedChat = async (
     const err: globalThis.Error & {
       info?: forkSharedChatError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `POST ${getForkSharedChatUrl(id)} failed (${res.status})`,
+    );
     const data: forkSharedChatError = (() => {
       try {
         return body ? JSON.parse(body) : {};

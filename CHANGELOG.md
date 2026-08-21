@@ -9,10 +9,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Generated web Fetch client layer** (#469): exact-pinned Orval 8.24.0 now
   commits portable, tag-split bindings under `apps/web/lib/api/generated`.
   Every generated endpoint requires an injected Fetch policy and preserves the
-  generated status/body error boundary. Deterministic schema/client commands
-  and the CI drift gate cover regeneration, with a narrow checked-in
-  `@orval/fetch@8.24.0` patch; feature services and streaming remain explicit
-  handwritten layers.
+  generated status/body error boundary with operation, URL, and status context.
+  Deterministic schema/client commands and the CI drift gate cover regeneration,
+  with a narrow checked-in `@orval/fetch@8.24.0` patch; feature services and
+  streaming remain explicit handwritten layers.
 - **Unified context-injection rail** (#463): every server-authored context item
   — model change, tool-availability transition, recency-digest delta and
   supersession, and the compaction checkpoint — now renders through one

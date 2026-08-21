@@ -25,7 +25,7 @@ export const getMemory = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: getMemoryError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(`GET ${getGetMemoryUrl()} failed (${res.status})`);
     const data: getMemoryError = (() => {
       try {
         return body ? JSON.parse(body) : {};
@@ -64,7 +64,9 @@ export const updateMemory = async (
     const err: globalThis.Error & {
       info?: updateMemoryError;
       status?: number;
-    } = new globalThis.Error();
+    } = new globalThis.Error(
+      `PATCH ${getUpdateMemoryUrl()} failed (${res.status})`,
+    );
     const data: updateMemoryError = (() => {
       try {
         return body ? JSON.parse(body) : {};

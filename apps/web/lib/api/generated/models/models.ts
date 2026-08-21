@@ -25,7 +25,7 @@ export const listModels = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & { info?: listModelsError; status?: number } =
-      new globalThis.Error();
+      new globalThis.Error(`GET ${getListModelsUrl()} failed (${res.status})`);
     const data: listModelsError = (() => {
       try {
         return body ? JSON.parse(body) : {};

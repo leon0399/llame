@@ -93,7 +93,7 @@ catalogs:
 
 patchedDependencies:
   '@orval/fetch@8.24.0':
-    hash: 44900fc2c843ecf35d611a1a554b58cb5683378e54d4860bbaf7b029774947f4
+    hash: 1ebfacbe145a6ce224b9398136911f17d949732b2510a5a78c211ed7a51b0231
     path: patches/@orval__fetch@8.24.0.patch
 
 importers:
@@ -10564,7 +10564,7 @@ snapshots:
       - supports-color
       - typescript
 
-  '@orval/fetch@8.24.0(patch_hash=44900fc2c843ecf35d611a1a554b58cb5683378e54d4860bbaf7b029774947f4)(typescript@5.7.3)':
+  '@orval/fetch@8.24.0(patch_hash=1ebfacbe145a6ce224b9398136911f17d949732b2510a5a78c211ed7a51b0231)(typescript@5.7.3)':
     dependencies:
       '@orval/core': 8.24.0(typescript@5.7.3)
     transitivePeerDependencies:
@@ -10586,7 +10586,7 @@ snapshots:
   '@orval/mcp@8.24.0(typescript@5.7.3)':
     dependencies:
       '@orval/core': 8.24.0(typescript@5.7.3)
-      '@orval/fetch': 8.24.0(patch_hash=44900fc2c843ecf35d611a1a554b58cb5683378e54d4860bbaf7b029774947f4)(typescript@5.7.3)
+      '@orval/fetch': 8.24.0(patch_hash=1ebfacbe145a6ce224b9398136911f17d949732b2510a5a78c211ed7a51b0231)(typescript@5.7.3)
       '@orval/zod': 8.24.0(typescript@5.7.3)
     transitivePeerDependencies:
       - '@faker-js/faker'
@@ -10605,7 +10605,7 @@ snapshots:
   '@orval/query@8.24.0(typescript@5.7.3)':
     dependencies:
       '@orval/core': 8.24.0(typescript@5.7.3)
-      '@orval/fetch': 8.24.0(patch_hash=44900fc2c843ecf35d611a1a554b58cb5683378e54d4860bbaf7b029774947f4)(typescript@5.7.3)
+      '@orval/fetch': 8.24.0(patch_hash=1ebfacbe145a6ce224b9398136911f17d949732b2510a5a78c211ed7a51b0231)(typescript@5.7.3)
       remeda: 2.39.0
     transitivePeerDependencies:
       - '@faker-js/faker'
@@ -10623,7 +10623,7 @@ snapshots:
   '@orval/swr@8.24.0(typescript@5.7.3)':
     dependencies:
       '@orval/core': 8.24.0(typescript@5.7.3)
-      '@orval/fetch': 8.24.0(patch_hash=44900fc2c843ecf35d611a1a554b58cb5683378e54d4860bbaf7b029774947f4)(typescript@5.7.3)
+      '@orval/fetch': 8.24.0(patch_hash=1ebfacbe145a6ce224b9398136911f17d949732b2510a5a78c211ed7a51b0231)(typescript@5.7.3)
     transitivePeerDependencies:
       - '@faker-js/faker'
       - supports-color
@@ -15424,7 +15424,7 @@ snapshots:
       '@orval/axios': 8.24.0(typescript@5.7.3)
       '@orval/core': 8.24.0(typescript@5.7.3)
       '@orval/effect': 8.24.0(typescript@5.7.3)
-      '@orval/fetch': 8.24.0(patch_hash=44900fc2c843ecf35d611a1a554b58cb5683378e54d4860bbaf7b029774947f4)(typescript@5.7.3)
+      '@orval/fetch': 8.24.0(patch_hash=1ebfacbe145a6ce224b9398136911f17d949732b2510a5a78c211ed7a51b0231)(typescript@5.7.3)
       '@orval/hono': 8.24.0(typescript@5.7.3)
       '@orval/mcp': 8.24.0(typescript@5.7.3)
       '@orval/mock': 8.24.0(typescript@5.7.3)
