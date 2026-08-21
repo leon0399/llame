@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { api, buildApiUrl } from "../../api/client";
-import type { ProjectResponse } from "./types";
+import { listProjects as listProjectsEndpoint } from "../../api/generated/projects/projects";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 
 // Serializable-array key factory (TkDodo's "Effective React Query Keys"),
 // same convention as chatQueryKeys / orgUnitsQueryKeys.
@@ -23,13 +23,12 @@ export const projectQueryKeys = {
       : projectQueryKeys.lists(),
 };
 
+function authenticatedFetch(): typeof fetch {
+  return createAuthenticatedBrowserFetch(globalThis.fetch);
+}
+
 export const fetchProjects = (filters?: ProjectListFilters) => {
-  const searchParams: Record<string, string> = {};
-  if (filters?.pinned !== undefined) searchParams.pinned = filters.pinned;
-  if (filters?.archived !== undefined) searchParams.archived = filters.archived;
-  const sp =
-    Object.keys(searchParams).length > 0 ? { searchParams } : undefined;
-  return api.get(buildApiUrl("/api/v1/projects"), sp).json<ProjectResponse[]>();
+  return listProjectsEndpoint(filters, undefined, authenticatedFetch());
 };
 
 export function useProjectsQuery(filters?: ProjectListFilters) {

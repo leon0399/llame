@@ -1,12 +1,22 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { HTTPError } from "ky";
 
-import { api, buildApiUrl } from "../../api/client";
+import { getApiErrorStatus } from "../../api/errors";
+import { updateChat as updateChatEndpoint } from "../../api/generated/chats/chats";
+import {
+  createProject as createProjectEndpoint,
+  deleteProject as deleteProjectEndpoint,
+  updateProject as updateProjectEndpoint,
+} from "../../api/generated/projects/projects";
+import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import { toast } from "@workspace/ui/components/sonner";
 import { chatQueryKeys } from "../chat/queries";
 import { pinQueryKeys } from "../pins/queries";
 import { projectQueryKeys } from "./queries";
 import type { ProjectResponse } from "./types";
+
+function authenticatedFetch(): typeof fetch {
+  return createAuthenticatedBrowserFetch(globalThis.fetch);
+}
 
 /**
  * Project management — owner-scoped CRUD via POST/PATCH/DELETE
@@ -17,9 +27,7 @@ import type { ProjectResponse } from "./types";
  * D5a) — the pins cache holds its own denormalized copy of the project name.
  */
 export async function createProject(name: string): Promise<ProjectResponse> {
-  return api
-    .post(buildApiUrl("/api/v1/projects"), { json: { name } })
-    .json<ProjectResponse>();
+  return createProjectEndpoint({ name }, undefined, authenticatedFetch());
 }
 
 export function useCreateProject() {
@@ -36,9 +44,7 @@ export async function updateProject(
   id: string,
   name: string,
 ): Promise<ProjectResponse> {
-  return api
-    .patch(buildApiUrl(`/api/v1/projects/${id}`), { json: { name } })
-    .json<ProjectResponse>();
+  return updateProjectEndpoint(id, { name }, undefined, authenticatedFetch());
 }
 
 export function useUpdateProject() {
@@ -58,9 +64,12 @@ export async function setProjectArchive(
   id: string,
   archived: boolean,
 ): Promise<ProjectResponse> {
-  return api
-    .patch(buildApiUrl(`/api/v1/projects/${id}`), { json: { archived } })
-    .json<ProjectResponse>();
+  return updateProjectEndpoint(
+    id,
+    { archived },
+    undefined,
+    authenticatedFetch(),
+  );
 }
 
 export function useSetProjectArchive() {
@@ -83,11 +92,11 @@ export function useSetProjectArchive() {
 
 export async function deleteProject(id: string): Promise<void> {
   try {
-    await api.delete(buildApiUrl(`/api/v1/projects/${id}`));
+    await deleteProjectEndpoint(id, undefined, authenticatedFetch());
   } catch (error) {
     // 404 = already gone (e.g. a double-click's second request). That IS the
     // desired end state, so treat delete as idempotent rather than erroring.
-    if (error instanceof HTTPError && error.response.status === 404) return;
+    if (getApiErrorStatus(error) === 404) return;
     throw error;
   }
 }
@@ -117,9 +126,12 @@ export async function fileChat(
   chatId: string,
   projectId: string | null,
 ): Promise<void> {
-  await api.patch(buildApiUrl(`/api/v1/chats/${chatId}`), {
-    json: { projectId },
-  });
+  await updateChatEndpoint(
+    chatId,
+    { projectId },
+    undefined,
+    authenticatedFetch(),
+  );
 }
 
 export function useFileChat() {

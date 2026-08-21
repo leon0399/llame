@@ -12,22 +12,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-const { put, del, FakeHTTPError } = vi.hoisted(() => {
-  class FakeHTTPError extends Error {
-    response: { status: number };
-    constructor(status: number) {
-      super(`HTTP ${status}`);
-      this.response = { status };
-    }
-  }
-  return { put: vi.fn(), del: vi.fn(), FakeHTTPError };
-});
+const pinItemEndpoint = vi.hoisted(() => vi.fn());
+const unpinItemEndpoint = vi.hoisted(() => vi.fn());
+const authenticatedFetch = vi.hoisted(() => vi.fn());
+const createAuthenticatedBrowserFetch = vi.hoisted(() => vi.fn());
 const toastError = vi.hoisted(() => vi.fn());
 
-vi.mock("ky", () => ({ HTTPError: FakeHTTPError }));
-vi.mock("../../api/client", () => ({
-  api: { put, delete: del },
-  buildApiUrl: (path: string) => `http://api${path}`,
+vi.mock("../../api/generated/pins/pins", () => ({
+  pinItem: pinItemEndpoint,
+  unpinItem: unpinItemEndpoint,
+}));
+vi.mock("../../api/fetch", () => ({
+  createAuthenticatedBrowserFetch,
 }));
 vi.mock("@workspace/ui/components/sonner", () => ({
   toast: { error: toastError },
@@ -37,46 +33,52 @@ import { pinItem, unpinItem, usePinItem, useUnpinItem } from "./mutations";
 import { pinQueryKeys } from "./queries";
 import type { PinnedItem } from "./types";
 
-function jsonResolved<T>(value: T) {
-  return { json: () => Promise.resolve(value) };
-}
+createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
 
 afterEach(() => {
-  put.mockReset();
-  del.mockReset();
-  toastError.mockReset();
+  vi.clearAllMocks();
+  createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
 });
 
 describe("pinItem", () => {
-  it("PUTs /pins/:itemType/:itemId with no body", async () => {
-    put.mockReturnValue(
-      jsonResolved({
-        itemType: "chat",
-        itemId: "c1",
-        pinnedAt: "2026-01-01T00:00:00.000Z",
-        item: { id: "c1", title: "Hi" },
-      }),
-    );
+  it("pins through the generated authenticated endpoint", async () => {
+    pinItemEndpoint.mockResolvedValue({
+      itemType: "chat",
+      itemId: "c1",
+      pinnedAt: "2026-01-01T00:00:00.000Z",
+      item: { id: "c1", title: "Hi", archivedAt: null },
+    });
     await pinItem("chat", "c1");
-    expect(put).toHaveBeenCalledWith("http://api/api/v1/pins/chat/c1");
+    expect(pinItemEndpoint).toHaveBeenCalledWith(
+      "chat",
+      "c1",
+      undefined,
+      authenticatedFetch,
+    );
   });
 });
 
 describe("unpinItem", () => {
-  it("DELETEs /pins/:itemType/:itemId", async () => {
-    del.mockResolvedValue(undefined);
+  it("unpins through the generated authenticated endpoint", async () => {
+    unpinItemEndpoint.mockResolvedValue(undefined);
     await unpinItem("project", "p1");
-    expect(del).toHaveBeenCalledWith("http://api/api/v1/pins/project/p1");
+    expect(unpinItemEndpoint).toHaveBeenCalledWith(
+      "project",
+      "p1",
+      undefined,
+      authenticatedFetch,
+    );
   });
 
   it("swallows a 404 (already unpinned) as success", async () => {
-    del.mockRejectedValue(new FakeHTTPError(404));
+    unpinItemEndpoint.mockRejectedValue({ status: 404, info: {} });
     await expect(unpinItem("chat", "gone")).resolves.toBeUndefined();
   });
 
   it("rethrows non-404 errors", async () => {
-    del.mockRejectedValue(new FakeHTTPError(500));
-    await expect(unpinItem("chat", "c1")).rejects.toBeInstanceOf(FakeHTTPError);
+    const error = { status: 500, info: {} };
+    unpinItemEndpoint.mockRejectedValue(error);
+    await expect(unpinItem("chat", "c1")).rejects.toBe(error);
   });
 });
 
@@ -92,7 +94,7 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
   it("inserts the caller-supplied card into the pins cache before the server responds", async () => {
     // Never resolves within the assertion window — proves the insert is
     // optimistic (onMutate), not dependent on the mutation settling.
-    put.mockReturnValue({ json: () => new Promise(() => {}) });
+    pinItemEndpoint.mockReturnValue(new Promise(() => {}));
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
@@ -121,7 +123,7 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
   });
 
   it("rolls back the optimistic insert and toasts on failure", async () => {
-    put.mockReturnValue({ json: () => Promise.reject(new Error("down")) });
+    pinItemEndpoint.mockRejectedValue(new Error("down"));
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
@@ -147,7 +149,7 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
 
 describe("useUnpinItem", () => {
   it("optimistically removes the pin from the cache", async () => {
-    del.mockReturnValue(new Promise(() => {}));
+    unpinItemEndpoint.mockReturnValue(new Promise(() => {}));
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
@@ -173,7 +175,7 @@ describe("useUnpinItem", () => {
   });
 
   it("toasts an unpin-specific message on failure", async () => {
-    del.mockRejectedValue(new Error("down"));
+    unpinItemEndpoint.mockRejectedValue(new Error("down"));
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });

@@ -1,33 +1,60 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { get } = vi.hoisted(() => ({ get: vi.fn() }));
+const listProjectsEndpoint = vi.hoisted(() => vi.fn());
+const authenticatedFetch = vi.hoisted(() => vi.fn());
+const createAuthenticatedBrowserFetch = vi.hoisted(() => vi.fn());
 
-vi.mock("../../api/client", () => ({
-  api: { get },
-  buildApiUrl: (path: string) => `http://api${path}`,
+vi.mock("../../api/generated/projects/projects", () => ({
+  listProjects: listProjectsEndpoint,
+}));
+vi.mock("../../api/fetch", () => ({
+  createAuthenticatedBrowserFetch,
 }));
 
 import { fetchProjects, projectQueryKeys } from "./queries";
 
-function jsonResolved<T>(value: T) {
-  return { json: () => Promise.resolve(value) };
-}
+createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
 
 afterEach(() => {
-  get.mockReset();
+  vi.clearAllMocks();
+  createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
 });
 
 describe("projectQueryKeys", () => {
   it("uses resource-path query keys", () => {
     expect(projectQueryKeys.all).toEqual(["projects"]);
     expect(projectQueryKeys.lists()).toEqual(["projects", "list"]);
+    expect(projectQueryKeys.filtered()).toEqual(["projects", "list"]);
+    expect(
+      projectQueryKeys.filtered({ pinned: "only", archived: "with" }),
+    ).toEqual(["projects", "list", { pinned: "only", archived: "with" }]);
   });
 });
 
 describe("fetchProjects", () => {
-  it("GETs /projects", async () => {
-    get.mockReturnValue(jsonResolved([{ id: "p1" }]));
+  it("lists projects through the generated authenticated endpoint", async () => {
+    listProjectsEndpoint.mockResolvedValue([{ id: "p1" }]);
     await fetchProjects();
-    expect(get).toHaveBeenCalledWith("http://api/api/v1/projects", undefined);
+    expect(listProjectsEndpoint).toHaveBeenCalledWith(
+      undefined,
+      undefined,
+      authenticatedFetch,
+    );
+    expect(createAuthenticatedBrowserFetch).toHaveBeenCalledWith(
+      globalThis.fetch,
+    );
+  });
+
+  it("passes server filters to the generated endpoint", async () => {
+    listProjectsEndpoint.mockResolvedValue([]);
+    const filters = { pinned: "only" as const, archived: "with" as const };
+
+    await fetchProjects(filters);
+
+    expect(listProjectsEndpoint).toHaveBeenCalledWith(
+      filters,
+      undefined,
+      authenticatedFetch,
+    );
   });
 });
