@@ -34,10 +34,12 @@ import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type TextPart } from '../chats/context-builder';
+import {} from '../chats/context-item';
 import {
-  createToolAvailabilityPart,
-  renderToolAvailabilityReminder,
-} from '../chats/tool-availability-part';
+  createToolAvailabilityItem,
+  deriveToolAvailabilityPayload,
+  renderContextItemPart,
+} from '../chats/context-item-producers';
 import {
   composeTurnToolCatalog,
   type TurnToolCatalog,
@@ -718,13 +720,18 @@ describe('operator-configured MCP production acceptance', () => {
       expect(disconnectResult).toMatchObject({ status: 'error' });
 
       const disconnected = await turnCatalog(api.runtime);
-      const unavailablePart = createToolAvailabilityPart({
-        runId: crypto.randomUUID(),
+      const unavailablePayload = deriveToolAvailabilityPayload({
         previous: beforeDisconnect.manifest,
         current: disconnected.manifest,
       });
+      const unavailablePart =
+        unavailablePayload &&
+        createToolAvailabilityItem({
+          runId: crypto.randomUUID(),
+          payload: unavailablePayload,
+        });
       expect(
-        unavailablePart && renderToolAvailabilityReminder(unavailablePart),
+        unavailablePart && renderContextItemPart(unavailablePart),
       ).toContain('Became unavailable:');
 
       try {
@@ -739,14 +746,19 @@ describe('operator-configured MCP production acceptance', () => {
         );
       }
       const reconnected = await turnCatalog(api.runtime);
-      const availablePart = createToolAvailabilityPart({
-        runId: crypto.randomUUID(),
+      const availablePayload = deriveToolAvailabilityPayload({
         previous: disconnected.manifest,
         current: reconnected.manifest,
       });
-      expect(
-        availablePart && renderToolAvailabilityReminder(availablePart),
-      ).toContain('Now available:');
+      const availablePart =
+        availablePayload &&
+        createToolAvailabilityItem({
+          runId: crypto.randomUUID(),
+          payload: availablePayload,
+        });
+      expect(availablePart && renderContextItemPart(availablePart)).toContain(
+        'Now available:',
+      );
 
       const definitions = api.moduleRef.get<
         Readonly<Record<string, UnknownRecord>>

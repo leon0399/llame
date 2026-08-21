@@ -71,10 +71,11 @@ import { hashToolDeclaration } from '../tools/turn-tool-catalog';
 import { type Tool, type ToolContext } from '../tools/types';
 import { isRecord, type UnknownRecord } from '../unknown-record';
 import { turnTelemetryLogger } from './turn-telemetry';
+import {} from './context-item';
 import {
-  createModelSwitchPart,
-  renderModelSwitchReminder,
-} from './model-context-part';
+  createModelChangeItem,
+  renderContextItemPart,
+} from './context-item-producers';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -1686,7 +1687,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const service = serviceWithTools({ allowed: [] });
     const chatId = crypto.randomUUID();
     const targetRunId = crypto.randomUUID();
-    const switchPart = createModelSwitchPart({
+    const switchPart = createModelChangeItem({
       fromModelId: 'source-model',
       toModelId: 'target-model',
       runId: targetRunId,
@@ -1808,7 +1809,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       },
       {
         role: 'user',
-        content: `${renderModelSwitchReminder(switchPart)}\n\nContinue on target.`,
+        content: `${renderContextItemPart(switchPart) ?? ''}\n\nContinue on target.`,
       },
     ]);
     const providerInput = JSON.stringify(calls[0]);

@@ -580,8 +580,8 @@ function ChatSessionContent({
               const modelBoundary = switchPart ? (
                 <div className="mx-auto w-full max-w-3xl md:px-6">
                   <ModelSwitchBoundary
-                    fromModelId={switchPart.data.fromModelId}
-                    toModelId={switchPart.data.toModelId}
+                    fromModelId={switchPart.data.payload.fromModelId}
+                    toModelId={switchPart.data.payload.toModelId}
                     onInspectContext={() =>
                       setInspectedRunId(switchPart.data.runId)
                     }
@@ -662,21 +662,17 @@ function ChatSessionContent({
                               {...capNotice}
                             />
                           ) : null;
-                        } else if (part.type === "data-model-context") {
-                          // Trusted control metadata is surfaced by the
-                          // boundary immediately before this message, never
-                          // as message content.
-                          return null;
-                        } else if (
-                          part.type === "data-tool-availability" ||
-                          part.type === "data-recency-digest"
-                        ) {
-                          // Server-authored context reminders. They are
-                          // rendered into the MODEL's prompt by the api's
-                          // context-builder and are never visible chat
-                          // content — without this branch they fall through
-                          // to the "unsupported part type" span and print
-                          // debug text into the owner's transcript on reload.
+                        } else if (part.type === "data-context") {
+                          // Every server-authored context item, whatever its
+                          // producer. They are rendered into the MODEL's
+                          // prompt by the api's context-builder and are never
+                          // visible chat content; the model-change boundary
+                          // above this message is the only owner-facing
+                          // surface today. One branch rather than a list of
+                          // producers, so a producer this build does not know
+                          // about cannot fall through to the "unsupported
+                          // part type" span and print debug text into the
+                          // owner's transcript on reload.
                           return null;
                         }
 

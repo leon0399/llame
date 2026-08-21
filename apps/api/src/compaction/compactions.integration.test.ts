@@ -19,10 +19,8 @@ import { configureApp } from '../app.setup';
 import { TenantDbService } from '../db/tenant-db.service';
 import { CompactionsRepository } from '../chats/chats-repository';
 import { COMPACTION_INSTRUCTION } from '../compaction/compaction';
-import {
-  CONVERSATION_CHECKPOINT_START,
-  renderConversationCheckpoint,
-} from '../chats/context-builder';
+import { renderConversationCheckpoint } from '../chats/context-builder';
+import { COMPACTION_CHECKPOINT_ENVELOPE_PREFIX } from '../chats/context-item-producers';
 import { type Compaction } from '../db/schema';
 import { ModelsService } from '../models/models.service';
 import {
@@ -162,7 +160,9 @@ d('compaction lineage over HTTP (#57)', () => {
     // and must contain the oldest message.
     const firstCall = compactionCalls()[0];
     expect(texts(firstCall)).toContain('turn-1');
-    expect(texts(firstCall)).not.toContain(CONVERSATION_CHECKPOINT_START);
+    expect(texts(firstCall)).not.toContain(
+      COMPACTION_CHECKPOINT_ENVELOPE_PREFIX,
+    );
 
     // One more turn: the post-compaction window outgrows keep-recent again
     // and a SECOND compaction lands on top of the first.
@@ -178,7 +178,7 @@ d('compaction lineage over HTTP (#57)', () => {
     // must not replay any message the first compaction already absorbed.
     const secondCall = compactionCalls().find((t) =>
       contentText(t.messages[0]?.content).startsWith(
-        CONVERSATION_CHECKPOINT_START,
+        COMPACTION_CHECKPOINT_ENVELOPE_PREFIX,
       ),
     );
     expect(secondCall).toBeDefined();

@@ -59,21 +59,20 @@ import {
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
+import { sanitizeClientMessageParts } from './context-item';
 import {
-  createModelSwitchPart,
-  sanitizeClientMessageParts,
-} from './model-context-part';
-import { createToolAvailabilityPart } from './tool-availability-part';
+  createModelChangeItem,
+  createRecencyDigestDeltaItem,
+  createRecencyDigestSupersessionItem,
+  createToolAvailabilityItem,
+  deriveToolAvailabilityPayload,
+} from './context-item-producers';
 import {
   MemoryService,
   type MemorySettingsBindingResolver,
   type MemorySettingsResolver,
   type ResolvedMemorySettings,
 } from '../memory/memory.service';
-import {
-  createRecencyDigestDeltaPart,
-  createRecencyDigestSupersessionPart,
-} from './recency-digest-part';
 import {
   formatTemporalAnchor,
   resolveInstanceTimezone,
@@ -596,26 +595,33 @@ export class ChatLoopService {
       previousRun !== undefined &&
       chat.recencyDigestRebakedFrom === activeCompaction.id &&
       activeCompaction.createdAt > previousRun.createdAt;
-    const availabilityPart = createToolAvailabilityPart({
-      runId: turnInput.targetRunId,
+    const availabilityPayload = deriveToolAvailabilityPayload({
       current: effectiveContext.toolAvailabilityManifest,
       ...(continuesDisclosureEpoch && {
         previous: previousSnapshot.toolAvailabilityManifest,
       }),
     });
+    const availabilityPart = availabilityPayload
+      ? createToolAvailabilityItem({
+          runId: turnInput.targetRunId,
+          payload: availabilityPayload,
+        })
+      : undefined;
     const modelSwitchPart =
       previousRun && previousRun.modelId !== turnInput.modelId
-        ? createModelSwitchPart({
+        ? createModelChangeItem({
             fromModelId: previousRun.modelId,
             toModelId: turnInput.modelId,
             runId: turnInput.targetRunId,
           })
         : undefined;
     const digestDeltaPart = digestDelta
-      ? createRecencyDigestDeltaPart({
+      ? createRecencyDigestDeltaItem({
           runId: turnInput.targetRunId,
-          entries: digestDelta.entries,
-          pinChanges: digestDelta.pinChanges,
+          payload: {
+            entries: digestDelta.entries,
+            pinChanges: digestDelta.pinChanges,
+          },
         })
       : undefined;
     // Compaction is the one context boundary that re-bakes the digest. A
@@ -625,7 +631,7 @@ export class ChatLoopService {
       digestRebaked &&
       chat.recencyDigestBaseline !== null &&
       shareRecentChats?.shareRecentChats === true
-        ? createRecencyDigestSupersessionPart({
+        ? createRecencyDigestSupersessionItem({
             runId: turnInput.targetRunId,
           })
         : undefined;

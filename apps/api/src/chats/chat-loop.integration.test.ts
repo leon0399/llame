@@ -64,7 +64,7 @@ import {
   type ToolAvailabilityManifestV1,
   type ToolUnavailableReason,
 } from '../tools/turn-tool-catalog';
-import { type ToolAvailabilityPart } from './tool-availability-part';
+import { type ContextItemPart } from './context-item';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -191,9 +191,9 @@ describeIfDb(
 
     const availabilityPart = (
       parts: readonly unknown[],
-    ): ToolAvailabilityPart | undefined =>
+    ): ContextItemPart | undefined =>
       parts.find(
-        (part): part is ToolAvailabilityPart =>
+        (part): part is ContextItemPart =>
           typeof part === 'object' &&
           part !== null &&
           'type' in part &&

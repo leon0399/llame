@@ -69,17 +69,25 @@ const COMPACTION_MARKDOWN_SECTIONS = COMPACTION_SECTION_HEADINGS.map(
  * persisted and replayed forever, and that a later personalization edit or
  * deletion can never reach.
  *
- * Syntactic, not semantic: naming the delimiter asks the model only to not copy
+ * Syntactic, not semantic: naming the region asks the model only to not copy
  * text out of a marked region, where scoping by provenance ("preferences the
  * user stated in the conversation") would ask it to work out where a preference
  * it can see originated. The first is far more reliable.
+ *
+ * The rail's items no longer have a delimiter each: every one shares the
+ * `<system-reminder>` envelope and is told apart by its `producer` attribute.
+ * The exclusion therefore names the envelope TOGETHER WITH the producer whose
+ * items are excluded — naming the envelope alone would exclude every producer's
+ * items indiscriminately, and a `<chat-recency-update>` that no longer exists
+ * would silently exclude nothing, which is the defect this paragraph exists to
+ * prevent.
  *
  * Costs no cache. This is part of the trailing instruction — the FINAL USER
  * MESSAGE, already outside the byte-identical prefix. Stripping the block from
  * the replayed system prompt would work too and is rejected: that changes the
  * prefix and makes the whole (deliberately large) call cold.
  */
-const STANDING_CONTEXT_EXCLUSION = `Do not carry any content out of the <user_personalization>, <user_chat_history>, or <chat-recency-update> blocks into the summary. Do not carry the system-supplied temporal context line (the line stating context as of a date) into the summary either. These describe standing context rather than this conversation, are re-supplied on every request, and must not be frozen into this checkpoint. Dates, deadlines, or intervals the user or assistant established within the conversation itself still belong in the summary.`;
+const STANDING_CONTEXT_EXCLUSION = `Do not carry any content out of the <user_personalization> or <user_chat_history> blocks into the summary, and do not carry any content out of a <system-reminder> block whose producer attribute is "recency-digest". Do not carry the system-supplied temporal context line (the line stating context as of a date) into the summary either. These describe standing context rather than this conversation, are re-supplied on every request, and must not be frozen into this checkpoint. Dates, deadlines, or intervals the user or assistant established within the conversation itself still belong in the summary.`;
 
 export const COMPACTION_INSTRUCTION = `Create a concise operational handoff for a future model continuing this conversation.
 

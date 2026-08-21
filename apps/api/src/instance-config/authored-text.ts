@@ -49,9 +49,12 @@
  * observations.
  */
 const RESERVED_TAG_NAMES: ReadonlySet<string> = new Set([
-  'conversation-checkpoint',
-  'chat-recency-update',
-  'runtime-tool-availability',
+  // Exactly the three retired rail delimiters are gone: `conversation-checkpoint`,
+  // `chat-recency-update`, and `runtime-tool-availability` no longer exist, since
+  // every context item now shares one envelope. Every OTHER entry below is
+  // unrelated to the rail and stays reserved — dropping them with the rail's
+  // would be an escaping regression a test that only forges `system-reminder`
+  // would never catch.
   'system-reminder',
   'tool-call',
   'tool-result',

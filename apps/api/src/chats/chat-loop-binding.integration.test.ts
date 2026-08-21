@@ -21,7 +21,8 @@ import {
   type MemorySettingsResolver,
 } from '../memory/memory.service';
 import { type RecencyDigestResolver } from './recency-digest.service';
-import { isRecencyDigestPart } from './recency-digest-part';
+import { isContextItemPart } from './context-item';
+import { isRecencyDigestItem } from './context-item-producers';
 
 /** Fully typed, no cast: ChatLoopService depends on the method, not the class. */
 const personalization: PromptUserResolver = {
@@ -552,8 +553,8 @@ describe('ChatLoopService effective-context transaction binding', () => {
 
     const persisted = createMessage.mock.calls[0]?.[0];
     const digestPart = persisted?.parts[0];
-    expect(isRecencyDigestPart(digestPart)).toBe(true);
-    if (!isRecencyDigestPart(digestPart)) {
+    expect(isRecencyDigestItem(digestPart)).toBe(true);
+    if (!isContextItemPart(digestPart)) {
       throw new Error('Expected a recency digest part');
     }
     expect(digestPart.data).toMatchObject({
