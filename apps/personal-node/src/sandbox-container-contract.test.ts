@@ -73,6 +73,13 @@ describe("Docker Sandbox launch contract", () => {
 
   test.each([
     ["mutable image", { image: "registry.example/llame/sandbox:latest" }],
+    [
+      "option-like image",
+      {
+        image:
+          "--privileged@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    ],
     ["relative Workspace", { workspaceSourceRealpath: "worktrees/run-42" }],
     ["host root", { workspaceSourceRealpath: "/" }],
     ["mount delimiter", { workspaceSourceRealpath: "/srv/worktrees/bad,path" }],
