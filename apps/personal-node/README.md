@@ -378,6 +378,16 @@ never started, reports exact concurrent duplicates as in progress, and records
 `outcome_unknown` after any failure once the single-use execution handle has
 started. Completed and unknown receipts replay without contacting Docker.
 
+Authority transfer on the same daemon is fenced against command execution. A
+pending receipt rejects the transfer; an uncontained `outcome_unknown` receipt
+also rejects it until successful Sandbox removal proves that no process can
+still be running. Removal records containment separately without rewriting the
+immutable ambiguous receipt, and a transition lease prevents a new command
+from entering between the quiescence check and the authority mutation. This is
+executor-local fencing, not proof that a disconnected remote executor is
+quiescent: cross-node handoff must still reach the current executor or preserve
+the ambiguity through the fallback decision.
+
 An enrolled node holding current Run authority and the `run.execute` scope can
 call `POST /v1/runs/:runId/sandbox/commands` with a command ID, expected
 authority epoch, executable, and ordered arguments. The strict body accepts no

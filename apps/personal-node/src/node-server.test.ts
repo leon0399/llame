@@ -1116,6 +1116,9 @@ describe("personal Node Protocol server", () => {
       authorization: "Bearer owner-control-secret",
       "content-type": "application/json",
     };
+    const sandboxCapabilities = await fetch(`${origin}/v1/capabilities`, {
+      headers,
+    });
     for (const runId of ["run-sandbox", "run-unattached"]) {
       await fetch(`${origin}/v1/runs`, {
         method: "POST",
@@ -1235,6 +1238,35 @@ describe("personal Node Protocol server", () => {
         }),
       },
     );
+    const pendingCommand = {
+      realmId: "realm-personal",
+      runId: "run-sandbox",
+      executorNodeId: "node-home",
+      authorityEpoch: 1,
+      commandId: "tool-call-pending",
+      request: { command: "git", args: ["status"] },
+    };
+    commandStore.reserve(pendingCommand);
+    const transferBody = JSON.stringify({
+      expectedAuthorityEpoch: 1,
+      targetExecutorNodeId: "node-other",
+      reason: "handoff",
+    });
+    const inFlightTransfer = await fetch(
+      `${origin}/v1/runs/run-sandbox/authority`,
+      { method: "POST", headers, body: transferBody },
+    );
+    commandStore.release(pendingCommand);
+    const ambiguousCommand = {
+      ...pendingCommand,
+      commandId: "tool-call-ambiguous",
+    };
+    commandStore.reserve(ambiguousCommand);
+    commandStore.markOutcomeUnknown(ambiguousCommand);
+    const ambiguousTransfer = await fetch(
+      `${origin}/v1/runs/run-sandbox/authority`,
+      { method: "POST", headers, body: transferBody },
+    );
     const exited = await fetch(`${origin}/v1/runs/run-sandbox/sandbox/exit`, {
       method: "POST",
       headers,
@@ -1244,8 +1276,25 @@ describe("personal Node Protocol server", () => {
       `${origin}/v1/runs/run-sandbox/worktree/exit`,
       { method: "POST", headers, body: "{}" },
     );
+    const workspaceExited = await fetch(
+      `${origin}/v1/runs/run-sandbox/workspace/exit`,
+      { method: "POST", headers, body: "{}" },
+    );
+    const transferred = await fetch(`${origin}/v1/runs/run-sandbox/authority`, {
+      method: "POST",
+      headers,
+      body: transferBody,
+    });
 
     expect(unattached.status).toBe(409);
+    expect(await sandboxCapabilities.json()).toMatchObject({
+      modules: {
+        "execution.sandbox": {
+          version: 3,
+          mode: "executor-local-docker",
+        },
+      },
+    });
     expect(await unattached.json()).toEqual({
       error: "workspace_not_attached",
     });
@@ -1294,6 +1343,14 @@ describe("personal Node Protocol server", () => {
     expect(await ownerCommand.json()).toEqual({
       error: "executor_authority_required",
     });
+    expect(inFlightTransfer.status).toBe(409);
+    expect(await inFlightTransfer.json()).toEqual({
+      error: "sandbox_command_in_flight",
+    });
+    expect(ambiguousTransfer.status).toBe(409);
+    expect(await ambiguousTransfer.json()).toEqual({
+      error: "sandbox_command_outcome_unknown",
+    });
     expect(containerEngine.execute).toHaveBeenCalledTimes(1);
     expect(containerEngine.create).toHaveBeenCalledWith(
       expect.arrayContaining([
@@ -1309,5 +1366,11 @@ describe("personal Node Protocol server", () => {
     );
     expect(worktreeExited.status).toBe(202);
     expect(gitWorktreeManager.exit).toHaveBeenCalledTimes(1);
+    expect(workspaceExited.status).toBe(202);
+    expect(transferred.status).toBe(202);
+    expect(await transferred.json()).toMatchObject({
+      authorityEpoch: 2,
+      executorNodeId: "node-other",
+    });
   });
 });

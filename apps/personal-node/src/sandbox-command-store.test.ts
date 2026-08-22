@@ -23,6 +23,12 @@ const result = {
   stdout: " M README.md\n",
   stderr: "",
 };
+const authority = {
+  realmId: command.realmId,
+  runId: command.runId,
+  executorNodeId: command.executorNodeId,
+  authorityEpoch: command.authorityEpoch,
+};
 
 describe("durable Sandbox command receipts", () => {
   const temporaryDirectories: string[] = [];
@@ -147,6 +153,78 @@ describe("durable Sandbox command receipts", () => {
       status: "outcome_unknown",
     });
     reopened.close();
+  });
+
+  test("persists authority activity without mutating ambiguous receipts", async () => {
+    const path = await databasePath();
+    const store = new SqliteSandboxCommandStore({
+      databasePath: path,
+      realmId: "realm-personal",
+    });
+
+    expect(store.authorityActivity(authority)).toBe("quiescent");
+    store.reserve(command);
+    expect(store.authorityActivity(authority)).toBe("in-progress");
+    store.markOutcomeUnknown(command);
+    expect(store.authorityActivity(authority)).toBe("outcome_unknown");
+    expect(store.containOutcomeUnknown(authority)).toEqual({ contained: 1 });
+    expect(store.authorityActivity(authority)).toBe("quiescent");
+    expect(store.reserve(command)).toMatchObject({
+      status: "outcome_unknown",
+    });
+    store.close();
+
+    const reopened = new SqliteSandboxCommandStore({
+      databasePath: path,
+      realmId: "realm-personal",
+    });
+    expect(reopened.authorityActivity(authority)).toBe("quiescent");
+    expect(reopened.reserve(command)).toMatchObject({
+      status: "outcome_unknown",
+    });
+    reopened.close();
+  });
+
+  test("migrates receipts created before containment metadata existed", async () => {
+    const path = await databasePath();
+    const database = new DatabaseSync(path);
+    database.exec(`
+      CREATE TABLE sandbox_command_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      ) STRICT;
+      INSERT INTO sandbox_command_metadata (key, value)
+      VALUES ('realm_id', 'realm-personal');
+      CREATE TABLE sandbox_command_receipts (
+        realm_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        command_id TEXT NOT NULL,
+        executor_node_id TEXT NOT NULL,
+        authority_epoch INTEGER NOT NULL CHECK (authority_epoch > 0),
+        request_hash TEXT NOT NULL,
+        state TEXT NOT NULL
+          CHECK (state IN ('pending', 'completed', 'outcome_unknown')),
+        result_json TEXT,
+        PRIMARY KEY (run_id, command_id)
+      ) STRICT;
+      INSERT INTO sandbox_command_receipts (
+        realm_id, run_id, command_id, executor_node_id, authority_epoch,
+        request_hash, state, result_json
+      ) VALUES (
+        'realm-personal', 'run-1', 'tool-call-1', 'node-workstation', 3,
+        'legacy-request-hash', 'outcome_unknown', NULL
+      );
+    `);
+    database.close();
+
+    const store = new SqliteSandboxCommandStore({
+      databasePath: path,
+      realmId: "realm-personal",
+    });
+    expect(store.authorityActivity(authority)).toBe("outcome_unknown");
+    expect(store.containOutcomeUnknown(authority)).toEqual({ contained: 1 });
+    expect(store.authorityActivity(authority)).toBe("quiescent");
+    store.close();
   });
 
   test("keeps the first completed result immutable", async () => {

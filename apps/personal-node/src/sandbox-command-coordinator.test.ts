@@ -4,7 +4,12 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { DurableSandboxCommandExecutor } from "./sandbox-command-coordinator.js";
+import {
+  DurableSandboxCommandExecutor,
+  SandboxCommandInFlightError,
+  SandboxCommandOutcomeUnknownError,
+  SandboxCommandTransitionInProgressError,
+} from "./sandbox-command-coordinator.js";
 import { SqliteSandboxCommandStore } from "./sandbox-command-store.js";
 import { buildDockerSandboxPlan } from "./sandbox-container-contract.js";
 import {
@@ -31,6 +36,12 @@ const command = {
   request: { command: "git", args: ["status", "--short"] },
 };
 const result = { exitCode: 0, stdout: "clean\n", stderr: "" };
+const authority = {
+  realmId: command.realmId,
+  runId: command.runId,
+  executorNodeId: command.executorNodeId,
+  authorityEpoch: command.authorityEpoch,
+};
 
 function observation(): SandboxContainerObservation {
   return {
@@ -188,5 +199,91 @@ describe("durable Sandbox command execution", () => {
       "Sandbox command identity does not match its plan",
     );
     expect(store.reserve(mismatched)).toEqual({ status: "reserved" });
+  });
+
+  test("fences authority transfer against a running command", async () => {
+    let settle: ((value: SandboxCommandResult) => void) | undefined;
+    let first = true;
+    const execute = vi.fn(async () => {
+      if (!first) return result;
+      first = false;
+      return new Promise<SandboxCommandResult>((resolve) => {
+        settle = resolve;
+      });
+    });
+    const coordinator = new DurableSandboxCommandExecutor(
+      new DockerSandboxLifecycle(engine(execute)),
+      await receipts(),
+    );
+    const running = coordinator.execute(plan, command);
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+
+    expect(() => coordinator.prepareAuthorityTransfer(authority)).toThrowError(
+      SandboxCommandInFlightError,
+    );
+    expect(() => coordinator.prepareSandboxExit(authority)).toThrowError(
+      SandboxCommandInFlightError,
+    );
+    if (settle === undefined) throw new Error("command did not start");
+    settle(result);
+    await running;
+
+    const transfer = coordinator.prepareAuthorityTransfer(authority);
+    await expect(
+      coordinator.execute(plan, { ...command, commandId: "tool-call-2" }),
+    ).rejects.toThrowError(SandboxCommandTransitionInProgressError);
+    transfer.release();
+    await expect(
+      coordinator.execute(plan, { ...command, commandId: "tool-call-2" }),
+    ).resolves.toMatchObject({ disposition: "executed" });
+  });
+
+  test("contains an ambiguous outcome only after successful Sandbox exit", async () => {
+    const coordinator = new DurableSandboxCommandExecutor(
+      new DockerSandboxLifecycle(
+        engine(
+          vi.fn(async () => {
+            throw new Error("Docker connection lost");
+          }),
+        ),
+      ),
+      await receipts(),
+    );
+    await coordinator.execute(plan, command);
+
+    expect(() => coordinator.prepareAuthorityTransfer(authority)).toThrowError(
+      SandboxCommandOutcomeUnknownError,
+    );
+    const exit = coordinator.prepareSandboxExit(authority);
+    await expect(
+      coordinator.execute(plan, { ...command, commandId: "tool-call-2" }),
+    ).rejects.toThrowError(SandboxCommandTransitionInProgressError);
+    exit.complete();
+
+    const transfer = coordinator.prepareAuthorityTransfer(authority);
+    transfer.release();
+    await expect(coordinator.execute(plan, command)).resolves.toMatchObject({
+      disposition: "replayed",
+      receipt: { status: "outcome_unknown" },
+    });
+  });
+
+  test("does not let a settled lease release its successor", async () => {
+    const coordinator = new DurableSandboxCommandExecutor(
+      new DockerSandboxLifecycle(engine(vi.fn(async () => result))),
+      await receipts(),
+    );
+    const first = coordinator.prepareAuthorityTransfer(authority);
+    first.release();
+    const second = coordinator.prepareAuthorityTransfer(authority);
+
+    first.release();
+    await expect(coordinator.execute(plan, command)).rejects.toThrowError(
+      SandboxCommandTransitionInProgressError,
+    );
+    second.release();
+    await expect(coordinator.execute(plan, command)).resolves.toMatchObject({
+      disposition: "executed",
+    });
   });
 });

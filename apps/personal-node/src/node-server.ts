@@ -23,7 +23,12 @@ import {
 } from "./git-worktree-manager.js";
 import type { PeerSyncStatus } from "./peer-sync-supervisor.js";
 import type { SqliteRunControlStore } from "./run-control-store.js";
-import type { DurableSandboxCommandExecutor } from "./sandbox-command-coordinator.js";
+import {
+  SandboxCommandInFlightError,
+  SandboxCommandOutcomeUnknownError,
+  SandboxCommandTransitionInProgressError,
+  type DurableSandboxCommandExecutor,
+} from "./sandbox-command-coordinator.js";
 import { SandboxCommandConflictError } from "./sandbox-command-store.js";
 import {
   buildDockerSandboxPlan,
@@ -410,7 +415,7 @@ async function handleAuthorizedRequest(
           options.sandbox === undefined
             ? { available: false }
             : {
-                version: options.sandbox.commands === undefined ? 1 : 2,
+                version: options.sandbox.commands === undefined ? 1 : 3,
                 mode: "executor-local-docker",
               },
       },
@@ -681,29 +686,65 @@ async function handleAuthorizedRequest(
       if (!parsed.success) {
         throw new RequestError(400, "invalid_run_authority_request");
       }
-      if (options.journalRunAuthor !== undefined) {
-        if (principal.kind !== "owner") {
-          throw new RequestError(403, "local_writer_authority_required");
+      const currentRun = runSnapshot(runId);
+      let sandboxTransfer:
+        | ReturnType<DurableSandboxCommandExecutor["prepareAuthorityTransfer"]>
+        | undefined;
+      if (
+        options.sandbox?.commands !== undefined &&
+        currentRun !== undefined &&
+        currentRun.authorityEpoch === parsed.data.expectedAuthorityEpoch
+      ) {
+        try {
+          sandboxTransfer = options.sandbox.commands.prepareAuthorityTransfer({
+            realmId: options.store.realmId(),
+            runId,
+            executorNodeId: currentRun.executorNodeId,
+            authorityEpoch: currentRun.authorityEpoch,
+          });
+        } catch (error) {
+          if (error instanceof SandboxCommandInFlightError) {
+            throw new RequestError(409, "sandbox_command_in_flight");
+          }
+          if (error instanceof SandboxCommandOutcomeUnknownError) {
+            throw new RequestError(409, "sandbox_command_outcome_unknown");
+          }
+          if (error instanceof SandboxCommandTransitionInProgressError) {
+            throw new RequestError(
+              409,
+              "sandbox_command_transition_in_progress",
+            );
+          }
+          throw error;
         }
-        const signed = options.journalRunAuthor.transferAuthority({
-          runId,
-          ...parsed.data,
-        });
-        sendJson(response, 202, {
-          status: "authored",
-          batchRef: `${signed.batch.writerStreamId}:${signed.batch.sequence}`,
-        });
+      }
+      try {
+        if (options.journalRunAuthor !== undefined) {
+          if (principal.kind !== "owner") {
+            throw new RequestError(403, "local_writer_authority_required");
+          }
+          const signed = options.journalRunAuthor.transferAuthority({
+            runId,
+            ...parsed.data,
+          });
+          sendJson(response, 202, {
+            status: "authored",
+            batchRef: `${signed.batch.writerStreamId}:${signed.batch.sequence}`,
+          });
+          return;
+        }
+        if (usesJournalRunProjection) {
+          throw new RequestError(409, "local_writer_unavailable");
+        }
+        sendJson(
+          response,
+          202,
+          options.runControlStore?.transferAuthority(runId, parsed.data),
+        );
         return;
+      } finally {
+        sandboxTransfer?.release();
       }
-      if (usesJournalRunProjection) {
-        throw new RequestError(409, "local_writer_unavailable");
-      }
-      sendJson(
-        response,
-        202,
-        options.runControlStore?.transferAuthority(runId, parsed.data),
-      );
-      return;
     }
   }
   const workspaceRoute =
@@ -985,7 +1026,15 @@ async function handleAuthorizedRequest(
       } catch {
         throw new RequestError(400, "invalid_sandbox_command_request");
       }
-      if (expectedAuthorityEpoch !== state.authorityEpoch) {
+      const currentState = workspaceRecoveryStateIfPresent(runId);
+      if (
+        currentState === null ||
+        currentState === undefined ||
+        !currentState.workspaceAttached ||
+        currentState.workspaceId !== state.workspaceId ||
+        currentState.activeExecutorNodeId !== options.nodeId ||
+        currentState.authorityEpoch !== expectedAuthorityEpoch
+      ) {
         throw new RequestError(409, "stale_sandbox_command_authority");
       }
       let execution: Awaited<
@@ -995,7 +1044,7 @@ async function handleAuthorizedRequest(
         execution = await options.sandbox.commands.execute(plan, {
           realmId: options.store.realmId(),
           runId,
-          executorNodeId: state.activeExecutorNodeId,
+          executorNodeId: currentState.activeExecutorNodeId,
           authorityEpoch: expectedAuthorityEpoch,
           commandId,
           request: requestDefinition,
@@ -1003,6 +1052,9 @@ async function handleAuthorizedRequest(
       } catch (error) {
         if (error instanceof SandboxCommandConflictError) {
           throw new RequestError(409, "sandbox_command_conflict");
+        }
+        if (error instanceof SandboxCommandTransitionInProgressError) {
+          throw new RequestError(409, "sandbox_command_transition_in_progress");
         }
         throw error;
       }
@@ -1026,7 +1078,37 @@ async function handleAuthorizedRequest(
       return;
     }
     if (request.method === "POST" && action === "exit") {
-      await options.sandbox.lifecycle.exit(plan);
+      let preparedExit:
+        | ReturnType<DurableSandboxCommandExecutor["prepareSandboxExit"]>
+        | undefined;
+      if (options.sandbox.commands !== undefined) {
+        try {
+          preparedExit = options.sandbox.commands.prepareSandboxExit({
+            realmId: options.store.realmId(),
+            runId,
+            executorNodeId: state.activeExecutorNodeId,
+            authorityEpoch: state.authorityEpoch,
+          });
+        } catch (error) {
+          if (error instanceof SandboxCommandInFlightError) {
+            throw new RequestError(409, "sandbox_command_in_flight");
+          }
+          if (error instanceof SandboxCommandTransitionInProgressError) {
+            throw new RequestError(
+              409,
+              "sandbox_command_transition_in_progress",
+            );
+          }
+          throw error;
+        }
+      }
+      try {
+        await options.sandbox.lifecycle.exit(plan);
+        preparedExit?.complete();
+      } catch (error) {
+        preparedExit?.abort();
+        throw error;
+      }
       sendJson(response, 202, { state: "absent" });
       return;
     }

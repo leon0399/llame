@@ -24,6 +24,12 @@ const commandIdentitySchema = z.strictObject({
     args: z.array(z.string()),
   }),
 });
+const commandAuthoritySchema = commandIdentitySchema.pick({
+  realmId: true,
+  runId: true,
+  executorNodeId: true,
+  authorityEpoch: true,
+});
 
 const commandResultSchema = z.strictObject({
   exitCode: z.number().int().min(0).max(255),
@@ -39,6 +45,16 @@ export interface SandboxCommandIdentity {
   readonly commandId: string;
   readonly request: SandboxCommandRequest;
 }
+
+export type SandboxCommandAuthority = Pick<
+  SandboxCommandIdentity,
+  "realmId" | "runId" | "executorNodeId" | "authorityEpoch"
+>;
+
+export type SandboxCommandAuthorityActivity =
+  | "quiescent"
+  | "in-progress"
+  | "outcome_unknown";
 
 export interface SandboxCommandReceiptIdentity {
   readonly runId: string;
@@ -231,6 +247,56 @@ export class SqliteSandboxCommandStore {
     }
   }
 
+  public authorityActivity(
+    input: SandboxCommandAuthority,
+  ): SandboxCommandAuthorityActivity {
+    const parsed = this.#parseAuthority(input);
+    const row = this.#database
+      .prepare(
+        `SELECT state
+         FROM sandbox_command_receipts
+         WHERE realm_id = ? AND run_id = ? AND executor_node_id = ?
+           AND authority_epoch = ?
+           AND (
+             state = 'pending' OR
+             (state = 'outcome_unknown' AND contained = 0)
+           )
+         ORDER BY CASE state WHEN 'pending' THEN 0 ELSE 1 END
+         LIMIT 1`,
+      )
+      .get(
+        parsed.realmId,
+        parsed.runId,
+        parsed.executorNodeId,
+        parsed.authorityEpoch,
+      );
+    if (row === undefined) return "quiescent";
+    return this.#text(row, "state") === "pending"
+      ? "in-progress"
+      : "outcome_unknown";
+  }
+
+  public containOutcomeUnknown(input: SandboxCommandAuthority): {
+    readonly contained: number;
+  } {
+    const parsed = this.#parseAuthority(input);
+    const result = this.#database
+      .prepare(
+        `UPDATE sandbox_command_receipts
+         SET contained = 1
+         WHERE realm_id = ? AND run_id = ? AND executor_node_id = ?
+           AND authority_epoch = ? AND state = 'outcome_unknown'
+           AND contained = 0`,
+      )
+      .run(
+        parsed.realmId,
+        parsed.runId,
+        parsed.executorNodeId,
+        parsed.authorityEpoch,
+      );
+    return { contained: Number(result.changes) };
+  }
+
   public close(): void {
     this.#database.close();
   }
@@ -241,6 +307,14 @@ export class SqliteSandboxCommandStore {
       throw new Error("Sandbox command belongs to a different Realm");
     }
     validateSandboxCommandRequest(parsed.request);
+    return parsed;
+  }
+
+  #parseAuthority(input: SandboxCommandAuthority): SandboxCommandAuthority {
+    const parsed = commandAuthoritySchema.parse(input);
+    if (parsed.realmId !== this.#realmId) {
+      throw new Error("Sandbox command belongs to a different Realm");
+    }
     return parsed;
   }
 
@@ -364,13 +438,25 @@ export class SqliteSandboxCommandStore {
         state TEXT NOT NULL
           CHECK (state IN ('pending', 'completed', 'outcome_unknown')),
         result_json TEXT,
+        contained INTEGER NOT NULL DEFAULT 0 CHECK (contained IN (0, 1)),
         PRIMARY KEY (run_id, command_id),
         CHECK (
           (state = 'completed' AND result_json IS NOT NULL) OR
           (state != 'completed' AND result_json IS NULL)
-        )
+        ),
+        CHECK (state = 'outcome_unknown' OR contained = 0)
       ) STRICT;
     `);
+    const columns = this.#database
+      .prepare("PRAGMA table_info(sandbox_command_receipts)")
+      .all();
+    if (!columns.some((column) => column.name === "contained")) {
+      this.#database.exec(
+        `ALTER TABLE sandbox_command_receipts
+         ADD COLUMN contained INTEGER NOT NULL DEFAULT 0
+         CHECK (contained IN (0, 1))`,
+      );
+    }
   }
 
   #loadOrInitializeRealm(): void {
