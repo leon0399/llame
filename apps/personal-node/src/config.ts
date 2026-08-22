@@ -46,6 +46,14 @@ export type PersonalNodeCommand =
       readonly port: number;
     }
   | {
+      readonly kind: "run-create";
+      readonly node: PersonalNodeConfig;
+      readonly writerStreamId: string;
+      readonly privateKeyPath: string;
+      readonly runId: string;
+      readonly executorNodeId: string;
+    }
+  | {
       readonly kind: "sync";
       readonly node: PersonalNodeConfig;
       readonly peerUrl: string;
@@ -279,6 +287,25 @@ export function parsePersonalNodeCommand(
     };
   }
   const node = parseNodeConfig(environment);
+  if (command === "run-create") {
+    const runId = arguments_[1];
+    const executorNodeId = arguments_[2];
+    if (runId === undefined || executorNodeId === undefined) {
+      throw new Error("run-create requires RUN_ID EXECUTOR_NODE_ID");
+    }
+    const writerStreamId = required(environment, "LLAME_WRITER_STREAM_ID");
+    if (node.writerEpochs[writerStreamId] === undefined) {
+      throw new Error("LLAME_WRITER_STREAM_ID is not an authorized writer");
+    }
+    return {
+      kind: "run-create",
+      node,
+      writerStreamId,
+      privateKeyPath: required(environment, "LLAME_WRITER_PRIVATE_KEY"),
+      runId,
+      executorNodeId,
+    };
+  }
   if (command === "serve") {
     return {
       kind: "serve",

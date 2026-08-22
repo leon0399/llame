@@ -17,6 +17,7 @@ import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import { createPersonalNodeServer } from "./node-server.js";
 import { initializeNodeIdentity } from "./node-identity.js";
 import { loadProxyPeerManifest } from "./proxy-peer-manifest.js";
+import { SignedRealmRunAuthor } from "./realm-run-author.js";
 import { createRunControlProxyServer } from "./run-control-proxy.js";
 import { SqliteRunControlProxyCache } from "./run-control-proxy-cache.js";
 import { createRunControlProxyRouterServer } from "./run-control-proxy-router.js";
@@ -210,6 +211,34 @@ async function run(): Promise<void> {
     return;
   }
   const store = await openStore(command.node);
+  if (command.kind === "run-create") {
+    try {
+      const writerEpoch = command.node.writerEpochs[command.writerStreamId];
+      if (writerEpoch === undefined) {
+        throw new Error("local writer is not authorized");
+      }
+      const signed = new SignedRealmRunAuthor({
+        store,
+        writerStreamId: command.writerStreamId,
+        writerEpoch,
+        privateKeyPem: await readFile(command.privateKeyPath, "utf8"),
+      }).createRun({
+        runId: command.runId,
+        executorNodeId: command.executorNodeId,
+      });
+      process.stdout.write(
+        `${JSON.stringify({
+          status: "created",
+          runId: command.runId,
+          batchRef: `${signed.batch.writerStreamId}:${signed.batch.sequence}`,
+          frontier: store.frontier(),
+        })}\n`,
+      );
+    } finally {
+      store.close();
+    }
+    return;
+  }
   if (command.kind === "sync") {
     try {
       const peerBearerToken = await readPeerCredential(command.peerCredential);

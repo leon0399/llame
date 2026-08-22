@@ -206,6 +206,20 @@ The current live Run-control HTTP endpoints still write their dedicated
 prototype store; bridging those live writes into signed Realm batches is not yet
 implemented.
 
+The first executable local-author bridge creates a Run under an explicitly
+separate writer identity and prints only its batch reference and frontier:
+
+```bash
+export LLAME_WRITER_STREAM_ID=personal-controller
+export LLAME_WRITER_PRIVATE_KEY="$PWD/.local/controller/private.pem"
+pnpm --filter personal-node start run-create run-uuid node-workstation
+```
+
+The reusable `SignedRealmRunAuthor` adapter also authors executor events,
+commands, and authority transfers. A future harness adapter should use its own
+writer key locally and sync the signed result; the upstream Node must never sign
+an enrolled executor's event under the upstream Node's identity.
+
 All writers in a Realm must currently be pre-authorized with the same epoch map:
 
 ```bash

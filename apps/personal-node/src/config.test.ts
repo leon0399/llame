@@ -70,6 +70,28 @@ describe("personal Node command configuration", () => {
     });
   });
 
+  test("keeps local Run writer identity separate from node identity", () => {
+    expect(
+      parsePersonalNodeCommand(["run-create", "run-1", "node-workstation"], {
+        ...baseEnvironment,
+        LLAME_WRITER_STREAM_ID: "controller-writer",
+        LLAME_WRITER_EPOCHS: '{"desktop":1,"controller-writer":1}',
+        LLAME_WRITER_PRIVATE_KEY: "/keys/controller-private.pem",
+        LLAME_TRUSTED_WRITER_KEYS:
+          '{"controller-writer:1":"/keys/controller-public.pem"}',
+        LLAME_RUN_CONTROL_WRITER_GRANTS:
+          '{"controller-writer":{"scopes":["run.control"]}}',
+      }),
+    ).toMatchObject({
+      kind: "run-create",
+      writerStreamId: "controller-writer",
+      privateKeyPath: "/keys/controller-private.pem",
+      runId: "run-1",
+      executorNodeId: "node-workstation",
+      node: { nodeId: "desktop" },
+    });
+  });
+
   test("defaults serve to a loopback-only listener and this node's writer", () => {
     expect(parsePersonalNodeCommand(["serve"], baseEnvironment)).toEqual({
       kind: "serve",
