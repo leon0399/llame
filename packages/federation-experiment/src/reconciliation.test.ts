@@ -463,6 +463,196 @@ describe("Personal Realm reconciliation experiment", () => {
     ]);
   });
 
+  test("reconciles sticky Workspace fallback through the Realm journal", () => {
+    const options = {
+      realmId: "realm-personal",
+      writerEpochs: { controller: 1 },
+      runControlGrants: {
+        controller: { scopes: ["run.control"] },
+      },
+    } as const;
+    const source = new InMemoryReplica(options);
+    const mirror = new InMemoryReplica(options);
+    source.receive(
+      parseChangeBatch({
+        realmId: "realm-personal",
+        writerStreamId: "controller",
+        writerEpoch: 1,
+        sequence: 1,
+        dependencies: [],
+        operations: [
+          {
+            type: "create-run",
+            runId: "run-1",
+            executorNodeId: "workstation",
+          },
+        ],
+      }),
+    );
+    source.receive(
+      parseChangeBatch({
+        realmId: "realm-personal",
+        writerStreamId: "controller",
+        writerEpoch: 1,
+        sequence: 2,
+        dependencies: ["controller:1"],
+        operations: [
+          {
+            type: "attach-workspace",
+            runId: "run-1",
+            workspaceId: "workspace-code",
+            policy: "fallback",
+          },
+        ],
+      }),
+    );
+    source.receive(
+      parseChangeBatch({
+        realmId: "realm-personal",
+        writerStreamId: "controller",
+        writerEpoch: 1,
+        sequence: 3,
+        dependencies: ["controller:2"],
+        operations: [
+          {
+            type: "workspace-executor-unavailable",
+            runId: "run-1",
+            executorNodeId: "workstation",
+            continuationExecutorNodeId: "home-node",
+            egressAllowsFallback: true,
+          },
+        ],
+      }),
+    );
+
+    mirror.reconcileFrom(source);
+
+    expect(mirror.workspaceRecoveryState("run-1")).toMatchObject({
+      workspaceId: "workspace-code",
+      preferredExecutorNodeId: "workstation",
+      activeExecutorNodeId: "home-node",
+      authorityEpoch: 2,
+      mode: "temporary-fallback",
+      workspaceAttached: false,
+    });
+    expect(mirror.runSnapshot("run-1")).toMatchObject({
+      executorNodeId: "home-node",
+      authorityEpoch: 2,
+    });
+  });
+
+  test("does not grant Workspace authority to an ordinary Realm writer", () => {
+    const replica = new InMemoryReplica({
+      realmId: "realm-personal",
+      writerEpochs: { controller: 1, knowledge: 1 },
+      runControlGrants: {
+        controller: { scopes: ["run.control"] },
+      },
+    });
+    replica.receive(
+      parseChangeBatch({
+        realmId: "realm-personal",
+        writerStreamId: "controller",
+        writerEpoch: 1,
+        sequence: 1,
+        dependencies: [],
+        operations: [
+          {
+            type: "create-run",
+            runId: "run-1",
+            executorNodeId: "workstation",
+          },
+        ],
+      }),
+    );
+
+    expect(() =>
+      replica.receive(
+        parseChangeBatch({
+          realmId: "realm-personal",
+          writerStreamId: "knowledge",
+          writerEpoch: 1,
+          sequence: 1,
+          dependencies: ["controller:1"],
+          operations: [
+            {
+              type: "attach-workspace",
+              runId: "run-1",
+              workspaceId: "workspace-code",
+              policy: "ask",
+            },
+          ],
+        }),
+      ),
+    ).toThrowError("writer is not authorized for run.control");
+    expect(() => replica.workspaceRecoveryState("run-1")).toThrowError(
+      "Run has no Workspace affinity",
+    );
+  });
+
+  test("replays ask, fallback choice, preferred recovery, and explicit exit", () => {
+    const replica = new InMemoryReplica({
+      realmId: "realm-personal",
+      writerEpochs: { controller: 1 },
+      runControlGrants: {
+        controller: { scopes: ["run.control"] },
+      },
+    });
+    const operations = [
+      {
+        type: "create-run",
+        runId: "run-1",
+        executorNodeId: "workstation",
+      },
+      {
+        type: "attach-workspace",
+        runId: "run-1",
+        workspaceId: "workspace-code",
+        policy: "ask",
+      },
+      {
+        type: "workspace-executor-unavailable",
+        runId: "run-1",
+        executorNodeId: "workstation",
+        continuationExecutorNodeId: "home-node",
+        egressAllowsFallback: true,
+      },
+      {
+        type: "choose-workspace-recovery",
+        runId: "run-1",
+        action: "fallback",
+        continuationExecutorNodeId: "home-node",
+        egressAllowsFallback: true,
+      },
+      { type: "workspace-executor-recovered", runId: "run-1" },
+      { type: "exit-workspace", runId: "run-1" },
+    ];
+    for (const [index, operation] of operations.entries()) {
+      replica.receive(
+        parseChangeBatch({
+          realmId: "realm-personal",
+          writerStreamId: "controller",
+          writerEpoch: 1,
+          sequence: index + 1,
+          dependencies: index === 0 ? [] : [`controller:${index}`],
+          operations: [operation],
+        }),
+      );
+    }
+
+    expect(replica.workspaceRecoveryState("run-1")).toMatchObject({
+      mode: "exited",
+      workspaceAttached: false,
+      preferredExecutorAvailable: true,
+      activeExecutorNodeId: "workstation",
+      authorityEpoch: 3,
+    });
+    expect(replica.runSnapshot("run-1")).toMatchObject({
+      executorNodeId: "workstation",
+      authorityEpoch: 3,
+    });
+  });
+
   test("does not partially project a mixed Run batch when a later operation fails", () => {
     const replica = new InMemoryReplica({
       realmId: "realm-personal",

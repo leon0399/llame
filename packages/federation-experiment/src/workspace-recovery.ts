@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { WRITER_STREAM_ID_PATTERN } from "./reconciliation.js";
+import { WRITER_STREAM_ID_PATTERN } from "./identities.js";
 
 const recoveryPolicySchema = z.enum(["ask", "wait", "fallback", "exit"]);
 const recoveryActionSchema = z.enum(["wait", "fallback", "exit"]);
@@ -223,6 +223,17 @@ export class InMemoryWorkspaceRecovery {
 
   public state(): WorkspaceRecoveryState {
     return structuredClone(this.#state);
+  }
+
+  public fork(): InMemoryWorkspaceRecovery {
+    const copy = new InMemoryWorkspaceRecovery({
+      workspaceId: this.#state.workspaceId,
+      preferredExecutorNodeId: this.#state.preferredExecutorNodeId,
+      authorityEpoch: this.#state.authorityEpoch,
+      policy: this.#state.policy,
+    });
+    copy.#state = structuredClone(this.#state);
+    return copy;
   }
 
   #ask(

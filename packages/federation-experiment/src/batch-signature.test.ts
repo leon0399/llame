@@ -5,7 +5,7 @@ import {
   signChangeBatch,
   verifySignedChangeBatch,
 } from "./batch-signature.js";
-import { messageBatch } from "./reconciliation.js";
+import { messageBatch, parseChangeBatch } from "./reconciliation.js";
 
 describe("signed federation batches", () => {
   test("verifies an immutable batch against its writer's trusted public key", () => {
@@ -139,6 +139,48 @@ describe("signed federation batches", () => {
           },
         },
         { "workstation:1": identity.publicKeyPem },
+      ),
+    ).toThrowError("invalid ChangeBatch signature");
+  });
+
+  test("binds signed Workspace operations to the writer envelope", () => {
+    const identity = generateWriterIdentity();
+    const signed = signChangeBatch(
+      parseChangeBatch({
+        realmId: "realm-personal",
+        writerStreamId: "controller",
+        writerEpoch: 1,
+        sequence: 1,
+        dependencies: [],
+        operations: [
+          {
+            type: "attach-workspace",
+            runId: "run-1",
+            workspaceId: "workspace-code",
+            policy: "ask",
+          },
+        ],
+      }),
+      identity.privateKeyPem,
+    );
+
+    expect(() =>
+      verifySignedChangeBatch(
+        {
+          ...signed,
+          batch: {
+            ...signed.batch,
+            operations: [
+              {
+                type: "attach-workspace",
+                runId: "run-1",
+                workspaceId: "workspace-secret",
+                policy: "ask",
+              },
+            ],
+          },
+        },
+        { "controller:1": identity.publicKeyPem },
       ),
     ).toThrowError("invalid ChangeBatch signature");
   });

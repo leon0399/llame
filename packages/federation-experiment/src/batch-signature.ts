@@ -125,6 +125,38 @@ function canonicalOperation(operation: SemanticOperation): unknown {
       reason: operation.reason,
     };
   }
+  if (operation.type === "attach-workspace") {
+    return {
+      type: operation.type,
+      runId: operation.runId,
+      workspaceId: operation.workspaceId,
+      policy: operation.policy,
+    };
+  }
+  if (operation.type === "workspace-executor-unavailable") {
+    return {
+      type: operation.type,
+      runId: operation.runId,
+      executorNodeId: operation.executorNodeId,
+      continuationExecutorNodeId: operation.continuationExecutorNodeId,
+      egressAllowsFallback: operation.egressAllowsFallback,
+    };
+  }
+  if (operation.type === "choose-workspace-recovery") {
+    return {
+      type: operation.type,
+      runId: operation.runId,
+      action: operation.action,
+      continuationExecutorNodeId: operation.continuationExecutorNodeId,
+      egressAllowsFallback: operation.egressAllowsFallback,
+    };
+  }
+  if (
+    operation.type === "workspace-executor-recovered" ||
+    operation.type === "exit-workspace"
+  ) {
+    return { type: operation.type, runId: operation.runId };
+  }
   return { type: operation.type };
 }
 

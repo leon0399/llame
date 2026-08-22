@@ -12,6 +12,13 @@ import {
   type RunControlSnapshot,
   type TransferRunAuthorityInput,
 } from "./run-control.js";
+import {
+  InMemoryWorkspaceRecovery,
+  type WorkspaceRecoveryAction,
+  type WorkspaceRecoveryPolicy,
+  type WorkspaceRecoveryState,
+  type WorkspaceRecoveryTransition,
+} from "./workspace-recovery.js";
 
 export { WRITER_STREAM_ID_PATTERN } from "./identities.js";
 export const BATCH_REF_PATTERN =
@@ -76,12 +83,50 @@ export interface TransferRunAuthorityOperation
   readonly runId: string;
 }
 
+export interface AttachWorkspaceOperation {
+  readonly type: "attach-workspace";
+  readonly runId: string;
+  readonly workspaceId: string;
+  readonly policy: WorkspaceRecoveryPolicy;
+}
+
+export interface WorkspaceExecutorUnavailableOperation {
+  readonly type: "workspace-executor-unavailable";
+  readonly runId: string;
+  readonly executorNodeId: string;
+  readonly continuationExecutorNodeId: string | null;
+  readonly egressAllowsFallback: boolean;
+}
+
+export interface ChooseWorkspaceRecoveryOperation {
+  readonly type: "choose-workspace-recovery";
+  readonly runId: string;
+  readonly action: WorkspaceRecoveryAction;
+  readonly continuationExecutorNodeId: string | null;
+  readonly egressAllowsFallback: boolean;
+}
+
+export interface WorkspaceExecutorRecoveredOperation {
+  readonly type: "workspace-executor-recovered";
+  readonly runId: string;
+}
+
+export interface ExitWorkspaceOperation {
+  readonly type: "exit-workspace";
+  readonly runId: string;
+}
+
 export type SemanticOperation =
   | AppendMessageOperation
   | CreateRunOperation
   | AppendRunEventOperation
   | SubmitRunCommandOperation
   | TransferRunAuthorityOperation
+  | AttachWorkspaceOperation
+  | WorkspaceExecutorUnavailableOperation
+  | ChooseWorkspaceRecoveryOperation
+  | WorkspaceExecutorRecoveredOperation
+  | ExitWorkspaceOperation
   | FutureOperation;
 
 export interface ChangeBatch {
@@ -136,6 +181,40 @@ const transferRunAuthorityOperationSchema =
     type: z.literal("transfer-run-authority"),
     runId: runIdentitySchema,
   });
+const attachWorkspaceOperationSchema = z.strictObject({
+  type: z.literal("attach-workspace"),
+  runId: runIdentitySchema,
+  workspaceId: z.string().min(1).max(200),
+  policy: z.enum(["ask", "wait", "fallback", "exit"]),
+});
+const workspaceExecutorUnavailableOperationSchema = z.strictObject({
+  type: z.literal("workspace-executor-unavailable"),
+  runId: runIdentitySchema,
+  executorNodeId: z.string().regex(WRITER_STREAM_ID_PATTERN),
+  continuationExecutorNodeId: z
+    .string()
+    .regex(WRITER_STREAM_ID_PATTERN)
+    .nullable(),
+  egressAllowsFallback: z.boolean(),
+});
+const chooseWorkspaceRecoveryOperationSchema = z.strictObject({
+  type: z.literal("choose-workspace-recovery"),
+  runId: runIdentitySchema,
+  action: z.enum(["wait", "fallback", "exit"]),
+  continuationExecutorNodeId: z
+    .string()
+    .regex(WRITER_STREAM_ID_PATTERN)
+    .nullable(),
+  egressAllowsFallback: z.boolean(),
+});
+const workspaceExecutorRecoveredOperationSchema = z.strictObject({
+  type: z.literal("workspace-executor-recovered"),
+  runId: runIdentitySchema,
+});
+const exitWorkspaceOperationSchema = z.strictObject({
+  type: z.literal("exit-workspace"),
+  runId: runIdentitySchema,
+});
 
 const changeBatchSchema: z.ZodType<ChangeBatch> = z.strictObject({
   realmId: z.string().min(1),
@@ -150,6 +229,11 @@ const changeBatchSchema: z.ZodType<ChangeBatch> = z.strictObject({
       appendRunEventOperationSchema,
       submitRunCommandOperationSchema,
       transferRunAuthorityOperationSchema,
+      attachWorkspaceOperationSchema,
+      workspaceExecutorUnavailableOperationSchema,
+      chooseWorkspaceRecoveryOperationSchema,
+      workspaceExecutorRecoveredOperationSchema,
+      exitWorkspaceOperationSchema,
       z.strictObject({ type: z.literal("future-operation") }),
     ]),
   ),
@@ -259,6 +343,7 @@ export class InMemoryReplica {
   >();
   readonly #headsByChat = new Map<string, Set<string>>();
   readonly #runs = new Map<string, InMemoryRunControl>();
+  readonly #workspaceRecoveries = new Map<string, InMemoryWorkspaceRecovery>();
 
   public constructor(options: ReplicaOptions) {
     this.#realmId = options.realmId;
@@ -308,6 +393,10 @@ export class InMemoryReplica {
     >();
     const stagedHeadsByChat = new Map<string, Set<string>>();
     const stagedRuns = new Map<string, InMemoryRunControl>();
+    const stagedWorkspaceRecoveries = new Map<
+      string,
+      InMemoryWorkspaceRecovery
+    >();
     const getRun = (runId: string): InMemoryRunControl => {
       const staged = stagedRuns.get(runId);
       if (staged !== undefined) return staged;
@@ -315,6 +404,16 @@ export class InMemoryReplica {
       if (current === undefined) throw new Error("Run does not exist");
       const copy = current.fork();
       stagedRuns.set(runId, copy);
+      return copy;
+    };
+    const getWorkspaceRecovery = (runId: string): InMemoryWorkspaceRecovery => {
+      const staged = stagedWorkspaceRecoveries.get(runId);
+      if (staged !== undefined) return staged;
+      const current = this.#workspaceRecoveries.get(runId);
+      if (current === undefined)
+        throw new Error("Run has no Workspace affinity");
+      const copy = current.fork();
+      stagedWorkspaceRecoveries.set(runId, copy);
       return copy;
     };
     for (const operation of candidate.operations) {
@@ -366,6 +465,76 @@ export class InMemoryReplica {
         getRun(operation.runId).transferAuthority(operation);
         continue;
       }
+      if (operation.type === "attach-workspace") {
+        this.#assertRunScope(candidate.writerStreamId, "run.control");
+        if (
+          this.#workspaceRecoveries.has(operation.runId) ||
+          stagedWorkspaceRecoveries.has(operation.runId)
+        ) {
+          throw new Error("Run already has a Workspace affinity");
+        }
+        const run = getRun(operation.runId);
+        const snapshot = run.snapshot();
+        stagedWorkspaceRecoveries.set(
+          operation.runId,
+          new InMemoryWorkspaceRecovery({
+            workspaceId: operation.workspaceId,
+            preferredExecutorNodeId: snapshot.executorNodeId,
+            authorityEpoch: snapshot.authorityEpoch,
+            policy: operation.policy,
+          }),
+        );
+        continue;
+      }
+      if (operation.type === "workspace-executor-unavailable") {
+        this.#assertRunScope(candidate.writerStreamId, "run.control");
+        const recovery = getWorkspaceRecovery(operation.runId);
+        const transition = recovery.executorUnavailable({
+          executorNodeId: operation.executorNodeId,
+          continuationExecutorNodeId: operation.continuationExecutorNodeId,
+          egressAllowsFallback: operation.egressAllowsFallback,
+        });
+        this.#applyWorkspaceAuthorityEffects(
+          getRun(operation.runId),
+          transition,
+        );
+        continue;
+      }
+      if (operation.type === "choose-workspace-recovery") {
+        this.#assertRunScope(candidate.writerStreamId, "run.control");
+        const recovery = getWorkspaceRecovery(operation.runId);
+        const transition = recovery.choose(operation.action, {
+          continuationExecutorNodeId: operation.continuationExecutorNodeId,
+          egressAllowsFallback: operation.egressAllowsFallback,
+        });
+        this.#applyWorkspaceAuthorityEffects(
+          getRun(operation.runId),
+          transition,
+        );
+        continue;
+      }
+      if (operation.type === "workspace-executor-recovered") {
+        this.#assertRunScope(candidate.writerStreamId, "run.control");
+        const transition = getWorkspaceRecovery(
+          operation.runId,
+        ).preferredExecutorRecovered();
+        this.#applyWorkspaceAuthorityEffects(
+          getRun(operation.runId),
+          transition,
+        );
+        continue;
+      }
+      if (operation.type === "exit-workspace") {
+        this.#assertRunScope(candidate.writerStreamId, "run.control");
+        const transition = getWorkspaceRecovery(
+          operation.runId,
+        ).exitWorkspace();
+        this.#applyWorkspaceAuthorityEffects(
+          getRun(operation.runId),
+          transition,
+        );
+        continue;
+      }
       const messages =
         stagedMessagesByChat.get(operation.chatId) ??
         new Map(this.#messagesByChat.get(operation.chatId));
@@ -396,6 +565,9 @@ export class InMemoryReplica {
       this.#headsByChat.set(chatId, heads);
     }
     for (const [runId, run] of stagedRuns) this.#runs.set(runId, run);
+    for (const [runId, recovery] of stagedWorkspaceRecoveries) {
+      this.#workspaceRecoveries.set(runId, recovery);
+    }
 
     this.#appliedBatches.add(reference);
     this.#journal.set(reference, candidate);
@@ -449,6 +621,13 @@ export class InMemoryReplica {
     return run.commandsAfter(commandSequence);
   }
 
+  public workspaceRecoveryState(runId: string): WorkspaceRecoveryState {
+    const recovery = this.#workspaceRecoveries.get(runId);
+    if (recovery === undefined)
+      throw new Error("Run has no Workspace affinity");
+    return recovery.state();
+  }
+
   public advanceWriterEpoch(input: AdvanceWriterEpochInput): void {
     if (this.#writerEpochs[input.writerStreamId] !== input.expectedEpoch) {
       throw new Error("writer epoch changed concurrently");
@@ -468,6 +647,23 @@ export class InMemoryReplica {
       throw new Error(`writer is not authorized for ${scope}`);
     }
     return grant;
+  }
+
+  #applyWorkspaceAuthorityEffects(
+    run: InMemoryRunControl,
+    transition: WorkspaceRecoveryTransition,
+  ): void {
+    for (const effect of transition.effects) {
+      if (effect.type !== "transfer-run-authority") continue;
+      run.transferAuthority({
+        expectedAuthorityEpoch: effect.expectedAuthorityEpoch,
+        targetExecutorNodeId: effect.targetExecutorNodeId,
+        reason: effect.reason,
+      });
+    }
+    if (run.snapshot().authorityEpoch !== transition.state.authorityEpoch) {
+      throw new Error("Workspace recovery and Run authority diverged");
+    }
   }
 
   public reconcileFrom(source: InMemoryReplica): { readonly applied: number } {
