@@ -22,7 +22,10 @@ The experiment currently proves:
 - a short-lived, Realm-bound enrollment challenge proves possession of a
   separate Ed25519 node identity without introducing a local `user_id`; and
 - resumable Run-control state uses semantic event and command cursors plus an
-  authority epoch that fences a stale executor after handoff or fallback.
+  authority epoch that fences a stale executor after handoff or fallback; and
+- sticky Workspace affinity exposes `ask`, `wait`, egress-gated temporary
+  `fallback`, permanent `exit`, and automatic restoration as semantic effects
+  for both UI and model transparency.
 
 `apps/personal-node` now exercises this core through a durable embedded store and
 an authenticated HTTP contract. Signature v1 uses a domain-separated,

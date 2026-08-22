@@ -26,7 +26,7 @@ const semanticEventSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("authority-transferred"),
     previousExecutorNodeId: z.string().regex(WRITER_STREAM_ID_PATTERN),
-    reason: z.enum(["handoff", "fallback", "recovery"]),
+    reason: z.enum(["handoff", "fallback", "recovery", "workspace-exit"]),
   }),
 ]);
 const runControlEventSchema = z.strictObject({
@@ -146,7 +146,7 @@ export class InMemoryRunControl {
   public transferAuthority(input: {
     readonly expectedAuthorityEpoch: number;
     readonly targetExecutorNodeId: string;
-    readonly reason: "handoff" | "fallback" | "recovery";
+    readonly reason: "handoff" | "fallback" | "recovery" | "workspace-exit";
   }): RunControlEvent {
     if (terminalStatuses.has(this.#status)) {
       throw new Error("terminal Run authority cannot transfer");

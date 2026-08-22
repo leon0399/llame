@@ -11,6 +11,12 @@ import {
   type RunControlOptions,
   type RunControlSnapshot,
 } from "@workspace/federation-experiment/run-control";
+import {
+  InMemoryWorkspaceRecovery,
+  type WorkspaceRecoveryPolicy,
+  type WorkspaceRecoveryState,
+  type WorkspaceRecoveryTransition,
+} from "@workspace/federation-experiment/workspace-recovery";
 
 export interface SqliteRunControlStoreOptions {
   readonly databasePath: string;
@@ -197,6 +203,106 @@ export class SqliteRunControlStore {
     }
   }
 
+  public createWorkspaceAffinity(
+    runId: string,
+    options: {
+      readonly workspaceId: string;
+      readonly policy: WorkspaceRecoveryPolicy;
+    },
+  ): WorkspaceRecoveryState {
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const run = this.#loadRun(runId);
+      const runSnapshot = run.snapshot();
+      const recovery = new InMemoryWorkspaceRecovery({
+        workspaceId: options.workspaceId,
+        preferredExecutorNodeId: runSnapshot.executorNodeId,
+        authorityEpoch: runSnapshot.authorityEpoch,
+        policy: options.policy,
+      });
+      const state = recovery.state();
+      const existing = this.#database
+        .prepare(
+          "SELECT state_json FROM run_workspace_affinities WHERE run_id = ?",
+        )
+        .get(runId);
+      if (existing !== undefined) {
+        const storedState = parseJson(requireText(existing, "state_json"));
+        if (JSON.stringify(storedState) !== JSON.stringify(state)) {
+          throw new Error("Run already has a different Workspace affinity");
+        }
+        this.#database.exec("COMMIT");
+        return state;
+      }
+      this.#database
+        .prepare(
+          `INSERT INTO run_workspace_affinities
+            (run_id, workspace_id, preferred_executor_node_id,
+             initial_authority_epoch, policy, state_json)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          runId,
+          state.workspaceId,
+          state.preferredExecutorNodeId,
+          state.authorityEpoch,
+          state.policy,
+          JSON.stringify(state),
+        );
+      this.#database.exec("COMMIT");
+      this.#secureDatabaseFiles();
+      return state;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public executorUnavailable(
+    runId: string,
+    context: unknown,
+  ): WorkspaceRecoveryTransition {
+    return this.#workspaceWrite(
+      runId,
+      "executor-unavailable",
+      context,
+      (recovery) => recovery.executorUnavailable(context),
+    );
+  }
+
+  public chooseWorkspaceRecovery(
+    runId: string,
+    action: unknown,
+    context: unknown,
+  ): WorkspaceRecoveryTransition {
+    return this.#workspaceWrite(
+      runId,
+      "choice",
+      { action, context },
+      (recovery) => recovery.choose(action, context),
+    );
+  }
+
+  public preferredExecutorRecovered(
+    runId: string,
+  ): WorkspaceRecoveryTransition {
+    return this.#workspaceWrite(runId, "preferred-recovered", {}, (recovery) =>
+      recovery.preferredExecutorRecovered(),
+    );
+  }
+
+  public workspaceRecoveryState(runId: string): WorkspaceRecoveryState {
+    this.#database.exec("BEGIN");
+    try {
+      const state = this.#loadWorkspaceRecovery(runId).state();
+      this.#database.exec("COMMIT");
+      return state;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   public close(): void {
     this.#database.close();
   }
@@ -211,6 +317,70 @@ export class SqliteRunControlStore {
       this.#database.exec("COMMIT");
       this.#secureDatabaseFiles();
       return result;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  #workspaceWrite(
+    runId: string,
+    kind: "executor-unavailable" | "choice" | "preferred-recovered",
+    payload: unknown,
+    operation: (
+      recovery: InMemoryWorkspaceRecovery,
+    ) => WorkspaceRecoveryTransition,
+  ): WorkspaceRecoveryTransition {
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const run = this.#loadRun(runId);
+      const recovery = this.#loadWorkspaceRecovery(runId);
+      const transition = operation(recovery);
+      for (const effect of transition.effects) {
+        if (effect.type !== "transfer-run-authority") continue;
+        const authorityEvent = run.transferAuthority({
+          expectedAuthorityEpoch: effect.expectedAuthorityEpoch,
+          targetExecutorNodeId: effect.targetExecutorNodeId,
+          reason: effect.reason,
+        });
+        if (authorityEvent.authorityEpoch !== effect.nextAuthorityEpoch) {
+          throw new Error("Workspace recovery authority effect diverged");
+        }
+        this.#insertEvent(authorityEvent);
+      }
+      const runSnapshot = run.snapshot();
+      if (
+        runSnapshot.authorityEpoch !== transition.state.authorityEpoch ||
+        runSnapshot.executorNodeId !== transition.state.activeExecutorNodeId
+      ) {
+        throw new Error("Workspace recovery and Run authority diverged");
+      }
+      this.#updateRun(runSnapshot);
+      const nextSequence =
+        requireInteger(
+          this.#database
+            .prepare(
+              `SELECT COUNT(*) AS event_count
+               FROM run_workspace_recovery_events WHERE run_id = ?`,
+            )
+            .get(runId) ?? { event_count: 0 },
+          "event_count",
+        ) + 1;
+      this.#database
+        .prepare(
+          `INSERT INTO run_workspace_recovery_events
+            (run_id, sequence, kind, payload_json)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(runId, nextSequence, kind, JSON.stringify(payload));
+      this.#database
+        .prepare(
+          "UPDATE run_workspace_affinities SET state_json = ? WHERE run_id = ?",
+        )
+        .run(JSON.stringify(transition.state), runId);
+      this.#database.exec("COMMIT");
+      this.#secureDatabaseFiles();
+      return transition;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;
@@ -320,6 +490,66 @@ export class SqliteRunControlStore {
       : event.executorNodeId;
   }
 
+  #loadWorkspaceRecovery(runId: string): InMemoryWorkspaceRecovery {
+    const row = this.#database
+      .prepare(
+        `SELECT workspace_id, preferred_executor_node_id,
+                initial_authority_epoch, policy, state_json
+         FROM run_workspace_affinities WHERE run_id = ?`,
+      )
+      .get(runId);
+    if (row === undefined) throw new Error("Run has no Workspace affinity");
+    const policy = requireText(row, "policy");
+    if (
+      policy !== "ask" &&
+      policy !== "wait" &&
+      policy !== "fallback" &&
+      policy !== "exit"
+    ) {
+      throw new Error("invalid Workspace recovery policy");
+    }
+    const recovery = new InMemoryWorkspaceRecovery({
+      workspaceId: requireText(row, "workspace_id"),
+      preferredExecutorNodeId: requireText(row, "preferred_executor_node_id"),
+      authorityEpoch: requireInteger(row, "initial_authority_epoch"),
+      policy,
+    });
+    const eventRows = this.#database
+      .prepare(
+        `SELECT kind, payload_json FROM run_workspace_recovery_events
+         WHERE run_id = ? ORDER BY sequence`,
+      )
+      .all(runId);
+    for (const eventRow of eventRows) {
+      const kind = requireText(eventRow, "kind");
+      const payload = parseJson(requireText(eventRow, "payload_json"));
+      if (kind === "executor-unavailable") {
+        recovery.executorUnavailable(payload);
+      } else if (kind === "preferred-recovered") {
+        recovery.preferredExecutorRecovered();
+      } else if (kind === "choice") {
+        if (
+          typeof payload !== "object" ||
+          payload === null ||
+          !("action" in payload) ||
+          !("context" in payload)
+        ) {
+          throw new Error("invalid stored Workspace recovery choice");
+        }
+        recovery.choose(payload.action, payload.context);
+      } else {
+        throw new Error("invalid stored Workspace recovery event");
+      }
+    }
+    if (
+      JSON.stringify(recovery.state()) !==
+      JSON.stringify(parseJson(requireText(row, "state_json")))
+    ) {
+      throw new Error("stored Workspace recovery state does not replay");
+    }
+    return recovery;
+  }
+
   #insertEvent(event: RunControlEvent): void {
     this.#database
       .prepare(
@@ -378,6 +608,24 @@ export class SqliteRunControlStore {
         payload_json TEXT NOT NULL,
         PRIMARY KEY (run_id, command_sequence),
         UNIQUE (run_id, command_id)
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS run_workspace_affinities (
+        run_id TEXT PRIMARY KEY REFERENCES run_control_runs(run_id),
+        workspace_id TEXT NOT NULL,
+        preferred_executor_node_id TEXT NOT NULL,
+        initial_authority_epoch INTEGER NOT NULL
+          CHECK (initial_authority_epoch > 0),
+        policy TEXT NOT NULL CHECK (policy IN ('ask', 'wait', 'fallback', 'exit')),
+        state_json TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS run_workspace_recovery_events (
+        run_id TEXT NOT NULL REFERENCES run_workspace_affinities(run_id),
+        sequence INTEGER NOT NULL CHECK (sequence > 0),
+        kind TEXT NOT NULL
+          CHECK (kind IN ('executor-unavailable', 'choice',
+                          'preferred-recovered')),
+        payload_json TEXT NOT NULL,
+        PRIMARY KEY (run_id, sequence)
       ) STRICT;
     `);
   }

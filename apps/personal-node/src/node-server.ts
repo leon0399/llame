@@ -49,8 +49,29 @@ const runCommandRequestSchema = z.strictObject({
 const transferRunAuthorityRequestSchema = z.strictObject({
   expectedAuthorityEpoch: z.number().int().positive(),
   targetExecutorNodeId: z.string().regex(WRITER_STREAM_ID_PATTERN),
-  reason: z.enum(["handoff", "fallback", "recovery"]),
+  reason: z.enum(["handoff", "fallback", "recovery", "workspace-exit"]),
 });
+const workspaceAffinityRequestSchema = z.strictObject({
+  workspaceId: z.string().min(1).max(200),
+  policy: z.enum(["ask", "wait", "fallback", "exit"]),
+});
+const workspaceUnavailableRequestSchema = z.strictObject({
+  executorNodeId: z.string().regex(WRITER_STREAM_ID_PATTERN),
+  continuationExecutorNodeId: z
+    .string()
+    .regex(WRITER_STREAM_ID_PATTERN)
+    .nullable(),
+  egressAllowsFallback: z.boolean(),
+});
+const workspaceRecoveryChoiceRequestSchema = z.strictObject({
+  action: z.enum(["wait", "fallback", "exit"]),
+  continuationExecutorNodeId: z
+    .string()
+    .regex(WRITER_STREAM_ID_PATTERN)
+    .nullable(),
+  egressAllowsFallback: z.boolean(),
+});
+const emptyRequestSchema = z.strictObject({});
 
 export interface PersonalNodeServerOptions {
   readonly nodeId: string;
@@ -116,7 +137,11 @@ function isOwnerControlRequest(request: IncomingMessage): boolean {
       /^\/v1\/enrollments\/[^/]+$/.test(url.pathname)) ||
     (request.method === "POST" && url.pathname === "/v1/runs") ||
     (request.method === "POST" &&
-      /^\/v1\/runs\/[^/]+\/authority$/.test(url.pathname))
+      /^\/v1\/runs\/[^/]+\/authority$/.test(url.pathname)) ||
+    (request.method === "POST" &&
+      /^\/v1\/runs\/[^/]+\/workspace(?:\/(?:unavailable|recovered|choice))?$/.test(
+        url.pathname,
+      ))
   );
 }
 
@@ -354,6 +379,84 @@ async function handleAuthorizedRequest(
         response,
         202,
         options.runControlStore.transferAuthority(runId, parsed.data),
+      );
+      return;
+    }
+  }
+  const workspaceRoute =
+    /^\/v1\/runs\/([^/]+)\/workspace(?:\/(unavailable|recovered|choice))?$/.exec(
+      url.pathname,
+    );
+  if (workspaceRoute !== null) {
+    if (options.runControlStore === undefined) {
+      throw new RequestError(409, "run_control_unavailable");
+    }
+    const runId = decodePathIdentity(workspaceRoute[1], "run_id");
+    const action = workspaceRoute[2];
+    if (request.method === "GET" && action === undefined) {
+      sendJson(
+        response,
+        200,
+        options.runControlStore.workspaceRecoveryState(runId),
+      );
+      return;
+    }
+    if (request.method === "POST" && action === undefined) {
+      const parsed = workspaceAffinityRequestSchema.safeParse(
+        await readJson(request),
+      );
+      if (!parsed.success) {
+        throw new RequestError(400, "invalid_workspace_affinity_request");
+      }
+      sendJson(
+        response,
+        201,
+        options.runControlStore.createWorkspaceAffinity(runId, parsed.data),
+      );
+      return;
+    }
+    if (request.method === "POST" && action === "unavailable") {
+      const parsed = workspaceUnavailableRequestSchema.safeParse(
+        await readJson(request),
+      );
+      if (!parsed.success) {
+        throw new RequestError(400, "invalid_workspace_unavailable_request");
+      }
+      sendJson(
+        response,
+        202,
+        options.runControlStore.executorUnavailable(runId, parsed.data),
+      );
+      return;
+    }
+    if (request.method === "POST" && action === "recovered") {
+      const parsed = emptyRequestSchema.safeParse(await readJson(request));
+      if (!parsed.success) {
+        throw new RequestError(400, "invalid_workspace_recovered_request");
+      }
+      sendJson(
+        response,
+        202,
+        options.runControlStore.preferredExecutorRecovered(runId),
+      );
+      return;
+    }
+    if (request.method === "POST" && action === "choice") {
+      const parsed = workspaceRecoveryChoiceRequestSchema.safeParse(
+        await readJson(request),
+      );
+      if (!parsed.success) {
+        throw new RequestError(400, "invalid_workspace_recovery_choice");
+      }
+      const { action: selectedAction, ...context } = parsed.data;
+      sendJson(
+        response,
+        202,
+        options.runControlStore.chooseWorkspaceRecovery(
+          runId,
+          selectedAction,
+          context,
+        ),
       );
       return;
     }

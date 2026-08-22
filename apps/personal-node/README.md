@@ -104,6 +104,11 @@ The authenticated API exposes:
 - `POST /v1/runs/:runId/commands`
 - `GET /v1/runs/:runId/commands?after=:commandCursor`
 - `POST /v1/runs/:runId/authority`
+- `POST /v1/runs/:runId/workspace`
+- `GET /v1/runs/:runId/workspace`
+- `POST /v1/runs/:runId/workspace/unavailable`
+- `POST /v1/runs/:runId/workspace/recovered`
+- `POST /v1/runs/:runId/workspace/choice`
 
 Enrollment control requires the locally configured owner bearer. A Realm-bound,
 single-use challenge proves possession of a separate Ed25519 node key. The Node
@@ -122,6 +127,19 @@ receives steering intended for the environment it replaced. Run creation and
 authority transfer require owner control; enrolled Nodes may observe and steer,
 while only the current executor may poll commands or publish events under its
 derived node identity.
+
+A Run may also hold sticky Workspace affinity with an `ask`, `wait`, `fallback`,
+or `exit` unavailability policy. `wait` retains the existing binding and
+authority. `fallback` is legal only when egress policy allows the continuation
+executor; it atomically transfers Run authority, marks the Workspace temporarily
+detached, and automatically restores both binding and authority when the
+preferred executor returns. `exit` detaches permanently and later availability
+only produces a semantic notification. `ask` returns the legal choices for the
+current context. Workspace availability, binding changes, blocked fallback, and
+decision requests are structured effects suitable for both UI state and model
+reminders—never implicit rerouting. Workspace transitions and their Run authority
+events commit in one SQLite transaction. Recovery-control writes require owner
+authorization because an enrolled node identity is not user authority.
 
 A reconciliation operation pulls peer batches beyond the local frontier, pushes
 local batches beyond the peer frontier, and returns both frontier receipts. It

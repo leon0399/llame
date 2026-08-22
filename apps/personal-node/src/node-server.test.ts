@@ -562,6 +562,17 @@ describe("personal Node Protocol server", () => {
         }),
       },
     );
+    const forbiddenWorkspaceAuthority = await fetch(
+      `${origin}/v1/runs/run-remote/workspace`,
+      {
+        method: "POST",
+        headers: jsonHeaders(controllerGrant.credential),
+        body: JSON.stringify({
+          workspaceId: "workspace-code",
+          policy: "ask",
+        }),
+      },
+    );
     const transferred = await fetch(`${origin}/v1/runs/run-remote/authority`, {
       method: "POST",
       headers: jsonHeaders("owner-control-secret"),
@@ -620,6 +631,7 @@ describe("personal Node Protocol server", () => {
     });
     expect(forbiddenCommandPoll.status).toBe(403);
     expect(forbiddenTransfer.status).toBe(401);
+    expect(forbiddenWorkspaceAuthority.status).toBe(401);
     expect(transferred.status).toBe(202);
     expect(fallbackSteering.status).toBe(202);
     expect(fallbackCommands.status).toBe(200);
@@ -637,5 +649,113 @@ describe("personal Node Protocol server", () => {
       ],
     });
     expect(staleExecutor.status).toBe(409);
+  });
+
+  test("recovers a temporarily unavailable Workspace through durable authority transfers", async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), "llame-workspace-recovery-api-"),
+    );
+    temporaryDirectories.push(directory);
+    const store = new SqlitePersonalRealmStore({
+      databasePath: join(directory, "realm.sqlite"),
+      realmId: "realm-personal",
+      writerEpochs: { home: 1 },
+    });
+    const runControlStore = new SqliteRunControlStore({
+      databasePath: join(directory, "runs.sqlite"),
+      realmId: "realm-personal",
+    });
+    stores.push(store);
+    runControlStores.push(runControlStore);
+    const server = createPersonalNodeServer({
+      nodeId: "node-home",
+      bearerToken: "owner-control-secret",
+      store,
+      runControlStore,
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("test server did not bind a TCP address");
+    }
+    const origin = `http://127.0.0.1:${address.port}`;
+    const headers = {
+      authorization: "Bearer owner-control-secret",
+      "content-type": "application/json",
+    };
+    await fetch(`${origin}/v1/runs`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        runId: "run-workspace",
+        executorNodeId: "node-workstation",
+      }),
+    });
+
+    const attached = await fetch(`${origin}/v1/runs/run-workspace/workspace`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        workspaceId: "workspace-code",
+        policy: "fallback",
+      }),
+    });
+    const unavailable = await fetch(
+      `${origin}/v1/runs/run-workspace/workspace/unavailable`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          executorNodeId: "node-workstation",
+          continuationExecutorNodeId: "node-home",
+          egressAllowsFallback: true,
+        }),
+      },
+    );
+    const fallbackState = await fetch(
+      `${origin}/v1/runs/run-workspace/workspace`,
+      { headers },
+    );
+    const recovered = await fetch(
+      `${origin}/v1/runs/run-workspace/workspace/recovered`,
+      { method: "POST", headers, body: "{}" },
+    );
+    const runState = await fetch(
+      `${origin}/v1/runs/run-workspace/control?after=0`,
+      { headers },
+    );
+
+    expect(attached.status).toBe(201);
+    expect(unavailable.status).toBe(202);
+    expect(await unavailable.json()).toMatchObject({
+      state: {
+        mode: "temporary-fallback",
+        activeExecutorNodeId: "node-home",
+        authorityEpoch: 2,
+        workspaceAttached: false,
+      },
+    });
+    expect(fallbackState.status).toBe(200);
+    expect(await fallbackState.json()).toMatchObject({
+      mode: "temporary-fallback",
+      preferredExecutorAvailable: false,
+    });
+    expect(recovered.status).toBe(202);
+    expect(await recovered.json()).toMatchObject({
+      state: {
+        mode: "attached",
+        activeExecutorNodeId: "node-workstation",
+        authorityEpoch: 3,
+        workspaceAttached: true,
+      },
+    });
+    expect(await runState.json()).toMatchObject({
+      executorNodeId: "node-workstation",
+      authorityEpoch: 3,
+      cursor: 2,
+    });
   });
 });

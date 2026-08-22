@@ -7,7 +7,8 @@
     ".": "./src/reconciliation.ts",
     "./batch-signature": "./src/batch-signature.ts",
     "./node-enrollment": "./src/node-enrollment.ts",
-    "./run-control": "./src/run-control.ts"
+    "./run-control": "./src/run-control.ts",
+    "./workspace-recovery": "./src/workspace-recovery.ts"
   },
   "scripts": {
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
