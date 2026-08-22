@@ -23,6 +23,12 @@ export interface EnterGitWorktreeInput {
   readonly branchName: string;
 }
 
+export class GitWorktreeDirtyError extends Error {
+  public constructor() {
+    super("Git worktree contains uncommitted changes");
+  }
+}
+
 export class GitWorktreeManager {
   readonly #worktreeRoot: string;
   readonly #database: DatabaseSync;
@@ -148,7 +154,7 @@ export class GitWorktreeManager {
       "--untracked-files=all",
     ]);
     if (status.stdout.length > 0) {
-      throw new Error("Git worktree contains uncommitted changes");
+      throw new GitWorktreeDirtyError();
     }
     await run("git", [
       "-C",
