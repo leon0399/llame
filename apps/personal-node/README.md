@@ -359,7 +359,9 @@ Use the final command's immutable `sha256:...` image ID as
 `LLAME_SANDBOX_IMAGE`. The image is a reproducible base, not a mutable NixOS
 installation inside the Sandbox; changing its package set means changing the
 flake and rebuilding it. The current x86_64 image is roughly 681 MB, so this is
-a reproducibility baseline rather than a size-optimized distribution.
+a reproducibility baseline rather than a size-optimized distribution. Its
+default process is an inert long-lived process; a future harness adapter must
+provide the explicit command-execution channel.
 
 `POST /v1/runs/:runId/workspace/exit` is the explicit `ExitWorkspace` semantic:
 it permanently detaches the binding while keeping the Run on its current

@@ -57,7 +57,10 @@
               "PATH=${pkgs.lib.makeBinPath sandboxTools}"
               "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
             ];
-            Cmd = [ "${pkgs.bashInteractive}/bin/bash" ];
+            Cmd = [
+              "${pkgs.coreutils}/bin/sleep"
+              "infinity"
+            ];
           };
         };
       }
