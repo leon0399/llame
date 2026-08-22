@@ -273,6 +273,10 @@ owner column.
 - When the CLI starts inside a directory, only that current directory is
   advertised to the Chat/Run as its Workspace candidate, even if the daemon has
   other registered Workspaces.
+- Starting the CLI there may create a trusted native-placement grant for exactly
+  that Workspace and its derived views. The grant comes from the local harness,
+  not from model-authored text or tool arguments, and does not authorize later
+  model-selected directories.
 - Android may receive Workspace metadata for selection and steering. It does not
   receive the repository contents merely because it can see the handle.
 - A trusted daemon resolves a Workspace handle to an allowlisted local path and
@@ -319,6 +323,27 @@ not store a brittle allow rule keyed only by raw tool-call JSON.
 Workspace entry grants the mount and requested access mode. It does not grant
 network egress, secret access, publishing, destructive shell operations, or other
 unrelated capabilities. Those remain separately permissioned.
+
+Execution mode is a separate policy decision from Workspace access. The selected
+north-star option is `native-on-explicit-local-entry`: a foreground CLI placement
+may execute natively in its explicitly advertised current Workspace, while
+model-requested entry, daemon-mediated routing, and cross-node transfer default to
+a Sandbox. Other valid policies include `always-sandbox`, `ask-for-execution-mode`,
+and an explicitly high-risk native policy. The model requests placement but never
+selects native execution or supplies the provenance that authorizes it.
+
+The native grant stays sticky for follow-up Runs and derived views of the same
+Workspace. Entering another Workspace, widening host capabilities, or transferring
+execution crosses the grant boundary and requires a new decision. Native execution
+under the host OS user is broad host authority: setting `cwd` does not confine a
+generic process to that directory. A future process-confinement backend may reduce
+that authority without requiring a full container, but the product must not claim
+that boundary before it exists.
+
+Every placement and transition discloses the Workspace and view, executor,
+selection reason, native/process/container/VM isolation class, access mode,
+capabilities, egress policy, and Sandbox-definition revision when applicable. A
+failed Sandbox never silently downgrades to native execution.
 
 ### 5.6 Run placement happens incrementally
 
@@ -430,17 +455,32 @@ asks for another choice, or gives a deliberately limited answer.
 **Agreed later requirement — moderate confidence**
 
 For a registered Git Workspace, the daemon should eventually support creating an
-isolated branch and worktree, mounting that path into the sandbox, changing the
-Run's effective working directory, and continuing transparently. The original
-checkout remains untouched.
+isolated branch and worktree, attaching that path to the selected native or
+Sandbox executor, changing the Run's effective working directory, and continuing
+transparently. The original checkout remains untouched and available for ordinary
+host-side work.
 
 The worktree is a derived Workspace view, not a synchronized copy and not a new
 Knowledge Space. Creation, naming, concurrent use, publishing, retention, and
 cleanup policy remain open.
 
-### 5.9 Versioned sandbox environments
+### 5.9 Native and versioned Sandbox environments
 
 **Agreed direction — moderate confidence; runtime choice unresolved**
+
+Sandboxing is an execution option and the default for model-inferred or remotely
+routed Workspace entry, not a mandatory wrapper around every Chat or explicit
+local CLI Run. Supported policy may select among a trusted native executor, a
+managed Sandbox, and a future stronger-isolation backend. Ordinary Q&A needs none
+of them. A Sandbox is created lazily when execution requires it and should be
+reused across follow-up Runs rather than rebuilt per turn.
+
+The host Node owns container or VM lifecycle, Workspace-handle resolution, mount
+arguments, privilege, network, devices, secrets, and accepted environment
+activation. An agent may modify disposable guest state or propose changes to the
+environment definition within existing capabilities. It never receives the host
+Docker socket, arbitrary host paths, unrestricted runtime arguments, or a config
+path that can expand its own capability envelope.
 
 Sandbox definitions should be Git-backed and reproducible. Agent-initiated changes
 follow a revision workflow analogous to knowledge maintenance:
@@ -465,6 +505,21 @@ change configuration within capabilities already granted to it; editing config
 must never allow it to self-grant network, mounts, privilege, secrets, or device
 access. Ordinary package changes and capability expansion need different risk
 policies even if they share the same revision lifecycle.
+
+Delivery is deliberately incremental:
+
+1. a standalone CLI runs natively only in its explicitly advertised current
+   Workspace and records that host authority;
+2. an explicit local Sandbox mode mounts one approved Workspace or worktree into a
+   fixed managed environment;
+3. Sandbox reuse, derived worktrees, and non-secret caches remove repeated startup
+   cost;
+4. Git-backed Nix or equivalent definitions add validated agent-managed package
+   and dotfile revisions;
+5. a daemon registry and `EnterWorkspace` add sandbox-by-default model-inferred
+   local placement; and
+6. enrollment, tunnelling, remote steering, and outage recovery add cross-node
+   Workspace routing without introducing native fallback.
 
 ### 5.10 Concurrent Chat reconciliation
 
@@ -1221,7 +1276,7 @@ the selected direction. The complete option set and decision rationale remain in
 the
 [multi-authority federation research](2026-08-21-multi-authority-federation-models.md).
 
-## 6. Candidate mechanisms, not product commitments
+## 6. Candidate realization mechanisms
 
 The following mechanism remains promising:
 
@@ -1239,11 +1294,14 @@ truth: avoid making a full NixOS configuration and a Dockerfile two competing
 package-management systems. If Docker is used, its Dockerfile should probably be
 a thin bootstrap around the pinned environment.
 
-This mechanism is not yet selected. Full NixOS may be unnecessary if a Nix
-development environment plus OCI image provides the required reproducibility.
-Docker also does not by itself provide an adequate hostile multi-tenant security
-boundary. The threat model must determine whether containers, stronger VMs, or
-multiple backends are required.
+The architecture now selects the hybrid pattern: explicit local CLI placement may
+use a trusted native executor, while model-inferred and remotely routed Workspace
+entry defaults to a managed Sandbox with explicit mounts. Nix plus OCI remains a
+promising realization rather than a selected implementation. Full NixOS may be
+unnecessary if a Nix development environment plus OCI image provides the required
+reproducibility. Docker also does not by itself provide an adequate hostile
+multi-tenant security boundary. The threat model must determine whether
+containers, process confinement, stronger VMs, or multiple backends are required.
 
 Environment definitions may synchronize to all personal nodes, but only
 execution-capable nodes realize them. Android can retain the definition metadata
@@ -1296,6 +1354,15 @@ These corrections are durable constraints on further design:
   rebuildable, not safely isolated.
 - **A Docker bind is not permission semantics.** The daemon and permission engine
   decide what may be mounted; the model cannot directly request host paths.
+- **A native working directory is not filesystem confinement.** An unsandboxed
+  process may retain the host OS user's broader authority even when only one
+  Workspace is advertised.
+- **Explicit CLI placement is not model-selected native authority.** Only trusted
+  local harness provenance can establish the bounded native-placement grant;
+  inferred entry and routing use policy and default to a Sandbox.
+- **Agent-managed environment configuration is not runtime administration.** The
+  agent may propose reproducible definitions, while the Node retains mounts,
+  privilege, secrets, network, devices, build validation, and activation.
 - **A full personal mirror is a simpler product promise, not a simpler system.** It
   expands enrollment, encryption, revocation, conflict, and storage obligations.
 - **Credential secrecy is not data locality.** Upstream inference still creates an
@@ -1329,7 +1396,7 @@ This direction is consistent with several existing commitments:
   not yet provide the project-filesystem Workspace described here and that its
   operational state remains Postgres-backed.
 
-This discussion materially extends the earlier direction in nineteen areas:
+This discussion materially extends the earlier direction in twenty areas:
 
 1. a linked machine is not only a remotely controlled Worker; it can be an
    autonomous personal node with a full personal mirror;
@@ -1379,7 +1446,10 @@ This discussion materially extends the earlier direction in nineteen areas:
 19. first delivery handles missing causal dependencies through atomic rejection,
     sender backfill, and retry rather than a receiver-side out-of-order store;
     automatic forks preserve valid concurrent continuations without
-    last-write-wins reconciliation.
+    last-write-wins reconciliation; and
+20. Workspace execution distinguishes trusted explicit CLI placement from
+    model-inferred and remotely routed entry, allowing native local execution
+    without making it the unattended default or a silent Sandbox fallback.
 
 There is also a real tension with a simple "central control plane plus workers"
 model. Once personal nodes can originate durable state while unlinked, the
@@ -1422,7 +1492,8 @@ vision closure:
 2. **Node enrollment and execution:** credentials, revocation delivery, Node
    Protocol schemas, tunnelling, recovery guarantees, handoff state machines, and
    conformance tests.
-3. **Workspace execution:** registry privacy, binding lifecycle, permissions,
+3. **Workspace execution:** trusted placement provenance, native and Sandbox
+   profiles, registry privacy, binding lifecycle, permissions, downgrade rules,
    Sandbox layering and isolation, and Git worktree lifecycle.
 4. **Knowledge and foreign authorities:** publication adapters, absorption,
    coverage proof, shared replication policy, revocation, and cross-boundary
@@ -1439,10 +1510,11 @@ not grow this research note or reopen the entire product direction by default.
 
 ## 10. Recommended next action
 
-Stop hardening the federation protocol in the abstract. In a separate decision,
-choose whether to distill the stable product direction into `VISION.md` now or
-leave these notes as provenance until the next concrete product slice is chosen.
-Do not start another chain of low-level synchronization questions here.
+Keep distributed protocol work behind the nearer product cut. When standalone
+personal operation becomes active, ship explicit current-directory native CLI
+execution first, then prove an opt-in local Sandbox and its overhead before adding
+daemon registration or remote Workspace routing. Do not make federation or a
+production Sandbox fabric prerequisites for the first useful CLI.
 
 ## 11. Promotion boundary
 
