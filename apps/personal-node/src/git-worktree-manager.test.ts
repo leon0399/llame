@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -163,6 +164,91 @@ describe("executor-local Git worktree bindings", () => {
         branchName: "llame/run-1",
       }),
     ).rejects.toThrowError("Git worktree root must be outside the repository");
+    manager.close();
+  });
+
+  test("reconciles interrupted pending creation without deleting a checkout", async () => {
+    const { directory, repositoryRoot } = await createRepository();
+    const worktreeRoot = join(directory, "worktrees");
+    const databasePath = join(directory, "worktrees.sqlite");
+    const initialized = new GitWorktreeManager({
+      worktreeRoot,
+      databasePath,
+    });
+    initialized.close();
+    await mkdir(worktreeRoot, { recursive: true });
+    const existingPath = join(worktreeRoot, "run-existing");
+    await run("git", [
+      "-C",
+      repositoryRoot,
+      "worktree",
+      "add",
+      "-b",
+      "llame/run-existing",
+      existingPath,
+      "HEAD",
+    ]);
+    const database = new DatabaseSync(databasePath);
+    const insert = database.prepare(
+      `INSERT INTO git_worktree_bindings
+        (run_id, workspace_id, repository_root, worktree_path, branch_name, state)
+       VALUES (?, ?, ?, ?, ?, 'pending')`,
+    );
+    insert.run(
+      "run-existing",
+      "workspace-code",
+      repositoryRoot,
+      existingPath,
+      "llame/run-existing",
+    );
+    insert.run(
+      "run-missing",
+      "workspace-code",
+      repositoryRoot,
+      join(worktreeRoot, "run-missing"),
+      "llame/run-missing",
+    );
+    database.close();
+
+    const restarted = new GitWorktreeManager({ worktreeRoot, databasePath });
+    await expect(restarted.recoverPending()).resolves.toEqual({
+      activated: 1,
+      discarded: 1,
+    });
+    expect(restarted.binding("run-existing")).toMatchObject({
+      worktreePath: existingPath,
+      branchName: "llame/run-existing",
+    });
+    expect(restarted.binding("run-missing")).toBeNull();
+    await restarted.exit("run-existing");
+    restarted.close();
+  });
+
+  test("discards a failed creation reservation before retrying", async () => {
+    const { directory, repositoryRoot } = await createRepository();
+    await run("git", ["-C", repositoryRoot, "branch", "llame/already-exists"]);
+    const manager = new GitWorktreeManager({
+      worktreeRoot: join(directory, "worktrees"),
+      databasePath: join(directory, "worktrees.sqlite"),
+    });
+
+    await expect(
+      manager.enter({
+        runId: "run-1",
+        workspaceId: "workspace-code",
+        repositoryRoot,
+        branchName: "llame/already-exists",
+      }),
+    ).rejects.toThrow();
+    await expect(
+      manager.enter({
+        runId: "run-1",
+        workspaceId: "workspace-code",
+        repositoryRoot,
+        branchName: "llame/retry",
+      }),
+    ).resolves.toMatchObject({ branchName: "llame/retry" });
+    await manager.exit("run-1");
     manager.close();
   });
 });

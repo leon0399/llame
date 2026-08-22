@@ -52,9 +52,20 @@ export class GitWorktreeManager {
         workspace_id TEXT NOT NULL,
         repository_root TEXT NOT NULL,
         worktree_path TEXT NOT NULL UNIQUE,
-        branch_name TEXT NOT NULL UNIQUE
+        branch_name TEXT NOT NULL UNIQUE,
+        state TEXT NOT NULL CHECK (state IN ('pending', 'active'))
       ) STRICT;
     `);
+    const columns = this.#database
+      .prepare("PRAGMA table_info(git_worktree_bindings)")
+      .all();
+    if (!columns.some((column) => column.name === "state")) {
+      this.#database.exec(
+        `ALTER TABLE git_worktree_bindings
+         ADD COLUMN state TEXT NOT NULL DEFAULT 'active'
+         CHECK (state IN ('pending', 'active'))`,
+      );
+    }
     for (const path of [
       options.databasePath,
       `${options.databasePath}-wal`,
@@ -92,6 +103,7 @@ export class GitWorktreeManager {
       worktreePath: join(worktreeRoot, input.runId),
       branchName: input.branchName,
     };
+    await this.recoverPending();
     const existing = this.binding(input.runId);
     if (existing !== null) {
       if (JSON.stringify(existing) !== JSON.stringify(binding)) {
@@ -99,6 +111,19 @@ export class GitWorktreeManager {
       }
       return structuredClone(existing);
     }
+    this.#database
+      .prepare(
+        `INSERT INTO git_worktree_bindings
+          (run_id, workspace_id, repository_root, worktree_path, branch_name, state)
+         VALUES (?, ?, ?, ?, ?, 'pending')`,
+      )
+      .run(
+        binding.runId,
+        binding.workspaceId,
+        binding.repositoryRoot,
+        binding.worktreePath,
+        binding.branchName,
+      );
     await run("git", [
       "-C",
       repositoryRoot,
@@ -112,17 +137,9 @@ export class GitWorktreeManager {
     ]);
     this.#database
       .prepare(
-        `INSERT INTO git_worktree_bindings
-          (run_id, workspace_id, repository_root, worktree_path, branch_name)
-         VALUES (?, ?, ?, ?, ?)`,
+        "UPDATE git_worktree_bindings SET state = 'active' WHERE run_id = ?",
       )
-      .run(
-        binding.runId,
-        binding.workspaceId,
-        binding.repositoryRoot,
-        binding.worktreePath,
-        binding.branchName,
-      );
+      .run(input.runId);
     return structuredClone(binding);
   }
 
@@ -130,7 +147,7 @@ export class GitWorktreeManager {
     const row = this.#database
       .prepare(
         `SELECT run_id, workspace_id, repository_root, worktree_path, branch_name
-         FROM git_worktree_bindings WHERE run_id = ?`,
+         FROM git_worktree_bindings WHERE run_id = ? AND state = 'active'`,
       )
       .get(runId) as Record<string, SQLOutputValue> | undefined;
     if (row === undefined) return null;
@@ -173,6 +190,66 @@ export class GitWorktreeManager {
     this.#database.close();
   }
 
+  public async recoverPending(): Promise<{
+    readonly activated: number;
+    readonly discarded: number;
+  }> {
+    const rows = this.#database
+      .prepare(
+        `SELECT run_id, workspace_id, repository_root, worktree_path, branch_name
+         FROM git_worktree_bindings WHERE state = 'pending'`,
+      )
+      .all() as ReadonlyArray<Record<string, SQLOutputValue>>;
+    let activated = 0;
+    let discarded = 0;
+    for (const row of rows) {
+      const binding = this.#bindingFromRow(row);
+      let canonicalWorktreePath: string;
+      try {
+        canonicalWorktreePath = await realpath(binding.worktreePath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        this.#database
+          .prepare("DELETE FROM git_worktree_bindings WHERE run_id = ?")
+          .run(binding.runId);
+        discarded += 1;
+        continue;
+      }
+      const actualTopLevel = await realpath(
+        (
+          await run("git", [
+            "-C",
+            canonicalWorktreePath,
+            "rev-parse",
+            "--show-toplevel",
+          ])
+        ).stdout.trim(),
+      );
+      const actualBranch = (
+        await run("git", [
+          "-C",
+          canonicalWorktreePath,
+          "branch",
+          "--show-current",
+        ])
+      ).stdout.trim();
+      if (
+        actualTopLevel !== canonicalWorktreePath ||
+        canonicalWorktreePath !== binding.worktreePath ||
+        actualBranch !== binding.branchName
+      ) {
+        throw new Error("pending Git worktree does not match its binding");
+      }
+      this.#database
+        .prepare(
+          "UPDATE git_worktree_bindings SET state = 'active' WHERE run_id = ?",
+        )
+        .run(binding.runId);
+      activated += 1;
+    }
+    return { activated, discarded };
+  }
+
   #validateIdentity(value: string, label: string): void {
     if (!ID_PATTERN.test(value)) throw new Error(`invalid ${label} identity`);
   }
@@ -191,5 +268,17 @@ export class GitWorktreeManager {
       throw new Error(`invalid Git worktree ${column}`);
     }
     return value;
+  }
+
+  #bindingFromRow(
+    row: Readonly<Record<string, SQLOutputValue>>,
+  ): GitWorktreeBinding {
+    return {
+      runId: this.#requireText(row, "run_id"),
+      workspaceId: this.#requireText(row, "workspace_id"),
+      repositoryRoot: this.#requireText(row, "repository_root"),
+      worktreePath: this.#requireText(row, "worktree_path"),
+      branchName: this.#requireText(row, "branch_name"),
+    };
   }
 }

@@ -393,6 +393,7 @@ async function run(): Promise<void> {
           worktreeRoot: command.gitWorktreeRoot,
           databasePath: command.node.databasePath,
         });
+  await gitWorktreeManager?.recoverPending();
   const server = createPersonalNodeServer({
     nodeId: command.node.nodeId,
     bearerToken: command.node.bearerToken,
