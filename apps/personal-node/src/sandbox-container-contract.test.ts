@@ -14,9 +14,24 @@ describe("Docker Sandbox launch contract", () => {
         user: "1000:1000",
       }),
     ).toEqual({
+      nodeId: "desktop",
+      runId: "run-42",
       containerName: "llame-desktop-run-42",
       workspaceTarget: "/workspace",
       homeVolumeName: "llame-home-desktop-run-42",
+      image:
+        "registry.example/llame/sandbox@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      workspaceSourceRealpath: "/srv/llame/worktrees/run-42",
+      user: "1000:1000",
+      security: {
+        networkMode: "none",
+        ipcMode: "private",
+        cgroupNamespace: "private",
+        droppedCapabilities: "ALL",
+        noNewPrivileges: true,
+        readOnlyRoot: true,
+        pidsLimit: 512,
+      },
       createArguments: [
         "create",
         "--name",
