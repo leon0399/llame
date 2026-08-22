@@ -3,7 +3,7 @@ import { isAbsolute, normalize } from "node:path";
 
 import { WRITER_STREAM_ID_PATTERN } from "@workspace/federation-experiment";
 
-const CONTENT_ADDRESSED_IMAGE_PATTERN = /^[^\s@]+@sha256:[a-f0-9]{64}$/;
+const CONTENT_ADDRESSED_IMAGE_PATTERN = /^(?:[^\s@]+@)?sha256:[a-f0-9]{64}$/;
 const NUMERIC_NON_ROOT_USER_PATTERN = /^[1-9][0-9]*:[1-9][0-9]*$/;
 const MOUNT_UNSAFE_PATTERN = /[,\0\r\n]/;
 

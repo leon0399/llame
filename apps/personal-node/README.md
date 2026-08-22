@@ -346,6 +346,21 @@ and cgroups, `no-new-privileges`, and a PID ceiling. A named per-Run home volume
 survives container exit. An active Sandbox must exit before its Git worktree can
 be removed.
 
+The repository flake exposes an experimental base image with the pinned
+Node/pnpm toolchain plus Git, ripgrep, fd, jq, and core utilities:
+
+```bash
+nix build .#sandbox-image
+docker load --input result
+docker image inspect --format '{{.Id}}' llame-sandbox:experiment
+```
+
+Use the final command's immutable `sha256:...` image ID as
+`LLAME_SANDBOX_IMAGE`. The image is a reproducible base, not a mutable NixOS
+installation inside the Sandbox; changing its package set means changing the
+flake and rebuilding it. The current x86_64 image is roughly 681 MB, so this is
+a reproducibility baseline rather than a size-optimized distribution.
+
 `POST /v1/runs/:runId/workspace/exit` is the explicit `ExitWorkspace` semantic:
 it permanently detaches the binding while keeping the Run on its current
 executor and authority epoch. It is idempotent and persists as a distinct audit

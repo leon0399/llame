@@ -112,4 +112,19 @@ describe("Docker Sandbox launch contract", () => {
       `dev.llame.run-id=run-${"b".repeat(124)}`,
     );
   });
+
+  test("accepts a local immutable Docker image id", () => {
+    expect(
+      buildDockerSandboxPlan({
+        nodeId: "desktop",
+        runId: "run-local-image",
+        image:
+          "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        workspaceSourceRealpath: "/srv/llame/worktrees/run-local-image",
+        user: "1000:1000",
+      }).image,
+    ).toBe(
+      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    );
+  });
 });
