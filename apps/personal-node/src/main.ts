@@ -12,6 +12,7 @@ import {
 import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import { createPersonalNodeServer } from "./node-server.js";
 import { initializeNodeIdentity } from "./node-identity.js";
+import { SqliteRunControlStore } from "./run-control-store.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 import { syncFromPeer } from "./sync-client.js";
 import { initializeWriterIdentity } from "./writer-identity.js";
@@ -124,11 +125,16 @@ async function run(): Promise<void> {
     databasePath: command.node.databasePath,
     realmId: command.node.realmId,
   });
+  const runControlStore = new SqliteRunControlStore({
+    databasePath: command.node.databasePath,
+    realmId: command.node.realmId,
+  });
   const server = createPersonalNodeServer({
     nodeId: command.node.nodeId,
     bearerToken: command.node.bearerToken,
     store,
     enrollmentRegistry,
+    runControlStore,
   });
   try {
     await new Promise<void>((resolve, reject) => {
@@ -139,6 +145,7 @@ async function run(): Promise<void> {
       });
     });
   } catch (error) {
+    runControlStore.close();
     enrollmentRegistry.close();
     store.close();
     throw error;
@@ -157,6 +164,7 @@ async function run(): Promise<void> {
     if (closing) return;
     closing = true;
     server.close(() => {
+      runControlStore.close();
       enrollmentRegistry.close();
       store.close();
     });

@@ -12,12 +12,15 @@ import { createEnrollmentProof } from "@workspace/federation-experiment/node-enr
 
 import { createPersonalNodeServer } from "./node-server.js";
 import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
+import { SqliteRunControlStore } from "./run-control-store.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 
 describe("personal Node Protocol server", () => {
   const temporaryDirectories: string[] = [];
   const servers: Server[] = [];
   const stores: SqlitePersonalRealmStore[] = [];
+  const enrollmentRegistries: SqliteEnrollmentRegistry[] = [];
+  const runControlStores: SqliteRunControlStore[] = [];
 
   afterEach(async () => {
     await Promise.all(
@@ -31,6 +34,12 @@ describe("personal Node Protocol server", () => {
           }),
       ),
     );
+    for (const runControlStore of runControlStores.splice(0)) {
+      runControlStore.close();
+    }
+    for (const registry of enrollmentRegistries.splice(0)) {
+      registry.close();
+    }
     for (const store of stores.splice(0)) {
       store.close();
     }
@@ -112,6 +121,7 @@ describe("personal Node Protocol server", () => {
         "sync.personal-realm": { version: 1, mode: "read-write" },
         "sync.signed-personal-realm": { available: false },
         "enrollment.node": { available: false },
+        "execution.run-control": { available: false },
         "execution.workspace": { available: false },
       },
     });
@@ -352,6 +362,7 @@ describe("personal Node Protocol server", () => {
       databasePath: join(directory, "enrollment.sqlite"),
       realmId: "realm-personal",
     });
+    enrollmentRegistries.push(registry);
     const server = createPersonalNodeServer({
       nodeId: "node-home",
       bearerToken: "owner-control-secret",
@@ -437,6 +448,194 @@ describe("personal Node Protocol server", () => {
     expect(afterRevocation.status).toBe(401);
     expect(await afterRevocation.json()).toEqual({ error: "unauthorized" });
     expect(registry.isActive("node-desktop", node.keyId)).toBe(false);
-    registry.close();
+  });
+
+  test("observes and steers a remote Run while fencing its prior executor", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-run-control-api-"));
+    temporaryDirectories.push(directory);
+    const store = new SqlitePersonalRealmStore({
+      databasePath: join(directory, "realm.sqlite"),
+      realmId: "realm-personal",
+      writerEpochs: { home: 1 },
+    });
+    const registry = new SqliteEnrollmentRegistry({
+      databasePath: join(directory, "enrollment.sqlite"),
+      realmId: "realm-personal",
+    });
+    const runControlStore = new SqliteRunControlStore({
+      databasePath: join(directory, "runs.sqlite"),
+      realmId: "realm-personal",
+    });
+    stores.push(store);
+    enrollmentRegistries.push(registry);
+    runControlStores.push(runControlStore);
+    const executor = generateWriterIdentity();
+    const controller = generateWriterIdentity();
+    const fallback = generateWriterIdentity();
+    const executorGrant = registry.completeEnrollment(
+      createEnrollmentProof(
+        registry.issueChallenge({ nodeId: "node-workstation" }),
+        executor.privateKeyPem,
+      ),
+    );
+    const controllerGrant = registry.completeEnrollment(
+      createEnrollmentProof(
+        registry.issueChallenge({ nodeId: "node-phone" }),
+        controller.privateKeyPem,
+      ),
+    );
+    const fallbackGrant = registry.completeEnrollment(
+      createEnrollmentProof(
+        registry.issueChallenge({ nodeId: "node-fallback" }),
+        fallback.privateKeyPem,
+      ),
+    );
+    const server = createPersonalNodeServer({
+      nodeId: "node-home",
+      bearerToken: "owner-control-secret",
+      store,
+      enrollmentRegistry: registry,
+      runControlStore,
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("test server did not bind a TCP address");
+    }
+    const origin = `http://127.0.0.1:${address.port}`;
+    const jsonHeaders = (credential: string) => ({
+      authorization: `Bearer ${credential}`,
+      "content-type": "application/json",
+    });
+
+    const created = await fetch(`${origin}/v1/runs`, {
+      method: "POST",
+      headers: jsonHeaders("owner-control-secret"),
+      body: JSON.stringify({
+        runId: "run-remote",
+        executorNodeId: "node-workstation",
+      }),
+    });
+    const running = await fetch(`${origin}/v1/runs/run-remote/events`, {
+      method: "POST",
+      headers: jsonHeaders(executorGrant.credential),
+      body: JSON.stringify({
+        authorityEpoch: 1,
+        sequence: 1,
+        eventId: "event-running",
+        event: { type: "status", status: "running" },
+      }),
+    });
+    const observed = await fetch(
+      `${origin}/v1/runs/run-remote/control?after=0`,
+      { headers: jsonHeaders(controllerGrant.credential) },
+    );
+    const steered = await fetch(`${origin}/v1/runs/run-remote/commands`, {
+      method: "POST",
+      headers: jsonHeaders(controllerGrant.credential),
+      body: JSON.stringify({
+        commandId: "command-phone",
+        authorityEpoch: 1,
+        command: { type: "steer", text: "Run the focused test first" },
+      }),
+    });
+    const commands = await fetch(
+      `${origin}/v1/runs/run-remote/commands?after=0`,
+      { headers: jsonHeaders(executorGrant.credential) },
+    );
+    const forbiddenCommandPoll = await fetch(
+      `${origin}/v1/runs/run-remote/commands?after=0`,
+      { headers: jsonHeaders(controllerGrant.credential) },
+    );
+    const forbiddenTransfer = await fetch(
+      `${origin}/v1/runs/run-remote/authority`,
+      {
+        method: "POST",
+        headers: jsonHeaders(controllerGrant.credential),
+        body: JSON.stringify({
+          expectedAuthorityEpoch: 1,
+          targetExecutorNodeId: "node-phone",
+          reason: "handoff",
+        }),
+      },
+    );
+    const transferred = await fetch(`${origin}/v1/runs/run-remote/authority`, {
+      method: "POST",
+      headers: jsonHeaders("owner-control-secret"),
+      body: JSON.stringify({
+        expectedAuthorityEpoch: 1,
+        targetExecutorNodeId: "node-fallback",
+        reason: "fallback",
+      }),
+    });
+    const fallbackSteering = await fetch(
+      `${origin}/v1/runs/run-remote/commands`,
+      {
+        method: "POST",
+        headers: jsonHeaders(controllerGrant.credential),
+        body: JSON.stringify({
+          commandId: "command-fallback",
+          authorityEpoch: 2,
+          command: { type: "steer", text: "Continue from durable state" },
+        }),
+      },
+    );
+    const fallbackCommands = await fetch(
+      `${origin}/v1/runs/run-remote/commands?after=0`,
+      { headers: jsonHeaders(fallbackGrant.credential) },
+    );
+    const staleExecutor = await fetch(`${origin}/v1/runs/run-remote/events`, {
+      method: "POST",
+      headers: jsonHeaders(executorGrant.credential),
+      body: JSON.stringify({
+        authorityEpoch: 1,
+        sequence: 3,
+        eventId: "event-stale",
+        event: { type: "status", status: "completed" },
+      }),
+    });
+
+    expect(created.status).toBe(201);
+    expect(running.status).toBe(202);
+    expect(observed.status).toBe(200);
+    expect(await observed.json()).toMatchObject({
+      runId: "run-remote",
+      executorNodeId: "node-workstation",
+      authorityEpoch: 1,
+      status: "running",
+      cursor: 1,
+    });
+    expect(steered.status).toBe(202);
+    expect(commands.status).toBe(200);
+    expect(await commands.json()).toMatchObject({
+      commands: [
+        {
+          commandId: "command-phone",
+          command: { type: "steer", text: "Run the focused test first" },
+        },
+      ],
+    });
+    expect(forbiddenCommandPoll.status).toBe(403);
+    expect(forbiddenTransfer.status).toBe(401);
+    expect(transferred.status).toBe(202);
+    expect(fallbackSteering.status).toBe(202);
+    expect(fallbackCommands.status).toBe(200);
+    expect(await fallbackCommands.json()).toEqual({
+      cursor: 2,
+      commands: [
+        {
+          realmId: "realm-personal",
+          runId: "run-remote",
+          commandId: "command-fallback",
+          authorityEpoch: 2,
+          command: { type: "steer", text: "Continue from durable state" },
+          commandSequence: 2,
+        },
+      ],
+    });
+    expect(staleExecutor.status).toBe(409);
   });
 });

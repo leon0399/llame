@@ -14,6 +14,7 @@ import { z } from "zod";
 
 import type { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 import type { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
+import type { SqliteRunControlStore } from "./run-control-store.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -30,13 +31,38 @@ const enrollmentChallengeRequestSchema = z.strictObject({
   nodeId: z.string().regex(WRITER_STREAM_ID_PATTERN),
 });
 const completeEnrollmentRequestSchema = z.strictObject({ proof: z.unknown() });
+const createRunRequestSchema = z.strictObject({
+  runId: z.string().min(1).max(200),
+  executorNodeId: z.string().regex(WRITER_STREAM_ID_PATTERN),
+});
+const runEventRequestSchema = z.strictObject({
+  authorityEpoch: z.number().int().positive(),
+  sequence: z.number().int().positive(),
+  eventId: z.string().min(1).max(200),
+  event: z.unknown(),
+});
+const runCommandRequestSchema = z.strictObject({
+  commandId: z.string().min(1).max(200),
+  authorityEpoch: z.number().int().positive(),
+  command: z.unknown(),
+});
+const transferRunAuthorityRequestSchema = z.strictObject({
+  expectedAuthorityEpoch: z.number().int().positive(),
+  targetExecutorNodeId: z.string().regex(WRITER_STREAM_ID_PATTERN),
+  reason: z.enum(["handoff", "fallback", "recovery"]),
+});
 
 export interface PersonalNodeServerOptions {
   readonly nodeId: string;
   readonly bearerToken: string;
   readonly store: SqlitePersonalRealmStore;
   readonly enrollmentRegistry?: SqliteEnrollmentRegistry;
+  readonly runControlStore?: SqliteRunControlStore;
 }
+
+type RequestPrincipal =
+  | { readonly kind: "owner"; readonly nodeId: string }
+  | { readonly kind: "node"; readonly nodeId: string; readonly keyId: string };
 
 class RequestError extends Error {
   public constructor(
@@ -80,15 +106,44 @@ function credentialMatches(
   return timingSafeEqual(expectedDigest, suppliedDigest);
 }
 
-function isEnrollmentControlRequest(request: IncomingMessage): boolean {
+function isOwnerControlRequest(request: IncomingMessage): boolean {
   const url = new URL(request.url ?? "/", "http://personal-node.local");
   return (
     (request.method === "POST" &&
       (url.pathname === "/v1/enrollment/challenges" ||
         url.pathname === "/v1/enrollment/complete")) ||
     (request.method === "DELETE" &&
-      /^\/v1\/enrollments\/[^/]+$/.test(url.pathname))
+      /^\/v1\/enrollments\/[^/]+$/.test(url.pathname)) ||
+    (request.method === "POST" && url.pathname === "/v1/runs") ||
+    (request.method === "POST" &&
+      /^\/v1\/runs\/[^/]+\/authority$/.test(url.pathname))
   );
+}
+
+function decodePathIdentity(encoded: string | undefined, name: string): string {
+  if (encoded === undefined) throw new RequestError(400, `invalid_${name}`);
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(encoded);
+  } catch {
+    throw new RequestError(400, `invalid_${name}`);
+  }
+  if (decoded.length === 0 || decoded.length > 200 || decoded.includes("/")) {
+    throw new RequestError(400, `invalid_${name}`);
+  }
+  return decoded;
+}
+
+function cursorFrom(url: URL): number {
+  const input = url.searchParams.get("after") ?? "0";
+  if (!/^(0|[1-9][0-9]*)$/.test(input)) {
+    throw new RequestError(400, "invalid_cursor");
+  }
+  const cursor = Number(input);
+  if (!Number.isSafeInteger(cursor)) {
+    throw new RequestError(400, "invalid_cursor");
+  }
+  return cursor;
 }
 
 async function readJson(request: IncomingMessage): Promise<unknown> {
@@ -122,6 +177,7 @@ async function handleAuthorizedRequest(
   request: IncomingMessage,
   response: ServerResponse,
   options: PersonalNodeServerOptions,
+  principal: RequestPrincipal,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://personal-node.local");
   if (request.method === "GET" && url.pathname === "/v1/capabilities") {
@@ -136,6 +192,10 @@ async function handleAuthorizedRequest(
           : { available: false },
         "enrollment.node":
           options.enrollmentRegistry === undefined
+            ? { available: false }
+            : { version: 1, mode: "read-write" },
+        "execution.run-control":
+          options.runControlStore === undefined
             ? { available: false }
             : { version: 1, mode: "read-write" },
         "execution.workspace": { available: false },
@@ -202,6 +262,101 @@ async function handleAuthorizedRequest(
       revoked: options.enrollmentRegistry.revoke(nodeId),
     });
     return;
+  }
+  if (request.method === "POST" && url.pathname === "/v1/runs") {
+    if (options.runControlStore === undefined) {
+      throw new RequestError(409, "run_control_unavailable");
+    }
+    const parsed = createRunRequestSchema.safeParse(await readJson(request));
+    if (!parsed.success) {
+      throw new RequestError(400, "invalid_run_create_request");
+    }
+    sendJson(response, 201, options.runControlStore.createRun(parsed.data));
+    return;
+  }
+  const runRoute =
+    /^\/v1\/runs\/([^/]+)\/(control|events|commands|authority)$/.exec(
+      url.pathname,
+    );
+  if (runRoute !== null) {
+    if (options.runControlStore === undefined) {
+      throw new RequestError(409, "run_control_unavailable");
+    }
+    const runId = decodePathIdentity(runRoute[1], "run_id");
+    const resource = runRoute[2];
+    if (request.method === "GET" && resource === "control") {
+      sendJson(
+        response,
+        200,
+        options.runControlStore.snapshot(runId, cursorFrom(url)),
+      );
+      return;
+    }
+    if (request.method === "POST" && resource === "events") {
+      const parsed = runEventRequestSchema.safeParse(await readJson(request));
+      if (!parsed.success) {
+        throw new RequestError(400, "invalid_run_event_request");
+      }
+      sendJson(
+        response,
+        202,
+        options.runControlStore.appendExecutorEvent({
+          realmId: options.store.realmId(),
+          runId,
+          executorNodeId: principal.nodeId,
+          ...parsed.data,
+        }),
+      );
+      return;
+    }
+    if (request.method === "POST" && resource === "commands") {
+      const parsed = runCommandRequestSchema.safeParse(await readJson(request));
+      if (!parsed.success) {
+        throw new RequestError(400, "invalid_run_command_request");
+      }
+      sendJson(
+        response,
+        202,
+        options.runControlStore.submitCommand({
+          realmId: options.store.realmId(),
+          runId,
+          ...parsed.data,
+        }),
+      );
+      return;
+    }
+    if (request.method === "GET" && resource === "commands") {
+      const snapshot = options.runControlStore.snapshot(runId);
+      if (
+        principal.kind === "node" &&
+        principal.nodeId !== snapshot.executorNodeId
+      ) {
+        throw new RequestError(403, "executor_authority_required");
+      }
+      const after = cursorFrom(url);
+      const commands = options.runControlStore.commandsAfter(runId, after);
+      sendJson(response, 200, {
+        cursor: commands.at(-1)?.commandSequence ?? after,
+        commands: commands.filter(
+          (command) => command.authorityEpoch === snapshot.authorityEpoch,
+        ),
+      });
+      return;
+    }
+    if (request.method === "POST" && resource === "authority") {
+      const parsed = transferRunAuthorityRequestSchema.safeParse(
+        await readJson(request),
+      );
+      if (!parsed.success) {
+        throw new RequestError(400, "invalid_run_authority_request");
+      }
+      sendJson(
+        response,
+        202,
+        options.runControlStore.transferAuthority(runId, parsed.data),
+      );
+      return;
+    }
   }
   if (request.method === "GET" && url.pathname === "/v1/realm/frontier") {
     sendJson(response, 200, { frontier: options.store.frontier() });
@@ -297,12 +452,23 @@ export function createPersonalNodeServer(
     const ownerAuthenticated =
       suppliedCredential !== null &&
       credentialMatches(suppliedCredential, expectedTokenDigest);
-    const nodeAuthenticated =
-      suppliedCredential !== null &&
-      options.enrollmentRegistry?.authenticate(suppliedCredential) !== null;
+    const enrolledNode =
+      suppliedCredential === null
+        ? null
+        : (options.enrollmentRegistry?.authenticate(suppliedCredential) ??
+          null);
+    const principal: RequestPrincipal | null = ownerAuthenticated
+      ? { kind: "owner", nodeId: options.nodeId }
+      : enrolledNode === null
+        ? null
+        : {
+            kind: "node",
+            nodeId: enrolledNode.nodeId,
+            keyId: enrolledNode.keyId,
+          };
     if (
-      !ownerAuthenticated &&
-      (isEnrollmentControlRequest(request) || !nodeAuthenticated)
+      principal === null ||
+      (principal.kind !== "owner" && isOwnerControlRequest(request))
     ) {
       sendJson(
         response,
@@ -314,12 +480,14 @@ export function createPersonalNodeServer(
       );
       return;
     }
-    void handleAuthorizedRequest(request, response, options).catch((error) => {
-      if (error instanceof RequestError) {
-        sendJson(response, error.status, { error: error.code });
-        return;
-      }
-      sendJson(response, 409, { error: "operation_rejected" });
-    });
+    void handleAuthorizedRequest(request, response, options, principal).catch(
+      (error) => {
+        if (error instanceof RequestError) {
+          sendJson(response, error.status, { error: error.code });
+          return;
+        }
+        sendJson(response, 409, { error: "operation_rejected" });
+      },
+    );
   });
 }

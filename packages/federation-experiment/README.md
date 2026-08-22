@@ -20,7 +20,9 @@ The experiment currently proves:
 - Ed25519 signatures bind a batch to an explicitly trusted writer stream and
   reject forwarded payload mutation or cross-writer impersonation; and
 - a short-lived, Realm-bound enrollment challenge proves possession of a
-  separate Ed25519 node identity without introducing a local `user_id`.
+  separate Ed25519 node identity without introducing a local `user_id`; and
+- resumable Run-control state uses semantic event and command cursors plus an
+  authority epoch that fences a stale executor after handoff or fallback.
 
 `apps/personal-node` now exercises this core through a durable embedded store and
 an authenticated HTTP contract. Signature v1 uses a domain-separated,
@@ -29,5 +31,6 @@ of cross-language canonicalization. The package still deliberately does not
 choose snapshots, automated key rotation, or a public package API.
 `JSON.stringify` remains only an in-process payload-equality sentinel outside
 that explicitly ordered signature encoder. The next valuable boundary is a
-second implementation of the same reconciliation contract against the hosted
-PostgreSQL projection.
+real external-harness adapter behind the Run-control API, followed by a second
+implementation of the reconciliation contract against the hosted PostgreSQL
+projection.
