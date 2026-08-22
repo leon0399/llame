@@ -23,7 +23,12 @@ import {
 } from "./git-worktree-manager.js";
 import type { PeerSyncStatus } from "./peer-sync-supervisor.js";
 import type { SqliteRunControlStore } from "./run-control-store.js";
-import { buildDockerSandboxPlan } from "./sandbox-container-contract.js";
+import type { DurableSandboxCommandExecutor } from "./sandbox-command-coordinator.js";
+import { SandboxCommandConflictError } from "./sandbox-command-store.js";
+import {
+  buildDockerSandboxPlan,
+  validateSandboxCommandRequest,
+} from "./sandbox-container-contract.js";
 import type { DockerSandboxLifecycle } from "./sandbox-container-lifecycle.js";
 import {
   WorkspaceUnavailableError,
@@ -102,6 +107,12 @@ const emptyRequestSchema = z.strictObject({});
 const enterWorktreeRequestSchema = z.strictObject({
   branchName: z.string().min(1).max(200),
 });
+const sandboxCommandRequestSchema = z.strictObject({
+  commandId: z.string().min(1).max(200),
+  expectedAuthorityEpoch: z.number().int().positive(),
+  command: z.string(),
+  args: z.array(z.string()),
+});
 
 export interface PersonalNodeServerOptions {
   readonly nodeId: string;
@@ -119,6 +130,7 @@ export interface PersonalNodeServerOptions {
   >;
   readonly sandbox?: {
     readonly lifecycle: DockerSandboxLifecycle;
+    readonly commands?: DurableSandboxCommandExecutor;
     readonly image: string;
     readonly user: string;
   };
@@ -192,6 +204,12 @@ function routeRequirement(
       /^\/v1\/enrollments\/[^/]+$/.test(url.pathname))
   ) {
     return "owner";
+  }
+  if (
+    request.method === "POST" &&
+    /^\/v1\/runs\/[^/]+\/sandbox\/commands$/.test(url.pathname)
+  ) {
+    return "run.execute";
   }
   if (
     request.method === "POST" &&
@@ -391,7 +409,10 @@ async function handleAuthorizedRequest(
         "execution.sandbox":
           options.sandbox === undefined
             ? { available: false }
-            : { version: 1, mode: "executor-local-docker" },
+            : {
+                version: options.sandbox.commands === undefined ? 1 : 2,
+                mode: "executor-local-docker",
+              },
       },
     });
     return;
@@ -892,9 +913,10 @@ async function handleAuthorizedRequest(
       return;
     }
   }
-  const sandboxRoute = /^\/v1\/runs\/([^/]+)\/sandbox(?:\/(enter|exit))?$/.exec(
-    url.pathname,
-  );
+  const sandboxRoute =
+    /^\/v1\/runs\/([^/]+)\/sandbox(?:\/(enter|exit|commands))?$/.exec(
+      url.pathname,
+    );
   if (sandboxRoute !== null) {
     if (
       options.sandbox === undefined ||
@@ -913,6 +935,13 @@ async function handleAuthorizedRequest(
     }
     if (state.activeExecutorNodeId !== options.nodeId) {
       throw new RequestError(409, "sandbox_executor_unavailable");
+    }
+    if (
+      action === "commands" &&
+      (principal.kind !== "node" ||
+        principal.nodeId !== state.activeExecutorNodeId)
+    ) {
+      throw new RequestError(403, "executor_authority_required");
     }
     let workspaceSource =
       options.gitWorktreeManager?.binding(runId)?.worktreePath;
@@ -937,6 +966,55 @@ async function handleAuthorizedRequest(
     });
     if (request.method === "GET" && action === undefined) {
       sendJson(response, 200, await options.sandbox.lifecycle.status(plan));
+      return;
+    }
+    if (request.method === "POST" && action === "commands") {
+      if (options.sandbox.commands === undefined) {
+        throw new RequestError(409, "sandbox_commands_unavailable");
+      }
+      const parsed = sandboxCommandRequestSchema.safeParse(
+        await readJson(request),
+      );
+      if (!parsed.success) {
+        throw new RequestError(400, "invalid_sandbox_command_request");
+      }
+      const { expectedAuthorityEpoch, commandId, ...requestDefinition } =
+        parsed.data;
+      try {
+        validateSandboxCommandRequest(requestDefinition);
+      } catch {
+        throw new RequestError(400, "invalid_sandbox_command_request");
+      }
+      if (expectedAuthorityEpoch !== state.authorityEpoch) {
+        throw new RequestError(409, "stale_sandbox_command_authority");
+      }
+      let execution: Awaited<
+        ReturnType<DurableSandboxCommandExecutor["execute"]>
+      >;
+      try {
+        execution = await options.sandbox.commands.execute(plan, {
+          realmId: options.store.realmId(),
+          runId,
+          executorNodeId: state.activeExecutorNodeId,
+          authorityEpoch: expectedAuthorityEpoch,
+          commandId,
+          request: requestDefinition,
+        });
+      } catch (error) {
+        if (error instanceof SandboxCommandConflictError) {
+          throw new RequestError(409, "sandbox_command_conflict");
+        }
+        throw error;
+      }
+      sendJson(
+        response,
+        execution.disposition === "executed"
+          ? 201
+          : execution.disposition === "replayed"
+            ? 200
+            : 202,
+        execution,
+      );
       return;
     }
     const parsed = emptyRequestSchema.safeParse(await readJson(request));

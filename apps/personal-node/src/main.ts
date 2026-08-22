@@ -25,6 +25,8 @@ import { createRunControlProxyServer } from "./run-control-proxy.js";
 import { SqliteRunControlProxyCache } from "./run-control-proxy-cache.js";
 import { createRunControlProxyRouterServer } from "./run-control-proxy-router.js";
 import { SqliteRunControlStore } from "./run-control-store.js";
+import { DurableSandboxCommandExecutor } from "./sandbox-command-coordinator.js";
+import { SqliteSandboxCommandStore } from "./sandbox-command-store.js";
 import { SqliteRunRouteRegistry } from "./run-route-registry.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 import { DockerSandboxLifecycle } from "./sandbox-container-lifecycle.js";
@@ -401,6 +403,17 @@ async function run(): Promise<void> {
   if (command.sandbox !== undefined && sandboxEngine !== undefined) {
     await sandboxEngine.assertImageAvailable(command.sandbox.image);
   }
+  const sandboxLifecycle =
+    sandboxEngine === undefined
+      ? undefined
+      : new DockerSandboxLifecycle(sandboxEngine);
+  const sandboxCommandStore =
+    command.sandbox === undefined
+      ? undefined
+      : new SqliteSandboxCommandStore({
+          databasePath: command.node.databasePath,
+          realmId: command.node.realmId,
+        });
   const server = createPersonalNodeServer({
     nodeId: command.node.nodeId,
     bearerToken: command.node.bearerToken,
@@ -414,11 +427,19 @@ async function run(): Promise<void> {
       : { peerSyncStatus: () => peerSyncs.map((peer) => peer.snapshot()) }),
     ...(workspaceRegistry === undefined ? {} : { workspaceRegistry }),
     ...(gitWorktreeManager === undefined ? {} : { gitWorktreeManager }),
-    ...(command.sandbox === undefined || sandboxEngine === undefined
+    ...(command.sandbox === undefined || sandboxLifecycle === undefined
       ? {}
       : {
           sandbox: {
-            lifecycle: new DockerSandboxLifecycle(sandboxEngine),
+            lifecycle: sandboxLifecycle,
+            ...(sandboxCommandStore === undefined
+              ? {}
+              : {
+                  commands: new DurableSandboxCommandExecutor(
+                    sandboxLifecycle,
+                    sandboxCommandStore,
+                  ),
+                }),
             image: command.sandbox.image,
             user: command.sandbox.user,
           },
@@ -433,6 +454,7 @@ async function run(): Promise<void> {
       });
     });
   } catch (error) {
+    sandboxCommandStore?.close();
     gitWorktreeManager?.close();
     workspaceRegistry?.close();
     runControlStore.close();
@@ -456,6 +478,7 @@ async function run(): Promise<void> {
     closing = true;
     server.close(() => {
       const closeStores = (): void => {
+        sandboxCommandStore?.close();
         gitWorktreeManager?.close();
         workspaceRegistry?.close();
         runControlStore.close();

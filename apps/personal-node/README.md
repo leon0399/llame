@@ -363,23 +363,29 @@ a reproducibility baseline rather than a size-optimized distribution. Its
 default process is an inert long-lived process. The daemon has an internal
 argv-only command primitive that revalidates the exact running container, fixes
 the user and working directory, bounds runtime and output, and removes the
-container if either boundary is breached. It deliberately has no HTTP route
-yet: the next layer must add durable command IDs and receipts before remote
-callers can safely retry write-capable execution after a lost connection.
+container if either boundary is breached.
 
-The executor-local receipt store provides that persistence primitive without
-exposing it yet. It reserves a command ID against the Run executor and authority
-epoch, stores only a hash of its argv, and replays an immutable completed
-result. A pending command found after restart becomes `outcome_unknown` and is
-never executed automatically. Raw command output remains local implementation
-state; publishing a sanitized tool outcome into the Realm is the harness's
-separate responsibility.
+The executor-local receipt store reserves a command ID against the Run executor
+and authority epoch, stores only a hash of its argv, and replays an immutable
+completed result. A pending command found after restart becomes
+`outcome_unknown` and is never executed automatically. Raw command output
+remains local implementation state; publishing a sanitized tool outcome into
+the Realm is the harness's separate responsibility.
 
 The internal command coordinator joins the two primitives without widening the
 surface. It releases a reservation when Sandbox preparation proves execution
 never started, reports exact concurrent duplicates as in progress, and records
 `outcome_unknown` after any failure once the single-use execution handle has
 started. Completed and unknown receipts replay without contacting Docker.
+
+An enrolled node holding current Run authority and the `run.execute` scope can
+call `POST /v1/runs/:runId/sandbox/commands` with a command ID, expected
+authority epoch, executable, and ordered arguments. The strict body accepts no
+environment, working directory, user, image, mount, or host path. Fresh
+execution returns 201, an immutable replay returns 200, and an exact concurrent
+duplicate returns 202. This is executor transport, not the future model-facing
+permission tool: the harness must classify and authorize code execution before
+calling it.
 
 `POST /v1/runs/:runId/workspace/exit` is the explicit `ExitWorkspace` semantic:
 it permanently detaches the binding while keeping the Run on its current

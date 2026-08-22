@@ -13,6 +13,8 @@ import { createEnrollmentProof } from "@workspace/federation-experiment/node-enr
 import { createPersonalNodeServer } from "./node-server.js";
 import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import { SqliteRunControlStore } from "./run-control-store.js";
+import { DurableSandboxCommandExecutor } from "./sandbox-command-coordinator.js";
+import { SqliteSandboxCommandStore } from "./sandbox-command-store.js";
 import {
   DockerSandboxLifecycle,
   type SandboxContainerEngine,
@@ -27,6 +29,7 @@ describe("personal Node Protocol server", () => {
   const stores: SqlitePersonalRealmStore[] = [];
   const enrollmentRegistries: SqliteEnrollmentRegistry[] = [];
   const runControlStores: SqliteRunControlStore[] = [];
+  const sandboxCommandStores: SqliteSandboxCommandStore[] = [];
 
   afterEach(async () => {
     await Promise.all(
@@ -42,6 +45,9 @@ describe("personal Node Protocol server", () => {
     );
     for (const runControlStore of runControlStores.splice(0)) {
       runControlStore.close();
+    }
+    for (const commandStore of sandboxCommandStores.splice(0)) {
+      commandStore.close();
     }
     for (const registry of enrollmentRegistries.splice(0)) {
       registry.close();
@@ -997,6 +1003,24 @@ describe("personal Node Protocol server", () => {
       new Date(),
       ["run.execute", "run.control", "run.observe"],
     );
+    const otherExecutor = generateWriterIdentity();
+    const otherExecutorGrant = enrollmentRegistry.completeEnrollment(
+      createEnrollmentProof(
+        enrollmentRegistry.issueChallenge({ nodeId: "node-other" }),
+        otherExecutor.privateKeyPem,
+      ),
+      new Date(),
+      ["run.execute"],
+    );
+    const controller = generateWriterIdentity();
+    const controllerGrant = enrollmentRegistry.completeEnrollment(
+      createEnrollmentProof(
+        enrollmentRegistry.issueChallenge({ nodeId: "node-controller" }),
+        controller.privateKeyPem,
+      ),
+      new Date(),
+      ["run.control"],
+    );
     const image =
       "registry.example/llame/sandbox@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const gitWorktreeBinding = {
@@ -1046,10 +1070,16 @@ describe("personal Node Protocol server", () => {
       }),
       execute: vi.fn(async () => ({
         exitCode: 0,
-        stdout: "",
+        stdout: " M README.md\n",
         stderr: "",
       })),
     };
+    const lifecycle = new DockerSandboxLifecycle(containerEngine);
+    const commandStore = new SqliteSandboxCommandStore({
+      databasePath: join(directory, "sandbox-commands.sqlite"),
+      realmId: "realm-personal",
+    });
+    sandboxCommandStores.push(commandStore);
     const server = createPersonalNodeServer({
       nodeId: "node-home",
       bearerToken: "owner-control-secret",
@@ -1067,7 +1097,8 @@ describe("personal Node Protocol server", () => {
       ]),
       gitWorktreeManager,
       sandbox: {
-        lifecycle: new DockerSandboxLifecycle(containerEngine),
+        lifecycle,
+        commands: new DurableSandboxCommandExecutor(lifecycle, commandStore),
         image,
         user: "1000:1000",
       },
@@ -1125,6 +1156,85 @@ describe("personal Node Protocol server", () => {
       `${origin}/v1/runs/run-sandbox/worktree/exit`,
       { method: "POST", headers, body: "{}" },
     );
+    const commandBody = JSON.stringify({
+      commandId: "tool-call-1",
+      expectedAuthorityEpoch: 1,
+      command: "git",
+      args: ["status", "--short"],
+    });
+    const commandHeaders = {
+      authorization: `Bearer ${executorGrant.credential}`,
+      "content-type": "application/json",
+    };
+    const executedCommand = await fetch(
+      `${origin}/v1/runs/run-sandbox/sandbox/commands`,
+      { method: "POST", headers: commandHeaders, body: commandBody },
+    );
+    const replayedCommand = await fetch(
+      `${origin}/v1/runs/run-sandbox/sandbox/commands`,
+      { method: "POST", headers: commandHeaders, body: commandBody },
+    );
+    const conflictingCommand = await fetch(
+      `${origin}/v1/runs/run-sandbox/sandbox/commands`,
+      {
+        method: "POST",
+        headers: commandHeaders,
+        body: JSON.stringify({
+          commandId: "tool-call-1",
+          expectedAuthorityEpoch: 1,
+          command: "git",
+          args: ["diff"],
+        }),
+      },
+    );
+    const staleCommand = await fetch(
+      `${origin}/v1/runs/run-sandbox/sandbox/commands`,
+      {
+        method: "POST",
+        headers: commandHeaders,
+        body: JSON.stringify({
+          commandId: "tool-call-stale",
+          expectedAuthorityEpoch: 2,
+          command: "git",
+          args: ["status"],
+        }),
+      },
+    );
+    const wrongExecutorCommand = await fetch(
+      `${origin}/v1/runs/run-sandbox/sandbox/commands`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${otherExecutorGrant.credential}`,
+          "content-type": "application/json",
+        },
+        body: commandBody,
+      },
+    );
+    const wrongScopeCommand = await fetch(
+      `${origin}/v1/runs/run-sandbox/sandbox/commands`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${controllerGrant.credential}`,
+          "content-type": "application/json",
+        },
+        body: commandBody,
+      },
+    );
+    const ownerCommand = await fetch(
+      `${origin}/v1/runs/run-sandbox/sandbox/commands`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          commandId: "tool-call-owner",
+          expectedAuthorityEpoch: 1,
+          command: "git",
+          args: ["status"],
+        }),
+      },
+    );
     const exited = await fetch(`${origin}/v1/runs/run-sandbox/sandbox/exit`, {
       method: "POST",
       headers,
@@ -1151,6 +1261,40 @@ describe("personal Node Protocol server", () => {
     expect(await blockedWorktreeExit.json()).toEqual({
       error: "sandbox_still_active",
     });
+    expect(executedCommand.status).toBe(201);
+    expect(await executedCommand.json()).toMatchObject({
+      disposition: "executed",
+      receipt: {
+        status: "completed",
+        commandId: "tool-call-1",
+        authorityEpoch: 1,
+        result: { exitCode: 0, stdout: " M README.md\n", stderr: "" },
+      },
+    });
+    expect(replayedCommand.status).toBe(200);
+    expect(await replayedCommand.json()).toMatchObject({
+      disposition: "replayed",
+      receipt: { status: "completed", commandId: "tool-call-1" },
+    });
+    expect(conflictingCommand.status).toBe(409);
+    expect(await conflictingCommand.json()).toEqual({
+      error: "sandbox_command_conflict",
+    });
+    expect(staleCommand.status).toBe(409);
+    expect(await staleCommand.json()).toEqual({
+      error: "stale_sandbox_command_authority",
+    });
+    expect(wrongExecutorCommand.status).toBe(403);
+    expect(await wrongExecutorCommand.json()).toEqual({
+      error: "executor_authority_required",
+    });
+    expect(wrongScopeCommand.status).toBe(403);
+    expect(await wrongScopeCommand.json()).toEqual({ error: "forbidden" });
+    expect(ownerCommand.status).toBe(403);
+    expect(await ownerCommand.json()).toEqual({
+      error: "executor_authority_required",
+    });
+    expect(containerEngine.execute).toHaveBeenCalledTimes(1);
     expect(containerEngine.create).toHaveBeenCalledWith(
       expect.arrayContaining([
         "--network",
