@@ -18,13 +18,15 @@ The experiment currently proves:
 - accepted batches are copied at the receive boundary so later caller mutation
   cannot rewrite forwarded history; and
 - Ed25519 signatures bind a batch to an explicitly trusted writer stream and
-  reject forwarded payload mutation or cross-writer impersonation.
+  reject forwarded payload mutation or cross-writer impersonation; and
+- a short-lived, Realm-bound enrollment challenge proves possession of a
+  separate Ed25519 node identity without introducing a local `user_id`.
 
 `apps/personal-node` now exercises this core through a durable embedded store and
 an authenticated HTTP contract. Signature v1 uses a domain-separated,
 field-ordered JSON encoding inside this TypeScript experiment; it is not a claim
 of cross-language canonicalization. The package still deliberately does not
-choose snapshots, enrollment, key rotation, or a public package API.
+choose snapshots, automated key rotation, or a public package API.
 `JSON.stringify` remains only an in-process payload-equality sentinel outside
 that explicitly ordered signature encoder. The next valuable boundary is a
 second implementation of the same reconciliation contract against the hosted

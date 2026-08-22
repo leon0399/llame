@@ -3,11 +3,15 @@ import { dirname } from "node:path";
 
 import { describeCliError } from "./cli-error.js";
 import { parsePersonalNodeCommand, type PersonalNodeConfig } from "./config.js";
+import { createCredentialFile } from "./credential-file.js";
+import { enrollWithPeer } from "./enrollment-client.js";
 import {
   appendLocalMessage,
   appendSignedLocalMessage,
 } from "./local-authoring.js";
+import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import { createPersonalNodeServer } from "./node-server.js";
+import { initializeNodeIdentity } from "./node-identity.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 import { syncFromPeer } from "./sync-client.js";
 import { initializeWriterIdentity } from "./writer-identity.js";
@@ -44,13 +48,42 @@ async function run(): Promise<void> {
     process.stdout.write(`${JSON.stringify(identity)}\n`);
     return;
   }
+  if (command.kind === "init-node-identity") {
+    const identity = await initializeNodeIdentity(command.directory);
+    process.stdout.write(`${JSON.stringify(identity)}\n`);
+    return;
+  }
+  if (command.kind === "enroll") {
+    const grant = await createCredentialFile(command.credentialPath, async () =>
+      enrollWithPeer({
+        peerUrl: command.peerUrl,
+        ownerBearerToken: command.ownerBearerToken,
+        nodeId: command.node.nodeId,
+        realmId: command.node.realmId,
+        privateKeyPem: await readFile(command.privateKeyPath, "utf8"),
+      }),
+    );
+    process.stdout.write(
+      `${JSON.stringify({
+        status: "enrolled",
+        nodeId: grant.nodeId,
+        keyId: grant.keyId,
+        credentialPath: command.credentialPath,
+      })}\n`,
+    );
+    return;
+  }
   const store = await openStore(command.node);
   if (command.kind === "sync") {
     try {
+      const peerBearerToken =
+        command.peerCredential.kind === "environment"
+          ? command.peerCredential.value
+          : (await readFile(command.peerCredential.path, "utf8")).trim();
       const result = await syncFromPeer({
         store,
         peerUrl: command.peerUrl,
-        bearerToken: command.peerBearerToken,
+        bearerToken: peerBearerToken,
         mode: command.mode,
       });
       process.stdout.write(`${JSON.stringify(result)}\n`);
@@ -87,10 +120,15 @@ async function run(): Promise<void> {
     return;
   }
 
+  const enrollmentRegistry = new SqliteEnrollmentRegistry({
+    databasePath: command.node.databasePath,
+    realmId: command.node.realmId,
+  });
   const server = createPersonalNodeServer({
     nodeId: command.node.nodeId,
     bearerToken: command.node.bearerToken,
     store,
+    enrollmentRegistry,
   });
   try {
     await new Promise<void>((resolve, reject) => {
@@ -101,6 +139,7 @@ async function run(): Promise<void> {
       });
     });
   } catch (error) {
+    enrollmentRegistry.close();
     store.close();
     throw error;
   }
@@ -118,6 +157,7 @@ async function run(): Promise<void> {
     if (closing) return;
     closing = true;
     server.close(() => {
+      enrollmentRegistry.close();
       store.close();
     });
   };

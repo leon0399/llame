@@ -8,8 +8,10 @@ import {
   generateWriterIdentity,
   signChangeBatch,
 } from "@workspace/federation-experiment/batch-signature";
+import { createEnrollmentProof } from "@workspace/federation-experiment/node-enrollment";
 
 import { createPersonalNodeServer } from "./node-server.js";
+import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 
 describe("personal Node Protocol server", () => {
@@ -109,6 +111,7 @@ describe("personal Node Protocol server", () => {
       modules: {
         "sync.personal-realm": { version: 1, mode: "read-write" },
         "sync.signed-personal-realm": { available: false },
+        "enrollment.node": { available: false },
         "execution.workspace": { available: false },
       },
     });
@@ -334,5 +337,106 @@ describe("personal Node Protocol server", () => {
     expect(applied.status).toBe(200);
     expect(target.exportSignedMissing({})).toEqual([signed]);
     expect(target.chatBranches("chat-signed")).toHaveLength(1);
+  });
+
+  test("enrolls and explicitly revokes a cryptographic node identity", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-node-enrollment-"));
+    temporaryDirectories.push(directory);
+    const store = new SqlitePersonalRealmStore({
+      databasePath: join(directory, "realm.sqlite"),
+      realmId: "realm-personal",
+      writerEpochs: { desktop: 1 },
+    });
+    stores.push(store);
+    const registry = new SqliteEnrollmentRegistry({
+      databasePath: join(directory, "enrollment.sqlite"),
+      realmId: "realm-personal",
+    });
+    const server = createPersonalNodeServer({
+      nodeId: "node-home",
+      bearerToken: "owner-control-secret",
+      store,
+      enrollmentRegistry: registry,
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("test server did not bind a TCP address");
+    }
+    const origin = `http://127.0.0.1:${address.port}`;
+    const headers = {
+      authorization: "Bearer owner-control-secret",
+      "content-type": "application/json",
+    };
+    const node = generateWriterIdentity();
+
+    const challengeResponse = await fetch(
+      `${origin}/v1/enrollment/challenges`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ nodeId: "node-desktop" }),
+      },
+    );
+    const challenge: unknown = await challengeResponse.json();
+    const completeResponse = await fetch(`${origin}/v1/enrollment/complete`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        proof: createEnrollmentProof(challenge, node.privateKeyPem),
+      }),
+    });
+    const completeBody: unknown = await completeResponse.json();
+    if (
+      typeof completeBody !== "object" ||
+      completeBody === null ||
+      !("credential" in completeBody) ||
+      typeof completeBody.credential !== "string"
+    ) {
+      throw new Error("enrollment did not return a node credential");
+    }
+    const enrolledHeaders = {
+      authorization: `Bearer ${completeBody.credential}`,
+    };
+    const beforeRevocation = await fetch(`${origin}/v1/realm/frontier`, {
+      headers: enrolledHeaders,
+    });
+    const forbiddenControlRequest = await fetch(
+      `${origin}/v1/enrollment/challenges`,
+      {
+        method: "POST",
+        headers: {
+          ...enrolledHeaders,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ nodeId: "node-attacker" }),
+      },
+    );
+    const revokeResponse = await fetch(
+      `${origin}/v1/enrollments/node-desktop`,
+      { method: "DELETE", headers },
+    );
+    const afterRevocation = await fetch(`${origin}/v1/realm/frontier`, {
+      headers: enrolledHeaders,
+    });
+
+    expect(challengeResponse.status).toBe(201);
+    expect(completeResponse.status).toBe(201);
+    expect(completeBody).toMatchObject({
+      nodeId: "node-desktop",
+      keyId: node.keyId,
+      revokedAt: null,
+    });
+    expect(beforeRevocation.status).toBe(200);
+    expect(forbiddenControlRequest.status).toBe(401);
+    expect(revokeResponse.status).toBe(200);
+    expect(await revokeResponse.json()).toEqual({ revoked: true });
+    expect(afterRevocation.status).toBe(401);
+    expect(await afterRevocation.json()).toEqual({ error: "unauthorized" });
+    expect(registry.isActive("node-desktop", node.keyId)).toBe(false);
+    registry.close();
   });
 });

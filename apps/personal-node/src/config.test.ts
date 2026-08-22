@@ -19,6 +19,18 @@ describe("personal Node command configuration", () => {
     });
   });
 
+  test("initializes a node identity separately from its writer identity", () => {
+    expect(
+      parsePersonalNodeCommand(
+        ["init-node-identity", "/tmp/personal-node"],
+        {},
+      ),
+    ).toEqual({
+      kind: "init-node-identity",
+      directory: "/tmp/personal-node",
+    });
+  });
+
   test("defaults serve to a loopback-only listener and this node's writer", () => {
     expect(parsePersonalNodeCommand(["serve"], baseEnvironment)).toEqual({
       kind: "serve",
@@ -62,7 +74,42 @@ describe("personal Node command configuration", () => {
         writerEpochs: { desktop: 1, phone: 2 },
       },
       peerUrl: "https://personal.example.test",
-      peerBearerToken: "remote-peer-secret",
+      peerCredential: {
+        kind: "environment",
+        value: "remote-peer-secret",
+      },
+    });
+  });
+
+  test("uses a persisted enrolled credential for later synchronization", () => {
+    expect(
+      parsePersonalNodeCommand(["sync", "https://personal.example.test"], {
+        ...baseEnvironment,
+        LLAME_PEER_CREDENTIAL_PATH: "/keys/personal-node.credential",
+      }),
+    ).toMatchObject({
+      kind: "sync",
+      peerCredential: {
+        kind: "file",
+        path: "/keys/personal-node.credential",
+      },
+    });
+  });
+
+  test("parses enrollment with a separate node identity", () => {
+    expect(
+      parsePersonalNodeCommand(["enroll", "https://personal.example.test"], {
+        ...baseEnvironment,
+        LLAME_NODE_PRIVATE_KEY: "/keys/node-private.pem",
+        LLAME_PEER_TOKEN: "remote-owner-secret",
+        LLAME_PEER_CREDENTIAL_PATH: "/keys/personal-node.credential",
+      }),
+    ).toMatchObject({
+      kind: "enroll",
+      peerUrl: "https://personal.example.test",
+      ownerBearerToken: "remote-owner-secret",
+      privateKeyPath: "/keys/node-private.pem",
+      credentialPath: "/keys/personal-node.credential",
     });
   });
 
@@ -87,7 +134,10 @@ describe("personal Node command configuration", () => {
         },
       },
       peerUrl: "https://personal.example.test",
-      peerBearerToken: "remote-peer-secret",
+      peerCredential: {
+        kind: "environment",
+        value: "remote-peer-secret",
+      },
       mode: "signed",
     });
 

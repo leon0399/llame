@@ -23,6 +23,15 @@ export LLAME_WRITER_PRIVATE_KEY="$PWD/.local/writer-identity/private.pem"
 export LLAME_TRUSTED_WRITER_KEYS='{"desktop:1":"/absolute/path/public.pem"}'
 ```
 
+Create a separate transport identity for enrolling this Node with peers. Writer
+keys authenticate immutable history; node keys prove the runtime being linked,
+so unlinking a Node does not invalidate historical events:
+
+```bash
+pnpm --filter personal-node start init-node-identity "$PWD/.local"
+export LLAME_NODE_PRIVATE_KEY="$PWD/.local/node-identity/private.pem"
+```
+
 The trusted-writer map is `writerStreamId:writerEpoch` to public-key file, not
 public key content. Historical epoch keys remain configured so old events stay
 verifiable after rotation. Every participating Node must configure the same
@@ -44,6 +53,19 @@ Reconcile in both directions with another Node:
 
 ```bash
 export LLAME_PEER_TOKEN=the-peer-node-token
+pnpm --filter personal-node start sync https://peer.example.test
+```
+
+Instead of distributing the peer's owner-control token, enroll once and persist
+a revocable credential. `LLAME_PEER_TOKEN` authorizes only the bootstrap request;
+the issued credential is never printed and the destination must not already
+exist:
+
+```bash
+export LLAME_PEER_TOKEN=the-peer-owner-control-token
+export LLAME_PEER_CREDENTIAL_PATH="$PWD/.local/peers/home.credential"
+pnpm --filter personal-node start enroll https://peer.example.test
+unset LLAME_PEER_TOKEN
 pnpm --filter personal-node start sync https://peer.example.test
 ```
 
@@ -73,6 +95,16 @@ The authenticated API exposes:
 - `POST /v1/signed-sync/export`
 - `POST /v1/signed-sync/apply`
 - `GET /v1/chats/:chatId/branches`
+- `POST /v1/enrollment/challenges`
+- `POST /v1/enrollment/complete`
+- `DELETE /v1/enrollments/:nodeId`
+
+Enrollment control requires the locally configured owner bearer. A Realm-bound,
+single-use challenge proves possession of a separate Ed25519 node key. The Node
+stores only a digest of the issued bearer credential; enrolled credentials can
+use data-plane routes but cannot enroll or revoke Nodes. Explicit revocation
+immediately denies later requests while retaining the historical node record.
+The single-owner database intentionally contains no `user_id`.
 
 A reconciliation operation pulls peer batches beyond the local frontier, pushes
 local batches beyond the peer frontier, and returns both frontier receipts. It
@@ -88,9 +120,10 @@ a structured `outcome_unknown` error containing the durable local frontier.
 ## Deliberate limits
 
 This is evidence, not a shipped federation protocol. It has explicit Ed25519
-writer identities and signed event forwarding, but no enrollment, automated key
-rotation/revocation, cross-language canonical event standard, encrypted payloads,
-snapshots, compaction, Workspace execution, live Run proxying, or hosted
-PostgreSQL adapter. Node 22 also marks its built-in SQLite API experimental. The
-database, private key, and SQLite sidecars are forced to owner-only permissions,
-but event content is not encrypted at rest.
+writer identities, signed event forwarding, and explicit node enrollment and
+revocation. Enrollment credentials remain bearer tokens; there is no automated
+key rotation, cross-language canonical event standard, encrypted payloads,
+snapshots, compaction, Workspace execution, live Run proxying, OAuth bootstrap,
+or hosted PostgreSQL adapter. Node 22 also marks its built-in SQLite API
+experimental. The database, private keys, credentials, and SQLite sidecars are
+forced to owner-only permissions, but event content is not encrypted at rest.

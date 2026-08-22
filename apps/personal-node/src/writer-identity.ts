@@ -9,10 +9,11 @@ export interface InitializedWriterIdentity {
   readonly privateKeyPath: string;
 }
 
-export async function initializeWriterIdentity(
+export async function initializeEd25519Identity(
   parentDirectory: string,
+  identityDirectoryName: string,
 ): Promise<InitializedWriterIdentity> {
-  const identityDirectory = join(parentDirectory, "writer-identity");
+  const identityDirectory = join(parentDirectory, identityDirectoryName);
   await mkdir(identityDirectory, { mode: 0o700 });
   const publicKeyPath = join(identityDirectory, "public.pem");
   const privateKeyPath = join(identityDirectory, "private.pem");
@@ -33,4 +34,10 @@ export async function initializeWriterIdentity(
     await rm(identityDirectory, { recursive: true, force: true });
     throw error;
   }
+}
+
+export function initializeWriterIdentity(
+  parentDirectory: string,
+): Promise<InitializedWriterIdentity> {
+  return initializeEd25519Identity(parentDirectory, "writer-identity");
 }

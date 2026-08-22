@@ -7,9 +7,17 @@ export interface PersonalNodeConfig {
   readonly trustedWriterKeyPaths?: Readonly<Record<string, string>>;
 }
 
+export type PeerCredentialSource =
+  | { readonly kind: "environment"; readonly value: string }
+  | { readonly kind: "file"; readonly path: string };
+
 export type PersonalNodeCommand =
   | {
       readonly kind: "init-identity";
+      readonly directory: string;
+    }
+  | {
+      readonly kind: "init-node-identity";
       readonly directory: string;
     }
   | {
@@ -22,8 +30,16 @@ export type PersonalNodeCommand =
       readonly kind: "sync";
       readonly node: PersonalNodeConfig;
       readonly peerUrl: string;
-      readonly peerBearerToken: string;
+      readonly peerCredential: PeerCredentialSource;
       readonly mode?: "signed";
+    }
+  | {
+      readonly kind: "enroll";
+      readonly node: PersonalNodeConfig;
+      readonly peerUrl: string;
+      readonly ownerBearerToken: string;
+      readonly privateKeyPath: string;
+      readonly credentialPath: string;
     }
   | {
       readonly kind: "append";
@@ -151,6 +167,13 @@ export function parsePersonalNodeCommand(
     }
     return { kind: "init-identity", directory };
   }
+  if (command === "init-node-identity") {
+    const directory = arguments_[1];
+    if (directory === undefined || directory.length === 0) {
+      throw new Error("init-node-identity requires a directory");
+    }
+    return { kind: "init-node-identity", directory };
+  }
   const node = parseNodeConfig(environment);
   if (command === "serve") {
     const host = environment.LLAME_NODE_HOST ?? "127.0.0.1";
@@ -176,12 +199,32 @@ export function parsePersonalNodeCommand(
     if (mode === "signed" && node.trustedWriterKeyPaths === undefined) {
       throw new Error("signed sync requires LLAME_TRUSTED_WRITER_KEYS");
     }
+    const credentialPath = environment.LLAME_PEER_CREDENTIAL_PATH;
+    const peerCredential: PeerCredentialSource =
+      credentialPath === undefined
+        ? {
+            kind: "environment",
+            value: required(environment, "LLAME_PEER_TOKEN"),
+          }
+        : { kind: "file", path: credentialPath };
     return {
       kind: "sync",
       node,
       peerUrl,
-      peerBearerToken: required(environment, "LLAME_PEER_TOKEN"),
+      peerCredential,
       ...(mode === "signed" ? { mode } : {}),
+    };
+  }
+  if (command === "enroll") {
+    const peerUrl = arguments_[1];
+    if (peerUrl === undefined) throw new Error("enroll requires a peer URL");
+    return {
+      kind: "enroll",
+      node,
+      peerUrl,
+      ownerBearerToken: required(environment, "LLAME_PEER_TOKEN"),
+      privateKeyPath: required(environment, "LLAME_NODE_PRIVATE_KEY"),
+      credentialPath: required(environment, "LLAME_PEER_CREDENTIAL_PATH"),
     };
   }
   if (command === "append") {

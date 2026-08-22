@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/reconciliation.ts",
-    "./batch-signature": "./src/batch-signature.ts"
+    "./batch-signature": "./src/batch-signature.ts",
+    "./node-enrollment": "./src/node-enrollment.ts"
   },
   "scripts": {
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",

@@ -38,7 +38,7 @@ export interface SignedChangeBatch {
   };
 }
 
-function publicKeyId(publicKeyPem: string): string {
+export function keyIdForPublicKey(publicKeyPem: string): string {
   const publicKey = createPublicKey(publicKeyPem);
   const spki = publicKey.export({ format: "der", type: "spki" });
   return createHash("sha256").update(spki).digest("base64url");
@@ -72,7 +72,7 @@ export function generateWriterIdentity(): WriterIdentity {
     .export({ format: "pem", type: "spki" })
     .toString();
   return {
-    keyId: publicKeyId(publicKeyPem),
+    keyId: keyIdForPublicKey(publicKeyPem),
     publicKeyPem,
     privateKeyPem: privateKey
       .export({ format: "pem", type: "pkcs8" })
@@ -93,7 +93,7 @@ export function signChangeBatch(
     batch,
     signature: {
       algorithm: "Ed25519",
-      keyId: publicKeyId(publicKeyPem),
+      keyId: keyIdForPublicKey(publicKeyPem),
       value: sign(null, signaturePayload(batch), privateKey).toString(
         "base64url",
       ),
@@ -123,7 +123,7 @@ export function verifySignedChangeBatch(
   if (publicKeyPem === undefined) {
     throw new Error("writer stream has no trusted signing key");
   }
-  if (publicKeyId(publicKeyPem) !== parsed.signature.keyId) {
+  if (keyIdForPublicKey(publicKeyPem) !== parsed.signature.keyId) {
     throw new Error("signature key is not authorized for writer stream");
   }
   const valid = verify(
