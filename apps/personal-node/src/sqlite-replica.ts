@@ -224,8 +224,9 @@ export class SqlitePersonalRealmStore {
 
   public runSnapshot(
     runId: string,
+    afterSequence = 0,
   ): ReturnType<InMemoryReplica["runSnapshot"]> {
-    return this.#replica.runSnapshot(runId);
+    return this.#replica.runSnapshot(runId, afterSequence);
   }
 
   public runCommandsAfter(

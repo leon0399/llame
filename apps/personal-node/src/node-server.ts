@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import type { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 import type { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
+import type { SignedRealmRunAuthor } from "./realm-run-author.js";
 import type { SqliteRunControlStore } from "./run-control-store.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -90,6 +91,7 @@ export interface PersonalNodeServerOptions {
   readonly store: SqlitePersonalRealmStore;
   readonly enrollmentRegistry?: SqliteEnrollmentRegistry;
   readonly runControlStore?: SqliteRunControlStore;
+  readonly journalRunAuthor?: SignedRealmRunAuthor;
 }
 
 type RequestPrincipal =
@@ -277,9 +279,11 @@ async function handleAuthorizedRequest(
             ? { available: false }
             : { version: 1, mode: "read-write" },
         "execution.run-control":
-          options.runControlStore === undefined
-            ? { available: false }
-            : { version: 1, mode: "read-write" },
+          options.journalRunAuthor !== undefined
+            ? { version: 1, mode: "signed-journal" }
+            : options.runControlStore === undefined
+              ? { available: false }
+              : { version: 1, mode: "read-write" },
         "execution.workspace": { available: false },
       },
     });
@@ -350,14 +354,28 @@ async function handleAuthorizedRequest(
     return;
   }
   if (request.method === "POST" && url.pathname === "/v1/runs") {
-    if (options.runControlStore === undefined) {
+    if (
+      options.runControlStore === undefined &&
+      options.journalRunAuthor === undefined
+    ) {
       throw new RequestError(409, "run_control_unavailable");
     }
     const parsed = createRunRequestSchema.safeParse(await readJson(request));
     if (!parsed.success) {
       throw new RequestError(400, "invalid_run_create_request");
     }
-    sendJson(response, 201, options.runControlStore.createRun(parsed.data));
+    if (options.journalRunAuthor !== undefined) {
+      if (principal.kind !== "owner") {
+        throw new RequestError(403, "local_writer_authority_required");
+      }
+      const signed = options.journalRunAuthor.createRun(parsed.data);
+      sendJson(response, 201, {
+        status: "authored",
+        batchRef: `${signed.batch.writerStreamId}:${signed.batch.sequence}`,
+      });
+      return;
+    }
+    sendJson(response, 201, options.runControlStore?.createRun(parsed.data));
     return;
   }
   const runRoute =
@@ -365,7 +383,10 @@ async function handleAuthorizedRequest(
       url.pathname,
     );
   if (runRoute !== null) {
-    if (options.runControlStore === undefined) {
+    if (
+      options.runControlStore === undefined &&
+      options.journalRunAuthor === undefined
+    ) {
       throw new RequestError(409, "run_control_unavailable");
     }
     const runId = decodePathIdentity(runRoute[1], "run_id");
@@ -374,7 +395,9 @@ async function handleAuthorizedRequest(
       sendJson(
         response,
         200,
-        options.runControlStore.snapshot(runId, cursorFrom(url)),
+        options.journalRunAuthor === undefined
+          ? options.runControlStore?.snapshot(runId, cursorFrom(url))
+          : options.store.runSnapshot(runId, cursorFrom(url)),
       );
       return;
     }
@@ -383,15 +406,27 @@ async function handleAuthorizedRequest(
       if (!parsed.success) {
         throw new RequestError(400, "invalid_run_event_request");
       }
+      const input = {
+        realmId: options.store.realmId(),
+        runId,
+        executorNodeId: principal.nodeId,
+        ...parsed.data,
+      };
+      if (options.journalRunAuthor !== undefined) {
+        if (principal.kind !== "owner") {
+          throw new RequestError(403, "local_writer_authority_required");
+        }
+        const signed = options.journalRunAuthor.appendEvent(input);
+        sendJson(response, 202, {
+          status: "authored",
+          batchRef: `${signed.batch.writerStreamId}:${signed.batch.sequence}`,
+        });
+        return;
+      }
       sendJson(
         response,
         202,
-        options.runControlStore.appendExecutorEvent({
-          realmId: options.store.realmId(),
-          runId,
-          executorNodeId: principal.nodeId,
-          ...parsed.data,
-        }),
+        options.runControlStore?.appendExecutorEvent(input),
       );
       return;
     }
@@ -400,19 +435,33 @@ async function handleAuthorizedRequest(
       if (!parsed.success) {
         throw new RequestError(400, "invalid_run_command_request");
       }
-      sendJson(
-        response,
-        202,
-        options.runControlStore.submitCommand({
-          realmId: options.store.realmId(),
-          runId,
-          ...parsed.data,
-        }),
-      );
+      const input = {
+        realmId: options.store.realmId(),
+        runId,
+        ...parsed.data,
+      };
+      if (options.journalRunAuthor !== undefined) {
+        if (principal.kind !== "owner") {
+          throw new RequestError(403, "local_writer_authority_required");
+        }
+        const signed = options.journalRunAuthor.submitCommand(input);
+        sendJson(response, 202, {
+          status: "authored",
+          batchRef: `${signed.batch.writerStreamId}:${signed.batch.sequence}`,
+        });
+        return;
+      }
+      sendJson(response, 202, options.runControlStore?.submitCommand(input));
       return;
     }
     if (request.method === "GET" && resource === "commands") {
-      const snapshot = options.runControlStore.snapshot(runId);
+      const snapshot =
+        options.journalRunAuthor === undefined
+          ? options.runControlStore?.snapshot(runId)
+          : options.store.runSnapshot(runId);
+      if (snapshot === undefined) {
+        throw new RequestError(409, "run_control_unavailable");
+      }
       if (
         principal.kind === "node" &&
         principal.nodeId !== snapshot.executorNodeId
@@ -420,7 +469,10 @@ async function handleAuthorizedRequest(
         throw new RequestError(403, "executor_authority_required");
       }
       const after = cursorFrom(url);
-      const commands = options.runControlStore.commandsAfter(runId, after);
+      const commands =
+        options.journalRunAuthor === undefined
+          ? (options.runControlStore?.commandsAfter(runId, after) ?? [])
+          : options.store.runCommandsAfter(runId, after);
       sendJson(response, 200, {
         cursor: commands.at(-1)?.commandSequence ?? after,
         commands: commands.filter(
@@ -436,10 +488,24 @@ async function handleAuthorizedRequest(
       if (!parsed.success) {
         throw new RequestError(400, "invalid_run_authority_request");
       }
+      if (options.journalRunAuthor !== undefined) {
+        if (principal.kind !== "owner") {
+          throw new RequestError(403, "local_writer_authority_required");
+        }
+        const signed = options.journalRunAuthor.transferAuthority({
+          runId,
+          ...parsed.data,
+        });
+        sendJson(response, 202, {
+          status: "authored",
+          batchRef: `${signed.batch.writerStreamId}:${signed.batch.sequence}`,
+        });
+        return;
+      }
       sendJson(
         response,
         202,
-        options.runControlStore.transferAuthority(runId, parsed.data),
+        options.runControlStore?.transferAuthority(runId, parsed.data),
       );
       return;
     }

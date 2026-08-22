@@ -223,6 +223,23 @@ commands, and authority transfers. A future harness adapter should use its own
 writer key locally and sync the signed result; the upstream Node must never sign
 an enrolled executor's event under the upstream Node's identity.
 
+The daemon can expose the same Run-control API over the signed journal instead
+of the legacy prototype store:
+
+```bash
+export LLAME_RUN_CONTROL_MODE=journal
+export LLAME_WRITER_STREAM_ID=personal-controller
+export LLAME_WRITER_PRIVATE_KEY="$PWD/.local/controller/private.pem"
+pnpm --filter personal-node start serve
+```
+
+In journal mode, observations and command polling read the replicated
+projection. Mutations are accepted only through the owner-local credential and
+signed by that configured writer. An enrolled remote node cannot make this
+daemon impersonate it; that node must author locally and use signed Realm sync.
+Workspace recovery still uses the legacy prototype store and is therefore not
+available for journal-only Runs yet.
+
 All writers in a Realm must currently be pre-authorized with the same epoch map:
 
 ```bash

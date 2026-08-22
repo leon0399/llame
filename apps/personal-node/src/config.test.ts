@@ -206,6 +206,39 @@ describe("personal Node command configuration", () => {
     });
   });
 
+  test("enables journal-backed Run API only with a complete local writer", () => {
+    expect(
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_RUN_CONTROL_MODE: "journal",
+        LLAME_WRITER_STREAM_ID: "controller",
+        LLAME_WRITER_EPOCHS: '{"desktop":1,"controller":1}',
+        LLAME_WRITER_PRIVATE_KEY: "/keys/controller-private.pem",
+        LLAME_TRUSTED_WRITER_KEYS:
+          '{"controller:1":"/keys/controller-public.pem"}',
+        LLAME_RUN_CONTROL_WRITER_GRANTS:
+          '{"controller":{"scopes":["run.control","run.steer"]}}',
+      }),
+    ).toMatchObject({
+      node: {
+        journalRunWriter: {
+          writerStreamId: "controller",
+          privateKeyPath: "/keys/controller-private.pem",
+        },
+      },
+    });
+    expect(() =>
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_RUN_CONTROL_MODE: "journal",
+        LLAME_WRITER_STREAM_ID: "controller",
+        LLAME_WRITER_PRIVATE_KEY: "/keys/controller-private.pem",
+      }),
+    ).toThrowError(
+      "journal Run writer requires its epoch, trusted key, and operation grant",
+    );
+  });
+
   test("parses enrollment with a separate node identity", () => {
     expect(
       parsePersonalNodeCommand(["enroll", "https://personal.example.test"], {

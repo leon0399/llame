@@ -1,16 +1,18 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  type AppendRunEventOperation,
   type CreateRunOperation,
   type SemanticOperation,
-  type SubmitRunCommandOperation,
   type TransferRunAuthorityOperation,
 } from "@workspace/federation-experiment";
 import {
   signChangeBatch,
   type SignedChangeBatch,
 } from "@workspace/federation-experiment/batch-signature";
+import {
+  parseRunCommandInput,
+  parseRunControlEvent,
+} from "@workspace/federation-experiment/run-control";
 
 import type { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 
@@ -38,10 +40,11 @@ export class SignedRealmRunAuthor {
     return this.#author({ type: "create-run", ...input });
   }
 
-  public appendEvent(
-    event: AppendRunEventOperation["event"],
-  ): SignedChangeBatch {
-    return this.#author({ type: "append-run-event", event });
+  public appendEvent(event: unknown): SignedChangeBatch {
+    return this.#author({
+      type: "append-run-event",
+      event: parseRunControlEvent(event),
+    });
   }
 
   public appendStatus(input: {
@@ -67,10 +70,11 @@ export class SignedRealmRunAuthor {
     });
   }
 
-  public submitCommand(
-    command: SubmitRunCommandOperation["command"],
-  ): SignedChangeBatch {
-    return this.#author({ type: "submit-run-command", command });
+  public submitCommand(command: unknown): SignedChangeBatch {
+    return this.#author({
+      type: "submit-run-command",
+      command: parseRunCommandInput(command),
+    });
   }
 
   public steer(input: {

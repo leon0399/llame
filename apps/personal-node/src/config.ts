@@ -6,6 +6,10 @@ export interface PersonalNodeConfig {
   readonly writerEpochs: Readonly<Record<string, number>>;
   readonly trustedWriterKeyPaths?: Readonly<Record<string, string>>;
   readonly runControlGrants?: Readonly<Record<string, RunControlWriterGrant>>;
+  readonly journalRunWriter?: {
+    readonly writerStreamId: string;
+    readonly privateKeyPath: string;
+  };
 }
 
 export type PeerCredentialSource =
@@ -218,6 +222,35 @@ function parseNodeConfig(environment: Environment): PersonalNodeConfig {
           ),
           writerEpochs,
         );
+  const runControlMode = environment.LLAME_RUN_CONTROL_MODE;
+  if (
+    runControlMode !== undefined &&
+    runControlMode !== "legacy" &&
+    runControlMode !== "journal"
+  ) {
+    throw new Error("LLAME_RUN_CONTROL_MODE must be legacy or journal");
+  }
+  const journalRunWriter =
+    runControlMode === "journal"
+      ? {
+          writerStreamId: required(environment, "LLAME_WRITER_STREAM_ID"),
+          privateKeyPath: required(environment, "LLAME_WRITER_PRIVATE_KEY"),
+        }
+      : undefined;
+  if (journalRunWriter !== undefined) {
+    const writerEpoch = writerEpochs[journalRunWriter.writerStreamId];
+    if (
+      writerEpoch === undefined ||
+      trustedWriterKeyPaths?.[
+        `${journalRunWriter.writerStreamId}:${writerEpoch}`
+      ] === undefined ||
+      runControlGrants?.[journalRunWriter.writerStreamId] === undefined
+    ) {
+      throw new Error(
+        "journal Run writer requires its epoch, trusted key, and operation grant",
+      );
+    }
+  }
   return {
     databasePath: required(environment, "LLAME_NODE_DB"),
     nodeId,
@@ -226,6 +259,7 @@ function parseNodeConfig(environment: Environment): PersonalNodeConfig {
     writerEpochs,
     ...(trustedWriterKeyPaths === undefined ? {} : { trustedWriterKeyPaths }),
     ...(runControlGrants === undefined ? {} : { runControlGrants }),
+    ...(journalRunWriter === undefined ? {} : { journalRunWriter }),
   };
 }
 

@@ -434,10 +434,10 @@ export class InMemoryReplica {
     });
   }
 
-  public runSnapshot(runId: string): RunControlSnapshot {
+  public runSnapshot(runId: string, afterSequence = 0): RunControlSnapshot {
     const run = this.#runs.get(runId);
     if (run === undefined) throw new Error("Run does not exist");
-    return run.snapshot();
+    return run.snapshot(afterSequence);
   }
 
   public runCommandsAfter(

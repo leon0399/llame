@@ -303,6 +303,26 @@ async function run(): Promise<void> {
     return;
   }
 
+  const journalRunWriter = command.node.journalRunWriter;
+  let journalRunAuthor: SignedRealmRunAuthor | undefined;
+  try {
+    if (journalRunWriter !== undefined) {
+      const writerEpoch =
+        command.node.writerEpochs[journalRunWriter.writerStreamId];
+      if (writerEpoch === undefined) {
+        throw new Error("journal Run writer is not authorized");
+      }
+      journalRunAuthor = new SignedRealmRunAuthor({
+        store,
+        writerStreamId: journalRunWriter.writerStreamId,
+        writerEpoch,
+        privateKeyPem: await readFile(journalRunWriter.privateKeyPath, "utf8"),
+      });
+    }
+  } catch (error) {
+    store.close();
+    throw error;
+  }
   const enrollmentRegistry = new SqliteEnrollmentRegistry({
     databasePath: command.node.databasePath,
     realmId: command.node.realmId,
@@ -317,6 +337,7 @@ async function run(): Promise<void> {
     store,
     enrollmentRegistry,
     runControlStore,
+    ...(journalRunAuthor === undefined ? {} : { journalRunAuthor }),
   });
   try {
     await new Promise<void>((resolve, reject) => {
