@@ -18,6 +18,7 @@ import { createPersonalNodeServer } from "./node-server.js";
 import { initializeNodeIdentity } from "./node-identity.js";
 import { loadProxyPeerManifest } from "./proxy-peer-manifest.js";
 import { PeerSyncSupervisor } from "./peer-sync-supervisor.js";
+import { GitWorktreeManager } from "./git-worktree-manager.js";
 import { SignedRealmRunAuthor } from "./realm-run-author.js";
 import { createRunControlProxyServer } from "./run-control-proxy.js";
 import { SqliteRunControlProxyCache } from "./run-control-proxy-cache.js";
@@ -385,6 +386,13 @@ async function run(): Promise<void> {
             await loadWorkspaceManifest(command.workspaceManifestPath),
             { databasePath: command.node.databasePath },
           );
+  const gitWorktreeManager =
+    command.gitWorktreeRoot === undefined
+      ? undefined
+      : new GitWorktreeManager({
+          worktreeRoot: command.gitWorktreeRoot,
+          databasePath: command.node.databasePath,
+        });
   const server = createPersonalNodeServer({
     nodeId: command.node.nodeId,
     bearerToken: command.node.bearerToken,
@@ -397,6 +405,7 @@ async function run(): Promise<void> {
       ? {}
       : { peerSyncStatus: () => peerSyncs.map((peer) => peer.snapshot()) }),
     ...(workspaceRegistry === undefined ? {} : { workspaceRegistry }),
+    ...(gitWorktreeManager === undefined ? {} : { gitWorktreeManager }),
   });
   try {
     await new Promise<void>((resolve, reject) => {
@@ -407,6 +416,7 @@ async function run(): Promise<void> {
       });
     });
   } catch (error) {
+    gitWorktreeManager?.close();
     workspaceRegistry?.close();
     runControlStore.close();
     enrollmentRegistry.close();
@@ -429,6 +439,7 @@ async function run(): Promise<void> {
     closing = true;
     server.close(() => {
       const closeStores = (): void => {
+        gitWorktreeManager?.close();
         workspaceRegistry?.close();
         runControlStore.close();
         enrollmentRegistry.close();

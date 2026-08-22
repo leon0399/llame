@@ -53,6 +53,7 @@ export type PersonalNodeCommand =
       readonly port: number;
       readonly workspaceManifestPath?: string;
       readonly workspaceDefinitions?: readonly WorkspaceDefinition[];
+      readonly gitWorktreeRoot?: string;
       readonly peerSync?: {
         readonly peerId: string;
         readonly peerUrl: string;
@@ -488,6 +489,17 @@ export function parsePersonalNodeCommand(
     ) {
       throw new Error("serve-here cannot use LLAME_WORKSPACE_MANIFEST");
     }
+    const gitWorktreeRoot = environment.LLAME_GIT_WORKTREE_ROOT;
+    if (gitWorktreeRoot !== undefined && !isAbsolute(gitWorktreeRoot)) {
+      throw new Error("LLAME_GIT_WORKTREE_ROOT must be absolute");
+    }
+    if (
+      gitWorktreeRoot !== undefined &&
+      command !== "serve-here" &&
+      environment.LLAME_WORKSPACE_MANIFEST === undefined
+    ) {
+      throw new Error("Git worktrees require a registered Workspace");
+    }
     const peerUrl = environment.LLAME_SYNC_PEER_URL;
     const peerManifestPath = environment.LLAME_SYNC_PEER_MANIFEST;
     if (peerUrl !== undefined && peerManifestPath !== undefined) {
@@ -556,6 +568,7 @@ export function parsePersonalNodeCommand(
         : {}),
       ...(peerSync === undefined ? {} : { peerSync }),
       ...(peerSyncManifest === undefined ? {} : { peerSyncManifest }),
+      ...(gitWorktreeRoot === undefined ? {} : { gitWorktreeRoot }),
     };
   }
   if (command === "sync") {

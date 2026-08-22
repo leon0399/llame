@@ -124,6 +124,7 @@ describe("personal Node Protocol server", () => {
         "enrollment.node": { available: false },
         "execution.run-control": { available: false },
         "execution.workspace": { available: false },
+        "execution.git-worktree": { available: false },
       },
     });
   });

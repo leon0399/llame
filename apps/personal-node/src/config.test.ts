@@ -195,6 +195,31 @@ describe("personal Node command configuration", () => {
     });
   });
 
+  test("enables executor-local Git worktrees only with an explicit root", () => {
+    expect(
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_GIT_WORKTREE_ROOT: "/var/lib/llame/worktrees",
+        LLAME_WORKSPACE_MANIFEST: "/etc/llame/workspaces.json",
+      }),
+    ).toMatchObject({
+      kind: "serve",
+      gitWorktreeRoot: "/var/lib/llame/worktrees",
+    });
+    expect(() =>
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_GIT_WORKTREE_ROOT: "relative/worktrees",
+      }),
+    ).toThrowError("LLAME_GIT_WORKTREE_ROOT must be absolute");
+    expect(() =>
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_GIT_WORKTREE_ROOT: "/var/lib/llame/worktrees",
+      }),
+    ).toThrowError("Git worktrees require a registered Workspace");
+  });
+
   test("advertises only the CLI current directory in serve-here mode", () => {
     expect(
       parsePersonalNodeCommand(["serve-here"], baseEnvironment, "/work/llame"),

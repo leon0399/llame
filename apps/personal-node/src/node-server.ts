@@ -16,6 +16,10 @@ import { z } from "zod";
 import type { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 import type { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import type { SignedRealmRunAuthor } from "./realm-run-author.js";
+import {
+  GitWorktreeDirtyError,
+  type GitWorktreeManager,
+} from "./git-worktree-manager.js";
 import type { PeerSyncStatus } from "./peer-sync-supervisor.js";
 import type { SqliteRunControlStore } from "./run-control-store.js";
 import {
@@ -92,6 +96,9 @@ const workspaceRecoveryChoiceRequestSchema = z.strictObject({
   egressAllowsFallback: z.boolean(),
 });
 const emptyRequestSchema = z.strictObject({});
+const enterWorktreeRequestSchema = z.strictObject({
+  branchName: z.string().min(1).max(200),
+});
 
 export interface PersonalNodeServerOptions {
   readonly nodeId: string;
@@ -103,6 +110,7 @@ export interface PersonalNodeServerOptions {
   readonly journalRunAuthor?: SignedRealmRunAuthor;
   readonly peerSyncStatus?: () => readonly PeerSyncStatus[];
   readonly workspaceRegistry?: WorkspaceRegistry;
+  readonly gitWorktreeManager?: GitWorktreeManager;
 }
 
 type RequestPrincipal =
@@ -176,6 +184,12 @@ function routeRequirement(
   }
   if (
     request.method === "POST" &&
+    /^\/v1\/runs\/[^/]+\/worktree\/(?:enter|exit)$/.test(url.pathname)
+  ) {
+    return "owner";
+  }
+  if (
+    request.method === "POST" &&
     /^\/v1\/workspace-entry-requests\/[^/]+\/approve$/.test(url.pathname)
   ) {
     return "owner";
@@ -205,7 +219,8 @@ function routeRequirement(
       /^\/v1\/runs\/[^/]+\/events$/.test(url.pathname)) ||
     (request.method === "GET" &&
       (/^\/v1\/runs\/[^/]+\/commands$/.test(url.pathname) ||
-        /^\/v1\/runs\/[^/]+\/workspace\/binding$/.test(url.pathname)))
+        /^\/v1\/runs\/[^/]+\/workspace\/binding$/.test(url.pathname) ||
+        /^\/v1\/runs\/[^/]+\/worktree\/binding$/.test(url.pathname)))
   ) {
     return "run.execute";
   }
@@ -356,6 +371,10 @@ async function handleAuthorizedRequest(
           options.workspaceRegistry === undefined
             ? { available: false }
             : { version: 1, mode: "policy-gated-binding" },
+        "execution.git-worktree":
+          options.gitWorktreeManager === undefined
+            ? { available: false }
+            : { version: 1, mode: "executor-local" },
       },
     });
     return;
@@ -853,6 +872,96 @@ async function handleAuthorizedRequest(
           context,
         ),
       );
+      return;
+    }
+  }
+  const worktreeRoute =
+    /^\/v1\/runs\/([^/]+)\/worktree\/(enter|exit|binding)$/.exec(url.pathname);
+  if (worktreeRoute !== null) {
+    if (
+      options.gitWorktreeManager === undefined ||
+      options.workspaceRegistry === undefined
+    ) {
+      throw new RequestError(409, "git_worktree_unavailable");
+    }
+    const runId = decodePathIdentity(worktreeRoute[1], "run_id");
+    const action = worktreeRoute[2];
+    const state = workspaceRecoveryState(runId);
+    if (state === undefined) {
+      throw new RequestError(409, "run_control_unavailable");
+    }
+    if (!state.workspaceAttached) {
+      throw new RequestError(409, "workspace_not_attached");
+    }
+    if (state.activeExecutorNodeId !== options.nodeId) {
+      throw new RequestError(409, "worktree_executor_unavailable");
+    }
+    if (request.method === "POST" && action === "enter") {
+      const parsed = enterWorktreeRequestSchema.safeParse(
+        await readJson(request),
+      );
+      if (!parsed.success) {
+        throw new RequestError(400, "invalid_worktree_entry_request");
+      }
+      let workspaceBinding: Awaited<ReturnType<WorkspaceRegistry["binding"]>>;
+      try {
+        workspaceBinding = await options.workspaceRegistry.binding(
+          state.workspaceId,
+        );
+      } catch (error) {
+        if (error instanceof WorkspaceUnavailableError) {
+          throw new RequestError(409, "workspace_unavailable");
+        }
+        throw error;
+      }
+      const binding = await options.gitWorktreeManager.enter({
+        runId,
+        workspaceId: state.workspaceId,
+        repositoryRoot: workspaceBinding.rootPath,
+        branchName: parsed.data.branchName,
+      });
+      sendJson(response, 201, {
+        status: "entered",
+        runId: binding.runId,
+        workspaceId: binding.workspaceId,
+        branchName: binding.branchName,
+      });
+      return;
+    }
+    if (request.method === "GET" && action === "binding") {
+      if (
+        principal.kind !== "node" ||
+        principal.nodeId !== state.activeExecutorNodeId
+      ) {
+        throw new RequestError(403, "executor_authority_required");
+      }
+      const binding = options.gitWorktreeManager.binding(runId);
+      if (binding === null) {
+        throw new RequestError(409, "git_worktree_not_entered");
+      }
+      sendJson(response, 200, binding);
+      return;
+    }
+    if (request.method === "POST" && action === "exit") {
+      const parsed = emptyRequestSchema.safeParse(await readJson(request));
+      if (!parsed.success) {
+        throw new RequestError(400, "invalid_worktree_exit_request");
+      }
+      let binding: Awaited<ReturnType<GitWorktreeManager["exit"]>>;
+      try {
+        binding = await options.gitWorktreeManager.exit(runId);
+      } catch (error) {
+        if (error instanceof GitWorktreeDirtyError) {
+          throw new RequestError(409, "worktree_dirty");
+        }
+        throw error;
+      }
+      sendJson(response, 202, {
+        status: "exited",
+        runId: binding.runId,
+        workspaceId: binding.workspaceId,
+        branchName: binding.branchName,
+      });
       return;
     }
   }
