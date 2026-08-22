@@ -101,7 +101,7 @@ export interface PersonalNodeServerOptions {
   readonly runControlStore?: SqliteRunControlStore;
   readonly journalRunProjection?: boolean;
   readonly journalRunAuthor?: SignedRealmRunAuthor;
-  readonly peerSyncStatus?: () => PeerSyncStatus;
+  readonly peerSyncStatus?: () => readonly PeerSyncStatus[];
   readonly workspaceRegistry?: WorkspaceRegistry;
 }
 
@@ -337,7 +337,7 @@ async function handleAuthorizedRequest(
           : {
               "sync.peer": {
                 version: 1,
-                ...options.peerSyncStatus(),
+                peers: options.peerSyncStatus(),
               },
             }),
         "enrollment.node":

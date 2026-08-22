@@ -59,6 +59,10 @@ export type PersonalNodeCommand =
         readonly peerCredential: PeerCredentialSource;
         readonly intervalMilliseconds: number;
       };
+      readonly peerSyncManifest?: {
+        readonly path: string;
+        readonly intervalMilliseconds: number;
+      };
     }
   | {
       readonly kind: "run-create";
@@ -485,6 +489,12 @@ export function parsePersonalNodeCommand(
       throw new Error("serve-here cannot use LLAME_WORKSPACE_MANIFEST");
     }
     const peerUrl = environment.LLAME_SYNC_PEER_URL;
+    const peerManifestPath = environment.LLAME_SYNC_PEER_MANIFEST;
+    if (peerUrl !== undefined && peerManifestPath !== undefined) {
+      throw new Error(
+        "continuous sync accepts either one peer or a peer manifest",
+      );
+    }
     const peerSync =
       peerUrl === undefined
         ? undefined
@@ -505,6 +515,23 @@ export function parsePersonalNodeCommand(
           "continuous signed sync requires LLAME_TRUSTED_WRITER_KEYS",
         );
       }
+    }
+    const peerSyncManifest =
+      peerManifestPath === undefined
+        ? undefined
+        : {
+            path: peerManifestPath,
+            intervalMilliseconds: parseSyncInterval(
+              environment.LLAME_SYNC_INTERVAL_MS,
+            ),
+          };
+    if (
+      peerSyncManifest !== undefined &&
+      node.trustedWriterKeyPaths === undefined
+    ) {
+      throw new Error(
+        "continuous signed sync requires LLAME_TRUSTED_WRITER_KEYS",
+      );
     }
     return {
       kind: "serve",
@@ -528,6 +555,7 @@ export function parsePersonalNodeCommand(
           }
         : {}),
       ...(peerSync === undefined ? {} : { peerSync }),
+      ...(peerSyncManifest === undefined ? {} : { peerSyncManifest }),
     };
   }
   if (command === "sync") {

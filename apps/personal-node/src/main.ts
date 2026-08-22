@@ -339,22 +339,41 @@ async function run(): Promise<void> {
     realmId: command.node.realmId,
   });
   const peerSyncConfig = command.peerSync;
-  const peerSync =
-    peerSyncConfig === undefined
-      ? undefined
-      : new PeerSyncSupervisor({
-          peerId: peerSyncConfig.peerId,
-          intervalMilliseconds: peerSyncConfig.intervalMilliseconds,
-          sync: async () =>
-            syncFromPeer({
-              store,
+  const syncPeers =
+    command.peerSyncManifest === undefined
+      ? peerSyncConfig === undefined
+        ? []
+        : [
+            {
+              peerId: peerSyncConfig.peerId,
               peerUrl: peerSyncConfig.peerUrl,
-              bearerToken: await readPeerCredential(
+              peerBearerToken: await readPeerCredential(
                 peerSyncConfig.peerCredential,
               ),
-              mode: "signed",
-            }),
-        });
+              intervalMilliseconds: peerSyncConfig.intervalMilliseconds,
+            },
+          ]
+      : (await loadProxyPeerManifest(command.peerSyncManifest.path)).map(
+          (peer) => ({
+            ...peer,
+            intervalMilliseconds:
+              command.peerSyncManifest?.intervalMilliseconds ?? 5_000,
+          }),
+        );
+  const peerSyncs = syncPeers.map(
+    (peer) =>
+      new PeerSyncSupervisor({
+        peerId: peer.peerId,
+        intervalMilliseconds: peer.intervalMilliseconds,
+        sync: () =>
+          syncFromPeer({
+            store,
+            peerUrl: peer.peerUrl,
+            bearerToken: peer.peerBearerToken,
+            mode: "signed",
+          }),
+      }),
+  );
   const workspaceRegistry =
     command.workspaceDefinitions !== undefined
       ? new WorkspaceRegistry(command.workspaceDefinitions, {
@@ -374,9 +393,9 @@ async function run(): Promise<void> {
     runControlStore,
     journalRunProjection: command.node.journalRunMode !== undefined,
     ...(journalRunAuthor === undefined ? {} : { journalRunAuthor }),
-    ...(peerSync === undefined
+    ...(peerSyncs.length === 0
       ? {}
-      : { peerSyncStatus: () => peerSync.snapshot() }),
+      : { peerSyncStatus: () => peerSyncs.map((peer) => peer.snapshot()) }),
     ...(workspaceRegistry === undefined ? {} : { workspaceRegistry }),
   });
   try {
@@ -402,7 +421,7 @@ async function run(): Promise<void> {
       origin: `http://${command.host}:${command.port}`,
     })}\n`,
   );
-  peerSync?.start();
+  for (const peerSync of peerSyncs) peerSync.start();
 
   let closing = false;
   const close = (): void => {
@@ -415,8 +434,11 @@ async function run(): Promise<void> {
         enrollmentRegistry.close();
         store.close();
       };
-      if (peerSync === undefined) closeStores();
-      else void peerSync.stop().then(closeStores);
+      if (peerSyncs.length === 0) closeStores();
+      else
+        void Promise.all(peerSyncs.map((peer) => peer.stop())).then(
+          closeStores,
+        );
     });
   };
   process.once("SIGINT", close);

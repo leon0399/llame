@@ -44,6 +44,12 @@ export async function loadProxyPeerManifest(
   }
   const parsed = manifestSchema.safeParse(input);
   if (!parsed.success) throw new Error("invalid proxy peer manifest");
+  if (
+    new Set(parsed.data.peers.map((peer) => peer.peerId)).size !==
+    parsed.data.peers.length
+  ) {
+    throw new Error("peer manifest contains duplicate peer identities");
+  }
   const baseDirectory = dirname(manifestPath);
   return Promise.all(
     parsed.data.peers.map(async (peer) => ({

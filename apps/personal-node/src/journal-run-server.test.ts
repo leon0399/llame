@@ -220,12 +220,20 @@ describe("journal-backed Run-control API", () => {
       bearerToken: "mirror-owner-secret",
       store,
       journalRunProjection: true,
-      peerSyncStatus: () => ({
-        peerId: "home",
-        state: "degraded",
-        failure: "outcome_unknown",
-        lastAttemptAt: "2026-08-22T12:00:00.000Z",
-      }),
+      peerSyncStatus: () => [
+        {
+          peerId: "home",
+          state: "degraded",
+          failure: "outcome_unknown",
+          lastAttemptAt: "2026-08-22T12:00:00.000Z",
+        },
+        {
+          peerId: "family",
+          state: "synchronized",
+          coverage: "verified-complete",
+          lastSuccessAt: "2026-08-22T12:00:01.000Z",
+        },
+      ],
     });
     await new Promise<void>((resolve) =>
       server.listen(0, "127.0.0.1", resolve),
@@ -277,9 +285,10 @@ describe("journal-backed Run-control API", () => {
         },
         "sync.peer": {
           version: 1,
-          peerId: "home",
-          state: "degraded",
-          failure: "outcome_unknown",
+          peers: [
+            { peerId: "home", state: "degraded" },
+            { peerId: "family", state: "synchronized" },
+          ],
         },
       },
     });

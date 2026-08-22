@@ -154,6 +154,35 @@ describe("personal Node command configuration", () => {
     });
   });
 
+  test("configures multiple continuous peers through one explicit manifest", () => {
+    expect(
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_SYNC_PEER_MANIFEST: "/etc/llame/sync-peers.json",
+        LLAME_SYNC_INTERVAL_MS: "3000",
+        LLAME_TRUSTED_WRITER_KEYS: '{"desktop:1":"/keys/desktop.pem"}',
+      }),
+    ).toMatchObject({
+      kind: "serve",
+      peerSyncManifest: {
+        path: "/etc/llame/sync-peers.json",
+        intervalMilliseconds: 3000,
+      },
+    });
+    expect(() =>
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_SYNC_PEER_MANIFEST: "/etc/llame/sync-peers.json",
+        LLAME_SYNC_PEER_ID: "home",
+        LLAME_SYNC_PEER_URL: "https://personal.example.test",
+        LLAME_PEER_TOKEN: "remote-peer-secret",
+        LLAME_TRUSTED_WRITER_KEYS: '{"desktop:1":"/keys/desktop.pem"}',
+      }),
+    ).toThrowError(
+      "continuous sync accepts either one peer or a peer manifest",
+    );
+  });
+
   test("loads only an explicitly configured Workspace manifest", () => {
     expect(
       parsePersonalNodeCommand(["serve"], {

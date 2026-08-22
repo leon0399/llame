@@ -74,4 +74,34 @@ describe("proxy peer manifest", () => {
       loadProxyPeerManifest(join(directory, "peers.json")),
     ).rejects.toThrowError("proxy peer credential must be owner-only");
   });
+
+  test("rejects duplicate peer identities before starting synchronization", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-proxy-peers-"));
+    directories.push(directory);
+    await writeFile(join(directory, "peer.credential"), "peer-secret-value\n", {
+      mode: 0o600,
+    });
+    await writeFile(
+      join(directory, "peers.json"),
+      JSON.stringify({
+        version: 1,
+        peers: [
+          {
+            peerId: "home",
+            origin: "https://home.example.test",
+            credentialPath: "peer.credential",
+          },
+          {
+            peerId: "home",
+            origin: "https://other.example.test",
+            credentialPath: "peer.credential",
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      loadProxyPeerManifest(join(directory, "peers.json")),
+    ).rejects.toThrowError("peer manifest contains duplicate peer identities");
+  });
 });
