@@ -201,4 +201,20 @@ describe("durable Sandbox command receipts", () => {
 
     expect(JSON.stringify(row)).not.toContain(secret);
   });
+
+  test("releases only a pending command that definitely did not start", async () => {
+    const store = new SqliteSandboxCommandStore({
+      databasePath: await databasePath(),
+      realmId: "realm-personal",
+    });
+    store.reserve(command);
+
+    expect(store.release(command)).toEqual({ status: "released" });
+    expect(store.reserve(command)).toEqual({ status: "reserved" });
+    store.complete(command, result);
+    expect(() => store.release(command)).toThrowError(
+      SandboxCommandConflictError,
+    );
+    store.close();
+  });
 });

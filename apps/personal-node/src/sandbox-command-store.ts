@@ -205,6 +205,32 @@ export class SqliteSandboxCommandStore {
     }
   }
 
+  public release(input: SandboxCommandIdentity): {
+    readonly status: "released";
+  } {
+    const parsed = this.#parseIdentity(input);
+    const requestHash = this.#requestHash(parsed.request);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = this.#requiredRow(parsed.runId, parsed.commandId);
+      this.#assertMatches(existing, parsed, requestHash);
+      if (this.#text(existing, "state") !== "pending") {
+        throw new SandboxCommandConflictError();
+      }
+      this.#database
+        .prepare(
+          `DELETE FROM sandbox_command_receipts
+           WHERE run_id = ? AND command_id = ? AND state = 'pending'`,
+        )
+        .run(parsed.runId, parsed.commandId);
+      this.#database.exec("COMMIT");
+      return { status: "released" };
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   public close(): void {
     this.#database.close();
   }
