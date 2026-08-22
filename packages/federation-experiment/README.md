@@ -20,7 +20,9 @@ The experiment currently proves:
 - Ed25519 signatures bind a batch to an explicitly trusted writer stream and
   reject forwarded payload mutation or cross-writer impersonation; and
 - a short-lived, Realm-bound enrollment challenge proves possession of a
-  separate Ed25519 node identity without introducing a local `user_id`; and
+  separate Ed25519 node identity without introducing a local `user_id`, while
+  explicit sync/observe/steer/execute/control scopes attenuate the issued
+  credential; and
 - resumable Run-control state uses semantic event and command cursors plus an
   authority epoch that fences a stale executor after handoff or fallback; and
 - sticky Workspace affinity exposes `ask`, `wait`, egress-gated temporary

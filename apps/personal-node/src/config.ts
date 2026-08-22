@@ -40,6 +40,7 @@ export type PersonalNodeCommand =
       readonly ownerBearerToken: string;
       readonly privateKeyPath: string;
       readonly credentialPath: string;
+      readonly scopes: readonly NodeScope[];
     }
   | {
       readonly kind: "append";
@@ -58,6 +59,15 @@ function required(environment: Environment, name: string): string {
     throw new Error(`${name} is required`);
   }
   return value;
+}
+
+function parseJsonEnvironment(input: string, errorMessage: string): unknown {
+  try {
+    const parsed: unknown = JSON.parse(input);
+    return parsed;
+  } catch {
+    throw new Error(errorMessage);
+  }
 }
 
 function parseWriterEpochs(
@@ -225,6 +235,14 @@ export function parsePersonalNodeCommand(
       ownerBearerToken: required(environment, "LLAME_PEER_TOKEN"),
       privateKeyPath: required(environment, "LLAME_NODE_PRIVATE_KEY"),
       credentialPath: required(environment, "LLAME_PEER_CREDENTIAL_PATH"),
+      scopes: parseNodeScopes(
+        environment.LLAME_NODE_SCOPES === undefined
+          ? ["realm.sync"]
+          : parseJsonEnvironment(
+              environment.LLAME_NODE_SCOPES,
+              "LLAME_NODE_SCOPES must be a JSON array",
+            ),
+      ),
     };
   }
   if (command === "append") {
@@ -257,3 +275,7 @@ export function parsePersonalNodeCommand(
   throw new Error(`unsupported personal Node command: ${command}`);
 }
 import { WRITER_STREAM_ID_PATTERN } from "@workspace/federation-experiment";
+import {
+  type NodeScope,
+  parseNodeScopes,
+} from "@workspace/federation-experiment/node-enrollment";

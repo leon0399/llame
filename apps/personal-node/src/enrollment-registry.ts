@@ -5,6 +5,8 @@ import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import {
   createEnrollmentChallenge,
   type EnrollmentChallenge,
+  type NodeScope,
+  parseNodeScopes,
   verifyEnrollmentProof,
 } from "@workspace/federation-experiment/node-enrollment";
 
@@ -18,6 +20,7 @@ export interface EnrolledNodeRecord {
   readonly keyId: string;
   readonly enrolledAt: string;
   readonly revokedAt: string | null;
+  readonly scopes: readonly NodeScope[];
 }
 
 export interface NodeEnrollmentGrant extends EnrolledNodeRecord {
@@ -26,6 +29,11 @@ export interface NodeEnrollmentGrant extends EnrolledNodeRecord {
 
 function credentialDigest(credential: string): Buffer {
   return createHash("sha256").update(credential).digest();
+}
+
+function parseStoredScopes(input: string): readonly NodeScope[] {
+  const parsed: unknown = JSON.parse(input);
+  return parseNodeScopes(parsed);
 }
 
 function requireText(
@@ -93,11 +101,13 @@ export class SqliteEnrollmentRegistry {
   public completeEnrollment(
     input: unknown,
     now = new Date(),
+    scopesInput: unknown = ["realm.sync"],
   ): NodeEnrollmentGrant {
     const verified = verifyEnrollmentProof(input, {
       expectedRealmId: this.#realmId,
       now,
     });
+    const scopes = parseNodeScopes(scopesInput);
     const credential = randomBytes(32).toString("base64url");
     const digest = credentialDigest(credential).toString("hex");
     this.#database.exec("BEGIN IMMEDIATE");
@@ -134,8 +144,8 @@ export class SqliteEnrollmentRegistry {
         .prepare(
           `INSERT INTO enrolled_nodes
             (realm_id, node_id, key_id, public_key_pem, credential_digest,
-             enrolled_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+             scopes_json, enrolled_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           verified.realmId,
@@ -143,6 +153,7 @@ export class SqliteEnrollmentRegistry {
           verified.keyId,
           verified.publicKeyPem,
           digest,
+          JSON.stringify(scopes),
           timestamp,
         );
       this.#database.exec("COMMIT");
@@ -152,6 +163,7 @@ export class SqliteEnrollmentRegistry {
         keyId: verified.keyId,
         enrolledAt: timestamp,
         revokedAt: null,
+        scopes,
         credential,
       };
     } catch (error) {
@@ -176,7 +188,7 @@ export class SqliteEnrollmentRegistry {
   public authenticate(credential: string): EnrolledNodeRecord | null {
     const row = this.#database
       .prepare(
-        `SELECT node_id, key_id, enrolled_at, revoked_at
+        `SELECT node_id, key_id, enrolled_at, revoked_at, scopes_json
          FROM enrolled_nodes
          WHERE realm_id = ? AND credential_digest = ? AND revoked_at IS NULL`,
       )
@@ -187,6 +199,7 @@ export class SqliteEnrollmentRegistry {
       keyId: requireText(row, "key_id"),
       enrolledAt: requireText(row, "enrolled_at"),
       revokedAt: null,
+      scopes: parseStoredScopes(requireText(row, "scopes_json")),
     };
   }
 
@@ -226,6 +239,7 @@ export class SqliteEnrollmentRegistry {
         key_id TEXT NOT NULL UNIQUE,
         public_key_pem TEXT NOT NULL,
         credential_digest TEXT,
+        scopes_json TEXT,
         enrolled_at TEXT NOT NULL,
         revoked_at TEXT
       ) STRICT;
@@ -238,6 +252,15 @@ export class SqliteEnrollmentRegistry {
         "ALTER TABLE enrolled_nodes ADD COLUMN credential_digest TEXT",
       );
     }
+    if (!columns.some((column) => column.name === "scopes_json")) {
+      this.#database.exec(
+        "ALTER TABLE enrolled_nodes ADD COLUMN scopes_json TEXT",
+      );
+    }
+    this.#database.exec(
+      `UPDATE enrolled_nodes SET scopes_json = '["realm.sync"]'
+       WHERE scopes_json IS NULL`,
+    );
   }
 
   #loadOrInitializeRealm(): void {

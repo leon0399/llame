@@ -398,6 +398,7 @@ describe("personal Node Protocol server", () => {
       headers,
       body: JSON.stringify({
         proof: createEnrollmentProof(challenge, node.privateKeyPem),
+        scopes: ["realm.sync"],
       }),
     });
     const completeBody: unknown = await completeResponse.json();
@@ -440,9 +441,10 @@ describe("personal Node Protocol server", () => {
       nodeId: "node-desktop",
       keyId: node.keyId,
       revokedAt: null,
+      scopes: ["realm.sync"],
     });
     expect(beforeRevocation.status).toBe(200);
-    expect(forbiddenControlRequest.status).toBe(401);
+    expect(forbiddenControlRequest.status).toBe(403);
     expect(revokeResponse.status).toBe(200);
     expect(await revokeResponse.json()).toEqual({ revoked: true });
     expect(afterRevocation.status).toBe(401);
@@ -472,23 +474,38 @@ describe("personal Node Protocol server", () => {
     const executor = generateWriterIdentity();
     const controller = generateWriterIdentity();
     const fallback = generateWriterIdentity();
+    const controlDelegate = generateWriterIdentity();
     const executorGrant = registry.completeEnrollment(
       createEnrollmentProof(
         registry.issueChallenge({ nodeId: "node-workstation" }),
         executor.privateKeyPem,
       ),
+      new Date(),
+      ["run.execute"],
     );
     const controllerGrant = registry.completeEnrollment(
       createEnrollmentProof(
         registry.issueChallenge({ nodeId: "node-phone" }),
         controller.privateKeyPem,
       ),
+      new Date(),
+      ["run.observe", "run.steer"],
     );
     const fallbackGrant = registry.completeEnrollment(
       createEnrollmentProof(
         registry.issueChallenge({ nodeId: "node-fallback" }),
         fallback.privateKeyPem,
       ),
+      new Date(),
+      ["run.execute"],
+    );
+    const controlGrant = registry.completeEnrollment(
+      createEnrollmentProof(
+        registry.issueChallenge({ nodeId: "node-personal-realm" }),
+        controlDelegate.privateKeyPem,
+      ),
+      new Date(),
+      ["run.control"],
     );
     const server = createPersonalNodeServer({
       nodeId: "node-home",
@@ -533,6 +550,23 @@ describe("personal Node Protocol server", () => {
       `${origin}/v1/runs/run-remote/control?after=0`,
       { headers: jsonHeaders(controllerGrant.credential) },
     );
+    const forbiddenExecutorObservation = await fetch(
+      `${origin}/v1/runs/run-remote/control?after=0`,
+      { headers: jsonHeaders(executorGrant.credential) },
+    );
+    const forbiddenControllerEvent = await fetch(
+      `${origin}/v1/runs/run-remote/events`,
+      {
+        method: "POST",
+        headers: jsonHeaders(controllerGrant.credential),
+        body: JSON.stringify({
+          authorityEpoch: 1,
+          sequence: 2,
+          eventId: "event-forbidden",
+          event: { type: "status", status: "paused" },
+        }),
+      },
+    );
     const steered = await fetch(`${origin}/v1/runs/run-remote/commands`, {
       method: "POST",
       headers: jsonHeaders(controllerGrant.credential),
@@ -575,7 +609,7 @@ describe("personal Node Protocol server", () => {
     );
     const transferred = await fetch(`${origin}/v1/runs/run-remote/authority`, {
       method: "POST",
-      headers: jsonHeaders("owner-control-secret"),
+      headers: jsonHeaders(controlGrant.credential),
       body: JSON.stringify({
         expectedAuthorityEpoch: 1,
         targetExecutorNodeId: "node-fallback",
@@ -629,9 +663,11 @@ describe("personal Node Protocol server", () => {
         },
       ],
     });
+    expect(forbiddenExecutorObservation.status).toBe(403);
+    expect(forbiddenControllerEvent.status).toBe(403);
     expect(forbiddenCommandPoll.status).toBe(403);
-    expect(forbiddenTransfer.status).toBe(401);
-    expect(forbiddenWorkspaceAuthority.status).toBe(401);
+    expect(forbiddenTransfer.status).toBe(403);
+    expect(forbiddenWorkspaceAuthority.status).toBe(403);
     expect(transferred.status).toBe(202);
     expect(fallbackSteering.status).toBe(202);
     expect(fallbackCommands.status).toBe(200);

@@ -10,6 +10,7 @@ import {
   parseChangeBatch,
   WRITER_STREAM_ID_PATTERN,
 } from "@workspace/federation-experiment";
+import type { NodeScope } from "@workspace/federation-experiment/node-enrollment";
 import { z } from "zod";
 
 import type { SqlitePersonalRealmStore } from "./sqlite-replica.js";
@@ -30,7 +31,17 @@ const applyRequestSchema = z.strictObject({
 const enrollmentChallengeRequestSchema = z.strictObject({
   nodeId: z.string().regex(WRITER_STREAM_ID_PATTERN),
 });
-const completeEnrollmentRequestSchema = z.strictObject({ proof: z.unknown() });
+const nodeScopeSchema = z.enum([
+  "realm.sync",
+  "run.observe",
+  "run.steer",
+  "run.execute",
+  "run.control",
+]);
+const completeEnrollmentRequestSchema = z.strictObject({
+  proof: z.unknown(),
+  scopes: z.array(nodeScopeSchema).min(1).max(5),
+});
 const createRunRequestSchema = z.strictObject({
   runId: z.string().min(1).max(200),
   executorNodeId: z.string().regex(WRITER_STREAM_ID_PATTERN),
@@ -83,7 +94,12 @@ export interface PersonalNodeServerOptions {
 
 type RequestPrincipal =
   | { readonly kind: "owner"; readonly nodeId: string }
-  | { readonly kind: "node"; readonly nodeId: string; readonly keyId: string };
+  | {
+      readonly kind: "node";
+      readonly nodeId: string;
+      readonly keyId: string;
+      readonly scopes: readonly NodeScope[];
+    };
 
 class RequestError extends Error {
   public constructor(
@@ -127,22 +143,63 @@ function credentialMatches(
   return timingSafeEqual(expectedDigest, suppliedDigest);
 }
 
-function isOwnerControlRequest(request: IncomingMessage): boolean {
+function routeRequirement(
+  request: IncomingMessage,
+): NodeScope | "owner" | null {
   const url = new URL(request.url ?? "/", "http://personal-node.local");
-  return (
+  if (request.method === "GET" && url.pathname === "/v1/capabilities") {
+    return null;
+  }
+  if (
     (request.method === "POST" &&
       (url.pathname === "/v1/enrollment/challenges" ||
         url.pathname === "/v1/enrollment/complete")) ||
     (request.method === "DELETE" &&
-      /^\/v1\/enrollments\/[^/]+$/.test(url.pathname)) ||
-    (request.method === "POST" && url.pathname === "/v1/runs") ||
-    (request.method === "POST" &&
-      /^\/v1\/runs\/[^/]+\/authority$/.test(url.pathname)) ||
-    (request.method === "POST" &&
+      /^\/v1\/enrollments\/[^/]+$/.test(url.pathname))
+  ) {
+    return "owner";
+  }
+  if (request.method === "POST" && url.pathname === "/v1/runs") {
+    return "run.control";
+  }
+  if (
+    request.method === "POST" &&
+    (/^\/v1\/runs\/[^/]+\/authority$/.test(url.pathname) ||
       /^\/v1\/runs\/[^/]+\/workspace(?:\/(?:unavailable|recovered|choice))?$/.test(
         url.pathname,
       ))
-  );
+  ) {
+    return "run.control";
+  }
+  if (
+    request.method === "GET" &&
+    (/^\/v1\/runs\/[^/]+\/control$/.test(url.pathname) ||
+      /^\/v1\/runs\/[^/]+\/workspace$/.test(url.pathname))
+  ) {
+    return "run.observe";
+  }
+  if (
+    (request.method === "POST" &&
+      /^\/v1\/runs\/[^/]+\/events$/.test(url.pathname)) ||
+    (request.method === "GET" &&
+      /^\/v1\/runs\/[^/]+\/commands$/.test(url.pathname))
+  ) {
+    return "run.execute";
+  }
+  if (
+    request.method === "POST" &&
+    /^\/v1\/runs\/[^/]+\/commands$/.test(url.pathname)
+  ) {
+    return "run.steer";
+  }
+  if (
+    url.pathname === "/v1/realm/frontier" ||
+    /^\/v1\/(?:signed-)?sync\/(?:export|apply)$/.test(url.pathname) ||
+    /^\/v1\/chats\/[^/]+\/branches$/.test(url.pathname)
+  ) {
+    return "realm.sync";
+  }
+  return null;
 }
 
 function decodePathIdentity(encoded: string | undefined, name: string): string {
@@ -261,7 +318,11 @@ async function handleAuthorizedRequest(
     sendJson(
       response,
       201,
-      options.enrollmentRegistry.completeEnrollment(parsed.data.proof),
+      options.enrollmentRegistry.completeEnrollment(
+        parsed.data.proof,
+        new Date(),
+        parsed.data.scopes,
+      ),
     );
     return;
   }
@@ -568,11 +629,9 @@ export function createPersonalNodeServer(
             kind: "node",
             nodeId: enrolledNode.nodeId,
             keyId: enrolledNode.keyId,
+            scopes: enrolledNode.scopes,
           };
-    if (
-      principal === null ||
-      (principal.kind !== "owner" && isOwnerControlRequest(request))
-    ) {
+    if (principal === null) {
       sendJson(
         response,
         401,
@@ -581,6 +640,15 @@ export function createPersonalNodeServer(
           "www-authenticate": "Bearer",
         },
       );
+      return;
+    }
+    const requirement = routeRequirement(request);
+    if (
+      principal.kind === "node" &&
+      (requirement === "owner" ||
+        (requirement !== null && !principal.scopes.includes(requirement)))
+    ) {
+      sendJson(response, 403, { error: "forbidden" });
       return;
     }
     void handleAuthorizedRequest(request, response, options, principal).catch(

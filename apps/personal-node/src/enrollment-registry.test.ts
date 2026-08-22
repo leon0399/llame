@@ -38,6 +38,7 @@ describe("durable node enrollment registry", () => {
     const grant = registry.completeEnrollment(
       proof,
       new Date(now.getTime() + 1_000),
+      ["run.steer", "run.observe"],
     );
 
     expect(grant).toMatchObject({
@@ -45,6 +46,7 @@ describe("durable node enrollment registry", () => {
       keyId: node.keyId,
       enrolledAt: "2026-08-22T12:00:01.000Z",
       revokedAt: null,
+      scopes: ["run.observe", "run.steer"],
     });
     expect(grant.credential).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(() =>
@@ -54,6 +56,7 @@ describe("durable node enrollment registry", () => {
     expect(registry.authenticate(grant.credential)).toMatchObject({
       nodeId: "node-desktop",
       keyId: node.keyId,
+      scopes: ["run.observe", "run.steer"],
     });
     expect(registry.authenticate("wrong-credential")).toBeNull();
     expect(

@@ -30,6 +30,7 @@ so unlinking a Node does not invalidate historical events:
 ```bash
 pnpm --filter personal-node start init-node-identity "$PWD/.local"
 export LLAME_NODE_PRIVATE_KEY="$PWD/.local/node-identity/private.pem"
+export LLAME_NODE_SCOPES='["realm.sync"]'
 ```
 
 The trusted-writer map is `writerStreamId:writerEpoch` to public-key file, not
@@ -55,6 +56,20 @@ Reconcile in both directions with another Node:
 export LLAME_PEER_TOKEN=the-peer-node-token
 pnpm --filter personal-node start sync https://peer.example.test
 ```
+
+Enrollment scopes are explicit and independently enforced:
+
+- `realm.sync` — Realm frontier, Chat branches, and signed/unsigned sync;
+- `run.observe` — Run and Workspace recovery snapshots;
+- `run.steer` — steering and cancellation submission;
+- `run.execute` — executor event publication and command polling; and
+- `run.control` — Run creation, authority transfer, and Workspace recovery
+  decisions.
+
+Omitting `LLAME_NODE_SCOPES` defaults to `realm.sync`. A central personal Realm
+node that proxies user control can receive `run.observe`, `run.steer`, and
+`run.control` without receiving the remote Node's owner credential or executor
+authority.
 
 Instead of distributing the peer's owner-control token, enroll once and persist
 a revocable credential. `LLAME_PEER_TOKEN` authorizes only the bootstrap request;
@@ -115,7 +130,9 @@ single-use challenge proves possession of a separate Ed25519 node key. The Node
 stores only a digest of the issued bearer credential; enrolled credentials can
 use data-plane routes but cannot enroll or revoke Nodes. Explicit revocation
 immediately denies later requests while retaining the historical node record.
-The single-owner database intentionally contains no `user_id`.
+The single-owner database intentionally contains no `user_id`. Scope selection,
+enrollment, and revocation require the owner credential; possessing one scoped
+node credential cannot mint or widen another.
 
 Run control persists only semantic state: current status, published assistant
 output, authority transfers, and steering/cancellation commands. It does not copy
@@ -124,9 +141,10 @@ event cursor supports reconnect and current-state recovery. Each handoff,
 fallback, or recovery increments `authorityEpoch`; writes from the prior executor
 then fail closed. Commands target one epoch, so a replacement executor never
 receives steering intended for the environment it replaced. Run creation and
-authority transfer require owner control; enrolled Nodes may observe and steer,
-while only the current executor may poll commands or publish events under its
-derived node identity.
+authority transfer require owner control or an explicit `run.control` grant.
+Enrolled Nodes may observe and steer only with their respective scopes, while
+only the current executor with `run.execute` may poll commands or publish events
+under its derived node identity.
 
 A Run may also hold sticky Workspace affinity with an `ask`, `wait`, `fallback`,
 or `exit` unavailability policy. `wait` retains the existing binding and
@@ -139,7 +157,8 @@ current context. Workspace availability, binding changes, blocked fallback, and
 decision requests are structured effects suitable for both UI state and model
 reminders—never implicit rerouting. Workspace transitions and their Run authority
 events commit in one SQLite transaction. Recovery-control writes require owner
-authorization because an enrolled node identity is not user authority.
+authorization or an explicit `run.control` delegation; bare node identity is not
+user authority.
 
 A reconciliation operation pulls peer batches beyond the local frontier, pushes
 local batches beyond the peer frontier, and returns both frontier receipts. It

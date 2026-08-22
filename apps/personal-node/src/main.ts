@@ -62,6 +62,7 @@ async function run(): Promise<void> {
         nodeId: command.node.nodeId,
         realmId: command.node.realmId,
         privateKeyPem: await readFile(command.privateKeyPath, "utf8"),
+        scopes: command.scopes,
       }),
     );
     process.stdout.write(

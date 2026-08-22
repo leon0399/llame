@@ -74,11 +74,13 @@ describe("peer node enrollment client", () => {
       nodeId: "desktop",
       realmId: "realm-personal",
       privateKeyPem: node.privateKeyPem,
+      scopes: ["run.observe", "run.steer"],
     });
 
     expect(grant).toMatchObject({
       nodeId: "desktop",
       keyId: node.keyId,
+      scopes: ["run.observe", "run.steer"],
       revokedAt: null,
     });
     expect(registry.authenticate(grant.credential)).toMatchObject({

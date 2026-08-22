@@ -1,4 +1,8 @@
-import { createEnrollmentProof } from "@workspace/federation-experiment/node-enrollment";
+import {
+  createEnrollmentProof,
+  type NodeScope,
+  parseNodeScopes,
+} from "@workspace/federation-experiment/node-enrollment";
 import { z } from "zod";
 
 const MAX_ENROLLMENT_RESPONSE_BYTES = 64 * 1024;
@@ -8,6 +12,15 @@ const enrollmentGrantSchema = z.strictObject({
   enrolledAt: z.string().datetime({ offset: true }),
   revokedAt: z.null(),
   credential: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  scopes: z.array(
+    z.enum([
+      "realm.sync",
+      "run.observe",
+      "run.steer",
+      "run.execute",
+      "run.control",
+    ]),
+  ),
 });
 
 export type PeerEnrollmentGrant = z.infer<typeof enrollmentGrantSchema>;
@@ -18,6 +31,7 @@ export interface EnrollWithPeerOptions {
   readonly nodeId: string;
   readonly realmId: string;
   readonly privateKeyPem: string;
+  readonly scopes: readonly NodeScope[];
 }
 
 function peerOrigin(input: string): URL {
@@ -105,6 +119,7 @@ export async function enrollWithPeer(
     );
   }
   const origin = peerOrigin(options.peerUrl);
+  const scopes = parseNodeScopes(options.scopes);
   const challenge = await postJson(
     new URL("/v1/enrollment/challenges", origin),
     options.ownerBearerToken,
@@ -121,13 +136,14 @@ export async function enrollWithPeer(
     await postJson(
       new URL("/v1/enrollment/complete", origin),
       options.ownerBearerToken,
-      { proof },
+      { proof, scopes },
     ),
   );
   if (
     !parsed.success ||
     parsed.data.nodeId !== options.nodeId ||
-    parsed.data.keyId !== proof.signature.keyId
+    parsed.data.keyId !== proof.signature.keyId ||
+    JSON.stringify(parsed.data.scopes) !== JSON.stringify(scopes)
   ) {
     throw new Error("peer enrollment grant has invalid identity");
   }

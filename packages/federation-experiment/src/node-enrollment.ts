@@ -13,6 +13,13 @@ import { WRITER_STREAM_ID_PATTERN } from "./reconciliation.js";
 
 const ENROLLMENT_DOMAIN = "llame.node-enrollment-proof.v1\0";
 const MAX_CHALLENGE_LIFETIME_MS = 5 * 60_000;
+const nodeScopeSchema = z.enum([
+  "realm.sync",
+  "run.observe",
+  "run.steer",
+  "run.execute",
+  "run.control",
+]);
 
 const enrollmentChallengeSchema = z.strictObject({
   version: z.literal(1),
@@ -33,6 +40,7 @@ const enrollmentProofSchema = z.strictObject({
 
 export type EnrollmentChallenge = z.infer<typeof enrollmentChallengeSchema>;
 export type EnrollmentProof = z.infer<typeof enrollmentProofSchema>;
+export type NodeScope = z.infer<typeof nodeScopeSchema>;
 
 export interface CreateEnrollmentChallengeOptions {
   readonly realmId: string;
@@ -49,6 +57,14 @@ export interface VerifiedEnrollment {
   readonly expiresAt: string;
   readonly keyId: string;
   readonly publicKeyPem: string;
+}
+
+export function parseNodeScopes(input: unknown): readonly NodeScope[] {
+  const parsed = z.array(nodeScopeSchema).min(1).max(5).safeParse(input);
+  if (!parsed.success) {
+    throw new Error("invalid node enrollment scopes", { cause: parsed.error });
+  }
+  return [...new Set(parsed.data)].sort();
 }
 
 function proofPayload(challenge: EnrollmentChallenge): Buffer {

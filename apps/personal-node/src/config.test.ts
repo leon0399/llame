@@ -103,6 +103,7 @@ describe("personal Node command configuration", () => {
         LLAME_NODE_PRIVATE_KEY: "/keys/node-private.pem",
         LLAME_PEER_TOKEN: "remote-owner-secret",
         LLAME_PEER_CREDENTIAL_PATH: "/keys/personal-node.credential",
+        LLAME_NODE_SCOPES: '["run.observe","run.steer"]',
       }),
     ).toMatchObject({
       kind: "enroll",
@@ -110,6 +111,7 @@ describe("personal Node command configuration", () => {
       ownerBearerToken: "remote-owner-secret",
       privateKeyPath: "/keys/node-private.pem",
       credentialPath: "/keys/personal-node.credential",
+      scopes: ["run.observe", "run.steer"],
     });
   });
 
