@@ -4,9 +4,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - **Distributed agent direction**: recorded the local-node, Workspace, Sandbox,
   execution-handoff, Personal Realm, and multi-authority federation discussion;
-  promoted the durable north-star boundaries into `VISION.md`; and made the
-  current single-installation execution and storage boundary explicit in
-  `SPEC.md`. Documentation only; no runtime behavior changed.
+  promoted the durable north-star boundaries into `VISION.md`; sequenced the
+  immediate file-native profile and knowledge cut ahead of standalone Nodes,
+  personal synchronization, distributed execution, and federation; explicitly
+  deferred child agents and external harnesses; excluded bundled local inference;
+  and made the current single-installation execution and storage boundary
+  explicit in `SPEC.md`. Documentation only; no runtime behavior changed.
 
 # 2026-08-21
 

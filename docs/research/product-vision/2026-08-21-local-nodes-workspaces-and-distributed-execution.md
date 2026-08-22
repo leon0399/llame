@@ -21,6 +21,14 @@ the three-layer durability boundary between live execution, executor-local
 recovery, portable Realm checkpoints, simple-first planning, fenced handoff, and
 disposable node enrollment.
 
+A later 2026-08-22 prioritization pass retains this document as north-star design
+but narrows the immediate product cut to Git-backed profile files and personal
+knowledge in the existing Run loop, followed by a standalone personal Node and
+CLI, personal synchronization, and only then Workspace-aware distributed
+execution. Child agents and external-harness adapters are deliberately postponed.
+llame supports user-configured inference providers but does not bundle or manage a
+local model runtime.
+
 ## 1. Why this checkpoint exists
 
 The discussion started from a desired first-party CLI experience similar to
