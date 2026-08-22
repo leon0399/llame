@@ -10,6 +10,15 @@ const baseEnvironment = {
 } as const;
 
 describe("personal Node command configuration", () => {
+  test("initializes a writer identity before Realm configuration exists", () => {
+    expect(
+      parsePersonalNodeCommand(["init-identity", "/tmp/personal-node"], {}),
+    ).toEqual({
+      kind: "init-identity",
+      directory: "/tmp/personal-node",
+    });
+  });
+
   test("defaults serve to a loopback-only listener and this node's writer", () => {
     expect(parsePersonalNodeCommand(["serve"], baseEnvironment)).toEqual({
       kind: "serve",
@@ -57,6 +66,40 @@ describe("personal Node command configuration", () => {
     });
   });
 
+  test("requires explicit trusted writer keys for signed peer sync", () => {
+    expect(
+      parsePersonalNodeCommand(["sync", "https://personal.example.test"], {
+        ...baseEnvironment,
+        LLAME_PEER_TOKEN: "remote-peer-secret",
+        LLAME_SYNC_MODE: "signed",
+        LLAME_TRUSTED_WRITER_KEYS: '{"desktop:1":"/keys/desktop-public.pem"}',
+      }),
+    ).toEqual({
+      kind: "sync",
+      node: {
+        databasePath: "/tmp/llame-personal-node.sqlite",
+        nodeId: "desktop",
+        realmId: "realm-personal",
+        bearerToken: "local-node-secret",
+        writerEpochs: { desktop: 1 },
+        trustedWriterKeyPaths: {
+          "desktop:1": "/keys/desktop-public.pem",
+        },
+      },
+      peerUrl: "https://personal.example.test",
+      peerBearerToken: "remote-peer-secret",
+      mode: "signed",
+    });
+
+    expect(() =>
+      parsePersonalNodeCommand(["sync", "https://personal.example.test"], {
+        ...baseEnvironment,
+        LLAME_PEER_TOKEN: "remote-peer-secret",
+        LLAME_SYNC_MODE: "signed",
+      }),
+    ).toThrowError("signed sync requires LLAME_TRUSTED_WRITER_KEYS");
+  });
+
   test("parses an offline append with an explicit parent", () => {
     expect(
       parsePersonalNodeCommand(
@@ -69,5 +112,25 @@ describe("personal Node command configuration", () => {
       parentMessageId: "message-parent",
       text: "Continue offline",
     });
+  });
+
+  test("enables signed offline append only with the local private and trusted public keys", () => {
+    expect(
+      parsePersonalNodeCommand(["append", "chat-1", "-", "Signed offline"], {
+        ...baseEnvironment,
+        LLAME_TRUSTED_WRITER_KEYS: '{"desktop:1":"/keys/desktop-public.pem"}',
+        LLAME_WRITER_PRIVATE_KEY: "/keys/desktop-private.pem",
+      }),
+    ).toMatchObject({
+      kind: "append",
+      privateKeyPath: "/keys/desktop-private.pem",
+    });
+
+    expect(() =>
+      parsePersonalNodeCommand(["append", "chat-1", "-", "Signed offline"], {
+        ...baseEnvironment,
+        LLAME_WRITER_PRIVATE_KEY: "/keys/desktop-private.pem",
+      }),
+    ).toThrowError("signed append requires LLAME_TRUSTED_WRITER_KEYS");
   });
 });

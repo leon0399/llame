@@ -9,9 +9,15 @@ import {
   ChatBranch,
   ReplicaOptions,
 } from "@workspace/federation-experiment";
+import {
+  parseSignedChangeBatch,
+  type SignedChangeBatch,
+  verifySignedChangeBatch,
+} from "@workspace/federation-experiment/batch-signature";
 
 export interface SqlitePersonalRealmStoreOptions extends ReplicaOptions {
   readonly databasePath: string;
+  readonly trustedWriterKeys?: Readonly<Record<string, string>>;
 }
 
 type ReceiveResult = ReturnType<InMemoryReplica["receive"]>;
@@ -72,8 +78,10 @@ export class SqlitePersonalRealmStore {
   readonly #database: DatabaseSync;
   readonly #databasePath: string;
   readonly #realmId: string;
+  readonly #trustedWriterKeys: Readonly<Record<string, string>>;
   #initialWriterEpochs: Readonly<Record<string, number>>;
   #replica: InMemoryReplica;
+  #signedBatches: readonly SignedChangeBatch[];
 
   public constructor(options: SqlitePersonalRealmStoreOptions) {
     if (
@@ -85,12 +93,14 @@ export class SqlitePersonalRealmStore {
     this.#databasePath = options.databasePath;
     this.#database = new DatabaseSync(options.databasePath);
     this.#realmId = options.realmId;
+    this.#trustedWriterKeys = { ...options.trustedWriterKeys };
     this.#initialWriterEpochs = { ...options.writerEpochs };
     try {
       this.#initializeSchema();
       const storedOptions = this.#loadOrInitializeMetadata();
       this.#initialWriterEpochs = { ...storedOptions.writerEpochs };
       this.#replica = this.#loadReplica(storedOptions);
+      this.#signedBatches = this.#loadSignedBatches(this.#replica);
       this.#secureDatabaseFiles(options.databasePath);
     } catch (error) {
       this.#database.close();
@@ -122,12 +132,66 @@ export class SqlitePersonalRealmStore {
     }
   }
 
+  public receiveSigned(input: unknown): ReceiveResult {
+    const candidate = parseSignedChangeBatch(input);
+    const batch = verifySignedChangeBatch(candidate, this.#trustedWriterKeys);
+    const reference = `${batch.writerStreamId}:${batch.sequence}`;
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.#loadReplica(this.#replicaOptions());
+      const existing = this.#database
+        .prepare("SELECT envelope_json FROM signed_batches WHERE batch_ref = ?")
+        .get(reference);
+      const result = current.receive(batch);
+      if (existing === undefined) {
+        const event = this.#database
+          .prepare(
+            "INSERT INTO realm_events (kind, payload_json) VALUES ('batch', ?)",
+          )
+          .run(JSON.stringify(batch));
+        this.#database
+          .prepare(
+            `INSERT INTO signed_batches
+              (batch_ref, writer_stream_id, sequence, event_ordinal, envelope_json)
+             VALUES (?, ?, ?, ?, ?)`,
+          )
+          .run(
+            reference,
+            batch.writerStreamId,
+            batch.sequence,
+            event.lastInsertRowid,
+            JSON.stringify(candidate),
+          );
+      } else if (
+        requireText(existing, "envelope_json") !== JSON.stringify(candidate)
+      ) {
+        throw new Error(
+          "signed batch reference reused with different envelope",
+        );
+      }
+      this.#database.exec("COMMIT");
+      this.#replica = current;
+      this.#signedBatches = this.#loadSignedBatches(current);
+      this.#secureDatabaseFiles();
+      return result;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      this.#replica = this.#loadReplica(this.#replicaOptions());
+      this.#signedBatches = this.#loadSignedBatches(this.#replica);
+      throw error;
+    }
+  }
+
   public frontier(): Readonly<Record<string, number>> {
     return this.#replica.frontier();
   }
 
   public realmId(): string {
     return this.#realmId;
+  }
+
+  public signedSyncAvailable(): boolean {
+    return Object.keys(this.#trustedWriterKeys).length > 0;
   }
 
   public chatBranches(chatId: string): readonly ChatBranch[] {
@@ -138,6 +202,17 @@ export class SqlitePersonalRealmStore {
     peerFrontier: Readonly<Record<string, number>>,
   ): readonly ChangeBatch[] {
     return this.#replica.exportMissing(peerFrontier);
+  }
+
+  public exportSignedMissing(
+    peerFrontier: Readonly<Record<string, number>>,
+  ): readonly SignedChangeBatch[] {
+    return this.#signedBatches
+      .filter(
+        ({ batch }) =>
+          batch.sequence > (peerFrontier[batch.writerStreamId] ?? 0),
+      )
+      .map((batch) => structuredClone(batch));
   }
 
   public coverageAgainst(
@@ -182,6 +257,15 @@ export class SqlitePersonalRealmStore {
         ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
         kind TEXT NOT NULL CHECK (kind IN ('batch', 'writer-epoch')),
         payload_json TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS signed_batches (
+        batch_ref TEXT PRIMARY KEY,
+        writer_stream_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL CHECK (sequence > 0),
+        event_ordinal INTEGER NOT NULL UNIQUE
+          REFERENCES realm_events(ordinal) ON DELETE CASCADE,
+        envelope_json TEXT NOT NULL,
+        UNIQUE (writer_stream_id, sequence)
       ) STRICT;
     `);
   }
@@ -249,6 +333,27 @@ export class SqlitePersonalRealmStore {
       throw new Error(`unsupported stored Realm event: ${kind}`);
     }
     return replica;
+  }
+
+  #loadSignedBatches(replica: InMemoryReplica): readonly SignedChangeBatch[] {
+    const rows = this.#database
+      .prepare(
+        `SELECT signed_batches.envelope_json
+         FROM signed_batches
+         JOIN realm_events
+           ON realm_events.ordinal = signed_batches.event_ordinal
+         ORDER BY realm_events.ordinal`,
+      )
+      .all();
+    return rows.map((row) => {
+      const payload: unknown = JSON.parse(requireText(row, "envelope_json"));
+      const signed = parseSignedChangeBatch(payload);
+      const batch = verifySignedChangeBatch(signed, this.#trustedWriterKeys);
+      if (replica.receive(batch).status !== "already-applied") {
+        throw new Error("signed batch has no durable Realm event");
+      }
+      return signed;
+    });
   }
 
   #replicaOptions(): ReplicaOptions {

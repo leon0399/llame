@@ -3,8 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
+import { generateWriterIdentity } from "@workspace/federation-experiment/batch-signature";
 
-import { appendLocalMessage } from "./local-authoring.js";
+import {
+  appendLocalMessage,
+  appendSignedLocalMessage,
+} from "./local-authoring.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 
 describe("local offline authoring", () => {
@@ -63,6 +67,41 @@ describe("local offline authoring", () => {
         writerStreamId: "desktop",
         sequence: 1,
         dependencies: ["phone:1"],
+      }),
+    ]);
+    store.close();
+  });
+
+  test("signs an offline append with the local writer identity", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-personal-node-"));
+    temporaryDirectories.push(directory);
+    const desktop = generateWriterIdentity();
+    const store = new SqlitePersonalRealmStore({
+      databasePath: join(directory, "realm.sqlite"),
+      realmId: "realm-personal",
+      writerEpochs: { desktop: 1 },
+      trustedWriterKeys: { "desktop:1": desktop.publicKeyPem },
+    });
+
+    const result = appendSignedLocalMessage({
+      store,
+      writerStreamId: "desktop",
+      writerEpoch: 1,
+      privateKeyPem: desktop.privateKeyPem,
+      chatId: "chat-signed",
+      messageId: "message-signed",
+      parentMessageId: null,
+      text: "Signed offline",
+    });
+
+    expect(result.batchRef).toBe("desktop:1");
+    expect(store.exportSignedMissing({})).toEqual([
+      expect.objectContaining({
+        batch: expect.objectContaining({ writerStreamId: "desktop" }),
+        signature: expect.objectContaining({
+          algorithm: "Ed25519",
+          keyId: desktop.keyId,
+        }),
       }),
     ]);
     store.close();

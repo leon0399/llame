@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
+import {
+  generateWriterIdentity,
+  signChangeBatch,
+} from "@workspace/federation-experiment/batch-signature";
 
 import { createPersonalNodeServer } from "./node-server.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
@@ -104,6 +108,7 @@ describe("personal Node Protocol server", () => {
       realm: { id: "realm-personal" },
       modules: {
         "sync.personal-realm": { version: 1, mode: "read-write" },
+        "sync.signed-personal-realm": { available: false },
         "execution.workspace": { available: false },
       },
     });
@@ -232,5 +237,102 @@ describe("personal Node Protocol server", () => {
         },
       ],
     });
+  });
+
+  test("reconciles only verified writer envelopes through signed sync", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-signed-node-"));
+    temporaryDirectories.push(directory);
+    const desktop = generateWriterIdentity();
+    const storeOptions = {
+      realmId: "realm-personal",
+      writerEpochs: { desktop: 1 },
+      trustedWriterKeys: { "desktop:1": desktop.publicKeyPem },
+    } as const;
+    const source = new SqlitePersonalRealmStore({
+      ...storeOptions,
+      databasePath: join(directory, "source.sqlite"),
+    });
+    const target = new SqlitePersonalRealmStore({
+      ...storeOptions,
+      databasePath: join(directory, "target.sqlite"),
+    });
+    stores.push(source, target);
+    const signed = signChangeBatch(
+      {
+        realmId: "realm-personal",
+        writerStreamId: "desktop",
+        writerEpoch: 1,
+        sequence: 1,
+        dependencies: [],
+        operations: [
+          {
+            type: "append-message",
+            chatId: "chat-signed",
+            messageId: "message-signed",
+            parentMessageId: null,
+            text: "Authenticated offline event",
+          },
+        ],
+      },
+      desktop.privateKeyPem,
+    );
+    source.receiveSigned(signed);
+    const sourceServer = createPersonalNodeServer({
+      nodeId: "node-source",
+      bearerToken: "source-node-secret",
+      store: source,
+    });
+    const targetServer = createPersonalNodeServer({
+      nodeId: "node-target",
+      bearerToken: "target-node-secret",
+      store: target,
+    });
+    servers.push(sourceServer, targetServer);
+    await Promise.all([
+      new Promise<void>((resolve) =>
+        sourceServer.listen(0, "127.0.0.1", resolve),
+      ),
+      new Promise<void>((resolve) =>
+        targetServer.listen(0, "127.0.0.1", resolve),
+      ),
+    ]);
+    const sourceAddress = sourceServer.address();
+    const targetAddress = targetServer.address();
+    if (
+      sourceAddress === null ||
+      typeof sourceAddress === "string" ||
+      targetAddress === null ||
+      typeof targetAddress === "string"
+    ) {
+      throw new Error("test nodes did not bind TCP addresses");
+    }
+
+    const exported = await fetch(
+      `http://127.0.0.1:${sourceAddress.port}/v1/signed-sync/export`,
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer source-node-secret",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ frontier: {} }),
+      },
+    );
+    const applied = await fetch(
+      `http://127.0.0.1:${targetAddress.port}/v1/signed-sync/apply`,
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer target-node-secret",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(await exported.json()),
+      },
+    );
+
+    expect(exported.status).toBe(200);
+    expect(applied.status).toBe(200);
+    expect(target.exportSignedMissing({})).toEqual([signed]);
+    expect(target.chatBranches("chat-signed")).toHaveLength(1);
   });
 });

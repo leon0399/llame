@@ -106,6 +106,9 @@ async function handleAuthorizedRequest(
       realm: { id: options.store.realmId() },
       modules: {
         "sync.personal-realm": { version: 1, mode: "read-write" },
+        "sync.signed-personal-realm": options.store.signedSyncAvailable()
+          ? { version: 1, mode: "read-write" }
+          : { available: false },
         "execution.workspace": { available: false },
       },
     });
@@ -126,6 +129,20 @@ async function handleAuthorizedRequest(
     });
     return;
   }
+  if (request.method === "POST" && url.pathname === "/v1/signed-sync/export") {
+    if (!options.store.signedSyncAvailable()) {
+      throw new RequestError(409, "signed_sync_unavailable");
+    }
+    const parsed = exportRequestSchema.safeParse(await readJson(request));
+    if (!parsed.success) {
+      throw new RequestError(400, "invalid_export_request");
+    }
+    sendJson(response, 200, {
+      batches: options.store.exportSignedMissing(parsed.data.frontier),
+      sourceFrontier: options.store.frontier(),
+    });
+    return;
+  }
   if (request.method === "POST" && url.pathname === "/v1/sync/apply") {
     const parsed = applyRequestSchema.safeParse(await readJson(request));
     if (!parsed.success) {
@@ -134,6 +151,22 @@ async function handleAuthorizedRequest(
     let applied = 0;
     for (const input of parsed.data.batches) {
       const result = options.store.receive(parseChangeBatch(input));
+      if (result.status === "applied") applied += 1;
+    }
+    sendJson(response, 200, { applied, frontier: options.store.frontier() });
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/v1/signed-sync/apply") {
+    if (!options.store.signedSyncAvailable()) {
+      throw new RequestError(409, "signed_sync_unavailable");
+    }
+    const parsed = applyRequestSchema.safeParse(await readJson(request));
+    if (!parsed.success) {
+      throw new RequestError(400, "invalid_apply_request");
+    }
+    let applied = 0;
+    for (const input of parsed.data.batches) {
+      const result = options.store.receiveSigned(input);
       if (result.status === "applied") applied += 1;
     }
     sendJson(response, 200, { applied, frontier: options.store.frontier() });

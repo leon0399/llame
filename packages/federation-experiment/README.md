@@ -16,11 +16,16 @@ The experiment currently proves:
 - an unknown semantic operation rejects its whole batch without partial state or
   frontier advancement; and
 - accepted batches are copied at the receive boundary so later caller mutation
-  cannot rewrite forwarded history.
+  cannot rewrite forwarded history; and
+- Ed25519 signatures bind a batch to an explicitly trusted writer stream and
+  reject forwarded payload mutation or cross-writer impersonation.
 
 `apps/personal-node` now exercises this core through a durable embedded store and
-an authenticated HTTP contract. The package still deliberately does not choose
-canonical encoding, signatures, snapshots, enrollment, or a public package API.
-`JSON.stringify` is only an in-process payload-equality sentinel here, not the
-future integrity format. The next valuable boundary is a second implementation
-of the same reconciliation contract against the hosted PostgreSQL projection.
+an authenticated HTTP contract. Signature v1 uses a domain-separated,
+field-ordered JSON encoding inside this TypeScript experiment; it is not a claim
+of cross-language canonicalization. The package still deliberately does not
+choose snapshots, enrollment, key rotation, or a public package API.
+`JSON.stringify` remains only an in-process payload-equality sentinel outside
+that explicitly ordered signature encoder. The next valuable boundary is a
+second implementation of the same reconciliation contract against the hosted
+PostgreSQL projection.

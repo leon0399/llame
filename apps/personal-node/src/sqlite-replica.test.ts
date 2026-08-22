@@ -3,6 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { messageBatch } from "@workspace/federation-experiment";
+import {
+  generateWriterIdentity,
+  signChangeBatch,
+} from "@workspace/federation-experiment/batch-signature";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
@@ -83,6 +87,87 @@ describe("SQLite personal Realm store", () => {
     ]);
     expect(reopened.exportMissing({})).toEqual([root]);
     reopened.close();
+  });
+
+  test("persists and forwards a verified writer signature after restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-personal-node-"));
+    temporaryDirectories.push(directory);
+    const desktop = generateWriterIdentity();
+    const options = {
+      databasePath: join(directory, "realm.sqlite"),
+      realmId: "realm-personal",
+      writerEpochs: { desktop: 1 },
+      trustedWriterKeys: { "desktop:1": desktop.publicKeyPem },
+    } as const;
+    const signed = signChangeBatch(
+      messageBatch({
+        realmId: "realm-personal",
+        writerStreamId: "desktop",
+        writerEpoch: 1,
+        sequence: 1,
+        dependencies: [],
+        chatId: "chat-1",
+        messageId: "message-signed",
+        parentMessageId: null,
+        text: "Durably signed",
+      }),
+      desktop.privateKeyPem,
+    );
+
+    const first = new SqlitePersonalRealmStore(options);
+    first.receiveSigned(signed);
+    first.close();
+
+    const reopened = new SqlitePersonalRealmStore(options);
+    expect(reopened.exportSignedMissing({})).toEqual([signed]);
+    expect(reopened.frontier()).toEqual({ desktop: 1 });
+    reopened.close();
+  });
+
+  test("rejects a tampered signed batch without advancing durable state", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-personal-node-"));
+    temporaryDirectories.push(directory);
+    const desktop = generateWriterIdentity();
+    const store = new SqlitePersonalRealmStore({
+      databasePath: join(directory, "realm.sqlite"),
+      realmId: "realm-personal",
+      writerEpochs: { desktop: 1 },
+      trustedWriterKeys: { "desktop:1": desktop.publicKeyPem },
+    });
+    const signed = signChangeBatch(
+      messageBatch({
+        realmId: "realm-personal",
+        writerStreamId: "desktop",
+        writerEpoch: 1,
+        sequence: 1,
+        dependencies: [],
+        chatId: "chat-1",
+        messageId: "message-signed",
+        parentMessageId: null,
+        text: "Original",
+      }),
+      desktop.privateKeyPem,
+    );
+
+    expect(() =>
+      store.receiveSigned({
+        ...signed,
+        batch: {
+          ...signed.batch,
+          operations: [
+            {
+              type: "append-message",
+              chatId: "chat-1",
+              messageId: "message-signed",
+              parentMessageId: null,
+              text: "Tampered",
+            },
+          ],
+        },
+      }),
+    ).toThrowError("invalid ChangeBatch signature");
+    expect(store.frontier()).toEqual({});
+    store.close();
   });
 
   test("persists a writer fence across restart", async () => {

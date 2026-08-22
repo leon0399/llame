@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+export const WRITER_STREAM_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+export const BATCH_REF_PATTERN =
+  /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}:[1-9][0-9]*$/;
+
 export interface ReplicaOptions {
   readonly realmId: string;
   readonly writerEpochs: Readonly<Record<string, number>>;
@@ -67,10 +71,10 @@ const appendMessageOperationSchema = z.strictObject({
 
 const changeBatchSchema: z.ZodType<ChangeBatch> = z.strictObject({
   realmId: z.string().min(1),
-  writerStreamId: z.string().min(1),
+  writerStreamId: z.string().regex(WRITER_STREAM_ID_PATTERN),
   writerEpoch: z.number().int().positive(),
   sequence: z.number().int().positive(),
-  dependencies: z.array(z.string().min(1)),
+  dependencies: z.array(z.string().regex(BATCH_REF_PATTERN)),
   operations: z.array(
     z.discriminatedUnion("type", [
       appendMessageOperationSchema,

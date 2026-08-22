@@ -4,9 +4,14 @@ export interface PersonalNodeConfig {
   readonly realmId: string;
   readonly bearerToken: string;
   readonly writerEpochs: Readonly<Record<string, number>>;
+  readonly trustedWriterKeyPaths?: Readonly<Record<string, string>>;
 }
 
 export type PersonalNodeCommand =
+  | {
+      readonly kind: "init-identity";
+      readonly directory: string;
+    }
   | {
       readonly kind: "serve";
       readonly node: PersonalNodeConfig;
@@ -18,6 +23,7 @@ export type PersonalNodeCommand =
       readonly node: PersonalNodeConfig;
       readonly peerUrl: string;
       readonly peerBearerToken: string;
+      readonly mode?: "signed";
     }
   | {
       readonly kind: "append";
@@ -25,6 +31,7 @@ export type PersonalNodeCommand =
       readonly chatId: string;
       readonly parentMessageId: string | null;
       readonly text: string;
+      readonly privateKeyPath?: string;
     };
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -54,7 +61,7 @@ function parseWriterEpochs(
   const epochs: Record<string, number> = {};
   for (const [writerStreamId, epoch] of Object.entries(parsed)) {
     if (
-      writerStreamId.length === 0 ||
+      !WRITER_STREAM_ID_PATTERN.test(writerStreamId) ||
       typeof epoch !== "number" ||
       !Number.isInteger(epoch) ||
       epoch <= 0
@@ -69,18 +76,57 @@ function parseWriterEpochs(
   return epochs;
 }
 
+function parseTrustedWriterKeyPaths(
+  input: string | undefined,
+): Readonly<Record<string, string>> | undefined {
+  if (input === undefined) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(input);
+  } catch {
+    throw new Error("LLAME_TRUSTED_WRITER_KEYS must be a JSON object");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("LLAME_TRUSTED_WRITER_KEYS must be a JSON object");
+  }
+  const paths: Record<string, string> = {};
+  for (const [writerAuthorization, path] of Object.entries(parsed)) {
+    const separator = writerAuthorization.lastIndexOf(":");
+    const writerStreamId = writerAuthorization.slice(0, separator);
+    const writerEpoch = Number(writerAuthorization.slice(separator + 1));
+    if (
+      !WRITER_STREAM_ID_PATTERN.test(writerStreamId) ||
+      !Number.isInteger(writerEpoch) ||
+      writerEpoch <= 0 ||
+      typeof path !== "string" ||
+      path.length === 0
+    ) {
+      throw new Error("LLAME_TRUSTED_WRITER_KEYS contains an invalid key path");
+    }
+    paths[writerAuthorization] = path;
+  }
+  if (Object.keys(paths).length === 0) {
+    throw new Error("LLAME_TRUSTED_WRITER_KEYS must not be empty");
+  }
+  return paths;
+}
+
 function parseNodeConfig(environment: Environment): PersonalNodeConfig {
   const nodeId = required(environment, "LLAME_NODE_ID");
   const bearerToken = required(environment, "LLAME_NODE_TOKEN");
   if (bearerToken.length < 16) {
     throw new Error("LLAME_NODE_TOKEN must contain at least 16 characters");
   }
+  const trustedWriterKeyPaths = parseTrustedWriterKeyPaths(
+    environment.LLAME_TRUSTED_WRITER_KEYS,
+  );
   return {
     databasePath: required(environment, "LLAME_NODE_DB"),
     nodeId,
     realmId: required(environment, "LLAME_REALM_ID"),
     bearerToken,
     writerEpochs: parseWriterEpochs(environment.LLAME_WRITER_EPOCHS, nodeId),
+    ...(trustedWriterKeyPaths === undefined ? {} : { trustedWriterKeyPaths }),
   };
 }
 
@@ -97,8 +143,15 @@ export function parsePersonalNodeCommand(
   arguments_: readonly string[],
   environment: Environment,
 ): PersonalNodeCommand {
-  const node = parseNodeConfig(environment);
   const command = arguments_[0] ?? "serve";
+  if (command === "init-identity") {
+    const directory = arguments_[1];
+    if (directory === undefined || directory.length === 0) {
+      throw new Error("init-identity requires a directory");
+    }
+    return { kind: "init-identity", directory };
+  }
+  const node = parseNodeConfig(environment);
   if (command === "serve") {
     const host = environment.LLAME_NODE_HOST ?? "127.0.0.1";
     if (host !== "127.0.0.1" && host !== "::1" && host !== "localhost") {
@@ -116,11 +169,19 @@ export function parsePersonalNodeCommand(
   if (command === "sync") {
     const peerUrl = arguments_[1];
     if (peerUrl === undefined) throw new Error("sync requires a peer URL");
+    const mode = environment.LLAME_SYNC_MODE;
+    if (mode !== undefined && mode !== "unsigned" && mode !== "signed") {
+      throw new Error("LLAME_SYNC_MODE must be unsigned or signed");
+    }
+    if (mode === "signed" && node.trustedWriterKeyPaths === undefined) {
+      throw new Error("signed sync requires LLAME_TRUSTED_WRITER_KEYS");
+    }
     return {
       kind: "sync",
       node,
       peerUrl,
       peerBearerToken: required(environment, "LLAME_PEER_TOKEN"),
+      ...(mode === "signed" ? { mode } : {}),
     };
   }
   if (command === "append") {
@@ -134,13 +195,22 @@ export function parsePersonalNodeCommand(
     ) {
       throw new Error("append requires CHAT_ID PARENT_MESSAGE_ID_OR_DASH TEXT");
     }
+    const privateKeyPath = environment.LLAME_WRITER_PRIVATE_KEY;
+    if (
+      privateKeyPath !== undefined &&
+      node.trustedWriterKeyPaths === undefined
+    ) {
+      throw new Error("signed append requires LLAME_TRUSTED_WRITER_KEYS");
+    }
     return {
       kind: "append",
       node,
       chatId,
       parentMessageId: encodedParent === "-" ? null : encodedParent,
       text,
+      ...(privateKeyPath === undefined ? {} : { privateKeyPath }),
     };
   }
   throw new Error(`unsupported personal Node command: ${command}`);
 }
+import { WRITER_STREAM_ID_PATTERN } from "@workspace/federation-experiment";

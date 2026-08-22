@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { messageBatch } from "@workspace/federation-experiment";
+import {
+  generateWriterIdentity,
+  signChangeBatch,
+} from "@workspace/federation-experiment/batch-signature";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { createPersonalNodeServer } from "./node-server.js";
@@ -34,6 +38,75 @@ describe("personal Node peer synchronization", () => {
         bearerToken: "source-node-secret",
       }),
     ).rejects.toThrowError("plaintext peer URL must use a loopback host");
+  });
+
+  test("reconciles durable signed envelopes without trusting the peer token as writer identity", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-signed-sync-"));
+    cleanup.push(() => rm(directory, { recursive: true, force: true }));
+    const desktop = generateWriterIdentity();
+    const storeOptions = {
+      realmId: "realm-personal",
+      writerEpochs: { desktop: 1 },
+      trustedWriterKeys: { "desktop:1": desktop.publicKeyPem },
+    } as const;
+    const source = new SqlitePersonalRealmStore({
+      ...storeOptions,
+      databasePath: join(directory, "source.sqlite"),
+    });
+    const target = new SqlitePersonalRealmStore({
+      ...storeOptions,
+      databasePath: join(directory, "target.sqlite"),
+    });
+    cleanup.push(
+      () => target.close(),
+      () => source.close(),
+    );
+    const signed = signChangeBatch(
+      messageBatch({
+        realmId: "realm-personal",
+        writerStreamId: "desktop",
+        writerEpoch: 1,
+        sequence: 1,
+        dependencies: [],
+        chatId: "chat-signed",
+        messageId: "message-signed",
+        parentMessageId: null,
+        text: "Signed on desktop",
+      }),
+      desktop.privateKeyPem,
+    );
+    source.receiveSigned(signed);
+    const server = createPersonalNodeServer({
+      nodeId: "node-source",
+      bearerToken: "source-node-secret",
+      store: source,
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    cleanup.push(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          server.close((error) => {
+            if (error === undefined) resolve();
+            else reject(error);
+          });
+        }),
+    );
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("test peer did not bind a TCP address");
+    }
+
+    const result = await syncFromPeer({
+      store: target,
+      peerUrl: `http://127.0.0.1:${address.port}`,
+      bearerToken: "source-node-secret",
+      mode: "signed",
+    });
+
+    expect(result.coverage).toBe("verified-complete");
+    expect(target.exportSignedMissing({})).toEqual([signed]);
   });
 
   test("runs another round when the peer advances during reconciliation", async () => {

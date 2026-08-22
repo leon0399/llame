@@ -409,5 +409,11 @@ describe("Personal Realm reconciliation experiment", () => {
     expect(() => parseChangeBatch({ ...valid, sequence: 0 })).toThrowError(
       "invalid ChangeBatch",
     );
+    expect(() =>
+      parseChangeBatch({ ...valid, writerStreamId: "desktop:forged" }),
+    ).toThrowError("invalid ChangeBatch");
+    expect(() =>
+      parseChangeBatch({ ...valid, dependencies: ["desktop:0"] }),
+    ).toThrowError("invalid ChangeBatch");
   });
 });

@@ -15,6 +15,19 @@ export LLAME_NODE_DB="$PWD/.local/personal-realm.sqlite"
 export LLAME_NODE_TOKEN=replace-with-at-least-16-random-characters
 ```
 
+Create a non-overwritable Ed25519 writer identity before first use:
+
+```bash
+pnpm --filter personal-node start init-identity "$PWD/.local"
+export LLAME_WRITER_PRIVATE_KEY="$PWD/.local/writer-identity/private.pem"
+export LLAME_TRUSTED_WRITER_KEYS='{"desktop:1":"/absolute/path/public.pem"}'
+```
+
+The trusted-writer map is `writerStreamId:writerEpoch` to public-key file, not
+public key content. Historical epoch keys remain configured so old events stay
+verifiable after rotation. Every participating Node must configure the same
+authorized writer epochs.
+
 Start its authenticated loopback API:
 
 ```bash
@@ -34,6 +47,11 @@ export LLAME_PEER_TOKEN=the-peer-node-token
 pnpm --filter personal-node start sync https://peer.example.test
 ```
 
+Add `LLAME_SYNC_MODE=signed` to exchange only signed envelopes through the
+separate signed-sync capability. Signed local appends are enabled when
+`LLAME_WRITER_PRIVATE_KEY` is configured. Without those settings the experiment
+uses its explicit unsigned compatibility path.
+
 All writers in a Realm must currently be pre-authorized with the same epoch map:
 
 ```bash
@@ -52,6 +70,8 @@ The authenticated API exposes:
 - `GET /v1/realm/frontier`
 - `POST /v1/sync/export`
 - `POST /v1/sync/apply`
+- `POST /v1/signed-sync/export`
+- `POST /v1/signed-sync/apply`
 - `GET /v1/chats/:chatId/branches`
 
 A reconciliation operation pulls peer batches beyond the local frontier, pushes
@@ -67,9 +87,10 @@ a structured `outcome_unknown` error containing the durable local frontier.
 
 ## Deliberate limits
 
-This is evidence, not a shipped federation protocol. It has no enrollment,
-keypairs, signed events, canonical event encoding, encrypted payloads, snapshots,
-compaction, Workspace execution, live Run proxying, or hosted PostgreSQL adapter.
-Node 22 also marks its built-in SQLite API experimental. The database and SQLite
-sidecars are forced to owner-only permissions, but the content is not encrypted
-at rest.
+This is evidence, not a shipped federation protocol. It has explicit Ed25519
+writer identities and signed event forwarding, but no enrollment, automated key
+rotation/revocation, cross-language canonical event standard, encrypted payloads,
+snapshots, compaction, Workspace execution, live Run proxying, or hosted
+PostgreSQL adapter. Node 22 also marks its built-in SQLite API experimental. The
+database, private key, and SQLite sidecars are forced to owner-only permissions,
+but event content is not encrypted at rest.

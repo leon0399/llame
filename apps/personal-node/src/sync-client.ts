@@ -22,6 +22,7 @@ export interface SyncFromPeerOptions {
   readonly store: SqlitePersonalRealmStore;
   readonly peerUrl: string;
   readonly bearerToken: string;
+  readonly mode?: "unsigned" | "signed";
 }
 
 export interface PeerSyncResult {
@@ -117,7 +118,8 @@ async function reconcileOnce(
   ) {
     throw new Error("plaintext peer URL must use a loopback host");
   }
-  const exportResponse = await fetch(new URL("/v1/sync/export", peerUrl), {
+  const syncPath = options.mode === "signed" ? "/v1/signed-sync" : "/v1/sync";
+  const exportResponse = await fetch(new URL(`${syncPath}/export`, peerUrl), {
     method: "POST",
     headers: {
       authorization: `Bearer ${options.bearerToken}`,
@@ -141,16 +143,20 @@ async function reconcileOnce(
 
   let pulled = 0;
   for (const input of exported.data.batches) {
-    const result = options.store.receive(parseChangeBatch(input));
+    const result =
+      options.mode === "signed"
+        ? options.store.receiveSigned(input)
+        : options.store.receive(parseChangeBatch(input));
     if (result.status === "applied") pulled += 1;
   }
   const localFrontier = options.store.frontier();
-  const batchesToPush = options.store.exportMissing(
-    exported.data.sourceFrontier,
-  );
+  const batchesToPush =
+    options.mode === "signed"
+      ? options.store.exportSignedMissing(exported.data.sourceFrontier)
+      : options.store.exportMissing(exported.data.sourceFrontier);
   let applied: z.infer<typeof applyResponseSchema>;
   try {
-    const applyResponse = await fetch(new URL("/v1/sync/apply", peerUrl), {
+    const applyResponse = await fetch(new URL(`${syncPath}/apply`, peerUrl), {
       method: "POST",
       headers: {
         authorization: `Bearer ${options.bearerToken}`,
