@@ -48,9 +48,11 @@ model. Web search is an end-to-end evaluation, not a special-case product limit.
 
 ### Human-readable knowledge is canonical
 
-Knowledge is primarily Markdown in Git-compatible repositories. For
-Home-managed knowledge, the accepted files and Git history are the source of
-record. Indexes and embeddings are rebuildable projections.
+Knowledge is primarily Markdown in filesystem directories that remain
+Git-compatible. Current files are authoritative for reads, including changes
+not yet committed. Git history becomes the recoverable change and
+synchronization record when that layer is enabled; it is not a prerequisite for
+reading. Indexes and embeddings are rebuildable projections.
 
 The agent is expected to create, extend, correct, and reorganize knowledge when
 asked. Those changes must be visible, attributable, and recoverable. A research
@@ -247,12 +249,14 @@ independent platform objective.
 
 ### Immediate cut: file-native personal intelligence
 
-The next sequence first gives the existing hosted Run loop bounded read and
-recoverable-write access to a manually linked personal Markdown/Git Knowledge
-Space and proves cross-Chat recall. That repository service then backs one
-Git-based Profile Space containing `USER.md`, `SOUL.md`, and `AGENTS.md`, whose
-exact revision is bound into inspectable Run context. Only after that replacement
-works does llame retire the duplicated database-authored personalization surface.
+The next sequence first lets an authenticated owner self-service one personal
+Markdown Knowledge Space beneath an operator-configured root and gives the
+existing hosted Run loop bounded reads over its live files. The next layer adds
+recoverable Git-backed agent writes and proves cross-Chat recall. That Git change
+path then backs one Profile Space containing `USER.md`, `SOUL.md`, and
+`AGENTS.md`, whose exact revision is bound into inspectable Run context. Only
+after that replacement works does llame retire the duplicated database-authored
+personalization surface.
 
 Profile files are edited as files by the user or an authorized agent. The
 immediate cut does not require a profile editor UI, multiple Agent Profiles,
