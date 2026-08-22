@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-22
 
+- **Federated schema evolution**: selected layered capability negotiation,
+  authority-fenced semantic writer activation, atomic batch/frontier rules,
+  fail-closed handling of unknown policy and control semantics, compatible
+  snapshot recovery, and honest per-resource degraded modes. Separated portable
+  semantic migration from rebuildable local projections and rejected both
+  federation-wide lockstep upgrades and indefinite permissive decoding without
+  changing shipped behavior, specifications, or roadmap.
 - **Cross-authority information flow**: selected destination-first Runs, trusted
   source provenance and policy metadata, exact sink checks before exposure,
   restrictive multi-source composition, and conservative propagation through

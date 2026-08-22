@@ -200,6 +200,21 @@ queues, dependency injection, and tenancy enforcement remain implementation
 details. Pure domain algorithms become shared code only after real reuse proves
 their boundary; llame will not pre-build a universal storage abstraction.
 
+Nodes upgrade independently. Compatibility is negotiated per protocol module,
+portable resource schema, policy semantics, snapshot format, and executor
+capability rather than inferred from one product version. Negotiation establishes
+technical compatibility, not write authority. The governing authority activates a
+new semantic writer only after fencing writers that cannot preserve its meaning.
+
+A replica advances its applied frontier only after understanding and applying a
+complete semantic batch. Unknown authorization, policy, control, provenance, or
+required resource operations fail closed; an affected resource may become
+read-only, incomplete, or update-required while compatible modules continue. A
+snapshot cannot replace valid state unless its schema and coverage are understood.
+Compatibility is finite: rebuildable local projections may version independently,
+but llame will not preserve every historical semantic writer forever or hide
+meaningful incompatibility behind permissive decoding.
+
 In-process dispatch, local IPC or loopback, direct network connections, and
 authenticated reverse tunnels preserve the same operation, authorization,
 idempotency, error, and recovery semantics. A cheaper local transport does not
@@ -340,8 +355,10 @@ the
 [authority connections and writer grants decision](docs/research/product-vision/2026-08-22-authority-connections-and-writer-grants.md),
 the
 [Personal Realm control and replication decision](docs/research/product-vision/2026-08-22-personal-realm-control-and-replication-topology.md),
+the
+[cross-authority information-flow decision](docs/research/product-vision/2026-08-22-cross-authority-information-flow-and-derived-data.md),
 and the
-[cross-authority information-flow decision](docs/research/product-vision/2026-08-22-cross-authority-information-flow-and-derived-data.md).
+[federated schema-evolution decision](docs/research/product-vision/2026-08-22-federated-schema-evolution-and-compatibility.md).
 
 ## Staged horizons
 
