@@ -14,6 +14,7 @@ import { createPersonalNodeServer } from "./node-server.js";
 import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import { SqliteRunControlStore } from "./run-control-store.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
+import { WorkspaceRegistry } from "./workspace-registry.js";
 
 describe("personal Node Protocol server", () => {
   const temporaryDirectories: string[] = [];
@@ -708,6 +709,22 @@ describe("personal Node Protocol server", () => {
       bearerToken: "owner-control-secret",
       store,
       runControlStore,
+      workspaceRegistry: new WorkspaceRegistry([
+        {
+          id: "workspace-code",
+          label: "Code",
+          rootPath: "/srv/workspaces/code",
+          entryPolicy: "auto-approve",
+          recoveryPolicy: "fallback",
+        },
+        {
+          id: "workspace-private",
+          label: "Private",
+          rootPath: "/srv/workspaces/private",
+          entryPolicy: "ask",
+          recoveryPolicy: "wait",
+        },
+      ]),
     });
     servers.push(server);
     await new Promise<void>((resolve) =>
@@ -730,15 +747,38 @@ describe("personal Node Protocol server", () => {
         executorNodeId: "node-workstation",
       }),
     });
-
-    const attached = await fetch(`${origin}/v1/runs/run-workspace/workspace`, {
+    await fetch(`${origin}/v1/runs`, {
       method: "POST",
       headers,
       body: JSON.stringify({
-        workspaceId: "workspace-code",
-        policy: "fallback",
+        runId: "run-needs-approval",
+        executorNodeId: "node-workstation",
       }),
     });
+
+    const attached = await fetch(
+      `${origin}/v1/runs/run-workspace/workspace/enter`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ workspaceId: "workspace-code" }),
+      },
+    );
+    const approvalRequired = await fetch(
+      `${origin}/v1/runs/run-needs-approval/workspace/enter`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ workspaceId: "workspace-private" }),
+      },
+    );
+    const approval = (await approvalRequired.json()) as {
+      requestId: string;
+    };
+    const approved = await fetch(
+      `${origin}/v1/workspace-entry-requests/${approval.requestId}/approve`,
+      { method: "POST", headers, body: "{}" },
+    );
     const unavailable = await fetch(
       `${origin}/v1/runs/run-workspace/workspace/unavailable`,
       {
@@ -765,6 +805,12 @@ describe("personal Node Protocol server", () => {
     );
 
     expect(attached.status).toBe(201);
+    expect(approvalRequired.status).toBe(202);
+    expect(approved.status).toBe(200);
+    expect(await approved.json()).toMatchObject({
+      workspaceId: "workspace-private",
+      policy: "wait",
+    });
     expect(unavailable.status).toBe(202);
     expect(await unavailable.json()).toMatchObject({
       state: {

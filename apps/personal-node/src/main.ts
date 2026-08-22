@@ -27,6 +27,8 @@ import { SqliteRunRouteRegistry } from "./run-route-registry.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 import { syncFromPeer } from "./sync-client.js";
 import { initializeWriterIdentity } from "./writer-identity.js";
+import { loadWorkspaceManifest } from "./workspace-manifest.js";
+import { WorkspaceRegistry } from "./workspace-registry.js";
 
 async function openStore(
   config: PersonalNodeConfig,
@@ -349,6 +351,12 @@ async function run(): Promise<void> {
               mode: "signed",
             }),
         });
+  const workspaceRegistry =
+    command.workspaceManifestPath === undefined
+      ? undefined
+      : new WorkspaceRegistry(
+          await loadWorkspaceManifest(command.workspaceManifestPath),
+        );
   const server = createPersonalNodeServer({
     nodeId: command.node.nodeId,
     bearerToken: command.node.bearerToken,
@@ -360,6 +368,7 @@ async function run(): Promise<void> {
     ...(peerSync === undefined
       ? {}
       : { peerSyncStatus: () => peerSync.snapshot() }),
+    ...(workspaceRegistry === undefined ? {} : { workspaceRegistry }),
   });
   try {
     await new Promise<void>((resolve, reject) => {

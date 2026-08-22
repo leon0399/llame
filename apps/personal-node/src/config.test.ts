@@ -154,6 +154,18 @@ describe("personal Node command configuration", () => {
     });
   });
 
+  test("loads only an explicitly configured Workspace manifest", () => {
+    expect(
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_WORKSPACE_MANIFEST: "/etc/llame/workspaces.json",
+      }),
+    ).toMatchObject({
+      kind: "serve",
+      workspaceManifestPath: "/etc/llame/workspaces.json",
+    });
+  });
+
   test("refuses a directly reachable listener in favor of a secure tunnel", () => {
     expect(() =>
       parsePersonalNodeCommand(["serve"], {

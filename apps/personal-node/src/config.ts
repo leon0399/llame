@@ -49,6 +49,7 @@ export type PersonalNodeCommand =
       readonly node: PersonalNodeConfig;
       readonly host: string;
       readonly port: number;
+      readonly workspaceManifestPath?: string;
       readonly peerSync?: {
         readonly peerId: string;
         readonly peerUrl: string;
@@ -497,6 +498,9 @@ export function parsePersonalNodeCommand(
       node,
       host: parseHost(environment.LLAME_NODE_HOST),
       port: parsePort(environment.LLAME_NODE_PORT),
+      ...(environment.LLAME_WORKSPACE_MANIFEST === undefined
+        ? {}
+        : { workspaceManifestPath: environment.LLAME_WORKSPACE_MANIFEST }),
       ...(peerSync === undefined ? {} : { peerSync }),
     };
   }

@@ -18,6 +18,7 @@ import type { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import type { SignedRealmRunAuthor } from "./realm-run-author.js";
 import type { PeerSyncStatus } from "./peer-sync-supervisor.js";
 import type { SqliteRunControlStore } from "./run-control-store.js";
+import type { WorkspaceRegistry } from "./workspace-registry.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -68,6 +69,9 @@ const workspaceAffinityRequestSchema = z.strictObject({
   workspaceId: z.string().min(1).max(200),
   policy: z.enum(["ask", "wait", "fallback", "exit"]),
 });
+const workspaceEntryRequestSchema = z.strictObject({
+  workspaceId: z.string().min(1).max(200),
+});
 const workspaceUnavailableRequestSchema = z.strictObject({
   executorNodeId: z.string().regex(WRITER_STREAM_ID_PATTERN),
   continuationExecutorNodeId: z
@@ -95,6 +99,7 @@ export interface PersonalNodeServerOptions {
   readonly journalRunProjection?: boolean;
   readonly journalRunAuthor?: SignedRealmRunAuthor;
   readonly peerSyncStatus?: () => PeerSyncStatus;
+  readonly workspaceRegistry?: WorkspaceRegistry;
 }
 
 type RequestPrincipal =
@@ -164,13 +169,19 @@ function routeRequirement(
   ) {
     return "owner";
   }
+  if (
+    request.method === "POST" &&
+    /^\/v1\/workspace-entry-requests\/[^/]+\/approve$/.test(url.pathname)
+  ) {
+    return "owner";
+  }
   if (request.method === "POST" && url.pathname === "/v1/runs") {
     return "run.control";
   }
   if (
     request.method === "POST" &&
     (/^\/v1\/runs\/[^/]+\/authority$/.test(url.pathname) ||
-      /^\/v1\/runs\/[^/]+\/workspace(?:\/(?:unavailable|recovered|choice))?$/.test(
+      /^\/v1\/runs\/[^/]+\/workspace(?:\/(?:enter|unavailable|recovered|choice))?$/.test(
         url.pathname,
       ))
   ) {
@@ -178,7 +189,8 @@ function routeRequirement(
   }
   if (
     request.method === "GET" &&
-    (/^\/v1\/runs\/[^/]+\/control$/.test(url.pathname) ||
+    (url.pathname === "/v1/workspaces" ||
+      /^\/v1\/runs\/[^/]+\/control$/.test(url.pathname) ||
       /^\/v1\/runs\/[^/]+\/workspace$/.test(url.pathname))
   ) {
     return "run.observe";
@@ -300,7 +312,10 @@ async function handleAuthorizedRequest(
               : options.runControlStore === undefined
                 ? { available: false }
                 : { version: 1, mode: "read-write" },
-        "execution.workspace": { available: false },
+        "execution.workspace":
+          options.workspaceRegistry === undefined
+            ? { available: false }
+            : { version: 1, mode: "policy-gated-affinity" },
       },
     });
     return;
@@ -392,6 +407,37 @@ async function handleAuthorizedRequest(
       throw new RequestError(409, "local_writer_unavailable");
     }
     sendJson(response, 201, options.runControlStore?.createRun(parsed.data));
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/v1/workspaces") {
+    if (options.workspaceRegistry === undefined) {
+      throw new RequestError(409, "workspace_registry_unavailable");
+    }
+    sendJson(response, 200, { workspaces: options.workspaceRegistry.list() });
+    return;
+  }
+  const workspaceApprovalRoute =
+    /^\/v1\/workspace-entry-requests\/([^/]+)\/approve$/.exec(url.pathname);
+  if (request.method === "POST" && workspaceApprovalRoute !== null) {
+    const runControlStore = options.runControlStore;
+    if (
+      options.workspaceRegistry === undefined ||
+      runControlStore === undefined
+    ) {
+      throw new RequestError(409, "workspace_registry_unavailable");
+    }
+    const parsed = emptyRequestSchema.safeParse(await readJson(request));
+    if (!parsed.success)
+      throw new RequestError(400, "invalid_approval_request");
+    const state = options.workspaceRegistry.approve(
+      decodePathIdentity(workspaceApprovalRoute[1], "request_id"),
+      (approved) =>
+        runControlStore.createWorkspaceAffinity(approved.runId, {
+          workspaceId: approved.workspace.id,
+          policy: approved.workspace.recoveryPolicy,
+        }),
+    );
+    sendJson(response, 200, state);
     return;
   }
   const runRoute =
@@ -531,7 +577,7 @@ async function handleAuthorizedRequest(
     }
   }
   const workspaceRoute =
-    /^\/v1\/runs\/([^/]+)\/workspace(?:\/(unavailable|recovered|choice))?$/.exec(
+    /^\/v1\/runs\/([^/]+)\/workspace(?:\/(enter|unavailable|recovered|choice))?$/.exec(
       url.pathname,
     );
   if (workspaceRoute !== null) {
@@ -540,6 +586,34 @@ async function handleAuthorizedRequest(
     }
     const runId = decodePathIdentity(workspaceRoute[1], "run_id");
     const action = workspaceRoute[2];
+    if (request.method === "POST" && action === "enter") {
+      if (options.workspaceRegistry === undefined) {
+        throw new RequestError(409, "workspace_registry_unavailable");
+      }
+      const parsed = workspaceEntryRequestSchema.safeParse(
+        await readJson(request),
+      );
+      if (!parsed.success) {
+        throw new RequestError(400, "invalid_workspace_entry_request");
+      }
+      const decision = options.workspaceRegistry.requestEntry(
+        runId,
+        parsed.data.workspaceId,
+      );
+      if (decision.status === "approval-required") {
+        sendJson(response, 202, decision);
+        return;
+      }
+      sendJson(
+        response,
+        201,
+        options.runControlStore.createWorkspaceAffinity(runId, {
+          workspaceId: decision.workspace.id,
+          policy: decision.workspace.recoveryPolicy,
+        }),
+      );
+      return;
+    }
     if (request.method === "GET" && action === undefined) {
       sendJson(
         response,
@@ -549,6 +623,9 @@ async function handleAuthorizedRequest(
       return;
     }
     if (request.method === "POST" && action === undefined) {
+      if (options.workspaceRegistry !== undefined) {
+        throw new RequestError(409, "enter_workspace_tool_required");
+      }
       const parsed = workspaceAffinityRequestSchema.safeParse(
         await readJson(request),
       );

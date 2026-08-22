@@ -267,6 +267,42 @@ It does not expose the peer origin, credential, or raw error. Shutdown waits for
 an in-flight attempt before closing the Realm database. Continuous mode is
 signed-only and requires the trusted writer-key map.
 
+## Manually registered Workspaces
+
+The serving node can advertise only an operator-written Workspace manifest. It
+does not scan directories, clone repositories, or accept caller-supplied paths
+or policies:
+
+```json
+[
+  {
+    "id": "llame",
+    "label": "llame",
+    "rootPath": "/srv/workspaces/llame",
+    "entryPolicy": "ask",
+    "recoveryPolicy": "fallback"
+  }
+]
+```
+
+```bash
+export LLAME_WORKSPACE_MANIFEST="$PWD/.local/workspaces.json"
+pnpm --filter personal-node start serve
+```
+
+`GET /v1/workspaces` exposes only IDs and labels. `EnterWorkspace` maps to
+`POST /v1/runs/:runId/workspace/enter`: `auto-approve` creates the Run affinity
+immediately, while `ask` returns a one-time request that the owner must approve
+through `POST /v1/workspace-entry-requests/:requestId/approve`. The caller
+cannot downgrade either entry or recovery policy. When a registry is enabled,
+the older direct-affinity endpoint is disabled to prevent bypassing this policy
+boundary.
+
+This slice records policy-gated Workspace affinity only. It deliberately does
+not bind `rootPath` into a sandbox, change an executor's working directory, or
+create a Git worktree yet; the capability reports `policy-gated-affinity`
+rather than claiming executable Workspace placement.
+
 All writers in a Realm must currently be pre-authorized with the same epoch map:
 
 ```bash
@@ -297,6 +333,9 @@ The authenticated API exposes:
 - `POST /v1/runs/:runId/commands`
 - `GET /v1/runs/:runId/commands?after=:commandCursor`
 - `POST /v1/runs/:runId/authority`
+- `GET /v1/workspaces`
+- `POST /v1/runs/:runId/workspace/enter`
+- `POST /v1/workspace-entry-requests/:requestId/approve`
 - `POST /v1/runs/:runId/workspace`
 - `GET /v1/runs/:runId/workspace`
 - `POST /v1/runs/:runId/workspace/unavailable`
