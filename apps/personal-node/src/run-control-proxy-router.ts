@@ -45,6 +45,26 @@ const runSnapshotSchema = z.strictObject({
   cursor: z.number().int().nonnegative(),
   events: z.array(z.unknown()),
 });
+const moduleCapabilitySchema = z.union([
+  z.strictObject({ available: z.literal(false) }),
+  z.strictObject({
+    version: z.number().int().positive(),
+    mode: z.string().min(1).max(64),
+  }),
+]);
+const peerCapabilitiesSchema = z.object({
+  protocol: z.strictObject({
+    name: z.literal("llame-node"),
+    version: z.number().int().positive(),
+  }),
+  node: z
+    .object({
+      id: z.string().min(1).max(128).optional(),
+      profile: z.string().min(1).max(128),
+    })
+    .optional(),
+  modules: z.record(z.string().min(1).max(200), moduleCapabilitySchema),
+});
 
 type RunSnapshot = z.infer<typeof runSnapshotSchema>;
 
@@ -173,6 +193,37 @@ async function observePeerRun(
   return parsed.data;
 }
 
+async function observePeerCapabilities(peer: RunControlProxyPeer): Promise<{
+  readonly peerId: string;
+  readonly status: "available" | "unavailable";
+  readonly capabilities?: z.infer<typeof peerCapabilitiesSchema>;
+}> {
+  try {
+    const response = await fetch(
+      new URL("/v1/capabilities", parseRunControlPeerOrigin(peer.peerUrl)),
+      {
+        headers: { authorization: `Bearer ${peer.peerBearerToken}` },
+        redirect: "error",
+        signal: AbortSignal.timeout(5_000),
+      },
+    );
+    if (!response.ok) return { peerId: peer.peerId, status: "unavailable" };
+    const input: unknown = JSON.parse(
+      (await readRunControlResponseBody(response)).toString("utf8"),
+    );
+    const parsed = peerCapabilitiesSchema.safeParse(input);
+    return parsed.success
+      ? {
+          peerId: peer.peerId,
+          status: "available",
+          capabilities: parsed.data,
+        }
+      : { peerId: peer.peerId, status: "unavailable" };
+  } catch {
+    return { peerId: peer.peerId, status: "unavailable" };
+  }
+}
+
 function targetExtendsCurrentRun(
   current: RunSnapshot,
   target: RunSnapshot,
@@ -276,6 +327,19 @@ export function createRunControlProxyRouterServer(
         modules: {
           "execution.run-control": { version: 1, mode: "proxy-router" },
         },
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/v1/proxy/peers") {
+      void Promise.all(
+        [...peers.values()]
+          .sort((left, right) => left.peerId.localeCompare(right.peerId))
+          .map((peer) => observePeerCapabilities(peer)),
+      ).then((peerStatuses) => {
+        sendRunControlProxyJson(response, 200, {
+          observedAt: new Date().toISOString(),
+          peers: peerStatuses,
+        });
       });
       return;
     }
@@ -398,6 +462,10 @@ export function createRunControlProxyRouterServer(
             peerBearerToken: peer.peerBearerToken,
             ...(options.cache === undefined ? {} : { cache: options.cache }),
             cacheKeyPrefix: `${route.peerId}:${route.routeEpoch}:`,
+            failureContext: {
+              peerId: route.peerId,
+              routeEpoch: route.routeEpoch,
+            },
           },
           body,
         );

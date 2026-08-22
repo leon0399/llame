@@ -29,6 +29,7 @@ export interface RunControlProxyTunnelOptions {
   readonly peerBearerToken: string;
   readonly cache?: SqliteRunControlProxyCache;
   readonly cacheKeyPrefix?: string;
+  readonly failureContext?: Readonly<Record<string, string | number>>;
 }
 
 export function parseRunControlPeerOrigin(input: string): URL {
@@ -193,6 +194,9 @@ export async function tunnelRunControlRequest(
       method === "GET" ? options.cache?.get(requestKey) : undefined;
     sendRunControlProxyJson(response, 503, {
       error: "upstream_unavailable",
+      ...(options.failureContext === undefined
+        ? {}
+        : { context: options.failureContext }),
       ...(method === "POST" ? { outcome: "outcome_unknown" } : {}),
       ...(lastKnown === undefined || lastKnown === null ? {} : { lastKnown }),
     });
@@ -206,6 +210,9 @@ export async function tunnelRunControlRequest(
       method === "GET" ? options.cache?.get(requestKey) : undefined;
     sendRunControlProxyJson(response, 502, {
       error: "invalid_upstream_response",
+      ...(options.failureContext === undefined
+        ? {}
+        : { context: options.failureContext }),
       ...(method === "POST" ? { outcome: "outcome_unknown" } : {}),
       ...(lastKnown === undefined || lastKnown === null ? {} : { lastKnown }),
     });

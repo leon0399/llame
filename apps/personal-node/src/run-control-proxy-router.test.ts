@@ -303,7 +303,10 @@ describe("multi-peer Run-control proxy", () => {
 
     expect(observed.status).toBe(200);
     expect(afterMove.status).toBe(503);
-    expect(await afterMove.json()).toEqual({ error: "upstream_unavailable" });
+    expect(await afterMove.json()).toEqual({
+      error: "upstream_unavailable",
+      context: { peerId: "laptop", routeEpoch: 2 },
+    });
   });
 
   test("verifies replicated semantic state before changing a peer route", async () => {
@@ -411,5 +414,79 @@ describe("multi-peer Run-control proxy", () => {
         cursor: 1,
       },
     });
+  });
+
+  test("reports configured peer availability without exposing origins or credentials", async () => {
+    const availableServer = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          protocol: { name: "llame-node", version: 1 },
+          node: { id: "workstation", profile: "single-owner-personal" },
+          modules: {
+            "execution.run-control": { version: 1, mode: "read-write" },
+          },
+        }),
+      );
+    });
+    const unavailableServer = createServer((request) => {
+      request.socket.destroy();
+    });
+    servers.push(availableServer, unavailableServer);
+    const availableOrigin = await listen(availableServer);
+    const unavailableOrigin = await listen(unavailableServer);
+    const router = createRunControlProxyRouterServer({
+      localBearerToken: "phone-facing-secret",
+      peers: [
+        {
+          peerId: "workstation",
+          peerUrl: availableOrigin,
+          peerBearerToken: "workstation-secret",
+        },
+        {
+          peerId: "laptop",
+          peerUrl: unavailableOrigin,
+          peerBearerToken: "laptop-peer-secret",
+        },
+      ],
+      routes: {
+        resolve: () => null,
+        bind: () => {
+          throw new Error("not used");
+        },
+        rebind: () => {
+          throw new Error("not used");
+        },
+      },
+    });
+    servers.push(router);
+    const origin = await listen(router);
+
+    const response = await fetch(`${origin}/v1/proxy/peers`, {
+      headers: { authorization: "Bearer phone-facing-secret" },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      peers: [
+        {
+          peerId: "laptop",
+          status: "unavailable",
+        },
+        {
+          peerId: "workstation",
+          status: "available",
+          capabilities: {
+            protocol: { name: "llame-node", version: 1 },
+            modules: {
+              "execution.run-control": { version: 1, mode: "read-write" },
+            },
+          },
+        },
+      ],
+    });
+    expect(JSON.stringify(body)).not.toContain(availableOrigin);
+    expect(JSON.stringify(body)).not.toContain("workstation-secret");
   });
 });

@@ -154,6 +154,14 @@ silently choose another executor. Cache keys include peer and route epoch, so
 observations from before an explicit rebind cannot masquerade as state from the
 new peer.
 
+`GET /v1/proxy/peers` probes the configured peers' authenticated capability
+documents and returns only peer IDs, availability, and a narrow validated
+capability shape. It omits origins and credentials. This is an observation for
+UI recovery choices, not a health lease: availability can change immediately
+after the response. Routed proxy failures similarly include only the safe peer
+ID and route epoch, allowing a client to connect the failure to the durable
+route without learning transport or credential configuration.
+
 Instead of distributing the peer's owner-control token, enroll once and persist
 a revocable credential. `LLAME_PEER_TOKEN` authorizes only the bootstrap request;
 the issued credential is never printed and the destination must not already
