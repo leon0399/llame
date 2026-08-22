@@ -1,7 +1,14 @@
-import type {
-  DockerSandboxPlan,
-  DockerSandboxSecurityContract,
-} from "./sandbox-container-contract.js";
+import type { DockerSandboxPlan } from "./sandbox-container-contract.js";
+
+export interface ObservedSandboxSecurity {
+  readonly networkMode: string;
+  readonly ipcMode: string;
+  readonly cgroupNamespace: string;
+  readonly droppedCapabilities: readonly string[];
+  readonly securityOptions: readonly string[];
+  readonly readOnlyRoot: boolean;
+  readonly pidsLimit: number | null;
+}
 
 export interface SandboxContainerObservation {
   readonly containerName: string;
@@ -12,7 +19,7 @@ export interface SandboxContainerObservation {
   readonly user: string;
   readonly workspaceSourceRealpath: string;
   readonly homeVolumeName: string;
-  readonly security: DockerSandboxSecurityContract;
+  readonly security: ObservedSandboxSecurity;
 }
 
 export interface SandboxContainerEngine {
@@ -90,15 +97,19 @@ export class DockerSandboxLifecycle {
   }
 
   #securityMatches(
-    observed: DockerSandboxSecurityContract,
-    expected: DockerSandboxSecurityContract,
+    observed: ObservedSandboxSecurity,
+    expected: DockerSandboxPlan["security"],
   ): boolean {
     return (
       observed.networkMode === expected.networkMode &&
       observed.ipcMode === expected.ipcMode &&
       observed.cgroupNamespace === expected.cgroupNamespace &&
-      observed.droppedCapabilities === expected.droppedCapabilities &&
-      observed.noNewPrivileges === expected.noNewPrivileges &&
+      observed.droppedCapabilities.length === 1 &&
+      observed.droppedCapabilities[0]?.toUpperCase() ===
+        expected.droppedCapabilities &&
+      observed.securityOptions.some((option) =>
+        ["no-new-privileges", "no-new-privileges=true"].includes(option),
+      ) === expected.noNewPrivileges &&
       observed.readOnlyRoot === expected.readOnlyRoot &&
       observed.pidsLimit === expected.pidsLimit
     );

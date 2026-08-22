@@ -28,7 +28,15 @@ function observation(
     user: plan.user,
     workspaceSourceRealpath: plan.workspaceSourceRealpath,
     homeVolumeName: plan.homeVolumeName,
-    security: plan.security,
+    security: {
+      networkMode: plan.security.networkMode,
+      ipcMode: plan.security.ipcMode,
+      cgroupNamespace: plan.security.cgroupNamespace,
+      droppedCapabilities: [plan.security.droppedCapabilities],
+      securityOptions: ["no-new-privileges"],
+      readOnlyRoot: plan.security.readOnlyRoot,
+      pidsLimit: plan.security.pidsLimit,
+    },
     ...override,
   };
 }
@@ -102,6 +110,19 @@ describe("Docker Sandbox lifecycle", () => {
     ).rejects.toThrowError("Sandbox container contract mismatch");
     expect(containerEngine.start).not.toHaveBeenCalled();
     expect(containerEngine.remove).not.toHaveBeenCalled();
+  });
+
+  test("rejects a same-name container with weaker isolation", async () => {
+    const unsafe = observation();
+    const containerEngine = engine(async () => ({
+      ...unsafe,
+      security: { ...unsafe.security, networkMode: "bridge" },
+    }));
+
+    await expect(
+      new DockerSandboxLifecycle(containerEngine).enter(plan),
+    ).rejects.toThrowError("Sandbox container contract mismatch");
+    expect(containerEngine.start).not.toHaveBeenCalled();
   });
 
   test("removes only a matching container on exit", async () => {
