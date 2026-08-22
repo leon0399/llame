@@ -103,7 +103,6 @@ export class GitWorktreeManager {
       worktreePath: join(worktreeRoot, input.runId),
       branchName: input.branchName,
     };
-    await this.recoverPending();
     const existing = this.binding(input.runId);
     if (existing !== null) {
       if (JSON.stringify(existing) !== JSON.stringify(binding)) {
@@ -124,22 +123,36 @@ export class GitWorktreeManager {
         binding.worktreePath,
         binding.branchName,
       );
-    await run("git", [
-      "-C",
-      repositoryRoot,
-      "worktree",
-      "add",
-      "--no-track",
-      "-b",
-      input.branchName,
-      binding.worktreePath,
-      "HEAD",
-    ]);
-    this.#database
-      .prepare(
-        "UPDATE git_worktree_bindings SET state = 'active' WHERE run_id = ?",
-      )
-      .run(input.runId);
+    try {
+      await run("git", [
+        "-C",
+        repositoryRoot,
+        "worktree",
+        "add",
+        "--no-track",
+        "-b",
+        input.branchName,
+        binding.worktreePath,
+        "HEAD",
+      ]);
+      this.#database
+        .prepare(
+          "UPDATE git_worktree_bindings SET state = 'active' WHERE run_id = ?",
+        )
+        .run(input.runId);
+    } catch (error) {
+      try {
+        await realpath(binding.worktreePath);
+      } catch (pathError) {
+        if ((pathError as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw pathError;
+        }
+        this.#database
+          .prepare("DELETE FROM git_worktree_bindings WHERE run_id = ?")
+          .run(input.runId);
+      }
+      throw error;
+    }
     return structuredClone(binding);
   }
 
