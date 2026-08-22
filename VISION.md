@@ -270,6 +270,26 @@ for membership, accepted revisions, retention, replication, and information flow
 Offline shared writes remain proposals unless that authority defines a stronger
 merge contract.
 
+Personal Replica Enrollment and foreign Authority Connections are different trust
+relationships. Enrollment admits one node profile to the same Personal Realm for
+mirroring and explicitly granted authorship. A connection authenticates one local
+profile as one authority-local subject and routes exact mounted resources; it does
+not merge identities or enroll the foreign authority as a personal replica. A
+profile may hold several separately brokered connections, including different
+subjects at one authority, and every mount selects one explicitly.
+
+When two populated profiles with different Personal Realm identities link, llame
+does not hide an authority merge inside first synchronization. The user approves a
+fenced Realm join that selects one destination authority, transfers the source
+namespaces' Authority Bindings, retires source writer grants, and preserves every
+resource and historical batch identity. Ordinary reconciliation starts only after
+that identity transition. An empty side simply adopts the populated Realm.
+
+A Writer Grant is durable non-secret authority state binding one author stream to
+specific resources, operations, and online or offline behavior. Current node or
+subject credentials prove who may exercise it; caller-supplied grant IDs never
+authorize themselves.
+
 Long-lived foreign and inference-provider credentials stay at their owning Node
 or broker. An executor receives a proxied operation or narrow delegation, not the
 reusable upstream secret. Credential secrecy does not imply data locality:
@@ -282,8 +302,10 @@ the
 [multi-authority federation research](docs/research/product-vision/2026-08-21-multi-authority-federation-models.md),
 the
 [federated runtime topology decision](docs/research/product-vision/2026-08-22-federated-runtime-topology.md),
+the
+[federated resource identity decision](docs/research/product-vision/2026-08-22-federated-resource-identity-and-change-envelope.md),
 and the
-[federated resource identity decision](docs/research/product-vision/2026-08-22-federated-resource-identity-and-change-envelope.md).
+[authority connections and writer grants decision](docs/research/product-vision/2026-08-22-authority-connections-and-writer-grants.md).
 
 ## Staged horizons
 

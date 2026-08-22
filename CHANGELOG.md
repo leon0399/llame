@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-22
 
+- **Federated authority connections**: separated Personal Replica Enrollment,
+  foreign Authority Connections, non-secret Writer Grants, and broker-local
+  credentials. Defined explicit populated-Realm joining before ordinary sync,
+  exact multi-account mount selection, narrow executor delegation, and honest
+  revocation/failure behavior without changing the shipped authentication system,
+  specification, or roadmap.
 - **Federated resource identity**: selected namespace-scoped resource references,
   versioned current-authority bindings, and immutable causal semantic batches from
   authority-scoped writer streams. Clarified that UUIDs prevent accidental create
