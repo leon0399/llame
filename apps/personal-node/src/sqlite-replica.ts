@@ -30,7 +30,12 @@ function containsRunControlOperation(batch: ChangeBatch): boolean {
       operation.type === "create-run" ||
       operation.type === "append-run-event" ||
       operation.type === "submit-run-command" ||
-      operation.type === "transfer-run-authority",
+      operation.type === "transfer-run-authority" ||
+      operation.type === "attach-workspace" ||
+      operation.type === "workspace-executor-unavailable" ||
+      operation.type === "choose-workspace-recovery" ||
+      operation.type === "workspace-executor-recovered" ||
+      operation.type === "exit-workspace",
   );
 }
 
@@ -234,6 +239,12 @@ export class SqlitePersonalRealmStore {
     commandSequence: number,
   ): ReturnType<InMemoryReplica["runCommandsAfter"]> {
     return this.#replica.runCommandsAfter(runId, commandSequence);
+  }
+
+  public workspaceRecoveryState(
+    runId: string,
+  ): ReturnType<InMemoryReplica["workspaceRecoveryState"]> {
+    return this.#replica.workspaceRecoveryState(runId);
   }
 
   public exportMissing(

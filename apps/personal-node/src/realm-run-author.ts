@@ -1,9 +1,14 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  type AttachWorkspaceOperation,
+  type ChooseWorkspaceRecoveryOperation,
   type CreateRunOperation,
+  type ExitWorkspaceOperation,
   type SemanticOperation,
   type TransferRunAuthorityOperation,
+  type WorkspaceExecutorUnavailableOperation,
+  type WorkspaceExecutorRecoveredOperation,
 } from "@workspace/federation-experiment";
 import {
   signChangeBatch,
@@ -110,6 +115,39 @@ export class SignedRealmRunAuthor {
       targetExecutorNodeId: input.targetExecutorNodeId,
       reason: input.reason,
     });
+  }
+
+  public attachWorkspace(
+    input: Omit<AttachWorkspaceOperation, "type">,
+  ): SignedChangeBatch {
+    return this.#author({ type: "attach-workspace", ...input });
+  }
+
+  public workspaceExecutorUnavailable(
+    input: Omit<WorkspaceExecutorUnavailableOperation, "type">,
+  ): SignedChangeBatch {
+    return this.#author({
+      type: "workspace-executor-unavailable",
+      ...input,
+    });
+  }
+
+  public chooseWorkspaceRecovery(
+    input: Omit<ChooseWorkspaceRecoveryOperation, "type">,
+  ): SignedChangeBatch {
+    return this.#author({ type: "choose-workspace-recovery", ...input });
+  }
+
+  public workspaceExecutorRecovered(
+    input: Omit<WorkspaceExecutorRecoveredOperation, "type">,
+  ): SignedChangeBatch {
+    return this.#author({ type: "workspace-executor-recovered", ...input });
+  }
+
+  public exitWorkspace(
+    input: Omit<ExitWorkspaceOperation, "type">,
+  ): SignedChangeBatch {
+    return this.#author({ type: "exit-workspace", ...input });
   }
 
   #author(operation: SemanticOperation): SignedChangeBatch {

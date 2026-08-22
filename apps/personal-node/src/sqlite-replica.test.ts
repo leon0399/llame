@@ -251,6 +251,27 @@ describe("SQLite personal Realm store", () => {
       "replicated Run operations require a signed batch",
     );
     first.receiveSigned(signChangeBatch(batch, identity.privateKeyPem));
+    const workspaceBatch = {
+      realmId: "realm-personal",
+      writerStreamId: "workstation",
+      writerEpoch: 1,
+      sequence: 2,
+      dependencies: ["workstation:1"],
+      operations: [
+        {
+          type: "attach-workspace" as const,
+          runId: "run-1",
+          workspaceId: "workspace-code",
+          policy: "ask" as const,
+        },
+      ],
+    };
+    expect(() => first.receive(workspaceBatch)).toThrowError(
+      "replicated Run operations require a signed batch",
+    );
+    first.receiveSigned(
+      signChangeBatch(workspaceBatch, identity.privateKeyPem),
+    );
     first.close();
 
     const reopened = new SqlitePersonalRealmStore(options);
@@ -260,6 +281,11 @@ describe("SQLite personal Realm store", () => {
       executorNodeId: "workstation",
       authorityEpoch: 1,
       status: "queued",
+    });
+    expect(reopened.workspaceRecoveryState("run-1")).toMatchObject({
+      workspaceId: "workspace-code",
+      preferredExecutorNodeId: "workstation",
+      mode: "attached",
     });
     reopened.close();
   });

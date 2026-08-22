@@ -75,15 +75,41 @@ describe("signed local Run authoring", () => {
       targetExecutorNodeId: "node-laptop",
       reason: "handoff",
     });
+    controller.attachWorkspace({
+      runId: "run-1",
+      workspaceId: "workspace-code",
+      policy: "ask",
+    });
+    controller.workspaceExecutorUnavailable({
+      runId: "run-1",
+      executorNodeId: "node-laptop",
+      continuationExecutorNodeId: "node-home",
+      egressAllowsFallback: true,
+    });
+    controller.chooseWorkspaceRecovery({
+      runId: "run-1",
+      action: "fallback",
+      continuationExecutorNodeId: "node-home",
+      egressAllowsFallback: true,
+    });
+    controller.workspaceExecutorRecovered({ runId: "run-1" });
+    controller.exitWorkspace({ runId: "run-1" });
 
-    expect(store.frontier()).toEqual({ controller: 3, executor: 1 });
+    expect(store.frontier()).toEqual({ controller: 8, executor: 1 });
     expect(store.runSnapshot("run-1")).toMatchObject({
       executorNodeId: "node-laptop",
-      authorityEpoch: 2,
+      authorityEpoch: 4,
       status: "running",
-      cursor: 2,
+      cursor: 4,
     });
-    expect(store.exportSignedMissing({})).toHaveLength(4);
+    expect(store.workspaceRecoveryState("run-1")).toMatchObject({
+      workspaceId: "workspace-code",
+      mode: "exited",
+      workspaceAttached: false,
+      activeExecutorNodeId: "node-laptop",
+      authorityEpoch: 4,
+    });
+    expect(store.exportSignedMissing({})).toHaveLength(9);
     expect(store.runCommandsAfter("run-1", 0)).toEqual([
       expect.objectContaining({ commandId: "command-controller" }),
     ]);
