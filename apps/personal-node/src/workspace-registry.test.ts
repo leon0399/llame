@@ -6,6 +6,8 @@ import { describe, expect, test } from "vitest";
 
 import { WorkspaceRegistry } from "./workspace-registry.js";
 
+const authority = { executorNodeId: "node-workstation", authorityEpoch: 1 };
+
 describe("manual Workspace registry", () => {
   test("auto-approves only a manually registered Workspace", () => {
     const registry = new WorkspaceRegistry([
@@ -19,7 +21,7 @@ describe("manual Workspace registry", () => {
     ]);
 
     expect(registry.list()).toEqual([{ id: "llame", label: "llame" }]);
-    expect(registry.requestEntry("run-1", "llame")).toMatchObject({
+    expect(registry.requestEntry("run-1", "llame", authority)).toMatchObject({
       status: "approved",
       workspace: {
         id: "llame",
@@ -27,9 +29,9 @@ describe("manual Workspace registry", () => {
         recoveryPolicy: "fallback",
       },
     });
-    expect(() => registry.requestEntry("run-1", "unknown")).toThrowError(
-      "Workspace is not registered",
-    );
+    expect(() =>
+      registry.requestEntry("run-1", "unknown", authority),
+    ).toThrowError("Workspace is not registered");
   });
 
   test("requires a separate one-time owner approval for ask policy", () => {
@@ -43,12 +45,14 @@ describe("manual Workspace registry", () => {
       },
     ]);
 
-    const requested = registry.requestEntry("run-2", "family");
+    const requested = registry.requestEntry("run-2", "family", authority);
     expect(requested).toMatchObject({ status: "approval-required" });
     if (requested.status !== "approval-required") {
       throw new Error("expected approval request");
     }
-    expect(registry.requestEntry("run-2", "family")).toEqual(requested);
+    expect(registry.requestEntry("run-2", "family", authority)).toEqual(
+      requested,
+    );
     expect(
       registry.approve(requested.requestId, (approved) => approved),
     ).toMatchObject({
@@ -70,7 +74,7 @@ describe("manual Workspace registry", () => {
         recoveryPolicy: "wait",
       },
     ]);
-    const requested = registry.requestEntry("missing-run", "code");
+    const requested = registry.requestEntry("missing-run", "code", authority);
     if (requested.status !== "approval-required") {
       throw new Error("expected approval request");
     }
@@ -101,14 +105,16 @@ describe("manual Workspace registry", () => {
         },
       ];
       const first = new WorkspaceRegistry(definitions, { databasePath });
-      const requested = first.requestEntry("run-restart", "code");
+      const requested = first.requestEntry("run-restart", "code", authority);
       first.close();
       if (requested.status !== "approval-required") {
         throw new Error("expected approval request");
       }
 
       const recovered = new WorkspaceRegistry(definitions, { databasePath });
-      expect(recovered.requestEntry("run-restart", "code")).toEqual(requested);
+      expect(recovered.requestEntry("run-restart", "code", authority)).toEqual(
+        requested,
+      );
       expect(
         recovered.approve(requested.requestId, (approved) => approved.runId),
       ).toBe("run-restart");

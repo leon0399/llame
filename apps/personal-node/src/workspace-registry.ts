@@ -23,6 +23,8 @@ interface PendingWorkspaceEntry {
   readonly requestId: string;
   readonly runId: string;
   readonly workspace: WorkspaceDefinition;
+  readonly executorNodeId: string;
+  readonly authorityEpoch: number;
 }
 
 export class WorkspaceRegistry {
@@ -49,23 +51,38 @@ export class WorkspaceRegistry {
       options.databasePath === undefined
         ? undefined
         : new DatabaseSync(options.databasePath);
+    const existingColumns =
+      this.#database
+        ?.prepare("PRAGMA table_info(workspace_entry_requests)")
+        .all() ?? [];
+    if (
+      existingColumns.length > 0 &&
+      !existingColumns.some((column) => column.name === "authority_epoch")
+    ) {
+      this.#database?.exec("DROP TABLE workspace_entry_requests");
+    }
     this.#database?.exec(`
       CREATE TABLE IF NOT EXISTS workspace_entry_requests (
         request_id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL,
         workspace_id TEXT NOT NULL,
+        executor_node_id TEXT NOT NULL,
+        authority_epoch INTEGER NOT NULL CHECK (authority_epoch > 0),
         UNIQUE (run_id, workspace_id)
       ) STRICT
     `);
     for (const row of this.#database
       ?.prepare(
-        `SELECT request_id, run_id, workspace_id
+        `SELECT request_id, run_id, workspace_id, executor_node_id,
+                authority_epoch
          FROM workspace_entry_requests`,
       )
       .all() ?? []) {
       const requestId = row.request_id;
       const runId = row.run_id;
       const workspaceId = row.workspace_id;
+      const executorNodeId = row.executor_node_id;
+      const authorityEpoch = row.authority_epoch;
       const workspace =
         typeof workspaceId === "string"
           ? this.#workspaces.get(workspaceId)
@@ -73,11 +90,19 @@ export class WorkspaceRegistry {
       if (
         typeof requestId !== "string" ||
         typeof runId !== "string" ||
+        typeof executorNodeId !== "string" ||
+        typeof authorityEpoch !== "number" ||
         workspace === undefined
       ) {
         continue;
       }
-      this.#pending.set(requestId, { requestId, runId, workspace });
+      this.#pending.set(requestId, {
+        requestId,
+        runId,
+        workspace,
+        executorNodeId,
+        authorityEpoch,
+      });
     }
   }
 
@@ -112,6 +137,10 @@ export class WorkspaceRegistry {
   public requestEntry(
     runId: string,
     workspaceId: string,
+    authority: {
+      readonly executorNodeId: string;
+      readonly authorityEpoch: number;
+    },
   ):
     | { readonly status: "approved"; readonly workspace: WorkspaceDefinition }
     | {
@@ -133,24 +162,42 @@ export class WorkspaceRegistry {
       requestId: randomUUID(),
       runId,
       workspace,
+      ...authority,
     };
     if (this.#database !== undefined) {
       this.#database
         .prepare(
           `INSERT OR IGNORE INTO workspace_entry_requests
-            (request_id, run_id, workspace_id) VALUES (?, ?, ?)`,
+            (request_id, run_id, workspace_id, executor_node_id, authority_epoch)
+           VALUES (?, ?, ?, ?, ?)`,
         )
-        .run(pending.requestId, runId, workspaceId);
+        .run(
+          pending.requestId,
+          runId,
+          workspaceId,
+          authority.executorNodeId,
+          authority.authorityEpoch,
+        );
       const stored = this.#database
         .prepare(
-          `SELECT request_id FROM workspace_entry_requests
+          `SELECT request_id, executor_node_id, authority_epoch
+           FROM workspace_entry_requests
            WHERE run_id = ? AND workspace_id = ?`,
         )
         .get(runId, workspaceId);
-      if (typeof stored?.request_id !== "string") {
+      if (
+        typeof stored?.request_id !== "string" ||
+        typeof stored.executor_node_id !== "string" ||
+        typeof stored.authority_epoch !== "number"
+      ) {
         throw new Error("Workspace entry request was not persisted");
       }
-      pending = { ...pending, requestId: stored.request_id };
+      pending = {
+        ...pending,
+        requestId: stored.request_id,
+        executorNodeId: stored.executor_node_id,
+        authorityEpoch: stored.authority_epoch,
+      };
     }
     this.#pending.set(pending.requestId, pending);
     return this.#publicRequest(pending);
@@ -161,6 +208,8 @@ export class WorkspaceRegistry {
     apply: (approved: {
       readonly runId: string;
       readonly workspace: WorkspaceDefinition;
+      readonly executorNodeId: string;
+      readonly authorityEpoch: number;
     }) => Result,
   ): Result {
     const pending = this.#pending.get(requestId);
@@ -170,12 +219,21 @@ export class WorkspaceRegistry {
     const result = apply({
       runId: pending.runId,
       workspace: structuredClone(pending.workspace),
+      executorNodeId: pending.executorNodeId,
+      authorityEpoch: pending.authorityEpoch,
     });
     this.#database
       ?.prepare("DELETE FROM workspace_entry_requests WHERE request_id = ?")
       .run(requestId);
     this.#pending.delete(requestId);
     return result;
+  }
+
+  public invalidate(requestId: string): void {
+    this.#database
+      ?.prepare("DELETE FROM workspace_entry_requests WHERE request_id = ?")
+      .run(requestId);
+    this.#pending.delete(requestId);
   }
 
   #publicRequest(pending: PendingWorkspaceEntry): {

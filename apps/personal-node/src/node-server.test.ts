@@ -768,6 +768,14 @@ describe("personal Node Protocol server", () => {
       method: "POST",
       headers,
       body: JSON.stringify({
+        runId: "run-stale-approval",
+        executorNodeId: "node-workstation",
+      }),
+    });
+    await fetch(`${origin}/v1/runs`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
         runId: "run-needs-approval",
         executorNodeId: "node-workstation",
       }),
@@ -811,6 +819,36 @@ describe("personal Node Protocol server", () => {
     );
     const repeatedEntry = await fetch(
       `${origin}/v1/runs/run-needs-approval/workspace/enter`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ workspaceId: "workspace-private" }),
+      },
+    );
+    const staleRequest = await fetch(
+      `${origin}/v1/runs/run-stale-approval/workspace/enter`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ workspaceId: "workspace-private" }),
+      },
+    );
+    const staleApproval = (await staleRequest.json()) as { requestId: string };
+    await fetch(`${origin}/v1/runs/run-stale-approval/authority`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        expectedAuthorityEpoch: 1,
+        targetExecutorNodeId: "node-home",
+        reason: "handoff",
+      }),
+    });
+    const staleApprovalResult = await fetch(
+      `${origin}/v1/workspace-entry-requests/${staleApproval.requestId}/approve`,
+      { method: "POST", headers, body: "{}" },
+    );
+    const freshRequest = await fetch(
+      `${origin}/v1/runs/run-stale-approval/workspace/enter`,
       {
         method: "POST",
         headers,
@@ -876,6 +914,11 @@ describe("personal Node Protocol server", () => {
       status: "already-entered",
       state: { workspaceId: "workspace-private", mode: "attached" },
     });
+    expect(staleApprovalResult.status).toBe(409);
+    expect(await staleApprovalResult.json()).toEqual({
+      error: "stale_workspace_approval",
+    });
+    expect(freshRequest.status).toBe(202);
     expect(unavailable.status).toBe(202);
     expect(await unavailable.json()).toMatchObject({
       state: {

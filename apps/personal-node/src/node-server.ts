@@ -123,6 +123,8 @@ class RequestError extends Error {
   }
 }
 
+class StaleWorkspaceApprovalError extends Error {}
+
 function sendJson(
   response: ServerResponse,
   status: number,
@@ -433,14 +435,32 @@ async function handleAuthorizedRequest(
     const parsed = emptyRequestSchema.safeParse(await readJson(request));
     if (!parsed.success)
       throw new RequestError(400, "invalid_approval_request");
-    const state = options.workspaceRegistry.approve(
-      decodePathIdentity(workspaceApprovalRoute[1], "request_id"),
-      (approved) =>
-        runControlStore.createWorkspaceAffinity(approved.runId, {
+    const requestId = decodePathIdentity(
+      workspaceApprovalRoute[1],
+      "request_id",
+    );
+    let state: ReturnType<SqliteRunControlStore["createWorkspaceAffinity"]>;
+    try {
+      state = options.workspaceRegistry.approve(requestId, (approved) => {
+        const current = runControlStore.snapshot(approved.runId);
+        if (
+          current.executorNodeId !== approved.executorNodeId ||
+          current.authorityEpoch !== approved.authorityEpoch
+        ) {
+          throw new StaleWorkspaceApprovalError();
+        }
+        return runControlStore.createWorkspaceAffinity(approved.runId, {
           workspaceId: approved.workspace.id,
           policy: approved.workspace.recoveryPolicy,
-        }),
-    );
+        });
+      });
+    } catch (error) {
+      if (error instanceof StaleWorkspaceApprovalError) {
+        options.workspaceRegistry.invalidate(requestId);
+        throw new RequestError(409, "stale_workspace_approval");
+      }
+      throw error;
+    }
     sendJson(response, 200, state);
     return;
   }
@@ -640,9 +660,14 @@ async function handleAuthorizedRequest(
         sendJson(response, 200, { status: "already-entered", state: existing });
         return;
       }
+      const runSnapshot = options.runControlStore.snapshot(runId);
       const decision = options.workspaceRegistry.requestEntry(
         runId,
         parsed.data.workspaceId,
+        {
+          executorNodeId: runSnapshot.executorNodeId,
+          authorityEpoch: runSnapshot.authorityEpoch,
+        },
       );
       if (decision.status === "approval-required") {
         sendJson(response, 202, decision);
