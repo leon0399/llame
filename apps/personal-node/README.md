@@ -367,6 +367,14 @@ container if either boundary is breached. It deliberately has no HTTP route
 yet: the next layer must add durable command IDs and receipts before remote
 callers can safely retry write-capable execution after a lost connection.
 
+The executor-local receipt store provides that persistence primitive without
+exposing it yet. It reserves a command ID against the Run executor and authority
+epoch, stores only a hash of its argv, and replays an immutable completed
+result. A pending command found after restart becomes `outcome_unknown` and is
+never executed automatically. Raw command output remains local implementation
+state; publishing a sanitized tool outcome into the Realm is the harness's
+separate responsibility.
+
 `POST /v1/runs/:runId/workspace/exit` is the explicit `ExitWorkspace` semantic:
 it permanently detaches the binding while keeping the Run on its current
 executor and authority epoch. It is idempotent and persists as a distinct audit
