@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { WRITER_STREAM_ID_PATTERN } from "./reconciliation.js";
+import { WRITER_STREAM_ID_PATTERN } from "./identities.js";
 
 const identitySchema = z.string().min(1).max(200);
 const runStatusSchema = z.enum([
@@ -29,7 +29,7 @@ const semanticEventSchema = z.discriminatedUnion("type", [
     reason: z.enum(["handoff", "fallback", "recovery", "workspace-exit"]),
   }),
 ]);
-const runControlEventSchema = z.strictObject({
+export const runControlEventSchema = z.strictObject({
   realmId: identitySchema,
   runId: identitySchema,
   executorNodeId: z.string().regex(WRITER_STREAM_ID_PATTERN),
@@ -42,18 +42,26 @@ const runCommandPayloadSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("steer"), text: z.string().min(1) }),
   z.strictObject({ type: z.literal("cancel") }),
 ]);
-const runCommandInputSchema = z.strictObject({
+export const runCommandInputSchema = z.strictObject({
   realmId: identitySchema,
   runId: identitySchema,
   commandId: identitySchema,
   authorityEpoch: z.number().int().positive(),
   command: runCommandPayloadSchema,
 });
+export const transferRunAuthorityInputSchema = z.strictObject({
+  expectedAuthorityEpoch: z.number().int().positive(),
+  targetExecutorNodeId: z.string().regex(WRITER_STREAM_ID_PATTERN),
+  reason: z.enum(["handoff", "fallback", "recovery", "workspace-exit"]),
+});
 
 export type RunStatus = z.infer<typeof runStatusSchema>;
 export type RunSemanticEvent = z.infer<typeof semanticEventSchema>;
 export type RunControlEvent = z.infer<typeof runControlEventSchema>;
 export type RunCommandInput = z.infer<typeof runCommandInputSchema>;
+export type TransferRunAuthorityInput = z.infer<
+  typeof transferRunAuthorityInputSchema
+>;
 export type RunCommand = RunCommandInput & { readonly commandSequence: number };
 
 export interface RunControlOptions {
@@ -119,6 +127,9 @@ export class InMemoryRunControl {
     readonly status: "applied" | "already-applied";
   } {
     const event = structuredClone(parseRunControlEvent(input));
+    if (event.event.type === "authority-transferred") {
+      throw new Error("authority transfer requires the control operation");
+    }
     const existing = this.#eventsBySequence.get(event.sequence);
     if (existing !== undefined) {
       if (JSON.stringify(existing) !== JSON.stringify(event)) {
@@ -143,11 +154,7 @@ export class InMemoryRunControl {
     return { status: "applied" };
   }
 
-  public transferAuthority(input: {
-    readonly expectedAuthorityEpoch: number;
-    readonly targetExecutorNodeId: string;
-    readonly reason: "handoff" | "fallback" | "recovery" | "workspace-exit";
-  }): RunControlEvent {
+  public transferAuthority(input: TransferRunAuthorityInput): RunControlEvent {
     if (terminalStatuses.has(this.#status)) {
       throw new Error("terminal Run authority cannot transfer");
     }
@@ -234,6 +241,28 @@ export class InMemoryRunControl {
         .filter((event) => event.sequence > afterSequence)
         .map((event) => structuredClone(event)),
     };
+  }
+
+  public fork(): InMemoryRunControl {
+    const copy = new InMemoryRunControl({
+      realmId: this.#realmId,
+      runId: this.#runId,
+      executorNodeId: this.#executorNodeId,
+      authorityEpoch: this.#authorityEpoch,
+    });
+    copy.#status = this.#status;
+    for (const event of this.#events) {
+      const cloned = structuredClone(event);
+      copy.#events.push(cloned);
+      copy.#eventsBySequence.set(cloned.sequence, cloned);
+      copy.#eventSequencesById.set(cloned.eventId, cloned.sequence);
+    }
+    for (const command of this.#commands) {
+      const cloned = structuredClone(command);
+      copy.#commands.push(cloned);
+      copy.#commandsById.set(cloned.commandId, cloned);
+    }
+    return copy;
   }
 
   #append(event: RunControlEvent): void {

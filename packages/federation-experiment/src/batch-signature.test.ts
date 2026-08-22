@@ -98,6 +98,51 @@ describe("signed federation batches", () => {
     ).toThrowError("signature key is not authorized for writer stream");
   });
 
+  test("binds signed Run operations to the writer envelope", () => {
+    const identity = generateWriterIdentity();
+    const signed = signChangeBatch(
+      {
+        realmId: "realm-personal",
+        writerStreamId: "workstation",
+        writerEpoch: 1,
+        sequence: 1,
+        dependencies: [],
+        operations: [
+          {
+            type: "create-run",
+            runId: "run-1",
+            executorNodeId: "workstation",
+          },
+        ],
+      },
+      identity.privateKeyPem,
+    );
+
+    expect(
+      verifySignedChangeBatch(signed, {
+        "workstation:1": identity.publicKeyPem,
+      }),
+    ).toEqual(signed.batch);
+    expect(() =>
+      verifySignedChangeBatch(
+        {
+          ...signed,
+          batch: {
+            ...signed.batch,
+            operations: [
+              {
+                type: "create-run",
+                runId: "run-1",
+                executorNodeId: "attacker",
+              },
+            ],
+          },
+        },
+        { "workstation:1": identity.publicKeyPem },
+      ),
+    ).toThrowError("invalid ChangeBatch signature");
+  });
+
   test("retains historical verification keys across writer epoch rotation", () => {
     const epochOne = generateWriterIdentity();
     const epochTwo = generateWriterIdentity();

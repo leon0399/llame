@@ -218,6 +218,52 @@ describe("SQLite personal Realm store", () => {
     reopened.close();
   });
 
+  test("rebuilds Run projections from the same durable Realm journal", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-personal-node-"));
+    temporaryDirectories.push(directory);
+    const options = {
+      databasePath: join(directory, "realm.sqlite"),
+      realmId: "realm-personal",
+      writerEpochs: { workstation: 1 },
+      trustedWriterKeys: {} as Record<string, string>,
+      runControlGrants: {
+        workstation: { scopes: ["run.control"] },
+      },
+    } as const;
+    const identity = generateWriterIdentity();
+    options.trustedWriterKeys["workstation:1"] = identity.publicKeyPem;
+    const first = new SqlitePersonalRealmStore(options);
+    const batch = {
+      realmId: "realm-personal",
+      writerStreamId: "workstation",
+      writerEpoch: 1,
+      sequence: 1,
+      dependencies: [],
+      operations: [
+        {
+          type: "create-run" as const,
+          runId: "run-1",
+          executorNodeId: "workstation",
+        },
+      ],
+    };
+    expect(() => first.receive(batch)).toThrowError(
+      "replicated Run operations require a signed batch",
+    );
+    first.receiveSigned(signChangeBatch(batch, identity.privateKeyPem));
+    first.close();
+
+    const reopened = new SqlitePersonalRealmStore(options);
+    expect(reopened.runSnapshot("run-1")).toMatchObject({
+      realmId: "realm-personal",
+      runId: "run-1",
+      executorNodeId: "workstation",
+      authorityEpoch: 1,
+      status: "queued",
+    });
+    reopened.close();
+  });
+
   test("serializes writers that opened the same database before either mutated it", async () => {
     const directory = await mkdtemp(join(tmpdir(), "llame-personal-node-"));
     temporaryDirectories.push(directory);

@@ -180,6 +180,32 @@ separate signed-sync capability. Signed local appends are enabled when
 `LLAME_WRITER_PRIVATE_KEY` is configured. Without those settings the experiment
 uses its explicit unsigned compatibility path.
 
+Run creation, semantic executor events, steering commands, and authority
+transfers can use those same initial and incremental ChangeBatch exchanges.
+They are projected from the Realm journal after restart; there is no separate
+Run-import protocol. These authority-bearing operations are rejected on the
+unsigned compatibility path. A valid writer signature is necessary but still
+insufficient. Configure explicit operation grants, with `run.execute` bound to
+the executor node IDs that writer may represent:
+
+```bash
+export LLAME_RUN_CONTROL_WRITER_GRANTS='{
+  "workstation-writer": {
+    "scopes": ["run.execute"],
+    "executorNodeIds": ["node-workstation"]
+  },
+  "personal-controller": {
+    "scopes": ["run.steer", "run.control"]
+  }
+}'
+```
+
+Missing grants fail closed. An ordinary Chat or knowledge writer cannot create a
+Run, publish executor state, submit commands, or move authority.
+The current live Run-control HTTP endpoints still write their dedicated
+prototype store; bridging those live writes into signed Realm batches is not yet
+implemented.
+
 All writers in a Realm must currently be pre-authorized with the same epoch map:
 
 ```bash
@@ -271,8 +297,8 @@ key rotation, cross-language canonical event standard, encrypted payloads,
 snapshots, compaction, Workspace execution, OAuth bootstrap, or hosted PostgreSQL
 adapter. The Run-control proxy does not yet tunnel a native external harness
 stream, preserve raw live deltas, discover peers, select a peer automatically,
-reconcile a mutation automatically after `outcome_unknown`, replicate Run state
-between peers, or atomically coordinate route rebind with remote Run-authority
-transfer. Node 22 also marks its built-in SQLite API
+reconcile a mutation automatically after `outcome_unknown`, author signed Realm
+batches from the live Run-control API, or atomically coordinate route rebind with
+remote Run-authority transfer. Node 22 also marks its built-in SQLite API
 experimental. The database, private keys, credentials, and SQLite sidecars are
 forced to owner-only permissions, but event content is not encrypted at rest.

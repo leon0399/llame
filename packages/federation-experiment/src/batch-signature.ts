@@ -9,7 +9,11 @@ import {
 
 import { z } from "zod";
 
-import { parseChangeBatch, type ChangeBatch } from "./reconciliation.js";
+import {
+  parseChangeBatch,
+  type ChangeBatch,
+  type SemanticOperation,
+} from "./reconciliation.js";
 
 const SIGNATURE_DOMAIN = "llame.change-batch.signature.v1\0";
 
@@ -44,6 +48,86 @@ export function keyIdForPublicKey(publicKeyPem: string): string {
   return createHash("sha256").update(spki).digest("base64url");
 }
 
+function canonicalOperation(operation: SemanticOperation): unknown {
+  if (operation.type === "append-message") {
+    return {
+      type: operation.type,
+      chatId: operation.chatId,
+      messageId: operation.messageId,
+      parentMessageId: operation.parentMessageId,
+      text: operation.text,
+    };
+  }
+  if (operation.type === "create-run") {
+    return {
+      type: operation.type,
+      runId: operation.runId,
+      executorNodeId: operation.executorNodeId,
+    };
+  }
+  if (operation.type === "append-run-event") {
+    const semanticEvent =
+      operation.event.event.type === "status"
+        ? {
+            type: operation.event.event.type,
+            status: operation.event.event.status,
+          }
+        : operation.event.event.type === "assistant-output"
+          ? {
+              type: operation.event.event.type,
+              messageId: operation.event.event.messageId,
+              text: operation.event.event.text,
+            }
+          : {
+              type: operation.event.event.type,
+              previousExecutorNodeId:
+                operation.event.event.previousExecutorNodeId,
+              reason: operation.event.event.reason,
+            };
+    return {
+      type: operation.type,
+      event: {
+        realmId: operation.event.realmId,
+        runId: operation.event.runId,
+        executorNodeId: operation.event.executorNodeId,
+        authorityEpoch: operation.event.authorityEpoch,
+        sequence: operation.event.sequence,
+        eventId: operation.event.eventId,
+        event: semanticEvent,
+      },
+    };
+  }
+  if (operation.type === "submit-run-command") {
+    const command =
+      operation.command.command.type === "steer"
+        ? {
+            type: operation.command.command.type,
+            text: operation.command.command.text,
+          }
+        : { type: operation.command.command.type };
+    return {
+      type: operation.type,
+      command: {
+        realmId: operation.command.realmId,
+        runId: operation.command.runId,
+        commandId: operation.command.commandId,
+        authorityEpoch: operation.command.authorityEpoch,
+        command,
+      },
+    };
+  }
+  if (operation.type === "transfer-run-authority") {
+    return {
+      type: operation.type,
+      runId: operation.runId,
+      expectedAuthorityEpoch: operation.expectedAuthorityEpoch,
+      targetExecutorNodeId: operation.targetExecutorNodeId,
+      reason: operation.reason,
+    };
+  }
+  return { type: operation.type };
+}
+
 function signaturePayload(batch: ChangeBatch): Buffer {
   const canonical = {
     realmId: batch.realmId,
@@ -51,17 +135,7 @@ function signaturePayload(batch: ChangeBatch): Buffer {
     writerEpoch: batch.writerEpoch,
     sequence: batch.sequence,
     dependencies: [...batch.dependencies],
-    operations: batch.operations.map((operation) =>
-      operation.type === "append-message"
-        ? {
-            type: operation.type,
-            chatId: operation.chatId,
-            messageId: operation.messageId,
-            parentMessageId: operation.parentMessageId,
-            text: operation.text,
-          }
-        : { type: operation.type },
-    ),
+    operations: batch.operations.map(canonicalOperation),
   };
   return Buffer.from(`${SIGNATURE_DOMAIN}${JSON.stringify(canonical)}`, "utf8");
 }

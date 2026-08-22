@@ -17,6 +17,9 @@ The experiment currently proves:
   frontier advancement; and
 - accepted batches are copied at the receive boundary so later caller mutation
   cannot rewrite forwarded history; and
+- Run creation, semantic events, commands, and authority transfers reconcile
+  through that same journal, project atomically, and require explicit per-writer
+  control grants with executor bindings; and
 - Ed25519 signatures bind a batch to an explicitly trusted writer stream and
   reject forwarded payload mutation or cross-writer impersonation; and
 - a short-lived, Realm-bound enrollment challenge proves possession of a

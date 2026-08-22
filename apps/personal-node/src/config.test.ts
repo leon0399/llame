@@ -135,6 +135,29 @@ describe("personal Node command configuration", () => {
     });
   });
 
+  test("parses fail-closed writer grants for reconciled Run operations", () => {
+    expect(
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_RUN_CONTROL_WRITER_GRANTS: JSON.stringify({
+          desktop: {
+            scopes: ["run.control", "run.execute"],
+            executorNodeIds: ["node-desktop"],
+          },
+        }),
+      }),
+    ).toMatchObject({
+      node: {
+        runControlGrants: {
+          desktop: {
+            scopes: ["run.control", "run.execute"],
+            executorNodeIds: ["node-desktop"],
+          },
+        },
+      },
+    });
+  });
+
   test("parses enrollment with a separate node identity", () => {
     expect(
       parsePersonalNodeCommand(["enroll", "https://personal.example.test"], {

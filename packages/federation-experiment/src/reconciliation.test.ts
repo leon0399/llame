@@ -358,6 +358,255 @@ describe("Personal Realm reconciliation experiment", () => {
     expect(target.chatHeads("chat-1")).toEqual(["message-root"]);
   });
 
+  test("reconciles Run control through the same Realm event log", () => {
+    const options = {
+      realmId: "realm-personal",
+      writerEpochs: { workstation: 1, phone: 1 },
+      runControlGrants: {
+        workstation: {
+          scopes: ["run.control", "run.execute"],
+          executorNodeIds: ["workstation"],
+        },
+        phone: { scopes: ["run.steer", "run.control"] },
+      },
+    } as const;
+    const workstation = new InMemoryReplica(options);
+    const phone = new InMemoryReplica(options);
+    workstation.receive({
+      realmId: "realm-personal",
+      writerStreamId: "workstation",
+      writerEpoch: 1,
+      sequence: 1,
+      dependencies: [],
+      operations: [
+        {
+          type: "create-run",
+          runId: "run-1",
+          executorNodeId: "workstation",
+        },
+      ],
+    });
+    workstation.receive({
+      realmId: "realm-personal",
+      writerStreamId: "workstation",
+      writerEpoch: 1,
+      sequence: 2,
+      dependencies: ["workstation:1"],
+      operations: [
+        {
+          type: "append-run-event",
+          event: {
+            realmId: "realm-personal",
+            runId: "run-1",
+            executorNodeId: "workstation",
+            authorityEpoch: 1,
+            sequence: 1,
+            eventId: "event-running",
+            event: { type: "status", status: "running" },
+          },
+        },
+      ],
+    });
+    phone.reconcileFrom(workstation);
+    phone.receive({
+      realmId: "realm-personal",
+      writerStreamId: "phone",
+      writerEpoch: 1,
+      sequence: 1,
+      dependencies: ["workstation:2"],
+      operations: [
+        {
+          type: "submit-run-command",
+          command: {
+            realmId: "realm-personal",
+            runId: "run-1",
+            commandId: "command-phone",
+            authorityEpoch: 1,
+            command: { type: "steer", text: "Run the focused tests" },
+          },
+        },
+      ],
+    });
+    phone.receive({
+      realmId: "realm-personal",
+      writerStreamId: "phone",
+      writerEpoch: 1,
+      sequence: 2,
+      dependencies: ["phone:1"],
+      operations: [
+        {
+          type: "transfer-run-authority",
+          runId: "run-1",
+          expectedAuthorityEpoch: 1,
+          targetExecutorNodeId: "laptop",
+          reason: "handoff",
+        },
+      ],
+    });
+
+    workstation.reconcileFrom(phone);
+
+    expect(workstation.runSnapshot("run-1")).toEqual(
+      phone.runSnapshot("run-1"),
+    );
+    expect(workstation.runSnapshot("run-1")).toMatchObject({
+      executorNodeId: "laptop",
+      authorityEpoch: 2,
+      status: "running",
+      cursor: 2,
+    });
+    expect(workstation.runCommandsAfter("run-1", 0)).toEqual([
+      expect.objectContaining({
+        commandId: "command-phone",
+        commandSequence: 1,
+      }),
+    ]);
+  });
+
+  test("does not partially project a mixed Run batch when a later operation fails", () => {
+    const replica = new InMemoryReplica({
+      realmId: "realm-personal",
+      writerEpochs: { workstation: 1 },
+      runControlGrants: {
+        workstation: { scopes: ["run.control", "run.steer"] },
+      },
+    });
+
+    expect(() =>
+      replica.receive({
+        realmId: "realm-personal",
+        writerStreamId: "workstation",
+        writerEpoch: 1,
+        sequence: 1,
+        dependencies: [],
+        operations: [
+          {
+            type: "create-run",
+            runId: "run-1",
+            executorNodeId: "workstation",
+          },
+          {
+            type: "submit-run-command",
+            command: {
+              realmId: "realm-personal",
+              runId: "missing-run",
+              commandId: "command-invalid",
+              authorityEpoch: 1,
+              command: { type: "cancel" },
+            },
+          },
+        ],
+      }),
+    ).toThrowError("Run does not exist");
+    expect(() => replica.runSnapshot("run-1")).toThrowError(
+      "Run does not exist",
+    );
+    expect(replica.frontier()).toEqual({});
+  });
+
+  test("does not promote an ordinary Realm writer to Run authority", () => {
+    const replica = new InMemoryReplica({
+      realmId: "realm-personal",
+      writerEpochs: { controller: 1, "knowledge-writer": 1 },
+      runControlGrants: {
+        controller: { scopes: ["run.control"] },
+      },
+    });
+    replica.receive({
+      realmId: "realm-personal",
+      writerStreamId: "controller",
+      writerEpoch: 1,
+      sequence: 1,
+      dependencies: [],
+      operations: [
+        {
+          type: "create-run",
+          runId: "run-1",
+          executorNodeId: "workstation",
+        },
+      ],
+    });
+
+    expect(() =>
+      replica.receive({
+        realmId: "realm-personal",
+        writerStreamId: "knowledge-writer",
+        writerEpoch: 1,
+        sequence: 1,
+        dependencies: ["controller:1"],
+        operations: [
+          {
+            type: "transfer-run-authority",
+            runId: "run-1",
+            expectedAuthorityEpoch: 1,
+            targetExecutorNodeId: "attacker",
+            reason: "handoff",
+          },
+        ],
+      }),
+    ).toThrowError("writer is not authorized for run.control");
+    expect(replica.runSnapshot("run-1")).toMatchObject({
+      executorNodeId: "workstation",
+      authorityEpoch: 1,
+    });
+  });
+
+  test("binds replicated executor events to an explicitly granted node", () => {
+    const replica = new InMemoryReplica({
+      realmId: "realm-personal",
+      writerEpochs: { controller: 1, worker: 1 },
+      runControlGrants: {
+        controller: { scopes: ["run.control"] },
+        worker: {
+          scopes: ["run.execute"],
+          executorNodeIds: ["workstation"],
+        },
+      },
+    });
+    replica.receive({
+      realmId: "realm-personal",
+      writerStreamId: "controller",
+      writerEpoch: 1,
+      sequence: 1,
+      dependencies: [],
+      operations: [
+        {
+          type: "create-run",
+          runId: "run-1",
+          executorNodeId: "workstation",
+        },
+      ],
+    });
+
+    expect(() =>
+      replica.receive({
+        realmId: "realm-personal",
+        writerStreamId: "worker",
+        writerEpoch: 1,
+        sequence: 1,
+        dependencies: ["controller:1"],
+        operations: [
+          {
+            type: "append-run-event",
+            event: {
+              realmId: "realm-personal",
+              runId: "run-1",
+              executorNodeId: "attacker",
+              authorityEpoch: 1,
+              sequence: 1,
+              eventId: "event-forged",
+              event: { type: "status", status: "completed" },
+            },
+          },
+        ],
+      }),
+    ).toThrowError("writer is not bound to the Run executor");
+    expect(replica.runSnapshot("run-1")).toMatchObject({
+      status: "queued",
+      cursor: 0,
+    });
+  });
+
   test("exports only batches beyond a peer frontier in causal receive order", () => {
     const source = new InMemoryReplica({
       realmId: "realm-personal",

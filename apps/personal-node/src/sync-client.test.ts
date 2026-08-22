@@ -109,6 +109,112 @@ describe("personal Node peer synchronization", () => {
     expect(target.exportSignedMissing({})).toEqual([signed]);
   });
 
+  test("uses normal Realm reconciliation for initial and later Run state", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-run-sync-"));
+    cleanup.push(() => rm(directory, { recursive: true, force: true }));
+    const workstation = generateWriterIdentity();
+    const storeOptions = {
+      realmId: "realm-personal",
+      writerEpochs: { workstation: 1 },
+      trustedWriterKeys: { "workstation:1": workstation.publicKeyPem },
+      runControlGrants: {
+        workstation: {
+          scopes: ["run.control", "run.execute"],
+          executorNodeIds: ["workstation"],
+        },
+      },
+    } as const;
+    const source = new SqlitePersonalRealmStore({
+      ...storeOptions,
+      databasePath: join(directory, "source.sqlite"),
+    });
+    const target = new SqlitePersonalRealmStore({
+      ...storeOptions,
+      databasePath: join(directory, "target.sqlite"),
+    });
+    cleanup.push(
+      () => target.close(),
+      () => source.close(),
+    );
+    source.receiveSigned(
+      signChangeBatch(
+        {
+          realmId: "realm-personal",
+          writerStreamId: "workstation",
+          writerEpoch: 1,
+          sequence: 1,
+          dependencies: [],
+          operations: [
+            {
+              type: "create-run",
+              runId: "run-synced",
+              executorNodeId: "workstation",
+            },
+          ],
+        },
+        workstation.privateKeyPem,
+      ),
+    );
+    source.receiveSigned(
+      signChangeBatch(
+        {
+          realmId: "realm-personal",
+          writerStreamId: "workstation",
+          writerEpoch: 1,
+          sequence: 2,
+          dependencies: ["workstation:1"],
+          operations: [
+            {
+              type: "append-run-event",
+              event: {
+                realmId: "realm-personal",
+                runId: "run-synced",
+                executorNodeId: "workstation",
+                authorityEpoch: 1,
+                sequence: 1,
+                eventId: "event-running",
+                event: { type: "status", status: "running" },
+              },
+            },
+          ],
+        },
+        workstation.privateKeyPem,
+      ),
+    );
+    const server = createPersonalNodeServer({
+      nodeId: "node-source",
+      bearerToken: "source-node-secret",
+      store: source,
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    cleanup.push(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          server.close((error) => {
+            if (error === undefined) resolve();
+            else reject(error);
+          });
+        }),
+    );
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("test peer did not bind a TCP address");
+    }
+
+    await syncFromPeer({
+      store: target,
+      peerUrl: `http://127.0.0.1:${address.port}`,
+      bearerToken: "source-node-secret",
+      mode: "signed",
+    });
+
+    expect(target.runSnapshot("run-synced")).toEqual(
+      source.runSnapshot("run-synced"),
+    );
+  });
+
   test("runs another round when the peer advances during reconciliation", async () => {
     const directory = await mkdtemp(join(tmpdir(), "llame-peer-sync-"));
     cleanup.push(() => rm(directory, { recursive: true, force: true }));

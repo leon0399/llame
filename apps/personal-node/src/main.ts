@@ -47,6 +47,9 @@ async function openStore(
     databasePath: config.databasePath,
     realmId: config.realmId,
     writerEpochs: config.writerEpochs,
+    ...(config.runControlGrants === undefined
+      ? {}
+      : { runControlGrants: config.runControlGrants }),
     ...(trustedWriterKeys === undefined ? {} : { trustedWriterKeys }),
   });
 }

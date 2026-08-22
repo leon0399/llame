@@ -5,6 +5,7 @@ export interface PersonalNodeConfig {
   readonly bearerToken: string;
   readonly writerEpochs: Readonly<Record<string, number>>;
   readonly trustedWriterKeyPaths?: Readonly<Record<string, string>>;
+  readonly runControlGrants?: Readonly<Record<string, RunControlWriterGrant>>;
 }
 
 export type PeerCredentialSource =
@@ -164,13 +165,28 @@ function parseNodeConfig(environment: Environment): PersonalNodeConfig {
   const trustedWriterKeyPaths = parseTrustedWriterKeyPaths(
     environment.LLAME_TRUSTED_WRITER_KEYS,
   );
+  const writerEpochs = parseWriterEpochs(
+    environment.LLAME_WRITER_EPOCHS,
+    nodeId,
+  );
+  const runControlGrants =
+    environment.LLAME_RUN_CONTROL_WRITER_GRANTS === undefined
+      ? undefined
+      : parseRunControlWriterGrants(
+          parseJsonEnvironment(
+            environment.LLAME_RUN_CONTROL_WRITER_GRANTS,
+            "LLAME_RUN_CONTROL_WRITER_GRANTS must be a JSON object",
+          ),
+          writerEpochs,
+        );
   return {
     databasePath: required(environment, "LLAME_NODE_DB"),
     nodeId,
     realmId: required(environment, "LLAME_REALM_ID"),
     bearerToken,
-    writerEpochs: parseWriterEpochs(environment.LLAME_WRITER_EPOCHS, nodeId),
+    writerEpochs,
     ...(trustedWriterKeyPaths === undefined ? {} : { trustedWriterKeyPaths }),
+    ...(runControlGrants === undefined ? {} : { runControlGrants }),
   };
 }
 
@@ -339,6 +355,10 @@ export function parsePersonalNodeCommand(
   throw new Error(`unsupported personal Node command: ${command}`);
 }
 import { WRITER_STREAM_ID_PATTERN } from "@workspace/federation-experiment";
+import {
+  parseRunControlWriterGrants,
+  type RunControlWriterGrant,
+} from "@workspace/federation-experiment";
 import {
   type NodeScope,
   parseNodeScopes,

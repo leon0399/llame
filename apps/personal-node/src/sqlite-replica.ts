@@ -5,6 +5,8 @@ import {
   type AdvanceWriterEpochInput,
   InMemoryReplica,
   parseChangeBatch,
+  parseRunControlWriterGrants,
+  type RunControlWriterGrant,
   ChangeBatch,
   ChatBranch,
   ReplicaOptions,
@@ -21,6 +23,16 @@ export interface SqlitePersonalRealmStoreOptions extends ReplicaOptions {
 }
 
 type ReceiveResult = ReturnType<InMemoryReplica["receive"]>;
+
+function containsRunControlOperation(batch: ChangeBatch): boolean {
+  return batch.operations.some(
+    (operation) =>
+      operation.type === "create-run" ||
+      operation.type === "append-run-event" ||
+      operation.type === "submit-run-command" ||
+      operation.type === "transfer-run-authority",
+  );
+}
 
 function requireText(
   row: Record<string, SQLOutputValue>,
@@ -80,6 +92,7 @@ export class SqlitePersonalRealmStore {
   readonly #realmId: string;
   readonly #trustedWriterKeys: Readonly<Record<string, string>>;
   #initialWriterEpochs: Readonly<Record<string, number>>;
+  #initialRunControlGrants: Readonly<Record<string, RunControlWriterGrant>>;
   #replica: InMemoryReplica;
   #signedBatches: readonly SignedChangeBatch[];
 
@@ -95,10 +108,18 @@ export class SqlitePersonalRealmStore {
     this.#realmId = options.realmId;
     this.#trustedWriterKeys = { ...options.trustedWriterKeys };
     this.#initialWriterEpochs = { ...options.writerEpochs };
+    this.#initialRunControlGrants = parseRunControlWriterGrants(
+      options.runControlGrants ?? {},
+      this.#initialWriterEpochs,
+    );
     try {
       this.#initializeSchema();
       const storedOptions = this.#loadOrInitializeMetadata();
       this.#initialWriterEpochs = { ...storedOptions.writerEpochs };
+      this.#initialRunControlGrants = parseRunControlWriterGrants(
+        storedOptions.runControlGrants ?? {},
+        this.#initialWriterEpochs,
+      );
       this.#replica = this.#loadReplica(storedOptions);
       this.#signedBatches = this.#loadSignedBatches(this.#replica);
       this.#secureDatabaseFiles(options.databasePath);
@@ -110,6 +131,9 @@ export class SqlitePersonalRealmStore {
 
   public receive(batch: ChangeBatch): ReceiveResult {
     const candidate = parseChangeBatch(batch);
+    if (containsRunControlOperation(candidate)) {
+      throw new Error("replicated Run operations require a signed batch");
+    }
     this.#database.exec("BEGIN IMMEDIATE");
     try {
       const current = this.#loadReplica(this.#replicaOptions());
@@ -196,6 +220,19 @@ export class SqlitePersonalRealmStore {
 
   public chatBranches(chatId: string): readonly ChatBranch[] {
     return this.#replica.chatBranches(chatId);
+  }
+
+  public runSnapshot(
+    runId: string,
+  ): ReturnType<InMemoryReplica["runSnapshot"]> {
+    return this.#replica.runSnapshot(runId);
+  }
+
+  public runCommandsAfter(
+    runId: string,
+    commandSequence: number,
+  ): ReturnType<InMemoryReplica["runCommandsAfter"]> {
+    return this.#replica.runCommandsAfter(runId, commandSequence);
   }
 
   public exportMissing(
@@ -285,6 +322,10 @@ export class SqlitePersonalRealmStore {
           "initial_writer_epochs",
           JSON.stringify(this.#initialWriterEpochs),
         );
+        insert.run(
+          "initial_run_control_grants",
+          JSON.stringify(this.#initialRunControlGrants),
+        );
         this.#database.exec("COMMIT");
       } catch (error) {
         this.#database.exec("ROLLBACK");
@@ -293,6 +334,7 @@ export class SqlitePersonalRealmStore {
       return {
         realmId: this.#realmId,
         writerEpochs: this.#initialWriterEpochs,
+        runControlGrants: this.#initialRunControlGrants,
       };
     }
 
@@ -307,9 +349,14 @@ export class SqlitePersonalRealmStore {
     if (storedRealmId !== this.#realmId) {
       throw new Error("database belongs to a different Personal Realm");
     }
+    const writerEpochs = parseWriterEpochs(storedWriterEpochs);
     return {
       realmId: storedRealmId,
-      writerEpochs: parseWriterEpochs(storedWriterEpochs),
+      writerEpochs,
+      runControlGrants: parseRunControlWriterGrants(
+        JSON.parse(metadata.get("initial_run_control_grants") ?? "{}"),
+        writerEpochs,
+      ),
     };
   }
 
@@ -360,6 +407,7 @@ export class SqlitePersonalRealmStore {
     return {
       realmId: this.#realmId,
       writerEpochs: this.#initialWriterEpochs,
+      runControlGrants: this.#initialRunControlGrants,
     };
   }
 
