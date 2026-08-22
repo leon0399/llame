@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,6 +10,7 @@ import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import { createPersonalNodeServer } from "./node-server.js";
 import { SignedRealmRunAuthor } from "./realm-run-author.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
+import { WorkspaceRegistry } from "./workspace-registry.js";
 
 describe("journal-backed Run-control API", () => {
   const cleanup: Array<() => Promise<void> | void> = [];
@@ -49,6 +50,8 @@ describe("journal-backed Run-control API", () => {
       new Date(),
       ["run.observe", "run.steer"],
     );
+    const workspaceRoot = join(directory, "workspace-code");
+    await mkdir(workspaceRoot);
     const server = createPersonalNodeServer({
       nodeId: "node-controller",
       bearerToken: "owner-control-secret",
@@ -60,6 +63,15 @@ describe("journal-backed Run-control API", () => {
         writerEpoch: 1,
         privateKeyPem: writer.privateKeyPem,
       }),
+      workspaceRegistry: new WorkspaceRegistry([
+        {
+          id: "workspace-code",
+          label: "Code",
+          rootPath: workspaceRoot,
+          entryPolicy: "auto-approve",
+          recoveryPolicy: "fallback",
+        },
+      ]),
     });
     await new Promise<void>((resolve) =>
       server.listen(0, "127.0.0.1", resolve),
@@ -121,6 +133,29 @@ describe("journal-backed Run-control API", () => {
         reason: "handoff",
       }),
     });
+    const enteredWorkspace = await fetch(
+      `${origin}/v1/runs/run-1/workspace/enter`,
+      {
+        method: "POST",
+        headers: headers("owner-control-secret"),
+        body: JSON.stringify({ workspaceId: "workspace-code" }),
+      },
+    );
+    const unavailableWorkspace = await fetch(
+      `${origin}/v1/runs/run-1/workspace/unavailable`,
+      {
+        method: "POST",
+        headers: headers("owner-control-secret"),
+        body: JSON.stringify({
+          executorNodeId: "node-laptop",
+          continuationExecutorNodeId: "node-home",
+          egressAllowsFallback: true,
+        }),
+      },
+    );
+    const workspaceState = await fetch(`${origin}/v1/runs/run-1/workspace`, {
+      headers: headers(remoteGrant.credential),
+    });
     const observed = await fetch(`${origin}/v1/runs/run-1/control?after=0`, {
       headers: headers(remoteGrant.credential),
     });
@@ -132,14 +167,23 @@ describe("journal-backed Run-control API", () => {
     });
     expect(steered.status).toBe(202);
     expect(transferred.status).toBe(202);
+    expect(enteredWorkspace.status).toBe(201);
+    expect(unavailableWorkspace.status).toBe(202);
+    expect(workspaceState.status).toBe(200);
+    expect(await workspaceState.json()).toMatchObject({
+      workspaceId: "workspace-code",
+      activeExecutorNodeId: "node-home",
+      authorityEpoch: 3,
+      mode: "temporary-fallback",
+    });
     expect(observed.status).toBe(200);
     expect(await observed.json()).toMatchObject({
       runId: "run-1",
-      executorNodeId: "node-laptop",
-      authorityEpoch: 2,
+      executorNodeId: "node-home",
+      authorityEpoch: 3,
       status: "queued",
     });
-    expect(store.exportSignedMissing({})).toHaveLength(3);
+    expect(store.exportSignedMissing({})).toHaveLength(5);
   });
 
   test("serves a journal projection without holding a local writer key", async () => {
@@ -156,12 +200,21 @@ describe("journal-backed Run-control API", () => {
       },
     });
     cleanup.push(() => store.close());
-    new SignedRealmRunAuthor({
+    const author = new SignedRealmRunAuthor({
       store,
       writerStreamId: "controller",
       writerEpoch: 1,
       privateKeyPem: writer.privateKeyPem,
-    }).createRun({ runId: "run-mirror", executorNodeId: "node-workstation" });
+    });
+    author.createRun({
+      runId: "run-mirror",
+      executorNodeId: "node-workstation",
+    });
+    author.attachWorkspace({
+      runId: "run-mirror",
+      workspaceId: "workspace-code",
+      policy: "wait",
+    });
     const server = createPersonalNodeServer({
       nodeId: "node-mirror",
       bearerToken: "mirror-owner-secret",
@@ -207,6 +260,13 @@ describe("journal-backed Run-control API", () => {
         }),
       },
     );
+    const workspace = await fetch(`${origin}/v1/runs/run-mirror/workspace`, {
+      headers,
+    });
+    const rejectedWorkspaceMutation = await fetch(
+      `${origin}/v1/runs/run-mirror/workspace/exit`,
+      { method: "POST", headers, body: "{}" },
+    );
 
     expect(capabilities.status).toBe(200);
     expect(await capabilities.json()).toMatchObject({
@@ -225,8 +285,17 @@ describe("journal-backed Run-control API", () => {
     });
     expect(observed.status).toBe(200);
     expect(await observed.json()).toMatchObject({ runId: "run-mirror" });
+    expect(workspace.status).toBe(200);
+    expect(await workspace.json()).toMatchObject({
+      workspaceId: "workspace-code",
+      mode: "attached",
+    });
     expect(rejectedMutation.status).toBe(409);
     expect(await rejectedMutation.json()).toEqual({
+      error: "local_writer_unavailable",
+    });
+    expect(rejectedWorkspaceMutation.status).toBe(409);
+    expect(await rejectedWorkspaceMutation.json()).toEqual({
       error: "local_writer_unavailable",
     });
   });

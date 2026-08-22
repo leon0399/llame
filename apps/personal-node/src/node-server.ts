@@ -288,6 +288,40 @@ async function handleAuthorizedRequest(
   const usesJournalRunProjection =
     options.journalRunProjection === true ||
     options.journalRunAuthor !== undefined;
+  const runSnapshot = (runId: string) =>
+    usesJournalRunProjection
+      ? options.store.runSnapshot(runId)
+      : options.runControlStore?.snapshot(runId);
+  const workspaceRecoveryState = (runId: string) =>
+    usesJournalRunProjection
+      ? options.store.workspaceRecoveryState(runId)
+      : options.runControlStore?.workspaceRecoveryState(runId);
+  const workspaceRecoveryStateIfPresent = (runId: string) => {
+    if (!usesJournalRunProjection) {
+      return options.runControlStore?.workspaceRecoveryStateIfPresent(runId);
+    }
+    try {
+      return options.store.workspaceRecoveryState(runId);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "Run has no Workspace affinity"
+      ) {
+        return null;
+      }
+      throw error;
+    }
+  };
+  const requireJournalWorkspaceAuthor = (): SignedRealmRunAuthor | null => {
+    if (!usesJournalRunProjection) return null;
+    if (options.journalRunAuthor === undefined) {
+      throw new RequestError(409, "local_writer_unavailable");
+    }
+    if (principal.kind !== "owner") {
+      throw new RequestError(403, "local_writer_authority_required");
+    }
+    return options.journalRunAuthor;
+  };
   if (request.method === "GET" && url.pathname === "/v1/capabilities") {
     sendJson(response, 200, {
       protocol: { name: "llame-node", version: 1 },
@@ -428,10 +462,11 @@ async function handleAuthorizedRequest(
     const runControlStore = options.runControlStore;
     if (
       options.workspaceRegistry === undefined ||
-      runControlStore === undefined
+      (runControlStore === undefined && !usesJournalRunProjection)
     ) {
       throw new RequestError(409, "workspace_registry_unavailable");
     }
+    const journalAuthor = requireJournalWorkspaceAuthor();
     const parsed = emptyRequestSchema.safeParse(await readJson(request));
     if (!parsed.success)
       throw new RequestError(400, "invalid_approval_request");
@@ -439,15 +474,29 @@ async function handleAuthorizedRequest(
       workspaceApprovalRoute[1],
       "request_id",
     );
-    let state: ReturnType<SqliteRunControlStore["createWorkspaceAffinity"]>;
+    let state: ReturnType<SqlitePersonalRealmStore["workspaceRecoveryState"]>;
     try {
       state = options.workspaceRegistry.approve(requestId, (approved) => {
-        const current = runControlStore.snapshot(approved.runId);
+        const current = runSnapshot(approved.runId);
+        if (current === undefined) {
+          throw new RequestError(409, "run_control_unavailable");
+        }
         if (
           current.executorNodeId !== approved.executorNodeId ||
           current.authorityEpoch !== approved.authorityEpoch
         ) {
           throw new StaleWorkspaceApprovalError();
+        }
+        if (journalAuthor !== null) {
+          journalAuthor.attachWorkspace({
+            runId: approved.runId,
+            workspaceId: approved.workspace.id,
+            policy: approved.workspace.recoveryPolicy,
+          });
+          return options.store.workspaceRecoveryState(approved.runId);
+        }
+        if (runControlStore === undefined) {
+          throw new RequestError(409, "run_control_unavailable");
         }
         return runControlStore.createWorkspaceAffinity(approved.runId, {
           workspaceId: approved.workspace.id,
@@ -605,7 +654,7 @@ async function handleAuthorizedRequest(
       url.pathname,
     );
   if (workspaceRoute !== null) {
-    if (options.runControlStore === undefined) {
+    if (options.runControlStore === undefined && !usesJournalRunProjection) {
       throw new RequestError(409, "run_control_unavailable");
     }
     const runId = decodePathIdentity(workspaceRoute[1], "run_id");
@@ -614,7 +663,10 @@ async function handleAuthorizedRequest(
       if (options.workspaceRegistry === undefined) {
         throw new RequestError(409, "workspace_registry_unavailable");
       }
-      const state = options.runControlStore.workspaceRecoveryState(runId);
+      const state = workspaceRecoveryState(runId);
+      if (state === undefined) {
+        throw new RequestError(409, "run_control_unavailable");
+      }
       if (
         principal.kind !== "node" ||
         principal.nodeId !== state.activeExecutorNodeId
@@ -648,9 +700,8 @@ async function handleAuthorizedRequest(
       if (!parsed.success) {
         throw new RequestError(400, "invalid_workspace_entry_request");
       }
-      const existing =
-        options.runControlStore.workspaceRecoveryStateIfPresent(runId);
-      if (existing !== null) {
+      const existing = workspaceRecoveryStateIfPresent(runId);
+      if (existing !== null && existing !== undefined) {
         if (existing.workspaceId !== parsed.data.workspaceId) {
           throw new RequestError(409, "run_has_different_workspace");
         }
@@ -660,23 +711,36 @@ async function handleAuthorizedRequest(
         sendJson(response, 200, { status: "already-entered", state: existing });
         return;
       }
-      const runSnapshot = options.runControlStore.snapshot(runId);
+      const currentRun = runSnapshot(runId);
+      if (currentRun === undefined) {
+        throw new RequestError(409, "run_control_unavailable");
+      }
       const decision = options.workspaceRegistry.requestEntry(
         runId,
         parsed.data.workspaceId,
         {
-          executorNodeId: runSnapshot.executorNodeId,
-          authorityEpoch: runSnapshot.authorityEpoch,
+          executorNodeId: currentRun.executorNodeId,
+          authorityEpoch: currentRun.authorityEpoch,
         },
       );
       if (decision.status === "approval-required") {
         sendJson(response, 202, decision);
         return;
       }
+      const journalAuthor = requireJournalWorkspaceAuthor();
+      if (journalAuthor !== null) {
+        journalAuthor.attachWorkspace({
+          runId,
+          workspaceId: decision.workspace.id,
+          policy: decision.workspace.recoveryPolicy,
+        });
+        sendJson(response, 201, options.store.workspaceRecoveryState(runId));
+        return;
+      }
       sendJson(
         response,
         201,
-        options.runControlStore.createWorkspaceAffinity(runId, {
+        options.runControlStore?.createWorkspaceAffinity(runId, {
           workspaceId: decision.workspace.id,
           policy: decision.workspace.recoveryPolicy,
         }),
@@ -688,15 +752,17 @@ async function handleAuthorizedRequest(
       if (!parsed.success) {
         throw new RequestError(400, "invalid_workspace_exit_request");
       }
-      sendJson(response, 202, options.runControlStore.exitWorkspace(runId));
+      const journalAuthor = requireJournalWorkspaceAuthor();
+      if (journalAuthor !== null) {
+        journalAuthor.exitWorkspace({ runId });
+        sendJson(response, 202, options.store.workspaceRecoveryState(runId));
+        return;
+      }
+      sendJson(response, 202, options.runControlStore?.exitWorkspace(runId));
       return;
     }
     if (request.method === "GET" && action === undefined) {
-      sendJson(
-        response,
-        200,
-        options.runControlStore.workspaceRecoveryState(runId),
-      );
+      sendJson(response, 200, workspaceRecoveryState(runId));
       return;
     }
     if (request.method === "POST" && action === undefined) {
@@ -709,10 +775,16 @@ async function handleAuthorizedRequest(
       if (!parsed.success) {
         throw new RequestError(400, "invalid_workspace_affinity_request");
       }
+      const journalAuthor = requireJournalWorkspaceAuthor();
+      if (journalAuthor !== null) {
+        journalAuthor.attachWorkspace({ runId, ...parsed.data });
+        sendJson(response, 201, options.store.workspaceRecoveryState(runId));
+        return;
+      }
       sendJson(
         response,
         201,
-        options.runControlStore.createWorkspaceAffinity(runId, parsed.data),
+        options.runControlStore?.createWorkspaceAffinity(runId, parsed.data),
       );
       return;
     }
@@ -723,10 +795,16 @@ async function handleAuthorizedRequest(
       if (!parsed.success) {
         throw new RequestError(400, "invalid_workspace_unavailable_request");
       }
+      const journalAuthor = requireJournalWorkspaceAuthor();
+      if (journalAuthor !== null) {
+        journalAuthor.workspaceExecutorUnavailable({ runId, ...parsed.data });
+        sendJson(response, 202, options.store.workspaceRecoveryState(runId));
+        return;
+      }
       sendJson(
         response,
         202,
-        options.runControlStore.executorUnavailable(runId, parsed.data),
+        options.runControlStore?.executorUnavailable(runId, parsed.data),
       );
       return;
     }
@@ -735,10 +813,16 @@ async function handleAuthorizedRequest(
       if (!parsed.success) {
         throw new RequestError(400, "invalid_workspace_recovered_request");
       }
+      const journalAuthor = requireJournalWorkspaceAuthor();
+      if (journalAuthor !== null) {
+        journalAuthor.workspaceExecutorRecovered({ runId });
+        sendJson(response, 202, options.store.workspaceRecoveryState(runId));
+        return;
+      }
       sendJson(
         response,
         202,
-        options.runControlStore.preferredExecutorRecovered(runId),
+        options.runControlStore?.preferredExecutorRecovered(runId),
       );
       return;
     }
@@ -750,10 +834,20 @@ async function handleAuthorizedRequest(
         throw new RequestError(400, "invalid_workspace_recovery_choice");
       }
       const { action: selectedAction, ...context } = parsed.data;
+      const journalAuthor = requireJournalWorkspaceAuthor();
+      if (journalAuthor !== null) {
+        journalAuthor.chooseWorkspaceRecovery({
+          runId,
+          action: selectedAction,
+          ...context,
+        });
+        sendJson(response, 202, options.store.workspaceRecoveryState(runId));
+        return;
+      }
       sendJson(
         response,
         202,
-        options.runControlStore.chooseWorkspaceRecovery(
+        options.runControlStore?.chooseWorkspaceRecovery(
           runId,
           selectedAction,
           context,
