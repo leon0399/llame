@@ -199,7 +199,8 @@ function routeRequirement(
     (request.method === "POST" &&
       /^\/v1\/runs\/[^/]+\/events$/.test(url.pathname)) ||
     (request.method === "GET" &&
-      /^\/v1\/runs\/[^/]+\/commands$/.test(url.pathname))
+      (/^\/v1\/runs\/[^/]+\/commands$/.test(url.pathname) ||
+        /^\/v1\/runs\/[^/]+\/workspace\/binding$/.test(url.pathname)))
   ) {
     return "run.execute";
   }
@@ -315,7 +316,7 @@ async function handleAuthorizedRequest(
         "execution.workspace":
           options.workspaceRegistry === undefined
             ? { available: false }
-            : { version: 1, mode: "policy-gated-affinity" },
+            : { version: 1, mode: "policy-gated-binding" },
       },
     });
     return;
@@ -577,7 +578,7 @@ async function handleAuthorizedRequest(
     }
   }
   const workspaceRoute =
-    /^\/v1\/runs\/([^/]+)\/workspace(?:\/(enter|unavailable|recovered|choice))?$/.exec(
+    /^\/v1\/runs\/([^/]+)\/workspace(?:\/(enter|binding|unavailable|recovered|choice))?$/.exec(
       url.pathname,
     );
   if (workspaceRoute !== null) {
@@ -586,6 +587,27 @@ async function handleAuthorizedRequest(
     }
     const runId = decodePathIdentity(workspaceRoute[1], "run_id");
     const action = workspaceRoute[2];
+    if (request.method === "GET" && action === "binding") {
+      if (options.workspaceRegistry === undefined) {
+        throw new RequestError(409, "workspace_registry_unavailable");
+      }
+      const state = options.runControlStore.workspaceRecoveryState(runId);
+      if (
+        principal.kind !== "node" ||
+        principal.nodeId !== state.activeExecutorNodeId
+      ) {
+        throw new RequestError(403, "executor_authority_required");
+      }
+      if (!state.workspaceAttached) {
+        throw new RequestError(409, "workspace_not_attached");
+      }
+      sendJson(
+        response,
+        200,
+        options.workspaceRegistry.binding(state.workspaceId),
+      );
+      return;
+    }
     if (request.method === "POST" && action === "enter") {
       if (options.workspaceRegistry === undefined) {
         throw new RequestError(409, "workspace_registry_unavailable");

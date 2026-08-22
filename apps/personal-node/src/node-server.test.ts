@@ -703,11 +703,26 @@ describe("personal Node Protocol server", () => {
       realmId: "realm-personal",
     });
     stores.push(store);
+    const enrollmentRegistry = new SqliteEnrollmentRegistry({
+      databasePath: join(directory, "enrollment.sqlite"),
+      realmId: "realm-personal",
+    });
+    enrollmentRegistries.push(enrollmentRegistry);
     runControlStores.push(runControlStore);
+    const executor = generateWriterIdentity();
+    const executorGrant = enrollmentRegistry.completeEnrollment(
+      createEnrollmentProof(
+        enrollmentRegistry.issueChallenge({ nodeId: "node-workstation" }),
+        executor.privateKeyPem,
+      ),
+      new Date(),
+      ["run.execute"],
+    );
     const server = createPersonalNodeServer({
       nodeId: "node-home",
       bearerToken: "owner-control-secret",
       store,
+      enrollmentRegistry,
       runControlStore,
       workspaceRegistry: new WorkspaceRegistry([
         {
@@ -764,6 +779,14 @@ describe("personal Node Protocol server", () => {
         body: JSON.stringify({ workspaceId: "workspace-code" }),
       },
     );
+    const executorBinding = await fetch(
+      `${origin}/v1/runs/run-workspace/workspace/binding`,
+      { headers: { authorization: `Bearer ${executorGrant.credential}` } },
+    );
+    const ownerBinding = await fetch(
+      `${origin}/v1/runs/run-workspace/workspace/binding`,
+      { headers },
+    );
     const approvalRequired = await fetch(
       `${origin}/v1/runs/run-needs-approval/workspace/enter`,
       {
@@ -791,6 +814,10 @@ describe("personal Node Protocol server", () => {
         }),
       },
     );
+    const staleExecutorBinding = await fetch(
+      `${origin}/v1/runs/run-workspace/workspace/binding`,
+      { headers: { authorization: `Bearer ${executorGrant.credential}` } },
+    );
     const fallbackState = await fetch(
       `${origin}/v1/runs/run-workspace/workspace`,
       { headers },
@@ -805,6 +832,12 @@ describe("personal Node Protocol server", () => {
     );
 
     expect(attached.status).toBe(201);
+    expect(executorBinding.status).toBe(200);
+    expect(await executorBinding.json()).toEqual({
+      workspaceId: "workspace-code",
+      rootPath: "/srv/workspaces/code",
+    });
+    expect(ownerBinding.status).toBe(403);
     expect(approvalRequired.status).toBe(202);
     expect(approved.status).toBe(200);
     expect(await approved.json()).toMatchObject({
@@ -820,6 +853,7 @@ describe("personal Node Protocol server", () => {
         workspaceAttached: false,
       },
     });
+    expect(staleExecutorBinding.status).toBe(403);
     expect(fallbackState.status).toBe(200);
     expect(await fallbackState.json()).toMatchObject({
       mode: "temporary-fallback",

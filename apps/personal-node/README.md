@@ -298,10 +298,13 @@ cannot downgrade either entry or recovery policy. When a registry is enabled,
 the older direct-affinity endpoint is disabled to prevent bypassing this policy
 boundary.
 
-This slice records policy-gated Workspace affinity only. It deliberately does
-not bind `rootPath` into a sandbox, change an executor's working directory, or
-create a Git worktree yet; the capability reports `policy-gated-affinity`
-rather than claiming executable Workspace placement.
+Only the enrolled node that currently holds Run execution authority can resolve
+`GET /v1/runs/:runId/workspace/binding` to the configured local `rootPath`.
+The model/controller and prior executors cannot read it. This gives a local
+harness the input needed to change its own working directory or bind the path
+into its sandbox, but the node does not yet perform that mount or create a Git
+worktree; the capability therefore reports `policy-gated-binding` rather than
+claiming a managed sandbox.
 
 All writers in a Realm must currently be pre-authorized with the same epoch map:
 
@@ -336,6 +339,7 @@ The authenticated API exposes:
 - `GET /v1/workspaces`
 - `POST /v1/runs/:runId/workspace/enter`
 - `POST /v1/workspace-entry-requests/:requestId/approve`
+- `GET /v1/runs/:runId/workspace/binding`
 - `POST /v1/runs/:runId/workspace`
 - `GET /v1/runs/:runId/workspace`
 - `POST /v1/runs/:runId/workspace/unavailable`

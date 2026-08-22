@@ -42,6 +42,15 @@ export class WorkspaceRegistry {
     }));
   }
 
+  public binding(workspaceId: string): {
+    readonly workspaceId: string;
+    readonly rootPath: string;
+  } {
+    const workspace = this.#workspaces.get(workspaceId);
+    if (workspace === undefined) throw new Error("Workspace is not registered");
+    return { workspaceId: workspace.id, rootPath: workspace.rootPath };
+  }
+
   public requestEntry(
     runId: string,
     workspaceId: string,
