@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -113,6 +113,34 @@ describe("manual Workspace registry", () => {
         recovered.approve(requested.requestId, (approved) => approved.runId),
       ).toBe("run-restart");
       recovered.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses to bind a configured Workspace that is not currently available", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-workspace-binding-"));
+    try {
+      const rootPath = join(directory, "code");
+      await mkdir(rootPath);
+      const registry = new WorkspaceRegistry([
+        {
+          id: "code",
+          label: "Code",
+          rootPath,
+          entryPolicy: "auto-approve",
+          recoveryPolicy: "wait",
+        },
+      ]);
+
+      await expect(registry.binding("code")).resolves.toEqual({
+        workspaceId: "code",
+        rootPath,
+      });
+      await rm(rootPath, { recursive: true, force: true });
+      await expect(registry.binding("code")).rejects.toThrowError(
+        "Workspace is unavailable",
+      );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

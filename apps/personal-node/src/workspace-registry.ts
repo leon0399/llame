@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -10,6 +11,12 @@ export interface WorkspaceDefinition {
   readonly rootPath: string;
   readonly entryPolicy: "auto-approve" | "ask";
   readonly recoveryPolicy: WorkspaceRecoveryPolicy;
+}
+
+export class WorkspaceUnavailableError extends Error {
+  public constructor() {
+    super("Workspace is unavailable");
+  }
 }
 
 interface PendingWorkspaceEntry {
@@ -85,12 +92,20 @@ export class WorkspaceRegistry {
     }));
   }
 
-  public binding(workspaceId: string): {
+  public async binding(workspaceId: string): Promise<{
     readonly workspaceId: string;
     readonly rootPath: string;
-  } {
+  }> {
     const workspace = this.#workspaces.get(workspaceId);
     if (workspace === undefined) throw new Error("Workspace is not registered");
+    try {
+      if (!(await stat(workspace.rootPath)).isDirectory()) {
+        throw new WorkspaceUnavailableError();
+      }
+    } catch (error) {
+      if (error instanceof WorkspaceUnavailableError) throw error;
+      throw new WorkspaceUnavailableError();
+    }
     return { workspaceId: workspace.id, rootPath: workspace.rootPath };
   }
 

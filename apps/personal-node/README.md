@@ -305,7 +305,9 @@ The model/controller and prior executors cannot read it. This gives a local
 harness the input needed to change its own working directory or bind the path
 into its sandbox, but the node does not yet perform that mount or create a Git
 worktree; the capability therefore reports `policy-gated-binding` rather than
-claiming a managed sandbox.
+claiming a managed sandbox. Resolution checks that the configured root is still
+a directory and returns `workspace_unavailable` instead of handing an executor
+a stale path; the existing recovery policy decides what happens next.
 
 `POST /v1/runs/:runId/workspace/exit` is the explicit `ExitWorkspace` semantic:
 it permanently detaches the binding while keeping the Run on its current

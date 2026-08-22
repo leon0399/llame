@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -718,6 +718,8 @@ describe("personal Node Protocol server", () => {
       new Date(),
       ["run.execute"],
     );
+    const workspaceRoot = join(directory, "workspace-code");
+    await mkdir(workspaceRoot);
     const server = createPersonalNodeServer({
       nodeId: "node-home",
       bearerToken: "owner-control-secret",
@@ -728,7 +730,7 @@ describe("personal Node Protocol server", () => {
         {
           id: "workspace-code",
           label: "Code",
-          rootPath: "/srv/workspaces/code",
+          rootPath: workspaceRoot,
           entryPolicy: "auto-approve",
           recoveryPolicy: "fallback",
         },
@@ -787,6 +789,11 @@ describe("personal Node Protocol server", () => {
       `${origin}/v1/runs/run-workspace/workspace/binding`,
       { headers },
     );
+    await rm(workspaceRoot, { recursive: true, force: true });
+    const unavailableBinding = await fetch(
+      `${origin}/v1/runs/run-workspace/workspace/binding`,
+      { headers: { authorization: `Bearer ${executorGrant.credential}` } },
+    );
     const approvalRequired = await fetch(
       `${origin}/v1/runs/run-needs-approval/workspace/enter`,
       {
@@ -843,9 +850,13 @@ describe("personal Node Protocol server", () => {
     expect(executorBinding.status).toBe(200);
     expect(await executorBinding.json()).toEqual({
       workspaceId: "workspace-code",
-      rootPath: "/srv/workspaces/code",
+      rootPath: workspaceRoot,
     });
     expect(ownerBinding.status).toBe(403);
+    expect(unavailableBinding.status).toBe(409);
+    expect(await unavailableBinding.json()).toEqual({
+      error: "workspace_unavailable",
+    });
     expect(approvalRequired.status).toBe(202);
     expect(approved.status).toBe(200);
     expect(await approved.json()).toMatchObject({

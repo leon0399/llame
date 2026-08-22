@@ -18,7 +18,10 @@ import type { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import type { SignedRealmRunAuthor } from "./realm-run-author.js";
 import type { PeerSyncStatus } from "./peer-sync-supervisor.js";
 import type { SqliteRunControlStore } from "./run-control-store.js";
-import type { WorkspaceRegistry } from "./workspace-registry.js";
+import {
+  WorkspaceUnavailableError,
+  type WorkspaceRegistry,
+} from "./workspace-registry.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -601,11 +604,18 @@ async function handleAuthorizedRequest(
       if (!state.workspaceAttached) {
         throw new RequestError(409, "workspace_not_attached");
       }
-      sendJson(
-        response,
-        200,
-        options.workspaceRegistry.binding(state.workspaceId),
-      );
+      try {
+        sendJson(
+          response,
+          200,
+          await options.workspaceRegistry.binding(state.workspaceId),
+        );
+      } catch (error) {
+        if (error instanceof WorkspaceUnavailableError) {
+          throw new RequestError(409, "workspace_unavailable");
+        }
+        throw error;
+      }
       return;
     }
     if (request.method === "POST" && action === "enter") {
