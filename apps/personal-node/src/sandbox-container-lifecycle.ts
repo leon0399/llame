@@ -34,6 +34,11 @@ export interface RunningSandbox {
   readonly state: "running";
 }
 
+export type SandboxStatus =
+  | RunningSandbox
+  | { readonly containerName: string; readonly state: "stopped" }
+  | { readonly state: "absent" };
+
 export class DockerSandboxLifecycle {
   readonly #engine: SandboxContainerEngine;
 
@@ -78,6 +83,16 @@ export class DockerSandboxLifecycle {
     if ((await this.#engine.inspect(plan.containerName)) !== null) {
       throw new Error("Sandbox container still exists after removal");
     }
+  }
+
+  public async status(plan: DockerSandboxPlan): Promise<SandboxStatus> {
+    const observed = await this.#engine.inspect(plan.containerName);
+    if (observed === null) return { state: "absent" };
+    this.#assertMatches(plan, observed);
+    return {
+      containerName: plan.containerName,
+      state: observed.running ? "running" : "stopped",
+    };
   }
 
   #assertMatches(

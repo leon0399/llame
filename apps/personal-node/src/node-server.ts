@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { realpath } from "node:fs/promises";
 import {
   createServer,
   type IncomingMessage,
@@ -22,6 +23,8 @@ import {
 } from "./git-worktree-manager.js";
 import type { PeerSyncStatus } from "./peer-sync-supervisor.js";
 import type { SqliteRunControlStore } from "./run-control-store.js";
+import { buildDockerSandboxPlan } from "./sandbox-container-contract.js";
+import type { DockerSandboxLifecycle } from "./sandbox-container-lifecycle.js";
 import {
   WorkspaceUnavailableError,
   type WorkspaceRegistry,
@@ -111,6 +114,11 @@ export interface PersonalNodeServerOptions {
   readonly peerSyncStatus?: () => readonly PeerSyncStatus[];
   readonly workspaceRegistry?: WorkspaceRegistry;
   readonly gitWorktreeManager?: GitWorktreeManager;
+  readonly sandbox?: {
+    readonly lifecycle: DockerSandboxLifecycle;
+    readonly image: string;
+    readonly user: string;
+  };
 }
 
 type RequestPrincipal =
@@ -184,7 +192,8 @@ function routeRequirement(
   }
   if (
     request.method === "POST" &&
-    /^\/v1\/runs\/[^/]+\/worktree\/(?:enter|exit)$/.test(url.pathname)
+    (/^\/v1\/runs\/[^/]+\/worktree\/(?:enter|exit)$/.test(url.pathname) ||
+      /^\/v1\/runs\/[^/]+\/sandbox\/(?:enter|exit)$/.test(url.pathname))
   ) {
     return "owner";
   }
@@ -210,7 +219,8 @@ function routeRequirement(
     request.method === "GET" &&
     (url.pathname === "/v1/workspaces" ||
       /^\/v1\/runs\/[^/]+\/control$/.test(url.pathname) ||
-      /^\/v1\/runs\/[^/]+\/workspace$/.test(url.pathname))
+      /^\/v1\/runs\/[^/]+\/workspace$/.test(url.pathname) ||
+      /^\/v1\/runs\/[^/]+\/sandbox$/.test(url.pathname))
   ) {
     return "run.observe";
   }
@@ -375,6 +385,10 @@ async function handleAuthorizedRequest(
           options.gitWorktreeManager === undefined
             ? { available: false }
             : { version: 1, mode: "executor-local" },
+        "execution.sandbox":
+          options.sandbox === undefined
+            ? { available: false }
+            : { version: 1, mode: "executor-local-docker" },
       },
     });
     return;
@@ -872,6 +886,67 @@ async function handleAuthorizedRequest(
           context,
         ),
       );
+      return;
+    }
+  }
+  const sandboxRoute = /^\/v1\/runs\/([^/]+)\/sandbox(?:\/(enter|exit))?$/.exec(
+    url.pathname,
+  );
+  if (sandboxRoute !== null) {
+    if (
+      options.sandbox === undefined ||
+      options.workspaceRegistry === undefined
+    ) {
+      throw new RequestError(409, "sandbox_unavailable");
+    }
+    const runId = decodePathIdentity(sandboxRoute[1], "run_id");
+    const action = sandboxRoute[2];
+    const state = workspaceRecoveryStateIfPresent(runId);
+    if (state === undefined) {
+      throw new RequestError(409, "run_control_unavailable");
+    }
+    if (state === null || !state.workspaceAttached) {
+      throw new RequestError(409, "workspace_not_attached");
+    }
+    if (state.activeExecutorNodeId !== options.nodeId) {
+      throw new RequestError(409, "sandbox_executor_unavailable");
+    }
+    let workspaceSource =
+      options.gitWorktreeManager?.binding(runId)?.worktreePath;
+    if (workspaceSource === undefined) {
+      try {
+        workspaceSource = (
+          await options.workspaceRegistry.binding(state.workspaceId)
+        ).rootPath;
+      } catch (error) {
+        if (error instanceof WorkspaceUnavailableError) {
+          throw new RequestError(409, "workspace_unavailable");
+        }
+        throw error;
+      }
+    }
+    const plan = buildDockerSandboxPlan({
+      nodeId: options.nodeId,
+      runId,
+      image: options.sandbox.image,
+      workspaceSourceRealpath: await realpath(workspaceSource),
+      user: options.sandbox.user,
+    });
+    if (request.method === "GET" && action === undefined) {
+      sendJson(response, 200, await options.sandbox.lifecycle.status(plan));
+      return;
+    }
+    const parsed = emptyRequestSchema.safeParse(await readJson(request));
+    if (!parsed.success) {
+      throw new RequestError(400, "invalid_sandbox_request");
+    }
+    if (request.method === "POST" && action === "enter") {
+      sendJson(response, 201, await options.sandbox.lifecycle.enter(plan));
+      return;
+    }
+    if (request.method === "POST" && action === "exit") {
+      await options.sandbox.lifecycle.exit(plan);
+      sendJson(response, 202, { state: "absent" });
       return;
     }
   }

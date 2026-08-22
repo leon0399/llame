@@ -136,4 +136,17 @@ describe("Docker Sandbox lifecycle", () => {
 
     expect(containerEngine.remove).toHaveBeenCalledWith(plan.containerName);
   });
+
+  test("observes a matching Sandbox without changing it", async () => {
+    const containerEngine = engine(async () => observation({ running: true }));
+
+    await expect(
+      new DockerSandboxLifecycle(containerEngine).status(plan),
+    ).resolves.toEqual({
+      containerName: plan.containerName,
+      state: "running",
+    });
+    expect(containerEngine.start).not.toHaveBeenCalled();
+    expect(containerEngine.remove).not.toHaveBeenCalled();
+  });
 });

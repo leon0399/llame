@@ -3,7 +3,7 @@ import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   generateWriterIdentity,
   signChangeBatch,
@@ -13,6 +13,11 @@ import { createEnrollmentProof } from "@workspace/federation-experiment/node-enr
 import { createPersonalNodeServer } from "./node-server.js";
 import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import { SqliteRunControlStore } from "./run-control-store.js";
+import {
+  DockerSandboxLifecycle,
+  type SandboxContainerEngine,
+  type SandboxContainerObservation,
+} from "./sandbox-container-lifecycle.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 import { WorkspaceRegistry } from "./workspace-registry.js";
 
@@ -125,6 +130,7 @@ describe("personal Node Protocol server", () => {
         "execution.run-control": { available: false },
         "execution.workspace": { available: false },
         "execution.git-worktree": { available: false },
+        "execution.sandbox": { available: false },
       },
     });
   });
@@ -959,5 +965,171 @@ describe("personal Node Protocol server", () => {
       },
     });
     expect(bindingAfterExit.status).toBe(409);
+  });
+
+  test("controls a fixed Sandbox only after local Workspace attachment", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-sandbox-api-"));
+    temporaryDirectories.push(directory);
+    const workspaceRoot = join(directory, "workspace");
+    await mkdir(workspaceRoot);
+    const store = new SqlitePersonalRealmStore({
+      databasePath: join(directory, "realm.sqlite"),
+      realmId: "realm-personal",
+      writerEpochs: { home: 1 },
+    });
+    const runControlStore = new SqliteRunControlStore({
+      databasePath: join(directory, "runs.sqlite"),
+      realmId: "realm-personal",
+    });
+    stores.push(store);
+    runControlStores.push(runControlStore);
+    const enrollmentRegistry = new SqliteEnrollmentRegistry({
+      databasePath: join(directory, "enrollment.sqlite"),
+      realmId: "realm-personal",
+    });
+    enrollmentRegistries.push(enrollmentRegistry);
+    const executor = generateWriterIdentity();
+    const executorGrant = enrollmentRegistry.completeEnrollment(
+      createEnrollmentProof(
+        enrollmentRegistry.issueChallenge({ nodeId: "node-home" }),
+        executor.privateKeyPem,
+      ),
+      new Date(),
+      ["run.execute", "run.control", "run.observe"],
+    );
+    const image =
+      "registry.example/llame/sandbox@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let container: SandboxContainerObservation | null = null;
+    const containerEngine: SandboxContainerEngine = {
+      inspect: vi.fn(async () => container),
+      create: vi.fn(async () => {
+        container = {
+          containerName: "llame-node-home-run-sandbox",
+          image,
+          running: false,
+          nodeId: "node-home",
+          runId: "run-sandbox",
+          user: "1000:1000",
+          workspaceSourceRealpath: workspaceRoot,
+          homeVolumeName: "llame-home-node-home-run-sandbox",
+          security: {
+            networkMode: "none",
+            ipcMode: "private",
+            cgroupNamespace: "private",
+            droppedCapabilities: ["ALL"],
+            securityOptions: ["no-new-privileges"],
+            readOnlyRoot: true,
+            pidsLimit: 512,
+          },
+        };
+      }),
+      start: vi.fn(async () => {
+        if (container === null) throw new Error("container is absent");
+        container = { ...container, running: true };
+      }),
+      remove: vi.fn(async () => {
+        container = null;
+      }),
+    };
+    const server = createPersonalNodeServer({
+      nodeId: "node-home",
+      bearerToken: "owner-control-secret",
+      store,
+      enrollmentRegistry,
+      runControlStore,
+      workspaceRegistry: new WorkspaceRegistry([
+        {
+          id: "workspace-code",
+          label: "Code",
+          rootPath: workspaceRoot,
+          entryPolicy: "auto-approve",
+          recoveryPolicy: "wait",
+        },
+      ]),
+      sandbox: {
+        lifecycle: new DockerSandboxLifecycle(containerEngine),
+        image,
+        user: "1000:1000",
+      },
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("test server did not bind a TCP address");
+    }
+    const origin = `http://127.0.0.1:${address.port}`;
+    const headers = {
+      authorization: "Bearer owner-control-secret",
+      "content-type": "application/json",
+    };
+    for (const runId of ["run-sandbox", "run-unattached"]) {
+      await fetch(`${origin}/v1/runs`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ runId, executorNodeId: "node-home" }),
+      });
+    }
+    const unattached = await fetch(
+      `${origin}/v1/runs/run-unattached/sandbox/enter`,
+      { method: "POST", headers, body: "{}" },
+    );
+    await fetch(`${origin}/v1/runs/run-sandbox/workspace/enter`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ workspaceId: "workspace-code" }),
+    });
+    const forbiddenExecutorEntry = await fetch(
+      `${origin}/v1/runs/run-sandbox/sandbox/enter`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${executorGrant.credential}`,
+          "content-type": "application/json",
+        },
+        body: "{}",
+      },
+    );
+
+    const entered = await fetch(`${origin}/v1/runs/run-sandbox/sandbox/enter`, {
+      method: "POST",
+      headers,
+      body: "{}",
+    });
+    const status = await fetch(`${origin}/v1/runs/run-sandbox/sandbox`, {
+      headers,
+    });
+    const exited = await fetch(`${origin}/v1/runs/run-sandbox/sandbox/exit`, {
+      method: "POST",
+      headers,
+      body: "{}",
+    });
+
+    expect(unattached.status).toBe(409);
+    expect(await unattached.json()).toEqual({
+      error: "workspace_not_attached",
+    });
+    expect(forbiddenExecutorEntry.status).toBe(403);
+    expect(entered.status).toBe(201);
+    expect(await entered.json()).toEqual({
+      containerName: "llame-node-home-run-sandbox",
+      state: "running",
+    });
+    expect(status.status).toBe(200);
+    expect(await status.json()).toMatchObject({ state: "running" });
+    expect(containerEngine.create).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        "--network",
+        "none",
+        `type=bind,src=${workspaceRoot},dst=/workspace`,
+      ]),
+    );
+    expect(exited.status).toBe(202);
+    expect(await exited.json()).toEqual({ state: "absent" });
+    expect(containerEngine.remove).toHaveBeenCalledWith(
+      "llame-node-home-run-sandbox",
+    );
   });
 });
