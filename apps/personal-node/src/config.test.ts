@@ -52,6 +52,24 @@ describe("personal Node command configuration", () => {
     });
   });
 
+  test("parses a multi-peer router without local Realm storage", () => {
+    expect(
+      parsePersonalNodeCommand(["proxy-router", "/config/peers.json"], {
+        LLAME_NODE_TOKEN: "phone-facing-secret",
+        LLAME_PROXY_ROUTES_DB: "/state/run-routes.sqlite",
+        LLAME_PROXY_CACHE_DB: "/state/run-proxy-cache.sqlite",
+      }),
+    ).toEqual({
+      kind: "proxy-router",
+      localBearerToken: "phone-facing-secret",
+      peerManifestPath: "/config/peers.json",
+      routesDatabasePath: "/state/run-routes.sqlite",
+      cacheDatabasePath: "/state/run-proxy-cache.sqlite",
+      host: "127.0.0.1",
+      port: 4370,
+    });
+  });
+
   test("defaults serve to a loopback-only listener and this node's writer", () => {
     expect(parsePersonalNodeCommand(["serve"], baseEnvironment)).toEqual({
       kind: "serve",

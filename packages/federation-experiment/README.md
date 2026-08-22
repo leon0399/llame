@@ -34,8 +34,9 @@ an authenticated HTTP contract. Signature v1 uses a domain-separated,
 field-ordered JSON encoding inside this TypeScript experiment; it is not a claim
 of cross-language canonicalization. The package still deliberately does not
 choose snapshots, automated key rotation, or a public package API. The Personal
-Node app additionally exercises a same-contract proxy with an optional stale
-semantic cache; that transport remains outside this semantic core.
+Node app additionally exercises same-contract fixed and multi-peer proxies with
+an optional stale semantic cache; that transport remains outside this semantic
+core.
 `JSON.stringify` remains only an in-process payload-equality sentinel outside
 that explicitly ordered signature encoder. The next valuable boundary is a
 real external-harness adapter behind the Run-control API, followed by a second

@@ -16,9 +16,12 @@ import {
 import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import { createPersonalNodeServer } from "./node-server.js";
 import { initializeNodeIdentity } from "./node-identity.js";
+import { loadProxyPeerManifest } from "./proxy-peer-manifest.js";
 import { createRunControlProxyServer } from "./run-control-proxy.js";
 import { SqliteRunControlProxyCache } from "./run-control-proxy-cache.js";
+import { createRunControlProxyRouterServer } from "./run-control-proxy-router.js";
 import { SqliteRunControlStore } from "./run-control-store.js";
+import { SqliteRunRouteRegistry } from "./run-route-registry.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 import { syncFromPeer } from "./sync-client.js";
 import { initializeWriterIdentity } from "./writer-identity.js";
@@ -139,6 +142,65 @@ async function run(): Promise<void> {
       if (closing) return;
       closing = true;
       server.close(() => cache?.close());
+    };
+    process.once("SIGINT", close);
+    process.once("SIGTERM", close);
+    return;
+  }
+  if (command.kind === "proxy-router") {
+    await mkdir(dirname(command.routesDatabasePath), {
+      recursive: true,
+      mode: 0o700,
+    });
+    if (command.cacheDatabasePath !== undefined) {
+      await mkdir(dirname(command.cacheDatabasePath), {
+        recursive: true,
+        mode: 0o700,
+      });
+    }
+    const routes = new SqliteRunRouteRegistry({
+      databasePath: command.routesDatabasePath,
+    });
+    const cache =
+      command.cacheDatabasePath === undefined
+        ? undefined
+        : new SqliteRunControlProxyCache({
+            databasePath: command.cacheDatabasePath,
+          });
+    let server: ReturnType<typeof createRunControlProxyRouterServer>;
+    try {
+      server = createRunControlProxyRouterServer({
+        localBearerToken: command.localBearerToken,
+        peers: await loadProxyPeerManifest(command.peerManifestPath),
+        routes,
+        ...(cache === undefined ? {} : { cache }),
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(command.port, command.host, () => {
+          server.off("error", reject);
+          resolve();
+        });
+      });
+    } catch (error) {
+      cache?.close();
+      routes.close();
+      throw error;
+    }
+    process.stdout.write(
+      `${JSON.stringify({
+        status: "routing",
+        origin: `http://${command.host}:${command.port}`,
+      })}\n`,
+    );
+    let closing = false;
+    const close = (): void => {
+      if (closing) return;
+      closing = true;
+      server.close(() => {
+        cache?.close();
+        routes.close();
+      });
     };
     process.once("SIGINT", close);
     process.once("SIGTERM", close);

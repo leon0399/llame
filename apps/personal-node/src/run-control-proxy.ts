@@ -18,7 +18,20 @@ export interface RunControlProxyServerOptions {
   readonly cache?: SqliteRunControlProxyCache;
 }
 
-function peerOrigin(input: string): URL {
+export interface RunControlProxyPeer {
+  readonly peerId: string;
+  readonly peerUrl: string;
+  readonly peerBearerToken: string;
+}
+
+export interface RunControlProxyTunnelOptions {
+  readonly peerUrl: string;
+  readonly peerBearerToken: string;
+  readonly cache?: SqliteRunControlProxyCache;
+  readonly cacheKeyPrefix?: string;
+}
+
+export function parseRunControlPeerOrigin(input: string): URL {
   const url = new URL(input);
   if (
     (url.protocol !== "http:" && url.protocol !== "https:") ||
@@ -41,7 +54,7 @@ function peerOrigin(input: string): URL {
   return url;
 }
 
-function bearerMatches(
+export function runControlProxyBearerMatches(
   request: IncomingMessage,
   expectedDigest: Buffer,
 ): boolean {
@@ -53,7 +66,7 @@ function bearerMatches(
   return timingSafeEqual(digest, expectedDigest);
 }
 
-function sendJson(
+export function sendRunControlProxyJson(
   response: ServerResponse,
   status: number,
   body: unknown,
@@ -67,7 +80,10 @@ function sendJson(
   response.end(JSON.stringify(body));
 }
 
-function isAllowed(method: string | undefined, pathname: string): boolean {
+export function isAllowedRunControlRequest(
+  method: string | undefined,
+  pathname: string,
+): boolean {
   return (
     (method === "POST" && pathname === "/v1/runs") ||
     (method === "GET" && /^\/v1\/runs\/[^/]+\/control$/.test(pathname)) ||
@@ -81,7 +97,9 @@ function isAllowed(method: string | undefined, pathname: string): boolean {
   );
 }
 
-async function readRequestBody(request: IncomingMessage): Promise<Buffer> {
+export async function readRunControlRequestBody(
+  request: IncomingMessage,
+): Promise<Buffer> {
   if (!request.headers["content-type"]?.startsWith("application/json")) {
     throw new Error("json_content_type_required");
   }
@@ -135,20 +153,24 @@ async function readResponseBody(response: Response): Promise<Buffer> {
   return body;
 }
 
-async function tunnel(
+export async function tunnelRunControlRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  options: RunControlProxyServerOptions,
-  origin: URL,
+  options: RunControlProxyTunnelOptions,
+  preparedBody?: Buffer,
 ): Promise<void> {
   const localUrl = new URL(request.url ?? "/", "http://run-proxy.local");
-  if (!isAllowed(request.method, localUrl.pathname)) {
-    sendJson(response, 404, { error: "not_found" });
+  if (!isAllowedRunControlRequest(request.method, localUrl.pathname)) {
+    sendRunControlProxyJson(response, 404, { error: "not_found" });
     return;
   }
   const method = request.method === "POST" ? "POST" : "GET";
-  const requestKey = `${localUrl.pathname}${localUrl.search}`;
-  const body = method === "POST" ? await readRequestBody(request) : undefined;
+  const requestKey = `${options.cacheKeyPrefix ?? ""}${localUrl.pathname}${localUrl.search}`;
+  const body =
+    method === "POST"
+      ? (preparedBody ?? (await readRunControlRequestBody(request)))
+      : undefined;
+  const origin = parseRunControlPeerOrigin(options.peerUrl);
   let upstream: Response;
   try {
     upstream = await fetch(
@@ -167,7 +189,7 @@ async function tunnel(
   } catch {
     const lastKnown =
       method === "GET" ? options.cache?.get(requestKey) : undefined;
-    sendJson(response, 503, {
+    sendRunControlProxyJson(response, 503, {
       error: "upstream_unavailable",
       ...(method === "POST" ? { outcome: "outcome_unknown" } : {}),
       ...(lastKnown === undefined || lastKnown === null ? {} : { lastKnown }),
@@ -180,7 +202,7 @@ async function tunnel(
   } catch {
     const lastKnown =
       method === "GET" ? options.cache?.get(requestKey) : undefined;
-    sendJson(response, 502, {
+    sendRunControlProxyJson(response, 502, {
       error: "invalid_upstream_response",
       ...(method === "POST" ? { outcome: "outcome_unknown" } : {}),
       ...(lastKnown === undefined || lastKnown === null ? {} : { lastKnown }),
@@ -207,13 +229,13 @@ export function createRunControlProxyServer(
   if (options.peerBearerToken.length < 16) {
     throw new Error("peer bearer token must contain at least 16 characters");
   }
-  const origin = peerOrigin(options.peerUrl);
+  parseRunControlPeerOrigin(options.peerUrl);
   const expectedDigest = createHash("sha256")
     .update(options.localBearerToken)
     .digest();
   return createServer((request, response) => {
-    if (!bearerMatches(request, expectedDigest)) {
-      sendJson(
+    if (!runControlProxyBearerMatches(request, expectedDigest)) {
+      sendRunControlProxyJson(
         response,
         401,
         { error: "unauthorized" },
@@ -222,7 +244,7 @@ export function createRunControlProxyServer(
       return;
     }
     if (request.method === "GET" && request.url === "/v1/capabilities") {
-      sendJson(response, 200, {
+      sendRunControlProxyJson(response, 200, {
         protocol: { name: "llame-node", version: 1 },
         node: { profile: "single-owner-run-control-proxy" },
         modules: {
@@ -231,7 +253,7 @@ export function createRunControlProxyServer(
       });
       return;
     }
-    void tunnel(request, response, options, origin).catch((error) => {
+    void tunnelRunControlRequest(request, response, options).catch((error) => {
       const code =
         error instanceof Error &&
         (error.message === "json_content_type_required" ||
@@ -244,7 +266,7 @@ export function createRunControlProxyServer(
           : code === "request_body_too_large"
             ? 413
             : 502;
-      sendJson(response, status, { error: code });
+      sendRunControlProxyJson(response, status, { error: code });
     });
   });
 }

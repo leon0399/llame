@@ -30,6 +30,15 @@ export type PersonalNodeCommand =
       readonly cacheDatabasePath?: string;
     }
   | {
+      readonly kind: "proxy-router";
+      readonly localBearerToken: string;
+      readonly peerManifestPath: string;
+      readonly routesDatabasePath: string;
+      readonly host: string;
+      readonly port: number;
+      readonly cacheDatabasePath?: string;
+    }
+  | {
       readonly kind: "serve";
       readonly node: PersonalNodeConfig;
       readonly host: string;
@@ -225,6 +234,27 @@ export function parsePersonalNodeCommand(
       localBearerToken,
       peerUrl,
       peerCredential: parsePeerCredential(environment),
+      host: parseHost(environment.LLAME_NODE_HOST),
+      port: parsePort(environment.LLAME_NODE_PORT),
+      ...(environment.LLAME_PROXY_CACHE_DB === undefined
+        ? {}
+        : { cacheDatabasePath: environment.LLAME_PROXY_CACHE_DB }),
+    };
+  }
+  if (command === "proxy-router") {
+    const peerManifestPath = arguments_[1];
+    if (peerManifestPath === undefined) {
+      throw new Error("proxy-router requires a peer manifest path");
+    }
+    const localBearerToken = required(environment, "LLAME_NODE_TOKEN");
+    if (localBearerToken.length < 16) {
+      throw new Error("LLAME_NODE_TOKEN must contain at least 16 characters");
+    }
+    return {
+      kind: "proxy-router",
+      localBearerToken,
+      peerManifestPath,
+      routesDatabasePath: required(environment, "LLAME_PROXY_ROUTES_DB"),
       host: parseHost(environment.LLAME_NODE_HOST),
       port: parsePort(environment.LLAME_NODE_PORT),
       ...(environment.LLAME_PROXY_CACHE_DB === undefined

@@ -71,7 +71,7 @@ node that proxies user control can receive `run.observe`, `run.steer`, and
 `run.control` without receiving the remote Node's owner credential or executor
 authority.
 
-Run the same Run-control API shape as a stateless local tunnel to a remote Node:
+Run the same Run-control API shape as a local tunnel to a remote Node:
 
 ```bash
 export LLAME_NODE_TOKEN=local-phone-facing-secret
@@ -91,6 +91,54 @@ durable current state. Upstream disconnect during a mutation returns
 explicitly stale last-known semantic response when the optional owner-only cache
 has one. The cache contains no credentials, raw harness frames, or executor
 internals and is never promoted to authority.
+
+To keep one local Node API while several configured Nodes can own different
+Runs, use the routed proxy. Its manifest names trusted peers and points at their
+owner-only enrolled credential files; origins can never come from an API caller:
+
+```json
+{
+  "version": 1,
+  "peers": [
+    {
+      "peerId": "workstation",
+      "origin": "https://workstation.example.test",
+      "credentialPath": "workstation.credential"
+    },
+    {
+      "peerId": "laptop",
+      "origin": "https://laptop.example.test",
+      "credentialPath": "laptop.credential"
+    }
+  ]
+}
+```
+
+```bash
+chmod 600 .local/peers/*.credential
+export LLAME_NODE_TOKEN=local-phone-facing-secret
+export LLAME_PROXY_ROUTES_DB="$PWD/.local/run-routes.sqlite"
+export LLAME_PROXY_CACHE_DB="$PWD/.local/run-proxy-cache.sqlite"
+pnpm --filter personal-node start proxy-router "$PWD/.local/peers/peers.json"
+```
+
+Before creating or controlling a Run, pin its UUID to a configured peer through
+the owner-authenticated local endpoint:
+
+```bash
+curl -X PUT http://127.0.0.1:4370/v1/proxy/routes/run-uuid \
+  -H "Authorization: Bearer $LLAME_NODE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"peerId":"workstation"}'
+```
+
+The binding is idempotent. Moving an existing Run requires
+`{"peerId":"laptop","expectedRouteEpoch":1}`; a stale route epoch is rejected.
+The route database stores only Run UUID, peer ID, and epoch—not credentials.
+Removing a configured peer leaves its Runs visibly unavailable; the router does
+not silently choose another executor. Cache keys include peer and route epoch,
+so observations from before an explicit rebind cannot masquerade as state from
+the new peer.
 
 Instead of distributing the peer's owner-control token, enroll once and persist
 a revocable credential. `LLAME_PEER_TOKEN` authorizes only the bootstrap request;
@@ -199,9 +247,10 @@ writer identities, signed event forwarding, and explicit node enrollment and
 revocation. Enrollment credentials remain bearer tokens; there is no automated
 key rotation, cross-language canonical event standard, encrypted payloads,
 snapshots, compaction, Workspace execution, OAuth bootstrap, or hosted PostgreSQL
-adapter. The Run-control proxy does not yet tunnel a native external
-harness stream, preserve raw live deltas, multiplex several upstream Nodes, or
-reconcile a mutation automatically after `outcome_unknown`. Node 22 also marks
-its built-in SQLite API
+adapter. The Run-control proxy does not yet tunnel a native external harness
+stream, preserve raw live deltas, discover peers, select a peer automatically,
+reconcile a mutation automatically after `outcome_unknown`, or coordinate a
+route rebind with remote Run-authority transfer. Node 22 also marks its built-in
+SQLite API
 experimental. The database, private keys, credentials, and SQLite sidecars are
 forced to owner-only permissions, but event content is not encrypted at rest.
