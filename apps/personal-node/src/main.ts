@@ -211,24 +211,45 @@ async function run(): Promise<void> {
     return;
   }
   const store = await openStore(command.node);
-  if (command.kind === "run-create") {
+  if (
+    command.kind === "run-create" ||
+    command.kind === "run-status" ||
+    command.kind === "run-steer" ||
+    command.kind === "run-transfer"
+  ) {
     try {
       const writerEpoch = command.node.writerEpochs[command.writerStreamId];
       if (writerEpoch === undefined) {
         throw new Error("local writer is not authorized");
       }
-      const signed = new SignedRealmRunAuthor({
+      const author = new SignedRealmRunAuthor({
         store,
         writerStreamId: command.writerStreamId,
         writerEpoch,
         privateKeyPem: await readFile(command.privateKeyPath, "utf8"),
-      }).createRun({
-        runId: command.runId,
-        executorNodeId: command.executorNodeId,
       });
+      const signed =
+        command.kind === "run-create"
+          ? author.createRun({
+              runId: command.runId,
+              executorNodeId: command.executorNodeId,
+            })
+          : command.kind === "run-status"
+            ? author.appendStatus({
+                runId: command.runId,
+                status: command.status,
+              })
+            : command.kind === "run-steer"
+              ? author.steer({ runId: command.runId, text: command.text })
+              : author.transferTo({
+                  runId: command.runId,
+                  targetExecutorNodeId: command.targetExecutorNodeId,
+                  reason: command.reason,
+                });
       process.stdout.write(
         `${JSON.stringify({
-          status: "created",
+          status: "authored",
+          operation: command.kind,
           runId: command.runId,
           batchRef: `${signed.batch.writerStreamId}:${signed.batch.sequence}`,
           frontier: store.frontier(),

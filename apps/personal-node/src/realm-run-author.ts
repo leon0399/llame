@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   type AppendRunEventOperation,
   type CreateRunOperation,
@@ -42,16 +44,68 @@ export class SignedRealmRunAuthor {
     return this.#author({ type: "append-run-event", event });
   }
 
+  public appendStatus(input: {
+    readonly runId: string;
+    readonly status:
+      | "queued"
+      | "running"
+      | "paused"
+      | "completed"
+      | "failed"
+      | "cancelled";
+    readonly eventId?: string;
+  }): SignedChangeBatch {
+    const snapshot = this.#store.runSnapshot(input.runId);
+    return this.appendEvent({
+      realmId: snapshot.realmId,
+      runId: snapshot.runId,
+      executorNodeId: snapshot.executorNodeId,
+      authorityEpoch: snapshot.authorityEpoch,
+      sequence: snapshot.cursor + 1,
+      eventId: input.eventId ?? randomUUID(),
+      event: { type: "status", status: input.status },
+    });
+  }
+
   public submitCommand(
     command: SubmitRunCommandOperation["command"],
   ): SignedChangeBatch {
     return this.#author({ type: "submit-run-command", command });
   }
 
+  public steer(input: {
+    readonly runId: string;
+    readonly text: string;
+    readonly commandId?: string;
+  }): SignedChangeBatch {
+    const snapshot = this.#store.runSnapshot(input.runId);
+    return this.submitCommand({
+      realmId: snapshot.realmId,
+      runId: snapshot.runId,
+      commandId: input.commandId ?? randomUUID(),
+      authorityEpoch: snapshot.authorityEpoch,
+      command: { type: "steer", text: input.text },
+    });
+  }
+
   public transferAuthority(
     input: Omit<TransferRunAuthorityOperation, "type">,
   ): SignedChangeBatch {
     return this.#author({ type: "transfer-run-authority", ...input });
+  }
+
+  public transferTo(input: {
+    readonly runId: string;
+    readonly targetExecutorNodeId: string;
+    readonly reason: "handoff" | "fallback" | "recovery" | "workspace-exit";
+  }): SignedChangeBatch {
+    const snapshot = this.#store.runSnapshot(input.runId);
+    return this.transferAuthority({
+      runId: snapshot.runId,
+      expectedAuthorityEpoch: snapshot.authorityEpoch,
+      targetExecutorNodeId: input.targetExecutorNodeId,
+      reason: input.reason,
+    });
   }
 
   #author(operation: SemanticOperation): SignedChangeBatch {

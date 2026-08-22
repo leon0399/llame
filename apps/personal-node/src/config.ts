@@ -54,6 +54,37 @@ export type PersonalNodeCommand =
       readonly executorNodeId: string;
     }
   | {
+      readonly kind: "run-status";
+      readonly node: PersonalNodeConfig;
+      readonly writerStreamId: string;
+      readonly privateKeyPath: string;
+      readonly runId: string;
+      readonly status:
+        | "queued"
+        | "running"
+        | "paused"
+        | "completed"
+        | "failed"
+        | "cancelled";
+    }
+  | {
+      readonly kind: "run-steer";
+      readonly node: PersonalNodeConfig;
+      readonly writerStreamId: string;
+      readonly privateKeyPath: string;
+      readonly runId: string;
+      readonly text: string;
+    }
+  | {
+      readonly kind: "run-transfer";
+      readonly node: PersonalNodeConfig;
+      readonly writerStreamId: string;
+      readonly privateKeyPath: string;
+      readonly runId: string;
+      readonly targetExecutorNodeId: string;
+      readonly reason: "handoff" | "fallback" | "recovery" | "workspace-exit";
+    }
+  | {
       readonly kind: "sync";
       readonly node: PersonalNodeConfig;
       readonly peerUrl: string;
@@ -227,6 +258,20 @@ function parsePeerCredential(environment: Environment): PeerCredentialSource {
     : { kind: "file", path: credentialPath };
 }
 
+function parseRunWriter(
+  node: PersonalNodeConfig,
+  environment: Environment,
+): { readonly writerStreamId: string; readonly privateKeyPath: string } {
+  const writerStreamId = required(environment, "LLAME_WRITER_STREAM_ID");
+  if (node.writerEpochs[writerStreamId] === undefined) {
+    throw new Error("LLAME_WRITER_STREAM_ID is not an authorized writer");
+  }
+  return {
+    writerStreamId,
+    privateKeyPath: required(environment, "LLAME_WRITER_PRIVATE_KEY"),
+  };
+}
+
 export function parsePersonalNodeCommand(
   arguments_: readonly string[],
   environment: Environment,
@@ -293,17 +338,73 @@ export function parsePersonalNodeCommand(
     if (runId === undefined || executorNodeId === undefined) {
       throw new Error("run-create requires RUN_ID EXECUTOR_NODE_ID");
     }
-    const writerStreamId = required(environment, "LLAME_WRITER_STREAM_ID");
-    if (node.writerEpochs[writerStreamId] === undefined) {
-      throw new Error("LLAME_WRITER_STREAM_ID is not an authorized writer");
-    }
     return {
       kind: "run-create",
       node,
-      writerStreamId,
-      privateKeyPath: required(environment, "LLAME_WRITER_PRIVATE_KEY"),
+      ...parseRunWriter(node, environment),
       runId,
       executorNodeId,
+    };
+  }
+  if (command === "run-status") {
+    const runId = arguments_[1];
+    const status = arguments_[2];
+    if (
+      runId === undefined ||
+      (status !== "queued" &&
+        status !== "running" &&
+        status !== "paused" &&
+        status !== "completed" &&
+        status !== "failed" &&
+        status !== "cancelled")
+    ) {
+      throw new Error("run-status requires RUN_ID STATUS");
+    }
+    return {
+      kind: "run-status",
+      node,
+      ...parseRunWriter(node, environment),
+      runId,
+      status,
+    };
+  }
+  if (command === "run-steer") {
+    const runId = arguments_[1];
+    const text = arguments_.slice(2).join(" ");
+    if (runId === undefined || text.length === 0) {
+      throw new Error("run-steer requires RUN_ID TEXT");
+    }
+    return {
+      kind: "run-steer",
+      node,
+      ...parseRunWriter(node, environment),
+      runId,
+      text,
+    };
+  }
+  if (command === "run-transfer") {
+    const runId = arguments_[1];
+    const targetExecutorNodeId = arguments_[2];
+    const reason = arguments_[3];
+    if (
+      runId === undefined ||
+      targetExecutorNodeId === undefined ||
+      (reason !== "handoff" &&
+        reason !== "fallback" &&
+        reason !== "recovery" &&
+        reason !== "workspace-exit")
+    ) {
+      throw new Error(
+        "run-transfer requires RUN_ID TARGET_EXECUTOR_NODE_ID REASON",
+      );
+    }
+    return {
+      kind: "run-transfer",
+      node,
+      ...parseRunWriter(node, environment),
+      runId,
+      targetExecutorNodeId,
+      reason,
     };
   }
   if (command === "serve") {

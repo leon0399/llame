@@ -92,6 +92,32 @@ describe("personal Node command configuration", () => {
     });
   });
 
+  test("parses local signed Run steering without accepting an implicit writer", () => {
+    const environment = {
+      ...baseEnvironment,
+      LLAME_WRITER_STREAM_ID: "controller-writer",
+      LLAME_WRITER_EPOCHS: '{"desktop":1,"controller-writer":1}',
+      LLAME_WRITER_PRIVATE_KEY: "/keys/controller-private.pem",
+    };
+    expect(
+      parsePersonalNodeCommand(
+        ["run-steer", "run-1", "Continue", "from", "the", "cursor"],
+        environment,
+      ),
+    ).toMatchObject({
+      kind: "run-steer",
+      writerStreamId: "controller-writer",
+      runId: "run-1",
+      text: "Continue from the cursor",
+    });
+    expect(() =>
+      parsePersonalNodeCommand(["run-steer", "run-1", "Continue"], {
+        ...baseEnvironment,
+        LLAME_WRITER_PRIVATE_KEY: "/keys/controller-private.pem",
+      }),
+    ).toThrowError("LLAME_WRITER_STREAM_ID is required");
+  });
+
   test("defaults serve to a loopback-only listener and this node's writer", () => {
     expect(parsePersonalNodeCommand(["serve"], baseEnvironment)).toEqual({
       kind: "serve",

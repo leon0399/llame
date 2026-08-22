@@ -60,25 +60,18 @@ describe("signed local Run authoring", () => {
       runId: "run-1",
       executorNodeId: "node-workstation",
     });
-    executor.appendEvent({
-      realmId: "realm-personal",
+    executor.appendStatus({
       runId: "run-1",
-      executorNodeId: "node-workstation",
-      authorityEpoch: 1,
-      sequence: 1,
       eventId: "event-running",
-      event: { type: "status", status: "running" },
+      status: "running",
     });
-    controller.submitCommand({
-      realmId: "realm-personal",
+    controller.steer({
       runId: "run-1",
       commandId: "command-controller",
-      authorityEpoch: 1,
-      command: { type: "steer", text: "Run focused tests" },
+      text: "Run focused tests",
     });
-    controller.transferAuthority({
+    controller.transferTo({
       runId: "run-1",
-      expectedAuthorityEpoch: 1,
       targetExecutorNodeId: "node-laptop",
       reason: "handoff",
     });

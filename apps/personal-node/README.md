@@ -213,6 +213,9 @@ separate writer identity and prints only its batch reference and frontier:
 export LLAME_WRITER_STREAM_ID=personal-controller
 export LLAME_WRITER_PRIVATE_KEY="$PWD/.local/controller/private.pem"
 pnpm --filter personal-node start run-create run-uuid node-workstation
+pnpm --filter personal-node start run-status run-uuid running
+pnpm --filter personal-node start run-steer run-uuid "Run focused tests"
+pnpm --filter personal-node start run-transfer run-uuid node-laptop handoff
 ```
 
 The reusable `SignedRealmRunAuthor` adapter also authors executor events,
