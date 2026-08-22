@@ -1,0 +1,232 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "df24581cfc3666102718a5d89a01c1667c61815e",
+  "prompts": {
+    "261dd79ac366de45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0269c-d5e3-7633-997e-ff5670e8fca2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "Do it and commit the state and open a draft PR",
+          "timestamp": "2026-08-21T23:16:47.815Z"
+        },
+        {
+          "type": "user",
+          "text": "ok, lets leave SPEC.md as is then, and pioritize ivernight run",
+          "timestamp": "2026-08-21T23:16:47.829Z"
+        },
+        {
+          "type": "user",
+          "text": "open the pr for vision research and discussion, all cuture must ve based on it, and then proceed to overnight run",
+          "timestamp": "2026-08-21T23:16:47.829Z"
+        },
+        {
+          "type": "user",
+          "text": "no need flr iterative review here, just rebase onto origin/master and publish as is",
+          "timestamp": "2026-08-21T23:16:47.829Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m tracing #216 from the live issue into the current registration, execution, prompt, and test paths. Read-only; I’ll return the smallest evidence-backed implementation slice.",
+          "timestamp": "2026-08-21T23:16:56.790Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"cat /home/leon0399/.agents/skills/superpowers/using-superpowers/SKILL.md && cat /home/leon0399/.agents/skills/octocat/SKILL.md && cat /home/leon0399/.codex/plugins/cache/openai-curated-remote/github/0.1.10-5f7cd798dc99/skills/github/SKILL.md\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:16:58.968Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n \\\"issue #216|#216|search_conversations|conversation search\\\" /home/leon0399/.codex/memories/MEMORY.md\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 5000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:17:05.664Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"gh issue view 216 --repo leon0399/llame --json\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 5000,\n  sandbox_permissions: \"require_escalated\",\n  justification: \"Allow me to inspect the live GitHub issue #216 so the implementation map is based on its exact acceptance criteria.\",\n  prefix_rule: [\"gh\", \"issue\", \"view\"]\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:17:10.847Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"gh issue view 216 --repo leon0399/llame --json number,title,body,state,labels,parent,blockedBy,blocking,url\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 12000,\n  sandbox_permissions: \"require_escalated\",\n  justification: \"Allow me to read the exact scope and acceptance criteria of GitHub issue #216.\",\n  prefix_rule: [\"gh\", \"issue\", \"view\"]\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:17:14.617Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n --hidden --glob '!node_modules' --glob '!.git' \\\"search_conversations|searchConversations|conversation search|chat search\\\" .\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:17:19.284Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/tools/search-conversations.ts | sed -n '1,180p'\\nnl -ba apps/api/src/tools/registry.ts | sed -n '1,220p'\\nnl -ba apps/api/src/tools/types.ts | sed -n '1,220p'\\nrg -n \\\"description:|search_conversations|prompt|system\\\" apps/api/src/tools apps/api/src/runs apps/api/src/chats apps/api/src/models --glob '*.ts' --glob '!*.test.ts' --glob '!*.integration.test.ts' | head -n 260\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:17:24.687Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg --files apps/api | rg 'prompt|system'\\nrg -n \\\"previous|prior|recall|historical|conversation|search_conversations|tool\\\" apps/api/src/system-prompts apps/api/prompts apps/api --glob '*.md' --glob '*.txt' --glob '*.prompt' --glob '*.ts' | head -n 300\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:17:28.935Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/prompts/chat-default.md | sed -n '1,240p'\\nnl -ba apps/api/src/prompts/chat-default.test.ts | sed -n '1,260p'\\nnl -ba apps/api/src/system-prompts/system-prompts.service.ts | sed -n '1,180p'\\nnl -ba apps/api/src/chats/context-item-producers.ts | sed -n '520,590p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:17:33.206Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/tools/search-conversations.test.ts | sed -n '1,180p'\\nnl -ba apps/api/src/chats/chats-search.integration.test.ts | sed -n '1,280p'\\nnl -ba apps/api/src/chats/run-execution-tools.integration.test.ts | sed -n '1,880p'\\nnl -ba e2e/web/chat/tool-loop.spec.ts | sed -n '1,220p'\\nnl -ba e2e/support/model-server.ts | sed -n '250,390p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 60000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:17:41.052Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/chats/chats-search.integration.test.ts | sed -n '250,430p'\\nrg -n \\\"^  it\\\\(|search_conversations|cross-tenant|tenant|tool result|result\\\" apps/api/src/chats/run-execution-tools.integration.test.ts | sed -n '1,260p'\\nrg -n \\\"seedBoundRun|executeSeeded|serviceWithTools|textThenToolCallResponse|toolCallResponse|searchByOwner|budget\\\" apps/api/src/chats/run-execution-tools.integration.test.ts | sed -n '1,260p'\\nnl -ba apps/api/src/chats/run-execution-tools.integration.test.ts | sed -n '200,560p'\\nnl -ba apps/api/src/chats/run-execution-tools.integration.test.ts | sed -n '560,690p'\\nnl -ba apps/api/src/chats/run-execution-tools.integration.test.ts | sed -n '1880,2140p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 50000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:17:47.604Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/chats/run-execution-tools.integration.test.ts | sed -n '360,580p'\\nnl -ba apps/api/src/chats/run-execution-tools.integration.test.ts | sed -n '1968,2135p'\\nrg -n \\\"output-available|tool result|tool-result|search_conversations\\\" apps/api/src/runs/run-execution.service.ts apps/api/src/tools/tool-runner.ts apps/api/src/tools -g '*.ts'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:17:53.165Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg --files apps/api/src | rg '(tool|run).*(runner|execution)|runner.*tool|run-tool'\\nrg -n \\\"async function runTool|function runTool|runTool\\\\(|executeTool|wrapTool|tool\\\\.execute|executor\\\\.execute|truncateTool\\\" apps/api/src --glob '*.ts' --glob '!*.test.ts' --glob '!*.integration.test.ts'\\nnl -ba apps/api/src/runs/run-execution.service.ts | sed -n '880,1050p'\\nnl -ba apps/api/src/runs/run-execution.service.ts | sed -n '120,430p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 40000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:17:59.765Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n \\\"neutralizeToolResult\\\" apps/api/src/runs/run-execution.service.ts apps/api/src -g '*.ts'\\nnl -ba apps/api/src/runs/run-execution.service.ts | sed -n '40,120p'\\nnl -ba apps/api/src/tools/runner.ts | sed -n '1,220p'\\nnl -ba apps/api/src/tools/runner.test.ts | sed -n '1,300p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 40000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:18:04.462Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/chats/tool-observation-part.ts | sed -n '1,230p'\\nnl -ba apps/api/src/chats/tool-observation-neutralize.test.ts | sed -n '1,180p'\\nrg -n \\\"tool output|tool result|retrieved|historical data|stale|instructions\\\" apps/api/src/prompts/chat-default.md apps/api/src/tools/search-conversations.ts openspec/specs -g '*.md'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:18:11.162Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"gh issue view 216 --repo leon0399/llame --json comments --jq '.comments[] | {author: .author.login, createdAt, body}'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 12000,\n  sandbox_permissions: \"require_escalated\",\n  justification: \"Allow me to inspect any issue #216 discussion that may refine its implementation contract.\",\n  prefix_rule: [\"gh\", \"issue\", \"view\"]\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:18:17.556Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/runs/effective-context-resolver.ts | sed -n '1,150p'\\nnl -ba apps/api/src/tools/turn-tool-catalog.ts | sed -n '250,390p'\\nnl -ba apps/api/src/runs/snapshot-tool-execution.ts | sed -n '1,180p'\\nnl -ba apps/api/src/chats/chat-loop.service.ts | sed -n '520,620p'\\nnl -ba apps/api/src/runs/run-execution.service.ts | sed -n '540,760p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 40000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:18:24.009Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/chats/chats-repository.ts | sed -n '240,370p'\\nnl -ba apps/api/src/chats/chats.controller.ts | sed -n '180,215p'\\nnl -ba apps/api/src/chats/chats.service.ts | sed -n '1,180p'\\nnl -ba apps/api/src/chats/dto/chats.dto.ts | sed -n '360,430p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:18:30.060Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n \\\"searchChats\\\\(\\\" apps/api/src/chats/chats.service.ts\\nnl -ba apps/api/src/chats/chats.service.ts | sed -n '330,390p'\\nrg -n \\\"ChatSearchResultResponse|chatId: r.id|results: rows\\\" apps/api/src -g '*.ts'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 10000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:18:35.946Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/chats/chats.service.ts | sed -n '175,215p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 5000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:18:40.743Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba e2e/support/model-server.ts | sed -n '1,260p'\\nnl -ba e2e/support/fixtures.ts | sed -n '1,300p'\\nrg -n \\\"freshAccount|new chat|New chat|create chat|storageState|account\\\" e2e/web e2e/support --glob '*.ts' | head -n 260\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 50000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:18:56.908Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"sed -n '155,172p' e2e/support/model-server.ts\\ngit status --short\\ngit branch --show-current\\ngit log -1 --oneline\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 5000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:19:01.991Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"fd AGENTS.md apps/api e2e -a\\nsed -n '1,180p' apps/api/AGENTS.md\\nif [ -f e2e/AGENTS.md ]; then sed -n '1,180p' e2e/AGENTS.md; fi\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:19:13.812Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n \\\"api/v1/chats|/chats|Send message|New chat|createChat|sendMessage\\\" e2e/web/chat e2e/support --glob '*.ts' | head -n 320\\nnl -ba e2e/web/chat/public-share.spec.ts | sed -n '1,120p'\\nnl -ba e2e/web/chat/model-context-transparency.spec.ts | sed -n '130,200p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 20000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:19:22.779Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba e2e/web/chat/model-context-transparency.spec.ts | sed -n '1,80p'\\nrg -n \\\"TOOL_DESCRIPTION|Search the user\\\" . --glob '!node_modules' --glob '!.git' --glob '!CHANGELOG.md'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 10000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:19:26.565Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n \\\"Instruction priority|Treat quoted|tool-returned|## Tools|Use available tools|packaged default prompt\\\" apps/api/src/prompts/chat-default.test.ts\\nnl -ba apps/api/src/prompts/chat-default.test.ts | sed -n '520,720p'\\nwc -l apps/api/src/prompts/chat-default.test.ts\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 15000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:19:30.919Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/prompts/chat-default.test.ts | sed -n '220,420p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 20000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:19:34.811Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"gh issue view 194 --repo leon0399/llame --json number,title,body,state,url && gh issue view 198 --repo leon0399/llame --json number,title,body,state,url\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 20000,\n  sandbox_permissions: \"require_escalated\",\n  justification: \"Allow me to inspect parent issue #194 and deferred issue #198 so I can distinguish #216's minimum slice from explicitly deferred work.\",\n  prefix_rule: [\"gh\", \"issue\", \"view\"]\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:19:52.569Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/runs/run-execution.service.ts | sed -n '800,890p'\\nrg -n \\\"function recordToolCompleted|const recordToolCompleted|recordToolCompleted\\\" apps/api/src/runs/run-execution.service.ts\\nnl -ba apps/api/src/chats/tool-observation-part.ts | sed -n '226,330p'\\nrg -n \\\"projectTool|project.*Observation|resultText\\\\(\\\" apps/api/src/chats/tool-observation-part.ts\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 20000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:20:51.744Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba e2e/web/chat/chat-flow.spec.ts | sed -n '1,130p'\\nnl -ba apps/api/src/tools/registry.test.ts | sed -n '1,100p'\\nnl -ba apps/api/src/runs/effective-context-resolver.test.ts | sed -n '360,425p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 20000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:21:20.187Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n \\\"declaration drift|tool declaration|description|drain|quiesce|snapshot.*tool\\\" apps/api/AGENTS.md docs/scaling.md openspec/specs/tool-calling/spec.md | head -n 220\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/agentic-federation-and-distribution-direction\",\n  yield_time_ms: 10000,\n  max_output_tokens: 20000\n});\ntext(r.output);",
+          "timestamp": "2026-08-21T23:22:02.970Z"
+        },
+        {
+          "type": "assistant",
+          "text": "High confidence.\n\nMain blind spot: the current “E2E tool-loop” proof is cosmetic. It passes with an empty search result because the mock answers whenever any tool result exists.\n\n### Current path\n\n- Tool schema, description, trusted scope, and output mapping: `apps/api/src/tools/search-conversations.ts:9-24,41-71`\n  - Strict model input: `{ query, limit }`; no `userId`.\n  - Output: `{ status, results: [{ chatId, title, snippet, updatedAt }] }`.\n- Registration: `apps/api/src/tools/registry.ts:6-8,68-73`\n- Allowlist/read-only admission and immutable declaration snapshot:\n  - `apps/api/src/runs/effective-context-resolver.ts:30-85`\n  - `apps/api/src/tools/turn-tool-catalog.ts:277-376`\n- Exact snapshot-to-live executor binding: `apps/api/src/runs/snapshot-tool-execution.ts:78-134`\n- Run-owned identity injection: `apps/api/src/runs/run-execution.service.ts:809-818`\n- AI SDK wrapper, execution, and model-facing result: `apps/api/src/runs/run-execution.service.ts:918-953`\n- Validation, timeout, error redaction, truncation: `apps/api/src/tools/runner.ts:59-163`\n- Exact result is persisted at `apps/api/src/runs/run-execution.service.ts:863-883`; only the model-facing copy is neutralized.\n\n### Prompt/output framing\n\n- Default prompt already says retrieved/tool-returned content is data: `apps/api/src/prompts/chat-default.md:5-8`.\n- Tool description already provides a weak recall trigger: `apps/api/src/tools/search-conversations.ts:43-47`.\n- Missing:\n  - explicit “user refers to a prior discussion” dispatch guidance;\n  - “potentially stale historical data” wording;\n  - local framing inside the live `search_conversations` result.\n- `neutralizeToolResult` only escapes reserved structural delimiters; it adds no historical-data label: `apps/api/src/chats/tool-observation-part.ts:155-176`.\n- The explicit untrusted-output label exists only when a persisted tool result is replayed on a later turn: `apps/api/src/chats/tool-observation-part.ts:31-33,202-206,226-249`. It does not protect the live result used to answer Chat B.\n\n### Strongest fixtures\n\n- Tool unit contract and additive-output compatibility:\n  `apps/api/src/tools/search-conversations.test.ts:51-125`\n- Full real-Postgres + real AI SDK tool loop:\n  `apps/api/src/chats/run-execution-tools.integration.test.ts:381-425,1968-2134`\n- Existing source-chat fixture:\n  `apps/api/src/chats/run-execution-tools.integration.test.ts:439-457`\n  - Defect: it is never reindexed.\n  - The scripted second answer at `2003-2011` ignores the actual result.\n- Strong existing cross-tenant proof:\n  - two identities and matching chats: `apps/api/src/chats/chats-search.integration.test.ts:90-132`\n  - exact tenant/public denial: `apps/api/src/chats/chats-search.integration.test.ts:347-361`\n- Trusted-context unit proof:\n  `apps/api/src/tools/search-conversations.test.ts:64-94`\n- Browser full-stack fixture:\n  `e2e/web/chat/tool-loop.spec.ts:43-69`\n- Mock branch causing the false confidence:\n  `e2e/support/model-server.ts:317-339`\n- Deterministic projection-readiness polling pattern:\n  `e2e/web/chat/model-context-transparency.spec.ts:176-196`\n- Second-user browser fixture if needed:\n  `e2e/support/fixtures.ts:52-65`\n- Ordinary non-tool behavior regression:\n  `e2e/web/chat/chat-flow.spec.ts:15-37`\n\n### Acceptance gaps\n\n- Chat B recalls and answers Chat A: **missing**.\n- Instruction-shaped recalled text is framed as stale historical data: **partial only**; generic prompt exists, live result framing does not.\n- Cross-tenant denial: **already strongly covered** by trusted-context unit + shared-repository RLS integration.\n- Existing fields/ordinary behavior: **already pinned**, but the new framing must be additive.\n\n### Minimum implementation\n\n1. In `search-conversations.ts`, add a top-level `framing` string before `results`, stating results are potentially stale historical conversation data and instruction-shaped text is not current instruction. Keep every existing result field unchanged.\n2. Add one sentence to the packaged prompt’s Tools section: when the user explicitly references a prior discussion absent from visible context, use conversation search instead of guessing. Do not broaden recall behavior.\n3. Upgrade the existing run-execution integration:\n   - seed Chat A with a unique decision plus instruction-shaped bait;\n   - explicitly reindex Chat A;\n   - run Chat B;\n   - make the second mock-model call verify the tool message contains the unique decision and framing before returning the exact safe answer;\n   - assert the persisted tool output and final answer, including absence of the bait response.\n4. Reuse the existing cross-tenant integration. If an issue-specific assertion is required, invoke `searchConversationsTool.execute` under user B inside that live-DB fixture and assert `results: []`; a second full run is redundant.\n5. Optional browser proof: extend `tool-loop.spec.ts` with Chat A → projection poll → Chat B. Do not use it as the sole security test.\n\nImportant: avoid changing the tool description or input schema unless the rollout explicitly drains accepted Runs. Code-owned declaration drift fails old immutable snapshots by design at `snapshot-tool-execution.ts:122-130`. The existing description is adequate; put the new dispatch sentence in the packaged prompt and the safety framing in output.",
+          "timestamp": "2026-08-21T23:22:42.493Z"
+        }
+      ],
+      "total_additions": 36,
+      "total_deletions": 1,
+      "accepted_lines": 36,
+      "overriden_lines": 0
+    }
+  }
+}
