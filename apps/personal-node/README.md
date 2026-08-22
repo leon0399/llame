@@ -312,6 +312,8 @@ cannot downgrade either entry or recovery policy. When a registry is enabled,
 the older direct-affinity endpoint is disabled to prevent bypassing this policy
 boundary. Pending requests survive daemon restarts in the node database, and a
 failed affinity write does not consume the one-time approval.
+Calling `EnterWorkspace` again for a Run already attached to that Workspace
+returns `already-entered` from durable affinity state and does not ask again.
 
 Only the enrolled node that currently holds Run execution authority can resolve
 `GET /v1/runs/:runId/workspace/binding` to the configured local `rootPath`.

@@ -309,6 +309,15 @@ export class SqliteRunControlStore {
     }
   }
 
+  public workspaceRecoveryStateIfPresent(
+    runId: string,
+  ): WorkspaceRecoveryState | null {
+    const row = this.#database
+      .prepare("SELECT 1 FROM run_workspace_affinities WHERE run_id = ?")
+      .get(runId);
+    return row === undefined ? null : this.workspaceRecoveryState(runId);
+  }
+
   public close(): void {
     this.#database.close();
   }

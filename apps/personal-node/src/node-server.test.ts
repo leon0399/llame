@@ -809,6 +809,14 @@ describe("personal Node Protocol server", () => {
       `${origin}/v1/workspace-entry-requests/${approval.requestId}/approve`,
       { method: "POST", headers, body: "{}" },
     );
+    const repeatedEntry = await fetch(
+      `${origin}/v1/runs/run-needs-approval/workspace/enter`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ workspaceId: "workspace-private" }),
+      },
+    );
     const unavailable = await fetch(
       `${origin}/v1/runs/run-workspace/workspace/unavailable`,
       {
@@ -862,6 +870,11 @@ describe("personal Node Protocol server", () => {
     expect(await approved.json()).toMatchObject({
       workspaceId: "workspace-private",
       policy: "wait",
+    });
+    expect(repeatedEntry.status).toBe(200);
+    expect(await repeatedEntry.json()).toMatchObject({
+      status: "already-entered",
+      state: { workspaceId: "workspace-private", mode: "attached" },
     });
     expect(unavailable.status).toBe(202);
     expect(await unavailable.json()).toMatchObject({

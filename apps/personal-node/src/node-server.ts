@@ -628,6 +628,18 @@ async function handleAuthorizedRequest(
       if (!parsed.success) {
         throw new RequestError(400, "invalid_workspace_entry_request");
       }
+      const existing =
+        options.runControlStore.workspaceRecoveryStateIfPresent(runId);
+      if (existing !== null) {
+        if (existing.workspaceId !== parsed.data.workspaceId) {
+          throw new RequestError(409, "run_has_different_workspace");
+        }
+        if (existing.mode === "exited") {
+          throw new RequestError(409, "workspace_already_exited");
+        }
+        sendJson(response, 200, { status: "already-entered", state: existing });
+        return;
+      }
       const decision = options.workspaceRegistry.requestEntry(
         runId,
         parsed.data.workspaceId,
