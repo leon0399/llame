@@ -36,6 +36,7 @@ describe("personal Node command configuration", () => {
       parsePersonalNodeCommand(["proxy", "https://worker.example.test"], {
         LLAME_NODE_TOKEN: "phone-facing-secret",
         LLAME_PEER_CREDENTIAL_PATH: "/keys/worker.credential",
+        LLAME_PROXY_CACHE_DB: "/state/run-proxy-cache.sqlite",
       }),
     ).toEqual({
       kind: "proxy",
@@ -47,6 +48,7 @@ describe("personal Node command configuration", () => {
       },
       host: "127.0.0.1",
       port: 4370,
+      cacheDatabasePath: "/state/run-proxy-cache.sqlite",
     });
   });
 

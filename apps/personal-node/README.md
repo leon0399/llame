@@ -76,6 +76,7 @@ Run the same Run-control API shape as a stateless local tunnel to a remote Node:
 ```bash
 export LLAME_NODE_TOKEN=local-phone-facing-secret
 export LLAME_PEER_CREDENTIAL_PATH="$PWD/.local/peers/worker.credential"
+export LLAME_PROXY_CACHE_DB="$PWD/.local/run-proxy-cache.sqlite"
 pnpm --filter personal-node start proxy https://worker.example.test
 ```
 
@@ -86,7 +87,10 @@ credential. It forwards the common Run-control paths but omits executor event
 publication and command polling. It stores no remote queue or Run state: after a
 proxy restart the caller resumes from its event cursor against the executor's
 durable current state. Upstream disconnect during a mutation returns
-`outcome_unknown`; an observation disconnect reports only unavailability.
+`outcome_unknown`; an observation disconnect reports unavailability plus the
+explicitly stale last-known semantic response when the optional owner-only cache
+has one. The cache contains no credentials, raw harness frames, or executor
+internals and is never promoted to authority.
 
 Instead of distributing the peer's owner-control token, enroll once and persist
 a revocable credential. `LLAME_PEER_TOKEN` authorizes only the bootstrap request;
@@ -195,9 +199,9 @@ writer identities, signed event forwarding, and explicit node enrollment and
 revocation. Enrollment credentials remain bearer tokens; there is no automated
 key rotation, cross-language canonical event standard, encrypted payloads,
 snapshots, compaction, Workspace execution, OAuth bootstrap, or hosted PostgreSQL
-adapter. The stateless Run-control proxy does not yet tunnel a native external
+adapter. The Run-control proxy does not yet tunnel a native external
 harness stream, preserve raw live deltas, multiplex several upstream Nodes, or
-cache a last-known snapshot while the executor remains offline. Node 22 also
-marks its built-in SQLite API
+reconcile a mutation automatically after `outcome_unknown`. Node 22 also marks
+its built-in SQLite API
 experimental. The database, private keys, credentials, and SQLite sidecars are
 forced to owner-only permissions, but event content is not encrypted at rest.

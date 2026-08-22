@@ -27,6 +27,7 @@ export type PersonalNodeCommand =
       readonly peerCredential: PeerCredentialSource;
       readonly host: string;
       readonly port: number;
+      readonly cacheDatabasePath?: string;
     }
   | {
       readonly kind: "serve";
@@ -226,6 +227,9 @@ export function parsePersonalNodeCommand(
       peerCredential: parsePeerCredential(environment),
       host: parseHost(environment.LLAME_NODE_HOST),
       port: parsePort(environment.LLAME_NODE_PORT),
+      ...(environment.LLAME_PROXY_CACHE_DB === undefined
+        ? {}
+        : { cacheDatabasePath: environment.LLAME_PROXY_CACHE_DB }),
     };
   }
   const node = parseNodeConfig(environment);

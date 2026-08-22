@@ -10,6 +10,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import { createPersonalNodeServer } from "./node-server.js";
 import { createRunControlProxyServer } from "./run-control-proxy.js";
+import { SqliteRunControlProxyCache } from "./run-control-proxy-cache.js";
 import { SqliteRunControlStore } from "./run-control-store.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 
@@ -19,6 +20,7 @@ describe("same-contract Run-control proxy", () => {
   const stores: SqlitePersonalRealmStore[] = [];
   const registries: SqliteEnrollmentRegistry[] = [];
   const runStores: SqliteRunControlStore[] = [];
+  const proxyCaches: SqliteRunControlProxyCache[] = [];
 
   afterEach(async () => {
     await Promise.all(
@@ -32,6 +34,7 @@ describe("same-contract Run-control proxy", () => {
           }),
       ),
     );
+    for (const proxyCache of proxyCaches.splice(0)) proxyCache.close();
     for (const runStore of runStores.splice(0)) runStore.close();
     for (const registry of registries.splice(0)) registry.close();
     for (const store of stores.splice(0)) store.close();
@@ -175,6 +178,22 @@ describe("same-contract Run-control proxy", () => {
   });
 
   test("reports outcome_unknown only for an ambiguous upstream mutation", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-run-proxy-"));
+    temporaryDirectories.push(directory);
+    const cache = new SqliteRunControlProxyCache({
+      databasePath: join(directory, "proxy-cache.sqlite"),
+    });
+    proxyCaches.push(cache);
+    cache.put(
+      "/v1/runs/run-1/control?after=0",
+      {
+        runId: "run-1",
+        status: "running",
+        cursor: 3,
+        events: [],
+      },
+      new Date("2026-08-22T13:00:00.000Z"),
+    );
     const disconnectingUpstream = createServer((request) => {
       request.resume();
       request.once("end", () => request.socket.destroy());
@@ -191,6 +210,7 @@ describe("same-contract Run-control proxy", () => {
       localBearerToken: "phone-facing-secret",
       peerUrl: `http://127.0.0.1:${upstreamAddress.port}`,
       peerBearerToken: "scoped-upstream-secret",
+      cache,
     });
     servers.push(proxy);
     await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
@@ -225,6 +245,15 @@ describe("same-contract Run-control proxy", () => {
     expect(observation.status).toBe(503);
     expect(await observation.json()).toEqual({
       error: "upstream_unavailable",
+      lastKnown: {
+        observedAt: "2026-08-22T13:00:00.000Z",
+        state: {
+          runId: "run-1",
+          status: "running",
+          cursor: 3,
+          events: [],
+        },
+      },
     });
   });
 });

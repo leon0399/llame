@@ -17,6 +17,7 @@ import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import { createPersonalNodeServer } from "./node-server.js";
 import { initializeNodeIdentity } from "./node-identity.js";
 import { createRunControlProxyServer } from "./run-control-proxy.js";
+import { SqliteRunControlProxyCache } from "./run-control-proxy-cache.js";
 import { SqliteRunControlStore } from "./run-control-store.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 import { syncFromPeer } from "./sync-client.js";
@@ -89,18 +90,43 @@ async function run(): Promise<void> {
     return;
   }
   if (command.kind === "proxy") {
-    const server = createRunControlProxyServer({
-      localBearerToken: command.localBearerToken,
-      peerUrl: command.peerUrl,
-      peerBearerToken: await readPeerCredential(command.peerCredential),
-    });
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(command.port, command.host, () => {
-        server.off("error", reject);
-        resolve();
+    const peerBearerToken = await readPeerCredential(command.peerCredential);
+    if (command.cacheDatabasePath !== undefined) {
+      await mkdir(dirname(command.cacheDatabasePath), {
+        recursive: true,
+        mode: 0o700,
       });
-    });
+    }
+    const cache =
+      command.cacheDatabasePath === undefined
+        ? undefined
+        : new SqliteRunControlProxyCache({
+            databasePath: command.cacheDatabasePath,
+          });
+    let server: ReturnType<typeof createRunControlProxyServer>;
+    try {
+      server = createRunControlProxyServer({
+        localBearerToken: command.localBearerToken,
+        peerUrl: command.peerUrl,
+        peerBearerToken,
+        ...(cache === undefined ? {} : { cache }),
+      });
+    } catch (error) {
+      cache?.close();
+      throw error;
+    }
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(command.port, command.host, () => {
+          server.off("error", reject);
+          resolve();
+        });
+      });
+    } catch (error) {
+      cache?.close();
+      throw error;
+    }
     process.stdout.write(
       `${JSON.stringify({
         status: "proxying",
@@ -112,7 +138,7 @@ async function run(): Promise<void> {
     const close = (): void => {
       if (closing) return;
       closing = true;
-      server.close();
+      server.close(() => cache?.close());
     };
     process.once("SIGINT", close);
     process.once("SIGTERM", close);

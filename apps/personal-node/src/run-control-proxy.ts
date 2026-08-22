@@ -6,6 +6,8 @@ import {
   type ServerResponse,
 } from "node:http";
 
+import type { SqliteRunControlProxyCache } from "./run-control-proxy-cache.js";
+
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
@@ -13,6 +15,7 @@ export interface RunControlProxyServerOptions {
   readonly localBearerToken: string;
   readonly peerUrl: string;
   readonly peerBearerToken: string;
+  readonly cache?: SqliteRunControlProxyCache;
 }
 
 function peerOrigin(input: string): URL {
@@ -144,6 +147,7 @@ async function tunnel(
     return;
   }
   const method = request.method === "POST" ? "POST" : "GET";
+  const requestKey = `${localUrl.pathname}${localUrl.search}`;
   const body = method === "POST" ? await readRequestBody(request) : undefined;
   let upstream: Response;
   try {
@@ -161,9 +165,12 @@ async function tunnel(
       },
     );
   } catch {
+    const lastKnown =
+      method === "GET" ? options.cache?.get(requestKey) : undefined;
     sendJson(response, 503, {
       error: "upstream_unavailable",
       ...(method === "POST" ? { outcome: "outcome_unknown" } : {}),
+      ...(lastKnown === undefined || lastKnown === null ? {} : { lastKnown }),
     });
     return;
   }
@@ -171,11 +178,18 @@ async function tunnel(
   try {
     responseBody = await readResponseBody(upstream);
   } catch {
+    const lastKnown =
+      method === "GET" ? options.cache?.get(requestKey) : undefined;
     sendJson(response, 502, {
       error: "invalid_upstream_response",
       ...(method === "POST" ? { outcome: "outcome_unknown" } : {}),
+      ...(lastKnown === undefined || lastKnown === null ? {} : { lastKnown }),
     });
     return;
+  }
+  if (method === "GET" && upstream.ok && options.cache !== undefined) {
+    const state: unknown = JSON.parse(responseBody.toString("utf8"));
+    options.cache.put(requestKey, state);
   }
   response.writeHead(upstream.status, {
     "cache-control": "no-store",
