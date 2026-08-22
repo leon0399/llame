@@ -21,6 +21,14 @@ export type PersonalNodeCommand =
       readonly directory: string;
     }
   | {
+      readonly kind: "proxy";
+      readonly localBearerToken: string;
+      readonly peerUrl: string;
+      readonly peerCredential: PeerCredentialSource;
+      readonly host: string;
+      readonly port: number;
+    }
+  | {
       readonly kind: "serve";
       readonly node: PersonalNodeConfig;
       readonly host: string;
@@ -165,6 +173,26 @@ function parsePort(input: string | undefined): number {
   return port;
 }
 
+function parseHost(input: string | undefined): string {
+  const host = input ?? "127.0.0.1";
+  if (host !== "127.0.0.1" && host !== "::1" && host !== "localhost") {
+    throw new Error(
+      "personal Node must bind loopback; expose it through a secure tunnel",
+    );
+  }
+  return host;
+}
+
+function parsePeerCredential(environment: Environment): PeerCredentialSource {
+  const credentialPath = environment.LLAME_PEER_CREDENTIAL_PATH;
+  return credentialPath === undefined
+    ? {
+        kind: "environment",
+        value: required(environment, "LLAME_PEER_TOKEN"),
+      }
+    : { kind: "file", path: credentialPath };
+}
+
 export function parsePersonalNodeCommand(
   arguments_: readonly string[],
   environment: Environment,
@@ -184,18 +212,28 @@ export function parsePersonalNodeCommand(
     }
     return { kind: "init-node-identity", directory };
   }
+  if (command === "proxy") {
+    const peerUrl = arguments_[1];
+    if (peerUrl === undefined) throw new Error("proxy requires a peer URL");
+    const localBearerToken = required(environment, "LLAME_NODE_TOKEN");
+    if (localBearerToken.length < 16) {
+      throw new Error("LLAME_NODE_TOKEN must contain at least 16 characters");
+    }
+    return {
+      kind: "proxy",
+      localBearerToken,
+      peerUrl,
+      peerCredential: parsePeerCredential(environment),
+      host: parseHost(environment.LLAME_NODE_HOST),
+      port: parsePort(environment.LLAME_NODE_PORT),
+    };
+  }
   const node = parseNodeConfig(environment);
   if (command === "serve") {
-    const host = environment.LLAME_NODE_HOST ?? "127.0.0.1";
-    if (host !== "127.0.0.1" && host !== "::1" && host !== "localhost") {
-      throw new Error(
-        "personal Node must bind loopback; expose it through a secure tunnel",
-      );
-    }
     return {
       kind: "serve",
       node,
-      host,
+      host: parseHost(environment.LLAME_NODE_HOST),
       port: parsePort(environment.LLAME_NODE_PORT),
     };
   }
@@ -209,19 +247,11 @@ export function parsePersonalNodeCommand(
     if (mode === "signed" && node.trustedWriterKeyPaths === undefined) {
       throw new Error("signed sync requires LLAME_TRUSTED_WRITER_KEYS");
     }
-    const credentialPath = environment.LLAME_PEER_CREDENTIAL_PATH;
-    const peerCredential: PeerCredentialSource =
-      credentialPath === undefined
-        ? {
-            kind: "environment",
-            value: required(environment, "LLAME_PEER_TOKEN"),
-          }
-        : { kind: "file", path: credentialPath };
     return {
       kind: "sync",
       node,
       peerUrl,
-      peerCredential,
+      peerCredential: parsePeerCredential(environment),
       ...(mode === "signed" ? { mode } : {}),
     };
   }

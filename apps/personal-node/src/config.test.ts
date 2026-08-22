@@ -31,6 +31,25 @@ describe("personal Node command configuration", () => {
     });
   });
 
+  test("parses a lightweight Run-control proxy without local Realm storage", () => {
+    expect(
+      parsePersonalNodeCommand(["proxy", "https://worker.example.test"], {
+        LLAME_NODE_TOKEN: "phone-facing-secret",
+        LLAME_PEER_CREDENTIAL_PATH: "/keys/worker.credential",
+      }),
+    ).toEqual({
+      kind: "proxy",
+      localBearerToken: "phone-facing-secret",
+      peerUrl: "https://worker.example.test",
+      peerCredential: {
+        kind: "file",
+        path: "/keys/worker.credential",
+      },
+      host: "127.0.0.1",
+      port: 4370,
+    });
+  });
+
   test("defaults serve to a loopback-only listener and this node's writer", () => {
     expect(parsePersonalNodeCommand(["serve"], baseEnvironment)).toEqual({
       kind: "serve",

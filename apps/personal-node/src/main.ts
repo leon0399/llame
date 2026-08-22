@@ -2,7 +2,11 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { describeCliError } from "./cli-error.js";
-import { parsePersonalNodeCommand, type PersonalNodeConfig } from "./config.js";
+import {
+  parsePersonalNodeCommand,
+  type PeerCredentialSource,
+  type PersonalNodeConfig,
+} from "./config.js";
 import { createCredentialFile } from "./credential-file.js";
 import { enrollWithPeer } from "./enrollment-client.js";
 import {
@@ -12,6 +16,7 @@ import {
 import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import { createPersonalNodeServer } from "./node-server.js";
 import { initializeNodeIdentity } from "./node-identity.js";
+import { createRunControlProxyServer } from "./run-control-proxy.js";
 import { SqliteRunControlStore } from "./run-control-store.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 import { syncFromPeer } from "./sync-client.js";
@@ -40,6 +45,14 @@ async function openStore(
     writerEpochs: config.writerEpochs,
     ...(trustedWriterKeys === undefined ? {} : { trustedWriterKeys }),
   });
+}
+
+async function readPeerCredential(
+  source: PeerCredentialSource,
+): Promise<string> {
+  return source.kind === "environment"
+    ? source.value
+    : (await readFile(source.path, "utf8")).trim();
 }
 
 async function run(): Promise<void> {
@@ -75,13 +88,40 @@ async function run(): Promise<void> {
     );
     return;
   }
+  if (command.kind === "proxy") {
+    const server = createRunControlProxyServer({
+      localBearerToken: command.localBearerToken,
+      peerUrl: command.peerUrl,
+      peerBearerToken: await readPeerCredential(command.peerCredential),
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(command.port, command.host, () => {
+        server.off("error", reject);
+        resolve();
+      });
+    });
+    process.stdout.write(
+      `${JSON.stringify({
+        status: "proxying",
+        peerOrigin: command.peerUrl,
+        origin: `http://${command.host}:${command.port}`,
+      })}\n`,
+    );
+    let closing = false;
+    const close = (): void => {
+      if (closing) return;
+      closing = true;
+      server.close();
+    };
+    process.once("SIGINT", close);
+    process.once("SIGTERM", close);
+    return;
+  }
   const store = await openStore(command.node);
   if (command.kind === "sync") {
     try {
-      const peerBearerToken =
-        command.peerCredential.kind === "environment"
-          ? command.peerCredential.value
-          : (await readFile(command.peerCredential.path, "utf8")).trim();
+      const peerBearerToken = await readPeerCredential(command.peerCredential);
       const result = await syncFromPeer({
         store,
         peerUrl: command.peerUrl,

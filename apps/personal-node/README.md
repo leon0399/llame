@@ -71,6 +71,23 @@ node that proxies user control can receive `run.observe`, `run.steer`, and
 `run.control` without receiving the remote Node's owner credential or executor
 authority.
 
+Run the same Run-control API shape as a stateless local tunnel to a remote Node:
+
+```bash
+export LLAME_NODE_TOKEN=local-phone-facing-secret
+export LLAME_PEER_CREDENTIAL_PATH="$PWD/.local/peers/worker.credential"
+pnpm --filter personal-node start proxy https://worker.example.test
+```
+
+The upstream credential should contain only the `run.observe`, `run.steer`, and
+`run.control` scopes the proxy needs. The proxy authenticates the local caller,
+substitutes its scoped upstream credential, and never forwards the caller's
+credential. It forwards the common Run-control paths but omits executor event
+publication and command polling. It stores no remote queue or Run state: after a
+proxy restart the caller resumes from its event cursor against the executor's
+durable current state. Upstream disconnect during a mutation returns
+`outcome_unknown`; an observation disconnect reports only unavailability.
+
 Instead of distributing the peer's owner-control token, enroll once and persist
 a revocable credential. `LLAME_PEER_TOKEN` authorizes only the bootstrap request;
 the issued credential is never printed and the destination must not already
@@ -177,9 +194,10 @@ This is evidence, not a shipped federation protocol. It has explicit Ed25519
 writer identities, signed event forwarding, and explicit node enrollment and
 revocation. Enrollment credentials remain bearer tokens; there is no automated
 key rotation, cross-language canonical event standard, encrypted payloads,
-snapshots, compaction, Workspace execution, live Run proxying, OAuth bootstrap,
-or hosted PostgreSQL adapter. The Run-control API does not yet tunnel to an
-external harness, proxy an upstream Node, or preserve raw live streaming deltas.
-Node 22 also marks its built-in SQLite API
+snapshots, compaction, Workspace execution, OAuth bootstrap, or hosted PostgreSQL
+adapter. The stateless Run-control proxy does not yet tunnel a native external
+harness stream, preserve raw live deltas, multiplex several upstream Nodes, or
+cache a last-known snapshot while the executor remains offline. Node 22 also
+marks its built-in SQLite API
 experimental. The database, private keys, credentials, and SQLite sidecars are
 forced to owner-only permissions, but event content is not encrypted at rest.
