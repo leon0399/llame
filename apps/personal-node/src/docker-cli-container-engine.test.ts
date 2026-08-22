@@ -110,4 +110,14 @@ describe("Docker CLI container engine", () => {
       [["container", "rm", "--force", "llame-desktop-run-42"]],
     ]);
   });
+
+  test("preflights an exact local image without pulling it", async () => {
+    const execute = vi.fn().mockResolvedValue({ stdout: "[]" });
+    const image =
+      "registry.example/llame/sandbox@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    await new DockerCliContainerEngine(execute).assertImageAvailable(image);
+
+    expect(execute).toHaveBeenCalledWith(["image", "inspect", image]);
+  });
 });

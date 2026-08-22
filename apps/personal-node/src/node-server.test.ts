@@ -999,6 +999,20 @@ describe("personal Node Protocol server", () => {
     );
     const image =
       "registry.example/llame/sandbox@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const gitWorktreeBinding = {
+      runId: "run-sandbox",
+      workspaceId: "workspace-code",
+      repositoryRoot: workspaceRoot,
+      worktreePath: workspaceRoot,
+      branchName: "llame/run-sandbox",
+    };
+    const gitWorktreeManager = {
+      binding: vi.fn((runId: string) =>
+        runId === "run-sandbox" ? gitWorktreeBinding : null,
+      ),
+      enter: vi.fn(async () => gitWorktreeBinding),
+      exit: vi.fn(async () => gitWorktreeBinding),
+    };
     let container: SandboxContainerObservation | null = null;
     const containerEngine: SandboxContainerEngine = {
       inspect: vi.fn(async () => container),
@@ -1046,6 +1060,7 @@ describe("personal Node Protocol server", () => {
           recoveryPolicy: "wait",
         },
       ]),
+      gitWorktreeManager,
       sandbox: {
         lifecycle: new DockerSandboxLifecycle(containerEngine),
         image,
@@ -1101,11 +1116,19 @@ describe("personal Node Protocol server", () => {
     const status = await fetch(`${origin}/v1/runs/run-sandbox/sandbox`, {
       headers,
     });
+    const blockedWorktreeExit = await fetch(
+      `${origin}/v1/runs/run-sandbox/worktree/exit`,
+      { method: "POST", headers, body: "{}" },
+    );
     const exited = await fetch(`${origin}/v1/runs/run-sandbox/sandbox/exit`, {
       method: "POST",
       headers,
       body: "{}",
     });
+    const worktreeExited = await fetch(
+      `${origin}/v1/runs/run-sandbox/worktree/exit`,
+      { method: "POST", headers, body: "{}" },
+    );
 
     expect(unattached.status).toBe(409);
     expect(await unattached.json()).toEqual({
@@ -1119,6 +1142,10 @@ describe("personal Node Protocol server", () => {
     });
     expect(status.status).toBe(200);
     expect(await status.json()).toMatchObject({ state: "running" });
+    expect(blockedWorktreeExit.status).toBe(409);
+    expect(await blockedWorktreeExit.json()).toEqual({
+      error: "sandbox_still_active",
+    });
     expect(containerEngine.create).toHaveBeenCalledWith(
       expect.arrayContaining([
         "--network",
@@ -1131,5 +1158,7 @@ describe("personal Node Protocol server", () => {
     expect(containerEngine.remove).toHaveBeenCalledWith(
       "llame-node-home-run-sandbox",
     );
+    expect(worktreeExited.status).toBe(202);
+    expect(gitWorktreeManager.exit).toHaveBeenCalledTimes(1);
   });
 });

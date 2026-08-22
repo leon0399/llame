@@ -1,5 +1,10 @@
 import { basename, isAbsolute } from "node:path";
 
+import {
+  isContentAddressedSandboxImage,
+  isNumericNonRootSandboxUser,
+} from "./sandbox-container-contract.js";
+
 export interface PersonalNodeConfig {
   readonly databasePath: string;
   readonly nodeId: string;
@@ -54,6 +59,10 @@ export type PersonalNodeCommand =
       readonly workspaceManifestPath?: string;
       readonly workspaceDefinitions?: readonly WorkspaceDefinition[];
       readonly gitWorktreeRoot?: string;
+      readonly sandbox?: {
+        readonly image: string;
+        readonly user: string;
+      };
       readonly peerSync?: {
         readonly peerId: string;
         readonly peerUrl: string;
@@ -500,6 +509,34 @@ export function parsePersonalNodeCommand(
     ) {
       throw new Error("Git worktrees require a registered Workspace");
     }
+    const sandboxImage = environment.LLAME_SANDBOX_IMAGE;
+    const sandboxUser = environment.LLAME_SANDBOX_USER;
+    if (sandboxImage === undefined && sandboxUser !== undefined) {
+      throw new Error("LLAME_SANDBOX_IMAGE is required");
+    }
+    if (sandboxImage !== undefined && sandboxUser === undefined) {
+      throw new Error("LLAME_SANDBOX_USER is required");
+    }
+    const sandbox =
+      sandboxImage === undefined || sandboxUser === undefined
+        ? undefined
+        : { image: sandboxImage, user: sandboxUser };
+    if (
+      sandbox !== undefined &&
+      command !== "serve-here" &&
+      environment.LLAME_WORKSPACE_MANIFEST === undefined
+    ) {
+      throw new Error("Docker Sandboxes require a registered Workspace");
+    }
+    if (
+      sandbox !== undefined &&
+      !isContentAddressedSandboxImage(sandbox.image)
+    ) {
+      throw new Error("LLAME_SANDBOX_IMAGE must use a sha256 digest");
+    }
+    if (sandbox !== undefined && !isNumericNonRootSandboxUser(sandbox.user)) {
+      throw new Error("LLAME_SANDBOX_USER must be a numeric non-root uid:gid");
+    }
     const peerUrl = environment.LLAME_SYNC_PEER_URL;
     const peerManifestPath = environment.LLAME_SYNC_PEER_MANIFEST;
     if (peerUrl !== undefined && peerManifestPath !== undefined) {
@@ -569,6 +606,7 @@ export function parsePersonalNodeCommand(
       ...(peerSync === undefined ? {} : { peerSync }),
       ...(peerSyncManifest === undefined ? {} : { peerSyncManifest }),
       ...(gitWorktreeRoot === undefined ? {} : { gitWorktreeRoot }),
+      ...(sandbox === undefined ? {} : { sandbox }),
     };
   }
   if (command === "sync") {

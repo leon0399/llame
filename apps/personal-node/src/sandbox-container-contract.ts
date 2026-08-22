@@ -7,6 +7,14 @@ const CONTENT_ADDRESSED_IMAGE_PATTERN = /^[^\s@]+@sha256:[a-f0-9]{64}$/;
 const NUMERIC_NON_ROOT_USER_PATTERN = /^[1-9][0-9]*:[1-9][0-9]*$/;
 const MOUNT_UNSAFE_PATTERN = /[,\0\r\n]/;
 
+export function isContentAddressedSandboxImage(image: string): boolean {
+  return CONTENT_ADDRESSED_IMAGE_PATTERN.test(image);
+}
+
+export function isNumericNonRootSandboxUser(user: string): boolean {
+  return NUMERIC_NON_ROOT_USER_PATTERN.test(user);
+}
+
 export interface DockerSandboxPlanInput {
   readonly nodeId: string;
   readonly runId: string;
@@ -43,7 +51,7 @@ export function buildDockerSandboxPlan(
 ): DockerSandboxPlan {
   validateIdentity(input.nodeId, "node");
   validateIdentity(input.runId, "Run");
-  if (!CONTENT_ADDRESSED_IMAGE_PATTERN.test(input.image)) {
+  if (!isContentAddressedSandboxImage(input.image)) {
     throw new Error("Sandbox image must use a sha256 digest");
   }
   if (
@@ -55,7 +63,7 @@ export function buildDockerSandboxPlan(
   ) {
     throw new Error("Sandbox Workspace path must be canonical and absolute");
   }
-  if (!NUMERIC_NON_ROOT_USER_PATTERN.test(input.user)) {
+  if (!isNumericNonRootSandboxUser(input.user)) {
     throw new Error("Sandbox user must be a numeric non-root uid:gid");
   }
 

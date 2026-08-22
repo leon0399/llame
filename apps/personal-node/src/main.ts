@@ -8,6 +8,7 @@ import {
   type PersonalNodeConfig,
 } from "./config.js";
 import { createCredentialFile } from "./credential-file.js";
+import { DockerCliContainerEngine } from "./docker-cli-container-engine.js";
 import { enrollWithPeer } from "./enrollment-client.js";
 import {
   appendLocalMessage,
@@ -26,6 +27,7 @@ import { createRunControlProxyRouterServer } from "./run-control-proxy-router.js
 import { SqliteRunControlStore } from "./run-control-store.js";
 import { SqliteRunRouteRegistry } from "./run-route-registry.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
+import { DockerSandboxLifecycle } from "./sandbox-container-lifecycle.js";
 import { syncFromPeer } from "./sync-client.js";
 import { initializeWriterIdentity } from "./writer-identity.js";
 import { loadWorkspaceManifest } from "./workspace-manifest.js";
@@ -394,6 +396,11 @@ async function run(): Promise<void> {
           databasePath: command.node.databasePath,
         });
   await gitWorktreeManager?.recoverPending();
+  const sandboxEngine =
+    command.sandbox === undefined ? undefined : new DockerCliContainerEngine();
+  if (command.sandbox !== undefined && sandboxEngine !== undefined) {
+    await sandboxEngine.assertImageAvailable(command.sandbox.image);
+  }
   const server = createPersonalNodeServer({
     nodeId: command.node.nodeId,
     bearerToken: command.node.bearerToken,
@@ -407,6 +414,15 @@ async function run(): Promise<void> {
       : { peerSyncStatus: () => peerSyncs.map((peer) => peer.snapshot()) }),
     ...(workspaceRegistry === undefined ? {} : { workspaceRegistry }),
     ...(gitWorktreeManager === undefined ? {} : { gitWorktreeManager }),
+    ...(command.sandbox === undefined || sandboxEngine === undefined
+      ? {}
+      : {
+          sandbox: {
+            lifecycle: new DockerSandboxLifecycle(sandboxEngine),
+            image: command.sandbox.image,
+            user: command.sandbox.user,
+          },
+        }),
   });
   try {
     await new Promise<void>((resolve, reject) => {

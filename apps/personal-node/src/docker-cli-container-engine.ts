@@ -6,6 +6,7 @@ import type {
   SandboxContainerEngine,
   SandboxContainerObservation,
 } from "./sandbox-container-lifecycle.js";
+import { isContentAddressedSandboxImage } from "./sandbox-container-contract.js";
 
 const CONTAINER_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
@@ -113,6 +114,13 @@ export class DockerCliContainerEngine implements SandboxContainerEngine {
       throw new Error("invalid Docker Sandbox create command");
     }
     await this.#execute(arguments_);
+  }
+
+  public async assertImageAvailable(image: string): Promise<void> {
+    if (!isContentAddressedSandboxImage(image)) {
+      throw new Error("Sandbox image must use a sha256 digest");
+    }
+    await this.#execute(["image", "inspect", image]);
   }
 
   public async start(containerName: string): Promise<void> {

@@ -220,6 +220,49 @@ describe("personal Node command configuration", () => {
     ).toThrowError("Git worktrees require a registered Workspace");
   });
 
+  test("enables Docker Sandboxes only with explicit immutable configuration", () => {
+    expect(
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_WORKSPACE_MANIFEST: "/etc/llame/workspaces.json",
+        LLAME_SANDBOX_IMAGE:
+          "registry.example/llame/sandbox@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        LLAME_SANDBOX_USER: "1000:1000",
+      }),
+    ).toMatchObject({
+      kind: "serve",
+      sandbox: {
+        image:
+          "registry.example/llame/sandbox@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        user: "1000:1000",
+      },
+    });
+    expect(() =>
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_WORKSPACE_MANIFEST: "/etc/llame/workspaces.json",
+        LLAME_SANDBOX_IMAGE: "registry.example/llame/sandbox:latest",
+        LLAME_SANDBOX_USER: "1000:1000",
+      }),
+    ).toThrowError("LLAME_SANDBOX_IMAGE must use a sha256 digest");
+    expect(() =>
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_WORKSPACE_MANIFEST: "/etc/llame/workspaces.json",
+        LLAME_SANDBOX_IMAGE:
+          "registry.example/llame/sandbox@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
+    ).toThrowError("LLAME_SANDBOX_USER is required");
+    expect(() =>
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_SANDBOX_IMAGE:
+          "registry.example/llame/sandbox@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        LLAME_SANDBOX_USER: "1000:1000",
+      }),
+    ).toThrowError("Docker Sandboxes require a registered Workspace");
+  });
+
   test("advertises only the CLI current directory in serve-here mode", () => {
     expect(
       parsePersonalNodeCommand(["serve-here"], baseEnvironment, "/work/llame"),

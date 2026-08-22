@@ -113,7 +113,10 @@ export interface PersonalNodeServerOptions {
   readonly journalRunAuthor?: SignedRealmRunAuthor;
   readonly peerSyncStatus?: () => readonly PeerSyncStatus[];
   readonly workspaceRegistry?: WorkspaceRegistry;
-  readonly gitWorktreeManager?: GitWorktreeManager;
+  readonly gitWorktreeManager?: Pick<
+    GitWorktreeManager,
+    "binding" | "enter" | "exit"
+  >;
   readonly sandbox?: {
     readonly lifecycle: DockerSandboxLifecycle;
     readonly image: string;
@@ -1021,6 +1024,23 @@ async function handleAuthorizedRequest(
       const parsed = emptyRequestSchema.safeParse(await readJson(request));
       if (!parsed.success) {
         throw new RequestError(400, "invalid_worktree_exit_request");
+      }
+      const currentBinding = options.gitWorktreeManager.binding(runId);
+      if (options.sandbox !== undefined && currentBinding !== null) {
+        const sandboxStatus = await options.sandbox.lifecycle.status(
+          buildDockerSandboxPlan({
+            nodeId: options.nodeId,
+            runId,
+            image: options.sandbox.image,
+            workspaceSourceRealpath: await realpath(
+              currentBinding.worktreePath,
+            ),
+            user: options.sandbox.user,
+          }),
+        );
+        if (sandboxStatus.state !== "absent") {
+          throw new RequestError(409, "sandbox_still_active");
+        }
       }
       let binding: Awaited<ReturnType<GitWorktreeManager["exit"]>>;
       try {

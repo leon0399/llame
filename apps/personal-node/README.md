@@ -328,6 +328,24 @@ claiming a managed sandbox. Resolution checks that the configured root is still
 a directory and returns `workspace_unavailable` instead of handing an executor
 a stale path; the existing recovery policy decides what happens next.
 
+An operator can additionally enable executor-local Docker Sandboxes with an
+image that is already present by immutable digest and a numeric non-root user:
+
+```bash
+export LLAME_SANDBOX_IMAGE='registry.example/llame/sandbox@sha256:DIGEST'
+export LLAME_SANDBOX_USER=1000:1000
+pnpm --filter personal-node start serve
+```
+
+Startup fails if Docker cannot inspect that exact local image; the node never
+pulls one automatically. Sandbox entry requires an attached Workspace on this
+active executor. It binds a managed Git worktree when one exists, otherwise the
+registered Workspace root, at the fixed container path `/workspace`. The
+container has no network, no Linux capabilities, a read-only root, private IPC
+and cgroups, `no-new-privileges`, and a PID ceiling. A named per-Run home volume
+survives container exit. An active Sandbox must exit before its Git worktree can
+be removed.
+
 `POST /v1/runs/:runId/workspace/exit` is the explicit `ExitWorkspace` semantic:
 it permanently detaches the binding while keeping the Run on its current
 executor and authority epoch. It is idempotent and persists as a distinct audit
@@ -368,6 +386,12 @@ The authenticated API exposes:
 - `POST /v1/runs/:runId/workspace/exit`
 - `POST /v1/workspace-entry-requests/:requestId/approve`
 - `GET /v1/runs/:runId/workspace/binding`
+- `POST /v1/runs/:runId/worktree/enter`
+- `GET /v1/runs/:runId/worktree/binding`
+- `POST /v1/runs/:runId/worktree/exit`
+- `POST /v1/runs/:runId/sandbox/enter`
+- `GET /v1/runs/:runId/sandbox`
+- `POST /v1/runs/:runId/sandbox/exit`
 - `POST /v1/runs/:runId/workspace`
 - `GET /v1/runs/:runId/workspace`
 - `POST /v1/runs/:runId/workspace/unavailable`
