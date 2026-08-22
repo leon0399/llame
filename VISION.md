@@ -125,11 +125,15 @@ defaults, and optional memory. Invoking it creates a Run. A subagent uses the
 same architecture: an inspectable child Chat containing child Runs, not a second
 session system. Parent Runs may dispatch bounded children, and authorized users
 may inspect or steer them directly. Nesting, delegation, and budget details stay
-open until this slice is planned.
+open until this slice is planned. Child-agent orchestration is deliberately
+behind the single-agent personal context and knowledge loop; it is not a
+prerequisite for that loop or for a first-party local Node.
 
 External coding agents and protocols such as ACP, A2A, Codex App Server, or
 OpenCode remain executor adapters. llame should keep ownership of Chat and Run
-identity, lifecycle, provenance, cancellation, and published results.
+identity, lifecycle, provenance, cancellation, and published results. Those
+adapters remain north-star compatibility work rather than part of the immediate
+product cut.
 
 ### Portable data, isolated execution
 
@@ -143,36 +147,158 @@ Artifacts start small. A single Markdown, text, or code file should not require 
 repository-scale workflow. Larger coding artifacts may use Git when versioning
 and collaboration justify it.
 
+### Local capability is not a thin client
+
+llame should eventually present one coherent personal system through first-party
+web, CLI, desktop, and Android surfaces. A Surface is only an interaction point. A Node is an
+independently operable installation with local identity, durable state,
+configuration, and available executors; several surfaces may share one Node.
+
+A personal Node is single-owner and remains useful without an account or network
+connection. It may store personal context, use locally configured inference
+providers and tools, and originate Chats and Runs while unlinked. llame defines
+the provider boundary but does not bundle, download, update, or operate a local
+model runtime. Offline inference is available only when the user or platform has
+configured a provider that works offline. An optional multi-user hub adds
+synchronization, remote coordination, and capabilities available elsewhere; it
+is not a prerequisite for local agency and does not turn the Node into a thin
+client.
+
+Home is the user-facing collection of durable personal context and artifacts. The
+Personal Realm is its logical ownership and reconciliation boundary for portable
+personal state. It may have replicas on desktop personal Nodes used through CLI
+or desktop surfaces, Android personal Nodes, other trusted Nodes, and an
+optionally linked hub account; no physical replica is inherently the one
+canonical home. The intended personal contract is a full
+mirror of each supported portable resource, with resource-specific reconciliation
+and explicit exclusions for secrets, device configuration, host paths, Workspace
+contents, sandbox instances, caches, and policy-restricted shared data.
+
+Linking an existing standalone Node is explicit and bidirectional. Local and
+remote resources synchronize by stable identity; distinct resources remain
+distinct rather than being merged by name. Unlinking revokes that cryptographic
+enrollment but neither logs the local owner out nor promises remote erasure of
+already retained copies.
+
+### Execution follows intent and capability
+
+Surface, Node, executor, Workspace, and Sandbox remain separate boundaries. A
+Workspace is a user-selected project directory, repository, or file collection. A
+Sandbox is the isolated, reproducible system environment into which approved
+Workspace views are mounted. A Run may answer on its initiating executor, enter a
+Workspace only after the task reveals that need, or transfer at a safe checkpoint
+to an eligible executor.
+
+Workspace entry is requested by the model but authorized and performed by the
+trusted harness. A CLI Run advertises only the directory in which it was started.
+A host daemon exposes only directories the user registered explicitly. llame does
+not clone repositories or copy Workspace contents onto a user's machine merely
+because a Run wants them. Git worktrees or other copy-on-write checkouts are
+derived Workspace views, not synchronized replicas.
+
+After entry, a Chat branch normally retains affinity to that Workspace and
+executor across follow-up Runs. Placement changes, Workspace loss, fallback, and
+recovery are narrated to both model and user. The user can wait, run temporarily
+without the Workspace and recover automatically, or exit it. At every instant one
+executor has authority to advance an active Run; synchronization or observation
+does not grant another replica permission to execute it.
+
+Android follows the same local-node contract with fewer capabilities: configured
+platform or local-provider inference when available, synchronized personal
+context, bounded device integrations, and remote Run steering. llame does not
+ship an Android model runtime. Android does not pretend to provide a generic
+project filesystem, container Sandbox, shell, or Git worktree.
+Workspace-dependent work transfers to an eligible executor or waits honestly.
+
+### Authority and synchronization are resource-scoped
+
+No universal transport owns every kind of state. Knowledge Spaces use
+human-readable files and Git-compatible history, with raw Git or forge-aware
+publication adapters. Chats and Runs remain database-native episodic state and
+synchronize through an application protocol. Live execution streams, executor
+recovery journals, and portable semantic checkpoints are separate layers rather
+than one replicated process log.
+
+A Personal Realm may present resources from work, family, school, community, or
+other authorities without merging their accounts, ownership, or policy. Foreign
+resources are mounted into the user's view; each retains one governing authority
+for membership, accepted revisions, retention, replication, and information flow.
+Offline shared writes remain proposals unless that authority defines a stronger
+merge contract.
+
+Long-lived foreign and inference-provider credentials stay at their owning Node
+or broker. An executor receives a proxied operation or narrow delegation, not the
+reusable upstream secret. Credential secrecy does not imply data locality:
+Workspace policy must separately decide whether context may reach an upstream
+model and whether that requires approval.
+
+Decision provenance and rejected alternatives remain in the
+[local-node and distributed-execution research](docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md)
+and the
+[multi-authority federation research](docs/research/product-vision/2026-08-21-multi-authority-federation-models.md).
+
 ## Staged horizons
 
-### Active: external tool connectivity
+### Shipped foundation: external tool connectivity
 
-Connect instance-managed remote MCP tools to the existing durable tool loop. Keep
-the adapter generic and prove it with a real web-search interaction.
+Instance-managed MCP tools already reach the durable tool loop. They remain the
+research and verification substrate for the next product cut rather than an
+independent platform objective.
 
-### Near: runnable personal knowledge agent
+### Immediate cut: file-native personal intelligence
 
-Read a personal Markdown/Git vault, land one recoverable agent-authored change,
-and prove deliberate recall across Chats. The release gate is the combined loop,
-not isolated infrastructure.
+The next sequence first gives the existing hosted Run loop bounded read and
+recoverable-write access to a manually linked personal Markdown/Git Knowledge
+Space and proves cross-Chat recall. That repository service then backs one
+Git-based Profile Space containing `USER.md`, `SOUL.md`, and `AGENTS.md`, whose
+exact revision is bound into inspectable Run context. Only after that replacement
+works does llame retire the duplicated database-authored personalization surface.
 
-### Later, unsequenced
+Profile files are edited as files by the user or an authorized agent. The
+immediate cut does not require a profile editor UI, multiple Agent Profiles,
+automatic prompt-derived permissions, or arbitrary filesystem paths supplied to
+the hosted service. Agent edits use the same bounded Git change path established
+for knowledge; they do not presuppose a personal Sandbox or local Node.
+Activation, egress, tool authorization, and linked-resource ownership remain
+control-plane state outside those files.
 
-- Durable Chat workspaces and lightweight Artifacts.
-- Agent Profiles, child Chats/Runs, bounded orchestration, and external harnesses.
-- Installed Apps, event-driven workflows, email/calendar connectors, and linked
-  messaging channels.
-- Enrolled user-machine Workers and replaceable sandbox backends.
-- Shared family, team, and organization knowledge with explicit information-flow
-  rules.
-- Versioned Skills, prompts, and runtime configuration that agents may improve
-  within granted boundaries.
-- Self-maintenance that diagnoses llame itself and proposes changes through normal
-  project and pull-request workflows.
+### Next: standalone personal operation
 
-Ordering inside this list is intentionally unresolved. A horizon enters the
-roadmap only when its user job, boundaries, dependencies, and acceptance path are
-clear.
+A first-party CLI and lightweight single-owner personal Node reuse the same Chat,
+Run, Profile Space, and Knowledge Space contracts. They work without a llame
+account using user-configured inference providers. This stage does not require
+Personal Realm synchronization, Workspace execution, an external coding harness,
+or a bundled local model.
+
+### Then: personal continuity across nodes
+
+Optional linking synchronizes portable personal resources between a standalone
+Node and one personal upstream. Git reconciles Profile and Knowledge Spaces;
+the application protocol reconciles Chats, branches, messages, compactions, and
+finalized receipts. Initial and later synchronization use the same path, and
+concurrent offline Chat continuation preserves both branches.
+
+### Later, ordered by dependency
+
+1. Workspace-aware execution across enrolled user machines, including explicit
+   directory registration, `EnterWorkspace`, reproducible Sandboxes, derived Git
+   worktrees, sticky executor affinity, remote observation and steering, and
+   transparent outage recovery.
+2. An Android system-assistant surface using configured platform inference when
+   available and steering remote Runs when Workspace work belongs elsewhere.
+3. Shared family, team, school, and organization knowledge with explicit
+   information-flow rules.
+4. Live foreign-authority mounts and policy-controlled shared replication, with
+   offline shared writes last.
+5. Versioned Skills and agent-editable runtime configuration, installed Apps and
+   workflows, self-maintenance, multiple Agent Profiles, child-agent
+   orchestration, and external harness adapters as independently justified
+   capabilities rather than prerequisites for the personal system.
+
+Each earlier mode remains supported rather than becoming a temporary migration
+stage. [ROADMAP.md](ROADMAP.md) owns the concrete cut and exit criteria; the
+distributed and federation research retains the fuller destination and rejected
+alternatives.
 
 ## Explicit deferrals
 
@@ -184,8 +310,13 @@ The current release sequence does not include:
 - semantic fact extraction, automatic memory injection, or a knowledge graph;
 - arbitrary write-capable MCP tools, on either transport;
 - model-directed shell execution or a production sandbox fabric;
-- child-agent orchestration, persistent per-agent machines, or remote coding
+- bundled, downloaded, or llame-managed local inference runtimes;
+- a first-party CLI, standalone personal Nodes, Personal Realm synchronization,
+  remote Workspace dispatch, or cross-node execution handoff in the immediate
+  file-native cut;
+- child-agent orchestration, persistent per-agent machines, or external coding
   harness dispatch;
+- multi-authority mounts or offline replication of shared resources;
 - workflow builders, autonomous email/calendar actions, multi-channel bots, or
   Home Assistant control; and
 - automatic merge or deployment of self-authored changes.

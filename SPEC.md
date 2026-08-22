@@ -1,6 +1,6 @@
 # llame current architecture
 
-**Status:** Current cross-cutting contract. Updated 2026-08-10.
+**Status:** Current cross-cutting contract. Updated 2026-08-22.
 
 This file records system boundaries and invariants that span capabilities. It is not a future feature inventory, release plan, API catalogue, schema sketch, or research report.
 
@@ -30,11 +30,17 @@ A Project currently groups one owner's Chats. It does not grant shared membershi
 
 Future behavior belongs in [VISION.md](VISION.md) until sequenced in the roadmap and specified through an OpenSpec change.
 
+### 1.1 Distributed direction is not current architecture
+
+The future Surface, Node, Personal Realm, Workspace, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. No first-party CLI or Android Node, standalone personal store, Node enrollment, Personal Realm mirroring, remote Workspace registry, cross-node execution placement or handoff, or foreign-authority mount ships.
+
+The current web, API, and worker processes form one installation and one PostgreSQL ownership boundary. A dedicated worker is an operational process role inside that installation, not an autonomous personal Node. A current Project is not a filesystem Workspace, Knowledge Space, Personal Realm, or security boundary. Future terminology must not be projected onto present APIs, database rows, or deployment roles without a shipped capability spec.
+
 ## 2. Conversation continuity
 
 ### 2.1 Compaction and provenance lineage
 
-Context compaction stores an RLS-scoped summary with an `upto_seq` boundary and `parent_id` lineage. Source messages remain unchanged; model context becomes a typed historical checkpoint plus retained later messages. A switch to a smaller-window model may run one bounded transition compaction with the previous executable model; an unavailable capable source fails explicitly instead of truncating or crossing an ownership boundary. See [`apps/api/src/compaction`](apps/api/src/compaction), [`chats.ts`](apps/api/src/db/schema/chats.ts), and the [`model-specific-system-prompts` change](openspec/changes/model-specific-system-prompts/specs/model-system-prompts/spec.md).
+Context compaction stores an RLS-scoped summary with an `upto_seq` boundary and `parent_id` lineage. Source messages remain unchanged; model context becomes a typed historical checkpoint plus retained later messages. A switch to a smaller-window model may run one bounded transition compaction with the previous executable model; an unavailable capable source fails explicitly instead of truncating or crossing an ownership boundary. See [`apps/api/src/compaction`](apps/api/src/compaction), [`chats.ts`](apps/api/src/db/schema/chats.ts), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).
 
 ## 6. Identity and ownership
 
@@ -80,9 +86,13 @@ Run progress is an append-only event stream. Clients subscribe, reconnect, and r
 
 Persisted event families currently cover Run lifecycle (`run.created`, `run.started`, terminal `run.*`), model activity (`model.requested`, `model.delta`, `model.completed`), `reasoning.delta`, tool activity (`tool.requested`, `tool.started`, `tool.completed`), and `run.step_cap_reached`.
 
+`run_events` is installation-local execution and reconnect state. It is not a cross-node protocol, Personal Realm replication journal, portable synchronization cursor, or grant of authority to resume execution elsewhere.
+
 ### 9.5 Execution boundary
 
 Every chat message executes through pg-boss and `RunExecutionService`; there is no inline request-thread mode. A no-HTTP worker entrypoint ships, and worker profiles support co-located consumers. See [`durable-runs`](openspec/specs/durable-runs/spec.md), [`job-queue`](openspec/specs/job-queue/spec.md), and [docs/scaling.md](docs/scaling.md).
+
+All current workers coordinate through the same installation's queue and database authority. No Node Protocol, user-machine enrollment, direct or tunneled remote executor API, Workspace mount handoff, or cross-node execution-authority transfer ships.
 
 ### 9.6 Queue delivery and recovery
 
@@ -116,7 +126,7 @@ Every tool declares one classification: `read_only`, `write_low_risk`, `write_hi
 
 ## 14. Provider and model configuration
 
-Operators configure providers, models, defaults, secret references, and optional whole-file per-model system-prompt overrides in `llame.config.json`. Omitted overrides use the packaged project default; invalid configured files fail startup rather than silently falling back. The API exposes executable model metadata and routes opaque model ids without exposing host prompt paths. User BYOK does not ship. See [`instance-config`](openspec/specs/instance-config/spec.md), [`available-models`](openspec/specs/available-models/spec.md), and the [`instance-config` prompt delta](openspec/changes/model-specific-system-prompts/specs/instance-config/spec.md).
+Operators configure providers, models, defaults, secret references, and optional whole-file per-model system-prompt overrides in `llame.config.json`. Omitted overrides use the packaged project default; invalid configured files fail startup rather than silently falling back. The API exposes executable model metadata and routes opaque model ids without exposing host prompt paths. User BYOK does not ship. See [`instance-config`](openspec/specs/instance-config/spec.md), [`available-models`](openspec/specs/available-models/spec.md), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).
 
 ## 15. Knowledge
 
@@ -132,7 +142,7 @@ The §7.1 mapping is reusable by future channels, but it does not authorize deli
 
 ## 20. Memory and search
 
-Chats, Runs, messages, and events form the episodic record. Hybrid chat search is a rebuildable projection used by the web UI and `search_conversations`. It indexes canonical human-authored user and ordinary assistant text, not model-switch metadata, system prompts, tool receipts, generated summaries, or checkpoint envelopes. Semantic facts and automatic injection do not ship. See [`chat-search`](openspec/specs/chat-search/spec.md) and the [`search-projection` delta](openspec/changes/model-specific-system-prompts/specs/search-projection/spec.md).
+Chats, Runs, messages, and events form the episodic record. Hybrid chat search is a rebuildable projection used by the web UI and `search_conversations`. It indexes canonical human-authored user and ordinary assistant text, not model-switch metadata, system prompts, tool receipts, generated summaries, or checkpoint envelopes. Semantic facts and automatic injection do not ship. See [`chat-search`](openspec/specs/chat-search/spec.md) and [`search-projection`](openspec/specs/search-projection/spec.md).
 
 ### 20.1 Authored personalization
 
@@ -169,6 +179,8 @@ The product is TypeScript on Node.js: Next.js, NestJS, Drizzle, and pg-boss. A s
 ### 24.0.1 PostgreSQL coordination
 
 PostgreSQL is the system of record for operational state and coordinates transactions, RLS, queues, locks, sessions, events, and lexical search. Search projections are rebuildable; identity and Run state are not.
+
+No application-level Personal Realm synchronization or PostgreSQL physical/logical replication between autonomous user Nodes ships. The future portable resource contract in [VISION.md](VISION.md) does not weaken the current rule that `apps/api` and its PostgreSQL database own durable domain state.
 
 Other storage must preserve the ownership and isolation boundaries in this file.
 
