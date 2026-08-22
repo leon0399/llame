@@ -1,0 +1,270 @@
+import { chmodSync, existsSync } from "node:fs";
+import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
+
+import {
+  type AdvanceWriterEpochInput,
+  InMemoryReplica,
+  parseChangeBatch,
+  ChangeBatch,
+  ChatBranch,
+  ReplicaOptions,
+} from "@workspace/federation-experiment";
+
+export interface SqlitePersonalRealmStoreOptions extends ReplicaOptions {
+  readonly databasePath: string;
+}
+
+type ReceiveResult = ReturnType<InMemoryReplica["receive"]>;
+
+function requireText(
+  row: Record<string, SQLOutputValue>,
+  column: string,
+): string {
+  const value = row[column];
+  if (typeof value !== "string") {
+    throw new Error(`invalid SQLite ${column}`);
+  }
+  return value;
+}
+
+function parseWriterEpochs(input: string): Readonly<Record<string, number>> {
+  const parsed: unknown = JSON.parse(input);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("invalid stored writer epochs");
+  }
+  const epochs: Record<string, number> = {};
+  for (const [writerStreamId, epoch] of Object.entries(parsed)) {
+    if (typeof epoch !== "number" || !Number.isInteger(epoch) || epoch <= 0) {
+      throw new Error("invalid stored writer epochs");
+    }
+    epochs[writerStreamId] = epoch;
+  }
+  return epochs;
+}
+
+function parseWriterEpochEvent(input: string): AdvanceWriterEpochInput {
+  const parsed: unknown = JSON.parse(input);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("invalid stored writer epoch event");
+  }
+  const values = Object.entries(parsed);
+  if (values.length !== 3) {
+    throw new Error("invalid stored writer epoch event");
+  }
+  const event = Object.fromEntries(values);
+  if (
+    typeof event.writerStreamId !== "string" ||
+    typeof event.expectedEpoch !== "number" ||
+    !Number.isInteger(event.expectedEpoch) ||
+    typeof event.nextEpoch !== "number" ||
+    !Number.isInteger(event.nextEpoch)
+  ) {
+    throw new Error("invalid stored writer epoch event");
+  }
+  return {
+    writerStreamId: event.writerStreamId,
+    expectedEpoch: event.expectedEpoch,
+    nextEpoch: event.nextEpoch,
+  };
+}
+
+export class SqlitePersonalRealmStore {
+  readonly #database: DatabaseSync;
+  readonly #databasePath: string;
+  readonly #realmId: string;
+  #initialWriterEpochs: Readonly<Record<string, number>>;
+  #replica: InMemoryReplica;
+
+  public constructor(options: SqlitePersonalRealmStoreOptions) {
+    if (
+      options.databasePath.length === 0 ||
+      options.databasePath === ":memory:"
+    ) {
+      throw new Error("personal Realm store requires a durable database path");
+    }
+    this.#databasePath = options.databasePath;
+    this.#database = new DatabaseSync(options.databasePath);
+    this.#realmId = options.realmId;
+    this.#initialWriterEpochs = { ...options.writerEpochs };
+    try {
+      this.#initializeSchema();
+      const storedOptions = this.#loadOrInitializeMetadata();
+      this.#initialWriterEpochs = { ...storedOptions.writerEpochs };
+      this.#replica = this.#loadReplica(storedOptions);
+      this.#secureDatabaseFiles(options.databasePath);
+    } catch (error) {
+      this.#database.close();
+      throw error;
+    }
+  }
+
+  public receive(batch: ChangeBatch): ReceiveResult {
+    const candidate = parseChangeBatch(batch);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.#loadReplica(this.#replicaOptions());
+      const result = current.receive(candidate);
+      if (result.status === "applied") {
+        this.#database
+          .prepare(
+            "INSERT INTO realm_events (kind, payload_json) VALUES ('batch', ?)",
+          )
+          .run(JSON.stringify(candidate));
+      }
+      this.#database.exec("COMMIT");
+      this.#replica = current;
+      this.#secureDatabaseFiles();
+      return result;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      this.#replica = this.#loadReplica(this.#replicaOptions());
+      throw error;
+    }
+  }
+
+  public frontier(): Readonly<Record<string, number>> {
+    return this.#replica.frontier();
+  }
+
+  public realmId(): string {
+    return this.#realmId;
+  }
+
+  public chatBranches(chatId: string): readonly ChatBranch[] {
+    return this.#replica.chatBranches(chatId);
+  }
+
+  public exportMissing(
+    peerFrontier: Readonly<Record<string, number>>,
+  ): readonly ChangeBatch[] {
+    return this.#replica.exportMissing(peerFrontier);
+  }
+
+  public coverageAgainst(
+    expectedFrontier: Readonly<Record<string, number>>,
+  ): ReturnType<InMemoryReplica["coverageAgainst"]> {
+    return this.#replica.coverageAgainst(expectedFrontier);
+  }
+
+  public advanceWriterEpoch(input: AdvanceWriterEpochInput): void {
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.#loadReplica(this.#replicaOptions());
+      current.advanceWriterEpoch(input);
+      this.#database
+        .prepare(
+          "INSERT INTO realm_events (kind, payload_json) VALUES ('writer-epoch', ?)",
+        )
+        .run(JSON.stringify(input));
+      this.#database.exec("COMMIT");
+      this.#replica = current;
+      this.#secureDatabaseFiles();
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      this.#replica = this.#loadReplica(this.#replicaOptions());
+      throw error;
+    }
+  }
+
+  public close(): void {
+    this.#database.close();
+  }
+
+  #initializeSchema(): void {
+    this.#database.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA foreign_keys = ON;
+      CREATE TABLE IF NOT EXISTS realm_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS realm_events (
+        ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL CHECK (kind IN ('batch', 'writer-epoch')),
+        payload_json TEXT NOT NULL
+      ) STRICT;
+    `);
+  }
+
+  #loadOrInitializeMetadata(): ReplicaOptions {
+    const rows = this.#database
+      .prepare("SELECT key, value FROM realm_metadata")
+      .all();
+    if (rows.length === 0) {
+      this.#database.exec("BEGIN IMMEDIATE");
+      try {
+        const insert = this.#database.prepare(
+          "INSERT INTO realm_metadata (key, value) VALUES (?, ?)",
+        );
+        insert.run("realm_id", this.#realmId);
+        insert.run(
+          "initial_writer_epochs",
+          JSON.stringify(this.#initialWriterEpochs),
+        );
+        this.#database.exec("COMMIT");
+      } catch (error) {
+        this.#database.exec("ROLLBACK");
+        throw error;
+      }
+      return {
+        realmId: this.#realmId,
+        writerEpochs: this.#initialWriterEpochs,
+      };
+    }
+
+    const metadata = new Map(
+      rows.map((row) => [requireText(row, "key"), requireText(row, "value")]),
+    );
+    const storedRealmId = metadata.get("realm_id");
+    const storedWriterEpochs = metadata.get("initial_writer_epochs");
+    if (storedRealmId === undefined || storedWriterEpochs === undefined) {
+      throw new Error("incomplete personal Realm metadata");
+    }
+    if (storedRealmId !== this.#realmId) {
+      throw new Error("database belongs to a different Personal Realm");
+    }
+    return {
+      realmId: storedRealmId,
+      writerEpochs: parseWriterEpochs(storedWriterEpochs),
+    };
+  }
+
+  #loadReplica(options: ReplicaOptions): InMemoryReplica {
+    const replica = new InMemoryReplica(options);
+    const rows = this.#database
+      .prepare("SELECT kind, payload_json FROM realm_events ORDER BY ordinal")
+      .all();
+    for (const row of rows) {
+      const kind = requireText(row, "kind");
+      const payloadJson = requireText(row, "payload_json");
+      if (kind === "batch") {
+        const payload: unknown = JSON.parse(payloadJson);
+        replica.receive(parseChangeBatch(payload));
+        continue;
+      }
+      if (kind === "writer-epoch") {
+        replica.advanceWriterEpoch(parseWriterEpochEvent(payloadJson));
+        continue;
+      }
+      throw new Error(`unsupported stored Realm event: ${kind}`);
+    }
+    return replica;
+  }
+
+  #replicaOptions(): ReplicaOptions {
+    return {
+      realmId: this.#realmId,
+      writerEpochs: this.#initialWriterEpochs,
+    };
+  }
+
+  #secureDatabaseFiles(databasePath = this.#databasePath): void {
+    for (const path of [
+      databasePath,
+      `${databasePath}-wal`,
+      `${databasePath}-shm`,
+    ]) {
+      if (existsSync(path)) chmodSync(path, 0o600);
+    }
+  }
+}

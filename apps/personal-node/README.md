@@ -1,0 +1,69 @@
+# Personal Node experiment
+
+Executable, single-owner local Node for testing Personal Realm reconciliation.
+It is deliberately a lightweight sibling of the hosted API, not a local copy of
+the NestJS/PostgreSQL/pg-boss stack.
+
+## Run it
+
+The Node takes trusted local configuration from environment variables:
+
+```bash
+export LLAME_NODE_ID=desktop
+export LLAME_REALM_ID=019d-personal-realm
+export LLAME_NODE_DB="$PWD/.local/personal-realm.sqlite"
+export LLAME_NODE_TOKEN=replace-with-at-least-16-random-characters
+```
+
+Start its authenticated loopback API:
+
+```bash
+pnpm --filter personal-node start serve
+```
+
+Append a root message while offline (`-` means no parent):
+
+```bash
+pnpm --filter personal-node start append chat-id - "First local message"
+```
+
+Reconcile in both directions with another Node:
+
+```bash
+export LLAME_PEER_TOKEN=the-peer-node-token
+pnpm --filter personal-node start sync https://peer.example.test
+```
+
+All writers in a Realm must currently be pre-authorized with the same epoch map:
+
+```bash
+export LLAME_WRITER_EPOCHS='{"desktop":1,"phone":1}'
+```
+
+Plain HTTP peers and listeners are restricted to loopback. Use HTTPS or expose a
+loopback listener through a secure authenticated tunnel. The bearer token is
+never printed by the process.
+
+## Protocol slice
+
+The authenticated API exposes:
+
+- `GET /v1/capabilities`
+- `GET /v1/realm/frontier`
+- `POST /v1/sync/export`
+- `POST /v1/sync/apply`
+- `GET /v1/chats/:chatId/branches`
+
+One reconciliation cycle pulls peer batches beyond the local frontier, pushes
+local batches beyond the peer frontier, and returns both frontier receipts. A
+concurrent change can yield `partial`; rerunning the same operation safely
+continues from those durable frontiers.
+
+## Deliberate limits
+
+This is evidence, not a shipped federation protocol. It has no enrollment,
+keypairs, signed events, canonical event encoding, encrypted payloads, snapshots,
+compaction, Workspace execution, live Run proxying, or hosted PostgreSQL adapter.
+Node 22 also marks its built-in SQLite API experimental. The database and SQLite
+sidecars are forced to owner-only permissions, but the content is not encrypted
+at rest.
