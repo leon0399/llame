@@ -356,6 +356,7 @@ async function run(): Promise<void> {
       ? undefined
       : new WorkspaceRegistry(
           await loadWorkspaceManifest(command.workspaceManifestPath),
+          { databasePath: command.node.databasePath },
         );
   const server = createPersonalNodeServer({
     nodeId: command.node.nodeId,
@@ -379,6 +380,7 @@ async function run(): Promise<void> {
       });
     });
   } catch (error) {
+    workspaceRegistry?.close();
     runControlStore.close();
     enrollmentRegistry.close();
     store.close();
@@ -400,6 +402,7 @@ async function run(): Promise<void> {
     closing = true;
     server.close(() => {
       const closeStores = (): void => {
+        workspaceRegistry?.close();
         runControlStore.close();
         enrollmentRegistry.close();
         store.close();

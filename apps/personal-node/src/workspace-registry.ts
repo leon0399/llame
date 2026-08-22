@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import type { WorkspaceRecoveryPolicy } from "@workspace/federation-experiment/workspace-recovery";
 
@@ -20,8 +21,12 @@ interface PendingWorkspaceEntry {
 export class WorkspaceRegistry {
   readonly #workspaces: ReadonlyMap<string, WorkspaceDefinition>;
   readonly #pending = new Map<string, PendingWorkspaceEntry>();
+  readonly #database: DatabaseSync | undefined;
 
-  public constructor(definitions: readonly WorkspaceDefinition[]) {
+  public constructor(
+    definitions: readonly WorkspaceDefinition[],
+    options: { readonly databasePath?: string } = {},
+  ) {
     const workspaces = new Map<string, WorkspaceDefinition>();
     for (const definition of definitions) {
       if (workspaces.has(definition.id)) {
@@ -33,6 +38,44 @@ export class WorkspaceRegistry {
       workspaces.set(definition.id, structuredClone(definition));
     }
     this.#workspaces = workspaces;
+    this.#database =
+      options.databasePath === undefined
+        ? undefined
+        : new DatabaseSync(options.databasePath);
+    this.#database?.exec(`
+      CREATE TABLE IF NOT EXISTS workspace_entry_requests (
+        request_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        UNIQUE (run_id, workspace_id)
+      ) STRICT
+    `);
+    for (const row of this.#database
+      ?.prepare(
+        `SELECT request_id, run_id, workspace_id
+         FROM workspace_entry_requests`,
+      )
+      .all() ?? []) {
+      const requestId = row.request_id;
+      const runId = row.run_id;
+      const workspaceId = row.workspace_id;
+      const workspace =
+        typeof workspaceId === "string"
+          ? this.#workspaces.get(workspaceId)
+          : undefined;
+      if (
+        typeof requestId !== "string" ||
+        typeof runId !== "string" ||
+        workspace === undefined
+      ) {
+        continue;
+      }
+      this.#pending.set(requestId, { requestId, runId, workspace });
+    }
+  }
+
+  public close(): void {
+    this.#database?.close();
   }
 
   public list(): readonly { readonly id: string; readonly label: string }[] {
@@ -71,7 +114,29 @@ export class WorkspaceRegistry {
         request.runId === runId && request.workspace.id === workspaceId,
     );
     if (existing !== undefined) return this.#publicRequest(existing);
-    const pending = { requestId: randomUUID(), runId, workspace };
+    let pending: PendingWorkspaceEntry = {
+      requestId: randomUUID(),
+      runId,
+      workspace,
+    };
+    if (this.#database !== undefined) {
+      this.#database
+        .prepare(
+          `INSERT OR IGNORE INTO workspace_entry_requests
+            (request_id, run_id, workspace_id) VALUES (?, ?, ?)`,
+        )
+        .run(pending.requestId, runId, workspaceId);
+      const stored = this.#database
+        .prepare(
+          `SELECT request_id FROM workspace_entry_requests
+           WHERE run_id = ? AND workspace_id = ?`,
+        )
+        .get(runId, workspaceId);
+      if (typeof stored?.request_id !== "string") {
+        throw new Error("Workspace entry request was not persisted");
+      }
+      pending = { ...pending, requestId: stored.request_id };
+    }
     this.#pending.set(pending.requestId, pending);
     return this.#publicRequest(pending);
   }
@@ -91,6 +156,9 @@ export class WorkspaceRegistry {
       runId: pending.runId,
       workspace: structuredClone(pending.workspace),
     });
+    this.#database
+      ?.prepare("DELETE FROM workspace_entry_requests WHERE request_id = ?")
+      .run(requestId);
     this.#pending.delete(requestId);
     return result;
   }

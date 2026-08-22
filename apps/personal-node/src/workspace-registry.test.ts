@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, test } from "vitest";
 
 import { WorkspaceRegistry } from "./workspace-registry.js";
@@ -79,5 +83,38 @@ describe("manual Workspace registry", () => {
     expect(
       registry.approve(requested.requestId, (approved) => approved.runId),
     ).toBe("missing-run");
+  });
+
+  test("recovers a pending approval after process restart", async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), "llame-workspace-registry-"),
+    );
+    try {
+      const databasePath = join(directory, "node.sqlite");
+      const definitions = [
+        {
+          id: "code",
+          label: "Code",
+          rootPath: "/srv/workspaces/code",
+          entryPolicy: "ask" as const,
+          recoveryPolicy: "wait" as const,
+        },
+      ];
+      const first = new WorkspaceRegistry(definitions, { databasePath });
+      const requested = first.requestEntry("run-restart", "code");
+      first.close();
+      if (requested.status !== "approval-required") {
+        throw new Error("expected approval request");
+      }
+
+      const recovered = new WorkspaceRegistry(definitions, { databasePath });
+      expect(recovered.requestEntry("run-restart", "code")).toEqual(requested);
+      expect(
+        recovered.approve(requested.requestId, (approved) => approved.runId),
+      ).toBe("run-restart");
+      recovered.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
