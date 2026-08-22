@@ -121,7 +121,9 @@ export async function readRunControlRequestBody(
   return Buffer.concat(chunks);
 }
 
-async function readResponseBody(response: Response): Promise<Buffer> {
+export async function readRunControlResponseBody(
+  response: Response,
+): Promise<Buffer> {
   if (!response.headers.get("content-type")?.startsWith("application/json")) {
     throw new Error("upstream_response_not_json");
   }
@@ -198,7 +200,7 @@ export async function tunnelRunControlRequest(
   }
   let responseBody: Buffer;
   try {
-    responseBody = await readResponseBody(upstream);
+    responseBody = await readRunControlResponseBody(upstream);
   } catch {
     const lastKnown =
       method === "GET" ? options.cache?.get(requestKey) : undefined;

@@ -132,13 +132,27 @@ curl -X PUT http://127.0.0.1:4370/v1/proxy/routes/run-uuid \
   -d '{"peerId":"workstation"}'
 ```
 
-The binding is idempotent. Moving an existing Run requires
+The binding is idempotent. A raw administrative move requires
 `{"peerId":"laptop","expectedRouteEpoch":1}`; a stale route epoch is rejected.
-The route database stores only Run UUID, peer ID, and epoch—not credentials.
-Removing a configured peer leaves its Runs visibly unavailable; the router does
-not silently choose another executor. Cache keys include peer and route epoch,
-so observations from before an explicit rebind cannot masquerade as state from
-the new peer.
+The safer path first proves that both configured peers expose the same Run,
+Realm, authority epoch, executor, status, and event prefix:
+
+```bash
+curl -X POST \
+  http://127.0.0.1:4370/v1/proxy/routes/run-uuid/verified-rebind \
+  -H "Authorization: Bearer $LLAME_NODE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"targetPeerId":"laptop","expectedRouteEpoch":1}'
+```
+
+Verification does not replicate the Run or transfer executor authority; those
+must happen first. It prevents the local route from committing when the target
+is absent, stale, divergent, or when the route changed concurrently. The route
+database stores only Run UUID, peer ID, and epoch—not credentials. Removing a
+configured peer leaves its Runs visibly unavailable; the router does not
+silently choose another executor. Cache keys include peer and route epoch, so
+observations from before an explicit rebind cannot masquerade as state from the
+new peer.
 
 Instead of distributing the peer's owner-control token, enroll once and persist
 a revocable credential. `LLAME_PEER_TOKEN` authorizes only the bootstrap request;
@@ -249,8 +263,8 @@ key rotation, cross-language canonical event standard, encrypted payloads,
 snapshots, compaction, Workspace execution, OAuth bootstrap, or hosted PostgreSQL
 adapter. The Run-control proxy does not yet tunnel a native external harness
 stream, preserve raw live deltas, discover peers, select a peer automatically,
-reconcile a mutation automatically after `outcome_unknown`, or coordinate a
-route rebind with remote Run-authority transfer. Node 22 also marks its built-in
-SQLite API
+reconcile a mutation automatically after `outcome_unknown`, replicate Run state
+between peers, or atomically coordinate route rebind with remote Run-authority
+transfer. Node 22 also marks its built-in SQLite API
 experimental. The database, private keys, credentials, and SQLite sidecars are
 forced to owner-only permissions, but event content is not encrypted at rest.

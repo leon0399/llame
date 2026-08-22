@@ -305,4 +305,111 @@ describe("multi-peer Run-control proxy", () => {
     expect(afterMove.status).toBe(503);
     expect(await afterMove.json()).toEqual({ error: "upstream_unavailable" });
   });
+
+  test("verifies replicated semantic state before changing a peer route", async () => {
+    const snapshot = {
+      realmId: "realm-personal",
+      runId: "run-a",
+      executorNodeId: "worker",
+      authorityEpoch: 3,
+      status: "running",
+      cursor: 1,
+      events: [
+        {
+          realmId: "realm-personal",
+          runId: "run-a",
+          executorNodeId: "worker",
+          authorityEpoch: 3,
+          sequence: 1,
+          eventId: "event-running",
+          event: { type: "status", status: "running" },
+        },
+      ],
+    };
+    const snapshotPeer = async (
+      peerId: string,
+      peerSnapshot: unknown,
+    ): Promise<RunControlProxyPeer> => {
+      const server = createServer((_request, response) => {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify(peerSnapshot));
+      });
+      servers.push(server);
+      return {
+        peerId,
+        peerUrl: await listen(server),
+        peerBearerToken: `${peerId}-credential-secret`,
+      };
+    };
+    let current = {
+      runId: "run-a",
+      peerId: "workstation",
+      routeEpoch: 1,
+    };
+    const router = createRunControlProxyRouterServer({
+      localBearerToken: "phone-facing-secret",
+      peers: [
+        await snapshotPeer("workstation", snapshot),
+        await snapshotPeer("laptop", snapshot),
+        await snapshotPeer("stale-laptop", {
+          ...snapshot,
+          authorityEpoch: 2,
+        }),
+      ],
+      routes: {
+        resolve: () => current,
+        bind: () => current,
+        rebind: (runId, peerId, expectedRouteEpoch) => {
+          if (expectedRouteEpoch !== current.routeEpoch) {
+            throw new Error("Run route epoch conflict");
+          }
+          current = { runId, peerId, routeEpoch: current.routeEpoch + 1 };
+          return current;
+        },
+      },
+    });
+    servers.push(router);
+    const origin = await listen(router);
+    const headers = {
+      authorization: "Bearer phone-facing-secret",
+      "content-type": "application/json",
+    };
+
+    const mismatch = await fetch(
+      `${origin}/v1/proxy/routes/run-a/verified-rebind`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          targetPeerId: "stale-laptop",
+          expectedRouteEpoch: 1,
+        }),
+      },
+    );
+    const moved = await fetch(
+      `${origin}/v1/proxy/routes/run-a/verified-rebind`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          targetPeerId: "laptop",
+          expectedRouteEpoch: 1,
+        }),
+      },
+    );
+
+    expect(mismatch.status).toBe(409);
+    expect(await mismatch.json()).toEqual({ error: "target_run_mismatch" });
+    expect(current).toMatchObject({ peerId: "laptop", routeEpoch: 2 });
+    expect(moved.status).toBe(200);
+    expect(await moved.json()).toEqual({
+      runId: "run-a",
+      peerId: "laptop",
+      routeEpoch: 2,
+      verified: {
+        authorityEpoch: 3,
+        cursor: 1,
+      },
+    });
+  });
 });
