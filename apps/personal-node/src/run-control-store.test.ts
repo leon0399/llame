@@ -201,4 +201,39 @@ describe("durable Run control store", () => {
     );
     store.close();
   });
+
+  test("persists explicit Workspace exit without transferring authority", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-run-control-"));
+    temporaryDirectories.push(directory);
+    const databasePath = join(directory, "node.sqlite");
+    const store = new SqliteRunControlStore({
+      databasePath,
+      realmId: "realm-personal",
+    });
+    store.createRun({ runId: "run-1", executorNodeId: "node-workstation" });
+    store.createWorkspaceAffinity("run-1", {
+      workspaceId: "workspace-code",
+      policy: "ask",
+    });
+
+    expect(store.exitWorkspace("run-1").state.mode).toBe("exited");
+    expect(store.snapshot("run-1")).toMatchObject({
+      executorNodeId: "node-workstation",
+      authorityEpoch: 1,
+      cursor: 0,
+    });
+    store.close();
+
+    const reopened = new SqliteRunControlStore({
+      databasePath,
+      realmId: "realm-personal",
+    });
+    expect(reopened.workspaceRecoveryState("run-1")).toMatchObject({
+      mode: "exited",
+      workspaceAttached: false,
+      activeExecutorNodeId: "node-workstation",
+      authorityEpoch: 1,
+    });
+    reopened.close();
+  });
 });

@@ -291,6 +291,12 @@ export class SqliteRunControlStore {
     );
   }
 
+  public exitWorkspace(runId: string): WorkspaceRecoveryTransition {
+    return this.#workspaceWrite(runId, "explicit-exit", {}, (recovery) =>
+      recovery.exitWorkspace(),
+    );
+  }
+
   public workspaceRecoveryState(runId: string): WorkspaceRecoveryState {
     this.#database.exec("BEGIN");
     try {
@@ -325,7 +331,11 @@ export class SqliteRunControlStore {
 
   #workspaceWrite(
     runId: string,
-    kind: "executor-unavailable" | "choice" | "preferred-recovered",
+    kind:
+      | "executor-unavailable"
+      | "choice"
+      | "preferred-recovered"
+      | "explicit-exit",
     payload: unknown,
     operation: (
       recovery: InMemoryWorkspaceRecovery,
@@ -537,6 +547,8 @@ export class SqliteRunControlStore {
           throw new Error("invalid stored Workspace recovery choice");
         }
         recovery.choose(payload.action, payload.context);
+      } else if (kind === "explicit-exit") {
+        recovery.exitWorkspace();
       } else {
         throw new Error("invalid stored Workspace recovery event");
       }
@@ -623,11 +635,41 @@ export class SqliteRunControlStore {
         sequence INTEGER NOT NULL CHECK (sequence > 0),
         kind TEXT NOT NULL
           CHECK (kind IN ('executor-unavailable', 'choice',
-                          'preferred-recovered')),
+                          'preferred-recovered', 'explicit-exit')),
         payload_json TEXT NOT NULL,
         PRIMARY KEY (run_id, sequence)
       ) STRICT;
     `);
+    const recoveryEventsSchema = this.#database
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'run_workspace_recovery_events'",
+      )
+      .get()?.sql;
+    if (
+      typeof recoveryEventsSchema === "string" &&
+      !recoveryEventsSchema.includes("explicit-exit")
+    ) {
+      this.#database.exec(`
+        BEGIN IMMEDIATE;
+        ALTER TABLE run_workspace_recovery_events
+          RENAME TO run_workspace_recovery_events_legacy;
+        CREATE TABLE run_workspace_recovery_events (
+          run_id TEXT NOT NULL REFERENCES run_workspace_affinities(run_id),
+          sequence INTEGER NOT NULL CHECK (sequence > 0),
+          kind TEXT NOT NULL
+            CHECK (kind IN ('executor-unavailable', 'choice',
+                            'preferred-recovered', 'explicit-exit')),
+          payload_json TEXT NOT NULL,
+          PRIMARY KEY (run_id, sequence)
+        ) STRICT;
+        INSERT INTO run_workspace_recovery_events
+          (run_id, sequence, kind, payload_json)
+          SELECT run_id, sequence, kind, payload_json
+          FROM run_workspace_recovery_events_legacy;
+        DROP TABLE run_workspace_recovery_events_legacy;
+        COMMIT;
+      `);
+    }
   }
 
   #loadOrInitializeRealm(): void {

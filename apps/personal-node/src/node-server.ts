@@ -181,7 +181,7 @@ function routeRequirement(
   if (
     request.method === "POST" &&
     (/^\/v1\/runs\/[^/]+\/authority$/.test(url.pathname) ||
-      /^\/v1\/runs\/[^/]+\/workspace(?:\/(?:enter|unavailable|recovered|choice))?$/.test(
+      /^\/v1\/runs\/[^/]+\/workspace(?:\/(?:enter|exit|unavailable|recovered|choice))?$/.test(
         url.pathname,
       ))
   ) {
@@ -578,7 +578,7 @@ async function handleAuthorizedRequest(
     }
   }
   const workspaceRoute =
-    /^\/v1\/runs\/([^/]+)\/workspace(?:\/(enter|binding|unavailable|recovered|choice))?$/.exec(
+    /^\/v1\/runs\/([^/]+)\/workspace(?:\/(enter|exit|binding|unavailable|recovered|choice))?$/.exec(
       url.pathname,
     );
   if (workspaceRoute !== null) {
@@ -634,6 +634,14 @@ async function handleAuthorizedRequest(
           policy: decision.workspace.recoveryPolicy,
         }),
       );
+      return;
+    }
+    if (request.method === "POST" && action === "exit") {
+      const parsed = emptyRequestSchema.safeParse(await readJson(request));
+      if (!parsed.success) {
+        throw new RequestError(400, "invalid_workspace_exit_request");
+      }
+      sendJson(response, 202, options.runControlStore.exitWorkspace(runId));
       return;
     }
     if (request.method === "GET" && action === undefined) {

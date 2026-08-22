@@ -830,6 +830,14 @@ describe("personal Node Protocol server", () => {
       `${origin}/v1/runs/run-workspace/control?after=0`,
       { headers },
     );
+    const explicitlyExited = await fetch(
+      `${origin}/v1/runs/run-workspace/workspace/exit`,
+      { method: "POST", headers, body: "{}" },
+    );
+    const bindingAfterExit = await fetch(
+      `${origin}/v1/runs/run-workspace/workspace/binding`,
+      { headers: { authorization: `Bearer ${executorGrant.credential}` } },
+    );
 
     expect(attached.status).toBe(201);
     expect(executorBinding.status).toBe(200);
@@ -873,5 +881,15 @@ describe("personal Node Protocol server", () => {
       authorityEpoch: 3,
       cursor: 2,
     });
+    expect(explicitlyExited.status).toBe(202);
+    expect(await explicitlyExited.json()).toMatchObject({
+      state: {
+        mode: "exited",
+        activeExecutorNodeId: "node-workstation",
+        authorityEpoch: 3,
+        workspaceAttached: false,
+      },
+    });
+    expect(bindingAfterExit.status).toBe(409);
   });
 });

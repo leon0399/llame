@@ -307,6 +307,11 @@ into its sandbox, but the node does not yet perform that mount or create a Git
 worktree; the capability therefore reports `policy-gated-binding` rather than
 claiming a managed sandbox.
 
+`POST /v1/runs/:runId/workspace/exit` is the explicit `ExitWorkspace` semantic:
+it permanently detaches the binding while keeping the Run on its current
+executor and authority epoch. It is idempotent and persists as a distinct audit
+event; it is not disguised as node failure or fallback.
+
 All writers in a Realm must currently be pre-authorized with the same epoch map:
 
 ```bash
@@ -339,6 +344,7 @@ The authenticated API exposes:
 - `POST /v1/runs/:runId/authority`
 - `GET /v1/workspaces`
 - `POST /v1/runs/:runId/workspace/enter`
+- `POST /v1/runs/:runId/workspace/exit`
 - `POST /v1/workspace-entry-requests/:requestId/approve`
 - `GET /v1/runs/:runId/workspace/binding`
 - `POST /v1/runs/:runId/workspace`

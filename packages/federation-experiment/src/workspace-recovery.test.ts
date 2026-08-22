@@ -221,4 +221,30 @@ describe("sticky Workspace recovery", () => {
     expect(chosen.state.mode).toBe("temporary-fallback");
     expect(chosen.state.policy).toBe("ask");
   });
+
+  test("exits a healthy Workspace without moving Run authority", () => {
+    const recovery = new InMemoryWorkspaceRecovery({
+      workspaceId: "workspace-code",
+      preferredExecutorNodeId: "node-workstation",
+      authorityEpoch: 3,
+      policy: "ask",
+    });
+
+    const exited = recovery.exitWorkspace();
+
+    expect(exited.state).toMatchObject({
+      mode: "exited",
+      activeExecutorNodeId: "node-workstation",
+      authorityEpoch: 3,
+      workspaceAttached: false,
+    });
+    expect(exited.effects).toEqual([
+      {
+        type: "workspace-binding-changed",
+        workspaceId: "workspace-code",
+        binding: "exited",
+      },
+    ]);
+    expect(recovery.exitWorkspace().effects).toEqual([]);
+  });
 });

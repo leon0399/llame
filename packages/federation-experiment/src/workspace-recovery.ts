@@ -205,6 +205,22 @@ export class InMemoryWorkspaceRecovery {
     return this.#transition(effects);
   }
 
+  public exitWorkspace(): WorkspaceRecoveryTransition {
+    if (this.#state.mode === "exited") return this.#transition([]);
+    this.#state = {
+      ...this.#state,
+      mode: "exited",
+      workspaceAttached: false,
+    };
+    return this.#transition([
+      {
+        type: "workspace-binding-changed",
+        workspaceId: this.#state.workspaceId,
+        binding: "exited",
+      },
+    ]);
+  }
+
   public state(): WorkspaceRecoveryState {
     return structuredClone(this.#state);
   }
