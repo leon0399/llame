@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-22
 
+- **Personal Realm recovery authority**: selected a versioned, pre-authorized
+  Recovery Policy and generation fence that separates rare same-Realm succession
+  from routine coordinator control. Distinguished recovery principals, node and
+  writer keys, broker secrets, and backup encryption; retained disposable node
+  identities and honest new-Realm fallback for the simple first slice; and
+  recorded optional offline and threshold custody as north-star profiles without
+  changing shipped behavior, specifications, or roadmap.
 - **Federated schema evolution**: selected layered capability negotiation,
   authority-fenced semantic writer activation, atomic batch/frontier rules,
   fail-closed handling of unknown policy and control semantics, compatible

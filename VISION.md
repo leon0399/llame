@@ -316,6 +316,21 @@ merge. The initial linked topology uses the hub as coordinator; a standalone nod
 coordinates itself. Coordinator loss blocks new governance, not read access or
 already granted offline work, and never silently elects a successor.
 
+Identity-preserving recovery is a separate pre-authorized authority path. A
+versioned Recovery Policy may disable recovery, name one offline recovery
+principal, or require a threshold of independent principals. A valid recovery
+transition advances a generation that fences every prior coordinator. Possession
+of a full mirror, ordinary account login, or a copied node key does not grant this
+authority; without a configured recovery threshold, permanent coordinator loss
+creates a visibly new Realm rather than a forged successor.
+
+Recovery, operational control, node identity, writer attribution, broker secrets,
+and backup encryption are distinct key roles. Routine node keys remain local and
+disposable: loss or unlink revokes the principal, and re-enrollment creates a new
+one. Recovery-policy rotation chains from the previous threshold and proves the
+new policy. The first personal-node slice does not implement threshold recovery;
+it preserves the honest fork behavior while leaving this trust chain possible.
+
 “Full mirror” means logical fidelity for portable personal state, not secret or
 process replication. Credentials, Workspace contents, Sandbox images,
 executor-local recovery state, rebuildable indexes, and foreign data forbidden by
@@ -357,8 +372,10 @@ the
 [Personal Realm control and replication decision](docs/research/product-vision/2026-08-22-personal-realm-control-and-replication-topology.md),
 the
 [cross-authority information-flow decision](docs/research/product-vision/2026-08-22-cross-authority-information-flow-and-derived-data.md),
+the
+[federated schema-evolution decision](docs/research/product-vision/2026-08-22-federated-schema-evolution-and-compatibility.md),
 and the
-[federated schema-evolution decision](docs/research/product-vision/2026-08-22-federated-schema-evolution-and-compatibility.md).
+[Personal Realm recovery decision](docs/research/product-vision/2026-08-22-personal-realm-recovery-and-key-lifecycle.md).
 
 ## Staged horizons
 
