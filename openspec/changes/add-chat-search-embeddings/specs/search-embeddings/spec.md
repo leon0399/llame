@@ -217,7 +217,7 @@ Because this enumeration crosses tenants under FORCE RLS, it SHALL use a `SECURI
 
 ### Requirement: Bulk embedding work is explicit; only incremental lag is automatic
 
-Automatic discovery and enqueueing SHALL cover only *incremental* lag — content added or edited under the corpus's current model. *Bulk* work — a newly declared model, a model change, or an input-version bump invalidating existing vectors — SHALL be advanced only by an explicit operator command, never as a side effect of editing configuration. A configuration edit SHALL NOT by itself initiate embedding work proportional to corpus size.
+Automatic discovery and enqueueing SHALL cover only _incremental_ lag — content added or edited under the corpus's current model. _Bulk_ work — a newly declared model, a model change, or an input-version bump invalidating existing vectors — SHALL be advanced only by an explicit operator command, never as a side effect of editing configuration. A configuration edit SHALL NOT by itself initiate embedding work proportional to corpus size.
 
 The bulk command SHALL enumerate and enqueue rather than embed directly, so it is resumable, observes the configured concurrency, and requires no provider credential of its own. Re-running it against a fully covered corpus SHALL issue no provider request and write nothing.
 

@@ -63,7 +63,7 @@ One document, one row, at most one vector. A model change re-embeds in place rat
 
 **Why this reverses an earlier draft.** An earlier version used a `search_chat_embeddings` table keyed `(document_id, model_key)`. Its **only** load-bearing justification was supporting two models resident at once for a parallel-backfill migration — a requirement introduced by the design, not by #196 and not by any user. Everything else it was credited with (writer partition, row width) was secondary. Weighed against "the simplest implementation that fully meets current requirements", one speculative capability did not justify what it cost.
 
-**What the column form removes.** The second table and its migration; a second RLS policy, `FORCE` hand-append, and separate cross-tenant negatives, since a column inherits the document row's existing policy automatically; the foreign key, its cascade, and the whole cross-table lock-order and deadlock analysis; deletion propagation as a distinct requirement, because the row *is* the document; the anti-join coverage predicate, which collapses to a single-table `WHERE`; and the per-corpus-embedding-table requirement.
+**What the column form removes.** The second table and its migration; a second RLS policy, `FORCE` hand-append, and separate cross-tenant negatives, since a column inherits the document row's existing policy automatically; the foreign key, its cascade, and the whole cross-table lock-order and deadlock analysis; deletion propagation as a distinct requirement, because the row _is_ the document; the anti-join coverage predicate, which collapses to a single-table `WHERE`; and the per-corpus-embedding-table requirement.
 
 **What it adds, unexpectedly in its favor.** The rebuild invalidates embeddings for free: when a rebuild rewrites a document's content it nulls the embedding columns in the same statement, so there is no stale-vector window and no separate invalidation path.
 
@@ -122,7 +122,7 @@ Configuration names the **intended** model per corpus; coverage is a progress re
 
 **Why per corpus.** Knowledge/RAG and curated memory will embed later corpora at their own pace. A single instance-wide model selection would drag a later corpus along with the chat corpus's choice.
 
-**Bulk work is never automatic.** Two kinds of lag exist and must not share a mechanism. *Incremental* lag — new or edited content under the corpus's intended model — is bounded by write volume and is maintained automatically by the sweep. *Bulk* lag — a newly declared model, a model change, or an input-version bump — is unbounded and proportional to corpus size, and is advanced **only** by the explicit `backfill` command. A one-line config edit must never start corpus-scale provider spend or hours of saturation on a self-hosted backend. This is also what makes a model transition operator-chosen rather than accidental, which is the honest version of what the gate was clumsily reaching for.
+**Bulk work is never automatic.** Two kinds of lag exist and must not share a mechanism. _Incremental_ lag — new or edited content under the corpus's intended model — is bounded by write volume and is maintained automatically by the sweep. _Bulk_ lag — a newly declared model, a model change, or an input-version bump — is unbounded and proportional to corpus size, and is advanced **only** by the explicit `backfill` command. A one-line config edit must never start corpus-scale provider spend or hours of saturation on a self-hosted backend. This is also what makes a model transition operator-chosen rather than accidental, which is the honest version of what the gate was clumsily reaching for.
 
 **The three model-change cases.** Redefining an in-use key in place is **rejected at boot** (D1): it silently mixes embedding spaces under one name. Changing a corpus's intended model to a different declared key is **allowed and inert**: nothing regenerates automatically, old-key vectors simply stop matching the query filter, and `backfill` re-embeds when the operator asks. Removing a declared model that still has vectors is **allowed and warned**: those vectors stop matching the filter and are never read, are never auto-deleted — leftover derived data must not block boot or vanish because of a config edit — and are cleared by the explicit `prune` command.
 
@@ -150,7 +150,7 @@ Configuration names the **intended** model per corpus; coverage is a progress re
 
 **Decision.** Move all three pinned image references to a digest-pinned `pgvector/pgvector:pg17`, document pgvector as a self-host requirement in `README.md` and `apps/api/AGENTS.md`, and do it first so every subsequent task runs against the real target.
 
-**Why not make it optional.** A conditional extension means two schema shapes, two migration paths, and a permanently forked test matrix — for a self-hosted product whose operator already runs a Postgres container and can change one image tag. Optionality here is a maintenance liability. The *feature* stays optional (no configured model means lexical only), which is the optionality that matters to a user.
+**Why not make it optional.** A conditional extension means two schema shapes, two migration paths, and a permanently forked test matrix — for a self-hosted product whose operator already runs a Postgres container and can change one image tag. Optionality here is a maintenance liability. The _feature_ stays optional (no configured model means lexical only), which is the optionality that matters to a user.
 
 **Why the upstream image over a custom build.** It tracks the same Postgres major already pinned; a custom image is a build to maintain for no gain.
 
@@ -170,7 +170,7 @@ Extend `db:provision-rls` to assign its ownership, and extend the boot self-chec
 
 **Why a second function rather than reusing the lexical one.** `llame_search_stale_chats` compares `chats.updated_at` against `search_chat_state.indexed_at`. A corpus fully indexed and never embedded is not stale by that predicate, so it returns **zero rows** — the sweep would never see embedding lag. Widening the existing function would couple two independently evolving predicates and change a shipped contract that phase-1 tests pin.
 
-**Why the provisioning check is not optional.** This is the exact failure that already bit phase 1: an unprovisioned `SECURITY DEFINER` function under FORCE RLS returns zero rows *without error*, indistinguishable from "everything is covered". A coverage predicate has the same shape and needs the same fail-loud treatment on day one.
+**Why the provisioning check is not optional.** This is the exact failure that already bit phase 1: an unprovisioned `SECURITY DEFINER` function under FORCE RLS returns zero rows _without error_, indistinguishable from "everything is covered". A coverage predicate has the same shape and needs the same fail-loud treatment on day one.
 
 **The `IS DISTINCT FROM` requirement is load-bearing, not stylistic.** Written with plain `=`, an unattempted row has `embedding_model_key = $model` evaluating to **NULL** rather than false, so a negated conjunction yields NULL and the row is silently excluded — never-embedded documents would never be discovered. That is the same silent-zero-rows class as the two failures above, and it is the most likely way this predicate ships broken.
 
@@ -182,7 +182,7 @@ Extend `db:provision-rls` to assign its ownership, and extend the boot self-chec
 
 **Why not `normalized_content`.** That column exists for `word_similarity` and `to_tsvector('simple', …)`: NFKC-folded, whitespace-collapsed, lowercased, role-free. Lowercasing removes signal a transformer encoder uses, and the normalization was built to help a matcher with no semantics at all.
 
-**Why the role labels stay — reversing an earlier decision.** An earlier draft stripped them, reasoning from the projection's rule that role labels must never affect lexical ranking. That rationale does not transfer: the lexical hazard is *literal token collision*, and embeddings have no token-level matching. The affirmative case is that our chunks are multi-turn — without speaker attribution, a chunk where the user proposes something and the assistant rejects it is indistinguishable from one where it was endorsed. Prior art agrees: `obra/episodic-memory` embeds `` `User: ${u}\n\nAssistant: ${a}` `` verbatim.
+**Why the role labels stay — reversing an earlier decision.** An earlier draft stripped them, reasoning from the projection's rule that role labels must never affect lexical ranking. That rationale does not transfer: the lexical hazard is _literal token collision_, and embeddings have no token-level matching. The affirmative case is that our chunks are multi-turn — without speaker attribution, a chunk where the user proposes something and the assistant rejects it is indistinguishable from one where it was endorsed. Prior art agrees: `obra/episodic-memory` embeds `` `User: ${u}\n\nAssistant: ${a}` `` verbatim.
 
 **Confidence: moderate, and deliberately measurable.** There is no strong published evidence specific to role labels in embedding inputs. What is known is mechanical: constant prefixes demonstrably move embeddings (the entire E5/BGE `query:`/`passage:` mechanism works that way), and a constant token in every document adds a shared component that compresses score dynamic range under mean pooling — but the query lacks the labels too, so the effect is roughly uniform and depresses absolute scores more than it distorts ranking. Settle it with the eval harness in the retrieval change.
 
@@ -198,9 +198,9 @@ Extend `db:provision-rls` to assign its ownership, and extend the boot self-chec
 
 **Decision** (tracked as #517). Bump the chunker so a single message exceeding `CHUNK_MAX_CHARS` is split into budget-sized parts at a text boundary, and every part after the first is prefixed with a bounded anchor: the preceding user message truncated to roughly 400 characters at a word boundary with an explicit elision marker. A message that fits produces byte-identical output to version 2. The anchor lives in `content`, not in an embed-time derivation.
 
-**The defect.** `chunkByCharBudget` always takes at least one item — *"Always take at least one new item; then keep taking while under budget"* — so a message larger than the budget is emitted whole. The code is aware of it: the overlap logic deliberately refuses to carry "a truly oversized item" forward. Harmless for `tsvector` and trigram; fatal for embeddings, where one 40KB document is a request the provider rejects or silently truncates. At ~750 tokens of budget, a pasted file or a long answer clears it routinely.
+**The defect.** `chunkByCharBudget` always takes at least one item — _"Always take at least one new item; then keep taking while under budget"_ — so a message larger than the budget is emitted whole. The code is aware of it: the overlap logic deliberately refuses to carry "a truly oversized item" forward. Harmless for `tsvector` and trigram; fatal for embeddings, where one 40KB document is a request the provider rejects or silently truncates. At ~750 tokens of budget, a pasted file or a long answer clears it routinely.
 
-**Why fix it in the chunker.** `CHUNK_MAX_CHARS`'s own comment says the value was chosen to be *"inside phase-2 embedding budgets"* — every document fitting was already the intent, and the always-take-one path is a hole in it. Fixing it here makes the invariant structural: one document is always at most one vector. It also repairs the lexical side, where an oversized document yields useless snippets and skews trigram scoring today.
+**Why fix it in the chunker.** `CHUNK_MAX_CHARS`'s own comment says the value was chosen to be _"inside phase-2 embedding budgets"_ — every document fitting was already the intent, and the always-take-one path is a hole in it. Fixing it here makes the invariant structural: one document is always at most one vector. It also repairs the lexical side, where an oversized document yields useless snippets and skews trigram scoring today.
 
 **Why now.** A version bump costs one full projection rebuild, which the discovery sweep exists to perform. Doing it before any vector exists costs exactly that rebuild; doing it after embeddings ship costs a rebuild **and** a full re-embed.
 
@@ -238,15 +238,15 @@ Extend `db:provision-rls` to assign its ownership, and extend the boot self-chec
 
 **Decision.** A document whose embedding fails terminally records `embedding_fail_reason` with its attempt metadata and a NULL vector. Classification is deliberately thin: tombstone only on a terminal HTTP class (4xx excluding 408 and 429); everything else throws and retries under D5's policy. Three states are derived, never stored:
 
-| State | `embedding` | attempt metadata | `embedding_fail_reason` |
-|---|---|---|---|
-| Never attempted | NULL | NULL | NULL |
-| Embedded | set | set | NULL |
-| Terminally failed | NULL | set | set |
+| State             | `embedding` | attempt metadata | `embedding_fail_reason` |
+| ----------------- | ----------- | ---------------- | ----------------------- |
+| Never attempted   | NULL        | NULL             | NULL                    |
+| Embedded          | set         | set              | NULL                    |
+| Terminally failed | NULL        | set              | set                     |
 
 **Why tombstone at all.** Without one, a permanently unembeddable document loops forever: retries exhaust, the job dead-letters, and the coverage predicate still reports the chat as lagging, so the sweep re-enqueues it — the retry cap defeated by the discovery mechanism behind it, paying for every other document in that chat on each cycle. That is unbounded spend producing no error anyone reads, the same shape as the two silent failures this design already guards against.
 
-**Why the settled test is a disjunction.** D10's predicate treats a row as settled when the attempt metadata matches *and* either a vector or a reason is present. Neither column is solely load-bearing, so a half-written row falls through to "needs embedding" and is retried — noisy rather than silent, the failure direction this repo wants. This requires one discipline rule: **attempt metadata is written only at persist time, in the same statement as the vector or the reason.**
+**Why the settled test is a disjunction.** D10's predicate treats a row as settled when the attempt metadata matches _and_ either a vector or a reason is present. Neither column is solely load-bearing, so a half-written row falls through to "needs embedding" and is retried — noisy rather than silent, the failure direction this repo wants. This requires one discipline rule: **attempt metadata is written only at persist time, in the same statement as the vector or the reason.**
 
 **Why the tombstone is scoped, not permanent.** It carries the model key, content hash, and input version, so editing the message, bumping the input version, or changing the model all produce a fresh attempt automatically. The one case that would otherwise stick — unchanged content whose failure was misclassified, or a provider-side bug since fixed — is covered by the `retry-failed` command, which clears the attempt metadata of failed rows so the next sweep re-attempts them.
 
