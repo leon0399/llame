@@ -290,6 +290,24 @@ specific resources, operations, and online or offline behavior. Current node or
 subject credentials prove who may exercise it; caller-supplied grant IDs never
 authorize themselves.
 
+A Personal Realm has no canonical physical home, but its governance is not an
+equal-writer CRDT. Full replicas exchange and independently retain the portable
+personal core, and granted writer streams may author eligible data offline. One
+transferable Realm Control Coordinator epoch orders enrollment, revocation,
+Writer Grants, Authority Binding changes, protected-acceptance policy, and
+destructive retention decisions. Ordinary personal Git ref movement remains a
+grant-scoped data operation and may reconcile through explicit divergence and
+merge. The initial linked topology uses the hub as coordinator; a standalone node
+coordinates itself. Coordinator loss blocks new governance, not read access or
+already granted offline work, and never silently elects a successor.
+
+“Full mirror” means logical fidelity for portable personal state, not secret or
+process replication. Credentials, Workspace contents, Sandbox images,
+executor-local recovery state, rebuildable indexes, and foreign data forbidden by
+its authority remain local or referenced. Synchronization may route through a hub
+or directly between enrolled peers; neither forwarding nor retention grants
+control or execution authority.
+
 Long-lived foreign and inference-provider credentials stay at their owning Node
 or broker. An executor receives a proxied operation or narrow delegation, not the
 reusable upstream secret. Credential secrecy does not imply data locality:
@@ -304,8 +322,10 @@ the
 [federated runtime topology decision](docs/research/product-vision/2026-08-22-federated-runtime-topology.md),
 the
 [federated resource identity decision](docs/research/product-vision/2026-08-22-federated-resource-identity-and-change-envelope.md),
+the
+[authority connections and writer grants decision](docs/research/product-vision/2026-08-22-authority-connections-and-writer-grants.md),
 and the
-[authority connections and writer grants decision](docs/research/product-vision/2026-08-22-authority-connections-and-writer-grants.md).
+[Personal Realm control and replication decision](docs/research/product-vision/2026-08-22-personal-realm-control-and-replication-topology.md).
 
 ## Staged horizons
 

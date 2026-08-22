@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-22
 
+- **Personal Realm control topology**: separated offline-capable replicated
+  personal data from a single transferable, epoch-fenced Realm control head.
+  Defined full logical mirror scope, initial hub and standalone coordinator roles,
+  peer replication, authority transfer, coordinator-outage behavior, and the
+  honest fork boundary after unrecoverable control loss without changing shipped
+  behavior, specifications, or roadmap.
 - **Federated authority connections**: separated Personal Replica Enrollment,
   foreign Authority Connections, non-secret Writer Grants, and broker-local
   credentials. Defined explicit populated-Realm joining before ordinary sync,
