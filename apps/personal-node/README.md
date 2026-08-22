@@ -54,10 +54,16 @@ The authenticated API exposes:
 - `POST /v1/sync/apply`
 - `GET /v1/chats/:chatId/branches`
 
-One reconciliation cycle pulls peer batches beyond the local frontier, pushes
-local batches beyond the peer frontier, and returns both frontier receipts. A
-concurrent change can yield `partial`; rerunning the same operation safely
-continues from those durable frontiers.
+A reconciliation operation pulls peer batches beyond the local frontier, pushes
+local batches beyond the peer frontier, and returns both frontier receipts. It
+runs up to three immediate rounds when either side advances during the operation.
+Persistent churn can still yield `partial`; rerunning safely continues from the
+durable frontiers.
+
+If a peer disconnects after receiving an apply request, the result is initially
+unknown. The client retries the idempotent batches and reports the number of
+recovered ambiguities. If all bounded recovery attempts fail, the CLI exits with
+a structured `outcome_unknown` error containing the durable local frontier.
 
 ## Deliberate limits
 

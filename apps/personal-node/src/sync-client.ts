@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 
 const MAX_SYNC_RESPONSE_BYTES = 8 * 1024 * 1024;
+const MAX_SYNC_ROUNDS = 3;
 const frontierSchema = z.record(
   z.string().min(1),
   z.number().int().nonnegative(),
@@ -24,11 +25,40 @@ export interface SyncFromPeerOptions {
 }
 
 export interface PeerSyncResult {
+  readonly rounds: number;
+  readonly outcomeUnknownRecoveries: number;
   readonly pulled: number;
   readonly pushed: number;
   readonly localFrontier: Readonly<Record<string, number>>;
   readonly peerFrontier: Readonly<Record<string, number>>;
   readonly coverage: "verified-complete" | "partial";
+}
+
+type PeerSyncRoundResult = Omit<
+  PeerSyncResult,
+  "rounds" | "outcomeUnknownRecoveries"
+>;
+
+class ApplyOutcomeUnknownError extends Error {
+  public constructor(
+    readonly pulled: number,
+    cause: unknown,
+  ) {
+    super("peer apply outcome is unknown", { cause });
+  }
+}
+
+export class PeerSyncOutcomeUnknownError extends Error {
+  public constructor(
+    readonly rounds: number,
+    readonly localFrontier: Readonly<Record<string, number>>,
+    cause: unknown,
+  ) {
+    super("peer apply outcome remained unknown after bounded recovery", {
+      cause,
+    });
+    this.name = "PeerSyncOutcomeUnknownError";
+  }
 }
 
 async function readBoundedJson(response: Response): Promise<unknown> {
@@ -62,9 +92,9 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   }
 }
 
-export async function syncFromPeer(
+async function reconcileOnce(
   options: SyncFromPeerOptions,
-): Promise<PeerSyncResult> {
+): Promise<PeerSyncRoundResult> {
   if (options.bearerToken.length < 16) {
     throw new Error("peer bearer token must contain at least 16 characters");
   }
@@ -118,41 +148,94 @@ export async function syncFromPeer(
   const batchesToPush = options.store.exportMissing(
     exported.data.sourceFrontier,
   );
-  const applyResponse = await fetch(new URL("/v1/sync/apply", peerUrl), {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${options.bearerToken}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      batches: batchesToPush,
-      sourceFrontier: localFrontier,
-    }),
-    redirect: "error",
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!applyResponse.ok) {
-    throw new Error(`peer sync apply failed with HTTP ${applyResponse.status}`);
+  let applied: z.infer<typeof applyResponseSchema>;
+  try {
+    const applyResponse = await fetch(new URL("/v1/sync/apply", peerUrl), {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${options.bearerToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        batches: batchesToPush,
+        sourceFrontier: localFrontier,
+      }),
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!applyResponse.ok) {
+      throw new Error(
+        `peer sync apply failed with HTTP ${applyResponse.status}`,
+      );
+    }
+    const result = applyResponseSchema.safeParse(
+      await readBoundedJson(applyResponse),
+    );
+    if (!result.success) {
+      throw new Error("peer sync apply response has invalid shape");
+    }
+    applied = result.data;
+  } catch (error) {
+    throw new ApplyOutcomeUnknownError(pulled, error);
   }
-  const applied = applyResponseSchema.safeParse(
-    await readBoundedJson(applyResponse),
-  );
-  if (!applied.success) {
-    throw new Error("peer sync apply response has invalid shape");
-  }
-  const localCoverage = options.store.coverageAgainst(applied.data.frontier);
+  const localCoverage = options.store.coverageAgainst(applied.frontier);
   const peerComplete = Object.entries(localFrontier).every(
     ([writerStreamId, sequence]) =>
-      (applied.data.frontier[writerStreamId] ?? 0) >= sequence,
+      (applied.frontier[writerStreamId] ?? 0) >= sequence,
   );
   return {
     pulled,
-    pushed: applied.data.applied,
+    pushed: applied.applied,
     localFrontier: localCoverage.frontier,
-    peerFrontier: applied.data.frontier,
+    peerFrontier: applied.frontier,
     coverage:
       localCoverage.status === "verified-complete" && peerComplete
         ? "verified-complete"
         : "partial",
+  };
+}
+
+export async function syncFromPeer(
+  options: SyncFromPeerOptions,
+): Promise<PeerSyncResult> {
+  let pulled = 0;
+  let pushed = 0;
+  let latest: PeerSyncRoundResult | undefined;
+  let outcomeUnknownRecoveries = 0;
+  for (let round = 1; round <= MAX_SYNC_ROUNDS; round += 1) {
+    try {
+      latest = await reconcileOnce(options);
+    } catch (error) {
+      if (!(error instanceof ApplyOutcomeUnknownError)) throw error;
+      pulled += error.pulled;
+      outcomeUnknownRecoveries += 1;
+      if (round === MAX_SYNC_ROUNDS) {
+        throw new PeerSyncOutcomeUnknownError(
+          round,
+          options.store.frontier(),
+          error,
+        );
+      }
+      continue;
+    }
+    pulled += latest.pulled;
+    pushed += latest.pushed;
+    if (latest.coverage === "verified-complete") {
+      return {
+        ...latest,
+        rounds: round,
+        outcomeUnknownRecoveries,
+        pulled,
+        pushed,
+      };
+    }
+  }
+  if (latest === undefined) throw new Error("personal Realm sync did not run");
+  return {
+    ...latest,
+    rounds: MAX_SYNC_ROUNDS,
+    outcomeUnknownRecoveries,
+    pulled,
+    pushed,
   };
 }

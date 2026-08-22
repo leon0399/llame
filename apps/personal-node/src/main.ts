@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import { describeCliError } from "./cli-error.js";
 import { parsePersonalNodeCommand, type PersonalNodeConfig } from "./config.js";
 import { appendLocalMessage } from "./local-authoring.js";
 import { createPersonalNodeServer } from "./node-server.js";
@@ -96,7 +97,6 @@ async function run(): Promise<void> {
 try {
   await run();
 } catch (error) {
-  const message = error instanceof Error ? error.message : "unknown error";
-  process.stderr.write(`personal Node failed: ${message}\n`);
+  process.stderr.write(`${JSON.stringify(describeCliError(error))}\n`);
   process.exitCode = 1;
 }
