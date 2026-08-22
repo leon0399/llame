@@ -314,6 +314,20 @@ reusable upstream secret. Credential secrecy does not imply data locality:
 Workspace policy must separately decide whether context may reach an upstream
 model and whether that requires approval.
 
+Every Chat branch and Run declares one destination authority. System-mediated
+observations carry trusted source authority, resource, revision, grant, policy,
+freshness, and permitted-sink metadata outside model-controlled text. The harness
+checks the exact executor, model, tool, Workspace, persistence, replication, log,
+or export sink before exposure. When sources combine, provenance accumulates and
+permissions intersect; a permissive source never relaxes a restrictive one.
+
+Derived answers, summaries, memories, embeddings, artifacts, tool arguments, and
+compaction state inherit source provenance and restrictions. Transformation,
+prompt removal, and compaction are not declassification. An incompatible flow
+moves to an eligible context, excludes a source, or splits into authority-scoped
+branches. Cross-authority export is explicit, creates destination-owned identity
+with source provenance, and requires every source authority to permit the sink.
+
 Decision provenance and rejected alternatives remain in the
 [local-node and distributed-execution research](docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md),
 the
@@ -324,8 +338,10 @@ the
 [federated resource identity decision](docs/research/product-vision/2026-08-22-federated-resource-identity-and-change-envelope.md),
 the
 [authority connections and writer grants decision](docs/research/product-vision/2026-08-22-authority-connections-and-writer-grants.md),
+the
+[Personal Realm control and replication decision](docs/research/product-vision/2026-08-22-personal-realm-control-and-replication-topology.md),
 and the
-[Personal Realm control and replication decision](docs/research/product-vision/2026-08-22-personal-realm-control-and-replication-topology.md).
+[cross-authority information-flow decision](docs/research/product-vision/2026-08-22-cross-authority-information-flow-and-derived-data.md).
 
 ## Staged horizons
 

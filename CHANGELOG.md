@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-22
 
+- **Cross-authority information flow**: selected destination-first Runs, trusted
+  source provenance and policy metadata, exact sink checks before exposure,
+  restrictive multi-source composition, and conservative propagation through
+  summaries, memory, tools, artifacts, and compaction. Defined explicit export,
+  clean-context, enforcement-boundary, and failure behavior without changing
+  shipped behavior, specifications, or roadmap.
 - **Personal Realm control topology**: separated offline-capable replicated
   personal data from a single transferable, epoch-fenced Realm control head.
   Defined full logical mirror scope, initial hub and standalone coordinator roles,
