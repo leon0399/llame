@@ -290,6 +290,20 @@ export LLAME_WORKSPACE_MANIFEST="$PWD/.local/workspaces.json"
 pnpm --filter personal-node start serve
 ```
 
+For the CLI-launched case, `serve-here` ignores directory discovery and creates
+one `current-directory` Workspace from the process working directory:
+
+```bash
+cd /path/to/the/project
+pnpm --filter personal-node start serve-here
+```
+
+That single Workspace is auto-approved because selecting the directory and
+launching the process is the user's explicit placement decision. A manifest is
+rejected in this mode, so sibling or previously configured Workspaces cannot be
+advertised accidentally. The pnpm wrapper preserves its caller's directory
+rather than advertising the package directory. No repository is cloned.
+
 `GET /v1/workspaces` exposes only IDs and labels. `EnterWorkspace` maps to
 `POST /v1/runs/:runId/workspace/enter`: `auto-approve` creates the Run affinity
 immediately, while `ask` returns a one-time request that the owner must approve

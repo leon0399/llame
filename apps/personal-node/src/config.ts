@@ -1,3 +1,5 @@
+import { basename, isAbsolute } from "node:path";
+
 export interface PersonalNodeConfig {
   readonly databasePath: string;
   readonly nodeId: string;
@@ -50,6 +52,7 @@ export type PersonalNodeCommand =
       readonly host: string;
       readonly port: number;
       readonly workspaceManifestPath?: string;
+      readonly workspaceDefinitions?: readonly WorkspaceDefinition[];
       readonly peerSync?: {
         readonly peerId: string;
         readonly peerUrl: string;
@@ -338,6 +341,7 @@ function parseRunWriter(
 export function parsePersonalNodeCommand(
   arguments_: readonly string[],
   environment: Environment,
+  currentDirectory = process.cwd(),
 ): PersonalNodeCommand {
   const command = arguments_[0] ?? "serve";
   if (command === "init-identity") {
@@ -470,7 +474,16 @@ export function parsePersonalNodeCommand(
       reason,
     };
   }
-  if (command === "serve") {
+  if (command === "serve" || command === "serve-here") {
+    if (command === "serve-here" && !isAbsolute(currentDirectory)) {
+      throw new Error("serve-here requires an absolute current directory");
+    }
+    if (
+      command === "serve-here" &&
+      environment.LLAME_WORKSPACE_MANIFEST !== undefined
+    ) {
+      throw new Error("serve-here cannot use LLAME_WORKSPACE_MANIFEST");
+    }
     const peerUrl = environment.LLAME_SYNC_PEER_URL;
     const peerSync =
       peerUrl === undefined
@@ -501,6 +514,19 @@ export function parsePersonalNodeCommand(
       ...(environment.LLAME_WORKSPACE_MANIFEST === undefined
         ? {}
         : { workspaceManifestPath: environment.LLAME_WORKSPACE_MANIFEST }),
+      ...(command === "serve-here"
+        ? {
+            workspaceDefinitions: [
+              {
+                id: "current-directory",
+                label: basename(currentDirectory) || "current-directory",
+                rootPath: currentDirectory,
+                entryPolicy: "auto-approve" as const,
+                recoveryPolicy: "ask" as const,
+              },
+            ],
+          }
+        : {}),
       ...(peerSync === undefined ? {} : { peerSync }),
     };
   }
@@ -580,3 +606,4 @@ import {
   type NodeScope,
   parseNodeScopes,
 } from "@workspace/federation-experiment/node-enrollment";
+import type { WorkspaceDefinition } from "./workspace-registry.js";

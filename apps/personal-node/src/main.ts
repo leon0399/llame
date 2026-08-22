@@ -67,7 +67,11 @@ async function readPeerCredential(
 }
 
 async function run(): Promise<void> {
-  const command = parsePersonalNodeCommand(process.argv.slice(2), process.env);
+  const command = parsePersonalNodeCommand(
+    process.argv.slice(2),
+    process.env,
+    process.env.INIT_CWD ?? process.cwd(),
+  );
   if (command.kind === "init-identity") {
     const identity = await initializeWriterIdentity(command.directory);
     process.stdout.write(`${JSON.stringify(identity)}\n`);
@@ -352,12 +356,16 @@ async function run(): Promise<void> {
             }),
         });
   const workspaceRegistry =
-    command.workspaceManifestPath === undefined
-      ? undefined
-      : new WorkspaceRegistry(
-          await loadWorkspaceManifest(command.workspaceManifestPath),
-          { databasePath: command.node.databasePath },
-        );
+    command.workspaceDefinitions !== undefined
+      ? new WorkspaceRegistry(command.workspaceDefinitions, {
+          databasePath: command.node.databasePath,
+        })
+      : command.workspaceManifestPath === undefined
+        ? undefined
+        : new WorkspaceRegistry(
+            await loadWorkspaceManifest(command.workspaceManifestPath),
+            { databasePath: command.node.databasePath },
+          );
   const server = createPersonalNodeServer({
     nodeId: command.node.nodeId,
     bearerToken: command.node.bearerToken,

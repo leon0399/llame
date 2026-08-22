@@ -166,6 +166,23 @@ describe("personal Node command configuration", () => {
     });
   });
 
+  test("advertises only the CLI current directory in serve-here mode", () => {
+    expect(
+      parsePersonalNodeCommand(["serve-here"], baseEnvironment, "/work/llame"),
+    ).toMatchObject({
+      kind: "serve",
+      workspaceDefinitions: [
+        {
+          id: "current-directory",
+          label: "llame",
+          rootPath: "/work/llame",
+          entryPolicy: "auto-approve",
+          recoveryPolicy: "ask",
+        },
+      ],
+    });
+  });
+
   test("refuses a directly reachable listener in favor of a secure tunnel", () => {
     expect(() =>
       parsePersonalNodeCommand(["serve"], {
