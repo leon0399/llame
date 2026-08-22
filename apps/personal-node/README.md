@@ -248,6 +248,25 @@ it; that node must author locally and use signed Realm sync.
 Workspace recovery still uses the legacy prototype store and is therefore not
 available for journal-only Runs yet.
 
+A serving node can continuously reconcile its signed Realm journal with one
+configured peer:
+
+```bash
+export LLAME_SYNC_PEER_ID=home
+export LLAME_SYNC_PEER_URL=https://personal.example.test
+export LLAME_PEER_CREDENTIAL_PATH="$PWD/.local/peers/home.credential"
+export LLAME_SYNC_INTERVAL_MS=5000
+pnpm --filter personal-node start serve
+```
+
+This runs once immediately and then after each completed attempt, so slow peers
+cannot create overlapping reconciliations. The capability document reports the
+safe peer ID, `idle | synchronizing | synchronized | degraded`, last confirmed
+success, and `outcome_unknown | partial_coverage | unavailable` when degraded.
+It does not expose the peer origin, credential, or raw error. Shutdown waits for
+an in-flight attempt before closing the Realm database. Continuous mode is
+signed-only and requires the trusted writer-key map.
+
 All writers in a Realm must currently be pre-authorized with the same epoch map:
 
 ```bash

@@ -133,6 +133,27 @@ describe("personal Node command configuration", () => {
     });
   });
 
+  test("configures continuous signed reconciliation without exposing owner credentials", () => {
+    expect(
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_SYNC_PEER_ID: "home",
+        LLAME_SYNC_PEER_URL: "https://personal.example.test",
+        LLAME_PEER_CREDENTIAL_PATH: "/keys/home.credential",
+        LLAME_SYNC_INTERVAL_MS: "3000",
+        LLAME_TRUSTED_WRITER_KEYS: '{"desktop:1":"/keys/desktop.pem"}',
+      }),
+    ).toMatchObject({
+      kind: "serve",
+      peerSync: {
+        peerId: "home",
+        peerUrl: "https://personal.example.test",
+        peerCredential: { kind: "file", path: "/keys/home.credential" },
+        intervalMilliseconds: 3000,
+      },
+    });
+  });
+
   test("refuses a directly reachable listener in favor of a secure tunnel", () => {
     expect(() =>
       parsePersonalNodeCommand(["serve"], {

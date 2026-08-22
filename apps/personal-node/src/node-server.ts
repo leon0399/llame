@@ -16,6 +16,7 @@ import { z } from "zod";
 import type { SqlitePersonalRealmStore } from "./sqlite-replica.js";
 import type { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import type { SignedRealmRunAuthor } from "./realm-run-author.js";
+import type { PeerSyncStatus } from "./peer-sync-supervisor.js";
 import type { SqliteRunControlStore } from "./run-control-store.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -93,6 +94,7 @@ export interface PersonalNodeServerOptions {
   readonly runControlStore?: SqliteRunControlStore;
   readonly journalRunProjection?: boolean;
   readonly journalRunAuthor?: SignedRealmRunAuthor;
+  readonly peerSyncStatus?: () => PeerSyncStatus;
 }
 
 type RequestPrincipal =
@@ -278,6 +280,14 @@ async function handleAuthorizedRequest(
         "sync.signed-personal-realm": options.store.signedSyncAvailable()
           ? { version: 1, mode: "read-write" }
           : { available: false },
+        ...(options.peerSyncStatus === undefined
+          ? {}
+          : {
+              "sync.peer": {
+                version: 1,
+                ...options.peerSyncStatus(),
+              },
+            }),
         "enrollment.node":
           options.enrollmentRegistry === undefined
             ? { available: false }

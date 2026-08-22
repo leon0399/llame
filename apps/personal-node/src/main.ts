@@ -17,6 +17,7 @@ import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import { createPersonalNodeServer } from "./node-server.js";
 import { initializeNodeIdentity } from "./node-identity.js";
 import { loadProxyPeerManifest } from "./proxy-peer-manifest.js";
+import { PeerSyncSupervisor } from "./peer-sync-supervisor.js";
 import { SignedRealmRunAuthor } from "./realm-run-author.js";
 import { createRunControlProxyServer } from "./run-control-proxy.js";
 import { SqliteRunControlProxyCache } from "./run-control-proxy-cache.js";
@@ -331,6 +332,23 @@ async function run(): Promise<void> {
     databasePath: command.node.databasePath,
     realmId: command.node.realmId,
   });
+  const peerSyncConfig = command.peerSync;
+  const peerSync =
+    peerSyncConfig === undefined
+      ? undefined
+      : new PeerSyncSupervisor({
+          peerId: peerSyncConfig.peerId,
+          intervalMilliseconds: peerSyncConfig.intervalMilliseconds,
+          sync: async () =>
+            syncFromPeer({
+              store,
+              peerUrl: peerSyncConfig.peerUrl,
+              bearerToken: await readPeerCredential(
+                peerSyncConfig.peerCredential,
+              ),
+              mode: "signed",
+            }),
+        });
   const server = createPersonalNodeServer({
     nodeId: command.node.nodeId,
     bearerToken: command.node.bearerToken,
@@ -339,6 +357,9 @@ async function run(): Promise<void> {
     runControlStore,
     journalRunProjection: command.node.journalRunMode !== undefined,
     ...(journalRunAuthor === undefined ? {} : { journalRunAuthor }),
+    ...(peerSync === undefined
+      ? {}
+      : { peerSyncStatus: () => peerSync.snapshot() }),
   });
   try {
     await new Promise<void>((resolve, reject) => {
@@ -362,15 +383,20 @@ async function run(): Promise<void> {
       origin: `http://${command.host}:${command.port}`,
     })}\n`,
   );
+  peerSync?.start();
 
   let closing = false;
   const close = (): void => {
     if (closing) return;
     closing = true;
     server.close(() => {
-      runControlStore.close();
-      enrollmentRegistry.close();
-      store.close();
+      const closeStores = (): void => {
+        runControlStore.close();
+        enrollmentRegistry.close();
+        store.close();
+      };
+      if (peerSync === undefined) closeStores();
+      else void peerSync.stop().then(closeStores);
     });
   };
   process.once("SIGINT", close);

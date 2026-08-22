@@ -49,6 +49,12 @@ export type PersonalNodeCommand =
       readonly node: PersonalNodeConfig;
       readonly host: string;
       readonly port: number;
+      readonly peerSync?: {
+        readonly peerId: string;
+        readonly peerUrl: string;
+        readonly peerCredential: PeerCredentialSource;
+        readonly intervalMilliseconds: number;
+      };
     }
   | {
       readonly kind: "run-create";
@@ -283,6 +289,17 @@ function parsePort(input: string | undefined): number {
   return port;
 }
 
+function parseSyncInterval(input: string | undefined): number {
+  if (input === undefined) return 5_000;
+  const interval = Number(input);
+  if (!Number.isInteger(interval) || interval < 1_000 || interval > 3_600_000) {
+    throw new Error(
+      "LLAME_SYNC_INTERVAL_MS must be an integer from 1000 to 3600000",
+    );
+  }
+  return interval;
+}
+
 function parseHost(input: string | undefined): string {
   const host = input ?? "127.0.0.1";
   if (host !== "127.0.0.1" && host !== "::1" && host !== "localhost") {
@@ -453,11 +470,34 @@ export function parsePersonalNodeCommand(
     };
   }
   if (command === "serve") {
+    const peerUrl = environment.LLAME_SYNC_PEER_URL;
+    const peerSync =
+      peerUrl === undefined
+        ? undefined
+        : {
+            peerId: required(environment, "LLAME_SYNC_PEER_ID"),
+            peerUrl,
+            peerCredential: parsePeerCredential(environment),
+            intervalMilliseconds: parseSyncInterval(
+              environment.LLAME_SYNC_INTERVAL_MS,
+            ),
+          };
+    if (peerSync !== undefined) {
+      if (!WRITER_STREAM_ID_PATTERN.test(peerSync.peerId)) {
+        throw new Error("LLAME_SYNC_PEER_ID is invalid");
+      }
+      if (node.trustedWriterKeyPaths === undefined) {
+        throw new Error(
+          "continuous signed sync requires LLAME_TRUSTED_WRITER_KEYS",
+        );
+      }
+    }
     return {
       kind: "serve",
       node,
       host: parseHost(environment.LLAME_NODE_HOST),
       port: parsePort(environment.LLAME_NODE_PORT),
+      ...(peerSync === undefined ? {} : { peerSync }),
     };
   }
   if (command === "sync") {
