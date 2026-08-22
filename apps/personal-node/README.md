@@ -375,6 +375,12 @@ never executed automatically. Raw command output remains local implementation
 state; publishing a sanitized tool outcome into the Realm is the harness's
 separate responsibility.
 
+The internal command coordinator joins the two primitives without widening the
+surface. It releases a reservation when Sandbox preparation proves execution
+never started, reports exact concurrent duplicates as in progress, and records
+`outcome_unknown` after any failure once the single-use execution handle has
+started. Completed and unknown receipts replay without contacting Docker.
+
 `POST /v1/runs/:runId/workspace/exit` is the explicit `ExitWorkspace` semantic:
 it permanently detaches the binding while keeping the Run on its current
 executor and authority epoch. It is idempotent and persists as a distinct audit

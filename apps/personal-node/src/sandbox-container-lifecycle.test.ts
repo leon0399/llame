@@ -201,4 +201,19 @@ describe("Docker Sandbox lifecycle", () => {
     ).rejects.toThrow();
     expect(containerEngine.execute).not.toHaveBeenCalled();
   });
+
+  test("allows a prepared Sandbox command to execute only once", async () => {
+    const containerEngine = engine(async () => observation({ running: true }));
+    const lifecycle = new DockerSandboxLifecycle(containerEngine);
+    const prepared = await lifecycle.prepareExecution(plan, {
+      command: "git",
+      args: ["status"],
+    });
+
+    await expect(prepared.execute()).resolves.toMatchObject({ exitCode: 0 });
+    await expect(prepared.execute()).rejects.toThrowError(
+      "Sandbox command was already executed",
+    );
+    expect(containerEngine.execute).toHaveBeenCalledTimes(1);
+  });
 });

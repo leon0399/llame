@@ -40,6 +40,10 @@ export interface SandboxCommandResult {
   readonly stderr: string;
 }
 
+export interface PreparedSandboxCommand {
+  execute(): Promise<SandboxCommandResult>;
+}
+
 export interface RunningSandbox {
   readonly containerName: string;
   readonly state: "running";
@@ -110,6 +114,14 @@ export class DockerSandboxLifecycle {
     plan: DockerSandboxPlan,
     request: SandboxCommandRequest,
   ): Promise<SandboxCommandResult> {
+    return (await this.prepareExecution(plan, request)).execute();
+  }
+
+  public async prepareExecution(
+    plan: DockerSandboxPlan,
+    request: SandboxCommandRequest,
+  ): Promise<PreparedSandboxCommand> {
+    const arguments_ = buildDockerSandboxCommandArguments(plan, request);
     const observed = await this.#engine.inspect(plan.containerName);
     if (observed === null) {
       throw new Error("Sandbox container is not running");
@@ -118,9 +130,14 @@ export class DockerSandboxLifecycle {
     if (!observed.running) {
       throw new Error("Sandbox container is not running");
     }
-    return this.#engine.execute(
-      buildDockerSandboxCommandArguments(plan, request),
-    );
+    let executed = false;
+    return {
+      execute: async () => {
+        if (executed) throw new Error("Sandbox command was already executed");
+        executed = true;
+        return this.#engine.execute(arguments_);
+      },
+    };
   }
 
   #assertMatches(
