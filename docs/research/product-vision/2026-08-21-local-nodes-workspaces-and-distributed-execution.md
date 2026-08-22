@@ -22,12 +22,14 @@ recovery, portable Realm checkpoints, simple-first planning, fenced handoff, and
 disposable node enrollment.
 
 A later 2026-08-22 prioritization pass retains this document as north-star design
-but narrows the immediate product cut to Git-backed profile files and personal
-knowledge in the existing Run loop, followed by a standalone personal Node and
-CLI, personal synchronization, and only then Workspace-aware distributed
-execution. Child agents and external-harness adapters are deliberately postponed.
-llame supports user-configured inference providers but does not bundle or manage a
-local model runtime.
+but narrows the immediate product cut to bounded Git-backed personal knowledge in
+the existing Run loop, followed by profile files using that repository service, a
+standalone personal Node and CLI, personal synchronization, and only then
+Workspace-aware distributed execution. Profile editing therefore does not assume
+that a personal Sandbox or local Node already exists. Child agents and
+external-harness adapters are deliberately postponed. llame supports
+user-configured inference providers but does not bundle or manage a local model
+runtime.
 
 ## 1. Why this checkpoint exists
 

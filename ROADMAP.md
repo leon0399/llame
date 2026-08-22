@@ -9,33 +9,13 @@ No dates or effort estimates are implied.
 
 ## Immediate cut: file-native personal intelligence
 
-Outcome: one manually linked Git-backed Profile Space supplies inspectable
-standing context to the existing Run loop; the assistant completes the personal
-Markdown/Git knowledge read, recoverable-write, and later-recall loop; and the
+Outcome: the existing hosted Run loop gains bounded read and recoverable-write
+access to a manually linked personal Markdown/Git Knowledge Space, then reuses
+that repository service for inspectable file-backed Profile context. The
 duplicated database personalization surface is retired only after the file path
 has proven the replacement.
 
-### 1. Git-backed Profile Space
-
-- Support one default Profile Space containing `USER.md`, `SOUL.md`, and
-  `AGENTS.md` at an exact Git revision.
-- Let the user or an authorized agent edit those files through ordinary Git. No
-  profile editor UI is required for this cut.
-- Bind the resource identity, commit OID, and rendered contributions into the
-  Run's effective-context receipt.
-- Keep activation, inference egress, tool and Workspace permission, linked-source
-  ownership, and secrets outside model-editable files.
-- Do not accept caller-selected host paths or create repositories on a user's
-  machine automatically. A hosted source is linked explicitly; a future
-  single-owner Node may use its trusted local configuration.
-- Execute normally without profile context when no Profile Space is linked.
-
-This slice needs a focused design and issue breakdown before implementation. It
-does not require multiple Agent Profiles, a profile marketplace, inheritance, a
-new permission language, Personal Realm synchronization, or a local inference
-runtime.
-
-### 2. v0.7 Runnable personal knowledge agent
+### 1. v0.7 Runnable personal knowledge agent
 
 Tracking: [milestone v0.7](https://github.com/leon0399/llame/milestone/5) and
 [tracker #39](https://github.com/leon0399/llame/issues/39).
@@ -68,6 +48,31 @@ flowchart TD
 This milestone excludes shared Knowledge Spaces, project routing, embeddings,
 semantic facts, automatic prompt injection, Jujutsu workflows, full permission
 control, and child-agent orchestration.
+
+The bounded repository service established by #213 and #212 is the prerequisite
+for agent-readable and agent-editable profile files. The profile cut does not
+assume that a personal Sandbox or local Node already exists.
+
+### 2. Git-backed Profile Space
+
+- Support one default Profile Space containing `USER.md`, `SOUL.md`, and
+  `AGENTS.md` at an exact Git revision.
+- Let the user or an authorized agent edit those files through ordinary Git. No
+  profile editor UI is required for this cut; agent changes use the bounded Git
+  change path proven by the Knowledge Space.
+- Bind the resource identity, commit OID, and rendered contributions into the
+  Run's effective-context receipt.
+- Keep activation, inference egress, tool and Workspace permission, linked-source
+  ownership, and secrets outside model-editable files.
+- Do not accept caller-selected host paths or create repositories on a user's
+  machine automatically. A hosted source is linked explicitly; a future
+  single-owner Node may use its trusted local configuration.
+- Execute normally without profile context when no Profile Space is linked.
+
+This slice needs a focused design and issue breakdown before implementation. It
+does not require multiple Agent Profiles, a profile marketplace, inheritance, a
+new permission language, Personal Realm synchronization, or a local inference
+runtime.
 
 ### 3. Retire database-authored personalization
 

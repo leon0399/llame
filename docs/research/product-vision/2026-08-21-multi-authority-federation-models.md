@@ -14,10 +14,11 @@ single-authority control protocol for active execution, simple-first planning,
 fenced handoff, and disposable node enrollment.
 
 A later 2026-08-22 prioritization pass leaves these federation options and the
-selected north star intact while moving their implementation behind file-native
-personal context and knowledge, a standalone personal Node and CLI, personal
-synchronization, and Workspace-aware execution. This note therefore informs
-later design; it is not the immediate implementation plan.
+selected north star intact while moving their implementation behind bounded
+Git-backed personal knowledge, profile files using the same repository service,
+a standalone personal Node and CLI, personal synchronization, and
+Workspace-aware execution. This note therefore informs later design; it is not
+the immediate implementation plan.
 
 ## 1. The actual question
 
