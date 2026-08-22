@@ -98,6 +98,19 @@ export function isAllowedRunControlRequest(
   );
 }
 
+export function buildRunControlUpstreamUrl(
+  localUrl: URL,
+  trustedOrigin: URL,
+): URL {
+  const upstreamUrl = new URL(trustedOrigin.origin);
+  upstreamUrl.pathname = localUrl.pathname;
+  upstreamUrl.search = localUrl.search;
+  if (upstreamUrl.origin !== trustedOrigin.origin) {
+    throw new Error("upstream_origin_changed");
+  }
+  return upstreamUrl;
+}
+
 export async function readRunControlRequestBody(
   request: IncomingMessage,
 ): Promise<Buffer> {
@@ -174,21 +187,19 @@ export async function tunnelRunControlRequest(
       ? (preparedBody ?? (await readRunControlRequestBody(request)))
       : undefined;
   const origin = parseRunControlPeerOrigin(options.peerUrl);
+  const upstreamUrl = buildRunControlUpstreamUrl(localUrl, origin);
   let upstream: Response;
   try {
-    upstream = await fetch(
-      new URL(`${localUrl.pathname}${localUrl.search}`, origin),
-      {
-        method,
-        headers: {
-          authorization: `Bearer ${options.peerBearerToken}`,
-          ...(method === "POST" ? { "content-type": "application/json" } : {}),
-        },
-        ...(body === undefined ? {} : { body: body.toString("utf8") }),
-        redirect: "error",
-        signal: AbortSignal.timeout(10_000),
+    upstream = await fetch(upstreamUrl, {
+      method,
+      headers: {
+        authorization: `Bearer ${options.peerBearerToken}`,
+        ...(method === "POST" ? { "content-type": "application/json" } : {}),
       },
-    );
+      ...(body === undefined ? {} : { body: body.toString("utf8") }),
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
   } catch {
     const lastKnown =
       method === "GET" ? options.cache?.get(requestKey) : undefined;

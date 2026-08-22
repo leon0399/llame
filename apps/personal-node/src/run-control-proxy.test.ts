@@ -9,7 +9,10 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { SqliteEnrollmentRegistry } from "./enrollment-registry.js";
 import { createPersonalNodeServer } from "./node-server.js";
-import { createRunControlProxyServer } from "./run-control-proxy.js";
+import {
+  buildRunControlUpstreamUrl,
+  createRunControlProxyServer,
+} from "./run-control-proxy.js";
 import { SqliteRunControlProxyCache } from "./run-control-proxy-cache.js";
 import { SqliteRunControlStore } from "./run-control-store.js";
 import { SqlitePersonalRealmStore } from "./sqlite-replica.js";
@@ -21,6 +24,17 @@ describe("same-contract Run-control proxy", () => {
   const registries: SqliteEnrollmentRegistry[] = [];
   const runStores: SqliteRunControlStore[] = [];
   const proxyCaches: SqliteRunControlProxyCache[] = [];
+
+  test("never derives upstream authority from an absolute-form request", () => {
+    const upstream = buildRunControlUpstreamUrl(
+      new URL("http://attacker.example/v1/runs/run-1/control?after=0"),
+      new URL("https://trusted.example"),
+    );
+
+    expect(upstream.href).toBe(
+      "https://trusted.example/v1/runs/run-1/control?after=0",
+    );
+  });
 
   afterEach(async () => {
     await Promise.all(
