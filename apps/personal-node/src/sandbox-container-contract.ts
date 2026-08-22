@@ -7,6 +7,10 @@ const CONTENT_ADDRESSED_IMAGE_PATTERN =
   /^(?:[a-z0-9][a-z0-9._:/-]*@)?sha256:[a-f0-9]{64}$/;
 const NUMERIC_NON_ROOT_USER_PATTERN = /^[1-9][0-9]*:[1-9][0-9]*$/;
 const MOUNT_UNSAFE_PATTERN = /[,\0\r\n]/;
+const COMMAND_UNSAFE_PATTERN = /\0/;
+const MAX_SANDBOX_COMMAND_ARGUMENTS = 128;
+const MAX_SANDBOX_COMMAND_COMPONENT_BYTES = 8192;
+const MAX_SANDBOX_COMMAND_BYTES = 64 * 1024;
 
 export function isContentAddressedSandboxImage(image: string): boolean {
   return CONTENT_ADDRESSED_IMAGE_PATTERN.test(image);
@@ -35,6 +39,11 @@ export interface DockerSandboxPlan {
   readonly user: string;
   readonly security: DockerSandboxSecurityContract;
   readonly createArguments: readonly string[];
+}
+
+export interface SandboxCommandRequest {
+  readonly command: string;
+  readonly args: readonly string[];
 }
 
 export interface DockerSandboxSecurityContract {
@@ -125,6 +134,49 @@ export function buildDockerSandboxPlan(
       input.image,
     ],
   };
+}
+
+export function buildDockerSandboxCommandArguments(
+  plan: DockerSandboxPlan,
+  request: SandboxCommandRequest,
+): readonly string[] {
+  validateSandboxCommandRequest(request);
+  return [
+    "container",
+    "exec",
+    "--workdir",
+    plan.workspaceTarget,
+    "--user",
+    plan.user,
+    plan.containerName,
+    request.command,
+    ...request.args,
+  ];
+}
+
+export function validateSandboxCommandRequest(
+  request: SandboxCommandRequest,
+): void {
+  if (
+    request.command.length === 0 ||
+    request.args.length > MAX_SANDBOX_COMMAND_ARGUMENTS
+  ) {
+    throw new Error("invalid Sandbox command");
+  }
+  const components = [request.command, ...request.args];
+  if (
+    components.some(
+      (component) =>
+        COMMAND_UNSAFE_PATTERN.test(component) ||
+        Buffer.byteLength(component) > MAX_SANDBOX_COMMAND_COMPONENT_BYTES,
+    ) ||
+    components.reduce(
+      (bytes, component) => bytes + Buffer.byteLength(component),
+      0,
+    ) > MAX_SANDBOX_COMMAND_BYTES
+  ) {
+    throw new Error("invalid Sandbox command");
+  }
 }
 
 function validateIdentity(value: string, label: string): void {

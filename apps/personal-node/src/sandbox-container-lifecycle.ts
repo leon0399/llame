@@ -1,4 +1,8 @@
-import type { DockerSandboxPlan } from "./sandbox-container-contract.js";
+import {
+  buildDockerSandboxCommandArguments,
+  type DockerSandboxPlan,
+  type SandboxCommandRequest,
+} from "./sandbox-container-contract.js";
 
 export interface ObservedSandboxSecurity {
   readonly networkMode: string;
@@ -27,6 +31,13 @@ export interface SandboxContainerEngine {
   create(arguments_: readonly string[]): Promise<void>;
   start(containerName: string): Promise<void>;
   remove(containerName: string): Promise<void>;
+  execute(arguments_: readonly string[]): Promise<SandboxCommandResult>;
+}
+
+export interface SandboxCommandResult {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
 }
 
 export interface RunningSandbox {
@@ -93,6 +104,23 @@ export class DockerSandboxLifecycle {
       containerName: plan.containerName,
       state: observed.running ? "running" : "stopped",
     };
+  }
+
+  public async execute(
+    plan: DockerSandboxPlan,
+    request: SandboxCommandRequest,
+  ): Promise<SandboxCommandResult> {
+    const observed = await this.#engine.inspect(plan.containerName);
+    if (observed === null) {
+      throw new Error("Sandbox container is not running");
+    }
+    this.#assertMatches(plan, observed);
+    if (!observed.running) {
+      throw new Error("Sandbox container is not running");
+    }
+    return this.#engine.execute(
+      buildDockerSandboxCommandArguments(plan, request),
+    );
   }
 
   #assertMatches(

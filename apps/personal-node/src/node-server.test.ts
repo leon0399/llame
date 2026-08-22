@@ -1044,6 +1044,11 @@ describe("personal Node Protocol server", () => {
       remove: vi.fn(async () => {
         container = null;
       }),
+      execute: vi.fn(async () => ({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      })),
     };
     const server = createPersonalNodeServer({
       nodeId: "node-home",

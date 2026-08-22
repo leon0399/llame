@@ -49,6 +49,7 @@ function engine(
     create: vi.fn(async () => undefined),
     start: vi.fn(async () => undefined),
     remove: vi.fn(async () => undefined),
+    execute: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
   };
 }
 
@@ -148,5 +149,56 @@ describe("Docker Sandbox lifecycle", () => {
     });
     expect(containerEngine.start).not.toHaveBeenCalled();
     expect(containerEngine.remove).not.toHaveBeenCalled();
+  });
+
+  test("executes argv only inside the matching running Sandbox", async () => {
+    const containerEngine = engine(async () => observation({ running: true }));
+    vi.mocked(containerEngine.execute).mockResolvedValueOnce({
+      exitCode: 2,
+      stdout: "working tree output",
+      stderr: "ordinary command failure",
+    });
+
+    await expect(
+      new DockerSandboxLifecycle(containerEngine).execute(plan, {
+        command: "git",
+        args: ["status", "--short"],
+      }),
+    ).resolves.toEqual({
+      exitCode: 2,
+      stdout: "working tree output",
+      stderr: "ordinary command failure",
+    });
+    expect(containerEngine.execute).toHaveBeenCalledWith([
+      "container",
+      "exec",
+      "--workdir",
+      "/workspace",
+      "--user",
+      "1000:1000",
+      plan.containerName,
+      "git",
+      "status",
+      "--short",
+    ]);
+  });
+
+  test.each([
+    ["absent", null],
+    ["stopped", observation()],
+    [
+      "mismatched",
+      observation({ running: true, workspaceSourceRealpath: "/srv/other" }),
+    ],
+  ])("refuses command execution for an %s Sandbox", async (_name, observed) => {
+    const containerEngine = engine(async () => observed);
+
+    await expect(
+      new DockerSandboxLifecycle(containerEngine).execute(plan, {
+        command: "git",
+        args: ["status"],
+      }),
+    ).rejects.toThrow();
+    expect(containerEngine.execute).not.toHaveBeenCalled();
   });
 });

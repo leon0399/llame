@@ -360,8 +360,12 @@ Use the final command's immutable `sha256:...` image ID as
 installation inside the Sandbox; changing its package set means changing the
 flake and rebuilding it. The current x86_64 image is roughly 681 MB, so this is
 a reproducibility baseline rather than a size-optimized distribution. Its
-default process is an inert long-lived process; a future harness adapter must
-provide the explicit command-execution channel.
+default process is an inert long-lived process. The daemon has an internal
+argv-only command primitive that revalidates the exact running container, fixes
+the user and working directory, bounds runtime and output, and removes the
+container if either boundary is breached. It deliberately has no HTTP route
+yet: the next layer must add durable command IDs and receipts before remote
+callers can safely retry write-capable execution after a lost connection.
 
 `POST /v1/runs/:runId/workspace/exit` is the explicit `ExitWorkspace` semantic:
 it permanently detaches the binding while keeping the Run on its current

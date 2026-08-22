@@ -1,6 +1,9 @@
 import { describe, expect, test, vi } from "vitest";
 
-import { DockerCliContainerEngine } from "./docker-cli-container-engine.js";
+import {
+  DockerCliContainerEngine,
+  SandboxExecutionBoundaryError,
+} from "./docker-cli-container-engine.js";
 
 describe("Docker CLI container engine", () => {
   test("inspects the exact container into untrusted observed state", async () => {
@@ -119,5 +122,63 @@ describe("Docker CLI container engine", () => {
     await new DockerCliContainerEngine(execute).assertImageAvailable(image);
 
     expect(execute).toHaveBeenCalledWith(["image", "inspect", image]);
+  });
+
+  test("returns an ordinary nonzero Sandbox command outcome", async () => {
+    const execute = vi.fn().mockResolvedValue({ stdout: "" });
+    const executeSandbox = vi.fn().mockResolvedValue({
+      exitCode: 17,
+      stdout: "partial output",
+      stderr: "command failed",
+    });
+    const arguments_ = [
+      "container",
+      "exec",
+      "--workdir",
+      "/workspace",
+      "--user",
+      "1000:1000",
+      "llame-desktop-run-42",
+      "git",
+      "status",
+    ];
+
+    await expect(
+      new DockerCliContainerEngine(execute, executeSandbox).execute(arguments_),
+    ).resolves.toEqual({
+      exitCode: 17,
+      stdout: "partial output",
+      stderr: "command failed",
+    });
+    expect(executeSandbox).toHaveBeenCalledWith(arguments_);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  test("tears down the Sandbox when an execution boundary is breached", async () => {
+    const execute = vi.fn().mockResolvedValue({ stdout: "" });
+    const executeSandbox = vi
+      .fn()
+      .mockRejectedValue(new SandboxExecutionBoundaryError());
+    const arguments_ = [
+      "container",
+      "exec",
+      "--workdir",
+      "/workspace",
+      "--user",
+      "1000:1000",
+      "llame-desktop-run-42",
+      "git",
+      "status",
+    ];
+
+    await expect(
+      new DockerCliContainerEngine(execute, executeSandbox).execute(arguments_),
+    ).rejects.toThrowError("Sandbox command exceeded execution boundary");
+    expect(execute).toHaveBeenCalledWith([
+      "container",
+      "rm",
+      "--force",
+      "llame-desktop-run-42",
+    ]);
   });
 });

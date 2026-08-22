@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { buildDockerSandboxPlan } from "./sandbox-container-contract.js";
+import {
+  buildDockerSandboxCommandArguments,
+  buildDockerSandboxPlan,
+} from "./sandbox-container-contract.js";
 
 describe("Docker Sandbox launch contract", () => {
   test("builds a locked-down launch plan around one registered Workspace", () => {
@@ -133,5 +136,57 @@ describe("Docker Sandbox launch contract", () => {
     ).toBe(
       "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     );
+  });
+
+  test("builds a shell-free command inside the fixed Sandbox boundary", () => {
+    const plan = buildDockerSandboxPlan({
+      nodeId: "desktop",
+      runId: "run-command",
+      image:
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      workspaceSourceRealpath: "/srv/llame/worktrees/run-command",
+      user: "1000:1000",
+    });
+
+    expect(
+      buildDockerSandboxCommandArguments(plan, {
+        command: "git",
+        args: ["status", "--short", "file name"],
+      }),
+    ).toEqual([
+      "container",
+      "exec",
+      "--workdir",
+      "/workspace",
+      "--user",
+      "1000:1000",
+      "llame-desktop-run-command",
+      "git",
+      "status",
+      "--short",
+      "file name",
+    ]);
+  });
+
+  test.each([
+    ["empty command", { command: "", args: [] }],
+    ["NUL in command", { command: "git\0status", args: [] }],
+    ["too many arguments", { command: "git", args: Array(129).fill("x") }],
+    ["oversized argument", { command: "git", args: ["x".repeat(8193)] }],
+    [
+      "oversized aggregate argv",
+      { command: "git", args: Array(9).fill("x".repeat(8192)) },
+    ],
+  ])("rejects %s for Sandbox execution", (_name, command) => {
+    const plan = buildDockerSandboxPlan({
+      nodeId: "desktop",
+      runId: "run-command",
+      image:
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      workspaceSourceRealpath: "/srv/llame/worktrees/run-command",
+      user: "1000:1000",
+    });
+
+    expect(() => buildDockerSandboxCommandArguments(plan, command)).toThrow();
   });
 });
