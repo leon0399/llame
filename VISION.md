@@ -244,11 +244,14 @@ synchronize through an application protocol. Live execution streams, executor
 recovery journals, and portable semantic checkpoints are separate layers rather
 than one replicated process log.
 
-Portable resource identity is authority-scoped:
-`(authority_id, resource_kind, resource_id)`. The authority is a stable logical
-governance namespace, not a node, user, endpoint, account, or public key. A
-Personal Realm's ID is its authority namespace. llame-owned resources use opaque
-offline-generated UUIDs inside that namespace; names, URLs, provider locators,
+Portable resource identity is namespace-scoped:
+`(namespace_id, resource_kind, resource_id)`. A separate versioned Authority
+Binding names the logical authority currently allowed to govern that resource.
+This lets an authenticated authority transfer or Personal Realm join preserve
+Chat and message identities while fencing the prior authority. A Personal Realm's
+ID is its initial namespace and authority; after an explicit join it may govern
+retained predecessor namespaces. llame-owned resources use opaque
+offline-generated UUIDs inside their namespace. Names, URLs, provider locators,
 database sequences, and timestamps remain metadata or local projections.
 
 Portable episodic mutations are immutable atomic semantic batches from

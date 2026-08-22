@@ -7,22 +7,24 @@
 
 ## 1. Decision
 
-Portable llame resources use an authority-scoped identity:
+Portable llame resources use a stable namespace-scoped identity:
 
 ```text
-ResourceRef = (authority_id, resource_kind, resource_id)
+ResourceRef = (namespace_id, resource_kind, resource_id)
 ```
 
-- `authority_id` identifies a logical governing authority, not a node, user,
-  endpoint, DNS name, account, or public key;
+- `namespace_id` identifies the authenticated namespace in which the resource was
+  created, not its current host or governing authority;
 - `resource_kind` is a stable protocol kind, not a table or class name; and
-- `resource_id` is an opaque authority-local identifier. llame-owned resources
+- `resource_id` is an opaque namespace-local identifier. llame-owned resources
   use offline-generated random UUIDs.
 
-A Personal Realm's `realm_id` is its governing `authority_id`. Its authority is
-the logical Realm and trusted replica relationship, not whichever node is online.
-A shared work, family, school, or community resource uses its own governing
-authority namespace.
+Every portable resource also has a versioned **Authority Binding** naming its
+current governing `authority_id`. The binding is separate so an authenticated
+authority transfer or Personal Realm join can change governance without changing
+Chat, message, branch, or Run identity. A Personal Realm's `realm_id` is both its
+initial namespace and its initial governing authority; after an explicit join it
+may govern retained predecessor namespaces.
 
 Portable episodic mutations are immutable, atomic semantic `ChangeBatch` records.
 A batch is authored through an authority-scoped writer stream and has a stable
@@ -59,8 +61,9 @@ mergeable without a central ID allocator.
 
 | Identity           | Scope and lifetime                                                                 | Must not be treated as                                                          |
 | ------------------ | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `authority_id`     | Stable logical governance namespace; survives endpoint and key changes             | URL, server installation, user, or credential                                   |
-| `resource_id`      | Stable inside one authority and kind; generated before synchronization when needed | Display name, database sequence, provider locator, or global identity by itself |
+| `namespace_id`     | Stable origin namespace retained through authority transfer                        | Current authority, endpoint, account, or credential                             |
+| `authority_id`     | Current logical governance identity; bound to resources by a revision              | URL, server installation, user, or resource identity                            |
+| `resource_id`      | Stable inside one namespace and kind; generated before synchronization when needed | Display name, database sequence, provider locator, or global identity by itself |
 | `author_stream_id` | Authority-scoped ordered stream granted some authorship capabilities               | Node, replica, user, or proof of permission by itself                           |
 | `node_id`          | Cryptographic connection and enrollment principal                                  | User identity, Realm identity, resource owner, or permanent author stream       |
 | connection ID      | Local route, credentials, and subject binding for one foreign authority            | Portable resource identity                                                      |
@@ -72,6 +75,8 @@ This separation is load-bearing:
   hub `node_id` cannot be their common author stream;
 - one personal node may mount resources from several authorities, so its node
   identity cannot namespace every mounted resource;
+- an authority transfer must fence future writes without rewriting every
+  reference to the transferred resource;
 - node enrollment identities are intentionally disposable, while resource
   identities and accepted history must survive unlink and relink; and
 - retaining a replica does not automatically grant authorship, so replica identity
@@ -87,13 +92,14 @@ ID universally sufficient.
 **Strength:** minimal representation; existing PostgreSQL IDs appear immediately
 portable.
 
-**Failure:** the ID says nothing about governance, authorization, migration, or
-which namespace can resolve it. A work Chat and an imported personal copy could
-be silently conflated because they retained one UUID, while two independently
-mapped copies of one provider object could look unrelated. Collision resistance
-is not an authority model.
+**Failure:** the ID says nothing about provenance, governance, authorization,
+migration, or which namespace can resolve it. A malicious or buggy foreign
+authority can deliberately reuse a UUID; an aggregator must keep that resource
+distinct rather than turning hostile input into an integrity collision. A work
+Chat and an imported personal copy also need an explicit copy relationship rather
+than accidental identity reuse. Collision resistance is not an authority model.
 
-**Decision:** rejected. Existing UUIDs remain useful as the authority-local
+**Decision:** rejected. Existing UUIDs remain useful as the namespace-local
 component.
 
 ### B. URL-, key-, or content-addressed identity
@@ -113,26 +119,39 @@ destructive.
 **Decision:** rejected as the primary identity. Connections may resolve endpoints
 and keys; immutable payloads may carry hashes; neither replaces `ResourceRef`.
 
-### C. Authority-scoped opaque identity plus causal semantic batches
+### C. Stable namespace identity, explicit authority binding, and causal batches
 
-Keep resource identity stable and boring. Authenticate authority and routing
-through separate connection records. Represent portable mutation as typed batches
-with explicit authorship, causality, and preconditions.
+Keep resource identity stable and boring. Authenticate current governance and
+routing through versioned authority bindings and separate connection records.
+Represent portable mutation as typed batches with explicit authorship, causality,
+and preconditions.
 
 **Strength:** supports offline creation, multiple authorities, endpoint/key
-rotation, storage-independent synchronization, and per-resource conflict policy.
+rotation, explicit authority transfer without identity rewrite,
+storage-independent synchronization, and per-resource conflict policy.
 
 **Cost:** a resource reference is a tuple, and conformance requires semantic
 validation rather than generic row replication.
 
 **Decision:** selected.
 
-## 5. Authority identity and resolution
+## 5. Namespace, authority, and resolution
 
-An `authority_id` is an opaque random identifier assigned when a logical authority
-is created. Possession of the ID proves nothing. A node trusts an authority only
-through an authenticated Authority Connection or its own Personal Realm
-bootstrap.
+A `namespace_id` is an opaque random identifier assigned when a resource namespace
+is created. It is permanent provenance, not proof of current control. An
+`authority_id` is an opaque identity for the logical authority currently allowed
+to govern one or more namespaces or resources. Possession of either ID proves
+nothing.
+
+A versioned Authority Binding states which authority currently governs a namespace
+or an explicitly transferred resource. Every accepted mutation targets an exact
+binding revision or epoch. An old authority, stale replica, or copied credential
+cannot keep advancing the same resource after an authenticated transfer moves the
+binding.
+
+A node trusts a namespace and its Authority Binding only through its own Personal
+Realm bootstrap, an authenticated Authority Connection, or a verified authority
+migration record.
 
 An Authority Connection binds:
 
@@ -145,11 +164,17 @@ connection metadata. They may rotate without changing the authority ID when the
 existing authority authenticates the transition. An unproven endpoint that merely
 claims an existing ID is rejected.
 
-Moving a resource to a different governing authority is not an in-place rewrite
-of `authority_id`. It creates a new `ResourceRef` under the destination and records
-explicit predecessor/source lineage. Moving the hosting or keys of the same
-logical authority may retain the authority ID only through an authenticated
-migration. A governance fork creates a new authority ID.
+Moving a resource to a different governing authority advances its Authority
+Binding and preserves its `ResourceRef`. Moving the hosting or keys of the same
+logical authority preserves both identifiers through an authenticated metadata
+transition. Joining Personal Realms may transfer a source namespace into the
+destination Realm authority while retaining every resource reference and an
+explicit predecessor-Authority Binding chain.
+
+A copy, export, or absorption is not an authority transfer. It creates a new
+destination resource identity with source provenance. A governance fork likewise
+creates a new namespace or resource lineage because two independent authorities
+cannot both claim the same current binding.
 
 Names are projections. Two resources with the same title remain distinct. One
 resource reached through two routes remains one resource only when both routes
@@ -157,16 +182,17 @@ resolve to the same authenticated `ResourceRef`.
 
 ## 6. Resource identifiers and references
 
-For llame-owned resources, random UUIDv4 identifiers are sufficient and already
-match the current schema's generation model. UUIDv7 is not required: time sorting
-is not causal ordering, and embedding creation time in identity buys nothing this
-design needs.
+For llame-owned namespaces and resources, random UUIDv4 identifiers are sufficient
+and already match the current schema's resource-generation model. UUIDv7 is not
+required: time sorting is not causal ordering, and embedding creation time in
+identity buys nothing this design needs.
 
-Every portable trust boundary uses the full `ResourceRef`. An implementation may
-store only `resource_id` in a table whose authority and kind are fixed by context,
-but it must reconstruct the full reference before federation. The protocol never
-infers authority from the receiving account or resource kind from the shape of an
-untrusted payload.
+Every portable trust boundary uses the full `ResourceRef` plus the Authority
+Binding revision relevant to an operation. An implementation may store only
+`resource_id` in a table whose namespace and kind are fixed by context, but it
+must reconstruct the full reference before federation. The protocol never infers
+namespace, current authority, or resource kind from the receiving account or the
+shape of an untrusted payload.
 
 Parentage is data, not identity. Moving a Chat into a Project, renaming a
 Knowledge Space, or changing a branch head does not change its resource ID.
@@ -175,8 +201,8 @@ with provenance; it does not silently reuse the source identity.
 
 Provider objects need an adapter-owned mapping. A Git remote URL may change, a
 GitHub repository may be transferred, and two forges may use identical numeric
-IDs. Provider locators and immutable Git OIDs remain metadata under the governing
-authority's mapping, not naked llame resource IDs.
+IDs. Provider locators and immutable Git OIDs remain metadata under an
+authenticated namespace and Authority Binding, not naked llame resource IDs.
 
 ## 7. Writer streams are not nodes or replicas
 
@@ -192,7 +218,7 @@ policy.
 Conceptually:
 
 ```text
-BatchRef = (authority_id, author_stream_id, author_sequence)
+BatchRef = (granting_authority_id, author_stream_id, author_sequence)
 ```
 
 The stream model serves three purposes:
@@ -206,6 +232,10 @@ authorities. A multi-user hub uses isolated per-authority or per-Realm streams,
 not one global sequence that leaks cross-tenant activity. A current `node_id`
 authenticates the channel allowed to use a stream; it is not the stream's portable
 identity.
+
+An authority transfer does not rewrite historical batches. The predecessor
+authority's batches remain immutable provenance; new operations use streams
+granted by the successor authority and target the new Authority Binding revision.
 
 The exact stream lifecycle across revocation, key loss, profile copy, and
 re-enrollment belongs to the enrollment design. The invariant is already fixed:
@@ -221,6 +251,7 @@ ChangeBatch
   batch_ref
   schema_version
   causal_dependencies
+  authority_binding_revisions
   affected_resource_refs
   typed_operations
   authorship_and_cause_provenance
@@ -238,6 +269,8 @@ Required semantics:
 - delivery and forwarding preserve the original batch identity and payload;
 - a receiver authenticates the sender's right to deliver and the author stream's
   right to perform every operation;
+- every operation targets the Authority Binding revision under which that stream
+  is allowed to act;
 - a receiver applies one causally complete batch atomically or applies nothing;
 - missing authorized dependencies are returned for backfill;
 - the same `BatchRef` and digest is an idempotent replay;
@@ -305,9 +338,9 @@ other continuation lost. Follow-up summaries of changes since divergence are
 derived artifacts; they reference the branch lineage but are not part of identity.
 
 This synchronization fork differs from an export, absorption, or user-created
-copy into another authority. Cross-authority copies receive new destination
-resource IDs and retain source provenance because the destination cannot claim the
-source authority's identity.
+copy into another namespace. Copies receive new destination resource identities
+and retain source provenance. An explicit authority transfer instead preserves
+the original `ResourceRef` and advances its Authority Binding.
 
 ## 11. Deletion, snapshots, and completeness
 
@@ -330,7 +363,7 @@ proof.
 
 ### Two offline devices create Chats
 
-Both devices generate UUIDs inside the same Personal Realm authority and append
+Both devices generate UUIDs inside the same Personal Realm namespace and append
 batches through different author streams. The creates commute because their full
 resource references differ. No server allocates IDs and no name-based merge runs.
 
@@ -349,11 +382,21 @@ new credential may use only writer streams explicitly authorized by the relink
 workflow; relinking does not rewrite resource ownership or impersonate the old
 node principal.
 
+### Two populated Personal Realms join
+
+The user explicitly selects one destination Realm authority. Source resource
+namespaces and every `ResourceRef` remain stable; an authenticated migration
+advances their Authority Bindings to the destination and retires source writer
+grants. Historical source batches remain provenance. After that identity step,
+the ordinary reconciliation function synchronizes both replicas; it does not
+enter a special overwrite or first-import mode.
+
 ### Work and family resources share a title
 
-The UI may display both as “Plans.” Their distinct authority IDs prevent
-accidental identity or policy merge. A local mount stores the connection route
-separately from each resource reference.
+The UI may display both as “Plans.” Their distinct namespace IDs prevent
+accidental identity collision, while separate Authority Bindings retain their
+different policy. A local mount stores the connection route separately from each
+resource reference.
 
 ### A replica is missing a deletion
 
@@ -368,9 +411,10 @@ No schema migration or protocol package is justified by this vision decision.
 When a concrete synchronization slice begins:
 
 1. existing random UUID Chat, message, Run, and compaction IDs may become the
-   authority-local `resource_id` values;
-2. federation-facing DTOs must add explicit authority and resource-kind context
-   instead of treating a local database UUID as globally sufficient;
+   namespace-local `resource_id` values;
+2. federation-facing DTOs must add explicit namespace, resource-kind, and
+   Authority Binding context instead of treating a local database UUID as
+   globally sufficient;
 3. `messages.seq`, generated identity columns, timestamps, and `run_events.seq`
    remain local projection or recovery order, never portable causality;
 4. the current unique `messages.in_reply_to` and copy-based fork model must not be

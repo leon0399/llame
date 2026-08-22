@@ -2,13 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-22
 
-- **Federated resource identity**: selected authority-scoped resource references
-  and immutable causal semantic batches from authority-scoped writer streams.
-  Clarified that UUIDs prevent create collisions but do not supply governance,
-  conflict, deletion, or completeness semantics; separated node, user, replica,
-  writer, provider, and resource identities; and recorded automatic Chat-fork and
-  explicit deletion-record behavior without changing the shipped schema or
-  roadmap.
+- **Federated resource identity**: selected namespace-scoped resource references,
+  versioned current-authority bindings, and immutable causal semantic batches from
+  authority-scoped writer streams. Clarified that UUIDs prevent accidental create
+  collisions but do not supply governance, conflict, deletion, or completeness
+  semantics; separated namespace, authority, node, user, replica, writer,
+  provider, and resource identities; and recorded automatic Chat-fork and explicit
+  deletion-record behavior without changing the shipped schema or roadmap.
 - **Federated runtime topology**: selected one capability-negotiated Node Protocol
   and conformance boundary with implementation-specific runtimes. The hosted hub
   retains NestJS/PostgreSQL/RLS/pg-boss; personal desktop and Android Nodes remain
