@@ -91,6 +91,7 @@ export interface PersonalNodeServerOptions {
   readonly store: SqlitePersonalRealmStore;
   readonly enrollmentRegistry?: SqliteEnrollmentRegistry;
   readonly runControlStore?: SqliteRunControlStore;
+  readonly journalRunProjection?: boolean;
   readonly journalRunAuthor?: SignedRealmRunAuthor;
 }
 
@@ -264,6 +265,9 @@ async function handleAuthorizedRequest(
   principal: RequestPrincipal,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://personal-node.local");
+  const usesJournalRunProjection =
+    options.journalRunProjection === true ||
+    options.journalRunAuthor !== undefined;
   if (request.method === "GET" && url.pathname === "/v1/capabilities") {
     sendJson(response, 200, {
       protocol: { name: "llame-node", version: 1 },
@@ -281,9 +285,11 @@ async function handleAuthorizedRequest(
         "execution.run-control":
           options.journalRunAuthor !== undefined
             ? { version: 1, mode: "signed-journal" }
-            : options.runControlStore === undefined
-              ? { available: false }
-              : { version: 1, mode: "read-write" },
+            : usesJournalRunProjection
+              ? { version: 1, mode: "signed-journal-read-only" }
+              : options.runControlStore === undefined
+                ? { available: false }
+                : { version: 1, mode: "read-write" },
         "execution.workspace": { available: false },
       },
     });
@@ -354,10 +360,7 @@ async function handleAuthorizedRequest(
     return;
   }
   if (request.method === "POST" && url.pathname === "/v1/runs") {
-    if (
-      options.runControlStore === undefined &&
-      options.journalRunAuthor === undefined
-    ) {
+    if (options.runControlStore === undefined && !usesJournalRunProjection) {
       throw new RequestError(409, "run_control_unavailable");
     }
     const parsed = createRunRequestSchema.safeParse(await readJson(request));
@@ -375,6 +378,9 @@ async function handleAuthorizedRequest(
       });
       return;
     }
+    if (usesJournalRunProjection) {
+      throw new RequestError(409, "local_writer_unavailable");
+    }
     sendJson(response, 201, options.runControlStore?.createRun(parsed.data));
     return;
   }
@@ -383,10 +389,7 @@ async function handleAuthorizedRequest(
       url.pathname,
     );
   if (runRoute !== null) {
-    if (
-      options.runControlStore === undefined &&
-      options.journalRunAuthor === undefined
-    ) {
+    if (options.runControlStore === undefined && !usesJournalRunProjection) {
       throw new RequestError(409, "run_control_unavailable");
     }
     const runId = decodePathIdentity(runRoute[1], "run_id");
@@ -395,9 +398,9 @@ async function handleAuthorizedRequest(
       sendJson(
         response,
         200,
-        options.journalRunAuthor === undefined
-          ? options.runControlStore?.snapshot(runId, cursorFrom(url))
-          : options.store.runSnapshot(runId, cursorFrom(url)),
+        usesJournalRunProjection
+          ? options.store.runSnapshot(runId, cursorFrom(url))
+          : options.runControlStore?.snapshot(runId, cursorFrom(url)),
       );
       return;
     }
@@ -422,6 +425,9 @@ async function handleAuthorizedRequest(
           batchRef: `${signed.batch.writerStreamId}:${signed.batch.sequence}`,
         });
         return;
+      }
+      if (usesJournalRunProjection) {
+        throw new RequestError(409, "local_writer_unavailable");
       }
       sendJson(
         response,
@@ -451,14 +457,16 @@ async function handleAuthorizedRequest(
         });
         return;
       }
+      if (usesJournalRunProjection) {
+        throw new RequestError(409, "local_writer_unavailable");
+      }
       sendJson(response, 202, options.runControlStore?.submitCommand(input));
       return;
     }
     if (request.method === "GET" && resource === "commands") {
-      const snapshot =
-        options.journalRunAuthor === undefined
-          ? options.runControlStore?.snapshot(runId)
-          : options.store.runSnapshot(runId);
+      const snapshot = usesJournalRunProjection
+        ? options.store.runSnapshot(runId)
+        : options.runControlStore?.snapshot(runId);
       if (snapshot === undefined) {
         throw new RequestError(409, "run_control_unavailable");
       }
@@ -469,10 +477,9 @@ async function handleAuthorizedRequest(
         throw new RequestError(403, "executor_authority_required");
       }
       const after = cursorFrom(url);
-      const commands =
-        options.journalRunAuthor === undefined
-          ? (options.runControlStore?.commandsAfter(runId, after) ?? [])
-          : options.store.runCommandsAfter(runId, after);
+      const commands = usesJournalRunProjection
+        ? options.store.runCommandsAfter(runId, after)
+        : (options.runControlStore?.commandsAfter(runId, after) ?? []);
       sendJson(response, 200, {
         cursor: commands.at(-1)?.commandSequence ?? after,
         commands: commands.filter(
@@ -501,6 +508,9 @@ async function handleAuthorizedRequest(
           batchRef: `${signed.batch.writerStreamId}:${signed.batch.sequence}`,
         });
         return;
+      }
+      if (usesJournalRunProjection) {
+        throw new RequestError(409, "local_writer_unavailable");
       }
       sendJson(
         response,

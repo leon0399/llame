@@ -337,6 +337,7 @@ async function run(): Promise<void> {
     store,
     enrollmentRegistry,
     runControlStore,
+    journalRunProjection: command.node.journalRunMode !== undefined,
     ...(journalRunAuthor === undefined ? {} : { journalRunAuthor }),
   });
   try {

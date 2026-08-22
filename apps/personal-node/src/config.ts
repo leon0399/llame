@@ -6,6 +6,7 @@ export interface PersonalNodeConfig {
   readonly writerEpochs: Readonly<Record<string, number>>;
   readonly trustedWriterKeyPaths?: Readonly<Record<string, string>>;
   readonly runControlGrants?: Readonly<Record<string, RunControlWriterGrant>>;
+  readonly journalRunMode?: "read-only" | "read-write";
   readonly journalRunWriter?: {
     readonly writerStreamId: string;
     readonly privateKeyPath: string;
@@ -226,10 +227,19 @@ function parseNodeConfig(environment: Environment): PersonalNodeConfig {
   if (
     runControlMode !== undefined &&
     runControlMode !== "legacy" &&
-    runControlMode !== "journal"
+    runControlMode !== "journal" &&
+    runControlMode !== "journal-read-only"
   ) {
-    throw new Error("LLAME_RUN_CONTROL_MODE must be legacy or journal");
+    throw new Error(
+      "LLAME_RUN_CONTROL_MODE must be legacy, journal-read-only, or journal",
+    );
   }
+  const journalRunMode =
+    runControlMode === "journal"
+      ? "read-write"
+      : runControlMode === "journal-read-only"
+        ? "read-only"
+        : undefined;
   const journalRunWriter =
     runControlMode === "journal"
       ? {
@@ -259,6 +269,7 @@ function parseNodeConfig(environment: Environment): PersonalNodeConfig {
     writerEpochs,
     ...(trustedWriterKeyPaths === undefined ? {} : { trustedWriterKeyPaths }),
     ...(runControlGrants === undefined ? {} : { runControlGrants }),
+    ...(journalRunMode === undefined ? {} : { journalRunMode }),
     ...(journalRunWriter === undefined ? {} : { journalRunWriter }),
   };
 }

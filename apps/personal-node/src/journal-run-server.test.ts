@@ -141,4 +141,81 @@ describe("journal-backed Run-control API", () => {
     });
     expect(store.exportSignedMissing({})).toHaveLength(3);
   });
+
+  test("serves a journal projection without holding a local writer key", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "llame-journal-runs-"));
+    cleanup.push(() => rm(directory, { recursive: true, force: true }));
+    const writer = generateWriterIdentity();
+    const store = new SqlitePersonalRealmStore({
+      databasePath: join(directory, "realm.sqlite"),
+      realmId: "realm-personal",
+      writerEpochs: { controller: 1 },
+      trustedWriterKeys: { "controller:1": writer.publicKeyPem },
+      runControlGrants: {
+        controller: { scopes: ["run.control", "run.steer"] },
+      },
+    });
+    cleanup.push(() => store.close());
+    new SignedRealmRunAuthor({
+      store,
+      writerStreamId: "controller",
+      writerEpoch: 1,
+      privateKeyPem: writer.privateKeyPem,
+    }).createRun({ runId: "run-mirror", executorNodeId: "node-workstation" });
+    const server = createPersonalNodeServer({
+      nodeId: "node-mirror",
+      bearerToken: "mirror-owner-secret",
+      store,
+      journalRunProjection: true,
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    cleanup.push(
+      () => new Promise<void>((resolve) => server.close(() => resolve())),
+    );
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("test server did not bind");
+    }
+    const origin = `http://127.0.0.1:${address.port}`;
+    const headers = {
+      authorization: "Bearer mirror-owner-secret",
+      "content-type": "application/json",
+    };
+
+    const capabilities = await fetch(`${origin}/v1/capabilities`, { headers });
+    const observed = await fetch(
+      `${origin}/v1/runs/run-mirror/control?after=0`,
+      { headers },
+    );
+    const rejectedMutation = await fetch(
+      `${origin}/v1/runs/run-mirror/commands`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          commandId: "command-no-key",
+          authorityEpoch: 1,
+          command: { type: "cancel" },
+        }),
+      },
+    );
+
+    expect(capabilities.status).toBe(200);
+    expect(await capabilities.json()).toMatchObject({
+      modules: {
+        "execution.run-control": {
+          version: 1,
+          mode: "signed-journal-read-only",
+        },
+      },
+    });
+    expect(observed.status).toBe(200);
+    expect(await observed.json()).toMatchObject({ runId: "run-mirror" });
+    expect(rejectedMutation.status).toBe(409);
+    expect(await rejectedMutation.json()).toEqual({
+      error: "local_writer_unavailable",
+    });
+  });
 });

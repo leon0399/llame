@@ -233,10 +233,18 @@ export LLAME_WRITER_PRIVATE_KEY="$PWD/.local/controller/private.pem"
 pnpm --filter personal-node start serve
 ```
 
-In journal mode, observations and command polling read the replicated
-projection. Mutations are accepted only through the owner-local credential and
-signed by that configured writer. An enrolled remote node cannot make this
-daemon impersonate it; that node must author locally and use signed Realm sync.
+Mirrors that only observe replicated Runs do not need a private writer key:
+
+```bash
+export LLAME_RUN_CONTROL_MODE=journal-read-only
+pnpm --filter personal-node start serve
+```
+
+Both journal modes serve observations and command polling from the replicated
+projection. Read-only mode rejects local mutations. Read-write mode accepts
+mutations only through the owner-local credential and signs them with the
+configured writer. An enrolled remote node cannot make this daemon impersonate
+it; that node must author locally and use signed Realm sync.
 Workspace recovery still uses the legacy prototype store and is therefore not
 available for journal-only Runs yet.
 

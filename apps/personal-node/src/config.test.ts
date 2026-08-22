@@ -237,6 +237,15 @@ describe("personal Node command configuration", () => {
     ).toThrowError(
       "journal Run writer requires its epoch, trusted key, and operation grant",
     );
+
+    expect(
+      parsePersonalNodeCommand(["serve"], {
+        ...baseEnvironment,
+        LLAME_RUN_CONTROL_MODE: "journal-read-only",
+      }),
+    ).toMatchObject({
+      node: { journalRunMode: "read-only" },
+    });
   });
 
   test("parses enrollment with a separate node identity", () => {

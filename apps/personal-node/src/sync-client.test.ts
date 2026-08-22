@@ -213,6 +213,36 @@ describe("personal Node peer synchronization", () => {
     expect(target.runSnapshot("run-synced")).toEqual(
       source.runSnapshot("run-synced"),
     );
+
+    const mirrorServer = createPersonalNodeServer({
+      nodeId: "node-mirror",
+      bearerToken: "mirror-node-secret",
+      store: target,
+      journalRunProjection: true,
+    });
+    await new Promise<void>((resolve) =>
+      mirrorServer.listen(0, "127.0.0.1", resolve),
+    );
+    cleanup.push(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          mirrorServer.close((error) => {
+            if (error === undefined) resolve();
+            else reject(error);
+          });
+        }),
+    );
+    const mirrorAddress = mirrorServer.address();
+    if (mirrorAddress === null || typeof mirrorAddress === "string") {
+      throw new Error("test mirror did not bind a TCP address");
+    }
+    const mirrored = await fetch(
+      `http://127.0.0.1:${mirrorAddress.port}/v1/runs/run-synced/control?after=0`,
+      { headers: { authorization: "Bearer mirror-node-secret" } },
+    );
+
+    expect(mirrored.status).toBe(200);
+    expect(await mirrored.json()).toEqual(source.runSnapshot("run-synced"));
   });
 
   test("runs another round when the peer advances during reconciliation", async () => {
