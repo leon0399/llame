@@ -45,10 +45,15 @@ async function provisionKnowledgeSpace(
   request: APIRequestContext,
   account: TestAccount,
 ): Promise<KnowledgeSpaceFixture> {
-  const response = await request.put(`${apiUrl}/api/v1/me/knowledge-space`, {
+  const response = await request.post(`${apiUrl}/api/v1/knowledge-spaces`, {
     headers: { Authorization: `Bearer ${account.token}` },
+    data: { name: "Personal" },
   });
-  expect(response.ok()).toBe(true);
+  if (!response.ok()) {
+    throw new Error(
+      `Knowledge provisioning failed: ${response.status()} ${await response.text()}`,
+    );
+  }
   const body = (await response.json()) as { id?: unknown };
   if (typeof body.id !== "string") {
     throw new Error("Knowledge provisioning returned no stable ID");
