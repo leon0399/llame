@@ -12,6 +12,7 @@ reviewed and merged before any code builds on it:
          <- search-embeddings/pipeline
          <- search-embeddings/operations
          <- search-embeddings/verify-and-document
+         <- search-embeddings/archive
 ```
 
 Every layer leaves the repository in a shippable state: a merged prefix of the stack is always a
@@ -25,7 +26,7 @@ against, so every later claim is falsifiable. Must merge first: recorded after t
 the baseline would be circular.
 
 - [ ] 1.1 Extend `apps/api/src/search/chat/eval/dataset.ts` with genuinely inflected Russian and Spanish queries (case-marked and conjugated forms that do **not** reuse the fixture's surface word forms) in the recorded — not floored — categories, and verify `pnpm --filter api test:integration` still passes with the existing floors untouched
-- [ ] 1.2 Add an oversized-message fixture (one message several times the 3000-character budget) with a query targeting its tail, and verify it is currently retrievable lexically — the corpus has no oversized fixture today
+- [ ] 1.2 Add an oversized-message fixture (one message several times the 3000-character budget) with a query targeting its tail, in a **recorded (non-floored)** category, and verify it is currently retrievable lexically — the corpus has no oversized fixture today. Its recorded row is expected to move in layer 2; every pre-existing fixture's row is not.
 - [ ] 1.3 **Exit:** run `RUN_SEARCH_EVAL=1`, rewrite `apps/api/src/search/chat/eval/BASELINE.md` with the true pre-change numbers, and verify the new rows are recorded with a "Reading it" note stating what they measure
 
 ## 2. `search-embeddings/chunker-fit` — guarantee every document fits (#517)
@@ -38,7 +39,7 @@ changes user-visible behavior on its own.
 - [ ] 2.2 Prefix each continuation part with a bounded, word-boundary-truncated, elision-marked excerpt of the preceding user message — none for a split user message or a chat opening with one — and verify by unit test including the long-question and no-preceding-message cases
 - [ ] 2.3 Verify the version bump drives a full rebuild through the existing discovery sweep with no mixed-version projection in any chat
 - [ ] 2.4 Add the `CHANGELOG.md` entry for the chunking fix and verify `pnpm lint:markdown` passes
-- [ ] 2.5 **Exit:** verify chunking is byte-identical to version 2 for every input whose messages fit the budget, and that `RUN_SEARCH_EVAL=1` reproduces task 1.3's metrics exactly
+- [ ] 2.5 **Exit:** verify chunking is byte-identical to version 2 for every input whose messages fit the budget, and that `RUN_SEARCH_EVAL=1` reproduces task 1.3's metrics exactly for every category except the oversized fixture's — whose movement is this layer's intended effect and is re-recorded in `BASELINE.md` with a note naming the cause
 
 ## 3. `search-embeddings/pgvector-image` — raise the database floor
 
@@ -117,9 +118,19 @@ instance, not whoever reviews the worker.
 The top layer. Its whole job is evidence: the change claims to be invisible to users, and this is
 where that is demonstrated rather than asserted.
 
-- [ ] 8.1 Run the full relevance eval on a fully embedded corpus and verify `BASELINE.md` metrics are byte-identical to task 1.3's recorded numbers
+- [ ] 8.1 Run the full relevance eval on a fully embedded corpus and verify `BASELINE.md` metrics are byte-identical to the numbers recorded at the end of layer 2 — embeddings must move nothing, and layer 2's chunking fix is the only sanctioned movement in the stack
 - [ ] 8.2 Run `pnpm --filter api test`, `pnpm --filter api test:integration`, `pnpm --filter api lint`, and `pnpm --filter api build`, and verify all pass
 - [ ] 8.3 Run `E2E_DB_PORT=15433 pnpm test:e2e -- e2e/web` against the new image and verify chat and search specs behave as before (CI is the arbiter for pass/fail on this box)
 - [ ] 8.4 Add the dated `CHANGELOG.md` entry for the embedding layer and the BREAKING database-image requirement, and verify `pnpm lint:markdown` passes
 - [ ] 8.5 Document the operator surface — declaring a model, selecting it per corpus, the three commands, reading coverage, and what changing or removing a model does — in `apps/api/AGENTS.md`, and verify the config example in `llame.config.json.example` loads
 - [ ] 8.6 **Exit:** run `openspec validate add-chat-search-embeddings --strict` and confirm the change is ready to archive
+
+## 9. `search-embeddings/archive` — fold the change into the shipped specs
+
+Documentation only, and deliberately its own PR: it is the one layer whose diff is a spec
+promotion rather than an implementation, and it must not land until every layer below it has.
+
+- [ ] 9.1 Run `/opsx:sync` to merge the delta specs into `openspec/specs/` — `search-embeddings` created, `search-projection` and `instance-config` updated — and verify the resulting specs carry no delta headers (`ADDED`/`MODIFIED`/`REMOVED` sections are resolved, not copied)
+- [ ] 9.2 Verify the promoted `search-projection` and `instance-config` specs read as whole capability contracts rather than a base plus a patch, with the superseded requirement text replaced rather than appended
+- [ ] 9.3 Run `/opsx:archive` to move the change into `openspec/changes/archive/`, and verify the archived record keeps proposal, design, specs, and the completed task list intact as implementation provenance
+- [ ] 9.4 **Exit:** verify `openspec list` shows no active change, `openspec validate --strict` passes over the promoted specs, and `pnpm lint:markdown` and `pnpm format:check` are clean
