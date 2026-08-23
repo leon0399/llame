@@ -28,8 +28,21 @@ import { PersonalizationService } from './personalization.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { MemoryService } from '../memory/memory.service';
 import { RecencyDigestService } from '../chats/recency-digest.service';
+import { type KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
+import { TOOL_REGISTRY } from '../tools/registry';
 
 export {};
+
+const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
+  resolve: () =>
+    Promise.resolve(
+      [...TOOL_REGISTRY.values()].map((tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      })),
+    ),
+};
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -113,6 +126,7 @@ describeIfDb('personalization binds per run', () => {
       { snapshotCandidates: () => [] },
       new MemoryService(tenantDb),
       new RecencyDigestService(tenantDb),
+      knowledgeCandidates,
     );
   });
 

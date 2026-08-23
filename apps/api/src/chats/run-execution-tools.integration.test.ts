@@ -2,8 +2,8 @@
  * Tool-loop persistence integration test (openspec/changes/tool-calling-loop).
  *
  * Runs the REAL `ai` streamText (via a scripted MockLanguageModelV3) through
- * RunExecutionService.executeRun against a live Postgres, driving the
- * `search_conversations` tool (the one shipped tool) end-to-end:
+ * RunExecutionService.executeRun against a live Postgres, driving code-owned
+ * tools (including `search_conversations` and Knowledge) end-to-end:
  * tool.requested/started/completed events land in stream order, the
  * assistant message persists a `tool-search_conversations` part, and a run
  * that keeps requesting tools past `tools.maxStepsPerRun` is forced to
@@ -29,6 +29,10 @@ import {
   type StepResult,
   type ToolSet,
 } from 'ai';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import type {
   LanguageModelV3FinishReason,
@@ -48,7 +52,12 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
-import { isTextPart } from './context-builder';
+import {
+  buildContext,
+  isTextPart,
+  type StoredMessage,
+} from './context-builder';
+import { toChatMessageResponse } from './dto/chats.dto';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
 import type { CompactionCapability } from '../compaction/compaction.service';
@@ -68,7 +77,14 @@ import {
   unregisterTestOnlyTool,
 } from '../tools/registry';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
-import { type Tool, type ToolContext } from '../tools/types';
+import {
+  type KnowledgeToolResolver,
+  type Tool,
+  type ToolContext,
+} from '../tools/types';
+import { KnowledgeSpaceLocalResolver } from '../knowledge/knowledge-space.local-resolver';
+import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
+import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
 import { isRecord, type UnknownRecord } from '../unknown-record';
 import { turnTelemetryLogger } from './turn-telemetry';
 import {
@@ -80,6 +96,14 @@ const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 type SqlClient = any;
+
+const knowledgeResolver: KnowledgeToolResolver = {
+  resolveBindingForOwner: () => Promise.resolve(undefined),
+  createAdapter: () => ({
+    search: () => Promise.resolve([]),
+    read: () => Promise.reject(new Error('Knowledge adapter is not exercised')),
+  }),
+};
 
 /**
  * A ModelClient backed by a scripted MockLanguageModelV3 — the REAL `ai`
@@ -389,6 +413,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     allowed?: string[];
     searchIndex?: ChatSearchIndexer;
     reindexDispatch?: ChatReindexDispatcher;
+    knowledgeResolver?: KnowledgeToolResolver;
     dynamicToolResolver?: DynamicToolExecutorResolver;
   }): RunExecutionService {
     const noopCompaction: CompactionCapability = {
@@ -421,6 +446,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       instanceConfig,
       overrides?.searchIndex ?? new SearchIndexService(tenantDb),
       overrides?.reindexDispatch ?? noopReindexDispatch(),
+      overrides?.knowledgeResolver ?? knowledgeResolver,
       overrides?.dynamicToolResolver,
     );
   }
@@ -917,6 +943,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
           abortSignal: expect.any(AbortSignal),
         }),
         { query: 'release notes' },
+      );
+      expect(execute.mock.calls[0]?.[0].knowledgeResolver).toBe(
+        knowledgeResolver,
       );
 
       const events = await tenantDb.runAs(userId, (tx) =>
@@ -2132,6 +2161,226 @@ describeIfDb('executeRun tool-loop persistence', () => {
     );
 
     await sql`DELETE FROM chats WHERE id = ${chatId}`;
+  });
+
+  it('keeps Knowledge path and hash attribution through events, settlement, reconstruction, and bounded replay', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'llame-knowledge-run-'));
+    const knowledgeSpaceService = new KnowledgeSpaceService(
+      tenantDb,
+      new KnowledgeSpaceLocalResolver(root),
+    );
+    const runtimeResolver = new KnowledgeToolRuntimeResolver(
+      knowledgeSpaceService,
+    );
+    const space = await knowledgeSpaceService.provisionForOwner(userId);
+    const relativePath = 'notes/attribution.md';
+    const content = 'The launch checkpoint is Friday at 09:00 UTC.';
+    const notePath = path.join(root, space.id, ...relativePath.split('/'));
+    mkdirSync(path.dirname(notePath), { recursive: true });
+    writeFileSync(notePath, content, 'utf8');
+    const contentHash = createHash('sha256')
+      .update(Buffer.from(content, 'utf8'))
+      .digest('hex');
+
+    const seeded = await seedBoundRun(
+      `knowledge-attribution-${crypto.randomUUID()}`,
+      ['knowledge_read'],
+    );
+
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        return Promise.resolve(
+          turn === 1
+            ? jsonToolCallResponse('knowledge-call', 'knowledge_read', {
+                path: relativePath,
+              })
+            : textResponse('The checkpoint is Friday at 09:00 UTC.'),
+        );
+      },
+    });
+    const service = serviceWithTools({
+      allowed: ['knowledge_read'],
+      knowledgeResolver: runtimeResolver,
+    });
+
+    try {
+      const result = await service.executeRun({
+        runId: seeded.run.id,
+        chatId: seeded.chatId,
+        userId,
+        userMessage: {
+          id: seeded.userMessage.id,
+          seq: seeded.userMessage.seq,
+          parts: seeded.userMessage.parts.filter(isTextPart),
+        },
+        client: createMockModelClient(model),
+      });
+      await result.consumeStream?.();
+
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        return events.some((event) => event.eventType === 'run.completed');
+      });
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      const completed = events.find(
+        (event) => event.eventType === 'tool.completed',
+      );
+      expect(completed?.payload).toMatchObject({
+        toolCallId: 'knowledge-call',
+        toolName: 'knowledge_read',
+        status: 'success',
+        output: {
+          status: 'success',
+          knowledgeSpaceId: space.id,
+          path: relativePath,
+          content,
+          contentHash,
+        },
+      });
+      expect(JSON.stringify(completed?.payload)).not.toContain(root);
+
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+      );
+      const assistant = messages.find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.inReplyTo === seeded.userMessage.id,
+      );
+      if (assistant === undefined) {
+        throw new Error('Expected a settled Knowledge assistant message');
+      }
+      const parts = assistant.parts.filter(isTypedPart);
+      const toolPart = parts.find(
+        (part) => part.type === 'tool-knowledge_read',
+      );
+      expect(toolPart).toMatchObject({
+        toolCallId: 'knowledge-call',
+        state: 'output-available',
+        output: {
+          status: 'success',
+          knowledgeSpaceId: space.id,
+          path: relativePath,
+          content,
+          contentHash,
+        },
+      });
+
+      const apiMessage = toChatMessageResponse(assistant);
+      expect(apiMessage.parts).toContainEqual(
+        expect.objectContaining({
+          type: 'tool-knowledge_read',
+          output: expect.objectContaining({
+            knowledgeSpaceId: space.id,
+            path: relativePath,
+            content,
+            contentHash,
+          }),
+        }),
+      );
+
+      const translator = createRunEventTranslator(seeded.run.id);
+      const reconstructed = events.flatMap((event) =>
+        translator.translate(event),
+      );
+      expect(reconstructed).toContainEqual(
+        expect.objectContaining({
+          type: 'tool-output-available',
+          toolCallId: 'knowledge-call',
+          output: expect.objectContaining({
+            knowledgeSpaceId: space.id,
+            path: relativePath,
+            content,
+            contentHash,
+          }),
+          dynamic: true,
+        }),
+      );
+
+      const storedAssistant: StoredMessage = {
+        id: assistant.id,
+        chatId: assistant.chatId,
+        seq: assistant.seq,
+        role: 'assistant',
+        senderUserId: assistant.senderUserId,
+        parts: assistant.parts.filter(isRecord),
+        attachments: assistant.attachments,
+        usage: assistant.usage,
+        createdAt: assistant.createdAt,
+      };
+      const replay = buildContext([storedAssistant], {
+        systemPrompt: 'Knowledge replay test',
+      });
+      const replayed = JSON.stringify(replay.messages);
+      expect(replayed).toContain(space.id);
+      expect(replayed).toContain(relativePath);
+      expect(replayed).toContain(contentHash);
+      expect(replayed).toContain(content);
+
+      const oversizedContent = 'x'.repeat(10_000);
+      const degraded = buildContext(
+        [
+          {
+            ...storedAssistant,
+            parts: [
+              {
+                type: 'tool-knowledge_read',
+                toolCallId: 'oversized-knowledge-call',
+                state: 'output-available',
+                input: { path: relativePath },
+                output: {
+                  status: 'success',
+                  knowledgeSpaceId: space.id,
+                  path: relativePath,
+                  content: oversizedContent,
+                  contentHash,
+                },
+                outcome: 'success',
+              },
+            ],
+          },
+        ],
+        { systemPrompt: 'Knowledge replay test' },
+      );
+      const degradedReplay = JSON.stringify(degraded.messages);
+      expect(degraded.messages).toHaveLength(2);
+      expect(degraded.messages[0]).toMatchObject({
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'oversized-knowledge-call',
+            toolName: 'knowledge_read',
+            input: {},
+          },
+        ],
+      });
+      expect(degraded.messages[1]).toMatchObject({
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'oversized-knowledge-call',
+            toolName: 'knowledge_read',
+            output: {
+              type: 'text',
+              value: expect.stringContaining('Outcome: success'),
+            },
+          },
+        ],
+      });
+      expect(degradedReplay).not.toContain(oversizedContent);
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('records an unlisted/hallucinated tool call as a refusal: tool.requested + tool.completed(error) with no tool.started, and a persisted output-error part', async () => {

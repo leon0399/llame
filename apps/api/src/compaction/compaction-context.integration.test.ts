@@ -64,6 +64,7 @@ import {
   CompactionService,
   TransitionCompactionError,
 } from './compaction.service';
+import { type KnowledgeToolResolver } from '../tools/types';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -74,6 +75,14 @@ const unexercisedModels: ModelClientFactory = {
   createClient: () => {
     throw new Error('createClient was not stubbed for this test');
   },
+};
+
+const knowledgeResolver: KnowledgeToolResolver = {
+  resolveBindingForOwner: () => Promise.resolve(undefined),
+  createAdapter: () => ({
+    search: () => Promise.resolve([]),
+    read: () => Promise.reject(new Error('Knowledge adapter is not exercised')),
+  }),
 };
 
 function compactionClient(input: {
@@ -872,6 +881,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       { config: BUILT_IN_DEFAULTS },
       new SearchIndexService(tenantDb),
       noopReindexDispatch(),
+      knowledgeResolver,
     );
   }
 

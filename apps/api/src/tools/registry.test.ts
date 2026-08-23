@@ -1,5 +1,9 @@
 import { searchConversationsTool } from './search-conversations';
 import {
+  knowledgeReadTool,
+  knowledgeSearchTool,
+} from '../knowledge/knowledge-tools';
+import {
   buildRegistry,
   resolveAdvertisedTools,
   TOOL_REGISTRY,
@@ -8,18 +12,23 @@ import { matchesAllowedToolId } from './tool-id';
 import { type Tool } from './types';
 
 describe('tool registry', () => {
-  it('registers search_conversations, classified read_only', () => {
+  it('registers all code-owned read-only tools', () => {
     expect(TOOL_REGISTRY.get('search_conversations')).toBe(
       searchConversationsTool,
     );
+    expect(TOOL_REGISTRY.get('knowledge_search')).toBe(knowledgeSearchTool);
+    expect(TOOL_REGISTRY.get('knowledge_read')).toBe(knowledgeReadTool);
     expect(searchConversationsTool.classification).toBe('read_only');
+    expect(knowledgeSearchTool.classification).toBe('read_only');
+    expect(knowledgeReadTool.classification).toBe('read_only');
   });
 
-  it('ships exactly one tool this slice (D7: no external-network tool)', () => {
-    // Pins the slice's scope: the registry contains only the one internal,
-    // read-only, own-data tool — no fetch_url/web-search style tool exists
-    // to reach the external network (D7's exfiltration-channel concern).
-    expect(TOOL_REGISTRY.size).toBe(1);
+  it('keeps the static registry immutable while allowlisting Knowledge ids', () => {
+    expect(
+      resolveAdvertisedTools(new Set(['knowledge_search', 'knowledge_read'])),
+    ).toEqual([knowledgeSearchTool, knowledgeReadTool]);
+    expect(TOOL_REGISTRY.get('knowledge_search')).toBe(knowledgeSearchTool);
+    expect(TOOL_REGISTRY.get('knowledge_read')).toBe(knowledgeReadTool);
   });
 });
 

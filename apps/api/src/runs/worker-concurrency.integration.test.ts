@@ -29,6 +29,8 @@ import { InstanceConfigService } from '../instance-config/instance-config.servic
 import { PersonalizationService } from '../personalization/personalization.service';
 import { MemoryService } from '../memory/memory.service';
 import { RecencyDigestService } from '../chats/recency-digest.service';
+import { type KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
+import { TOOL_REGISTRY } from '../tools/registry';
 import { searchChatDocuments } from '../db/schema/search';
 import { waitFor } from '../testing/support';
 import {
@@ -64,6 +66,17 @@ const testClient = (max: number) =>
     max,
     ssl: /sslmode=require/.test(TEST_DB_URL ?? '') ? 'require' : false,
   });
+
+const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
+  resolve: () =>
+    Promise.resolve(
+      [...TOOL_REGISTRY.values()].map((tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      })),
+    ),
+};
 
 /**
  * Run `fn` in a transaction carrying the tenant identity — without it FORCE RLS
@@ -375,6 +388,7 @@ describeIfDb(
           { snapshotCandidates: () => [] },
           new MemoryService(harness.tenantDb),
           new RecencyDigestService(harness.tenantDb),
+          knowledgeCandidates,
         );
 
         await expect(

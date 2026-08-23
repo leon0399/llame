@@ -6,12 +6,16 @@ import { InstanceConfigService } from '../instance-config/instance-config.servic
 import { KnowledgeSpaceController } from './knowledge-space.controller';
 import { KnowledgeSpaceLocalResolver } from './knowledge-space.local-resolver';
 import { KnowledgeSpaceService } from './knowledge-space.service';
+import { KnowledgeToolCandidateResolver } from './knowledge-tool-candidate-resolver';
+import { KnowledgeToolRuntimeResolver } from './knowledge-tool-runtime-resolver';
 
 @Module({
   imports: [AuthModule, InstanceConfigModule],
   controllers: [KnowledgeSpaceController],
   providers: [
     KnowledgeSpaceService,
+    KnowledgeToolCandidateResolver,
+    KnowledgeToolRuntimeResolver,
     {
       provide: KnowledgeSpaceLocalResolver,
       inject: [InstanceConfigService],
@@ -19,6 +23,10 @@ import { KnowledgeSpaceService } from './knowledge-space.service';
         new KnowledgeSpaceLocalResolver(instanceConfig.config.knowledge.root),
     },
   ],
-  exports: [KnowledgeSpaceService],
+  exports: [
+    KnowledgeSpaceService,
+    KnowledgeToolCandidateResolver,
+    KnowledgeToolRuntimeResolver,
+  ],
 })
 export class KnowledgeModule {}

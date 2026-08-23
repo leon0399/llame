@@ -136,6 +136,36 @@ describe('effective context resolver', () => {
     );
   });
 
+  it('accepts owner-bound code-owned unavailable candidates without mutating the registry', async () => {
+    const context = await resolveEffectiveContext({
+      systemPrompt: model().systemPromptTemplate,
+      model: model(),
+      callTimeoutSeconds: 15,
+      allowedToolRules: ['knowledge_search'],
+      codeOwnedCandidates: [
+        {
+          source: { type: 'code_owned' },
+          state: 'unavailable',
+          id: 'knowledge_search',
+          classification: 'read_only',
+          reason: 'knowledge_space_unavailable',
+        },
+      ],
+    });
+
+    expect(context.toolDeclarations).toEqual([]);
+    expect(context.toolAvailabilityManifest).toEqual({
+      version: 1,
+      entries: [
+        {
+          id: 'knowledge_search',
+          state: 'unavailable',
+          reason: 'knowledge_space_unavailable',
+        },
+      ],
+    });
+  });
+
   it('composes injected MCP candidates with the code-owned catalog', async () => {
     const context = await resolveEffectiveContext({
       systemPrompt: model().systemPromptTemplate,

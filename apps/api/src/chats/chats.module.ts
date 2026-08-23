@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { McpRuntimeModule } from '../mcp/mcp-runtime.module';
 import { MemoryModule } from '../memory/memory.module';
+import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { ModelsModule } from '../models/models.module';
 import { PersonalizationModule } from '../personalization/personalization.module';
 import { RunWorkerModule } from '../runs/run-worker.module';
@@ -35,6 +36,7 @@ import { SharedChatsController } from './shared-chats.controller';
     SearchModule,
     McpRuntimeModule,
     MemoryModule,
+    KnowledgeModule,
     RecencyDigestModule,
   ],
   controllers: [ChatsController, MeRunsController, SharedChatsController],

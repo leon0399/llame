@@ -22,6 +22,8 @@ export const TOOL_UNAVAILABLE_REASONS = [
   'tool_missing',
   'declaration_refused',
   'name_collision',
+  'knowledge_space_not_configured',
+  'knowledge_space_unavailable',
 ] as const;
 
 export type ToolUnavailableReason = (typeof TOOL_UNAVAILABLE_REASONS)[number];
@@ -34,6 +36,8 @@ export const TOOL_UNAVAILABLE_REASON_LABELS = {
   tool_missing: 'tool missing',
   declaration_refused: 'tool declaration refused',
   name_collision: 'tool name collision',
+  knowledge_space_not_configured: 'Knowledge Space not configured',
+  knowledge_space_unavailable: 'Knowledge Space unavailable',
 } satisfies Readonly<Record<ToolUnavailableReason, string>>;
 
 export type TurnToolSource =

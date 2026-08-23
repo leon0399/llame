@@ -44,7 +44,12 @@ import {
 } from '../instance-config/instance-config.service';
 import { invalidCallResult, refusalResult, runTool } from '../tools/runner';
 import { toFlexibleSchema } from '../tools/schema-utils';
-import { type ToolContext, type ToolResult } from '../tools/types';
+import {
+  type KnowledgeToolResolver,
+  type ToolContext,
+  type ToolResult,
+} from '../tools/types';
+import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
 import { toolTerminationMessage } from './tool-settlement';
 import {
   RunEventsRepository,
@@ -451,6 +456,8 @@ export class RunExecutionService {
     private readonly searchIndex: ChatSearchIndexer,
     @Inject(SearchReindexDispatchService)
     private readonly reindexDispatch: ChatReindexDispatcher,
+    @Inject(KnowledgeToolRuntimeResolver)
+    private readonly knowledgeResolver: KnowledgeToolResolver,
     @Optional()
     @Inject(DYNAMIC_TOOL_EXECUTOR_RESOLVER)
     private readonly dynamicToolResolver?: DynamicToolExecutorResolver,
@@ -815,6 +822,7 @@ export class RunExecutionService {
       chatId: input.chatId,
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
+      knowledgeResolver: this.knowledgeResolver,
     };
 
     const { maxStepsPerRun, callTimeoutSeconds } =

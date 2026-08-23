@@ -59,6 +59,10 @@ import {
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
+import {
+  KnowledgeToolCandidateResolver,
+  type KnowledgeToolCandidateResolverPort,
+} from '../knowledge/knowledge-tool-candidate-resolver';
 import { sanitizeClientMessageParts } from './context-item';
 import {
   createModelChangeItem,
@@ -163,6 +167,8 @@ export class ChatLoopService {
       MemorySettingsBindingResolver,
     @Inject(RecencyDigestService)
     private readonly recencyDigest: RecencyDigestResolver,
+    @Inject(KnowledgeToolCandidateResolver)
+    private readonly knowledgeCandidates: KnowledgeToolCandidateResolverPort,
   ) {}
 
   async createMessageStream(input: {
@@ -565,12 +571,18 @@ export class ChatLoopService {
       this.logger.error('recency_digest_render_failed');
       throw new Error('Failed to render system prompt');
     }
+    const codeOwnedCandidates = await this.knowledgeCandidates.resolve({
+      tx,
+      ownerUserId: turnInput.userId,
+      allowedToolRules: turnInput.allowedToolRules,
+    });
     const effectiveContext: EffectiveContextSnapshotInput =
       await resolveEffectiveContext({
         model: turnInput.model,
         systemPrompt,
         allowedToolRules: turnInput.allowedToolRules,
         callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
+        codeOwnedCandidates,
         dynamicCandidates: turnInput.dynamicCandidates,
       });
 

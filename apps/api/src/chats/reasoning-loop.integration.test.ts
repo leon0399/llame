@@ -38,6 +38,7 @@ import type { InstanceConfigReader } from '../instance-config/instance-config.se
 import type { CompactionCapability } from '../compaction/compaction.service';
 import type { TitleCapability } from '../titles/title.service';
 import { RunExecutionService } from '../runs/run-execution.service';
+import { type KnowledgeToolResolver } from '../tools/types';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
 import { SearchIndexService } from '../search/search-index.service';
@@ -45,6 +46,14 @@ import { SearchIndexService } from '../search/search-index.service';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = any;
+
+const knowledgeResolver: KnowledgeToolResolver = {
+  resolveBindingForOwner: () => Promise.resolve(undefined),
+  createAdapter: () => ({
+    search: () => Promise.resolve([]),
+    read: () => Promise.reject(new Error('Knowledge adapter is not exercised')),
+  }),
+};
 
 /** Asserts a run-event payload carries a string `text` field. */
 function assertPayloadText(
@@ -172,6 +181,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       instanceConfig,
       new SearchIndexService(tenantDb),
       noopReindexDispatch(),
+      knowledgeResolver,
     );
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'R', ${`r-${userId}@t.com`})`;

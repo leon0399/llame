@@ -1,6 +1,10 @@
 import { type z } from 'zod';
 
 import { type TenantRunner } from '../db/tenant-db.service';
+import {
+  type KnowledgeFilesystemAdapterPort,
+  type KnowledgeFilesystemBinding,
+} from '../knowledge/knowledge-filesystem';
 import { type UnknownRecord } from '../unknown-record';
 
 /**
@@ -9,6 +13,16 @@ import { type UnknownRecord } from '../unknown-record';
  * `z.ZodTypeAny` which is the code-authored schema form.
  */
 export type JsonSchemaDocument = UnknownRecord;
+
+/** Trusted, worker-bound capability for live owner Knowledge access. */
+export type KnowledgeToolResolver = {
+  readonly resolveBindingForOwner: (
+    ownerUserId: string,
+  ) => Promise<KnowledgeFilesystemBinding | undefined>;
+  readonly createAdapter: (
+    binding: KnowledgeFilesystemBinding,
+  ) => KnowledgeFilesystemAdapterPort;
+};
 
 /**
  * Trusted execution context injected into a tool's execute by the run loop —
@@ -24,6 +38,8 @@ export interface ToolContext {
   readonly abortSignal?: AbortSignal;
   /** Trusted AI SDK call correlation, never supplied by model arguments. */
   readonly toolCallId?: string;
+  /** Trusted worker-bound Knowledge capability; never model supplied. */
+  readonly knowledgeResolver?: KnowledgeToolResolver;
 }
 
 /**

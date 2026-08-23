@@ -437,6 +437,8 @@ describe('composeTurnToolCatalog', () => {
       'tool_missing',
       'declaration_refused',
       'name_collision',
+      'knowledge_space_not_configured',
+      'knowledge_space_unavailable',
     ]);
   });
 
