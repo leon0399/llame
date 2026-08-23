@@ -3,27 +3,17 @@ import {
   Injectable,
   type OnApplicationBootstrap,
 } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
 
-import { type Db, TenantDbService } from '../db/tenant-db.service';
-import { embeddingModelBindings } from '../db/schema/search';
+import { TenantDbService } from '../db/tenant-db.service';
 import {
   type InstanceConfigReader,
   InstanceConfigService,
 } from '../instance-config/instance-config.service';
+import { findEmbeddingBinding } from './embedding-binding-ledger';
 import {
   assertDeclaredBindingsConsistent,
   type EmbeddingBindingLookup,
 } from './embedding-model-bindings';
-
-/** Reads one ledger row by internal key. No tenant scoping — `embedding_model_bindings` is instance-global operator state with no tenant column and deliberately no RLS (see the table's header comment in `db/schema/search.ts`). Exported: `SearchReindexWorker`'s embed-backlog sweep reuses it to gate on the row's mere existence (design D1/D6 — no row means the model has never embedded a real vector, so any outstanding documents are bulk work, not incremental lag). */
-export async function findEmbeddingBinding(tx: Db, modelKey: string) {
-  const [row] = await tx
-    .select()
-    .from(embeddingModelBindings)
-    .where(eq(embeddingModelBindings.modelKey, modelKey));
-  return row;
-}
 
 /**
  * Boot-time enforcement of the binding-ledger check (chat-search-embeddings,

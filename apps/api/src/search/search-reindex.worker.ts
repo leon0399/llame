@@ -20,7 +20,7 @@ import {
   SEARCH_SWEEP_CRON,
   SEARCH_SWEEP_QUEUE,
 } from './reindex-queues';
-import { findEmbeddingBinding } from './embedding-binding-boot-check.service';
+import { findEmbeddingBinding } from './embedding-binding-ledger';
 import { SearchEmbedDispatchService } from './search-embed-dispatch.service';
 import { SearchReindexDispatchService } from './search-reindex-dispatch.service';
 import { SearchIndexService } from './search-index.service';

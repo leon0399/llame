@@ -7,10 +7,7 @@ import {
 import { and, eq, sql } from 'drizzle-orm';
 
 import { type Db, TenantDbService } from '../db/tenant-db.service';
-import {
-  embeddingModelBindings,
-  searchChatDocuments,
-} from '../db/schema/search';
+import { searchChatDocuments } from '../db/schema/search';
 import {
   InstanceConfigService,
   type InstanceConfigReader,
@@ -26,6 +23,7 @@ import {
   type EmbeddingDocumentInput,
   type EmbeddingResult,
 } from './core';
+import { ensureBindingLedgerRow } from './embedding-binding-ledger';
 import {
   classifyEmbeddingFailure,
   createOpenAIEmbeddingBackend,
@@ -100,14 +98,35 @@ export function resolveEmbeddingBackendConfig(
 }
 
 /**
+ * D7's anti-clobber guard, shared verbatim by every conditional persist to
+ * `search_chat_documents` — success and failure alike. Guards on the exact
+ * `(content_hash, embed_input_version)` a row carried at SELECT time: if a
+ * rebuild or a concurrent embed landed between read and write, neither term
+ * still matches and the whole statement is a silent no-op — the row is
+ * picked up again by the next pass rather than overwritten with a result
+ * describing superseded (edited or deleted) content. This IS the entire
+ * reason the two callers below are conditional updates rather than plain
+ * ones; extracted so the clause is written, and reasoned about, exactly
+ * once (a second hand-copied instance is how this guard would silently
+ * regress in one call site while looking intact in the other).
+ *
+ * `embed_input_version` uses `IS NOT DISTINCT FROM`, never `=` — it is
+ * nullable (a never-attempted row reads it as NULL), and plain `=` against
+ * NULL evaluates to NULL rather than true, which would make the guard
+ * reject a legitimate first-ever persist. This must survive any future edit
+ * to this function unchanged.
+ */
+function embedGuardWhere(
+  id: string,
+  contentHash: string,
+  priorEmbedInputVersion: number | null,
+) {
+  return sql`id = ${id} AND content_hash = ${contentHash} AND embed_input_version IS NOT DISTINCT FROM ${priorEmbedInputVersion}`;
+}
+
+/**
  * Conditional persist of a successfully embedded document (design D7/D15).
- * WHERE guards on the exact (content_hash, embed_input_version) this row
- * carried at SELECT time: if a rebuild or a concurrent embed landed between
- * read and write, neither term still matches and the write is a silent
- * no-op — the row is picked up again by the next pass rather than
- * overwritten with a vector describing superseded content. `embed_input_version`
- * uses `IS NOT DISTINCT FROM` because it is nullable (never-attempted rows
- * read it as NULL).
+ * See `embedGuardWhere` for the WHERE clause's guarantee.
  *
  * Writes EXACTLY the five embedding columns — trap 3/D15's "no feedback
  * loop": touching `updated_at`, `chats.updated_at`, or `search_chat_state`
@@ -131,54 +150,16 @@ async function persistEmbeddingSuccess(
         embedded_content_hash = ${result.contentHash},
         embed_input_version = ${inputVersion},
         embedding_fail_reason = NULL
-    WHERE id = ${result.documentId}
-      AND content_hash = ${result.contentHash}
-      AND embed_input_version IS NOT DISTINCT FROM ${priorEmbedInputVersion}
+    WHERE ${embedGuardWhere(result.documentId, result.contentHash, priorEmbedInputVersion)}
   `);
   return updated.count > 0;
 }
 
 /**
- * The binding ledger row (design D1) is written on the FIRST PERSISTED
- * vector for a key — never on declaration, which is why this lives beside
- * the persist path rather than at worker boot. `onConflictDoNothing` makes
- * every later call a no-op: the boot self-check
- * (`EmbeddingBindingBootCheckService`) already rejects a redefined-in-place
- * model before any worker runs, so by the time this executes, an existing
- * row is guaranteed consistent with what would be written here.
- *
- * The row's mere EXISTENCE also doubles as the signal
- * `SearchReindexWorker`'s embed-backlog sweep gates on (design D6): no row
- * means this model has never embedded anything for real, so any outstanding
- * documents under it are BULK work (a freshly declared model, or a corpus
- * newly pointed at one) — only the explicit `backfill` command may start
- * that, never a config edit via the automatic sweep.
- */
-async function ensureBindingLedgerRow(
-  tx: Db,
-  model: EmbeddingModelCatalogEntry,
-): Promise<void> {
-  await tx
-    .insert(embeddingModelBindings)
-    .values({
-      modelKey: model.id,
-      providerId: model.provider,
-      providerModelId: model.providerModelId,
-      revision: model.revision ?? null,
-      dimensions: model.dimensions,
-      distanceMetric: model.distanceMetric,
-      documentPrefix: model.documentPrefix ?? null,
-      queryPrefix: model.queryPrefix ?? null,
-      batchSize: model.batchSize,
-    })
-    .onConflictDoNothing({ target: embeddingModelBindings.modelKey });
-}
-
-/**
  * Conditional persist of a terminal failure (design D16 tombstone; trap 4).
- * Same WHERE guard as the success path — "nothing is written for
- * superseded content in any case" (task 6.9) applies to a failure write
- * exactly as it does to a success one.
+ * Same WHERE guard as the success path (see `embedGuardWhere`) — "nothing
+ * is written for superseded content in any case" (task 6.9) applies to a
+ * failure write exactly as it does to a success one.
  *
  * Stamps ALL FOUR attempt-metadata columns (model key, content hash, input
  * version, reason) in the SAME statement. The coverage predicate's
@@ -203,9 +184,7 @@ async function persistEmbeddingFailure(
         embedded_content_hash = ${row.contentHash},
         embed_input_version = ${inputVersion},
         embedding_fail_reason = ${reason}
-    WHERE id = ${row.id}
-      AND content_hash = ${row.contentHash}
-      AND embed_input_version IS NOT DISTINCT FROM ${row.priorEmbedInputVersion}
+    WHERE ${embedGuardWhere(row.id, row.contentHash, row.priorEmbedInputVersion)}
   `);
   return updated.count > 0;
 }
