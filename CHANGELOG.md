@@ -1,5 +1,26 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-23
+
+- **Harness extraction + local coding-harness CLI experiment** (`cli-experiment`):
+  extracted the framework-free cores into reusable packages and built the first
+  runnable slice of the standalone-operation horizon on top of them.
+  `packages/config` now owns `{env:}`/`{path:}` secret interpolation and the
+  config error contract (moved verbatim from `apps/api/src/instance-config`,
+  with their suites); `packages/harness` owns the agent harness core —
+  classified-tool contracts, schema utilities, result truncation, the tool
+  runner (now generic over trusted context, with a fail-closed approval seam),
+  the OpenAI-compatible model client, a narrated run loop that binds a context
+  receipt per run, and an append-only JSONL session log as the single source
+  of model context. `apps/api` consumes both packages; its moved files were
+  deleted rather than duplicated (lint/typecheck/test/build green, 1128 unit
+  tests). New `apps/cli` runs the same core locally: five workspace-bound
+  coding tools with path-escape refusal, an interactive fail-closed approval
+  gate for every non-read-only call, `llame.cli.json`/env configuration using
+  the shared interpolator, REPL and one-shot modes — verified end-to-end
+  against a throwaway streaming mock (tool round trip, deny/approve paths,
+  session persistence).
+
 # 2026-08-22
 
 - **Distributed agent direction**: recorded the local-node, Workspace, Sandbox,
