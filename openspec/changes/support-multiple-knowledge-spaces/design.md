@@ -44,23 +44,25 @@ The old bodyless `PUT /api/v1/me/knowledge-space` is removed. The replacement is
 
 There is no `PUT` or `DELETE`. Authentication supplies owner identity. Missing and other-owner item IDs produce the same `404`. Resource representations contain only `{id,name,createdAt,updatedAt}`.
 
-The list uses deterministic `(created_at, knowledge_space_id)` keyset ordering. `after` is a validated base64url encoding of those two values; it is not signed, encrypted, version-framework-backed, or shared outside this capability. RLS plus an explicit owner predicate is the data boundary. Malformed cursors return `400`. Page size is bounded, but total inventory is not.
+The list uses deterministic `(created_at, knowledge_space_id)` keyset ordering. `after` is a validated base64url encoding of those two values; it is not signed, encrypted, version-framework-backed, or shared outside this capability. `limit` defaults to 50 and accepts 1-100. RLS plus an explicit owner predicate is the data boundary. Malformed cursors and out-of-range limits return `400`. Page size is bounded, but total inventory is not.
 
 ### D3: Filesystem first, authority row second
 
 Creation resolves the configured root, generates a UUID, and creates the exact stable-ID child before inserting the owner row in a PostgreSQL transaction. A committed row therefore begins with a usable child. If database insertion or commit fails, the empty unlinked directory may remain. It grants no authority and error recovery never deletes it.
 
+Root or child failures map to the existing safe `503 knowledge_space_unavailable` API response. Database insertion or commit failures use the API's existing safe internal-error response. Neither path exposes filesystem or database diagnostics. Validation remains `400`, missing/other-owner items remain the same `404`, and missing authentication remains `401`.
+
 `POST` remains non-idempotent. A lost success followed by retry may create another distinct space; idempotency-key infrastructure and cleanup belong to later work.
 
 ### D4: Tool eligibility is independent from resource availability
 
-Allowlisting and process configuration decide whether `knowledge_search` and `knowledge_read` are advertised. Owner inventory does not. With a configured root and permitted declarations, an owner with zero spaces still receives callable tools; a call returns `knowledge_space_not_configured`.
+Allowlisting and process configuration decide whether `knowledge_search` and `knowledge_read` are advertised. Owner inventory does not. With a configured root and permitted declarations, an owner with zero spaces still receives callable tools; an unscoped search returns `knowledge_space_not_configured`, while an explicit guessed selector remains `knowledge_space_not_found`.
 
 This removes the owner-row lookup from accepted-turn candidate resolution. A missing `knowledge.root` still makes the tools unavailable because no worker-local binding can execute safely.
 
 ### D5: Every tool call resolves current authorization
 
-There are no Chat or Run Knowledge bindings. At each invocation, trusted context supplies the authenticated owner. Search without a selector loads the current owner rows; explicit search/read validates the supplied stable ID under current RLS ownership. An added space can appear in a later call within the same Run. Removed access rejects the next call even when an earlier call succeeded.
+There are no Chat or Run Knowledge bindings. At each invocation, trusted context supplies the authenticated owner. Search without a selector iterates current owner rows in bounded keyset pages rather than materializing the uncapped inventory; explicit search/read validates the supplied stable ID under current RLS ownership. Inventory paging has no separate total-space cap but remains subject to the operation timeout and cancellation signal. An added space can appear in a later call within the same Run. Removed access rejects the next call even when an earlier call succeeded.
 
 Authorization is checked immediately before opening each targeted space. Revocation after that check does not cancel an already-open filesystem operation; the next target or call observes it. Guessed, absent, removed, and other-owner explicit IDs share `knowledge_space_not_found`.
 
@@ -82,7 +84,7 @@ The model discovers IDs through search results in this iteration. A later contex
 
 ### D8: Preserve incomplete honesty with one compacted marker
 
-The global tool execution union stays `success | error`; #542 does not introduce `status: partial`. A successful search with `complete:false` is immediately usable and persists its bounded warnings normally. When payload detail is later compacted, its ledger outcome is `incomplete`, not `success`, so replay cannot silently upgrade degraded work. A follow-up issue will standardize incomplete tool results across execution, replay, truncation, and UI.
+The global tool execution union stays `success | error`; #542 does not introduce `status: partial`. A successful search with `complete:false` is immediately usable and persists its bounded warnings normally. Whenever later model projection clears payload detail—during ordinary bounded next-turn projection or compaction—its projected outcome is `incomplete`, not `success`, so replay cannot silently upgrade degraded work. A follow-up issue will standardize incomplete tool results across execution, replay, truncation, and UI.
 
 ### D9: Ship as four implementation layers plus a finalization PR
 
@@ -97,7 +99,7 @@ Finalization is its own reviewable PR after acceptance. It applies the verified 
 ## Risks / Trade-offs
 
 - **Dynamic membership weakens retry determinism:** retries can see different spaces, just as existing live reads can see different bytes. Response-time attribution remains honest.
-- **No count cap permits large inventories:** REST pagination and global per-call search budgets bound operations. Capacity quotas require operational evidence before becoming product contract.
+- **No count cap permits large inventories:** REST pagination and keyset-paged tool enumeration bound memory while the global timeout and cancellation bound each search call. Capacity quotas require operational evidence before becoming product contract.
 - **One broken space yields incomplete success:** `complete:false`, bounded warnings, and the compacted `incomplete` outcome prevent false completeness.
 - **Directory-first creation leaves orphans:** unlinked random-ID empty directories are inert. Automatic deletion is more dangerous than bounded operational cleanup.
 - **POST retries can duplicate resources:** accepted for this API-only iteration; removal/idempotency belong to later lifecycle/platform work.

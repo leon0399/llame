@@ -4,7 +4,7 @@
 
 The system SHALL register `knowledge_search` and `knowledge_read` as code-owned `read_only` tools. Their executors SHALL receive the trusted Run owner identity and resolve current owner resources under tenant enforcement at each tool invocation. Model arguments MAY contain a Knowledge Space identifier only where the tool contract permits selection; they SHALL contain no owner ID, configured root, child directory, source key, host path, or alternate resource locator.
 
-Changing a tool path, query, guessed identifier, or persisted argument SHALL NOT widen current owner access. A guessed, absent, removed, or other-owner identifier SHALL return the same closed `knowledge_space_not_found` result. An owner with no current spaces SHALL receive `knowledge_space_not_configured`. Neither result SHALL reveal whether another owner, row, or directory exists.
+Changing a tool path, query, guessed identifier, or persisted argument SHALL NOT widen current owner access. A guessed, absent, removed, or other-owner explicit identifier SHALL return the same closed `knowledge_space_not_found` result even when the owner has no current spaces. An unscoped search by an owner with no current spaces SHALL receive `knowledge_space_not_configured`. Neither result SHALL reveal whether another owner, row, or directory exists.
 
 At Run acceptance, Knowledge tool eligibility SHALL depend on the immutable code-owned declaration, `read_only` classification, exact operator allowlist entry, and process configuration—not on owner inventory. With a configured `knowledge.root`, an otherwise-eligible Knowledge tool SHALL remain advertised when the owner currently has zero spaces; a later call SHALL signal `knowledge_space_not_configured` to the model. When `knowledge.root` is absent from the authoring API process, the existing closed `knowledge_space_unavailable` manifest state SHALL apply without probing the filesystem on the request path.
 
@@ -42,7 +42,7 @@ At worker execution, the static tool executor SHALL receive the Knowledge filesy
 
 ### Requirement: Knowledge search scans one or all current spaces deterministically within global bounds
 
-`knowledge_search` SHALL accept a non-empty literal query of at most 200 Unicode code points, an integer result limit from 1 through 10 defaulting to 5, and an optional `knowledgeSpaceId`. When the identifier is present, search SHALL target only that currently owner-accessible space. When absent, search SHALL target the owner's complete current inventory in `(createdAt, id)` order. Before opening each targeted child, search SHALL recheck current access under the trusted Run owner. Within a space, files SHALL be ordered by Knowledge-relative path.
+`knowledge_search` SHALL accept a non-empty literal query of at most 200 Unicode code points, an integer result limit from 1 through 10 defaulting to 5, and an optional `knowledgeSpaceId`. When the identifier is present, search SHALL target only that currently owner-accessible space. When absent, search SHALL iterate the owner's complete current inventory in `(createdAt, id)` keyset pages without materializing the uncapped inventory in memory. Inventory paging SHALL obey the same operation timeout and cancellation signal; it SHALL impose no separate total-space count cap. Before opening each targeted child, search SHALL recheck current access under the trusted Run owner. Within a space, files SHALL be ordered by Knowledge-relative path.
 
 Search SHALL perform a case-insensitive literal scan over safe UTF-8 Markdown files as they are read from the live targeted spaces, return at most one result per file, and include the first matching line with a surrounding snippet of at most 500 Unicode code points. A Markdown path is one whose final component ends with `.md`, compared ASCII case-insensitively. Search SHALL use no grep subprocess, index, or PostgreSQL content projection.
 
@@ -52,7 +52,7 @@ Every returned match SHALL carry the response-time Knowledge Space identifier an
 
 When an unscoped search successfully inspects at least one space but another target has a space-scoped unavailable binding, unsafe path or symbolic-link condition, or invalid Markdown content, it SHALL continue with remaining spaces and return `status: "success"`, usable `results`, `complete: false`, a bounded top-level `warnings` array with at most one warning object per failed space, and `warningCount` for the total failed spaces. Each warning SHALL carry exactly one of `knowledge_space_unavailable`, `knowledge_path_invalid`, or `knowledge_content_invalid` as its type, plus the response-time space ID and name and a safe message; it SHALL NOT be attached to a valid result. `warningCount` MAY exceed `warnings.length` when the structured output budget requires omitting warning detail. A complete success SHALL return `complete: true`, `warnings: []`, and `warningCount: 0`.
 
-If an explicit target fails, every target in an unscoped search fails, the owner has no current spaces, or a global entry, file-count, byte, path, timeout, cancellation, result, or output bound prevents completion, the tool SHALL return the applicable top-level closed error and SHALL NOT return partial matches as complete. A global safety or output bound SHALL return `knowledge_limit_exceeded`; zero inventory SHALL return `knowledge_space_not_configured`.
+If an explicit target fails, every target in an unscoped search fails, the owner has no current spaces, or a global entry, file-count, byte, path, timeout, cancellation, result, or output bound prevents completion, the tool SHALL return the applicable top-level closed error and SHALL NOT return partial matches as complete. A currently owned target whose root or stable-ID child cannot be resolved safely SHALL return `knowledge_space_unavailable`; an absent, removed, or other-owner explicit target SHALL return `knowledge_space_not_found`. A global safety or output bound SHALL return `knowledge_limit_exceeded`; zero inventory for an unscoped search SHALL return `knowledge_space_not_configured`.
 
 There is no operation-wide content revision or snapshot. A file changed after it was inspected does not rewrite the recorded result, while another file inspected later may reflect newer bytes.
 
@@ -103,7 +103,7 @@ There is no operation-wide content revision or snapshot. A file changed after it
 
 The tool SHALL read the complete current bytes from one safely resolved regular file when its size is at most 64 KiB, validate UTF-8, and return the complete text only when the structured success value serializes to at most 15,000 JavaScript UTF-16 code units. The path SHALL be matched case-sensitively against live directory entries. The tool SHALL reject absolute paths, empty components, `.` or `..` components, backslashes, NUL or control characters, paths above 1,024 UTF-8 bytes or 32 components, and non-Markdown suffixes. It SHALL reject every symbolic-link component or entry and SHALL NOT follow a link even when its target remains inside the Knowledge Space.
 
-Every success SHALL include the response-time Knowledge Space identifier and display name, exact Knowledge-relative path, and lowercase SHA-256 hash of the exact bytes returned. Invalid or non-admitted paths and inaccessible selectors SHALL return a closed `knowledge_path_invalid`, `knowledge_not_found`, `knowledge_space_not_found`, `knowledge_content_invalid`, or `knowledge_limit_exceeded` result without revealing the configured root or whether a rejected host path or other-owner resource exists.
+Every success SHALL include the response-time Knowledge Space identifier and display name, exact Knowledge-relative path, and lowercase SHA-256 hash of the exact bytes returned. Invalid or non-admitted paths and inaccessible selectors SHALL return a closed `knowledge_path_invalid`, `knowledge_not_found`, `knowledge_space_not_found`, `knowledge_space_unavailable`, `knowledge_content_invalid`, or `knowledge_limit_exceeded` result without revealing the configured root or whether a rejected host path or other-owner resource exists.
 
 #### Scenario: Read returns current Markdown
 
@@ -144,7 +144,7 @@ Every success SHALL include the response-time Knowledge Space identifier and dis
 
 Every successful search match and read result SHALL include the logical Knowledge Space identifier, response-time display name, exact Knowledge-relative path, and SHA-256 content hash. Search SHALL additionally identify the matching line and snippet. These fields describe the exact bytes and name resolved for that call; they SHALL NOT claim that a path, display name, authorization binding, or content remains unchanged or permanently replayable.
 
-The fields SHALL remain complete in the persisted tool-result part, live event stream, and browser reconstruction because Knowledge success results preflight below the live-result cap. Later model replay MAY clear payload detail or omit the complete call/result pair under the tool-calling capability's existing pair and turn/ledger budgets. A successful search that explicitly records `complete: false` SHALL retain an `incomplete` compacted outcome instead of being projected as complete success after detail is cleared.
+The fields SHALL remain complete in the persisted tool-result part, live event stream, and browser reconstruction because Knowledge success results preflight below the live-result cap. Later model replay MAY clear payload detail or omit the complete call/result pair under the tool-calling capability's existing pair and turn/ledger budgets. A successful search that explicitly records `complete: false` SHALL retain an `incomplete` outcome in every later payload-cleared model projection, including ordinary bounded next-turn replay and compacted-ledger replay, instead of being projected as complete success after detail is cleared.
 
 The persisted observation SHALL include the bounded snippet or returned Markdown in the existing PostgreSQL-backed Run-event and assistant-message-part stores and SHALL follow their existing Run and Chat retention and deletion lifecycle. This execution history SHALL NOT become a canonical Knowledge content projection, index, source store, or alternate read authority. The system SHALL add no separate Knowledge-content persistence; every later retrieval SHALL read the live files again.
 
@@ -168,9 +168,9 @@ Attribution SHALL exclude configured roots, resolved child paths, hosted owner I
 - **AND** the tool description directs the model to cite both in its answer
 - **AND** it exposes no configured root or resolved host path
 
-#### Scenario: Compaction preserves incomplete search honesty
+#### Scenario: Payload-cleared replay preserves incomplete search honesty
 
-- **WHEN** a successful search with `complete: false` is reduced to a payload-cleared ledger observation
+- **WHEN** a successful search with `complete: false` is reduced to any payload-cleared model observation
 - **THEN** replay identifies its outcome as `incomplete`, not `success`
 - **AND** the degraded call cannot become indistinguishable from a complete search
 

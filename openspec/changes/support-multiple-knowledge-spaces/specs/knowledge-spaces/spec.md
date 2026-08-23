@@ -8,7 +8,7 @@ The owner identity SHALL come only from the authenticated request context. Each 
 
 The inventory SHALL be stored in tenant-owned PostgreSQL state with row-level security ENABLED and FORCED against the current authenticated owner. Application queries SHALL retain explicit owner predicates as defense-in-depth. Missing and other-owner item identifiers SHALL return the same `404` response.
 
-List requests SHALL accept a bounded `limit` and optional opaque `after` cursor, order by `(createdAt, id)`, and return `{ "items": [...], "nextCursor": string | null }`. The Knowledge capability SHALL implement the cursor as validated base64url-encoded `createdAt` and `id` keyset values. Malformed cursors SHALL return `400`. This iteration SHALL NOT introduce a reusable pagination framework, signed cursors, total counts, or offset pagination.
+List requests SHALL accept an integer `limit` from 1 through 100, default it to 50 when omitted, and accept an optional opaque `after` cursor. They SHALL order by `(createdAt, id)` and return `{ "items": [...], "nextCursor": string | null }`. The Knowledge capability SHALL implement the cursor as validated base64url-encoded `createdAt` and `id` keyset values. A malformed cursor or out-of-range limit SHALL return `400`. This iteration SHALL NOT introduce a reusable pagination framework, signed cursors, total counts, or offset pagination.
 
 #### Scenario: One owner creates same-named spaces
 
@@ -58,6 +58,8 @@ List requests SHALL accept a bounded `limit` and optional opaque `after` cursor,
 For each hosted resource, trusted code SHALL generate the stable Knowledge Space identifier and derive one direct child directory from it beneath the operator-configured Knowledge root. It SHALL canonicalize the root, require it to be an accessible directory, and prove the child resolves directly beneath that root. It SHALL NOT scan for candidate directories, claim a caller-named directory, or fall back to Home, the process working directory, a user-ID-derived location, another owner's child, or remote storage.
 
 Provisioning SHALL create and validate the exact stable-ID child before inserting its owner row in a PostgreSQL transaction. A committed authority row SHALL therefore begin with a usable real directory. If directory creation fails, no authority row SHALL commit. If database insertion or commit fails after directory creation, the empty unauthoritative child MAY remain; recovery SHALL NOT delete or repurpose it. A later `POST` is a new non-idempotent creation attempt and MAY allocate a distinct resource.
+
+Root resolution, child creation, or child validation failure SHALL return the existing safe `503 knowledge_space_unavailable` API response and SHALL expose no filesystem path or raw diagnostic. Database insertion or commit failure SHALL use the API's existing safe internal-error response, expose no database or filesystem diagnostic, and leave any created child unauthoritative. Successful item and list operations SHALL use their declared `2xx` responses; malformed input SHALL return `400`, missing or other-owner items SHALL return the same `404`, and missing authentication SHALL return `401`.
 
 Only an owner row visible under RLS grants authority to a child directory; an unlinked directory alone grants none. Provisioning SHALL NOT initialize Git, create commits, or require a repository. A safe empty directory is valid. Importing or claiming a pre-existing caller-selected directory is outside this capability.
 

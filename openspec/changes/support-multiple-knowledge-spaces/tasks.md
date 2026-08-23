@@ -10,7 +10,7 @@
 
 - [ ] 2.1 Remove owner-inventory gating and the obsolete `knowledge_space_not_configured` manifest/recovery path from accepted-turn Knowledge candidates while retaining allowlist and configured-root gates; verify zero inventory advertises callable tools whose calls return `knowledge_space_not_configured`, and update availability receipt/reminder tests.
 - [ ] 2.2 Resolve current owner resources inside every tool invocation, rechecking each target before open; verify later additions appear, later removals fail, guessed/absent/other-owner IDs are indistinguishable, and no root or owner detail leaks.
-- [ ] 2.3 Extend `knowledge_search` with optional `knowledgeSpaceId`, deterministic all-current traversal, and one shared operation budget; verify selector narrowing, ordering, live file changes, global limits, timeout, cancellation, and zero-inventory behavior.
+- [ ] 2.3 Extend `knowledge_search` with optional `knowledgeSpaceId`, deterministic keyset-paged all-current traversal without inventory materialization, and one shared operation budget; verify selector narrowing, ordering, live file changes, global limits, timeout, cancellation, and zero-inventory behavior.
 - [ ] 2.4 Return bounded call-level warnings and `complete: false` when one space-scoped failure leaves usable all-space results; verify explicit-target, all-target, and global-limit failures remain top-level errors with no false completeness.
 - [ ] 2.5 Require explicit `knowledgeSpaceId` for every `knowledge_read`; verify omission fails before filesystem access and same-named spaces, containment, symlink refusal, bounded reads, and exact hash/content attribution remain safe.
 - [ ] 2.6 Persist response-time space names/IDs with Knowledge results; verify reload and rename/file-change history retain exact call-time attribution.
@@ -18,7 +18,7 @@
 
 ## 3. Incomplete Replay Layer (`multiple-kb/replay`)
 
-- [ ] 3.1 Map a payload-cleared successful Knowledge search with `complete: false` to ledger outcome `incomplete` in the generic run/observation pipeline without adding a third `ToolResult.status`; verify full payload, durable event, compaction, and later model replay preserve the distinction.
+- [ ] 3.1 Map a payload-cleared successful Knowledge search with `complete: false` to outcome `incomplete` in every generic model-replay projection without adding a third `ToolResult.status`; verify full payload, durable event, ordinary bounded next-turn projection, compaction, and later ledger replay preserve the distinction.
 - [ ] 3.2 Preserve existing `success`, exact error, pairing, omission, and budget behavior for every other tool observation; verify focused generic run/observation tests and affected API typecheck, lint, and sequential build pass before submitting the layer.
 
 ## 4. Acceptance Layer (`multiple-kb/acceptance`)
