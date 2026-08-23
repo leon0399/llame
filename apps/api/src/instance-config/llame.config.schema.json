@@ -121,6 +121,57 @@
         }
       }
     },
+    "embeddingDistanceMetric": {
+      "type": "string",
+      "description": "Distance metric the model's vectors are compared under. Only \"cosine\" is supported in this change — closed on purpose so a config naming an unimplemented metric fails validation, not execution.",
+      "enum": ["cosine"]
+    },
+    "embeddingModelEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A single declared embedding model (chat-search-embeddings). Reuses an existing providers[] connection rather than introducing a parallel credential or endpoint concept.",
+      "required": ["id", "provider", "providerModelId", "dimensions"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable internal key. Application code and stored vectors reference this — NEVER the provider-side model id. Referenced by a corpus's `search.*.embeddingModelId` selection."
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "description": "References a `providers[].id`. An id not defined there fails boot naming this embedding model and the dangling reference."
+        },
+        "providerModelId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The server-only model id sent to the provider. Never derived from `id`, never returned to a client."
+        },
+        "dimensions": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Vector width this model produces. Every returned vector is validated against this before it is persisted."
+        },
+        "batchSize": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Documents per provider request. A throughput knob only — excluded from the binding-ledger comparison, so tuning it never conflicts with vectors already stored under this key. Defaults to 32."
+        },
+        "distanceMetric": { "$ref": "#/$defs/embeddingDistanceMetric" },
+        "revision": {
+          "type": "string",
+          "description": "Optional model revision/version tag, recorded in the binding ledger alongside providerModelId."
+        },
+        "documentPrefix": {
+          "type": "string",
+          "description": "Optional text prepended to document content before embedding (asymmetric document/query models, e.g. E5/BGE's \"passage:\" convention)."
+        },
+        "queryPrefix": {
+          "type": "string",
+          "description": "Optional text prepended to a search query before embedding — the query-side counterpart to documentPrefix."
+        }
+      }
+    },
     "modelPricing": {
       "type": "object",
       "additionalProperties": false,
@@ -207,6 +258,29 @@
       "type": "array",
       "description": "The executable model catalog (providers-and-models-as-code, #167), superseding the formerly hardcoded server catalog. Each entry's `provider` must reference a `providers[].id`.",
       "items": { "$ref": "#/$defs/modelEntry" }
+    },
+    "embeddingModels": {
+      "type": "array",
+      "description": "Declared embedding models (chat-search-embeddings). Optional; an instance declaring none is unchanged from today and schedules no embedding work.",
+      "items": { "$ref": "#/$defs/embeddingModelEntry" }
+    },
+    "search": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-corpus search settings (chat-search-embeddings). Selection is expressed per corpus, never as one instance-wide flag, so corpora embedding at different rates cannot strand one another.",
+      "properties": {
+        "chats": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The chat corpus's embedding selection.",
+          "properties": {
+            "embeddingModelId": {
+              "$ref": "#/$defs/nullableString",
+              "description": "Must reference an entry in `embeddingModels[]` when set (boot failure otherwise). Unset (default) means the chat corpus has no intended model and produces no embedding work."
+            }
+          }
+        }
+      }
     },
     "mcpServers": {
       "type": "object",

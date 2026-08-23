@@ -5,3 +5,4 @@ export * from './text';
 export * from './chunking';
 export * from './fusion';
 export * from './eval';
+export * from './embedding-backend';

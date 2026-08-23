@@ -161,6 +161,25 @@
     },
   ],
 
+  // Optional declared embedding models, reusing a providers[] connection
+  // above. Declaring one and selecting it below is the entire off-by-default
+  // contract: with neither set, search behavior is unchanged.
+  // "embeddingModels": [
+  //   {
+  //     "id": "openai:text-embedding-3-large",
+  //     "provider": "openai",
+  //     "providerModelId": "text-embedding-3-large",
+  //     // TODO: make non-required
+  //     "dimensions": 3072
+  //   }
+  // ],
+
+  // Per-corpus intended-embedding-model selection. Unset (default) means no
+  // embedding work is scheduled for that corpus.
+  // "search": {
+  //   "chats": { "embeddingModelId": "openai:text-embedding-3-large" }
+  // },
+
   // Run limits. Interpolated numbers must be whole-value quoted tokens.
   "runs": {
     // Reserved from the context window when checking request fit.

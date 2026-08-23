@@ -10,6 +10,8 @@ import {
 
 import {
   BUILT_IN_DEFAULTS,
+  DEFAULT_EMBEDDING_BATCH_SIZE,
+  type EmbeddingModelCatalogEntry,
   type LlameConfig,
   type KnowledgeConfig,
   type McpRemoteServerConfig,
@@ -66,6 +68,9 @@ export function loadInstanceConfig(
   const models = resolveModels(raw, env, providerIds, promptLoader);
   promptLoader.validateProjectDefault();
   const modelIds = new Set(models.map((m) => m.id));
+  const embeddingModels = resolveEmbeddingModels(raw, env, providerIds);
+  const embeddingModelIds = new Set(embeddingModels.map((m) => m.id));
+  const search = resolveSearchConfig(raw, env, embeddingModelIds);
   const mcpServers = resolveMcpServers(raw, env);
 
   const defaultModelId = resolveNullableString({
@@ -78,11 +83,17 @@ export function loadInstanceConfig(
     ...readLeaf(raw, 'defaults', 'titleGenerationModelId'),
     env,
   });
-  assertReferencesModel('defaults.modelId', defaultModelId, modelIds);
-  assertReferencesModel(
+  assertReferencesCatalog(
+    'defaults.modelId',
+    defaultModelId,
+    modelIds,
+    'models[].id',
+  );
+  assertReferencesCatalog(
     'defaults.titleGenerationModelId',
     titleGenerationModelId,
     modelIds,
+    'models[].id',
   );
 
   return {
@@ -175,6 +186,8 @@ export function loadInstanceConfig(
     workers: resolveWorkerProfiles(raw),
     providers,
     models,
+    embeddingModels,
+    search,
   };
 }
 
@@ -890,23 +903,95 @@ function resolveModels(
 }
 
 /**
- * Boot-time reference integrity for `defaults.modelId` /
- * `defaults.titleGenerationModelId` (D6): a set pointer must name a
- * configured model, or startup fails naming the dangling reference. `null`
- * (unset) is always valid — these pointers are optional.
+ * Resolve `embeddingModels[]` (chat-search-embeddings, design D1): the
+ * schema guarantees required-field presence and element shape; this resolver
+ * owns duplicate-id rejection and the `provider` cross-reference — the same
+ * split `resolveModels` uses, and for the same reason (not expressible in
+ * JSON Schema, which can't reference across sibling arrays). Every error
+ * names the entry by id and field, never by resolved value.
  */
-function assertReferencesModel(
+function resolveEmbeddingModels(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
+  providerIds: ReadonlySet<string>,
+): EmbeddingModelCatalogEntry[] {
+  const entries = raw?.embeddingModels ?? [];
+  const seenIds = new Set<string>();
+
+  return entries.map((entry) => {
+    if (seenIds.has(entry.id)) {
+      throw new InstanceConfigError(
+        `embeddingModels: duplicate embedding model id "${entry.id}"`,
+      );
+    }
+    seenIds.add(entry.id);
+
+    if (!providerIds.has(entry.provider)) {
+      throw new InstanceConfigError(
+        `embeddingModels[${entry.id}].provider: unknown provider id "${entry.provider}" (not defined in providers[])`,
+      );
+    }
+
+    // dimensions/id/provider/providerModelId presence+shape are schema-
+    // guaranteed; revision/documentPrefix/queryPrefix need no resolution
+    // (no {env:}/{path:} interpolation on this entry — same posture as
+    // models[]'s display fields) so they ride along in the spread rather
+    // than each needing its own presence check.
+    return {
+      ...entry,
+      batchSize: entry.batchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE,
+      distanceMetric: entry.distanceMetric ?? 'cosine',
+    };
+  });
+}
+
+/**
+ * Resolve `search`: per-corpus intended-embedding-model selection (design
+ * D6). `chats` is the only corpus this change embeds. Absent -> no intended
+ * model, no embedding work (off-by-default).
+ */
+function resolveSearchConfig(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
+  embeddingModelIds: ReadonlySet<string>,
+): LlameConfig['search'] {
+  const chatsEmbeddingModelId = resolveNullableString({
+    configPath: 'search.chats.embeddingModelId',
+    ...readLeaf(raw?.search, 'chats', 'embeddingModelId'),
+    env,
+  });
+  assertReferencesCatalog(
+    'search.chats.embeddingModelId',
+    chatsEmbeddingModelId,
+    embeddingModelIds,
+    'embeddingModels[].id',
+  );
+  return {
+    chats: { embeddingModelId: chatsEmbeddingModelId },
+  };
+}
+
+/**
+ * Boot-time reference integrity for a nullable pointer setting that must name
+ * an entry in some other resolved catalog (`defaults.modelId` /
+ * `defaults.titleGenerationModelId` against `models[].id` — D6; `search.
+ * chats.embeddingModelId` against `embeddingModels[].id`), or startup fails
+ * naming the dangling reference. `null` (unset) is always valid — these
+ * pointers are optional.
+ */
+function assertReferencesCatalog(
   configPath: string,
-  modelId: string | null,
-  modelIds: ReadonlySet<string>,
+  id: string | null,
+  ids: ReadonlySet<string>,
+  catalogLabel: string,
 ): void {
-  // Never interpolate the resolved modelId into the message: defaults.modelId
-  // supports {env:}/{path:} interpolation like any nullable string setting, so
+  // Never interpolate the resolved id into the message: these pointers
+  // support {env:}/{path:} interpolation like any nullable string setting, so
   // a dangling reference here could otherwise leak a resolved secret value
   // (same discipline as InterpolationError — name the path, never the value).
-  if (modelId !== null && !modelIds.has(modelId)) {
+  if (id !== null && !ids.has(id)) {
     throw new InstanceConfigError(
-      `${configPath}: does not reference any configured models[].id`,
+      `${configPath}: does not reference any configured ${catalogLabel}`,
     );
   }
 }
