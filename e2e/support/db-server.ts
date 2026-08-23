@@ -10,6 +10,10 @@ const rlsFunctionOwnerSqlPath = resolve(
   repoRoot,
   "docker/postgres/rls-function-owner.sql",
 );
+const vectorExtensionSqlPath = resolve(
+  repoRoot,
+  "docker/postgres/initdb/03-vector-extension.sql",
+);
 const container = process.env.E2E_DB_CONTAINER ?? "llame-e2e-postgres";
 const image =
   process.env.E2E_DB_PG_IMAGE ??
@@ -169,6 +173,33 @@ function migrateDatabase(): void {
 // membership op silently sees zero rows (org-units D4). Read from the source
 // file rather than duplicated inline, so it can't drift from the real
 // provisioning step.
+// `vector` (pgvector) is not a trusted extension, so only the superuser can
+// install it — mirrors docker/postgres/initdb/03-vector-extension.sql (the
+// compose dev database) and apps/api/vitest.integration.global-setup.mts
+// (the test:integration Testcontainers database). Must run before
+// migrateDatabase(): the chat-search-embeddings migration's ADD COLUMN uses
+// the `vector` type, and `app` (NOSUPERUSER) cannot create the extension
+// itself.
+function provisionVectorExtension(): void {
+  const sql = fs.readFileSync(vectorExtensionSqlPath, "utf8");
+  runWithInput(
+    "docker",
+    [
+      "exec",
+      "-i",
+      container,
+      "psql",
+      "-U",
+      "postgres",
+      "-d",
+      databaseName,
+      "-v",
+      "ON_ERROR_STOP=1",
+    ],
+    sql,
+  );
+}
+
 function provisionRlsFunctionOwner(): void {
   const sql = fs.readFileSync(rlsFunctionOwnerSqlPath, "utf8");
   runWithInput(
@@ -231,6 +262,8 @@ async function main(): Promise<void> {
     await waitForPostgres();
     if (shuttingDown) return;
     provisionDatabase();
+    if (shuttingDown) return;
+    provisionVectorExtension();
     if (shuttingDown) return;
     migrateDatabase();
     if (shuttingDown) return;
