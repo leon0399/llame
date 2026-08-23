@@ -94,3 +94,9 @@ AS $$
            count(*) FILTER (WHERE has_failure) DESC
   LIMIT max_rows;
 $$;
+--> statement-breakpoint
+-- Same reasoning as its two siblings: SECURITY DEFINER + a BYPASSRLS owner
+-- means the default `EXECUTE TO PUBLIC` is a cross-tenant read. Only `app`
+-- needs it.
+REVOKE ALL ON FUNCTION llame_search_embedding_report(text, integer, integer) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION llame_search_embedding_report(text, integer, integer) TO app;

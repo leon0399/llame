@@ -86,9 +86,13 @@ export class SearchEmbedDispatchService {
   async enqueueChatEmbedStrict(
     chatId: string,
     ownerUserId: string,
-  ): Promise<void> {
+  ): Promise<string | null> {
     await this.ensureQueue();
-    await this.queue.enqueue(
+    // Returns the job id, or null when pg-boss coalesced this onto a job
+    // already queued under the same singleton key. Callers that report counts
+    // need to tell those apart — discarding the null made an already-queued
+    // chat indistinguishable from a newly enqueued one.
+    return await this.queue.enqueue(
       SEARCH_EMBED_QUEUE,
       { chatId, ownerUserId },
       { singletonKey: chatId },

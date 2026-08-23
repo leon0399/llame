@@ -100,7 +100,7 @@ async function runCommand(command: string): Promise<void> {
           'llame_search_embedding_coverage',
         );
         const dispatch = app.get(SearchEmbedDispatchService);
-        const { enqueued, failures } = await runBackfill(
+        const { enqueued, coalesced, failures } = await runBackfill(
           tenantDb,
           dispatch,
           modelId,
@@ -116,7 +116,12 @@ async function runCommand(command: string): Promise<void> {
             `backfill: enqueued ${enqueued} chat(s), FAILED to enqueue ${failures.length} — see errors above. Safe to re-run once the queue is reachable again (an already-queued chat coalesces under its singleton key rather than duplicating).`,
           );
         }
-        console.log(`backfill: enqueued ${enqueued} chat(s)`);
+        console.log(
+          `backfill: enqueued ${enqueued} chat(s)` +
+            (coalesced > 0
+              ? `, ${coalesced} already queued (coalesced, not re-enqueued)`
+              : ''),
+        );
         return;
       }
       case 'prune': {

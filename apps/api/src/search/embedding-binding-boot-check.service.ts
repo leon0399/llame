@@ -59,13 +59,19 @@ export class EmbeddingBindingBootCheckService
 
   async onApplicationBootstrap(): Promise<void> {
     const models = this.instanceConfig.config.embeddingModels;
-    if (models.length === 0) return;
 
-    const ledger: EmbeddingBindingLookup = {
-      findBinding: (modelKey) =>
-        this.tenantDb.runAsPublic((tx) => findEmbeddingBinding(tx, modelKey)),
-    };
-    await assertDeclaredBindingsConsistent(models, ledger);
+    // Consistency only means something for a DECLARED model, so it stays
+    // gated. The undeclared-key warning below deliberately is not: emptying
+    // `embeddingModels[]` is the most likely way to end up with orphaned
+    // vectors, and returning early here silenced the one message that tells
+    // an operator to run `search:prune` in exactly that case.
+    if (models.length > 0) {
+      const ledger: EmbeddingBindingLookup = {
+        findBinding: (modelKey) =>
+          this.tenantDb.runAsPublic((tx) => findEmbeddingBinding(tx, modelKey)),
+      };
+      await assertDeclaredBindingsConsistent(models, ledger);
+    }
 
     const declaredKeys = models.map((model) => model.id);
     const undeclared = await this.tenantDb.runAsPublic((tx) =>

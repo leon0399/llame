@@ -100,12 +100,23 @@ export async function pruneUndeclaredModelVectors(
   // for why leaving it behind after clearing the vectors is itself a bug.
   // `embedding_model_bindings` carries no tenant column and no RLS, so this
   // is one global DELETE, not a per-owner loop.
-  const retired = await tenantDb.runAsPublic((tx) =>
-    tx.execute(sql`
-      DELETE FROM embedding_model_bindings
-      WHERE ${notInDeclared(sql`model_key`)}
-    `),
-  );
+  // ...but ONLY once every owner's vectors are actually gone. The ledger row
+  // is what keeps an orphan discoverable: the boot check's warning is driven
+  // by its presence, and `assertBindingConsistent` uses it to refuse a
+  // redeclaration of the same id under different provider parameters.
+  // Retiring it while some owner still holds vectors under that key would
+  // silence the warning about the very rows the failure just left behind, and
+  // let the id be redefined as a different model with those rows still in the
+  // table. A partial prune must stay visibly unfinished and re-runnable.
+  const retired =
+    failures.length === 0
+      ? await tenantDb.runAsPublic((tx) =>
+          tx.execute(sql`
+            DELETE FROM embedding_model_bindings
+            WHERE ${notInDeclared(sql`model_key`)}
+          `),
+        )
+      : { count: 0 };
 
   return {
     prunedDocuments,

@@ -87,10 +87,29 @@ afterEach(async () => {
 });
 
 describe('EmbeddingBindingBootCheckService', () => {
-  it('issues no ledger lookup when no embedding models are declared', async () => {
+  it('issues no per-key consistency lookup when no embedding models are declared', async () => {
     const { service, callCount } = await buildService([], {});
     await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
-    expect(callCount()).toBe(0);
+    // Exactly one call: the undeclared-key sweep. Consistency has no meaning
+    // with nothing declared, so no per-key lookup happens.
+    expect(callCount()).toBe(1);
+  });
+
+  // Regression (review, PR #536): this used to return before the sweep, so
+  // emptying `embeddingModels[]` — the most likely way to strand vectors —
+  // silenced the only message telling the operator to run `search:prune`.
+  it('still warns about stranded vectors when every model is undeclared', async () => {
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    const { service } = await buildService([], {}, ['embed-model-a']);
+
+    await service.onApplicationBootstrap();
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('embed-model-a');
+    expect(warn.mock.calls[0]?.[0]).toContain('search:prune');
+    warn.mockRestore();
   });
 
   it('passes when a declared model has no existing ledger row (first use)', async () => {

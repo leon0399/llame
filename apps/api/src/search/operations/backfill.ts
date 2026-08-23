@@ -92,10 +92,20 @@ export type EnqueueFailure = {
  *  outcomes in it. */
 async function enqueueBounded(
   rows: readonly OutstandingRow[],
-  enqueueOne: (chatId: string, ownerUserId: string) => Promise<void>,
-): Promise<{ succeeded: number; failures: EnqueueFailure[] }> {
+  enqueueOne: (chatId: string, ownerUserId: string) => Promise<string | null>,
+): Promise<{
+  succeeded: number;
+  coalesced: number;
+  failures: EnqueueFailure[];
+}> {
   const CONCURRENCY = 20;
   let succeeded = 0;
+  // pg-boss returns null when the chat already had a job queued under its
+  // singleton key. That is not a failure — the work is scheduled either way —
+  // but counting it as newly enqueued contradicts this file's own promise to
+  // report only what actually enqueued, and would make a re-run of an
+  // already-queued corpus claim it queued everything a second time.
+  let coalesced = 0;
   const failures: EnqueueFailure[] = [];
   for (let i = 0; i < rows.length; i += CONCURRENCY) {
     const batch = rows.slice(i, i + CONCURRENCY);
@@ -104,7 +114,11 @@ async function enqueueBounded(
     );
     results.forEach((result, index) => {
       if (result.status === 'fulfilled') {
-        succeeded += 1;
+        if (result.value === null) {
+          coalesced += 1;
+        } else {
+          succeeded += 1;
+        }
       } else {
         const row = batch[index];
         failures.push({
@@ -118,12 +132,15 @@ async function enqueueBounded(
       }
     });
   }
-  return { succeeded, failures };
+  return { succeeded, coalesced, failures };
 }
 
 export type BackfillResult = {
   /** Chats that actually enqueued — never a count of attempts. */
   enqueued: number;
+  /** Chats already queued under their singleton key, so not enqueued again.
+   *  Not a failure: the work is scheduled either way. */
+  coalesced: number;
   /** Chats whose enqueue failed; empty on a fully successful run. The
    *  caller must treat any non-empty result as a failed command. */
   failures: EnqueueFailure[];
@@ -147,10 +164,10 @@ export async function runBackfill(
     `),
   );
   const list = [...rows];
-  const { succeeded, failures } = await enqueueBounded(
+  const { succeeded, coalesced, failures } = await enqueueBounded(
     list,
     (chatId, ownerUserId) =>
       dispatch.enqueueChatEmbedStrict(chatId, ownerUserId),
   );
-  return { enqueued: succeeded, failures };
+  return { enqueued: succeeded, coalesced, failures };
 }

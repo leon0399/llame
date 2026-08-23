@@ -30,6 +30,31 @@ function fakeTenantDb(rows: Row[]): CoverageQueryRunner {
 }
 
 describe('runBackfill', () => {
+  // Regression (review, PR #536): pg-boss returns null when a chat already had
+  // a job queued under its singleton key. Counting that as newly enqueued made
+  // a re-run of an already-queued corpus claim it queued everything again,
+  // contradicting this module's "reports only what actually enqueued" promise.
+  it('reports a coalesced enqueue separately from a new one', async () => {
+    const rows: Row[] = [
+      { chat_id: 'fresh', owner_user_id: 'u1' },
+      { chat_id: 'already', owner_user_id: 'u2' },
+    ];
+    const enqueueChatEmbedStrict = vi.fn((chatId: string) =>
+      Promise.resolve(chatId === 'already' ? null : `job-${chatId}`),
+    );
+
+    const { enqueued, coalesced, failures } = await runBackfill(
+      fakeTenantDb(rows),
+      { enqueueChatEmbedStrict },
+      'model-a',
+      1,
+    );
+
+    expect(enqueued).toBe(1);
+    expect(coalesced).toBe(1);
+    expect(failures).toEqual([]);
+  });
+
   it('enqueues one job per row the coverage query returns', async () => {
     const rows: Row[] = [
       { chat_id: 'c1', owner_user_id: 'u1' },
@@ -123,7 +148,7 @@ describe('runBackfill', () => {
     const enqueueChatEmbedStrict = vi.fn((chatId: string) =>
       chatId === 'c2'
         ? Promise.reject(new Error('boom'))
-        : Promise.resolve(undefined),
+        : Promise.resolve(`job-${chatId}`),
     );
 
     const { enqueued, failures } = await runBackfill(

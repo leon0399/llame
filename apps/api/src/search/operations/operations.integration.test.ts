@@ -273,7 +273,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
       const enqueueChatEmbedStrict = vi.fn((chatId: string) =>
         chatId === failChat
           ? Promise.reject(new Error('queue unreachable'))
-          : Promise.resolve(undefined),
+          : Promise.resolve(`job-${chatId}`),
       );
 
       const { enqueued, failures } = await runBackfill(
