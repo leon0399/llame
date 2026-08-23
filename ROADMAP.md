@@ -9,10 +9,10 @@ No dates or effort estimates are implied.
 
 ## Immediate cut: file-native personal intelligence
 
-Remaining outcome: build on the shipped live personal Knowledge reads with
-recoverable Git writes, then reuse that change path for inspectable file-backed
-Profile context. Retire the duplicated database personalization surface only
-after the file path has proven the replacement.
+Remaining outcome: build on the shipped live multi-space personal Knowledge
+reads with recoverable Git writes, then reuse that change path for inspectable
+file-backed Profile context. Retire the duplicated database personalization
+surface only after the file path has proven the replacement.
 
 ### 1. v0.7 Runnable personal knowledge agent
 
@@ -40,8 +40,9 @@ flowchart TD
   substrate and lands one visible, recoverable agent-authored knowledge commit
   after the shipped #213 live-read boundary.
 - [#39](https://github.com/leon0399/llame/issues/39) owns the combined MCP to
-  knowledge to later-recall exit gate. Its remote-MCP prerequisite is already
-  shipped, so it is context for the gate rather than an open roadmap node.
+  knowledge to later-recall exit gate. Its remote-MCP and multiple-Knowledge-
+  Space prerequisites are already shipped, so they are context for the gate
+  rather than open roadmap nodes.
 
 This milestone excludes shared Knowledge Spaces, project routing, embeddings,
 semantic facts, automatic prompt injection, Jujutsu workflows, full permission

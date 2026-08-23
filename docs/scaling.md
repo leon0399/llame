@@ -135,11 +135,11 @@ bottleneck from the queue to the connection — raise them together.
 Personal Knowledge adds one operator-configured `knowledge.root`; it is not a
 worker-profile group or a queue-routing key. Every API process that authors Runs
 must declare the setting so accept-time availability is consistent. A process
-serving `PUT /api/v1/me/knowledge-space` needs write access to create stable-ID
-children. Every process consuming `runs` needs read access to every owner child
-it may execute. A split deployment may use different absolute paths only when
-they expose the same logical stable-ID directory set. Subset mounts and
-owner-affinity routing are unsupported until execution placement exists.
+serving `POST /api/v1/knowledge-spaces` needs write access to create stable-ID
+children. Every process consuming `runs` needs read access to every current
+owner child it may execute. A split deployment may use different absolute paths
+only when they expose the same logical stable-ID directory set. Subset mounts
+and owner-affinity routing are unsupported until execution placement exists.
 
 Configuration loading does not probe the root. A missing or unusable mount is
 reported as a closed Knowledge-unavailable outcome during provisioning or worker

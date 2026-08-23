@@ -146,27 +146,44 @@ Operators configure providers, models, defaults, secret references, and optional
 
 ## 15. Knowledge
 
-Each authenticated owner may self-service one personal Knowledge Space beneath
-the operator-configured `knowledge.root`. The durable PostgreSQL record contains
-only the tenant-scoped owner-to-space linkage and the stable opaque logical ID;
-Knowledge Markdown content and search state remain in files. The hosted binding
-derives a direct child from that ID and never accepts a caller-selected binding
-path or alternate source. Chat search is not a Knowledge Space.
+Each authenticated owner may self-service multiple personal Knowledge Spaces
+beneath the operator-configured `knowledge.root`. PostgreSQL stores the
+tenant-scoped owner linkage, a stable opaque logical ID, a non-unique display
+name, and timestamps; Knowledge Markdown content and search state remain in
+files. Stable IDs—not names—drive authorization, local binding, tool selection,
+and attribution. The hosted binding derives one direct child from each ID and
+never accepts a caller-selected binding path or alternate source. Chat search is
+not a Knowledge Space.
 
-Provisioning is an idempotent, authenticated, bodyless
-`PUT /api/v1/me/knowledge-space`; its response exposes only the stable logical
-ID. The root is not probed while loading configuration. A provisioning process
-needs write access to create children, while every `runs` consumer needs read
-access to all children it may execute. Missing or unusable mounts fail closed,
-with no fallback to another owner or host path.
+The authenticated `/api/v1/knowledge-spaces` REST collection supports named
+creation plus cursor-paginated list, retrieve, and rename operations. It exposes
+no delete operation or owner, root, child path, source, or content field.
+Provisioning creates and validates the generated stable-ID child before the
+authority row commits; a database failure may leave an unauthoritative child,
+which recovery does not delete or claim. The root is not probed while loading
+configuration. A provisioning process needs write access to create children,
+while every `runs` consumer needs read access to all children it may execute.
+Missing or unusable mounts fail closed, with no fallback to another owner or
+host path.
 
-`knowledge_search` and `knowledge_read` read the current bounded Markdown
-filesystem, including modified or newly created files without a Git commit.
-They return response-time attribution (logical space ID, Knowledge-relative path,
-and exact-byte SHA-256 hash), not a permanent revision. Git history, recoverable
-agent writes, accepted revisions, and synchronization begin in #212 or later
-capabilities. No Knowledge index, embedding projection, generic filesystem,
-Workspace, Sandbox, local Node, or Personal Realm synchronization ships here.
+When configured and allowlisted, `knowledge_search` and `knowledge_read` remain
+callable even when the owner has no current space. Every invocation resolves the
+owner's current access under RLS. Search accepts an optional stable ID; without
+one it traverses every current space in deterministic keyset pages under one
+shared operation budget. Read always requires an explicit stable ID. A partial
+all-space search returns usable matches with `complete: false` and bounded
+space-scoped warnings; a missing explicit ID, zero inventory, total failure, or
+global bound fails closed as specified by `knowledge-tools`.
+
+The tools read the current bounded Markdown filesystem, including modified or
+newly created files without a Git commit. Results persist response-time space ID
+and name, Knowledge-relative path, and exact-byte SHA-256 hash; this is not a
+permanent revision. Later access changes affect the next check but do not rewrite
+historical results. Git history, recoverable agent writes, accepted revisions,
+and synchronization begin in #212 or later capabilities. No Knowledge index,
+embedding projection, management UI, upload/import flow, delete lifecycle,
+generic filesystem, Workspace, Sandbox, local Node, or Personal Realm
+synchronization ships here.
 
 The configured root and all child directories are trusted-writer-only. The
 filesystem boundary rejects traversal and symlink components and opens final

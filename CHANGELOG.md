@@ -2,6 +2,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-23
 
+- **Multiple personal Knowledge Spaces** (#542): owners can create, page,
+  retrieve, and rename any number of stable-ID spaces, including duplicate
+  display names, through the breaking `/api/v1/knowledge-spaces` REST
+  collection. Knowledge tools resolve current owner access on every call;
+  unscoped search traverses all current spaces under one shared bound set,
+  explicit search narrows by ID, and reads require an explicit ID. Partial
+  all-space search keeps usable matches with bounded warnings and
+  `complete: false`, including honest `incomplete` compaction replay. Persisted
+  results retain response-time space name, ID, path, and content hash across
+  reloads. No management UI, delete lifecycle, upload/import, indexing,
+  embeddings, synchronization, or arbitrary filesystem access was added.
+
 - **Embedding discovery provisioning**: transferring the three PUBLIC-revoked
   `SECURITY DEFINER` functions to the BYPASSRLS `app_rls` owner now re-grants
   execution to the runtime `app` role, restoring backfill, coverage, and

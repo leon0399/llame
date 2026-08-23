@@ -23,6 +23,7 @@ import {
   expect,
   expectProtectedShell,
   loginViaUi,
+  revokeKnowledgeSpaceFixtureAccess,
   test,
   type TestAccount,
   type KnowledgeSpaceFixture,
@@ -34,6 +35,13 @@ const apiUrl =
 const knowledgeRoot = process.env.E2E_KNOWLEDGE_ROOT;
 const modelId = "system:openai:gpt-5.4-mini";
 
+type KnowledgeSpaceResponse = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 function requireKnowledgeRoot(): string {
   if (!knowledgeRoot) {
     throw new Error("E2E_KNOWLEDGE_ROOT is required for Knowledge acceptance");
@@ -44,10 +52,12 @@ function requireKnowledgeRoot(): string {
 async function provisionKnowledgeSpace(
   request: APIRequestContext,
   account: TestAccount,
+  name = "Personal",
 ): Promise<KnowledgeSpaceFixture> {
+  mkdirSync(requireKnowledgeRoot(), { recursive: true });
   const response = await request.post(`${apiUrl}/api/v1/knowledge-spaces`, {
     headers: { Authorization: `Bearer ${account.token}` },
-    data: { name: "Personal" },
+    data: { name },
   });
   if (!response.ok()) {
     throw new Error(
@@ -118,6 +128,217 @@ async function expectErroredTool(
 }
 
 test.describe("personal Knowledge tools (browser, full stack)", () => {
+  test("creates, lists, retrieves, and renames duplicate-named spaces without cross-account leakage", async ({
+    account,
+    freshAccount,
+    request,
+  }) => {
+    const first = await provisionKnowledgeSpace(request, account, "Duplicate");
+    const second = await provisionKnowledgeSpace(request, account, "Duplicate");
+    expect(first.id).not.toBe(second.id);
+
+    const listResponse = await request.get(
+      `${apiUrl}/api/v1/knowledge-spaces?limit=100`,
+      { headers: { Authorization: `Bearer ${account.token}` } },
+    );
+    expect(listResponse.ok()).toBe(true);
+    const collection = (await listResponse.json()) as {
+      items: KnowledgeSpaceResponse[];
+      nextCursor: string | null;
+    };
+    expect(collection.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: first.id, name: "Duplicate" }),
+        expect.objectContaining({ id: second.id, name: "Duplicate" }),
+      ]),
+    );
+
+    const getResponse = await request.get(
+      `${apiUrl}/api/v1/knowledge-spaces/${second.id}`,
+      { headers: { Authorization: `Bearer ${account.token}` } },
+    );
+    expect(getResponse.ok()).toBe(true);
+    await expect(getResponse.json()).resolves.toMatchObject({
+      id: second.id,
+      name: "Duplicate",
+    });
+
+    const renameResponse = await request.patch(
+      `${apiUrl}/api/v1/knowledge-spaces/${second.id}`,
+      {
+        headers: { Authorization: `Bearer ${account.token}` },
+        data: { name: "Renamed" },
+      },
+    );
+    expect(renameResponse.ok()).toBe(true);
+    await expect(renameResponse.json()).resolves.toMatchObject({
+      id: second.id,
+      name: "Renamed",
+    });
+
+    for (const method of ["get", "patch"] as const) {
+      const response = await request[method](
+        `${apiUrl}/api/v1/knowledge-spaces/${second.id}`,
+        {
+          headers: { Authorization: `Bearer ${freshAccount.token}` },
+          ...(method === "patch" ? { data: { name: "Stolen" } } : {}),
+        },
+      );
+      expect(response.status()).toBe(404);
+      const body = await response.text();
+      expect(body).not.toContain(account.id);
+      expect(body).not.toContain(second.directory);
+    }
+
+    const foreignList = await request.get(
+      `${apiUrl}/api/v1/knowledge-spaces?limit=100`,
+      { headers: { Authorization: `Bearer ${freshAccount.token}` } },
+    );
+    expect(foreignList.ok()).toBe(true);
+    expect(await foreignList.text()).not.toContain(first.id);
+    expect(await foreignList.text()).not.toContain(second.id);
+  });
+
+  test("searches current spaces, uses explicit read IDs, and observes additions and revocation", async ({
+    account,
+    page,
+    request,
+    workerKnowledgeSpace,
+  }) => {
+    const second = await provisionKnowledgeSpace(request, account, "Projects");
+    writeNote(
+      workerKnowledgeSpace,
+      "notes/worker-note.md",
+      "KNOWLEDGE_E2E_MARKER from Personal\n",
+    );
+    writeNote(
+      second,
+      "notes/worker-note.md",
+      "KNOWLEDGE_E2E_MARKER from Projects\n",
+    );
+
+    await prepareChat(page);
+    await sendPrompt(
+      page,
+      "Please search the knowledge fixture across all spaces.",
+    );
+    const log = page.getByRole("log");
+    const allSpacesCard = log
+      .getByRole("button")
+      .filter({ hasText: "knowledge_search" })
+      .first();
+    await expect(allSpacesCard).toContainText("Completed", { timeout: 30_000 });
+    await allSpacesCard.click();
+    await expect(allSpacesCard.locator("..")).toContainText(
+      workerKnowledgeSpace.id,
+    );
+    await expect(allSpacesCard.locator("..")).toContainText(second.id);
+
+    await sendPrompt(
+      page,
+      `Please search the explicit knowledge fixture. Knowledge Space ID: ${second.id}`,
+    );
+    await expectCompletedTool(
+      log,
+      "knowledge_search",
+      "notes/worker-note.md",
+      1,
+    );
+    const explicitSearchCard = log
+      .getByRole("button")
+      .filter({ hasText: "knowledge_search" })
+      .nth(1);
+    await expect(explicitSearchCard.locator("..")).toContainText(second.id);
+    await expect(explicitSearchCard.locator("..")).not.toContainText(
+      workerKnowledgeSpace.id,
+    );
+
+    await sendPrompt(
+      page,
+      `Please read the knowledge fixture. Knowledge Space ID: ${second.id}`,
+    );
+    await expectCompletedTool(log, "knowledge_read", "notes/worker-note.md");
+    const readCard = log
+      .getByRole("button")
+      .filter({ hasText: "knowledge_read" })
+      .first();
+    await expect(readCard.locator("..")).toContainText(second.id);
+
+    const added = await provisionKnowledgeSpace(request, account, "Added live");
+    writeNote(
+      added,
+      "notes/new-note.md",
+      "KNOWLEDGE_E2E_CHANGED from a later space\n",
+    );
+    writeNote(added, "notes/worker-note.md", "read before revocation\n");
+    await sendPrompt(
+      page,
+      "Please search the knowledge changed fixture across all current spaces.",
+    );
+    await expectCompletedTool(log, "knowledge_search", "notes/new-note.md", 2);
+    const addedSearchCard = log
+      .getByRole("button")
+      .filter({ hasText: "knowledge_search" })
+      .nth(2);
+    await expect(addedSearchCard.locator("..")).toContainText(added.id);
+
+    await sendPrompt(
+      page,
+      `Please read the knowledge fixture. Knowledge Space ID: ${added.id}`,
+    );
+    await expectCompletedTool(log, "knowledge_read", "notes/worker-note.md", 1);
+    revokeKnowledgeSpaceFixtureAccess(account.id, added.id);
+    await sendPrompt(
+      page,
+      `Please read the knowledge fixture. Knowledge Space ID: ${added.id}`,
+    );
+    await expectErroredTool(log, "Knowledge Space was not found.", 2);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const reloadedSearch = log
+      .getByRole("button")
+      .filter({ hasText: "knowledge_search" })
+      .nth(2);
+    await reloadedSearch.click();
+    await expect(reloadedSearch.locator("..")).toContainText(added.id);
+    await expect(reloadedSearch.locator("..")).toContainText(
+      "notes/new-note.md",
+    );
+  });
+
+  test("returns usable all-space results with an incomplete warning", async ({
+    account,
+    page,
+    request,
+    workerKnowledgeSpace,
+  }) => {
+    writeNote(
+      workerKnowledgeSpace,
+      "notes/worker-note.md",
+      "KNOWLEDGE_E2E_MARKER from a healthy space\n",
+    );
+    const broken = await provisionKnowledgeSpace(request, account, "Broken");
+    rmSync(broken.directory, { recursive: true, force: true });
+
+    await prepareChat(page);
+    await sendPrompt(
+      page,
+      "Please search the knowledge fixture across all spaces.",
+    );
+    const card = page
+      .getByRole("log")
+      .getByRole("button")
+      .filter({ hasText: "knowledge_search" })
+      .first();
+    await expect(card).toContainText("Completed", { timeout: 30_000 });
+    await card.click();
+    const details = card.locator("..");
+    await expect(details).toContainText("notes/worker-note.md");
+    await expect(details).toContainText(/"complete":\s*false/u);
+    await expect(details).toContainText("knowledge_space_unavailable");
+    await expect(details).toContainText(broken.id);
+  });
+
   test("finds live notes, renders a relative-path citation, and sees a new file", async ({
     page,
     workerKnowledgeSpace,
