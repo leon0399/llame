@@ -6,9 +6,10 @@
  * OpenAPI spec version: 0.1
  */
 
-export interface KnowledgeSpaceResponse {
-  id: string;
+export interface CreateKnowledgeSpaceDto {
+  /**
+   * @minLength 1
+   * @maxLength 100
+   */
   name: string;
-  createdAt: string;
-  updatedAt: string;
 }

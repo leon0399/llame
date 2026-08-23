@@ -114,10 +114,11 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
       const request = await playwrightRequest.newContext();
 
       try {
-        const response = await request.put(
-          `${knowledgeApiUrl}/api/v1/me/knowledge-space`,
+        const response = await request.post(
+          `${knowledgeApiUrl}/api/v1/knowledge-spaces`,
           {
             headers: { Authorization: `Bearer ${workerAccount.token}` },
+            data: { name: "Personal" },
           },
         );
         if (!response.ok()) {
