@@ -98,6 +98,8 @@ Every successful search match and read result SHALL include the logical Knowledg
 
 The fields SHALL remain complete in the persisted tool-result part, live event stream, and browser reconstruction because Knowledge success results preflight below the live-result cap. Later model replay MAY clear payload detail or omit the complete call/result pair under the tool-calling capability's existing pair and turn/ledger budgets; it SHALL retain the structured outcome or bounded omission state honestly rather than present an incomplete payload as complete.
 
+The persisted observation SHALL include the bounded snippet or returned Markdown in the existing PostgreSQL-backed Run-event and assistant-message-part stores and SHALL follow their existing Run and Chat retention and deletion lifecycle. This execution history SHALL NOT become a canonical Knowledge content projection, index, source store, or alternate read authority. The system SHALL add no separate Knowledge-content persistence; every later retrieval SHALL read the live files again.
+
 Attribution SHALL exclude configured roots, resolved child paths, hosted owner IDs, credentials, worker identity, and raw filesystem diagnostics. The structured tool-result UI SHALL visibly present the Knowledge-relative path as a citation without exposing local binding details. The packaged tool description SHALL instruct the model to cite the path of a note it uses; the system SHALL NOT post-process arbitrary provider text to fabricate a citation.
 
 #### Scenario: Browser reload retains attribution
