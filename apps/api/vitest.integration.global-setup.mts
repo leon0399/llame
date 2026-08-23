@@ -36,14 +36,20 @@ function sqlFile(relativePath: string): string {
 
 /**
  * Reproduces the worst-case self-hosted role topology on a fresh container
- * and returns the `app`-role connection string. Every client it opens is
- * closed on the way out, including when a step throws.
+ * and returns the `app` connection plus an unrelated login used to prove
+ * PUBLIC cannot execute privileged functions. Every client it opens is closed
+ * on the way out, including when a step throws.
  */
-async function provision(superuserUri: string): Promise<string> {
+async function provision(
+  superuserUri: string,
+): Promise<{ appUrl: string; unprivilegedUrl: string }> {
   const asSuperuser = postgres(superuserUri, { max: 1 });
   try {
     await asSuperuser.unsafe(
       `CREATE ROLE app LOGIN PASSWORD 'app' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`,
+    );
+    await asSuperuser.unsafe(
+      `CREATE ROLE llame_test_unprivileged LOGIN PASSWORD 'llame_test_unprivileged' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`,
     );
     await asSuperuser.unsafe(`CREATE DATABASE llame_test OWNER app`);
   } finally {
@@ -86,11 +92,18 @@ async function provision(superuserUri: string): Promise<string> {
     await superuserOnTestDb.unsafe(
       sqlFile('../../docker/postgres/rls-function-owner.sql'),
     );
+    await superuserOnTestDb.unsafe(
+      `GRANT USAGE ON SCHEMA public TO llame_test_unprivileged`,
+    );
   } finally {
     await superuserOnTestDb.end();
   }
 
-  return appUrl;
+  const unprivilegedUrl = new URL(url.href);
+  unprivilegedUrl.username = 'llame_test_unprivileged';
+  unprivilegedUrl.password = 'llame_test_unprivileged';
+
+  return { appUrl, unprivilegedUrl: unprivilegedUrl.href };
 }
 
 /**
@@ -147,8 +160,11 @@ export default async function setup(): Promise<(() => Promise<void>) | void> {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
 
   let appUrl: string;
+  let unprivilegedUrl: string;
   try {
-    appUrl = await provision(container.getConnectionUri());
+    ({ appUrl, unprivilegedUrl } = await provision(
+      container.getConnectionUri(),
+    ));
   } catch (error) {
     // Provisioning failed: stop the container rather than leaking it for the
     // rest of the CI job (or the developer's machine).
@@ -157,6 +173,7 @@ export default async function setup(): Promise<(() => Promise<void>) | void> {
   }
 
   process.env.TEST_DATABASE_URL = appUrl;
+  process.env.TEST_UNPRIVILEGED_DATABASE_URL = unprivilegedUrl;
   process.env.POSTGRES_URL = appUrl;
 
   return async () => {
