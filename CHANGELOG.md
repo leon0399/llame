@@ -58,18 +58,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   in `embeddingModels[]` — undeclaring a model alone never deletes data, and
   startup only warns (non-fatally) that its ledger key is undeclared.
 
-- **BREAKING (self-hosters running their own Postgres)**: the dev/deploy
-  Postgres image now requires the `vector` (pgvector) extension alongside the
-  already-required `pg_trgm`, for embeddings-backed search — `compose.yaml`
-  moved from `postgres:17-alpine` to `pgvector/pgvector:pg17`. Move to a
-  pgvector-capable image, or an equivalent managed Postgres that ships
-  `vector`, before upgrading; the migration that creates the extension
-  otherwise fails outright. `vector` is not a trusted extension (installable
-  only by a superuser), so it is provisioned once via
-  `docker/postgres/initdb/03-vector-extension.sql` on a fresh volume — an
-  existing dev volume that predates this change needs that script hand-run as
-  `postgres`, or `pnpm db:reset`.
-
 - **Chat search: oversized messages no longer bypass chunking** (#517): a
   single message's text exceeding the chunker's 3000-character budget is now
   split into several budget-sized documents cut at a text boundary (blank
