@@ -260,6 +260,51 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
   // correctness matters beyond the ledger's own boot-check use. A fresh,
   // per-test model key avoids collision with MODEL_KEY, which other tests
   // in this file also persist under.
+  // Regression (review, PR #534): a short result array on a model's FIRST-EVER
+  // batch used to return success. Nothing persisted, so no ledger row was
+  // written; and `runEmbedBacklogSweep`'s D6 gate returns early while there is
+  // no ledger row — so the sweep it deferred to could never run, and the chat
+  // stayed outstanding and invisible until someone re-ran `search:backfill` by
+  // hand. It must surface instead.
+  it('throws when the first-ever batch persists nothing, since no sweep can recover it', async () => {
+    const id = await seed('First batch short-changed', [
+      { role: 'user', text: 'this one is never embedded' },
+    ]);
+    await indexService.reindexChat(id, u);
+
+    const { worker } = await buildWorker();
+    // A model key this suite has never persisted under, so there is genuinely
+    // no ledger row — MODEL already has one from the tests above.
+    const freshModel = { ...MODEL, id: `first-batch-${crypto.randomUUID()}` };
+    // Fewer results than documents sent: the adapter discards the chunk.
+    const shortBackend = fakeBackend(() => Promise.resolve([]));
+
+    await expect(
+      worker.embedChat(id, u, freshModel, shortBackend),
+    ).rejects.toThrow(/no backlog sweep can recover/);
+
+    // Once a ledger row exists the original behaviour is correct — the sweep
+    // CAN re-discover the batch — so a later short batch must NOT throw.
+    const goodBackend = fakeBackend((documents) =>
+      Promise.resolve(
+        documents.map((d) => ({
+          documentId: d.documentId,
+          contentHash: d.contentHash,
+          embedding: vector(9),
+        })),
+      ),
+    );
+    await worker.embedChat(id, u, freshModel, goodBackend);
+
+    const other = await seed('Later short batch', [
+      { role: 'user', text: 'a second chat, embedded later' },
+    ]);
+    await indexService.reindexChat(other, u);
+    await expect(
+      worker.embedChat(other, u, freshModel, shortBackend),
+    ).resolves.not.toThrow();
+  });
+
   it('writes the binding ledger row on the first persisted vector, and is a no-op thereafter', async () => {
     const modelId = `ledger-model-${crypto.randomUUID()}`;
     const model = { ...MODEL, id: modelId };

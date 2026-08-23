@@ -23,10 +23,14 @@ import {
   type EmbeddingDocumentInput,
   type EmbeddingResult,
 } from './core';
-import { ensureBindingLedgerRow } from './embedding-binding-ledger';
+import {
+  ensureBindingLedgerRow,
+  findEmbeddingBinding,
+} from './embedding-binding-ledger';
 import {
   classifyEmbeddingFailure,
   createOpenAIEmbeddingBackend,
+  EmbeddingBackendError,
   type OpenAIEmbeddingBackendConfig,
 } from './openai-embedding-backend';
 import { SEARCH_EMBED_QUEUE } from './reindex-queues';
@@ -402,6 +406,25 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
         this.logger.warn(
           `Embed batch for chat ${chatId}: backend returned ${results.length}/${outstanding.length} vector(s) and none persisted — leaving the rest outstanding for the next sweep`,
         );
+        // ...but "the next sweep" only exists once this model has a ledger
+        // row: `runEmbedBacklogSweep`'s D6 gate returns early while
+        // `findEmbeddingBinding` is null, and that row is written above only
+        // when a vector actually persisted. So on a model's FIRST-EVER batch
+        // this branch has no recovery path at all — the documents stay
+        // outstanding forever, invisible, until someone re-runs
+        // `search:backfill` by hand. Throw instead, so the queue's retry
+        // policy governs and a persistent mismatch dead-letters visibly.
+        // Once a ledger row exists the original reasoning holds: returning
+        // lets the sweep re-discover the batch, which is the intended backoff.
+        const bound = await this.tenantDb.runAsPublic((tx) =>
+          findEmbeddingBinding(tx, model.id),
+        );
+        if (!bound) {
+          throw new EmbeddingBackendError(
+            `embedding backend returned ${results.length} of ${outstanding.length} vectors on the first batch for model "${model.id}"; no vector persisted, so no backlog sweep can recover this chat`,
+            false,
+          );
+        }
       }
       return { processedCount: 0, hasMore: false };
     }
