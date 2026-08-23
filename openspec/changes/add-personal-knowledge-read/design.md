@@ -127,6 +127,8 @@ When a Run is accepted, the API resolves the owner row under RLS. If no row exis
 
 Successful search matches and reads include the logical space ID, Knowledge-relative path, and SHA-256 content hash; search matches add line/snippet evidence. Each tool preflights its complete structured success result below the existing generic live-result truncation boundary, so persistence and browser reconstruction retain the exact recorded attribution. Later model replay remains subject to the existing pair and turn/ledger budgets and may clear or omit payload detail only under their existing honest-degradation rules.
 
+That durable observation includes the bounded snippet or returned Markdown in the existing PostgreSQL-backed Run-event and assistant-message-part stores. It follows the existing Run and Chat retention and deletion lifecycle. This is execution history, not a canonical Knowledge projection: the change adds no Knowledge-content table, index, source store, or alternate read authority, and live files remain authoritative for every later retrieval.
+
 Tool descriptions frame file content as untrusted and potentially stale, instruct the model to cite a used note's Knowledge-relative path, and direct materially volatile claims to appropriate external tools. The existing generic structured-result rendering visibly includes that path; this change does not add a dedicated citation component or post-process provider text to manufacture citations.
 
 The closed availability vocabulary gains `knowledge_space_not_configured` and `knowledge_space_unavailable`, with recovery reasons `knowledge_space_configured` and `knowledge_space_restored`. Host paths, raw filesystem errors, and other-owner existence remain absent from model- and user-visible messages.

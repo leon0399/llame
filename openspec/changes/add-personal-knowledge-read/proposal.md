@@ -8,7 +8,7 @@ Git is intentionally removed from this iteration. Requiring commits before reads
 
 - Add an optional operator-configured Knowledge root that contains server-managed personal Knowledge Space directories and is never exposed to browsers, models, or tool arguments.
 - Let any authenticated owner idempotently create or resolve one personal Knowledge Space. Trusted code generates its globally stable opaque identity and allocates its directory beneath the configured root; the caller supplies no path, owner, source, or identifier.
-- Keep owner/resource linkage in PostgreSQL with forced RLS while keeping Markdown content and search data in files.
+- Keep owner/resource linkage in PostgreSQL with forced RLS while keeping canonical Markdown content and search data in files; bounded tool-result observations continue through the existing Run and Chat persistence paths.
 - Add bounded `knowledge_search` and `knowledge_read` tools that resolve authority from trusted Run context and read the live filesystem, including files changed or created without a Git commit.
 - Persist safe response-time attribution containing the Knowledge Space identifier, Knowledge-relative path, and SHA-256 hash of the exact bytes read, while excluding the configured root and other host details.
 - Define fail-closed behavior for missing configuration, cross-tenant selection, traversal, symlinks, unsupported files, invalid text, oversized work, and unavailable worker mounts.
