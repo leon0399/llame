@@ -20,6 +20,7 @@ import {
   SEARCH_SWEEP_CRON,
   SEARCH_SWEEP_QUEUE,
 } from './reindex-queues';
+import { findEmbeddingBinding } from './embedding-binding-boot-check.service';
 import { SearchEmbedDispatchService } from './search-embed-dispatch.service';
 import { SearchReindexDispatchService } from './search-reindex-dispatch.service';
 import { SearchIndexService } from './search-index.service';
@@ -73,9 +74,19 @@ async function enqueueRowsBounded(
  * see the schema migration) and enqueues `search-embed` jobs for lagging
  * chats. Gated on `search.chats.embeddingModelId` being configured — off by
  * default, so an instance that never declares a model never even queries it.
- * This ONLY covers incremental lag by construction (D6): the static branch
- * excludes model-change/version-bump rows, which stay the explicit `backfill`
- * command's job.
+ *
+ * **D6's "bulk work is never automatic" gate.** The static branch alone
+ * cannot distinguish ordinary incremental lag from the FIRST-ever backlog of
+ * a freshly declared model or a corpus newly pointed at one — both look
+ * identical (every document simply "never attempted"), and the latter is
+ * bulk work a config edit must never auto-start. The binding ledger
+ * (design D1, `embedding_model_bindings`) resolves this: its row for a key
+ * is written only on that key's FIRST PERSISTED vector, never on
+ * declaration, so the row's mere existence IS the "this model is already in
+ * service" signal. No row → the sweep enqueues NOTHING for that model;
+ * only the operator-invoked `backfill` command may start it. Row present →
+ * outstanding documents are ordinary incremental lag, which this sweep
+ * maintains automatically as D6 intends.
  */
 @Injectable()
 export class SearchReindexWorker implements OnApplicationBootstrap {
@@ -245,9 +256,25 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
    * `llame_search_embedding_backlog`, not `llame_search_embedding_coverage`
    * — so this deliberately covers incremental lag only; a model change or
    * input-version bump is bulk work the explicit `backfill` command handles.
+   *
+   * Public (like `SearchIndexService.reindexChat`/`SearchEmbedWorker.embedChat`)
+   * so integration tests can drive it directly, bypassing queue consumption.
    */
-  private async runEmbedBacklogSweep(): Promise<void> {
-    if (!this.instanceConfig.config.search.chats.embeddingModelId) {
+  async runEmbedBacklogSweep(): Promise<void> {
+    const modelId = this.instanceConfig.config.search.chats.embeddingModelId;
+    if (!modelId) {
+      return;
+    }
+    // D6 gate: no ledger row means this model has never persisted a real
+    // vector — a freshly declared model or a corpus newly pointed at one,
+    // i.e. BULK work. The sweep must enqueue nothing for it; see the class
+    // doc comment above for the full argument. `embedding_model_bindings`
+    // has no RLS (instance-global operator state), so `runAsPublic` reads it
+    // fine — this is not a cross-tenant discovery concern.
+    const binding = await this.tenantDb.runAsPublic((tx) =>
+      findEmbeddingBinding(tx, modelId),
+    );
+    if (!binding) {
       return;
     }
     const backlog = await this.tenantDb.runAsPublic((tx) =>

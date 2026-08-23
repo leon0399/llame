@@ -238,7 +238,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         })),
       ),
     );
-    await worker.embedChat(id, u, MODEL_KEY, backend, MODEL.batchSize);
+    await worker.embedChat(id, u, MODEL, backend);
 
     const row = await embeddingRow(docId);
     expect(row.embedding).toBe('[1,2,3]');
@@ -246,6 +246,72 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     expect(row.embedded_content_hash).toBe(row.content_hash);
     expect(row.embed_input_version).toBe(EMBED_INPUT_VERSION);
     expect(row.embedding_fail_reason).toBeNull();
+  });
+
+  // design D1: the binding ledger row is written on the FIRST PERSISTED
+  // vector for a key — never on declaration. Its mere existence is also
+  // the signal SearchReindexWorker's embed-backlog sweep gates on (design
+  // D6, see search-reindex.worker.integration.test.ts), so this table's
+  // correctness matters beyond the ledger's own boot-check use. A fresh,
+  // per-test model key avoids collision with MODEL_KEY, which other tests
+  // in this file also persist under.
+  it('writes the binding ledger row on the first persisted vector, and is a no-op thereafter', async () => {
+    const modelId = `ledger-model-${crypto.randomUUID()}`;
+    const model = { ...MODEL, id: modelId };
+    const ledgerRow = () =>
+      ownedRows(
+        sql`SELECT provider_id, provider_model_id, dimensions, distance_metric,
+                   document_prefix, query_prefix, batch_size
+            FROM embedding_model_bindings WHERE model_key = ${modelId}`,
+        z.object({
+          provider_id: z.string(),
+          provider_model_id: z.string(),
+          dimensions: z.number(),
+          distance_metric: z.string(),
+          document_prefix: z.string().nullable(),
+          query_prefix: z.string().nullable(),
+          batch_size: z.number().nullable(),
+        }),
+      );
+
+    expect(await ledgerRow()).toEqual([]);
+
+    const id = await seed('Bootstraps the ledger', [
+      { role: 'user', text: 'first ever vector for this model key' },
+    ]);
+    await indexService.reindexChat(id, u);
+    const { worker } = await buildWorker();
+    const backend = fakeBackend((documents) =>
+      Promise.resolve(
+        documents.map((d) => ({
+          documentId: d.documentId,
+          contentHash: d.contentHash,
+          embedding: vector(9),
+        })),
+      ),
+    );
+    await worker.embedChat(id, u, model, backend);
+
+    const [row] = await ledgerRow();
+    expect(row).toEqual({
+      provider_id: model.provider,
+      provider_model_id: model.providerModelId,
+      dimensions: model.dimensions,
+      distance_metric: model.distanceMetric,
+      document_prefix: null,
+      query_prefix: null,
+      batch_size: model.batchSize,
+    });
+
+    // A second chat, second successful persist under the SAME key: the
+    // ledger write is onConflictDoNothing, so this must not error and must
+    // leave exactly one row.
+    const secondId = await seed('Second document, same model', [
+      { role: 'user', text: 'a second document embedded under the same key' },
+    ]);
+    await indexService.reindexChat(secondId, u);
+    await worker.embedChat(secondId, u, model, backend);
+    expect(await ledgerRow()).toHaveLength(1);
   });
 
   // trap 3 / D15 "no feedback loop": writing chats.updated_at or
@@ -290,7 +356,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         })),
       ),
     );
-    await worker.embedChat(id, u, MODEL_KEY, backend, MODEL.batchSize);
+    await worker.embedChat(id, u, MODEL, backend);
 
     const [after] = await snapshot();
     expect(after).toEqual(before);
@@ -317,7 +383,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       true,
     );
     const failingBackend = fakeBackend(() => Promise.reject(terminalError));
-    await worker.embedChat(id, u, MODEL_KEY, failingBackend, MODEL.batchSize);
+    await worker.embedChat(id, u, MODEL, failingBackend);
 
     const row = await embeddingRow(docId);
     expect(row.embedding).toBeNull();
@@ -333,7 +399,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       secondCallDocumentIds.push(...documents.map((d) => d.documentId));
       return Promise.resolve([]);
     });
-    await worker.embedChat(id, u, MODEL_KEY, trackingBackend, MODEL.batchSize);
+    await worker.embedChat(id, u, MODEL, trackingBackend);
     expect(secondCallDocumentIds).not.toContain(docId);
   });
 
@@ -350,9 +416,9 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       false,
     );
     const backend = fakeBackend(() => Promise.reject(transientError));
-    await expect(
-      worker.embedChat(id, u, MODEL_KEY, backend, MODEL.batchSize),
-    ).rejects.toThrow(transientError);
+    await expect(worker.embedChat(id, u, MODEL, backend)).rejects.toThrow(
+      transientError,
+    );
 
     const row = await embeddingRow(docId);
     expect(row.embedding_fail_reason).toBeNull();
@@ -388,7 +454,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         embedding: vector(3),
       }));
     });
-    await worker.embedChat(id, u, MODEL_KEY, backend, MODEL.batchSize);
+    await worker.embedChat(id, u, MODEL, backend);
 
     const row = await embeddingRow(docId);
     expect(row.embedding).toBeNull(); // discarded — never written for superseded content
@@ -414,7 +480,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       }));
     });
     await expect(
-      worker.embedChat(id, u, MODEL_KEY, backend, MODEL.batchSize),
+      worker.embedChat(id, u, MODEL, backend),
     ).resolves.toBeUndefined();
 
     const remaining = await ownedRows(
@@ -458,7 +524,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         })),
       ),
     );
-    await worker.embedChat(id, u, MODEL_KEY, backend, MODEL.batchSize);
+    await worker.embedChat(id, u, MODEL, backend);
 
     const row = await embeddingRow(docId);
     expect(row.embedding).toBe('[5,6,7]');
@@ -502,7 +568,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         })),
       );
     });
-    await worker.embedChat(id, u, MODEL_KEY, backend, batchSize);
+    await worker.embedChat(id, u, { ...MODEL, batchSize }, backend);
 
     expect(callSizes.length).toBeGreaterThan(0);
     for (const size of callSizes) {
@@ -523,7 +589,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     // — no throw, but nothing to persist.
     const backend = fakeBackend(() => Promise.resolve([]));
     await expect(
-      worker.embedChat(id, u, MODEL_KEY, backend, MODEL.batchSize),
+      worker.embedChat(id, u, MODEL, backend),
     ).resolves.toBeUndefined();
 
     const row = await embeddingRow(docId);
@@ -566,7 +632,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
 
     const { worker: worker1, enqueueChatEmbed: reenqueue1 } =
       await buildWorker();
-    await worker1.embedChat(id, u, MODEL_KEY, backend, 1);
+    await worker1.embedChat(id, u, { ...MODEL, batchSize: 1 }, backend);
     expect(reenqueue1).toHaveBeenCalledTimes(1);
     expect(reenqueue1).toHaveBeenCalledWith(id, u);
 
@@ -581,7 +647,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     // NOT re-enqueue again.
     const { worker: worker2, enqueueChatEmbed: reenqueue2 } =
       await buildWorker();
-    await worker2.embedChat(id, u, MODEL_KEY, backend, 1);
+    await worker2.embedChat(id, u, { ...MODEL, batchSize: 1 }, backend);
     expect(reenqueue2).not.toHaveBeenCalled();
 
     const embeddedAfterSecond = await ownedRows(

@@ -7,7 +7,10 @@ import {
 import { and, eq, sql } from 'drizzle-orm';
 
 import { type Db, TenantDbService } from '../db/tenant-db.service';
-import { searchChatDocuments } from '../db/schema/search';
+import {
+  embeddingModelBindings,
+  searchChatDocuments,
+} from '../db/schema/search';
 import {
   InstanceConfigService,
   type InstanceConfigReader,
@@ -136,6 +139,42 @@ async function persistEmbeddingSuccess(
 }
 
 /**
+ * The binding ledger row (design D1) is written on the FIRST PERSISTED
+ * vector for a key — never on declaration, which is why this lives beside
+ * the persist path rather than at worker boot. `onConflictDoNothing` makes
+ * every later call a no-op: the boot self-check
+ * (`EmbeddingBindingBootCheckService`) already rejects a redefined-in-place
+ * model before any worker runs, so by the time this executes, an existing
+ * row is guaranteed consistent with what would be written here.
+ *
+ * The row's mere EXISTENCE also doubles as the signal
+ * `SearchReindexWorker`'s embed-backlog sweep gates on (design D6): no row
+ * means this model has never embedded anything for real, so any outstanding
+ * documents under it are BULK work (a freshly declared model, or a corpus
+ * newly pointed at one) — only the explicit `backfill` command may start
+ * that, never a config edit via the automatic sweep.
+ */
+async function ensureBindingLedgerRow(
+  tx: Db,
+  model: EmbeddingModelCatalogEntry,
+): Promise<void> {
+  await tx
+    .insert(embeddingModelBindings)
+    .values({
+      modelKey: model.id,
+      providerId: model.provider,
+      providerModelId: model.providerModelId,
+      revision: model.revision ?? null,
+      dimensions: model.dimensions,
+      distanceMetric: model.distanceMetric,
+      documentPrefix: model.documentPrefix ?? null,
+      queryPrefix: model.queryPrefix ?? null,
+      batchSize: model.batchSize,
+    })
+    .onConflictDoNothing({ target: embeddingModelBindings.modelKey });
+}
+
+/**
  * Conditional persist of a terminal failure (design D16 tombstone; trap 4).
  * Same WHERE guard as the success path — "nothing is written for
  * superseded content in any case" (task 6.9) applies to a failure write
@@ -247,13 +286,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
       SEARCH_EMBED_QUEUE,
       async (job) => {
         try {
-          await this.embedChat(
-            job.chatId,
-            job.ownerUserId,
-            model.id,
-            backend,
-            model.batchSize,
-          );
+          await this.embedChat(job.chatId, job.ownerUserId, model, backend);
         } catch (error) {
           this.logger.error(
             `Embedding failed for chat ${job.chatId}`,
@@ -278,17 +311,15 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
   async embedChat(
     chatId: string,
     ownerUserId: string,
-    modelId: string,
+    model: EmbeddingModelCatalogEntry,
     backend: EmbeddingBackend,
-    batchSize: number,
   ): Promise<void> {
     for (let batch = 0; batch < EMBED_MAX_BATCHES_PER_JOB; batch++) {
       const { processedCount, hasMore } = await this.processBatch(
         chatId,
         ownerUserId,
-        modelId,
+        model,
         backend,
-        batchSize,
       );
       // Nothing outstanding, or a stuck batch that made zero progress
       // (design trap: an unthrottled retry loop) — stop without
@@ -317,12 +348,12 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
   private async processBatch(
     chatId: string,
     ownerUserId: string,
-    modelId: string,
+    model: EmbeddingModelCatalogEntry,
     backend: EmbeddingBackend,
-    batchSize: number,
   ): Promise<{ processedCount: number; hasMore: boolean }> {
+    const batchSize = model.batchSize;
     const outstanding = await this.tenantDb.runAs(ownerUserId, (tx) =>
-      this.queryOutstandingBatch(tx, chatId, ownerUserId, modelId, batchSize),
+      this.queryOutstandingBatch(tx, chatId, ownerUserId, model.id, batchSize),
     );
     if (outstanding.length === 0) {
       return { processedCount: 0, hasMore: false };
@@ -352,7 +383,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
         ownerUserId,
         chatId,
         outstanding,
-        modelId,
+        model.id,
         error,
         hasMore,
       );
@@ -367,10 +398,15 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
           tx,
           result,
           row.priorEmbedInputVersion,
-          modelId,
+          model.id,
           EMBED_INPUT_VERSION,
         );
         if (wrote) written += 1;
+      }
+      // D1: write the binding ledger row on the first vector this batch
+      // actually persisted — see ensureBindingLedgerRow's own comment.
+      if (written > 0) {
+        await ensureBindingLedgerRow(tx, model);
       }
     });
 
