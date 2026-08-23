@@ -531,6 +531,70 @@ gaining `app_rls` membership (or any other path to `SET ROLE app_rls`) is NOT an
 acceptable substitute — that reopens the exact `SET ROLE`-around-FORCE-RLS hole
 this split exists to avoid.
 
+## Chat search embeddings
+
+Off by default (#196): with no `embeddingModels[]` entry declared and no corpus
+selection, search behavior and the boot sequence are unchanged — no provider
+request is possible. Requires the `pgvector`-capable image documented above;
+`db:migrate` fails outright on `postgres:17-alpine`.
+
+**Declaring a model.** Add an entry to top-level `embeddingModels[]` in
+`llame.config.json`, reusing a `providers[]` connection by id (see
+`llame.config.json.example`'s commented block). Required: `id` (a stable
+internal key — never exposed to the provider), `provider`, `providerModelId`,
+`dimensions`. Optional: `batchSize` (default 32), `distanceMetric` (only
+`"cosine"` today), `revision`, `documentPrefix`/`queryPrefix` (asymmetric
+embedding conventions some models require). A dangling `provider` reference or
+a duplicate `id` fails startup naming the bad path, same as `models[]`.
+
+**Selecting a model per corpus.** `search.chats.embeddingModelId` names an
+`embeddingModels[].id`; the shape (`search.<corpus>.embeddingModelId`) is ready
+for a later corpus to add its own key with no shape change. `chats` is the only
+populated corpus today. Leaving it unset means nothing is scheduled for that
+corpus even if models are declared elsewhere.
+
+**Changing or removing a model.** A model `id`'s provider/model/revision/
+dimensions/distanceMetric/prefixes are checked against a small database ledger
+the first time a vector is actually persisted under that key (`batchSize` is
+excluded — a throughput knob, not part of the embedding space); redefining an
+already-bound key with different values fails startup naming the field, never
+the value, rather than silently reinterpreting existing vectors as something
+they aren't. To move a corpus to a new model: declare a new `id`, point
+`search.<corpus>.embeddingModelId` at it, run `search:backfill` to populate
+under the new key, confirm with `search:coverage`, then remove the old entry
+from `embeddingModels[]` and run `search:prune` to reclaim its vectors —
+**undeclaring a model alone never deletes its data**; startup only warns
+(non-fatally) that a ledger key is no longer declared, so its vectors sit
+unread until pruned.
+
+**The four operator commands** (`pnpm --filter api search:*`, `src/search/operations/cli.ts`):
+
+- `search:backfill` — enumerates chats with outstanding work for the selected
+  model and enqueues one `search-embed` job per chat. A pure producer: it
+  issues no provider request itself and is safe to re-run (a chat with nothing
+  outstanding is never re-enqueued). The actual embedding call and persist run
+  later, in a worker process (the co-located `all` profile or the dedicated
+  `worker.ts` entrypoint) consuming the `search-embed` queue.
+- `search:coverage` — prints per-chat embedded / failed / outstanding counts
+  for the selected model, including chats whose every document failed (not
+  just chats with something outstanding).
+- `search:retry-failed` — clears the attempt-metadata (not the content) of
+  every document that failed terminally under the current model/version, so
+  the next backfill or the automatic sweep picks it up again instead of it
+  staying silently suppressed.
+- `search:prune` — clears the vector and attempt-metadata columns of any
+  document embedded under a model key no longer present in `embeddingModels[]`.
+
+All four fail loudly (non-zero exit, naming what's wrong) rather than
+succeeding having silently done less than reported — including when
+`pnpm db:provision-rls` hasn't been run yet, which `backfill`/`coverage` need to
+read through their `SECURITY DEFINER` discovery functions.
+
+**Nothing in the query path reads a vector yet.** `ChatsRepository.searchByOwner`
+is unchanged and stays purely lexical (FTS + trigram + title, RRF-fused) —
+populating embeddings is invisible to search results by construction, not by
+convention. Query-time retrieval is a later change (#197).
+
 ## Conventions
 
 - One NestJS module per feature (controller / service / module); wire via DI and register in `app.module.ts`.

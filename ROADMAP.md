@@ -129,10 +129,10 @@ runtime state remain local.
 
 Open work remains valid without being on the critical path:
 
-- [#196](https://github.com/leon0399/llame/issues/196),
-  [#197](https://github.com/leon0399/llame/issues/197), and
+- [#197](https://github.com/leon0399/llame/issues/197) and
   [#198](https://github.com/leon0399/llame/issues/198) cover richer search and
-  episodic-memory behavior beyond the v0.7 proof.
+  episodic-memory behavior beyond the v0.7 proof. #196 shipped the embedding
+  write path; #197 owns the retrieval half that actually reads a vector.
 - [#91](https://github.com/leon0399/llame/issues/91),
   [#118](https://github.com/leon0399/llame/issues/118), and
   [#119](https://github.com/leon0399/llame/issues/119) cover remaining Run budget,

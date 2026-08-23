@@ -34,24 +34,29 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   symlinks are refused and files use `O_NOFOLLOW`, while descriptor-relative
   containment remains future hardening for hostile concurrent swaps or hardlinks.
 
-- **Chat search embeddings: operator commands and the coverage readout**:
-  four `pnpm --filter api search:*` commands round out the embedding layer's
-  operator-initiated half. `search:backfill` enumerates outstanding chats
-  through the existing coverage discovery function and enqueues one
-  `search-embed` job per chat — a pure producer, issuing no provider request
-  and idempotent by construction. `search:prune` clears the vectors and
-  attempt metadata of a model no longer declared in `embeddingModels[]`
-  (undeclaring a model alone never deletes data). `search:retry-failed`
-  clears the full attempt-metadata tuple for a terminally failed document
-  under the current model/version, so it is picked up again instead of
-  staying silently suppressed. `search:coverage` reports per-chat embedded /
-  failed / outstanding counts via a new `llame_search_embedding_report`
-  function — a sibling of the coverage discovery function with a widened
-  `HAVING` so a chat whose every document failed is still shown, closing a
-  gap where a fully-failed corpus looked identical to "nothing outstanding."
-  `EmbeddingBindingBootCheckService` also now warns (non-fatally) at startup
-  when a model's ledger row is no longer declared, since its vectors are
-  otherwise left silently unread and undeleted until `search:prune` runs.
+- **Chat search embeddings** (#196): chats can now be embedded into per-document
+  vectors alongside the existing lexical index, entirely off by default. An
+  operator opts in by declaring an `embeddingModels[]` entry (id, provider,
+  providerModelId, dimensions, and optional batch size / distance metric /
+  document- and query-prefix) in `llame.config.json` and selecting one per
+  corpus via `search.chats.embeddingModelId` — with neither set, search
+  behavior is unchanged. Populating vectors for existing chats is an explicit
+  operator action (`pnpm --filter api search:backfill`), not automatic; new and
+  edited chats are enqueued for embedding going forward once a model is
+  selected. **Nothing in the query path reads a vector yet** — `searchByOwner`
+  is unchanged, still purely lexical (FTS + trigram + title, RRF-fused) — so
+  this ships the write/storage half of embeddings, not semantic search; that
+  arrives with the retrieval change.
+
+  Four `pnpm --filter api search:*` commands cover the operator-initiated half.
+  `search:backfill` enqueues one `search-embed` job per chat with outstanding
+  work — a pure producer, issuing no provider request and safe to re-run.
+  `search:coverage` reports per-chat embedded / failed / outstanding counts,
+  including chats whose every document failed. `search:retry-failed` clears the
+  attempt metadata of a terminally failed document so it stops being silently
+  suppressed. `search:prune` reclaims the vectors of a model no longer declared
+  in `embeddingModels[]` — undeclaring a model alone never deletes data, and
+  startup only warns (non-fatally) that its ledger key is undeclared.
 
 - **Chat search: oversized messages no longer bypass chunking** (#517): a
   single message's text exceeding the chunker's 3000-character budget is now
