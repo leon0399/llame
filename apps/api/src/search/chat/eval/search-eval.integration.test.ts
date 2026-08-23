@@ -25,7 +25,13 @@ import {
 } from '../../../chats/chats-repository';
 import { summarizeEval, type EvalQueryResult } from '../../core';
 import { SearchIndexService } from '../../search-index.service';
-import { EVAL_FIXTURES, EVAL_QUERIES, FLOOR_CATEGORIES } from './dataset';
+import { CHUNK_MAX_CHARS } from '../conversation-chunker';
+import {
+  EVAL_FIXTURES,
+  EVAL_QUERIES,
+  FLOOR_CATEGORIES,
+  OVERSIZED_TRANSCRIPT_TEXT,
+} from './dataset';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -87,6 +93,16 @@ describeIfDb('chat search — relevance eval', () => {
       await sqlClient`DELETE FROM users WHERE id = ${u}`;
       await sqlClient.end();
     }
+  });
+
+  it('keeps the oversized fixture larger than the chunker cannot fit whole', () => {
+    // The oversized-transcript fixture only exercises what it claims to
+    // (a message the chunker cannot fit whole into a single budgeted chunk)
+    // if it comfortably clears CHUNK_MAX_CHARS. Guard the property directly
+    // rather than trusting the comment in dataset.ts.
+    expect(OVERSIZED_TRANSCRIPT_TEXT.length).toBeGreaterThan(
+      CHUNK_MAX_CHARS * 3,
+    );
   });
 
   it('records the relevance baseline (Recall@10, MRR, zero-result-rate)', () => {

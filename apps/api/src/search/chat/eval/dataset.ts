@@ -34,15 +34,17 @@ export interface EvalQuery {
 }
 
 // Oversized-fixture filler (task 1.2): repeated to push the message text to
-// several times `CHUNK_MAX_CHARS` (3000, conversation-chunker.ts) so the
-// corpus has at least one message the chunker cannot fit whole into a single
-// budgeted chunk. A distinctive tail sentence lets the eval query target
-// content near the END of that oversized message, not its beginning.
+// several times `CHUNK_MAX_CHARS` (conversation-chunker.ts) so the corpus has
+// at least one message the chunker cannot fit whole into a single budgeted
+// chunk. The result is 10,901 characters. A distinctive tail sentence lets
+// the eval query target content near the END of that oversized message, not
+// its beginning. Exported so the integration suite can assert this property
+// directly against `CHUNK_MAX_CHARS` instead of leaving it a comment.
 const OVERSIZED_FILLER =
   'During the call we reviewed staffing levels, the quarterly budget, ' +
   'open hiring requisitions, and the rollout timeline for the internal ' +
   'tooling migration. ';
-const OVERSIZED_TRANSCRIPT_TEXT =
+export const OVERSIZED_TRANSCRIPT_TEXT =
   OVERSIZED_FILLER.repeat(70) +
   'The final action item was to retire the legacy invoicing service and ' +
   'cut over to project Nightjar-7 before the end of Q3.';
