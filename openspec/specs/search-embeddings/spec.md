@@ -52,7 +52,9 @@ Model selection SHALL be per corpus rather than one instance-wide flag, so corpo
 
 ### Requirement: Retrieval degrades rather than gates, and never mixes embedding spaces
 
-There SHALL be no completeness gate: a partially embedded corpus is retrievable, with the vector contribution present for documents that have a usable vector and absent for those that do not. Any query reading vectors SHALL restrict itself to documents whose recorded model key matches the corpus's current selection, so vectors produced by different models are never compared within one ranking.
+This requirement constrains whichever capability first reads a vector at query time. No query path reads a vector in **this** capability, so today it holds vacuously — it is stated here, with the write path, because these are the properties the storage model must already make possible, not behavior that ships with it.
+
+There SHALL be no completeness gate: a partially embedded corpus SHALL remain retrievable, with the vector contribution present for documents that have a usable vector and absent for those that do not — retrieval degrades in quality, never into an error or a refusal. Any query reading vectors SHALL restrict itself to documents whose recorded model key matches the corpus's current selection, so vectors produced by different models are never compared within one ranking.
 
 #### Scenario: A partially embedded corpus is still fully searchable
 
@@ -61,8 +63,9 @@ There SHALL be no completeness gate: a partially embedded corpus is retrievable,
 
 #### Scenario: Vectors from a superseded model never enter a ranking
 
-- **WHEN** a corpus's model has changed and some documents still carry vectors from the previous key
+- **WHEN** a corpus's model has changed, some documents still carry vectors from the previous key, and a capability that reads vectors is in place
 - **THEN** those vectors contribute nothing, and the ranking contains no comparison between vectors of different models
+- **AND** until such a capability exists, this holds because no ranking reads a vector at all
 
 ### Requirement: Embedding storage inherits the projection's tenant isolation
 
@@ -82,7 +85,7 @@ Embeddings SHALL be stored on the projection rows they describe, under the proje
 
 The projection SHALL guarantee a **stated upper bound** on document size, so a document is always at most one vector and the embedding layer can size its headroom against a real number rather than an assumption. Embedding SHALL NOT truncate, sample, or otherwise silently discard part of a document: content that cannot be embedded whole is a projection defect, not something the embedding layer resolves by dropping the tail.
 
-The bound is **not** the per-message chunk budget. No single message contributes more than the budget, but a chunk may carry an overlap block from the preceding chunk in addition to a full-budget block, so a document may reach approximately twice the budget plus its joining separator. That is existing, deliberate behavior of the contextual chunker — the overlap is what gives a chunk its surrounding context — and the embedding layer SHALL accommodate the real bound rather than the per-message one.
+The bound is **not** the per-message chunk budget, and the `search-projection` capability owns its exact value. The embedding layer SHALL size its headroom against whatever bound the projection states, rather than against the per-message budget — assuming the smaller number is the mistake this requirement exists to prevent.
 
 #### Scenario: An oversized message is represented in full
 
