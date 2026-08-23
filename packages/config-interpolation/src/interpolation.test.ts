@@ -119,9 +119,9 @@ describe("interpolateString — {env:...}", () => {
 });
 
 describe("interpolateString — {path:...}", () => {
-  function tempSecretFile(content: string): string {
+  function tempSecretFile(content: string, name = "secret.txt"): string {
     const dir = mkdtempSync(path.join(tmpdir(), "llame-instance-config-"));
-    const file = path.join(dir, "secret.txt");
+    const file = path.join(dir, name);
     writeFileSync(file, content);
     return file;
   }
@@ -142,6 +142,72 @@ describe("interpolateString — {path:...}", () => {
         kind: "path",
         location: missing,
       });
+    }
+  });
+
+  it("selects a string via an RFC 6901 JSON pointer", () => {
+    const file = tempSecretFile(
+      JSON.stringify({
+        opencode: { key: "json-secret" },
+        "a/b": { "~key": "escaped" },
+      }),
+      "auth.json",
+    );
+    expect(interpolateString(`{path:${file}|json:/opencode/key}`)).toBe(
+      "json-secret",
+    );
+    expect(interpolateString(`{path:${file}|json:/a~1b/~0key}`)).toBe(
+      "escaped",
+    );
+  });
+
+  it("does not trim a JSON-selected string", () => {
+    const file = tempSecretFile(
+      JSON.stringify({ key: "  spaced  " }),
+      "auth.json",
+    );
+    expect(interpolateString(`{path:${file}|json:/key}`)).toBe("  spaced  ");
+  });
+
+  it("rejects a non-string JSON selection without echoing the secret", () => {
+    const file = tempSecretFile(
+      JSON.stringify({ opencode: { key: "s3cr3t" } }),
+      "auth.json",
+    );
+    try {
+      interpolateString(`{path:${file}|json:/opencode}`);
+      expect.unreachable("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(InterpolationError);
+      expect(interpolationErrorSource(err)).toEqual({
+        kind: "path",
+        location: file,
+      });
+      expect(errorMessage(err)).not.toContain("s3cr3t");
+    }
+  });
+
+  it("rejects invalid JSON or a missing pointer without echoing contents", () => {
+    const badJson = tempSecretFile("{not-json", "bad.json");
+    const missingPointer = tempSecretFile(
+      JSON.stringify({ key: "s3cr3t" }),
+      "auth.json",
+    );
+
+    try {
+      interpolateString(`{path:${badJson}|json:/key}`);
+      expect.unreachable("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(InterpolationError);
+      expect(errorMessage(err)).not.toContain("not-json");
+    }
+
+    try {
+      interpolateString(`{path:${missingPointer}|json:/missing}`);
+      expect.unreachable("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(InterpolationError);
+      expect(errorMessage(err)).not.toContain("s3cr3t");
     }
   });
 });

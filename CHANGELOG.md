@@ -1,5 +1,13 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-24
+
+- **Path JSON-pointer interpolation**: `{path:LOCATION}` may end with
+  `|json:POINTER` (RFC 6901) so one JSON secret file can supply many config
+  fields. The pointer must select a JSON string; invalid JSON, missing
+  pointers, and non-string selections fail boot naming the file path only —
+  never the resolved value. Plain `{path:…}` whole-file trim is unchanged.
+
 # 2026-08-23
 
 - **Multiple personal Knowledge Spaces** (#542): owners can create, page,

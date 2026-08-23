@@ -3,9 +3,10 @@ import { readFileSync } from "node:fs";
 /**
  * Value interpolation (D4 / spec "Environment-variable interpolation" +
  * "File-path (secret) interpolation" + "Token placement, typing, and
- * escaping"): `{env:NAME}`, `{env:NAME:-default}`, `{path:LOCATION}`, single
- * -pass, non-recursive — a resolved value is a literal and is never
- * re-scanned for further tokens. `{{` escapes a literal `{`.
+ * escaping"): `{env:NAME}`, `{env:NAME:-default}`, `{path:LOCATION}`, and
+ * optional `{path:LOCATION|json:POINTER}` (RFC 6901), single-pass,
+ * non-recursive — a resolved value is a literal and is never re-scanned for
+ * further tokens. `{{` escapes a literal `{`.
  *
  * This module resolves STRING values only. Whole-value coercion to a
  * non-string schema type happens one layer up, in config-loader.ts, which
@@ -30,6 +31,7 @@ export class InterpolationError extends Error {
 
 const ENV_TOKEN = /^\{env:([A-Za-z0-9_]+)(?::-([^}]*))?\}/;
 const PATH_TOKEN = /^\{path:([^}]*)\}/;
+const JSON_POINTER_SEPARATOR = "|json:";
 
 /** Whole-value token grammar shared with the published schema's `interpolationToken` $def. */
 export const WHOLE_VALUE_TOKEN_PATTERN =
@@ -136,16 +138,178 @@ function resolveEnvToken(
  * process environment itself — so there is no path-traversal boundary to
  * enforce here (an allowlist would break legitimate secret mounts outside
  * /run/secrets). Tenants can never write this file.
+ *
+ * Optional `|json:POINTER` (RFC 6901) parses the file as JSON and selects a
+ * string. A path containing the literal `|json:` substring is unsupported.
  */
 function resolvePathToken(location: string): string {
+  const separatorAt = location.indexOf(JSON_POINTER_SEPARATOR);
+  const filePath =
+    separatorAt === -1 ? location : location.slice(0, separatorAt);
+  const pointer =
+    separatorAt === -1
+      ? undefined
+      : location.slice(separatorAt + JSON_POINTER_SEPARATOR.length);
+
+  let payload: string;
   try {
-    return readFileSync(location, "utf8").trim();
+    payload = readFileSync(filePath, "utf8");
   } catch (err) {
     // The fs error names the path and errno only — never file contents.
     const detail = err instanceof Error ? err.message : String(err);
     throw new InterpolationError(
-      `required file ${location} could not be read: ${detail}`,
-      { kind: "path", location },
+      `required file ${filePath} could not be read: ${detail}`,
+      { kind: "path", location: filePath },
     );
   }
+
+  if (pointer === undefined) {
+    return payload.trim();
+  }
+
+  let document: JsonValue;
+  try {
+    // SAFETY: JSON.parse returns `any`; unknown is the I/O-boundary type that
+    // parseJsonValue validates into JsonValue.
+    const parsed = JSON.parse(payload) as unknown;
+    document = parseJsonValue(parsed);
+  } catch (err) {
+    if (err instanceof InterpolationError) throw err;
+    throw new InterpolationError(
+      `required file ${filePath} is not valid JSON`,
+      { kind: "path", location: filePath },
+    );
+  }
+
+  let selected: JsonValue;
+  try {
+    selected = selectJsonPointer(document, pointer);
+  } catch {
+    throw new InterpolationError(
+      `JSON pointer did not select a value in ${filePath}`,
+      { kind: "path", location: filePath },
+    );
+  }
+
+  if (!isJsonString(selected)) {
+    throw new InterpolationError(
+      `JSON pointer must select a string in ${filePath}`,
+      { kind: "path", location: filePath },
+    );
+  }
+  return selected;
+}
+
+/** Parsed JSON tree for secret-file pointer selection. */
+type JsonObject = { readonly [key: string]: JsonValue };
+type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly JsonValue[]
+  | JsonObject;
+
+// eslint-disable-next-line anti-slop/no-unsafe-dictionary-type -- package-local UnknownRecord: the one owned Record<string, unknown> declaration for JSON.parse boundaries; consumers use JsonValue / JsonObject after parseJsonValue.
+type UnknownRecord = Record<string, unknown>;
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function isNumber(value: unknown): value is number {
+  return typeof value === "number";
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isJsonString(value: JsonValue): value is string {
+  return typeof value === "string";
+}
+
+function isJsonObject(value: JsonValue): value is JsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
+  return Array.isArray(value);
+}
+
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- this function IS the JSON I/O-boundary parser: first uses are `isString`/`isNumber`/`isBoolean`/`Array.isArray`/`isRecord` guards over `raw`, but the null short-circuit must run first and the exemption only recognizes an isXxx call as the first statement.
+function parseJsonValue(raw: unknown): JsonValue {
+  if (raw === null) return null;
+  if (isString(raw)) return raw;
+  if (isNumber(raw)) return raw;
+  if (isBoolean(raw)) return raw;
+  if (Array.isArray(raw)) {
+    return raw.map((item) => parseJsonValue(item));
+  }
+  if (isRecord(raw)) {
+    const entries: { [key: string]: JsonValue } = {};
+    for (const [key, value] of Object.entries(raw)) {
+      entries[key] = parseJsonValue(value);
+    }
+    return entries;
+  }
+  throw new Error("unsupported JSON value");
+}
+
+function decodePointerToken(token: string): string {
+  let out = "";
+  for (let i = 0; i < token.length; i += 1) {
+    if (token[i] !== "~") {
+      out += token[i];
+      continue;
+    }
+    const escape = token[i + 1];
+    if (escape !== "0" && escape !== "1") {
+      throw new Error("invalid JSON pointer escape");
+    }
+    out += escape === "0" ? "~" : "/";
+    i += 1;
+  }
+  return out;
+}
+
+function selectJsonPointer(document: JsonValue, pointer: string): JsonValue {
+  if (pointer === "") {
+    return document;
+  }
+  if (!pointer.startsWith("/")) {
+    throw new Error("JSON pointer must be empty or start with '/'");
+  }
+  let current: JsonValue = document;
+  for (const rawToken of pointer.slice(1).split("/")) {
+    const token = decodePointerToken(rawToken);
+    if (isJsonObject(current)) {
+      if (!Object.hasOwn(current, token)) {
+        throw new Error("missing property");
+      }
+      current = current[token];
+      continue;
+    }
+    if (isJsonArray(current)) {
+      if (token !== "0" && (!/^\d+$/.test(token) || token.startsWith("0"))) {
+        throw new Error("invalid array index");
+      }
+      const index = Number(token);
+      if (index >= current.length) {
+        throw new Error("array index out of range");
+      }
+      const next = current[index];
+      if (next === undefined) {
+        throw new Error("array index out of range");
+      }
+      current = next;
+      continue;
+    }
+    throw new Error("cannot traverse value");
+  }
+  return current;
 }

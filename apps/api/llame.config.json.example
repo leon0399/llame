@@ -3,8 +3,10 @@
 //   cp apps/api/llame.config.json.example apps/api/llame.config.json
 //
 // File values override built-in defaults. Invalid configuration fails startup;
-// changes take effect after restart. Use {env:NAME}, {env:NAME:-default}, or
-// {path:/run/secrets/name} for string interpolation. Use {{ for a literal {.
+// changes take effect after restart. Use {env:NAME}, {env:NAME:-default},
+// {path:/run/secrets/name}, or {path:/run/secrets/auth.json|json:/providers/openai/key}
+// (RFC 6901; pointer must select a JSON string) for string interpolation.
+// Use {{ for a literal {.
 {
   "$schema": "./src/instance-config/llame.config.schema.json",
 
