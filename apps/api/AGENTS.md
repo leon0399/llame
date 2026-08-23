@@ -138,6 +138,13 @@ The repo-root `compose.yaml` runs Postgres for dev; root scripts wrap it (`pnpm 
 `db:migrate` / `db:studio` / `db:psql` / `db:reset`). One-time: `cp apps/api/.env.example
 apps/api/.env.local`.
 
+**Postgres must ship the `vector` extension (pgvector).** `compose.yaml` is pinned to
+`pgvector/pgvector:pg17` by digest, not stock `postgres:17-alpine` — embeddings-backed
+search needs `vector` alongside the already-required `pg_trgm`. This is a **breaking**
+requirement for existing self-hosters running their own Postgres: move to a
+pgvector-capable image (or an equivalent managed Postgres that ships `vector`) before
+upgrading, or migrations that create the extension will fail.
+
 Chat replies need `defaults.modelId` / `defaults.titleGenerationModelId` in
 `apps/api/llame.config.json` (one-time: `cp apps/api/llame.config.json.example
 apps/api/llame.config.json` — the example's `{env:…:-default}` tokens keep the familiar

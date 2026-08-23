@@ -63,6 +63,12 @@ mount it. Configuration loading does not probe the root; provisioning and worker
 execution fail closed when their mount is missing. The root and local binding
 never enter model context or owner-facing results. See [docs/knowledge.md](docs/knowledge.md).
 
+Self-hosted Postgres must ship the `vector` extension (pgvector), alongside the
+already-required `pg_trgm`, for embeddings-backed search. The bundled `pnpm
+db:up` compose service already provides it. This is a **breaking** requirement
+for existing self-hosters running their own Postgres: move to a
+pgvector-capable image before upgrading.
+
 Each `models[]` entry may set `systemPromptFile` to a complete prompt file; an
 omitted setting uses llame's packaged project default. Relative paths resolve
 from the active config file, invalid overrides fail startup without fallback,

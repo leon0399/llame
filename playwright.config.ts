@@ -99,7 +99,8 @@ export default defineConfig({
               E2E_DB_CONTAINER:
                 process.env.E2E_DB_CONTAINER ?? "llame-e2e-postgres",
               E2E_DB_PG_IMAGE:
-                process.env.E2E_DB_PG_IMAGE ?? "postgres:17-alpine",
+                process.env.E2E_DB_PG_IMAGE ??
+                "pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f",
               POSTGRES_URL: postgresUrl,
             }),
             url: dbReadyUrl,

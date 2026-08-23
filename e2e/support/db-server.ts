@@ -11,7 +11,9 @@ const rlsFunctionOwnerSqlPath = resolve(
   "docker/postgres/rls-function-owner.sql",
 );
 const container = process.env.E2E_DB_CONTAINER ?? "llame-e2e-postgres";
-const image = process.env.E2E_DB_PG_IMAGE ?? "postgres:17-alpine";
+const image =
+  process.env.E2E_DB_PG_IMAGE ??
+  "pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f";
 const dbPort = process.env.E2E_DB_PORT ?? "55433";
 const readyPort = Number(process.env.E2E_DB_READY_PORT ?? "4302");
 const postgresUrl =
