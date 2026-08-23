@@ -20,9 +20,26 @@ const KNOWLEDGE_MAX_READ_CHUNK_BYTES = 64 * 1024;
 
 export type KnowledgeFilesystemBinding = {
   readonly id: string;
+  /** Present on database-backed bindings; legacy test/adaptor callers may omit it. */
+  readonly name?: string;
   readonly root: string;
   readonly directory: string;
 };
+
+/** Mutable operation-wide accounting shared by every targeted space. */
+export type KnowledgeFilesystemSearchBudget = {
+  remainingEntries: number;
+  remainingFiles: number;
+  remainingBytes: number;
+};
+
+export function createKnowledgeFilesystemSearchBudget(): KnowledgeFilesystemSearchBudget {
+  return {
+    remainingEntries: KNOWLEDGE_MAX_ENTRIES,
+    remainingFiles: KNOWLEDGE_MAX_FILES,
+    remainingBytes: KNOWLEDGE_MAX_SEARCH_BYTES,
+  };
+}
 
 export type KnowledgeFilesystemStats = {
   readonly size: number;
@@ -122,7 +139,10 @@ export type KnowledgeFilesystemAdapterPort = Pick<
   'search' | 'read'
 >;
 
-type SearchOptions = { readonly signal?: AbortSignal };
+export type KnowledgeFilesystemSearchOptions = {
+  readonly signal?: AbortSignal;
+  readonly budget?: KnowledgeFilesystemSearchBudget;
+};
 type DirectoryReadResult = {
   readonly entries: KnowledgeFilesystemDirent[];
   readonly count: number;
@@ -142,27 +162,25 @@ export class KnowledgeFilesystemAdapter {
   async search(
     query: string,
     limit: number,
-    options: SearchOptions = {},
+    options: KnowledgeFilesystemSearchOptions = {},
   ): Promise<KnowledgeFilesystemSearchMatch[]> {
     validateSearchInput(query, limit);
     const signal = options.signal;
+    const budget = options.budget ?? createKnowledgeFilesystemSearchBudget();
     const directory = await this.resolveBindingDirectory(signal);
     const queryFolded = query.toLowerCase();
     const matches: KnowledgeFilesystemSearchMatch[] = [];
     const pending = [{ absolutePath: directory, relativePath: '' }];
-    let remainingEntries = KNOWLEDGE_MAX_ENTRIES;
-    let fileCount = 0;
-    let inspectedBytes = 0;
 
     while (pending.length > 0) {
       throwIfAborted(signal);
       const current = pending.pop()!;
       const directoryResult = await this.readDirectory(
         current.absolutePath,
-        remainingEntries,
+        budget.remainingEntries,
         signal,
       );
-      remainingEntries -= directoryResult.count;
+      budget.remainingEntries -= directoryResult.count;
       const entries = directoryResult.entries;
       entries.sort((left, right) => compareNames(left.name, right.name));
 
@@ -189,29 +207,29 @@ export class KnowledgeFilesystemAdapter {
         if (!isMarkdownPath(relativePath)) {
           continue;
         }
-        fileCount += 1;
-        if (fileCount > KNOWLEDGE_MAX_FILES) {
+        if (budget.remainingFiles <= 0) {
           throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
         }
+        budget.remainingFiles -= 1;
         if (stats.size > KNOWLEDGE_MAX_SEARCH_FILE_BYTES) {
           throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
         }
-        if (inspectedBytes + stats.size > KNOWLEDGE_MAX_SEARCH_BYTES) {
+        if (stats.size > budget.remainingBytes) {
           throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
         }
 
         const bytes = await this.readFile(
           absolutePath,
-          KNOWLEDGE_MAX_SEARCH_FILE_BYTES,
+          Math.min(KNOWLEDGE_MAX_SEARCH_FILE_BYTES, budget.remainingBytes),
           signal,
         );
         if (bytes.length > KNOWLEDGE_MAX_SEARCH_FILE_BYTES) {
           throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
         }
-        inspectedBytes += bytes.length;
-        if (inspectedBytes > KNOWLEDGE_MAX_SEARCH_BYTES) {
+        if (bytes.length > budget.remainingBytes) {
           throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
         }
+        budget.remainingBytes -= bytes.length;
         const text = decodeUtf8(bytes);
         const match = makeSearchMatch(relativePath, text, queryFolded, bytes);
         if (match !== undefined) {
@@ -227,7 +245,7 @@ export class KnowledgeFilesystemAdapter {
 
   async read(
     relativePath: string,
-    options: SearchOptions = {},
+    options: KnowledgeFilesystemSearchOptions = {},
   ): Promise<KnowledgeFilesystemReadResult> {
     const components = validatePath(relativePath, true);
     const signal = options.signal;

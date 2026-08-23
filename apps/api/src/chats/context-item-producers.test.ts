@@ -35,7 +35,7 @@ const available: ToolAvailabilityManifestV1 = {
 };
 
 describe('Knowledge tool availability metadata', () => {
-  it('accepts both closed unavailable reasons in an initial payload', () => {
+  it('accepts current and legacy Knowledge reasons in an initial payload', () => {
     for (const reason of [
       'knowledge_space_not_configured',
       'knowledge_space_unavailable',

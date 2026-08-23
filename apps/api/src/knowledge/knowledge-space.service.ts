@@ -32,7 +32,7 @@ export type KnowledgeSpaceManagement = Pick<
 /** Trusted worker-side binding resolution, never an HTTP response shape. */
 export type KnowledgeSpaceBindingResolver = Pick<
   KnowledgeSpaceService,
-  'resolveBindingForOwner'
+  'resolveBindingForOwner' | 'resolveBindingForOwnerById' | 'listForOwnerPage'
 >;
 
 @Injectable()
@@ -170,6 +170,27 @@ export class KnowledgeSpaceService {
   ): Promise<KnowledgeSpaceBindingProjection | undefined> {
     const space = await this.tenantDb.runAs(ownerUserId, (tx) =>
       new KnowledgeSpaceRepository(tx).findForOwnerForBinding(ownerUserId),
+    );
+    if (space === undefined) return undefined;
+
+    const canonicalRoot = this.localResolver.resolveRoot();
+    const directory = this.localResolver.resolveChild(
+      canonicalRoot,
+      space.knowledgeSpaceId,
+    );
+    return toKnowledgeSpaceBindingProjection(space, canonicalRoot, directory);
+  }
+
+  /** Resolve one current owner-owned binding immediately before a tool opens it. */
+  async resolveBindingForOwnerById(
+    ownerUserId: string,
+    knowledgeSpaceId: string,
+  ): Promise<KnowledgeSpaceBindingProjection | undefined> {
+    const space = await this.tenantDb.runAs(ownerUserId, (tx) =>
+      new KnowledgeSpaceRepository(tx).findByIdForOwner(
+        knowledgeSpaceId,
+        ownerUserId,
+      ),
     );
     if (space === undefined) return undefined;
 

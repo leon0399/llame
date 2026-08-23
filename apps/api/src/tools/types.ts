@@ -1,6 +1,7 @@
 import { type z } from 'zod';
 
 import { type TenantRunner } from '../db/tenant-db.service';
+import { type KnowledgeSpaceCursor } from '../knowledge/knowledge-space.cursor';
 import {
   type KnowledgeFilesystemAdapterPort,
   type KnowledgeFilesystemBinding,
@@ -15,9 +16,27 @@ import { type UnknownRecord } from '../unknown-record';
 export type JsonSchemaDocument = UnknownRecord;
 
 /** Trusted, worker-bound capability for live owner Knowledge access. */
+export type KnowledgeToolSpaceReference = {
+  readonly id: string;
+  readonly name: string;
+  readonly createdAt: Date;
+};
+
+export type KnowledgeToolSpacePage = {
+  readonly spaces: readonly KnowledgeToolSpaceReference[];
+  readonly nextCursor?: KnowledgeSpaceCursor;
+};
+
 export type KnowledgeToolResolver = {
-  readonly resolveBindingForOwner: (
+  /** Current owner-scoped page used by unscoped search. */
+  readonly listForOwnerPage: (
     ownerUserId: string,
+    after?: KnowledgeSpaceCursor,
+  ) => Promise<KnowledgeToolSpacePage>;
+  /** Exact current owner-scoped lookup used by explicit search/read and each page target. */
+  readonly resolveBindingForOwnerById: (
+    ownerUserId: string,
+    knowledgeSpaceId: string,
   ) => Promise<KnowledgeFilesystemBinding | undefined>;
   readonly createAdapter: (
     binding: KnowledgeFilesystemBinding,

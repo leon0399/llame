@@ -12,7 +12,6 @@ import {
   type ToolUnavailableReason,
 } from '../tools/turn-tool-catalog';
 import { type Tool } from '../tools/types';
-import { KnowledgeSpaceRepository } from './knowledge-space.repository';
 
 const KNOWLEDGE_TOOL_IDS = ['knowledge_search', 'knowledge_read'] as const;
 
@@ -45,7 +44,7 @@ export class KnowledgeToolCandidateResolver {
     private readonly instanceConfig: InstanceConfigReader,
   ) {}
 
-  async resolve(
+  resolve(
     input: KnowledgeToolCandidateResolverInput,
   ): Promise<TurnToolCandidate[]> {
     const tools = [...(input.codeOwnedTools ?? TOOL_REGISTRY.values())];
@@ -57,36 +56,31 @@ export class KnowledgeToolCandidateResolver {
     );
 
     const unavailableReason = shouldResolveOwner
-      ? await this.resolveUnavailableReason(input)
+      ? this.resolveUnavailableReason()
       : undefined;
 
-    return tools.map((tool) => {
-      if (unavailableReason !== undefined && isKnowledgeToolId(tool.id)) {
+    return Promise.resolve(
+      tools.map((tool) => {
+        if (unavailableReason !== undefined && isKnowledgeToolId(tool.id)) {
+          return {
+            source: { type: 'code_owned' as const },
+            state: 'unavailable' as const,
+            id: tool.id,
+            classification: tool.classification,
+            reason: unavailableReason,
+          };
+        }
+
         return {
           source: { type: 'code_owned' as const },
-          state: 'unavailable' as const,
-          id: tool.id,
-          classification: tool.classification,
-          reason: unavailableReason,
+          state: 'available' as const,
+          tool,
         };
-      }
-
-      return {
-        source: { type: 'code_owned' as const },
-        state: 'available' as const,
-        tool,
-      };
-    });
+      }),
+    );
   }
 
-  private async resolveUnavailableReason(
-    input: KnowledgeToolCandidateResolverInput,
-  ): Promise<ToolUnavailableReason | undefined> {
-    const ownerSpace = await new KnowledgeSpaceRepository(
-      input.tx,
-    ).findForOwnerForBinding(input.ownerUserId);
-    if (ownerSpace === undefined) return 'knowledge_space_not_configured';
-
+  private resolveUnavailableReason(): ToolUnavailableReason | undefined {
     return this.instanceConfig.config.knowledge.root === undefined
       ? 'knowledge_space_unavailable'
       : undefined;
