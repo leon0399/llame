@@ -1,4 +1,4 @@
-import type { createOpenAIModelClient } from './openai-model-client';
+import type { createOpenAIModelClient } from '@workspace/harness';
 import { createModelClient } from './model-client-factory';
 
 // Test seam (anti-slop/no-module-mocking): overrides createOpenAIModelClient

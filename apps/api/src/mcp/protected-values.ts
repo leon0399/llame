@@ -1,4 +1,4 @@
-import { isBoolean, isNumber, isRecord, isString } from '../unknown-record';
+import { isBoolean, isNumber, isRecord, isString } from '@workspace/harness';
 
 export const PROTECTED_VALUE_REDACTION_MARKER = '[REDACTED]';
 

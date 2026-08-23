@@ -33,7 +33,7 @@ import {
   TOOL_REPLAY_TURN_LIMIT,
 } from '../chats/tool-observation-part';
 import type { StoredMessage } from '../chats/context-builder';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/harness';
 
 let seqCounter = 0;
 function msg(

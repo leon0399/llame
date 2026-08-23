@@ -8,7 +8,7 @@ import {
 } from '../instance-config/llame-config';
 import type { SystemModelCatalogEntry } from './model-catalog';
 import { createModelClient } from './model-client-factory';
-import type { createOpenAIModelClient } from './openai-model-client';
+import type { createOpenAIModelClient } from '@workspace/harness';
 import {
   ModelConfigurationError,
   ModelNotAvailableError,

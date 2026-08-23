@@ -26,11 +26,11 @@ import {
   MissingModelCredentialError,
   type ModelClient,
   type ModelStreamInput,
-} from '../models/model-client';
-import type { TokenPrice } from '../models/model-catalog';
+} from '@workspace/harness';
+import type { TokenPrice } from '@workspace/harness';
 import { ModelNotAvailableError } from '../models/models.service';
-import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
-import { isRecord, isString } from '../unknown-record';
+import { wrapStreamTextResult } from '@workspace/harness';
+import { isRecord, isString } from '@workspace/harness';
 
 /**
  * Asserts a register (or any auth) response body carries `user.id` as a

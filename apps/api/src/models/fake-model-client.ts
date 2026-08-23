@@ -6,8 +6,8 @@ import {
 import { MockLanguageModelV3 } from 'ai/test';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 
-import type { ModelClient, ModelStreamInput } from './model-client';
-import { wrapStreamTextResult } from './stream-text-result-proxy';
+import type { ModelClient, ModelStreamInput } from '@workspace/harness';
+import { wrapStreamTextResult } from '@workspace/harness';
 
 export const ZERO_USAGE: LanguageModelUsage = {
   inputTokens: 0,

@@ -9,12 +9,12 @@
  * `apiKey` throws when `OPENAI_API_KEY` is also unset; our non-empty
  * placeholder does not.
  */
-import { loadApiKey } from '@ai-sdk/provider-utils';
-import { LoadAPIKeyError } from '@ai-sdk/provider';
+import { loadApiKey } from "@ai-sdk/provider-utils";
+import { LoadAPIKeyError } from "@ai-sdk/provider";
 
-import { KEYLESS_PLACEHOLDER_API_KEY } from './openai-model-client';
+import { KEYLESS_PLACEHOLDER_API_KEY } from "./openai-model-client";
 
-describe('keyless provider credential resolution (#162)', () => {
+describe("keyless provider credential resolution (#162)", () => {
   const originalKey = process.env.OPENAI_API_KEY;
 
   beforeEach(() => {
@@ -29,22 +29,22 @@ describe('keyless provider credential resolution (#162)', () => {
     }
   });
 
-  it('reproduces the #162 bug: omitting apiKey throws LoadAPIKeyError when OPENAI_API_KEY is also unset', () => {
+  it("reproduces the #162 bug: omitting apiKey throws LoadAPIKeyError when OPENAI_API_KEY is also unset", () => {
     expect(() =>
       loadApiKey({
         apiKey: undefined,
-        environmentVariableName: 'OPENAI_API_KEY',
-        description: 'OpenAI',
+        environmentVariableName: "OPENAI_API_KEY",
+        description: "OpenAI",
       }),
     ).toThrow(LoadAPIKeyError);
   });
 
-  it('the placeholder apiKey our client passes for a keyless provider never throws', () => {
+  it("the placeholder apiKey our client passes for a keyless provider never throws", () => {
     expect(
       loadApiKey({
         apiKey: KEYLESS_PLACEHOLDER_API_KEY,
-        environmentVariableName: 'OPENAI_API_KEY',
-        description: 'OpenAI',
+        environmentVariableName: "OPENAI_API_KEY",
+        description: "OpenAI",
       }),
     ).toBe(KEYLESS_PLACEHOLDER_API_KEY);
   });
