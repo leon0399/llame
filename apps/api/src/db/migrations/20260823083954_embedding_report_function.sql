@@ -36,6 +36,26 @@
 -- NOT reassigned here for the same reason as the other three discovery
 -- functions — see friendly_swarm's comment; until `pnpm db:provision-rls`
 -- runs, this is (harmlessly) owned by `app` and does not bypass RLS.
+--
+-- THIS DUPLICATION IS A KNOWN, ACCEPTED PAST-THE-DEADLINE COST, NOT A
+-- PRECEDENT. The right end state was always ONE function with the HAVING/
+-- ORDER BY predicate as a parameter — but that decision had to be made
+-- before `llame_search_embedding_coverage` first shipped and got provisioned
+-- (`CREATE OR REPLACE` needs the executing role to own the function; once
+-- `app_rls` owns it, `app` cannot replace it — see the header above). That
+-- door is closed for these two specific functions: neither can be collapsed
+-- into the other by migration once it has deployed anywhere.
+--
+-- DO NOT ADD A THIRD PREDICATE VARIANT AS A FOURTH SIBLING FUNCTION. If a
+-- future consumer needs yet another HAVING/ORDER BY shape over this same
+-- CTE, that is the signal to stop duplicating and design a single
+-- parameterized function (predicate variant passed as an argument or a
+-- small enum) covering all three — defined in a NEW migration, before
+-- `pnpm db:provision-rls` has ever reassigned ITS ownership, so the
+-- ownership hazard above never applies to it. Migrate the two existing
+-- discovery functions' callers (`backfill`, `search:coverage`, and the
+-- sweep) onto the new one and retire `coverage`/`report` once nothing reads
+-- them, rather than shipping a third copy of this CTE.
 CREATE FUNCTION llame_search_embedding_report(current_model_key text, current_input_version integer, max_rows integer)
 RETURNS TABLE (chat_id uuid, owner_user_id text, outstanding_count integer, embedded_count integer, failed_count integer)
 LANGUAGE sql

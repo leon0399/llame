@@ -28,13 +28,14 @@
  * every automatic path.
  *
  * Same "no new SECURITY DEFINER discovery function for a write command"
- * reasoning as `prune.ts`: iterates every `users.id` (no RLS) and issues one
- * ordinary owner-scoped `UPDATE` per user.
+ * reasoning as `prune.ts`: `forEachOwner` (`owner-write.ts`) iterates every
+ * `users.id` (no RLS) and scopes each write through `runAs` — see that
+ * file's header for the full correctness argument.
  */
 import { sql } from 'drizzle-orm';
 
-import { users } from '../../db/schema/auth';
 import type { TenantDbService } from '../../db/tenant-db.service';
+import { forEachOwner } from './owner-write';
 
 export type RetryFailedResult = {
   clearedDocuments: number;
@@ -46,14 +47,9 @@ export async function retryFailedDocuments(
   modelId: string,
   inputVersion: number,
 ): Promise<RetryFailedResult> {
-  const owners = await tenantDb.runAsPublic((tx) =>
-    tx.select({ id: users.id }).from(users),
-  );
-
-  let clearedDocuments = 0;
-  let affectedOwners = 0;
-  for (const { id } of owners) {
-    const result = await tenantDb.runAs(id, (tx) =>
+  const { total: clearedDocuments, affectedOwners } = await forEachOwner(
+    tenantDb,
+    (tx) =>
       tx.execute(sql`
         UPDATE search_chat_documents
         SET embedding_model_key = NULL,
@@ -65,11 +61,6 @@ export async function retryFailedDocuments(
           AND embedded_content_hash = content_hash
           AND embed_input_version = ${inputVersion}
       `),
-    );
-    if (result.count > 0) {
-      clearedDocuments += result.count;
-      affectedOwners += 1;
-    }
-  }
+  );
   return { clearedDocuments, affectedOwners };
 }

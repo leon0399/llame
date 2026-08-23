@@ -27,17 +27,15 @@
  * discovery function is ever unprovisioned (`pnpm db:provision-rls` not yet
  * run), it silently returns zero candidates and this command would report
  * success having pruned nothing — exactly the "looks fine, does nothing"
- * failure the brief calls out for `retry-failed`. `users` carries no RLS at
- * all (no owner column, no policy), so this iterates every user id and
- * issues one ordinary owner-scoped `UPDATE` per user instead — most
- * affecting zero rows, cheap (the owner+chat index covers it), and with no
- * BYPASSRLS surface to leave unprovisioned: an unmigrated `app_rls` role
- * simply doesn't matter here.
+ * failure the brief calls out for `retry-failed`. `forEachOwner`
+ * (`owner-write.ts`) iterates every `users` id instead (no RLS, no
+ * BYPASSRLS surface to leave unprovisioned) and scopes each write through
+ * `runAs` — see that file's header for the full correctness argument.
  */
 import { sql } from 'drizzle-orm';
 
-import { users } from '../../db/schema/auth';
 import type { TenantDbService } from '../../db/tenant-db.service';
+import { forEachOwner } from './owner-write';
 
 export type PruneResult = {
   prunedDocuments: number;
@@ -59,10 +57,6 @@ export async function pruneUndeclaredModelVectors(
   tenantDb: Pick<TenantDbService, 'runAs' | 'runAsPublic'>,
   declaredModelKeys: readonly string[],
 ): Promise<PruneResult> {
-  const owners = await tenantDb.runAsPublic((tx) =>
-    tx.select({ id: users.id }).from(users),
-  );
-
   // `<> ALL(${array})` does not bind a JS array as a Postgres array
   // parameter through this driver (verified empirically: postgres.js sends
   // it as a single text-array-typed parameter whose serialized value is the
@@ -80,10 +74,9 @@ export async function pruneUndeclaredModelVectors(
           sql`, `,
         )})`;
 
-  let prunedDocuments = 0;
-  let affectedOwners = 0;
-  for (const { id } of owners) {
-    const result = await tenantDb.runAs(id, (tx) =>
+  const { total: prunedDocuments, affectedOwners } = await forEachOwner(
+    tenantDb,
+    (tx) =>
       tx.execute(sql`
         UPDATE search_chat_documents
         SET embedding = NULL,
@@ -94,12 +87,7 @@ export async function pruneUndeclaredModelVectors(
         WHERE embedding_model_key IS NOT NULL
           AND ${notInDeclared(sql`embedding_model_key`)}
       `),
-    );
-    if (result.count > 0) {
-      prunedDocuments += result.count;
-      affectedOwners += 1;
-    }
-  }
+  );
 
   // Retire the ledger row for every undeclared key — see this file's header
   // for why leaving it behind after clearing the vectors is itself a bug.
