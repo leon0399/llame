@@ -51,15 +51,20 @@ the chunker-fit layer (#517) are measured against. **Cutoff K = 10.**
   stemming, so a different case or conjugation is frequently a different,
   unmatched token — some of these return zero results outright. This is what
   phase 3 (embeddings) is expected to close, not a regression to fix here.
-- **oversized = 1.00 confirms today's baseline behavior, not a floor.** The
-  corpus previously had no fixture larger than `CHUNK_MAX_CHARS` (3000,
-  `conversation-chunker.ts`). The added fixture's single message is ~3.6x
-  that budget; `chunkByCharBudget` passes an over-budget item through as its
-  own unsplit chunk (no truncation), so the whole message — including content
-  near its tail — is indexed and currently fully retrievable lexically. This
-  row is expected to MOVE once the chunker-fit layer (#517) changes how an
-  oversized message is chunked (splitting it changes what a lexical query
-  against its tail can retrieve). **Every other row in this document —
-  exact-title through paraphrase — is expected to stay byte-identical** after
-  that layer; that is the exit criterion the next implementer checks against,
-  not a target to hit approximately.
+- **oversized = 1.00, re-recorded after the chunker-fit layer (#517), not a
+  floor.** Before #517, `chunkByCharBudget` passed the fixture's over-budget
+  single message through as its own unsplit chunk — the whole ~3.6x-budget
+  message, including the "Nightjar-7" tail, was one lexically-indexed
+  document. #517 changed `conversation-chunker.ts` (`CHUNKER_VERSION` 2 → 3)
+  to split any message exceeding `CHUNK_MAX_CHARS` into several
+  budget-sized, boundary-cut documents instead — the specific defect the
+  layer exists to fix, ahead of embeddings needing "one document, one
+  vector". The number did not move: the slice carrying the tail still
+  ranks first for this query, so Recall@10 and MRR both held at exactly
+  1.00. That is a property of this one fixture (the query term sits near
+  the end of the _final_ slice, which scores highest), not a general
+  guarantee that splitting never changes ranking — a differently shaped
+  oversized message could plausibly move this row, and that would still be
+  expected, not a regression. **Every other row in this document — floors
+  through paraphrase — stayed byte-identical** across the #517 re-run,
+  matching the layer's exit criterion.

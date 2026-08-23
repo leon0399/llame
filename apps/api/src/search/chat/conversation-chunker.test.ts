@@ -1,4 +1,5 @@
 import {
+  CHUNK_ANCHOR_MAX_CHARS,
   CHUNK_MAX_CHARS,
   chunkConversation,
   type ChunkerMessage,
@@ -171,5 +172,156 @@ describe('chunkConversation', () => {
         { id: 's', role: 'system', parts: text('sys'), createdAt: at(0) },
       ]),
     ).toEqual([]);
+  });
+});
+
+describe('chunkConversation — oversized messages (#517)', () => {
+  it('is byte-identical to the fits-under-budget path for a realistic corpus', () => {
+    const chunks = chunkConversation([
+      userMsg('m1', 'How does search work?', 0),
+      assistantMsg('m2', 'Full-text plus trigram.', 1),
+      userMsg('m3', 'ПРИВЕТ Café, any gotchas?', 2),
+      assistantMsg('m4', 'None that I know of.', 3),
+    ]);
+    for (const chunk of chunks) {
+      expect(chunk.content.length).toBeLessThanOrEqual(CHUNK_MAX_CHARS);
+    }
+    // Everything fits in one chunk; the join is exactly the v2 shape — role
+    // markers, `\n\n`-joined, no split/anchor machinery engaged at all.
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].content).toBe(
+      '[user] How does search work?\n\n' +
+        '[assistant] Full-text plus trigram.\n\n' +
+        '[user] ПРИВЕТ Café, any gotchas?\n\n' +
+        '[assistant] None that I know of.',
+    );
+  });
+
+  it('splits an oversized user message with no anchor, and every chunk fits the budget', () => {
+    const big = 'x'.repeat(CHUNK_MAX_CHARS + 4500); // no whitespace: forces hard cuts
+    const chunks = chunkConversation([userMsg('u1', big, 0)]);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.content.length).toBeLessThanOrEqual(CHUNK_MAX_CHARS);
+      expect(chunk.content).not.toContain('[context:');
+      expect(chunk.firstMessageId).toBe('u1');
+      expect(chunk.lastMessageId).toBe('u1');
+    }
+
+    // Lossless coverage: stripping the constant "[user] " prefix from every
+    // chunk and concatenating in order reproduces the original text exactly
+    // — nothing dropped, nothing duplicated. Each chunk here maps to exactly
+    // one slice because every non-final slice fills its full budget (>=
+    // maxChars), which the packer's overlap rule refuses to carry forward.
+    const reconstructed = chunks
+      .map((c) => c.content.replace(/^\[user\] /, ''))
+      .join('');
+    expect(reconstructed).toBe(big);
+  });
+
+  it('anchors continuation slices of an oversized assistant message to the preceding user message', () => {
+    const question = 'What should the migration plan be?';
+    const answer = 'y'.repeat(CHUNK_MAX_CHARS + 500); // one boundary-free split
+    const chunks = chunkConversation([
+      userMsg('u1', question, 0),
+      assistantMsg('a1', answer, 1),
+    ]);
+
+    // NOT a strict <= CHUNK_MAX_CHARS check here: this layer guarantees each
+    // MessageBlock (one slice) fits the budget, which is what makes the
+    // message coverage/anchor invariants below hold. The PACKED chunk can
+    // still legitimately combine two under-budget blocks whose sum exceeds
+    // CHUNK_MAX_CHARS — chunkByCharBudget's overlap-carry always takes at
+    // least one new item onto a carried-over tail regardless of the running
+    // total, and its `sizeOf` doesn't count the `\n\n` join either. This is
+    // pre-existing packer behavior, not introduced here: two ordinary
+    // 2997-char blocks (well under budget individually) already pack into a
+    // 5996-char chunk on master today. Exit criterion 2.5 requires v3 to stay
+    // byte-identical to v2 for every fitting input, so this layer cannot
+    // (and does not try to) change that packing behavior.
+    for (const chunk of chunks) {
+      expect(chunk.content.length).toBeLessThanOrEqual(2 * CHUNK_MAX_CHARS);
+    }
+
+    const assistantChunks = chunks.filter((c) =>
+      c.content.includes('[assistant]'),
+    );
+    expect(assistantChunks.length).toBeGreaterThan(1);
+
+    // First slice: no anchor.
+    expect(assistantChunks[0].content).not.toContain('[context:');
+    // A later slice: anchor present, quoting the preceding user question.
+    const anchored = assistantChunks.find((c) =>
+      c.content.includes('[context:'),
+    );
+    expect(anchored).toBeDefined();
+    expect(anchored!.content).toContain(`[context: ${question}] `);
+
+    // The anchor is content-only: normalizedContent (built from lexicalContent)
+    // must never carry it, or it would become trigram/FTS-matchable.
+    for (const chunk of chunks) {
+      expect(chunk.normalizedContent).not.toContain('context:');
+    }
+  });
+
+  it('emits no anchor for an oversized message that is itself a user message, even with a preceding user message', () => {
+    // A preceding user message exists (unusual turn order, but the type
+    // permits it) — proving the exclusion is keyed on the oversized
+    // message's OWN role, not merely on precedingUserText being unset.
+    const chunks = chunkConversation([
+      userMsg('u0', 'first question', 0),
+      userMsg('u1', 'z'.repeat(CHUNK_MAX_CHARS + 1000), 1),
+    ]);
+    for (const chunk of chunks) {
+      expect(chunk.content).not.toContain('[context:');
+    }
+  });
+
+  it('emits no anchor for an oversized message with no preceding user message', () => {
+    // Assistant message with nothing before it: no user turn to anchor to.
+    const chunks = chunkConversation([
+      assistantMsg('a1', 'w'.repeat(CHUNK_MAX_CHARS + 1000), 0),
+    ]);
+    for (const chunk of chunks) {
+      expect(chunk.content).not.toContain('[context:');
+    }
+  });
+
+  it('truncates a preceding user message longer than CHUNK_ANCHOR_MAX_CHARS at a word boundary with an elision marker', () => {
+    const longQuestion = Array.from({ length: 100 }, (_, i) => `word${i}`).join(
+      ' ',
+    ); // well over CHUNK_ANCHOR_MAX_CHARS, plenty of word boundaries
+    expect(longQuestion.length).toBeGreaterThan(CHUNK_ANCHOR_MAX_CHARS);
+
+    const answer = 'v'.repeat(CHUNK_MAX_CHARS + 500);
+    const chunks = chunkConversation([
+      userMsg('u1', longQuestion, 0),
+      assistantMsg('a1', answer, 1),
+    ]);
+
+    const anchored = chunks.find((c) => c.content.includes('[context:'));
+    expect(anchored).toBeDefined();
+
+    const match = /\[context: ([^\]]*)\] /.exec(anchored!.content);
+    expect(match).not.toBeNull();
+    const excerpt = match![1];
+
+    expect(excerpt.length).toBeLessThanOrEqual(CHUNK_ANCHOR_MAX_CHARS + 1); // +1 for the elision mark
+    expect(excerpt.endsWith('…')).toBe(true);
+    expect(excerpt).not.toBe(longQuestion);
+    // Cut at a word boundary: the excerpt minus the marker is a clean prefix
+    // ending on a full "wordN" token, never a partial one.
+    const withoutMarker = excerpt.slice(0, -1);
+    expect(longQuestion.startsWith(withoutMarker)).toBe(true);
+    expect(/\bword\d+$/.test(withoutMarker)).toBe(true);
+  });
+
+  it('is deterministic for an oversized conversation (identical input → byte-identical chunks)', () => {
+    const convo = [
+      userMsg('u1', 'question about the rollout', 0),
+      assistantMsg('a1', 'p'.repeat(CHUNK_MAX_CHARS + 900), 1),
+    ];
+    expect(chunkConversation(convo)).toEqual(chunkConversation(convo));
   });
 });

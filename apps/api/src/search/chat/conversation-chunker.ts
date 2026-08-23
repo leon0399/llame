@@ -18,12 +18,19 @@ import {
  * corpus, not episodic search). `isTextPart` is reused from the context builder so
  * the text-part shape check can't drift between the two.
  */
-export const CHUNKER_VERSION = 2;
+export const CHUNKER_VERSION = 3;
 
 // Tunable v1 constants (grill-locked). All chunk shape lives behind CHUNKER_VERSION;
 // a change here is a version bump, and the discovery sweep rebuilds every chat.
 export const CHUNK_MAX_CHARS = 3000; // ≈750 tokens — inside phase-2 embedding budgets
 export const CHUNK_OVERLAP_MESSAGES = 1;
+
+// v3 (#517): a single message's TEXT can exceed CHUNK_MAX_CHARS on its own — the
+// packer's "always take at least one item" rule then emits it whole, unsplit, so
+// one document can be several times the embedding budget. Continuation slices of
+// such a message are prefixed with a bounded excerpt of the preceding user
+// message, so a mid-answer slice still carries what question it was answering.
+export const CHUNK_ANCHOR_MAX_CHARS = 400;
 
 export interface ChunkerMessage {
   id: string;
@@ -50,22 +57,132 @@ interface MessageBlock {
   lexicalContent: string;
 }
 
-function toBlock(message: ChunkerMessage): MessageBlock | null {
-  if (message.role !== 'user' && message.role !== 'assistant') return null;
-  const text = message.parts
+function extractMessageText(message: ChunkerMessage): string {
+  return message.parts
     .filter(isTextPart)
     .map((p) => p.text)
     .join('\n')
     .trim();
-  if (text.length === 0) return null;
-  return {
-    messageId: message.id,
-    createdAt: message.createdAt,
-    // Role markers are presentation-only: snippets need provenance, but lexical
-    // search must operate only on user-visible message text.
-    content: `[${message.role}] ${text}`,
-    lexicalContent: text,
-  };
+}
+
+/**
+ * Cut `text` at index <= `maxLen`, preferring (in order) a blank line, a
+ * newline or sentence end, then plain whitespace — never mid-word unless no
+ * boundary exists at all within the budget. Returns `text.length` unchanged
+ * when it already fits.
+ */
+function findCutIndex(text: string, maxLen: number): number {
+  if (text.length <= maxLen) return text.length;
+  const window = text.slice(0, maxLen);
+
+  const blankLine = window.lastIndexOf('\n\n');
+  if (blankLine > 0) return blankLine + 2;
+
+  let sentenceEnd = -1;
+  for (const token of ['\n', '. ', '! ', '? ']) {
+    const idx = window.lastIndexOf(token);
+    if (idx > 0) sentenceEnd = Math.max(sentenceEnd, idx + token.length);
+  }
+  if (sentenceEnd > 0) return sentenceEnd;
+
+  for (let i = window.length - 1; i > 0; i -= 1) {
+    if (/\s/.test(window.charAt(i))) return i + 1;
+  }
+
+  return maxLen;
+}
+
+/** Bounded, word-boundary-truncated excerpt with an elision marker when cut. */
+function truncateAnchorExcerpt(text: string): string {
+  if (text.length <= CHUNK_ANCHOR_MAX_CHARS) return text;
+  const cut = findCutIndex(text, CHUNK_ANCHOR_MAX_CHARS);
+  // trimEnd: findCutIndex includes the boundary whitespace in the head (the
+  // splitter needs that to reconstruct losslessly; a presentation-only
+  // excerpt doesn't), so drop it before the elision marker.
+  return `${text.slice(0, cut).trimEnd()}…`;
+}
+
+/**
+ * `content`-only synthetic prefix for a continuation slice — same category of
+ * presentation-only text as the `[role]` marker, so it never reaches
+ * `lexicalContent` (see `messageToBlocks`).
+ */
+function formatAnchor(precedingUserText: string): string {
+  return `[context: ${truncateAnchorExcerpt(precedingUserText)}] `;
+}
+
+/**
+ * One message → one or more blocks. A message whose full `[role] text` fits
+ * the budget produces exactly the same single block as before (byte-identical
+ * for every already-fitting input). An oversized message is split into
+ * budget-sized, boundary-cut slices covering `text` exactly once each; every
+ * continuation slice (not the first) carries an anchor in `content` only —
+ * `lexicalContent` never contains it, matching the `[role]` marker rule.
+ */
+function messageToBlocks(
+  message: ChunkerMessage,
+  text: string,
+  anchorSource: string | null,
+): MessageBlock[] {
+  const prefix = `[${message.role}] `;
+  if (prefix.length + text.length <= CHUNK_MAX_CHARS) {
+    return [
+      {
+        messageId: message.id,
+        createdAt: message.createdAt,
+        content: `${prefix}${text}`,
+        lexicalContent: text,
+      },
+    ];
+  }
+
+  const anchor = anchorSource === null ? '' : formatAnchor(anchorSource);
+  const firstMax = CHUNK_MAX_CHARS - prefix.length;
+  const continuationMax = CHUNK_MAX_CHARS - prefix.length - anchor.length;
+
+  const blocks: MessageBlock[] = [];
+  let remaining = text;
+  let isFirst = true;
+  while (remaining.length > 0) {
+    const budget = isFirst ? firstMax : continuationMax;
+    const cut = findCutIndex(remaining, budget);
+    const slice = remaining.slice(0, cut);
+    blocks.push({
+      messageId: message.id,
+      createdAt: message.createdAt,
+      content: `${prefix}${isFirst ? '' : anchor}${slice}`,
+      lexicalContent: slice,
+    });
+    remaining = remaining.slice(cut);
+    isFirst = false;
+  }
+  return blocks;
+}
+
+/**
+ * Builds the flat block list for the whole conversation, tracking the most
+ * recent user message's text so an oversized *assistant* message's
+ * continuation slices can anchor back to the question they're answering.
+ * Rule (spec): no anchor for an oversized user message, no preceding user
+ * message, or a message's first slice.
+ */
+function buildBlocks(messages: readonly ChunkerMessage[]): MessageBlock[] {
+  const blocks: MessageBlock[] = [];
+  let precedingUserText: string | null = null;
+
+  for (const message of messages) {
+    if (message.role !== 'user' && message.role !== 'assistant') continue;
+    const text = extractMessageText(message);
+    if (text.length === 0) continue;
+
+    const anchorSource =
+      message.role === 'assistant' ? precedingUserText : null;
+    blocks.push(...messageToBlocks(message, text, anchorSource));
+
+    if (message.role === 'user') precedingUserText = text;
+  }
+
+  return blocks;
 }
 
 /**
@@ -75,9 +192,7 @@ function toBlock(message: ChunkerMessage): MessageBlock | null {
 export function chunkConversation(
   messages: readonly ChunkerMessage[],
 ): ConversationChunk[] {
-  const blocks = messages
-    .map(toBlock)
-    .filter((b): b is MessageBlock => b !== null);
+  const blocks = buildBlocks(messages);
 
   const groups = chunkByCharBudget(blocks, (b) => b.content.length, {
     maxChars: CHUNK_MAX_CHARS,
