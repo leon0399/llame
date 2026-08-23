@@ -17,7 +17,7 @@ import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository } from '../chats/chats-repository';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/harness';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
 
 const hasDb = !!process.env.POSTGRES_URL;

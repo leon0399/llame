@@ -47,6 +47,8 @@
     "@nestjs/swagger": "^11.4.6",
     "@nestjs/throttler": "^6.5.0",
     "@wavezync/nestjs-pgboss": "^6.0.0",
+    "@workspace/config": "workspace:*",
+    "@workspace/harness": "workspace:*",
     "ai": "catalog:",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",

@@ -18,7 +18,7 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { buildCompactionToolObservationLedger } from '../chats/tool-observation-part';
-import { isString } from '../unknown-record';
+import { isString } from '@workspace/harness';
 import type { CompactionToolObservationLedgerV1 } from '../db/schema';
 import { isCompletedAssistantTurn } from '../chats/chats-repository';
 import { type ModelToolDeclaration } from '../db/schema';

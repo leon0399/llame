@@ -5,7 +5,7 @@ import {
   type ServerResponse,
 } from 'node:http';
 
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/harness';
 
 type FixtureResponseBase = {
   readonly status?: number;

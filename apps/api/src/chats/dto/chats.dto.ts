@@ -25,7 +25,7 @@ import {
   isRecord,
   isString,
   type UnknownRecord,
-} from '../../unknown-record';
+} from '@workspace/harness';
 import { isTextPart } from '../context-builder';
 import type { TurnTelemetry } from '../turn-telemetry';
 

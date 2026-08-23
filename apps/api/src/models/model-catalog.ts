@@ -11,6 +11,8 @@
  * server-only configuration and must never be derived by parsing the public id.
  */
 
+import type { TokenPrice } from '@workspace/harness';
+
 export type ModelSource = 'system';
 export type SystemPromptSource = 'project_default' | 'model_override';
 
@@ -103,19 +105,6 @@ export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   /** Path-free provenance for the resolved prompt. */
   systemPromptSource: SystemPromptSource;
 }
-
-/**
- * A single model's resolved pricing, carried on its `ModelClient` (see
- * `model-client.ts`) and consumed by turn-telemetry cost calculation. Unlike
- * `ModelPricingUsdPer1M` (optional per-field display metadata), `input`/
- * `output` are required here — pricing that can't compute a cost is simply
- * absent (`ModelClient.pricing === undefined`), not a partial `TokenPrice`.
- */
-export type TokenPrice = {
-  inputUsdPer1M: number;
-  cachedInputUsdPer1M?: number;
-  outputUsdPer1M: number;
-};
 
 /**
  * Strip the internal execution-only fields (`provider`, `providerModelId`,

@@ -3,7 +3,7 @@ import {
   REASONING_PERSIST_MAX,
   assistantParts,
 } from '../runs/run-execution.service';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/harness';
 
 function isPartWithText(part: unknown): part is { type: string; text: string } {
   return (

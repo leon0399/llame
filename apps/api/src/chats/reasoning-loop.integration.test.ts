@@ -26,13 +26,10 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import {
-  type ModelClient,
-  type ModelStreamInput,
-} from '../models/model-client';
+import { type ModelClient, type ModelStreamInput } from '@workspace/harness';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { isTextPart, type TextPart } from './context-builder';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/harness';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
 import type { CompactionCapability } from '../compaction/compaction.service';
