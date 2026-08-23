@@ -5,8 +5,8 @@
  */
 import * as fs from 'node:fs';
 
-import { WHOLE_VALUE_TOKEN_PATTERN } from './interpolation';
-import { InstanceConfigError } from './instance-config.error';
+import { WHOLE_VALUE_TOKEN_PATTERN } from '@workspace/config';
+import { InstanceConfigError } from '@workspace/config';
 import {
   getConfigValidator,
   loadSchemaDocument,
