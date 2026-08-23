@@ -1,0 +1,792 @@
+CHANGELOG.md
+  e42e140dd12bfcb7 11-13
+  637d8cf18373a629 3-10,14-19
+ROADMAP.md
+  637d8cf18373a629 41
+e2e/support/fixtures/llame.config.e2e.json
+  637d8cf18373a629 79-80,85-86
+playwright.config.ts
+  637d8cf18373a629 2,23-28
+apps/api/llame.config.json.example
+  637d8cf18373a629 185-188,196-197
+apps/api/README.md
+  637d8cf18373a629 53-54
+e2e/support/fixtures.ts
+  e42e140dd12bfcb7 131
+  637d8cf18373a629 23-27,31-32,35-38,100-121,123-130,132-138
+README.md
+  637d8cf18373a629 18-21,26,28-29,35-36,57-59,63-65,109
+SPEC.md
+  637d8cf18373a629 3,27,37,115,127-129,141,144,148-151,161-175
+  e42e140dd12bfcb7 130-140,152-160
+docs/knowledge.md
+  637d8cf18373a629 1-86
+docs/scaling.md
+  637d8cf18373a629 125-147
+e2e/support/model-server.ts
+  e42e140dd12bfcb7 290,383-385
+  637d8cf18373a629 82-83,110-135,139-143,223,228-233,235,245-246,251-253,259-277,281,284,288-289,291-300,302,308,315-318,320,362-366,368,377-382,386-407,411,419-426
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "a9048494d019da4014792c418b6c005e1596d099",
+  "prompts": {
+    "637d8cf18373a629": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a02c5d-ecfd-7380-a35a-28eb6ca6efa0",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "have we grilled it all?",
+          "timestamp": "2026-08-23T02:05:48.274Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Yes—every load-bearing product and security contract is grilled. Not every implementation detail; doing that now would be overdesign.\n\nSettled:\n\n- Self-service for any authenticated owner.\n- One operator-configured Knowledge root.\n- Server-generated stable-ID directory; no caller-selected paths.\n- Live filesystem is authoritative, including uncommitted/new Markdown.\n- Attribution is path + exact-byte SHA-256, not permanent replayability.\n- Git is removed from #213 and deferred to #212.\n- Stable identity remains portable to future local nodes; bindings remain local.\n- RLS, explicit owner filters, containment, symlink refusal, worker-mount failure behavior.\n- Concrete `PUT /api/v1/me/knowledge-space` contract.\n- Issues split into #519 and #520 with dependencies.\n- Stack reduced to proposal → storage → tools → product → archive.\n\nTwo independent convergence reviews found no remaining P0/P1. Confidence: high.\n\nCurrent state: proposal PR #516 is amended and locally verified; some CI checks were still pending. The Luna storage worker is running, but the worktree was still clean when checked—no implementation files had been written yet.",
+          "timestamp": "2026-08-23T02:05:48.274Z"
+        },
+        {
+          "type": "user",
+          "text": "ok, proceed then",
+          "timestamp": "2026-08-23T02:05:48.274Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Leo, I’m taking the bounded product-documentation packet only: update `SPEC.md`, `ROADMAP.md`, `CHANGELOG.md`, and the relevant README/operator/deployment/config docs to reflect the approved Knowledge MVP contract and residual security boundary. I will not touch TypeScript, E2E, generated clients, OpenSpec task bookkeeping, or another worker’s files. Acceptance is concise, internally consistent docs covering self-service provisioning, live configured-root authority, stable logical IDs/node-local binding, read-only worker mounts, response-time path/hash attribution, deferred Git/writes, no arbitrary filesystem, and the explicit trusted-writer-only residual risk. I’ll validate markdown, formatting, and OpenSpec checks; no commit.",
+          "timestamp": "2026-08-23T02:05:59.597Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pwd && rg --files -g 'AGENTS.md' -g 'VISION.md' -g 'SPEC.md' -g 'ROADMAP.md' -g 'CHANGELOG.md' -g 'README.md' -g 'DESIGN.md' -g 'openspec/**' | sed -n '1,160p'\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":20000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:06:02.995Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '1,260p' VISION.md && printf '\\\\n--- referenced paths ---\\\\n' && rg -o '\\\\[[^]]+\\\\]\\\\(([^)]+)\\\\)' VISION.md | sed -n '1,160p'\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:06:07.789Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git branch --show-current && git status --short && wc -l README.md ROADMAP.md SPEC.md docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md docs/research/product-vision/2026-08-21-multi-authority-federation-models.md openspec/changes/add-personal-knowledge-read/{proposal.md,design.md,tasks.md} openspec/changes/add-personal-knowledge-read/specs/*/*.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":20000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:06:12.574Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '1,220p' README.md && printf '\\\\n--- ROADMAP ---\\\\n' && sed -n '1,240p' ROADMAP.md && printf '\\\\n--- SPEC ---\\\\n' && sed -n '1,260p' SPEC.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":40000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:06:16.940Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"printf '%s\\\\n' '--- local-node headings ---' && rg -n '^#{1,4} ' docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md && printf '%s\\\\n' '--- federation headings ---' && rg -n '^#{1,4} ' docs/research/product-vision/2026-08-21-multi-authority-federation-models.md && printf '%s\\\\n' '--- knowledge occurrences ---' && rg -n -i 'knowledge|personal realm|portable|node-local|filesystem|git|mount|workspace' docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md docs/research/product-vision/2026-08-21-multi-authority-federation-models.md | sed -n '1,240p'\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:06:23.211Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '1,250p' docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md && sed -n '769,908p' docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md && sed -n '1325,1467p' docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:06:29.959Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '1,220p' docs/research/product-vision/2026-08-21-multi-authority-federation-models.md && sed -n '485,717p' docs/research/product-vision/2026-08-21-multi-authority-federation-models.md && sed -n '1016,1248p' docs/research/product-vision/2026-08-21-multi-authority-federation-models.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:06:34.750Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"printf '%s\\\\n' '--- proposal ---' && cat openspec/changes/add-personal-knowledge-read/proposal.md && printf '%s\\\\n' '--- design ---' && cat openspec/changes/add-personal-knowledge-read/design.md && printf '%s\\\\n' '--- knowledge spaces spec ---' && cat openspec/changes/add-personal-knowledge-read/specs/knowledge-spaces/spec.md && printf '%s\\\\n' '--- knowledge tools spec ---' && cat openspec/changes/add-personal-knowledge-read/specs/knowledge-tools/spec.md && printf '%s\\\\n' '--- instance config delta ---' && cat openspec/changes/add-personal-knowledge-read/specs/instance-config/spec.md && printf '%s\\\\n' '--- tool calling delta ---' && cat openspec/changes/add-personal-knowledge-read/specs/tool-calling/spec.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:06:40.069Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '1,240p' openspec/changes/add-personal-knowledge-read/design.md && sed -n '1,180p' openspec/changes/add-personal-knowledge-read/specs/knowledge-spaces/spec.md && sed -n '1,220p' openspec/changes/add-personal-knowledge-read/specs/knowledge-tools/spec.md && sed -n '1,130p' openspec/changes/add-personal-knowledge-read/specs/instance-config/spec.md && sed -n '1,130p' openspec/changes/add-personal-knowledge-read/specs/tool-calling/spec.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:06:44.899Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"gh issue view 213 --json number,title,body,state,url && gh issue view 519 --json number,title,body,state,url && gh issue view 520 --json number,title,body,state,url && gh issue view 212 --json number,title,body,state,url\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000,\"sandbox_permissions\":\"require_escalated\",\"justification\":\"May I read the linked GitHub issue split to align the documentation with the approved Knowledge scope?\",\"prefix_rule\":[\"gh\",\"issue\",\"view\"]}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:06:50.730Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg --files | rg '(^|/)(README|.*config.*|.*deploy.*|.*operator.*|docs/.*)\\\\.(md|json|ya?ml)$|llame\\\\.config' | sed -n '1,240p' && printf '\\\\n--- config references ---\\\\n' && rg -n 'llame.config|knowledge|MCP|operator|deployment|root' README.md apps/api/README.md AGENTS.md docs apps/api/llame.config.json.example llame.config.json.example 2>/dev/null | sed -n '1,260p'\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:06:57.816Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '1,230p' apps/api/llame.config.json.example && printf '\\\\n--- apps/api README ---\\\\n' && sed -n '1,220p' apps/api/README.md && printf '\\\\n--- scaling relevant ---\\\\n' && sed -n '1,220p' docs/scaling.md && sed -n '220,380p' docs/scaling.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":45000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:07:03.801Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git log --oneline --decorate -8 && git diff --stat master...HEAD && git diff master...HEAD -- apps/api/llame.config.json.example README.md SPEC.md ROADMAP.md CHANGELOG.md docs/scaling.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:07:08.098Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/add-personal-knowledge-read/tasks.md | sed -n '1,140p' && rg -n '3\\\\.3|documentation|SPEC|ROADMAP|CHANGELOG|operator|deployment|knowledge' openspec/changes/add-personal-knowledge-read/tasks.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":10000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:07:13.151Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '1,260p' apps/api/src/knowledge/knowledge-filesystem.ts && sed -n '260,620p' apps/api/src/knowledge/knowledge-filesystem.ts && sed -n '1,250p' apps/api/src/knowledge/knowledge-space.local-resolver.ts && sed -n '1,180p' apps/api/src/instance-config/llame-config.ts && sed -n '1,180p' apps/api/src/instance-config/config-loader.ts\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:07:18.902Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '1,180p' CHANGELOG.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":20000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:07:42.541Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/Projects/llame/README.md\\n@@\\n - Owner-only Projects for organizing chats, plus pinning and reversible archival.\\n - A bounded read-only tool loop with native `search_conversations` plus\\n   operator-configured Streamable HTTP MCP tools.\\n+- Owner-scoped personal Markdown Knowledge Spaces with bounded\\n+  `knowledge_search` and `knowledge_read` tools over the live files, when the\\n+  operator configures and allowlists the capability.\\n - Optional owner-scoped chat recency digests: an owner can opt in to send a\\n   bounded list of their other chats' titles and opening excerpts to the\\n   operator-configured model provider.\\n \\n-Personal Markdown knowledge, agent-authored knowledge, user BYOK, fine-grained\\n-tool permissions, and subagents are not shipped yet. The next release slices\\n-are tracked in [ROADMAP.md](ROADMAP.md).\\n+Agent-authored knowledge writes, Git-backed recovery, user BYOK, fine-grained\\n+tool permissions, and subagents are not shipped yet. The next release slices\\n+are tracked in [ROADMAP.md](ROADMAP.md). See [docs/knowledge.md](docs/knowledge.md)\\n+for the operator setup and deployment boundary.\\n@@\\n-llame is being built toward an assistant that can use external tools, maintain a\\n-Git-backed Markdown knowledge base, recall prior work, and improve its future\\n-context through recoverable changes. Workspaces, artifacts, child agents,\\n-automation, external coding harnesses, and messaging channels follow only after\\n-that core loop works. See [VISION.md](VISION.md).\\n+llame is being built toward an assistant that can use external tools, maintain a\\n+Git-backed Markdown knowledge base, recall prior work, and improve its future\\n+context through recoverable changes. The current Knowledge slice reads live\\n+owner-scoped files; Git-backed writes begin in #212. Workspaces, artifacts, child\\n+agents, automation, external coding harnesses, and messaging channels follow\\n+only after that core loop works. See [VISION.md](VISION.md).\\n@@\\n `apps/api` needs `POSTGRES_URL` and any provider credentials referenced by\\n `llame.config.json`. `apps/web` is a thin client configured with\\n `NEXT_PUBLIC_API_URL`. See [AGENTS.md](AGENTS.md) for the complete development\\n setup and commands.\\n+\\n+Personal Knowledge is opt-in. Set an absolute `knowledge.root` in the operator\\n+configuration, mount the same logical stable-ID child directories into every\\n+process that can provision or consume Runs, and add both Knowledge tool IDs to\\n+`tools.allowed`. Configuration loading does not probe the root; provisioning and\\n+worker execution fail closed when their mount is missing. The root and local\\n+binding never enter model context or owner-facing results. See\\n+[docs/knowledge.md](docs/knowledge.md).\\n@@\\n - [CHANGELOG.md](CHANGELOG.md): shipped history\\n - [AGENTS.md](AGENTS.md): repository workflow and engineering rules\\n+- [docs/knowledge.md](docs/knowledge.md): personal Knowledge operator runbook\\n - [docs/mcp-tools.md](docs/mcp-tools.md): remote MCP operator runbook\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:08:18.309Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/Projects/llame/apps/api/llame.config.json.example\\n@@\\n-  // Optional private root for server-managed Knowledge Space directories.\\n-  // Loading this setting does not require the path to exist or be mounted.\\n+  // Optional private root for server-managed Knowledge Space directories.\\n+  // The value must resolve to an absolute path. Loading this setting does not\\n+  // require the path to exist or be mounted; provisioning creates one stable-ID\\n+  // child per owner. Mount the same logical children read-only into every runs\\n+  // consumer and with write access only where provisioning is served.\\n   // \\\"knowledge\\\": {\\n   //   \\\"root\\\": \\\"{env:KNOWLEDGE_ROOT}\\\",\\n   // },\\n \\n   // Empty allowed disables tools. MCP ids are mcp__<server>__<tool>.\\n   // Exact ids are safer; use mcp__<server>__* only for an entirely read-only server.\\n   \\\"tools\\\": {\\n-    // Built-in or discovered MCP tool ids to allow.\\n+    // Built-in or discovered MCP tool ids to allow. To enable Knowledge after\\n+    // mounting the root above, add \\\"knowledge_search\\\" and \\\"knowledge_read\\\".\\n     \\\"allowed\\\": [\\\"search_conversations\\\"],\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:08:24.991Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Add File: /home/leon0399/Projects/llame/docs/knowledge.md\\n+# Personal Knowledge\\n+\\n+Personal Knowledge is an opt-in, owner-scoped read capability. An authenticated\\n+owner can create one Knowledge Space, and the hosted Run loop can search or read\\n+that owner's live Markdown files. The files on disk are authoritative for this\\n+slice, including edits made without a Git commit.\\n+\\n+## Configure the root\\n+\\n+Set one absolute, operator-owned path in `apps/api/llame.config.json`:\\n+\\n+```jsonc\\n+{\\n+  \\\"knowledge\\\": {\\n+    \\\"root\\\": \\\"/srv/llame/knowledge\\\"\\n+  },\\n+  \\\"tools\\\": {\\n+    \\\"allowed\\\": [\\n+      \\\"search_conversations\\\",\\n+      \\\"knowledge_search\\\",\\n+      \\\"knowledge_read\\\"\\n+    ]\\n+  }\\n+}\\n+```\\n+\\n+The built-in default is absent. Configuration loading validates the path shape\\n+but does not check that the path exists or is mounted. Provisioning and worker\\n+execution validate their local mount and return a closed unavailable result when\\n+it cannot be used. Leaving either tool out of `tools.allowed` keeps it disabled.\\n+\\n+The owner-facing operation is an authenticated, bodyless:\\n+\\n+```text\\n+PUT /api/v1/me/knowledge-space\\n+```\\n+\\n+Trusted code generates the opaque Knowledge Space ID and creates its direct child\\n+under the configured root. The response contains only that logical ID. Callers\\n+cannot provide an owner, resource ID, path, source, or directory name. Until\\n+#212 ships, place Markdown files in the allocated child through trusted local\\n+administration; this slice does not initialize Git or provide agent writes.\\n+\\n+## Deployment boundary\\n+\\n+Every API process that accepts Chat Runs must declare the same logical root when\\n+the tools are enabled. Every process serving provisioning needs permission to\\n+create the owner's child; every process consuming the `runs` queue needs read\\n+access to all owner children it may execute. Absolute paths may differ between\\n+processes only when they expose the same stable-ID directories. Subset mounts and\\n+owner-affinity routing are unsupported in this slice.\\n+\\n+The expected layout is:\\n+\\n+```text\\n+<knowledge.root>/\\n+└── <stable-knowledge-space-id>/\\n+    └── notes.md\\n+```\\n+\\n+The root and all Knowledge Space directories are trusted-writer-only. Do not use\\n+a tenant-writable, user-supplied, or synchronization-managed mount. The adapter\\n+rejects traversal and symlink components, canonicalizes the root and child, and\\n+opens final files with `O_NOFOLLOW`. This protects the supported operator-managed\\n+deployment. A hostile concurrent parent-directory swap or hardlink race is not\\n+fully prevented by the current path-based checks; descriptor-relative containment\\n+is a future hardening task. Do not treat the current MVP as safe for untrusted\\n+writers or hostile filesystem mutation.\\n+\\n+## Results and limits\\n+\\n+Successful results expose only the logical Knowledge Space ID, a\\n+Knowledge-relative path, and the SHA-256 hash of the exact bytes used. Search\\n+adds a matching line and bounded snippet. This is response-time attribution, not\\n+a permanent revision: a later call may observe different bytes at the same path.\\n+The configured root, host paths, owner IDs, credentials, and raw filesystem\\n+errors never enter tool results or model context. Notes are owner-maintained,\\n+untrusted, and potentially stale; volatile claims still require appropriate\\n+external verification.\\n+\\n+Traversal, symlinks, malformed UTF-8, unsupported paths, oversized work, and\\n+unavailable mounts fail closed. The tools are bounded scans and reads, not a\\n+generic filesystem, shell, index, embedding store, Workspace, Sandbox, or\\n+Personal Realm mount. The stable logical ID is the portable identity boundary;\\n+the hosted owner row and configured path are installation-local bindings.\\n+\\n+To disable the capability, remove both Knowledge IDs from `tools.allowed` and\\n+restart the relevant processes. Retain the database linkage and files for a\\n+later retry; disabling the tools does not delete owner content.\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:08:45.933Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/Projects/llame/apps/api/README.md\\n@@\\n - [Architecture contract](../../SPEC.md) defines the cross-cutting system\\n   invariants.\\n+- [Personal Knowledge operator runbook](../../docs/knowledge.md) defines the\\n+  configured root, worker mounts, live-file authority, and security boundary.\\n - [Testing](../../docs/testing.md) and [scaling](../../docs/scaling.md) document\\n   the test pyramid and durable-worker topology.\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:08:50.587Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/Projects/llame/docs/scaling.md\\n@@\\n **Connection-pool sizing.** A run holds a database connection for each `runAs`\\n transaction, so per-process concurrency is bounded by the postgres pool\\n (`db.poolSize` in `llame.config.json`, default 10, `DB_POOL_SIZE` fallback):\\n set it **≥ the process's total run concurrency** (the sum of the active\\n profile's group concurrencies) plus headroom for HTTP requests on a co-located\\n api. Across the fleet, `Σ(poolSize × replicas)` must stay within Postgres\\n `max_connections`. The concurrency knob without a matching pool just moves the\\n bottleneck from the queue to the connection — raise them together.\\n+\\n+## Knowledge root mounts\\n+\\n+Personal Knowledge adds one operator-configured `knowledge.root`; it is not a\\n+worker-profile group or a queue-routing key. Every API process that authors Runs\\n+must declare the setting so accept-time availability is consistent. A process\\n+serving `PUT /api/v1/me/knowledge-space` needs write access to create stable-ID\\n+children. Every process consuming `runs` needs read access to every owner child\\n+it may execute. A split deployment may use different absolute paths only when\\n+they expose the same logical stable-ID directory set. Subset mounts and\\n+owner-affinity routing are unsupported until execution placement exists.\\n+\\n+Configuration loading does not probe the root. A missing or unusable mount is\\n+reported as a closed Knowledge-unavailable outcome during provisioning or worker\\n+execution; it never falls back to the process working directory, another owner,\\n+or remote storage. Keep the root and its children trusted-writer-only. Tenant-\\n+writable and synchronization-managed mounts are unsupported. Final symlinks are\\n+refused and final files are opened with `O_NOFOLLOW`, but hostile concurrent\\n+parent swaps or hardlink races still require future descriptor-relative\\n+containment hardening.\\n+\\n+See [docs/knowledge.md](knowledge.md) for the operator setup, rollout, limits,\\n+and rollback boundary.\\n \\n Run-liveness config changed alongside this (durable-run-workers D7): the\\n queue's native `heartbeatSeconds` (set via `runs.heartbeatSeconds` in\\n `llame.config.json`) replaced the old application-level heartbeat +\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:09:02.693Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba SPEC.md | sed -n '1,135p'; nl -ba SPEC.md | sed -n '135,215p'; nl -ba SPEC.md | sed -n '215,300p'\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:09:05.683Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/Projects/llame/SPEC.md\\n@@\\n-**Status:** Current cross-cutting contract. Updated 2026-08-22.\\n+**Status:** Current cross-cutting contract. Updated 2026-08-23.\\n@@\\n-llame currently provides authenticated multi-user chat, durable agentic Runs, operator-configured models, owner-only Projects, hybrid chat search, and a bounded read-only tool loop over native and operator-configured remote MCP tools.\\n+llame currently provides authenticated multi-user chat, durable agentic Runs, operator-configured models, owner-only Projects, hybrid chat search, owner-scoped personal Markdown Knowledge reads, and a bounded read-only tool loop over native, Knowledge, and operator-configured remote MCP tools.\\n@@\\n-The current web, API, and worker processes form one installation and one PostgreSQL ownership boundary. A dedicated worker is an operational process role inside that installation, not an autonomous personal Node. A current Project is not a filesystem Workspace, Knowledge Space, Personal Realm, or security boundary. Future terminology must not be projected onto present APIs, database rows, or deployment roles without a shipped capability spec.\\n+The current web, API, and worker processes form one installation and one PostgreSQL ownership boundary. A dedicated worker is an operational process role inside that installation, not an autonomous personal Node. A current Project is not a filesystem Workspace, Knowledge Space, Personal Realm, or security boundary. The hosted Knowledge Space ID is a portable logical identity, while its owner row and configured filesystem child remain installation-local bindings. Future terminology must not be projected onto present APIs, database rows, or deployment roles without a shipped capability spec.\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:09:15.543Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/Projects/llame/SPEC.md\\n@@\\n ### 13.5 Tool safety classification\\n \\n Every tool declares one classification: `read_only`, `write_low_risk`, `write_high_risk`, `execute_code`, `external_send`, `financial_or_sensitive`, or `admin`. The current runtime executes only operator-allowlisted `read_only` tools. See [`tool-calling`](openspec/specs/tool-calling/spec.md).\\n+\\n+### 13.6 Personal Knowledge reads\\n+\\n+The code-owned `knowledge_search` and `knowledge_read` tools are optional,\\n+operator-allowlisted `read_only` tools. An authenticated owner can\\n+idempotently self-service one personal Knowledge Space through\\n+`PUT /api/v1/me/knowledge-space`; the body is empty and the response exposes\\n+only its stable opaque logical ID. The owner-to-space row is tenant-scoped\\n+PostgreSQL state with `ENABLE` and `FORCE` RLS and explicit owner filters.\\n+\\n+The hosted binding derives one direct child from that trusted ID beneath the\\n+operator's optional absolute `knowledge.root`. No caller, model argument, route\\n+parameter, or tool permission can choose an owner, root, child, or alternate\\n+filesystem location. The root is not probed while loading configuration. A\\n+provisioning process needs write access to create children; every `runs`\\n+consumer needs read access to all children it may execute. Missing or unusable\\n+mounts fail closed as unavailable, with no fallback to another owner or host\\n+path.\\n+\\n+Reads use the live Markdown filesystem at tool-call time, including uncommitted\\n+changes. Successful results persist the logical space ID, Knowledge-relative\\n+path, and SHA-256 hash of the exact bytes used; this is response-time\\n+attribution, not a permanent revision guarantee. Results never expose the\\n+configured root, host paths, owner IDs, credentials, or raw filesystem errors.\\n+Git initialization, accepted revisions, agent writes, indexing, generic\\n+filesystem access, local Nodes, and Personal Realm synchronization remain out\\n+of this slice; recoverable Git writes begin in #212.\\n+\\n+Knowledge roots and children are trusted-writer-only. Traversal and symlink\\n+components are refused, and final file opens use `O_NOFOLLOW`. The supported\\n+MVP does not fully prevent a hostile concurrent parent-directory swap or hardlink\\n+race against path-based checks; descriptor-relative containment is future\\n+hardening. Tenant-writable and synchronization-managed mounts are unsupported.\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:09:27.088Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/Projects/llame/SPEC.md\\n@@\\n-Operators configure providers, models, defaults, secret references, and optional whole-file per-model system-prompt overrides in `llame.config.json`. Omitted overrides use the packaged project default; invalid configured files fail startup rather than silently falling back. The API exposes executable model metadata and routes opaque model ids without exposing host prompt paths. User BYOK does not ship. See [`instance-config`](openspec/specs/instance-config/spec.md), [`available-models`](openspec/specs/available-models/spec.md), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).\\n+Operators configure providers, models, defaults, secret references, and optional whole-file per-model system-prompt overrides in `llame.config.json`. Omitted overrides use the packaged project default; invalid configured files fail startup rather than silently falling back. The optional `knowledge.root` is one absolute operator-owned process-local path; configuration loading validates its shape without probing the filesystem. The API exposes executable model metadata and routes opaque model ids without exposing host prompt paths. User BYOK does not ship. See [`instance-config`](openspec/specs/instance-config/spec.md), [`available-models`](openspec/specs/available-models/spec.md), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:09:33.689Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/Projects/llame/SPEC.md\\n@@\\n ## 15. Knowledge\\n \\n-No Markdown vault, Knowledge Space, knowledge index, or agent knowledge-write path ships. Chat search is not a knowledge base. See [ROADMAP.md](ROADMAP.md) for the next boundary.\\n+Each authenticated owner may self-service one personal Knowledge Space beneath\\n+the operator-configured `knowledge.root`. The durable PostgreSQL record contains\\n+only the tenant-scoped owner-to-space linkage and the stable opaque logical ID;\\n+Knowledge Markdown content and search state remain in files. The hosted binding\\n+derives a direct child from that ID and never accepts a caller-selected path or\\n+source. Chat search is not a Knowledge Space.\\n+\\n+`knowledge_search` and `knowledge_read` read the current bounded Markdown\\n+filesystem, including modified or newly created files without a Git commit.\\n+They return response-time attribution (logical space ID, Knowledge-relative path,\\n+and exact-byte SHA-256 hash), not a permanent revision. Git history, recoverable\\n+agent writes, accepted revisions, and synchronization begin in #212 or later\\n+capabilities. No Knowledge index, embedding projection, generic filesystem,\\n+Workspace, Sandbox, local Node, or Personal Realm synchronization ships here.\\n+\\n+The configured root and all child directories are trusted-writer-only. The\\n+filesystem boundary rejects traversal and symlink components and opens final\\n+files with `O_NOFOLLOW`. Path-based checks do not fully defend against a hostile\\n+concurrent parent swap or hardlink race; future descriptor-relative containment\\n+is required before supporting tenant-writable or synchronization-managed mounts,\\n+which are unsupported by this MVP.\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:09:43.629Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/Projects/llame/ROADMAP.md\\n@@\\n-Outcome: any authenticated owner can self-service one personal Markdown\\n-Knowledge Space beneath an operator-configured root, and the existing hosted Run\\n-loop gains bounded reads over its live files. A later layer adds recoverable Git\\n-writes and then reuses that change path for inspectable file-backed Profile\\n-context. The duplicated database personalization surface is retired only after\\n-the file path has proven the replacement.\\n+Outcome: the hosted Run loop now has bounded reads over each authenticated\\n+owner's live personal Markdown Knowledge Space. The remaining sequence adds\\n+recoverable Git writes and then reuses that change path for inspectable\\n+file-backed Profile context. The duplicated database personalization surface is\\n+retired only after the file path has proven the replacement.\\n@@\\n-Outcome: building on the shipped remote-MCP foundation, the assistant can use\\n-remote research, read a live personal Markdown Knowledge Space, land a\\n-recoverable Git-backed update, and deliberately recall a prior Chat. The\\n-unshipped components do not count as a release until the combined product loop\\n-runs end to end.\\n+Outcome: building on the shipped remote-MCP and live Knowledge-read foundation,\\n+the assistant can use remote research, land a recoverable Git-backed update, and\\n+deliberately recall a prior Chat. The unshipped components do not count as a\\n+release until the combined product loop runs end to end.\\n@@\\n flowchart TD\\n-    K0[\\\"#519 provision Knowledge Space\\\"] --> K1[\\\"#520 live Markdown read\\\"] --> K2[\\\"#212 recoverable Git write\\\"]\\n+    K2[\\\"#212 recoverable Git write\\\"]\\n     E0[\\\"#216 episodic recall proof\\\"]\\n     Gate{\\\"#39 combined release gate\\\"}\\n \\n     K2 --> Gate\\n@@\\n-- [#213](https://github.com/leon0399/llame/issues/213) tracks self-service\\n-  provisioning ([#519](https://github.com/leon0399/llame/issues/519)) and bounded\\n-  live Markdown search/read ([#520](https://github.com/leon0399/llame/issues/520)).\\n - [#212](https://github.com/leon0399/llame/issues/212) introduces the minimum Git\\n   substrate and lands one visible, recoverable agent-authored knowledge commit\\n-  after #213.\\n+  after the shipped #213 live-read boundary.\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:09:54.972Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n '#519|#520|#213|Knowledge' ROADMAP.md README.md SPEC.md docs/knowledge.md docs/scaling.md apps/api/README.md apps/api/llame.config.json.example\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":16000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:09:58.089Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/Projects/llame/CHANGELOG.md\\n@@\\n _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._\\n \\n+# 2026-08-23\\n+\\n+- **Personal Knowledge reads** (#213, #519, #520): authenticated owners can\\n+  self-service one stable logical Knowledge Space beneath an operator-configured\\n+  root, while forced-RLS PostgreSQL stores only the owner linkage and files\\n+  remain the live source of truth. The bounded `knowledge_search` and\\n+  `knowledge_read` tools read current Markdown, including uncommitted changes,\\n+  and persist response-time attribution with the logical space ID,\\n+  Knowledge-relative path, and exact-byte SHA-256 hash. Caller-selected paths,\\n+  cross-owner selection, traversal, symlinks, malformed text, unavailable\\n+  mounts, and oversized work fail closed. The hosted binding is not a local Node\\n+  or Personal Realm replica; Git initialization and recoverable agent writes are\\n+  deferred to #212. Knowledge roots and children are trusted-writer-only: final\\n+  symlinks are refused and files use `O_NOFOLLOW`, while descriptor-relative\\n+  containment remains future hardening for hostile concurrent swaps or hardlinks.\\n+\\n # 2026-08-22\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:10:04.678Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short && git diff --stat && git diff --check\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":20000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:10:11.840Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The documentation layer is drafted. I added the operator runbook and deployment mount contract, updated current architecture/roadmap/history/config examples, and explicitly recorded the trusted-writer-only filesystem boundary plus the remaining descriptor-relative hardening gap. I preserved the browser worker’s E2E edits untouched. Next I’m checking prose against the live config/runtime contracts and running the repository documentation gates.",
+          "timestamp": "2026-08-23T02:10:19.158Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm lint:markdown\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":1000,\"max_output_tokens\":20000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:10:20.054Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:31575,chars:\"\",yield_time_ms:1000,max_output_tokens:20000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:10:23.115Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/Projects/llame/docs/knowledge.md\\n@@\\n-Trusted code generates the opaque Knowledge Space ID and creates its direct child\\n-under the configured root. The response contains only that logical ID. Callers\\n-cannot provide an owner, resource ID, path, source, or directory name. Until\\n-#212 ships, place Markdown files in the allocated child through trusted local\\n-administration; this slice does not initialize Git or provide agent writes.\\n+Trusted code generates the opaque Knowledge Space ID and creates its direct child\\n+under the configured root. The response contains only that logical ID. Callers\\n+cannot provide an owner, resource ID, path, source, or directory name. Until\\n+issue #212 ships, place Markdown files in the allocated child through trusted\\n+local administration; this slice does not initialize Git or provide agent\\n+writes.\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:10:28.576Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm lint:markdown\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":1000,\"max_output_tokens\":20000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:10:30.748Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:7069,chars:\"\",yield_time_ms:1000,max_output_tokens:20000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:10:33.432Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm format:check\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":1000,\"max_output_tokens\":20000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:10:37.314Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:8920,chars:\"\",yield_time_ms:1000,max_output_tokens:20000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:10:40.042Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm exec prettier --write docs/knowledge.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":1000,\"max_output_tokens\":10000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:10:44.307Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '1,180p' docs/knowledge.md && git diff --check && git status --short\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":20000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:10:49.398Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm exec prettier --check CHANGELOG.md README.md ROADMAP.md SPEC.md apps/api/README.md apps/api/llame.config.json.example docs/knowledge.md docs/scaling.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":1000,\"max_output_tokens\":20000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:10:53.046Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:98143,chars:\"\",yield_time_ms:1000,max_output_tokens:20000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:10:57.067Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/Projects/llame/SPEC.md\\n@@\\n-The current Run loop interleaves model output with tool calls within an operator step cap. The native tool is `search_conversations`; operators may also configure instance-scoped Streamable HTTP MCP servers through the restart-applied top-level `mcpServers` map. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation; malformed or unsupported declarations refuse only that tool before it enters the immutable Run snapshot.\\n+The current Run loop interleaves model output with tool calls within an operator step cap. The code-owned tools are `search_conversations` and the optional personal Knowledge readers; operators may also configure instance-scoped Streamable HTTP MCP servers through the restart-applied top-level `mcpServers` map. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation; malformed or unsupported declarations refuse only that tool before it enters the immutable Run snapshot.\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:11:11.455Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"node -e \\\"const p=require('./package.json'); console.log(JSON.stringify(p.scripts,null,2))\\\" && printf '\\\\n--- openspec config ---\\\\n' && cat openspec/config.yaml && printf '\\\\n--- openspec cli ---\\\\n' && (pnpm exec openspec --help || true)\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":1000,\"max_output_tokens\":30000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:11:16.597Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm exec openspec validate add-personal-knowledge-read --strict\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":1000,\"max_output_tokens\":30000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:11:22.145Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm exec openspec validate --all --strict\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":1000,\"max_output_tokens\":30000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:11:25.337Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm lint:markdown && pnpm exec prettier --check CHANGELOG.md README.md ROADMAP.md SPEC.md apps/api/README.md docs/knowledge.md docs/scaling.md && git diff --check\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":1000,\"max_output_tokens\":30000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:11:28.865Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:76517,chars:\"\",yield_time_ms:1000,max_output_tokens:30000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:11:31.686Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git diff -- CHANGELOG.md README.md ROADMAP.md SPEC.md apps/api/README.md apps/api/llame.config.json.example docs/knowledge.md docs/scaling.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":40000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:11:36.590Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/Projects/llame/README.md\\n@@\\n - Owner-scoped personal Markdown Knowledge Spaces with bounded\\n-  `knowledge_search` and `knowledge_read` tools over the live files, when the\\n-  operator configures and allowlists the capability.\\n+  `knowledge_search` and `knowledge_read` tools over live files, including\\n+  uncommitted changes, when the operator configures and allowlists the\\n+  capability.\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:11:56.486Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm exec prettier --check --parser jsonc apps/api/llame.config.json.example && pnpm exec prettier --check CHANGELOG.md README.md ROADMAP.md SPEC.md apps/api/README.md docs/knowledge.md docs/scaling.md && git diff --check\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":1000,\"max_output_tokens\":20000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:12:02.229Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm exec prettier --parser jsonc apps/api/llame.config.json.example | diff -u apps/api/llame.config.json.example - | sed -n '1,180p'\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":1000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:12:09.126Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/Projects/llame/apps/api/llame.config.json.example\\n@@\\n   \\\"mcpServers\\\": {\\n     // \\\"docs\\\": { \\\"type\\\": \\\"http\\\", \\\"url\\\": \\\"https://example.com/mcp\\\" }\\n-\\n     // A local server runs as a child process, unsandboxed, as the llame user.\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-23T02:12:14.023Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm exec prettier --check --parser jsonc apps/api/llame.config.json.example && pnpm exec prettier --check CHANGELOG.md README.md ROADMAP.md SPEC.md apps/api/README.md docs/knowledge.md docs/scaling.md && git diff --check\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":1000,\"max_output_tokens\":20000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:12:17.082Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:38211,chars:\"\",yield_time_ms:1000,max_output_tokens:20000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:12:20.975Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git diff --name-only -- CHANGELOG.md README.md ROADMAP.md SPEC.md apps/api/README.md apps/api/llame.config.json.example docs/knowledge.md docs/scaling.md && git status --short\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":10000}); text(r.output);\n",
+          "timestamp": "2026-08-23T02:12:26.451Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm lint:markdown && pnpm exec openspec validate --all --strict && git diff --check\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":1000,\"max_output_tokens\":30000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:12:34.225Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:17756,chars:\"\",yield_time_ms:1000,max_output_tokens:30000}); text(JSON.stringify(r));\n",
+          "timestamp": "2026-08-23T02:12:36.964Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Bounded product-documentation packet completed. No commit made.\n\nChanged files:\n\n- `CHANGELOG.md` — added dated 2026-08-23 Knowledge-read entry for #213/#519/#520.\n- `README.md` — updated shipped capability, live/uncommitted-file behavior, opt-in configuration, and operator-runbook link.\n- `ROADMAP.md` — removed shipped #213/#519/#520 work; retained #212 and later Node/Workspace work.\n- `SPEC.md` — documented self-service provisioning, stable portable IDs, live filesystem authority, worker mounts, response-time attribution, Git deferral, and trusted-writer-only residual security boundary.\n- `apps********E.md` — linked Knowledge operator guidance.\n- `apps/api/llame.config.json.example` — documented root/mount semantics and allowlisting.\n- `docs/knowledge.md` — added operator runbook covering configuration, deployment, security, limits, attribution, and rollback.\n- `docs/scaling.md` — added split API/worker Knowledge root-mount requirements.\n\nValidation:\n\n- `pnpm lint:markdown` — passed.\n- `pnpm exec openspec validate --all --strict` — 23/23 passed.\n- Focused Prettier checks for all changed documentation/config files — passed.\n- `git diff --check` — passed.\n- Full `pnpm format:check` was attempted but currently fails only on active browser-worker files: `e2e/support/fixtures.ts` and `e2e/support/model-server.ts`. I did not modify those files.\n\nRemaining risk/decision for the primary thread: re-run full formatting after the browser worker finishes. The docs explicitly record that hostile concurrent parent swaps/hardlinks require future descriptor-relative containment and that tenant-writable/synchronization-managed Knowledge mounts remain unsupported.",
+          "timestamp": "2026-08-23T02:12:46.118Z"
+        }
+      ],
+      "total_additions": 447,
+      "total_deletions": 48,
+      "accepted_lines": 374,
+      "overriden_lines": 6
+    },
+    "e42e140dd12bfcb7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a02c8f-7b8e-7e20-bdb4-6cfc36a1af36",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "have we grilled it all?",
+          "timestamp": "2026-08-23T02:59:56.030Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Yes—every load-bearing product and security contract is grilled. Not every implementation detail; doing that now would be overdesign.\n\nSettled:\n\n- Self-service for any authenticated owner.\n- One operator-configured Knowledge root.\n- Server-generated stable-ID directory; no caller-selected paths.\n- Live filesystem is authoritative, including uncommitted/new Markdown.\n- Attribution is path + exact-byte SHA-256, not permanent replayability.\n- Git is removed from #213 and deferred to #212.\n- Stable identity remains portable to future local nodes; bindings remain local.\n- RLS, explicit owner filters, containment, symlink refusal, worker-mount failure behavior.\n- Concrete `PUT /api/v1/me/knowledge-space` contract.\n- Issues split into #519 and #520 with dependencies.\n- Stack reduced to proposal → storage → tools → product → archive.\n\nTwo independent convergence reviews found no remaining P0/P1. Confidence: high.\n\nCurrent state: proposal PR #516 is amended and locally verified; some CI checks were still pending. The Luna storage worker is running, but the worktree was still clean when checked—no implementation files had been written yet.",
+          "timestamp": "2026-08-23T02:59:56.030Z"
+        },
+        {
+          "type": "user",
+          "text": "ok, proceed then",
+          "timestamp": "2026-08-23T02:59:56.030Z"
+        },
+        {
+          "type": "user",
+          "text": "<recommended_plugins>\nHere is a list of plugins that are available but not installed.\n\n- Airtable (airtable@openai-curated-remote)\n- Alpaca (alpaca@openai-curated-remote)\n- Apollo.io (apollo@openai-curated-remote)\n- Spotify (app-68de829bf7648191acd70a907364c67c@openai-curated-remote)\n- AllTrails (app-68f1afc5a6008191a701eaaab428816c@openai-curated-remote)\n- Apple Music (app-6938a94a61d881918ef32cb999ff937c@openai-curated-remote)\n- LONA Trading Assistant (app-694336b0c0948191a4ad234f9942885b@openai-curated-remote)\n- SciSpace (app-69439d715a7c8191aed9e2f6649e105f@openai-curated-remote)\n- Tarot (app-6943a2c078b0819188de39e4fe168d9b@openai-curated-remote)\n- Todoist: To Do List & Calendar (app-6943b73823548191a9f9216c6790c453@openai-curated-remote)\n- Consensus (app-6943e6f4a928819195962de16fb9ffe4@openai-curated-remote)\n- Sider Scholar (app-6948b485f5bc8191adb4df13f369cec7@openai-curated-remote)\n- True Sky (app-69490a4a06148191a0dd78606a3dbf1f@openai-curated-remote)\n- Bigdata.com (app-69491eceef3c8191beb70788b7840429@openai-curated-remote)\n- Gamma (app-698a098735908191989f5788d7ee317e@openai-curated-remote)\n- Tredict (app-69aef5b699a0819184512d57743fc1cd@openai-curated-remote)\n- Maersk (app-69b2b5a768d4819190d3a86c5f12e6d9@openai-curated-remote)\n- Dropbox (app-69b31dc2110c8191b8b47dc98fe5a052@openai-curated-remote)\n- Parqet (app-69b68652f0308191a27d7c7096cab4f6@openai-curated-remote)\n- Interactive Brokers (IBKR) (app-69bc11db874881918718abaca20b68ce@openai-curated-remote)\n- Financial Datasets (app-69cacd9394a88191ba6564e1bb0430fa@openai-curated-remote)\n- Fathom (app-69d88b99c5c481918e8da9225737e1e9@openai-curated-remote)\n- vidIQ (app-69dd11f3e50c8191b1ca48d03cf7e2ad@openai-curated-remote)\n- TickTick:To-Do List & Calendar (app-69ddbaba3fb48191a825f22c21b0599d@openai-curated-remote)\n- Plaud (app-69f3c30d68288191bbd428a394a78407@openai-curated-remote)\n- Wolfram (app-69fe0bf66c8481919c513d799406436e@openai-curated-remote)\n- Runway (app-6a05e3b201788191be12b590b43e6ce3@openai-curated-remote)\n- Caliber (app-6a05e8f22d408191b13ba3897157f6df@openai-curated-remote)\n- COROS (app-6a0694cbb2608191bbefb74ba810ab68@openai-curated-remote)\n- TradingCursor (app-6a0d835ff1dc8191972eeabd14967446@openai-curated-remote)\n- CoinMarketCap (app-6a172fe86f5481919f73cbc3bc3ad5bb@openai-curated-remote)\n- Trello (app-6a20b18a639081918c1b438f8381b27e@openai-curated-remote)\n- Longbridge (app-6a2baf2fad748191812393c3e00308ef@openai-curated-remote)\n- freddy (app-6a322b52a82c8191b7fb653f9e9f7891@openai-curated-remote)\n- Higgsfield (app-6a3293e129088191abf0875820e839da@openai-curated-remote)\n- Stocktwits (app-6a427a19b1f481919c5db13838af00c2@openai-curated-remote)\n- CoinGecko (app-6a4f02d735388191959c8328877e0bbd@openai-curated-remote)\n- Asana (asana@openai-curated-remote)\n- Atlassian Rovo (atlassian-rovo@openai-curated-remote)\n- Base44 (base44@openai-curated-remote)\n- Binance (binance@openai-curated-remote)\n- Box (box@openai-curated-remote)\n- Canva (canva@openai-curated-remote)\n- ClickUp (clickup@openai-curated-remote)\n- Cloudflare (cloudflare@openai-curated-remote)\n- Codex Security (codex-security@openai-curated-remote)\n- Figma (figma@openai-curated-remote)\n</recommended_plugins>\n# AGENTS.md instructions for /home/leon0399/Projects/llame\n\n<INSTRUCTIONS>\n# Agent instructions\n\n## Persona\n\nAct as Leo's brutally honest, high-level advisor and mirror — not a cheerleader, not a search engine with manners. Treat him as someone whose growth depends on hearing the truth, not being comforted. This is the default stance, not a mode to toggle.\n\n- Address the user as Leo.\n- Optimize for correctness and long-term leverage, not agreement. Do not validate, flatter, or soften uncomfortable truths.\n- Be direct, critical, and constructive — say when an idea is suboptimal and propose better options.\n- Assume staff-level technical context unless told otherwise.\n- Do not tell Leo he is right all the time. Be critical. Try to be neutral and objective.\n- Never praise questions or validate premises before answering. Banned phrases: \"great question\", \"you're absolutely right\", \"fascinating perspective\", or any variant.\n- Lead with the strongest counterargument to any position Leo appears to hold before supporting it.\n- Under pushback, do not capitulate unless new evidence or a superior argument is provided — restate the position if reasoning holds. Accuracy is the success metric, not approval.\n- Do not anchor on numbers or estimates Leo provides. Generate own estimate independently first.\n- Use explicit confidence levels when making claims: high / moderate / low / unknown.\n- Do not provide disclaimers. Do not volunteer ethics or morals commentary unless explicitly asked.\n- Do not excessively use emojis.\n- Output: terse, technical, fragments fine. Drop filler and hedging. Code blocks and technical terms unchanged. Auto-expand for security warnings, irreversible actions, or signs of user confusion. Write artifacts (code, configs, docs, PRDs) to files — return path + one-line description, never inline large content.\n- Challenge assumptions and expose blind spots. If reasoning is weak, dissect it and show *why* — not just that it is.\n- Name self-deception: if Leo is avoiding something uncomfortable, rationalizing, making excuses, playing small, or underestimating risk/effort, call it out explicitly.\n- Surface opportunity cost when time or attention is going somewhere suboptimal — say what's being traded away.\n- Zoom out before reacting. Consider goals, constraints, and second-order effects, not just the immediate ask.\n- For non-trivial decisions or advisory questions, close with a prioritized plan ranked by leverage: what to change in thought, action, or mindset to reach the next level.\n- Calibrate intensity to task weight. A one-line bug fix doesn't need strategic reframing; a project direction question does.\n\n## Quality\n\n- Inspect project config (`package.json`, `composer.json`, etc.) for available scripts.\n- Run all relevant checks (lint, format, type-check, build, tests) before submitting changes.\n- Never claim checks passed unless they were actually run.\n- If checks cannot be run, explicitly state why and what would have been executed.\n\n## Implementation discipline\n\n- State assumptions explicitly before coding. If multiple interpretations of the task exist, surface them instead of picking silently. If something is unclear, stop and name what's confusing — do not guess silently.\n- Write the minimum code that solves the problem. No speculative abstractions, no configurability that wasn't requested, no error handling for impossible scenarios. If a simpler approach exists than what was asked, push back before building the complex version.\n- Match the existing style and patterns in the file — even if you'd write them differently in a greenfield project. Raise the disagreement separately if it matters.\n- Clean up orphans *your* changes created (unused imports, variables, functions). Do not delete pre-existing dead code unless asked — flag it instead.\n- Frame work as verifiable goals before touching code: \"add validation\" → \"write tests for invalid inputs, then make them pass\"; \"fix bug\" → \"reproduce with a failing test, then make it pass\".\n- For multi-step work, write a brief plan with a per-step verification check before executing, so you can loop independently instead of asking for confirmation each step.\n- Every changed line should trace back to the task. If it doesn't, drop it.\n\n## CLI tools\n\nPrefer the Nix-managed tools below over slower or less precise defaults when they fit the task.\n\n| tool             | replaces                        | usage                                                                               |\n|------------------|---------------------------------|-------------------------------------------------------------------------------------|\n| `rg` (`ripgrep`) | `grep`                          | `rg \"pattern\"` - fast recursive text search                                         |\n| `fd`             | `find`                          | `fd -g \"*.nix\"` - fast file finder with sensible defaults                           |\n| `ast-grep`       | text-only code search           | `ast-grep run --pattern '$FUNC($$$)' --lang php src/` - AST-aware structural search |\n| `actionlint`     | ad hoc workflow review          | `actionlint` - lint GitHub Actions workflows                                        |\n| `zizmor`         | ad hoc workflow security review | `zizmor .github/workflows/` - audit GitHub Actions security posture                 |\n\nUse `ast-grep` for code patterns (avoids false positives from comments/strings). Fall back to `rg` for plain text, docs, and unsupported languages.\n\n## SCM\n\n- Never use `git reset --hard` or push without explicit permission.\n- If force-pushing is required, use `git push --force-with-lease --force-if-includes` (or just `git push --force-with-lease` if previous one is impossible, analyzing the root cause for fail first, and making sure these changes would not override remote branch updates)\n- Never merge PRs without explicit permission — always ask first, even if CI passes.\n- Prefer safe alternatives (`git revert`, new commits, temp branches).\n- If history rewrite seems necessary, explain and ask first.\n- Add `Co-Authored-By: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>` to commits by default, unless explicitly asked not to.\n\n## Using GitHub\n\nFor questions about GitHub, use the `gh` tool and `/octocat` skill.\nAlways run `gh` commands with escalated permissions; sandboxed `gh` calls fail in this environment because network access is restricted there.\nNever mention Codex in PR descriptions, PR comments, or issue comments unless asked explicitly.\nDo not include a \"Test plan\" section in PR descriptions.\n\n## Coding Standards\n\n### PHP Coding Standards\n\nWhen working with Laravel/PHP projects, always use the `php-guidelines-from-spatie` skill.\n\n## Reviewing external feedback\n\n- ALWAYS load the `superpowers:receiving-code-review` skill upon receiving review feedback (PR comments, agent reviews). The skill enforces technical rigor and verification over performative agreement.\n- When acting on PR review comments (from bots or humans), independently verify factual claims before applying fixes — especially version numbers, library existence, API behavior, and deprecation status.\n- If a claim falls outside your knowledge cutoff, use WebSearch or check local evidence (installed packages, lock files, docker images) before trusting it.\n- Use `pr-review-fetcher` agent to fetch Pull Review reviews and comments.\n\n## Production safety\n\n- Assume production impact unless stated otherwise.\n- Call out risk when touching auth, billing, data, APIs, or build systems.\n- Prefer small, reversible changes; avoid silent breaking behavior.\n\n## Self improvement\n\n- Continuously improve agent workflows.\n- When a repeated correction or better approach is found you're encouraged to codify your new found knowledge and learnings by modifying your section of `~/.c********S.md`.\n- You can modify `~/.c********S.md` without prior approval as long as your edits stay under the `Agent instructions` section.\n- If you utilize any of your codified instructions in future coding sessions call that out and let the user know that you performed the action because of that specific rule in this file.\n\n## Tool-specific memory\n\n- Actively think beyond the immediate task.\n- When using or working near a tool the user maintains:\n  - If you notice patterns, friction, missing features, risks, or improvement opportunities, jot them down.\n  - Do **not** interrupt the current task to implement speculative changes.\n- In plan mode, always use the `/ask` skill to read the code and the original transcript that generated it. Understanding intent will help you write a better plan.\n- Always start new conversation by loading `/using-superpowers` skill. Do this automatically without being asked.\n  - Ignore `superpowers:using-git-worktrees` skill.\n- Do **not** launch Bash / console commands in the background using `command &` syntax, you have options to run Bash and other tools in background explicitly.\n\n## External File Loading\n\nCRITICAL: When you encounter a file reference (e.g., @rules/general.md), use your Read tool to load it on a need-to-know basis. They're relevant to the SPECIFIC task at hand.\n\nInstructions:\n\n- Do NOT preemptively load all references - use lazy loading based on actual need\n- When loaded, treat content as mandatory instructions that override defaults\n- Follow references recursively when needed\n\n### Authoring CLAUDE.md / AGENTS.md\n\n`@file` references in CLAUDE.md / AGENTS.md are eagerly injected into agent context on every load by the Claude Code loader, regardless of whether the file is needed for the current task. The lazy-load instructions above govern in-conversation Read behavior; they do NOT override loader-level injection. Authoring choices matter:\n\n- Use `@file` ONLY for small, always-relevant docs (rule of thumb: ≤ ~50 lines and you'd want the content in every conversation in that directory).\n- Use plain markdown links `[file](file)` for everything larger or situational — agents will Read on demand.\n- Authoring heuristic: if you would not paste the file's full contents into every conversation that triggers this CLAUDE.md, do not use `@`.\n- This applies to both `CLAUDE.md` and `AGENTS.md` (and `.claude.local.md`), and to symlinks between them.\n\n--- project-doc ---\n\n# Agent instructions — llame\n\nHow to work in this repo. [SPEC.md](SPEC.md) is the current cross-cutting architecture contract and documentation index; focused capability behavior lives in OpenSpec. `CLAUDE.md` and `GEMINI.md` are symlinks to this file.\n\nThe product overview (what llame is) is short and always relevant, so it is imported in full:\n\n@README.md\n\n## Key documentation\n\n- [README.md](README.md) — current product overview, shipped baseline, and quickstart (imported above)\n- [VISION.md](VISION.md) — north-star direction, principles, horizons, and deliberate deferrals\n- [ROADMAP.md](ROADMAP.md) — forward-only sequence of unshipped work; GitHub owns live status and implementation detail\n- [SPEC.md](SPEC.md) — current cross-cutting architecture contract, enforced invariants, and authority index\n- [`openspec/specs`](openspec/specs) — normative shipped capability behavior; [`openspec/changes`](openspec/changes) owns proposed deltas and archived implementation records\n- [CHANGELOG.md](CHANGELOG.md) — shipped chronology\n- [`docs/research`](docs/research) — noncanonical evidence, alternatives, and decision provenance\n- [DESIGN.md](DESIGN.md) — design system reference (visual language, OKLCH tokens, component stylings); consult before building or restyling any UI\n- [docs/testing.md](docs/testing.md) — the test pyramid, suffix-is-runner naming contract, placement rules, and CI mapping\n- [docs/scaling.md](docs/scaling.md) — horizontal-scaling topology, invariants, and the design constraints for the durable-run worker split (#48/#50)\n\n## Monorepo layout\n\npnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 22.19 (pinned to 22.23.1 in `.node-version`); `nix develop` or direnv gives a ready shell; pnpm 10). Workspaces: `apps/*`, `packages/*`.\n\n| Path                         | Role                                                                                        | Stack (details in its own `AGENTS.md`)                                                                     |\n| ---------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |\n| `apps/web`                   | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB               | Next.js 16 (App Router), React 19, TanStack Query, generated Orval Fetch bindings, AI SDK (chat streaming) |\n| `apps/api`                   | API/services + **sole database owner**; ships co-located and dedicated worker entrypoints   | NestJS 11, Drizzle + postgres.js, pg-boss                                                                  |\n| `apps/storybook`             | Component workbench + browser interaction tests for `packages/ui` stories                   | Storybook 10 (nextjs-vite), Vitest browser mode                                                            |\n| `packages/ui`                | Shared shadcn/ui component library (`@workspace/ui`); stories co-located next to components | shadcn/ui, Tailwind, React 19                                                                              |\n| `packages/config-typescript` | Shared `tsconfig` bases                                                                     | —                                                                                                          |\n\nEach app/package has its own `AGENTS.md` (auto-loaded when you work in that directory) with concrete commands, structure, and gotchas. **Keep this file high-level — put implementation detail in the child file, not here.**\n\n## Commands (from repo root)\n\n```bash\npnpm install\npnpm dev      # turbo run dev — all apps in watch mode (web + api + storybook on :6006)\npnpm build    # turbo build\npnpm lint     # turbo lint (oxlint per workspace; type-aware via tsgolint in apps/api)\npnpm format   # prettier --write --cache . over the ignore-pruned repository (format:check to verify)\npnpm test:e2e            # playwright test; pass filters after --, e.g. pnpm test:e2e -- e2e/auth\npnpm test:e2e:ui         # playwright test --ui\npnpm test:e2e:headed     # playwright test --headed\npnpm test:e2e:debug      # playwright test --debug\npnpm test:e2e:report     # playwright show-report\n```\n\nAgent verification is resource-bounded: build affected workspaces sequentially\n(`pnpm --filter <workspace> build`). If an aggregate build is necessary, use\n`pnpm exec turbo run build --concurrency=1`; do not run the unbounded root\n`pnpm build`, which launches the API, Next, and Storybook builds concurrently.\n\nScope to one workspace with `pnpm --filter web <script>` (or `--filter api`).\nInstall Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, Playwright starts a throwaway Docker Postgres, applies migrations, owns the API/model/MCP processes, builds `apps/web` with the E2E API URL, and serves that production build with `next start`; set `POSTGRES_URL` only to use an already-migrated external database instead. Authenticated E2E tests should use the worker-scoped fixture from `e2e/support/fixtures.ts`, which writes per-worker storage state under `.auth/`; destructive session tests should request `freshAccount`. Override `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_DB_PORT`, `E2E_DB_READY_PORT`, `E2E_MODEL_PORT`, or `E2E_MCP_PORT` only when the default E2E ports (`4300`/`4301`/`55433`/`4302`/`4303`/`4304`) conflict. Stop manually started services using the E2E ports and any `pnpm dev`, `next dev`, or `next start` using `apps/web` before E2E: Playwright rejects occupied service ports, and the production build must own `.next` without racing another Next process.\n\n## Local database (docker)\n\n`compose.yaml` (repo root) runs Postgres for dev. One-time `cp apps/api/.env.example apps/api/.env.local`, then:\n\n```bash\npnpm db:up        # start Postgres        ·   pnpm db:reset  # wipe + re-init\npnpm db:migrate   # apply apps/api migrations (the authoritative schema)\npnpm db:provision-rls # assign privileged RLS helper ownership after migrations\npnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs\n```\n\nDev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and the self-provisioning `test:integration` gate are documented in [apps********S.md](apps********S.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).\n\n## Conventions\n\n- TypeScript only across web/api/worker — no second backend language (SPEC.md §23).\n- Modified cyclomatic complexity must remain `<= 35` under Oxlint's `modified` variant. Extract only along a real responsibility boundary; arbitrary helper extraction, inline disables, and other metric gaming are prohibited.\n- Drizzle ORM for all DB access. Generate migrations with `drizzle-kit` by\n  default; a security or data-transition gap may add a reviewed hand-authored\n  step only when it is recorded in the [API migration exception ledger](apps********S.md#gotchas)\n  with its regeneration and verification requirements.\n- Conventional commits (e.g. `feat(api):`, `docs(spec):`).\n- The constructor-decorator placement rule runs through the pinned native\n  `pnpm lint:ast-grep` command in Lefthook and CI. Chained type assertions,\n  including `as unknown as T`, are banned across the root E2E and four workspace\n  Oxlint scopes by the vendored anti-slop plugin; narrow the boundary, construct\n  a complete value, or validate untrusted input instead of suppressing the\n  compiler.\n- Product-owned Markdown must pass `pnpm lint:markdown` using the pinned\n  markdownlint-cli2 configuration. Fix violations in the source; do not add\n  inline disables or ignore paths unless the content is generated, maintained\n  upstream, or a symlink alias, and document that boundary in the root config.\n- Every workspace `lint` command rejects unused disable directives. Delete stale\n  suppressions; do not retain a directive for a rule that is not active in that\n  workspace.\n- Tests follow [docs/testing.md](docs/testing.md): `*.test.ts(x)` is Vitest everywhere (`.integration` infix = needs real Postgres; root `e2e/` is Playwright's island); component behavior belongs in Storybook stories, not jsdom render tests; DB-backed suites fail loudly, never skip silently.\n- UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).\n\n## Storybook MCP tools\n\nStories live next to what they render — component stories in `packages/ui/src`, and (planned) page/meta-component stories in `apps/web` — so this workflow applies wherever UI work happens. When the `storybook` MCP server is connected (Storybook dev on :6006), its tools are the source of truth for component APIs and story conventions — not component source or type definitions:\n\n- **Never guess component props.** Before using any prop — even common-sounding ones like `shadow` or `size` — verify it via `list-all-documentation` → `get-documentation` (or an example story). Story names don't reliably reflect prop names. An undocumented prop does not exist: don't assume it from naming conventions or other libraries; check back with the user instead.\n- Call `get-storybook-story-instructions` before creating or editing any story and follow it over remembered conventions.\n- After any change that affects rendered UI (components, stories, styles, tokens), verify with `run-story-tests` (not a package.json script) and include the `preview-stories` URLs in your response. A shared file (token, util, hook) has no stories of its own — resolve its consumers' stories with `get-stories-by-component` and test/preview those.\n\n## Security\n\nllame is multi-tenant and self-hosted: tenant isolation is a core invariant. Weigh security on every change that touches data, auth, tenancy, identity, secrets, or an externally reachable surface. These are the durable principles — concrete mechanics live in the relevant app's `AGENTS.md` and focused OpenSpec capability specs; SPEC.md indexes the cross-cutting contract:\n\n- **Authorization identity comes only from a trusted, authenticated source** — never from client-controlled input (params, body, query, headers). Never scope data access by a value the caller can set.\n- **Enforce isolation in the datastore, not just app code** (defense-in-depth), and make sure the app actually engages it. When identity or scope is absent, **fail closed** (deny), never open.\n- **Don't ship a reachable surface that can't yet be secured.** If the guard doesn't exist, gate the surface or omit it — a code comment is not a mitigation.\n- **Security is an acceptance criterion, not a follow-up.** Any change touching data/auth/tenancy states its isolation and threat considerations up front and ships a negative test (e.g. cross-tenant access is denied).\n- **Secrets stay secret** — never commit, log, print, or echo credentials, keys, or tokens; provider credentials are currently operator-managed through `llame.config.json` secret references.\n- **Surface risk, don't bury it.** If a change could weaken isolation, or you're unsure, say so explicitly and stop for a decision — don't defer silently.\n\n## Maintaining ROADMAP & CHANGELOG\n\n- `ROADMAP.md` is forward-only — it lists work that is **not yet done**.\n- `CHANGELOG.md` is the dated record of everything **shipped** — features, bug fixes, and chores alike — newest first.\n- **Update both in the same PR that ships the work, not after.** The PR's own diff adds the dated `CHANGELOG.md` entry and, if the work was on the roadmap, removes it from `ROADMAP.md` — so the changelog is correct the moment the PR merges, with no separate follow-up commit. Unplanned work (bug fixes, chores) goes straight to the changelog without ever appearing on the roadmap.\n\n## Current state / gotchas\n\n- `apps/api/src/db` is the single source of truth for the schema. `apps/web` owns no database or chat backend — it is a thin API client (SPEC.md §22.0).\n- Every chat run executes via the pg-boss queue (#107; there is no inline request-thread mode): the api enqueues and answers with the run-event stream bridge, while co-located consumers or the shipped no-HTTP `apps/api/src/worker.ts` entrypoint execute (`RunsWorkerService` → transport-agnostic `RunExecutionService` — don't couple it to HTTP).\n- Changes that add server-authored message-part schemas are coordinated API/worker revision boundaries. Land backward-compatible schema preparation first; before the writer cutover, quiesce old API writers and drain accepted Runs, then apply the cutover and deploy compatible workers before any API authors the new part. Concrete rollout/rollback steps live in [apps********S.md](apps********S.md) and [docs/scaling.md](docs/scaling.md).\n\n</INSTRUCTIONS>\n<environment_context>\n  <cwd>/home/leon0399/Projects/llame</cwd>\n  <shell>zsh</shell>\n  <current_date>2026-08-23</current_date>\n  <timezone>Europe/Madrid</timezone>\n  <filesystem><workspace_roots><root>/home/leon0399/Projects/llame</root></workspace_roots><permission_profile type=\"managed\"><file_system type=\"restricted\"><entry access=\"read\"><special>:root</special></entry><entry access=\"write\"><path>/home/leon0399/Projects/llame</path></entry><entry access=\"write\"><special>:slash_tmp</special></entry><entry access=\"write\"><special>:tmpdir</special></entry><entry access=\"read\"><path>/home/leon0399/Projects/llame/.git</path></entry><entry access=\"read\"><path>/home/leon0399/Projects/llame/.agents</path></entry><entry access=\"read\"><path>/home/leon0399/Projects/llame/.codex</path></entry></file_system></permission_profile></filesystem>\n</environment_context>",
+          "timestamp": "2026-08-23T03:00:14.256Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Reviewing the uncommitted product-layer diff against the agreed contract. First step is loading the mandatory repo skill plus a quick memory pass, then I’ll map the changed docs and check them against VISION/SPEC/OpenSpec and the actual code paths.",
+          "timestamp": "2026-08-23T03:00:24.719Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' /home/leon0399/.codex/skills/.system/superpowers/using-superpowers/SKILL.md",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:00:24.721Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"knowledge-read|knowledge space|VISION|local node|trusted-writer|product layer|PR #529|#529|#523|#516\" /home/leon0399/.codex/memories/MEMORY.md",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:00:24.762Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The mandatory startup skill path in the catalog was wrong on my first read; correcting that now. Then I’m pulling the actual product diff and the contract documents it claims to satisfy.",
+          "timestamp": "2026-08-23T03:00:33.978Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,240p' /home/leon0399/.agents/skills/superpowers/using-superpowers/SKILL.md",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:00:33.980Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git status --short",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:00:33.983Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git branch --show-current",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:00:34.051Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --stat HEAD",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:00:34.067Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The change surface is small enough to audit directly: top-level product docs, scaling/spec text, and the E2E/integration fixtures that prove the contract. I’m reading those now together with the active OpenSpec change and the referenced vision docs to check for overclaim versus actual behavior.",
+          "timestamp": "2026-08-23T03:00:46.593Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"knowledge|Knowledge Space|local node|portable|filesystem|citation|stable|trusted-writer|symlink|mount|root\" VISION.md SPEC.md README.md ROADMAP.md CHANGELOG.md docs/scaling.md docs/knowledge.md apps/api/README.md apps/api/llame.config.json.example openspec/changes openspec/specs",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:00:46.595Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff -- README.md CHANGELOG.md ROADMAP.md SPEC.md docs/scaling.md apps/api/README.md apps/api/llame.config.json.example apps/api/src/knowledge/knowledge-tools.integration.test.ts e2e/support/fixtures.ts e2e/support/fixtures/llame.config.e2e.json e2e/support/model-server.ts playwright.config.ts",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:00:46.634Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' VISION.md",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:00:46.639Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg --files openspec/changes | rg 'knowledge|personal-knowledge-read'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:00:46.645Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The contract text mostly lives where expected; the remaining question is whether docs overstate what the implementation actually enforces. I’m cross-checking the new runbook/spec wording against the committed knowledge resolver/service code and the active OpenSpec change now.",
+          "timestamp": "2026-08-23T03:00:59.619Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' docs/knowledge.md",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:00:59.621Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' openspec/changes/add-personal-knowledge-read/proposal.md && sed -n '1,320p' openspec/changes/add-personal-knowledge-read/design.md && sed -n '1,260p' openspec/changes/add-personal-knowledge-read/specs/knowledge-spaces/spec.md && sed -n '1,260p' openspec/changes/add-personal-knowledge-read/specs/knowledge-tools/spec.md && sed -n '1,220p' openspec/changes/add-personal-knowledge-read/specs/tool-calling/spec.md && sed -n '1,200p' openspec/changes/add-personal-knowledge-read/specs/instance-config/spec.md",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:00:59.662Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' apps/api/src/knowledge/knowledge-space.local-resolver.ts && sed -n '1,260p' apps/api/src/knowledge/knowledge-space.service.ts && sed -n '1,260p' apps/api/src/knowledge/knowledge-tools.ts && sed -n '1,240p' apps/api/src/knowledge/knowledge-tool-candidate-resolver.ts",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:00:59.677Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"knowledge_space|knowledge.root|knowledge_search|knowledge_read|O_NOFOLLOW|symlink|realpath|lstat|open\\(|canonical|hash|sha-256|sha256|stable logical ID|response-time attribution|knowledge-relative\" apps/api/src -g '!**/*.test.ts'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:00:59.684Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’ve got the likely weak spots narrowed down: a couple are pure wording/contract risks, not code defects. I’m pulling exact line references now and checking whether any of them rise above “docs polish” into something that could mislead rollout or security expectations.",
+          "timestamp": "2026-08-23T03:01:19.986Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '18,70p' ROADMAP.md",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:01:19.988Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba CHANGELOG.md | sed -n '1,30p' && nl -ba README.md | sed -n '1,120p' && nl -ba ROADMAP.md | sed -n '1,90p' && nl -ba SPEC.md | sed -n '1,190p' && nl -ba docs/knowledge.md | sed -n '1,120p' && nl -ba docs/scaling.md | sed -n '120,155p'",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:01:20.037Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/knowledge/knowledge-space.local-resolver.ts | sed -n '1,170p' && nl -ba apps/api/src/knowledge/knowledge-filesystem.ts | sed -n '60,390p' && nl -ba apps/api/src/knowledge/knowledge-tool-candidate-resolver.ts | sed -n '1,140p' && nl -ba apps/api/src/knowledge/knowledge-tools.integration.test.ts | sed -n '250,340p'",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:01:20.041Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"knowledge_space_available|knowledge_space_restored|knowledge_space_configured|knowledge_space_unavailable|knowledge_space_not_configured\" apps/api/src/chats/context-item-producers.ts apps/api/src/tools/turn-tool-catalog.ts apps/api/src/knowledge/knowledge-tools.ts apps/api/src/knowledge/knowledge-tool-candidate-resolver.ts",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:01:20.047Z"
+        },
+        {
+          "type": "assistant",
+          "text": "One contract mismatch is likely real, not cosmetic: I see a wording boundary in the shipped-facing docs that may imply less owner-visible metadata than the tools actually persist. I’m checking the browser/E2E proof before I call it, because if the UI already shows it then the fix is wording only, not behavior.",
+          "timestamp": "2026-08-23T03:01:41.204Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' e2e/web/chat/knowledge-tool.spec.ts",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:01:41.206Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"knowledgeSpaceId|contentHash|knowledge-relative|Knowledge-relative|citation|path\" apps/web packages/ui apps/api/src/chats -g '!**/*.test.ts' -g '!**/*.stories.tsx'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:01:41.208Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' openspec/changes/add-personal-knowledge-read/tasks.md",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:01:41.278Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I found one solid status-contract issue in `ROADMAP.md`. I’m checking one remaining behavior claim around provisioning/mount failures, because if that path doesn’t actually return the documented closed outcome then it’s another real review note, not just prose cleanup.",
+          "timestamp": "2026-08-23T03:02:02.011Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"KnowledgeSpaceUnavailableError|knowledge_space_unavailable|PUT /api/v1/me/knowledge-space|knowledge-space\" apps/api/src/knowledge apps/api/src -g '!**/*.test.ts'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:02:02.016Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' apps/api/src/knowledge/knowledge-space.controller.ts && sed -n '1,220p' apps/api/src/knowledge/knowledge-space.responses.ts && sed -n '1,220p' apps/api/src/knowledge/knowledge-space.service.test.ts",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:02:02.056Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Provisioning docs are fine: the endpoint really does return a closed `503 knowledge_space_unavailable` on missing/unusable roots. One remaining cross-contract check is the availability-recovery vocabulary between OpenSpec and code; if that diverges, it’s a real follow-up even though it’s below merge-blocking severity.",
+          "timestamp": "2026-08-23T03:02:15.760Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba openspec/changes/add-personal-knowledge-read/specs/tool-calling/spec.md | sed -n '1,220p'",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:02:15.761Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/chats/context-item-producers.ts | sed -n '150,195p' && nl -ba apps/api/src/tools/turn-tool-catalog.ts | sed -n '20,45p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:02:15.803Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I have the review conclusion. One of the findings is purely roadmap hygiene, two are contract/documentation risks that could confuse rollout or the later archive layer. I’m grabbing exact memory line numbers for compliance, then I’ll send the verdict.",
+          "timestamp": "2026-08-23T03:03:01.243Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba /home/leon0399/.codex/memories/MEMORY.md | sed -n '104,122p'",
+            "max_output_tokens": 4000,
+            "workdir": "/home/leon0399/Projects/llame",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-23T03:03:02.420Z"
+        },
+        {
+          "type": "assistant",
+          "text": "**Scope analyzed**\n\nUncommitted `knowledge-read/product` diff against `HEAD` on `knowledge-read/product`, plus the shipped-facing contract/docs it touches: [README.md](/home/leon0399/Projects/llame/README.md:7), [ROADMAP.md](/home/leon0399/Projects/llame/ROADMAP.md:10), [CHANGELOG.md](/home/leon0399/Projects/llame/CHANGELOG.md:3), [SPEC.md](/home/leon0399/Projects/llame/SPEC.md:25), [docs/knowledge.md](/home/leon0399/Projects/llame/docs/knowledge.md:1), [docs/scaling.md](/home/leon0399/Projects/llame/docs/scaling.md:125), the active OpenSpec change at [openspec/changes/add-personal-knowledge-read/specs/tool-calling/spec.md](/home/leon0399/Projects/llame/openspec/changes/add-personal-knowledge-read/specs/tool-calling/spec.md:3), and the relevant implementation/tests under `apps/api/src/knowledge` plus the new browser E2E.\n\nNo P0/P1 found. P2s only.\n\n**Findings**\n\n- P2: `ROADMAP.md` still states shipped behavior as present-tense roadmap content, which breaks the repo’s forward-only roadmap contract. Evidence: [ROADMAP.md](/home/leon0399/Projects/llame/ROADMAP.md:12) says the hosted Run loop “now has bounded reads”, and [ROADMAP.md](/home/leon0399/Projects/llame/ROADMAP.md:23) says v0.7 builds on the “shipped” live Knowledge-read foundation. Repo policy says shipped work belongs in `CHANGELOG.md`, while `ROADMAP.md` is sequenced unshipped work. Smallest fix: rewrite the section intro/outcome to describe only the remaining work, with shipped Knowledge-read referenced strictly as prerequisite context. Risk reduction: avoids status drift and keeps future issue-splitting honest.\n\n- P2: README operator guidance is incomplete for split deployments. [README.md](/home/leon0399/Projects/llame/README.md:57) tells operators to mount the stable-ID children into processes that provision or consume Runs, but does not say that every Run-authoring API must still declare `knowledge.root` even if it never mounts or consumes it. The implementation does depend on that declaration at accept time: [knowledge-tool-candidate-resolver.ts](/home/leon0399/Projects/llame/apps/api/src/knowledge/knowledge-tool-candidate-resolver.ts:82) marks Knowledge unavailable whenever the accepting API lacks `knowledge.root`. The dedicated runbooks do say this correctly at [docs/knowledge.md](/home/leon0399/Projects/llame/docs/knowledge.md:43) and [docs/scaling.md](/home/leon0399/Projects/llame/docs/scaling.md:128). Smallest fix: add one sentence to the README setup paragraph that authoring-only APIs must declare `knowledge.root` for consistent accept-time availability, even when only provisioning/worker processes need the mount. Risk reduction: prevents a real misconfiguration where healthy workers still yield `knowledge_space_unavailable` manifests from some API replicas.\n\n- P2: OpenSpec and implementation disagree on the closed recovery reason for `knowledge_space_unavailable -> available`. The proposal spec requires `knowledge_space_restored` at [tool-calling spec](/home/leon0399/Projects/llame/openspec/changes/add-personal-knowledge-read/specs/tool-calling/spec.md:13) and [scenario lines 32-36](/home/leon0399/Projects/llame/openspec/changes/add-personal-knowledge-read/specs/tool-calling/spec.md:32). The code ships `knowledge_space_available` instead at [context-item-producers.ts](/home/leon0399/Projects/llame/apps/api/src/chats/context-item-producers.ts:153) and maps `knowledge_space_unavailable` to that value at [context-item-producers.ts](/home/leon0399/Projects/llame/apps/api/src/chats/context-item-producers.ts:177). Smallest fix: rename one side before the archive/sync layer and keep an assertion on the exact recovery token. Risk reduction: prevents spec/archive drift and a user-visible “Now available” vocabulary mismatch from being baked into canonical specs.\n\n**Validated**\n\n- Normal path: browser acceptance proves live-file search attribution survives reload and shows the relative-path citation via the generic tool renderer at [e2e/web/chat/knowledge-tool.spec.ts](/home/leon0399/Projects/llame/e2e/web/chat/knowledge-tool.spec.ts:102).\n- Failure path: API accept-time availability without filesystem probing, then worker-side closed failure on a missing separate mount, is covered at [knowledge-tools.integration.test.ts](/home/leon0399/Projects/llame/apps/api/src/knowledge/knowledge-tools.integration.test.ts:266).\n- Integration edge: trusted-writer and local-node portability boundaries are stated consistently across [SPEC.md](/home/leon0399/Projects/llame/SPEC.md:148), [docs/knowledge.md](/home/leon0399/Projects/llame/docs/knowledge.md:58), and the resolver/filesystem code at [knowledge-space.local-resolver.ts](/home/leon0399/Projects/llame/apps/api/src/knowledge/knowledge-space.local-resolver.ts:48) and [knowledge-filesystem.ts](/home/leon0399/Projects/llame/apps/api/src/knowledge/knowledge-filesystem.ts:284).\n\nI did not run the Playwright/API/lint suite in this review turn, so runtime verification still needed is the product-layer command set from the stack task list, especially the focused Knowledge Playwright spec and markdown lint.\n\n**Verdict**\n\nNot blocked. Core tenant-isolation, local-node-portability framing, trusted-writer filesystem boundary, mount/deployment contract, and live-file attribution wording are coherent enough to proceed. I would fix the three P2s above before calling the product layer fully ready for proposal-sync/archive or using the docs as canonical rollout guidance.\n\n<oai-mem-citation>\n<citation_entries>\nMEMORY.md:110-119|note=[used llame local-node and portable-identity terminology context while checking VISION SPEC alignment]\n</citation_entries>\n<rollout_ids>\n</rollout_ids>\n</oai-mem-citation>",
+          "timestamp": "2026-08-23T03:03:29.942Z"
+        }
+      ],
+      "total_additions": 34,
+      "total_deletions": 41,
+      "accepted_lines": 28,
+      "overriden_lines": 0
+    }
+  }
+}
