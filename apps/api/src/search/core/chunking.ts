@@ -1,3 +1,5 @@
+import { codePointSafeCutIndex } from '../../code-point-boundary';
+
 /**
  * Corpus-agnostic chunking toolkit (search/core). Groups an ordered list of
  * atomic items (for chat search: whole messages; for knowledge/RAG later:
@@ -57,4 +59,48 @@ export function chunkByCharBudget<T>(
   }
 
   return groups;
+}
+
+/**
+ * Cut `text` at an index in `[from, from + maxLen]`, preferring (in order) a
+ * blank line, a newline or sentence end, then plain whitespace — never
+ * mid-word unless no boundary exists at all within the budget. Returns
+ * `text.length` unchanged when the tail from `from` already fits.
+ *
+ * Corpus-agnostic: chat search's oversized-message splitting is the first
+ * consumer (`search/chat/conversation-chunker.ts`, #517); knowledge/RAG and
+ * curated memory reuse this kernel rather than reimplementing boundary and
+ * surrogate-safety logic per corpus.
+ *
+ * Takes a cursor offset instead of a fresh substring so a caller advancing
+ * through a large string never re-copies the tail on every iteration — the
+ * window inspected here is always bounded by `maxLen`, which is what keeps
+ * repeated calls linear in the length of `text` rather than quadratic.
+ */
+export function cutTextAtBoundary(
+  text: string,
+  from: number,
+  maxLen: number,
+): number {
+  if (text.length - from <= maxLen) return text.length;
+  const window = text.slice(from, from + maxLen);
+
+  const blankLine = window.lastIndexOf('\n\n');
+  if (blankLine > 0) return from + blankLine + 2;
+
+  let sentenceEnd = -1;
+  for (const token of ['\n', '. ', '! ', '? ']) {
+    const idx = window.lastIndexOf(token);
+    if (idx > 0) sentenceEnd = Math.max(sentenceEnd, idx + token.length);
+  }
+  if (sentenceEnd > 0) return from + sentenceEnd;
+
+  for (let i = window.length - 1; i > 0; i -= 1) {
+    if (/\s/.test(window.charAt(i))) return from + i + 1;
+  }
+
+  // No boundary at all within the budget: hard-cut at maxLen — code-point-safe
+  // via the shared primitive so this never splits a surrogate pair (e.g. an
+  // emoji) into two unpaired halves.
+  return codePointSafeCutIndex(text, from + maxLen);
 }

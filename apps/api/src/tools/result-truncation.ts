@@ -1,3 +1,4 @@
+import { cutStringAtCodePointBoundary } from '../code-point-boundary';
 import {
   isBoolean,
   isNumber,
@@ -18,32 +19,6 @@ export const RESULT_TRUNCATE_CHARS = 16_000;
  */
 const TRUNCATED_FIELD = 'truncated';
 const NOTICE_FIELD = 'truncationNotice';
-
-function isHighSurrogate(code: number): boolean {
-  return code >= 0xd800 && code <= 0xdbff;
-}
-
-function isLowSurrogate(code: number): boolean {
-  return code >= 0xdc00 && code <= 0xdfff;
-}
-
-/**
- * Cut to `limit` UTF-16 code units, stepping back one unit when that offset
- * splits a surrogate pair — `slice` alone would emit a lone surrogate on any
- * emoji or non-BMP payload. Exported for direct coverage: which `limit` the
- * search below lands on depends on the payload, so a result-level assertion
- * alone does not reliably exercise a mid-pair cut.
- */
-export function cutStringAtCodePointBoundary(
-  value: string,
-  limit: number,
-): string {
-  if (value.length <= limit) return value;
-  const splitsPair =
-    isHighSurrogate(value.charCodeAt(limit - 1)) &&
-    isLowSurrogate(value.charCodeAt(limit));
-  return value.slice(0, splitsPair ? limit - 1 : limit);
-}
 
 /** A list the shrink shortened, reported by the marker so a count read off a
  * truncated list is not mistaken for the whole list. */

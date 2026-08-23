@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 import {
-  cutStringAtCodePointBoundary,
   RESULT_TRUNCATE_CHARS,
   truncateOversizedResult,
 } from './result-truncation';
@@ -31,31 +30,6 @@ function stringLeaves(value: unknown): string[] {
   }
   return [];
 }
-
-describe('cutStringAtCodePointBoundary', () => {
-  const grin = '\u{1F600}'; // one code point, two UTF-16 code units
-
-  it('steps back a unit when the cut splits a surrogate pair', () => {
-    const cut = cutStringAtCodePointBoundary(`${grin}${grin}`, 3);
-    expect(cut).toBe(grin);
-    expect(isWellFormed(cut)).toBe(true);
-  });
-
-  it('keeps a pair the cut lands exactly after', () => {
-    expect(cutStringAtCodePointBoundary(`${grin}${grin}`, 2)).toBe(grin);
-  });
-
-  it('cuts plain text at the limit and leaves short values alone', () => {
-    expect(cutStringAtCodePointBoundary('abcdef', 3)).toBe('abc');
-    expect(cutStringAtCodePointBoundary('ab', 5)).toBe('ab');
-    expect(cutStringAtCodePointBoundary('ab', 0)).toBe('');
-  });
-
-  it('does not step back for a BMP character before the cut', () => {
-    // `é` is a single code unit, not a surrogate — the guard must not fire.
-    expect(cutStringAtCodePointBoundary(`aé${grin}`, 2)).toBe('aé');
-  });
-});
 
 describe('truncateOversizedResult', () => {
   it('returns a result under the cap untouched', () => {

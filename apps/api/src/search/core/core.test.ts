@@ -1,4 +1,4 @@
-import { chunkByCharBudget } from './chunking';
+import { chunkByCharBudget, cutTextAtBoundary } from './chunking';
 import { recallAtK, reciprocalRank, summarizeEval } from './eval';
 import { assertScopePredicate, RRF_DEFAULT_K, rrfScore } from './fusion';
 import { chunkContentHash, normalizeForSearch } from './text';
@@ -107,6 +107,58 @@ describe('chunkByCharBudget', () => {
     expect(
       chunkByCharBudget([], size, { maxChars: 5, overlapItems: 1 }),
     ).toEqual([]);
+  });
+});
+
+describe('cutTextAtBoundary', () => {
+  it('returns text.length unchanged when the tail from `from` already fits', () => {
+    expect(cutTextAtBoundary('hello world', 0, 20)).toBe(11);
+    expect(cutTextAtBoundary('hello world', 6, 5)).toBe(11);
+  });
+
+  it('prefers a blank line over any other boundary within the budget', () => {
+    const text = 'first paragraph.\n\nsecond paragraph continues onward';
+    const cut = cutTextAtBoundary(text, 0, 30);
+    expect(text.slice(0, cut)).toBe('first paragraph.\n\n');
+  });
+
+  it('falls back to a sentence end when no blank line is in budget', () => {
+    const text = 'One sentence. Another one that runs long after it';
+    const cut = cutTextAtBoundary(text, 0, 20);
+    expect(text.slice(0, cut)).toBe('One sentence. ');
+  });
+
+  it('falls back to plain whitespace when no sentence end is in budget', () => {
+    const text = 'aaaaaaaaaa bbbbbbbbbb cccccccccc';
+    const cut = cutTextAtBoundary(text, 0, 15);
+    expect(text.slice(0, cut)).toBe('aaaaaaaaaa ');
+  });
+
+  it('hard-cuts at maxLen when no boundary exists at all', () => {
+    const text = 'x'.repeat(50);
+    expect(cutTextAtBoundary(text, 0, 20)).toBe(20);
+  });
+
+  it('never splits a surrogate pair on the hard-cut path', () => {
+    const grin = '\u{1F600}'; // two UTF-16 code units
+    const text = `${'x'.repeat(19)}${grin}${'x'.repeat(10)}`;
+    // The pair spans indices 19-20; a cut at 20 would split it.
+    expect(cutTextAtBoundary(text, 0, 20)).toBe(19);
+  });
+
+  it('bounds its lookahead to `from + maxLen`, not the whole string', () => {
+    // A boundary exists far past the budget but must never be chosen — proves
+    // the window is `[from, from + maxLen)`, the property the linear-time
+    // chunking loop depends on (search/chat/conversation-chunker.ts, #517).
+    const text = `${'x'.repeat(30)}\n\n${'y'.repeat(30)}`;
+    expect(cutTextAtBoundary(text, 0, 10)).toBe(10);
+  });
+
+  it('respects a nonzero `from` cursor: the window starts there, not at 0', () => {
+    const text = 'AAAA. BBBB. CCCC.';
+    // Starting after "AAAA. ", the next boundary within budget is "BBBB. ".
+    const cut = cutTextAtBoundary(text, 6, 8);
+    expect(text.slice(6, cut)).toBe('BBBB. ');
   });
 });
 

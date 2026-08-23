@@ -17,6 +17,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   symlinks are refused and files use `O_NOFOLLOW`, while descriptor-relative
   containment remains future hardening for hostile concurrent swaps or hardlinks.
 
+- **Chat search: oversized messages no longer bypass chunking** (#517): a
+  single message's text exceeding the chunker's 3000-character budget is now
+  split into several budget-sized documents cut at a text boundary (blank
+  line, sentence end, or whitespace), instead of being indexed whole as one
+  oversized, unsplit passthrough chunk. Every continuation slice carries a
+  bounded excerpt of the preceding user message as presentation-only context
+  in the snippet source, never in the lexically-matched text. Chunking for
+  every message that already fit the budget is unchanged; the chunker
+  version bump (2 → 3) drives a one-time rebuild of every existing chat
+  through the discovery sweep. A packed chunk can still reach roughly twice
+  the budget: it carries one overlap block from the preceding chunk alongside
+  a full new block, deliberately, so a chunk always has surrounding context —
+  the embedding layer must size against that ~2x bound, not the base budget.
+
 # 2026-08-22
 
 - **Distributed agent direction**: recorded the local-node, Workspace, Sandbox,
