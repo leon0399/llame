@@ -12,6 +12,14 @@ export type ChatEmbedDispatcher = Pick<
   'enqueueChatEmbed'
 >;
 
+/** The strict-reporting capability `backfill` needs (chat-search-embeddings/
+ *  operations, layer 7) — see `enqueueChatEmbedStrict`'s own doc comment for
+ *  why it is a separate method rather than a mode flag on the one above. */
+export type StrictChatEmbedDispatcher = Pick<
+  SearchEmbedDispatchService,
+  'enqueueChatEmbedStrict'
+>;
+
 /**
  * SearchEmbedDispatchService (chat-search-embeddings, design D5) — the
  * enqueue seam every projection-changing path calls to keep embeddings
@@ -60,6 +68,31 @@ export class SearchEmbedDispatchService {
         error instanceof Error ? error.stack : String(error),
       );
     }
+  }
+
+  /**
+   * Strict variant for the `search:backfill` operator command (chat-search-
+   * embeddings/operations, layer 7) — deliberately NOT a mode flag on
+   * `enqueueChatEmbed` above, because the two callers have opposite
+   * correctness requirements. Every write-hook caller of `enqueueChatEmbed`
+   * needs best-effort: a failed enqueue must never fail the user's write,
+   * and a lost one self-heals via the sweep. `backfill` has no sweep to
+   * fall back on and no user-facing write to protect — its entire output IS
+   * "how many jobs actually got queued," so swallowing a failure there would
+   * make it print a count of chats it never actually enqueued. Failures
+   * here propagate to the caller, which must count only what this resolves
+   * without throwing.
+   */
+  async enqueueChatEmbedStrict(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<void> {
+    await this.ensureQueue();
+    await this.queue.enqueue(
+      SEARCH_EMBED_QUEUE,
+      { chatId, ownerUserId },
+      { singletonKey: chatId },
+    );
   }
 
   private ensureQueue(): Promise<void> {

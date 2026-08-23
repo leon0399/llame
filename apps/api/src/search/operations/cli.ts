@@ -27,6 +27,7 @@ import { NestFactory } from '@nestjs/core';
 
 import { TenantDbService } from '../../db/tenant-db.service';
 import { InstanceConfigService } from '../../instance-config/instance-config.service';
+import { assertDiscoveryFunctionProvisioned } from '../discovery-provisioning';
 import { EMBED_INPUT_VERSION } from '../search-embed.worker';
 import { runBackfill } from './backfill';
 import { getEmbeddingCoverageReport } from './coverage-report';
@@ -65,13 +66,32 @@ async function runCommand(command: string): Promise<void> {
     switch (command) {
       case 'backfill': {
         const modelId = requireEmbeddingModelId(instanceConfig);
+        // Read-path fail-loud check (review finding): without this, an
+        // unprovisioned `app_rls` role makes llame_search_embedding_coverage
+        // silently return zero rows, and this command would print "enqueued
+        // 0 chat(s)" — a wrong answer, indistinguishable from a genuinely
+        // covered corpus.
+        await assertDiscoveryFunctionProvisioned(
+          tenantDb,
+          'llame_search_embedding_coverage',
+        );
         const dispatch = app.get(SearchEmbedDispatchService);
-        const { enqueued } = await runBackfill(
+        const { enqueued, failures } = await runBackfill(
           tenantDb,
           dispatch,
           modelId,
           EMBED_INPUT_VERSION,
         );
+        if (failures.length > 0) {
+          for (const failure of failures) {
+            console.error(
+              `backfill: failed to enqueue chat ${failure.chatId} (owner ${failure.ownerUserId}): ${failure.message}`,
+            );
+          }
+          throw new Error(
+            `backfill: enqueued ${enqueued} chat(s), FAILED to enqueue ${failures.length} — see errors above. Safe to re-run once the queue is reachable again (an already-queued chat coalesces under its singleton key rather than duplicating).`,
+          );
+        }
         console.log(`backfill: enqueued ${enqueued} chat(s)`);
         return;
       }
@@ -100,6 +120,12 @@ async function runCommand(command: string): Promise<void> {
       }
       case 'coverage': {
         const modelId = requireEmbeddingModelId(instanceConfig);
+        // Same fail-loud provisioning check as backfill above, against the
+        // report function this readout actually reads.
+        await assertDiscoveryFunctionProvisioned(
+          tenantDb,
+          'llame_search_embedding_report',
+        );
         const rows = await getEmbeddingCoverageReport(
           tenantDb,
           modelId,

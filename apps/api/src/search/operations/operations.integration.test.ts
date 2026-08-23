@@ -17,7 +17,14 @@
  * - the coverage readout reports a fully-failed chat (0 outstanding, N
  *   failed) that `llame_search_embedding_coverage`'s own `HAVING` omits —
  *   proving the gap the report function exists to close, and that it
- *   doesn't just look empty for the wrong reason.
+ *   doesn't just look empty for the wrong reason;
+ * - backfill reports only the chats that ACTUALLY enqueued when one of
+ *   several real, coverage-discovered chats fails to enqueue (review
+ *   finding — `enqueueChatEmbedStrict`, not the best-effort dispatcher);
+ * - both `llame_search_embedding_coverage` and `llame_search_embedding_report`
+ *   are BYPASSRLS-provisioned in this harness (globalSetup runs the
+ *   provisioning script), so the fail-loud provisioning check does NOT
+ *   false-positive on a correctly provisioned instance.
  *
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
@@ -38,6 +45,7 @@ import {
   MessagesRepository,
 } from '../../chats/chats-repository';
 import { type UnknownRecord } from '../../unknown-record';
+import { assertDiscoveryFunctionProvisioned } from '../discovery-provisioning';
 import { EMBED_INPUT_VERSION } from '../search-embed.worker';
 import { SearchIndexService } from '../search-index.service';
 import { runBackfill } from './backfill';
@@ -211,16 +219,17 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
       const id = await seed(owner, 'Outstanding for backfill');
       await indexService.reindexChat(id, owner);
 
-      const enqueueChatEmbed = vi.fn().mockResolvedValue(undefined);
-      const { enqueued } = await runBackfill(
+      const enqueueChatEmbedStrict = vi.fn().mockResolvedValue(undefined);
+      const { enqueued, failures } = await runBackfill(
         tenantDb,
-        { enqueueChatEmbed },
+        { enqueueChatEmbedStrict },
         modelKey,
         EMBED_INPUT_VERSION,
       );
 
       expect(enqueued).toBeGreaterThanOrEqual(1);
-      expect(enqueueChatEmbed).toHaveBeenCalledWith(id, owner);
+      expect(failures).toEqual([]);
+      expect(enqueueChatEmbedStrict).toHaveBeenCalledWith(id, owner);
       // Structural proof of "no provider request": runBackfill's own
       // signature carries no backend, and it wrote no row of its own — only
       // a WORKER's real persist creates the binding ledger row (design D1).
@@ -238,15 +247,76 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
       await indexService.reindexChat(id, owner);
       await stampEmbedded(owner, id, modelKey, EMBED_INPUT_VERSION);
 
-      const enqueueChatEmbed = vi.fn().mockResolvedValue(undefined);
+      const enqueueChatEmbedStrict = vi.fn().mockResolvedValue(undefined);
       await runBackfill(
         tenantDb,
-        { enqueueChatEmbed },
+        { enqueueChatEmbedStrict },
         modelKey,
         EMBED_INPUT_VERSION,
       );
 
-      expect(enqueueChatEmbed).not.toHaveBeenCalledWith(id, owner);
+      expect(enqueueChatEmbedStrict).not.toHaveBeenCalledWith(id, owner);
+    });
+
+    it('reports only the chats that actually enqueued when one of several real, coverage-discovered chats fails (review finding)', async () => {
+      // Confirmed to fail first: against the pre-fix `runBackfill` (counting
+      // `list.length`, enqueuing via the best-effort `enqueueChatEmbed`
+      // which swallows its own failures), this scenario returned
+      // `enqueued: 2` with no failures reported at all — the exact
+      // "prints a reassuring number for work that didn't happen" bug.
+      const modelKey = `backfill-partial-fail-${crypto.randomUUID()}`;
+      const okChat = await seed(owner, 'Enqueues fine');
+      const failChat = await seed(owner, 'Enqueue fails');
+      await indexService.reindexChat(okChat, owner);
+      await indexService.reindexChat(failChat, owner);
+
+      const enqueueChatEmbedStrict = vi.fn((chatId: string) =>
+        chatId === failChat
+          ? Promise.reject(new Error('queue unreachable'))
+          : Promise.resolve(undefined),
+      );
+
+      const { enqueued, failures } = await runBackfill(
+        tenantDb,
+        { enqueueChatEmbedStrict },
+        modelKey,
+        EMBED_INPUT_VERSION,
+      );
+
+      expect(enqueueChatEmbedStrict).toHaveBeenCalledWith(okChat, owner);
+      expect(enqueueChatEmbedStrict).toHaveBeenCalledWith(failChat, owner);
+      // Both chats were among the enqueue ATTEMPTS, but only okChat actually
+      // succeeded — `enqueued` must reflect that, not the attempt count (a
+      // fresh model key may also legitimately pick up other pre-existing
+      // chats in this shared database, so this asserts "at least the one
+      // that really succeeded," not an exact corpus-wide total).
+      expect(enqueued).toBeGreaterThanOrEqual(1);
+      expect(
+        failures.some(
+          (f) => f.chatId === failChat && f.message === 'queue unreachable',
+        ),
+      ).toBe(true);
+      expect(failures.some((f) => f.chatId === okChat)).toBe(false);
+    });
+  });
+
+  describe('discovery provisioning (fail-loud read paths)', () => {
+    it('does not throw for llame_search_embedding_coverage — this harness runs pnpm db:provision-rls in globalSetup', async () => {
+      await expect(
+        assertDiscoveryFunctionProvisioned(
+          tenantDb,
+          'llame_search_embedding_coverage',
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it('does not throw for llame_search_embedding_report — same provisioning lifecycle as coverage()', async () => {
+      await expect(
+        assertDiscoveryFunctionProvisioned(
+          tenantDb,
+          'llame_search_embedding_report',
+        ),
+      ).resolves.toBeUndefined();
     });
   });
 

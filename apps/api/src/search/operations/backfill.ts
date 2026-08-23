@@ -25,10 +25,22 @@
  * the embed worker's own persisted columns) is already false for every
  * document — so a repeat backfill enqueues nothing and writes no row of its
  * own (it writes nothing at all, ever; only the worker persists).
+ *
+ * REPORTS ONLY WHAT ACTUALLY ENQUEUED (review finding). Enqueues through
+ * `SearchEmbedDispatchService.enqueueChatEmbedStrict` — NOT the ordinary
+ * best-effort `enqueueChatEmbed` every write-hook caller uses — because a
+ * swallowed enqueue failure here has no sweep to self-heal it and no
+ * user-facing write to protect: if pg-boss were unreachable mid-backfill,
+ * best-effort enqueue would let this print "enqueued 5000 chat(s)" while
+ * zero jobs were actually queued. Each row's enqueue is tracked
+ * independently (`Promise.allSettled`, not `Promise.all` — one rejection
+ * must not abort the batch or hide the other 19 outcomes in it); `enqueued`
+ * counts only settled successes, and every failure is returned so the
+ * caller can report it and exit non-zero.
  */
 import { sql, type SQLWrapper } from 'drizzle-orm';
 
-import type { ChatEmbedDispatcher } from '../search-embed-dispatch.service';
+import type { StrictChatEmbedDispatcher } from '../search-embed-dispatch.service';
 
 /**
  * `llame_search_embedding_coverage` takes a single `max_rows` LIMIT with no
@@ -63,25 +75,59 @@ export type CoverageQueryRunner = {
   ): Promise<T>;
 };
 
-/** Enqueue `rows` in bounded-parallel batches — same shape and reasoning as
- *  `search-reindex.worker.ts`'s `enqueueRowsBounded` (a distinct producer, a
- *  distinct queue, kept as a small local twin rather than an import across
- *  that file's worker-specific concerns). */
+/** One chat whose `enqueueChatEmbedStrict` call rejected. */
+export type EnqueueFailure = {
+  chatId: string;
+  ownerUserId: string;
+  message: string;
+};
+
+/** Enqueue `rows` in bounded-parallel batches, tracking each outcome
+ *  independently — same batching shape as `search-reindex.worker.ts`'s
+ *  `enqueueRowsBounded` (a distinct producer, a distinct queue, kept as a
+ *  small local twin rather than an import across that file's worker-specific
+ *  concerns), but `Promise.allSettled` rather than `Promise.all`: this
+ *  file's whole point is knowing which chats did and didn't enqueue, so one
+ *  rejection must not short-circuit the batch and swallow the other 19
+ *  outcomes in it. */
 async function enqueueBounded(
   rows: readonly OutstandingRow[],
   enqueueOne: (chatId: string, ownerUserId: string) => Promise<void>,
-): Promise<void> {
+): Promise<{ succeeded: number; failures: EnqueueFailure[] }> {
   const CONCURRENCY = 20;
+  let succeeded = 0;
+  const failures: EnqueueFailure[] = [];
   for (let i = 0; i < rows.length; i += CONCURRENCY) {
-    await Promise.all(
-      rows
-        .slice(i, i + CONCURRENCY)
-        .map((row) => enqueueOne(row.chat_id, row.owner_user_id)),
+    const batch = rows.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map((row) => enqueueOne(row.chat_id, row.owner_user_id)),
     );
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        succeeded += 1;
+      } else {
+        const row = batch[index];
+        failures.push({
+          chatId: row.chat_id,
+          ownerUserId: row.owner_user_id,
+          message:
+            result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason),
+        });
+      }
+    });
   }
+  return { succeeded, failures };
 }
 
-export type BackfillResult = { enqueued: number };
+export type BackfillResult = {
+  /** Chats that actually enqueued — never a count of attempts. */
+  enqueued: number;
+  /** Chats whose enqueue failed; empty on a fully successful run. The
+   *  caller must treat any non-empty result as a failed command. */
+  failures: EnqueueFailure[];
+};
 
 /**
  * Enumerate every chat with outstanding embedding work for
@@ -90,7 +136,7 @@ export type BackfillResult = { enqueued: number };
  */
 export async function runBackfill(
   tenantDb: CoverageQueryRunner,
-  dispatch: ChatEmbedDispatcher,
+  dispatch: StrictChatEmbedDispatcher,
   modelId: string,
   inputVersion: number,
 ): Promise<BackfillResult> {
@@ -101,8 +147,10 @@ export async function runBackfill(
     `),
   );
   const list = [...rows];
-  await enqueueBounded(list, (chatId, ownerUserId) =>
-    dispatch.enqueueChatEmbed(chatId, ownerUserId),
+  const { succeeded, failures } = await enqueueBounded(
+    list,
+    (chatId, ownerUserId) =>
+      dispatch.enqueueChatEmbedStrict(chatId, ownerUserId),
   );
-  return { enqueued: list.length };
+  return { enqueued: succeeded, failures };
 }
