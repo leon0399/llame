@@ -2,8 +2,9 @@
  * Versioned relevance-eval dataset for chat search (#195, design D8). A small set
  * of fixture conversations + labeled queries spanning the categories phase 1 must
  * handle (exact-title/exact-content/typo — asserted floors) and the ones it is
- * expected to be weak on until embeddings land (paraphrase, inflected Russian —
- * recorded-only, the phase-3 measuring stick).
+ * expected to be weak on until embeddings land (paraphrase, genuinely inflected
+ * Russian/Spanish, an oversized single-message chunk — recorded-only, the
+ * phase-3/chunker-fit measuring sticks).
  *
  * Each query's `expect` is the fixture key(s) whose chat should rank in the top K.
  */
@@ -23,13 +24,28 @@ export type EvalCategory =
   | 'paraphrase'
   | 'ru'
   | 'es'
-  | 'mixed';
+  | 'mixed'
+  | 'oversized';
 
 export interface EvalQuery {
   query: string;
   category: EvalCategory;
   expect: string[];
 }
+
+// Oversized-fixture filler (task 1.2): repeated to push the message text to
+// several times `CHUNK_MAX_CHARS` (3000, conversation-chunker.ts) so the
+// corpus has at least one message the chunker cannot fit whole into a single
+// budgeted chunk. A distinctive tail sentence lets the eval query target
+// content near the END of that oversized message, not its beginning.
+const OVERSIZED_FILLER =
+  'During the call we reviewed staffing levels, the quarterly budget, ' +
+  'open hiring requisitions, and the rollout timeline for the internal ' +
+  'tooling migration. ';
+const OVERSIZED_TRANSCRIPT_TEXT =
+  OVERSIZED_FILLER.repeat(70) +
+  'The final action item was to retire the legacy invoicing service and ' +
+  'cut over to project Nightjar-7 before the end of Q3.';
 
 export const EVAL_FIXTURES: EvalFixture[] = [
   {
@@ -114,6 +130,14 @@ export const EVAL_FIXTURES: EvalFixture[] = [
       },
     ],
   },
+  {
+    key: 'oversized-transcript',
+    title: 'Notes from a long onboarding call',
+    messages: [
+      { role: 'user', text: OVERSIZED_TRANSCRIPT_TEXT },
+      { role: 'assistant', text: 'Got it, I will follow up on those items.' },
+    ],
+  },
 ];
 
 export const EVAL_QUERIES: EvalQuery[] = [
@@ -173,10 +197,51 @@ export const EVAL_QUERIES: EvalQuery[] = [
   // ru (recorded-only — no stemming)
   { query: 'маршрут по Испании', category: 'ru', expect: ['ru-travel'] },
   { query: 'поездка', category: 'ru', expect: ['ru-travel'] },
+  // ru, genuinely inflected — different case than the fixture text, so
+  // `simple` (no-stemming) FTS cannot match on shared surface tokens.
+  // "поездку"/"Испанию" (accusative) vs. the fixture's "поездки" (genitive
+  // title) / "Испании" (prepositional, msg1).
+  {
+    query: 'поездку в Испанию',
+    category: 'ru',
+    expect: ['ru-travel'],
+  },
+  // "Мадрида" (genitive) / "Барселону" (accusative) vs. the fixture's
+  // "Мадрид" (nominative) / "Барселоны" (genitive) — and a different lemma
+  // ("путешествие" vs. "поездка"/"маршрут") entirely.
+  {
+    query: 'путешествие до Мадрида через Барселону',
+    category: 'ru',
+    expect: ['ru-travel'],
+  },
   // es (recorded-only)
   { query: 'paella valenciana', category: 'es', expect: ['es-recipe'] },
+  // es, genuinely inflected — different conjugation than the fixture's
+  // "preparo" (1st person present): "preparó" (3rd person preterite).
+  {
+    query: 'quién preparó primero la paella',
+    category: 'es',
+    expect: ['es-recipe'],
+  },
+  // Number/gender agreement change vs. the fixture's singular "arroz",
+  // "azafrán", and feminine-singular "auténtica": plural "arroces",
+  // "azafranes", masculine-plural "auténticos".
+  {
+    query: 'arroces bomba con azafranes auténticos',
+    category: 'es',
+    expect: ['es-recipe'],
+  },
   // mixed language
   { query: 'production build CI', category: 'mixed', expect: ['mixed-lang'] },
+  // oversized (recorded-only — the corpus has no oversized fixture before
+  // this; layer 2 (chunker-fit) is expected to move this row). Query targets
+  // the END of a message several times CHUNK_MAX_CHARS, verifying lexical
+  // search is unaffected by message length today (no chunk-level truncation).
+  {
+    query: 'project Nightjar-7',
+    category: 'oversized',
+    expect: ['oversized-transcript'],
+  },
 ];
 
 /** Categories whose recall is a hard floor in CI (lexical has no excuse to miss). */
