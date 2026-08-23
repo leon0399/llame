@@ -29,6 +29,7 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
+import { MockEmbeddingModelV3 } from 'ai/test';
 import { z } from 'zod';
 
 import * as schema from '../db/schema';
@@ -47,7 +48,11 @@ import {
   type EmbeddingDocumentInput,
   type EmbeddingResult,
 } from './core';
-import { EmbeddingBackendError } from './openai-embedding-backend';
+import {
+  createOpenAIEmbeddingBackend,
+  EmbeddingBackendError,
+  type OpenAIEmbeddingProvider,
+} from './openai-embedding-backend';
 import {
   EMBED_INPUT_VERSION,
   EMBED_MAX_BATCHES_PER_JOB,
@@ -425,6 +430,106 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     expect(row.embedding_model_key).toBeNull();
   });
 
+  // End-to-end proof of the High-severity gap a later code review found: a
+  // vector failing the REAL adapter's own dimension validation (systematic —
+  // every call to this misconfigured model returns the wrong width) must
+  // reach the SAME tombstone path a terminal provider error does, not the
+  // silent-continue path. Goes through the real `createOpenAIEmbeddingBackend`
+  // (a fake provider swaps only the HTTP boundary, same pattern as
+  // `openai-embedding-backend.test.ts`'s `withModel`), not the `fakeBackend`
+  // test double the rest of this file uses, because the bug lived in the
+  // adapter itself.
+  it('a systematic dimensions mismatch tombstones every document with a reason naming both widths, is reported failed (not outstanding) by coverage, and is never re-swept', async () => {
+    const id = await seed('Systematic dimension mismatch', [
+      { role: 'user', text: 'this model is misconfigured for its provider' },
+    ]);
+    await indexService.reindexChat(id, u);
+    const docId = await firstDocId(id);
+
+    // Configured for 3 dimensions; the "provider" always returns 5-wide
+    // vectors — a stand-in for `dimensions` configured narrower/wider than
+    // the provider's actual output.
+    const wrongWidthModel = new MockEmbeddingModelV3({
+      maxEmbeddingsPerCall: null,
+      doEmbed: (options) =>
+        Promise.resolve({
+          embeddings: options.values.map(() => [1, 2, 3, 4, 5]),
+          warnings: [],
+        }),
+    });
+    const realBackend = createOpenAIEmbeddingBackend(
+      { providerModelId: 'm', dimensions: 3 },
+      {
+        createOpenAI: () => {
+          const provider: OpenAIEmbeddingProvider = {
+            textEmbeddingModel: () => wrongWidthModel,
+          };
+          return provider;
+        },
+      },
+    );
+
+    const { worker } = await buildWorker();
+    await worker.embedChat(id, u, MODEL, realBackend);
+
+    const row = await embeddingRow(docId);
+    expect(row.embedding).toBeNull();
+    expect(row.embedding_model_key).toBe(MODEL_KEY);
+    expect(row.embedded_content_hash).toBe(row.content_hash);
+    expect(row.embed_input_version).toBe(EMBED_INPUT_VERSION);
+    // The operator's only signal: names both the expected and received width.
+    expect(row.embedding_fail_reason).toContain('3');
+    expect(row.embedding_fail_reason).toContain('5');
+
+    // Reported FAILED, not outstanding. llame_search_embedding_coverage
+    // (design D10) HAVING-filters to chats with STILL-outstanding work only
+    // (a reporting concern — don't list chats with nothing left to do), so a
+    // chat with zero outstanding rows is correctly ABSENT from its result
+    // set even though one of its documents failed; that absence is itself
+    // part of the proof (an un-tombstoned/still-outstanding row would keep
+    // the chat listed). The classification itself — the thing "failed, not
+    // outstanding" actually means — is verified directly against the exact
+    // predicate the function's CTE uses.
+    const coverageRow = await ownedRows(
+      sql`SELECT chat_id FROM llame_search_embedding_coverage(${MODEL_KEY}, ${EMBED_INPUT_VERSION}, 1000) WHERE chat_id = ${id}`,
+      z.object({ chat_id: z.string() }),
+    );
+    expect(coverageRow).toEqual([]);
+
+    const classification = await ownedRows(
+      sql`
+        SELECT
+          (embedding_model_key      IS DISTINCT FROM ${MODEL_KEY}
+           OR embedded_content_hash IS DISTINCT FROM content_hash
+           OR embed_input_version   IS DISTINCT FROM ${EMBED_INPUT_VERSION}
+           OR (embedding IS NULL AND embedding_fail_reason IS NULL)) AS needs_embedding,
+          (embedding_fail_reason IS NOT NULL) AS has_failure
+        FROM search_chat_documents WHERE id = ${docId}`,
+      z.object({ needs_embedding: z.boolean(), has_failure: z.boolean() }),
+    );
+    expect(classification).toEqual([
+      { needs_embedding: false, has_failure: true },
+    ]);
+
+    // Never re-swept: the tombstoned chat does not appear in the sweep's own
+    // discovery function (the static never-attempted branch it reads no
+    // longer matches this row), and a second embedChat pass calls the
+    // backend for nothing.
+    const backlog = await ownedRows(
+      sql`SELECT chat_id FROM llame_search_embedding_backlog(1000) WHERE chat_id = ${id}`,
+      z.object({ chat_id: z.string() }),
+    );
+    expect(backlog).toEqual([]);
+
+    const secondPassDocumentIds: string[] = [];
+    const trackingBackend = fakeBackend((documents) => {
+      secondPassDocumentIds.push(...documents.map((d) => d.documentId));
+      return Promise.resolve([]);
+    });
+    await worker.embedChat(id, u, MODEL, trackingBackend);
+    expect(secondPassDocumentIds).not.toContain(docId);
+  });
+
   // D7 guard #1: content edited between the outstanding-batch read and the
   // provider call returning.
   it('discards the result and writes nothing when the document is edited mid-flight (D7 guard)', async () => {
@@ -584,9 +689,14 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     const docId = await firstDocId(id);
 
     const { worker, enqueueChatEmbed } = await buildWorker();
-    // Simulates the adapter's own dimension-validation filtering (design
-    // D7's "malformed vector... rejected... document remains outstanding")
-    // — no throw, but nothing to persist.
+    // A backend that returns fewer results than requested with NO throw
+    // (e.g. the real adapter's own response-count mismatch guard, or any
+    // non-compliant EmbeddingBackend implementation) — nothing to persist,
+    // and nothing to tombstone either, since no error was raised. A per-item
+    // invalid-vector rejection is a DIFFERENT case: the real adapter now
+    // throws for that (openai-embedding-backend.ts's isValidVector), which
+    // routes through handleBatchFailure/the terminal-failure test above
+    // instead of this branch.
     const backend = fakeBackend(() => Promise.resolve([]));
     await expect(
       worker.embedChat(id, u, MODEL, backend),

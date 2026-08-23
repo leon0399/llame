@@ -66,7 +66,25 @@ export function classifyEmbeddingFailure(
   return new EmbeddingBackendError('embedding provider request failed', false);
 }
 
-/** A returned vector that fails this is a producer bug (dimensions misconfiguration, or a provider returning NaN/Infinity) — task 5.5: rejected, and never included in a result the caller could persist. Classified terminal: a retry cannot fix a systematic dimensions mismatch. */
+/**
+ * A returned vector that fails this is a producer bug (dimensions
+ * misconfiguration, or a provider returning NaN/Infinity) — task 5.5.
+ *
+ * IS classified as a terminal `EmbeddingBackendError` at the call site below
+ * (fixed from an earlier silent-`continue` version, found by review): this
+ * is not a provider HTTP error class, but it shares D16's terminal
+ * property — the model returns the same width on every call, so a retry
+ * reproduces the exact same rejection forever, exactly like a terminal 4xx.
+ * Left un-tombstoned, a SYSTEMATIC mismatch (`dimensions` configured
+ * narrower or wider than the provider's actual output) fails this check for
+ * EVERY document under that model, forever: the batch never persists a
+ * vector, the ledger row (design D1) is never written, `runEmbedBacklogSweep`'s
+ * D6 gate never turns on, and every write-hook enqueue burns one real
+ * provider call with no operator-visible error — verbatim D16's "loops
+ * forever ... spend producing no error anyone reads" failure. Throwing
+ * reaches D16's tombstone path so the mismatch is recorded once, named
+ * concretely, and never retried at the same content.
+ */
 function isValidVector(
   vector: readonly number[] | undefined,
   dimensions: number,
@@ -76,6 +94,27 @@ function isValidVector(
     vector.length === dimensions &&
     vector.every((value) => Number.isFinite(value))
   );
+}
+
+/**
+ * Names the concrete mismatch for an invalid vector — this message is the
+ * operator's only signal (design D16's `embedding_fail_reason`), so it must
+ * say expected-vs-received width rather than a generic "invalid vector".
+ * Carries no request/response content, credential, or endpoint value — only
+ * the declared `dimensions` and the vector's own shape, both already
+ * non-sensitive local values.
+ */
+function describeInvalidVector(
+  vector: readonly number[] | undefined,
+  dimensions: number,
+): string {
+  if (vector === undefined) {
+    return 'embedding provider returned no vector for a requested document';
+  }
+  if (vector.length !== dimensions) {
+    return `embedding provider returned a vector of length ${vector.length}, expected ${dimensions} — check the configured "dimensions" for this model`;
+  }
+  return 'embedding provider returned a non-finite value in the vector';
 }
 
 /**
@@ -251,7 +290,19 @@ export function createOpenAIEmbeddingBackend(
 
       for (let i = 0; i < chunk.length; i++) {
         const vector = embeddings[i];
-        if (!isValidVector(vector, config.dimensions)) continue;
+        if (!isValidVector(vector, config.dimensions)) {
+          // Terminal: see isValidVector's doc comment. Throws out of embed()
+          // entirely (not just this chunk) — a dimensions mismatch is a
+          // property of the whole call, so continuing to check the rest of
+          // this chunk (or later chunks) would only reproduce the same
+          // rejection. The caller's batch IS the persist unit (trap 6), so
+          // this reaches processBatch's catch and tombstones every
+          // outstanding document in the batch with this one concrete reason.
+          throw new EmbeddingBackendError(
+            describeInvalidVector(vector, config.dimensions),
+            true,
+          );
+        }
         results.push({
           documentId: chunk[i].documentId,
           contentHash: chunk[i].contentHash,

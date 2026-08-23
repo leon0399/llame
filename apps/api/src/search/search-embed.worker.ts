@@ -411,12 +411,14 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     });
 
     if (written === 0) {
-      // Design D7 "a malformed vector is rejected... the document remains
-      // outstanding" — every document in this batch was either superseded
-      // between read and write, or filtered by the adapter's own dimension/
-      // finite-value validation with no throw. Either way, looping again
-      // immediately would just re-request the SAME stuck batch — stop this
-      // job without re-enqueueing; the sweep is the natural backoff.
+      // Every document in this batch was superseded between read and write
+      // (D7 guard), or the adapter's own response-count mismatch silently
+      // discarded the whole chunk (a per-item invalid vector now THROWS —
+      // see openai-embedding-backend.ts's isValidVector — and is tombstoned
+      // by handleBatchFailure above instead of reaching this branch). Either
+      // way, looping again immediately would just re-request the SAME stuck
+      // batch — stop this job without re-enqueueing; the sweep is the
+      // natural backoff.
       if (results.length < outstanding.length) {
         this.logger.warn(
           `Embed batch for chat ${chatId}: backend returned ${results.length}/${outstanding.length} vector(s) and none persisted — leaving the rest outstanding for the next sweep`,
