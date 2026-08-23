@@ -42,7 +42,8 @@ import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
-import { invalidCallResult, refusalResult, runTool } from '@workspace/harness';
+import { invalidCallResult, refusalResult } from '@workspace/harness';
+import { runTool } from '../tools/runner';
 import { toFlexibleSchema } from '@workspace/harness';
 import {
   type KnowledgeToolResolver,

@@ -17,7 +17,7 @@ import postgres from 'postgres';
 import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
-import { runTool } from '@workspace/harness';
+import { runTool } from '../tools/runner';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import { KnowledgeToolCandidateResolver } from './knowledge-tool-candidate-resolver';
 import { knowledgeReadTool, knowledgeSearchTool } from './knowledge-tools';

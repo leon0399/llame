@@ -9,7 +9,7 @@ import {
   type KnowledgeFilesystemAdapterPort,
   type KnowledgeFilesystemBinding,
 } from './knowledge-filesystem';
-import { runTool } from '@workspace/harness';
+import { runTool } from '../tools/runner';
 import { isZodSchema } from '@workspace/harness';
 import { type ToolContext } from '../tools/types';
 
