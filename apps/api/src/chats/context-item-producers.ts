@@ -158,7 +158,7 @@ export const TOOL_RECOVERY_REASONS = [
   'declaration_accepted',
   'name_collision_resolved',
   'knowledge_space_configured',
-  'knowledge_space_available',
+  'knowledge_space_restored',
 ] as const;
 
 export type ToolRecoveryReason = (typeof TOOL_RECOVERY_REASONS)[number];
@@ -171,7 +171,7 @@ export const TOOL_RECOVERY_REASON_LABELS = {
   declaration_accepted: 'tool declaration accepted',
   name_collision_resolved: 'tool name collision resolved',
   knowledge_space_configured: 'Knowledge Space configured',
-  knowledge_space_available: 'Knowledge Space available',
+  knowledge_space_restored: 'Knowledge Space restored',
 } satisfies Readonly<Record<ToolRecoveryReason, string>>;
 
 export const RECOVERY_REASON_BY_UNAVAILABLE_REASON = {
@@ -183,7 +183,7 @@ export const RECOVERY_REASON_BY_UNAVAILABLE_REASON = {
   declaration_refused: 'declaration_accepted',
   name_collision: 'name_collision_resolved',
   knowledge_space_not_configured: 'knowledge_space_configured',
-  knowledge_space_unavailable: 'knowledge_space_available',
+  knowledge_space_unavailable: 'knowledge_space_restored',
 } satisfies Readonly<Record<ToolUnavailableReason, ToolRecoveryReason>>;
 
 export type UnavailableTransition = {

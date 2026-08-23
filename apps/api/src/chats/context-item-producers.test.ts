@@ -54,18 +54,18 @@ describe('Knowledge tool availability metadata', () => {
 
   it('maps Knowledge recovery transitions to distinct honest reasons', () => {
     expect(TOOL_RECOVERY_REASONS).toContain('knowledge_space_configured');
-    expect(TOOL_RECOVERY_REASONS).toContain('knowledge_space_available');
+    expect(TOOL_RECOVERY_REASONS).toContain('knowledge_space_restored');
     expect(
       RECOVERY_REASON_BY_UNAVAILABLE_REASON.knowledge_space_not_configured,
     ).toBe('knowledge_space_configured');
     expect(
       RECOVERY_REASON_BY_UNAVAILABLE_REASON.knowledge_space_unavailable,
-    ).toBe('knowledge_space_available');
+    ).toBe('knowledge_space_restored');
     expect(TOOL_RECOVERY_REASON_LABELS.knowledge_space_configured).toMatch(
       /configured/iu,
     );
-    expect(TOOL_RECOVERY_REASON_LABELS.knowledge_space_available).toMatch(
-      /available/iu,
+    expect(TOOL_RECOVERY_REASON_LABELS.knowledge_space_restored).toMatch(
+      /restored/iu,
     );
 
     expect(
@@ -81,8 +81,6 @@ describe('Knowledge tool availability metadata', () => {
         previous: unavailable('knowledge_space_unavailable'),
         current: available,
       })?.nowAvailable,
-    ).toEqual([
-      { id: 'knowledge_search', reason: 'knowledge_space_available' },
-    ]);
+    ).toEqual([{ id: 'knowledge_search', reason: 'knowledge_space_restored' }]);
   });
 });
