@@ -1,7 +1,13 @@
+import { type ApprovalGate } from "../approval";
 import { truncateOversizedResult } from "./result-truncation";
 import { safeParseArgs } from "./schema-utils";
 import { isRecord, type UnknownRecord } from "../unknown-record";
-import { type BaseToolContext, type Tool, type ToolResult } from "./types";
+import {
+  type BaseToolContext,
+  type Tool,
+  type ToolClassification,
+  type ToolResult,
+} from "./types";
 
 class ToolAbortError extends Error {}
 
@@ -80,8 +86,46 @@ export function invalidCallResult(toolName: string): ToolResult {
 }
 
 /**
+ * Resolve the approval decision for one tool call. Fail closed: an absent
+ * gate, a thrown gate, and any answer other than `approved` all deny.
+ * `read_only` tools never reach the gate.
+ */
+async function resolveApproval(
+  toolId: string,
+  classification: ToolClassification,
+  args: UnknownRecord,
+  gate: ApprovalGate | undefined,
+): Promise<ToolResult | undefined> {
+  if (classification === "read_only") {
+    return undefined;
+  }
+  try {
+    const decision = await gate?.({
+      toolId,
+      classification,
+      input: args,
+    });
+    if (decision === "approved") {
+      return undefined;
+    }
+    return {
+      status: "error",
+      type: "not_approved",
+      message: `The call to "${toolId}" was not approved.`,
+    };
+  } catch {
+    return {
+      status: "error",
+      type: "not_approved",
+      message: `Approval for "${toolId}" could not be obtained.`,
+    };
+  }
+}
+
+/**
  * Execute a tool end-to-end: absent-context fail-closed (D4), input
- * validation against the tool's own schema (2.2), the timeout wrapper (D6),
+ * validation against the tool's own schema (2.2), approval before any
+ * non-read-only execution (fail closed), the timeout wrapper (D6),
  * failure-to-structured-error (never throws), and result truncation. Never
  * throws — always resolves to a `ToolResult` the run loop can persist or
  * record.
@@ -98,6 +142,11 @@ export async function runTool<TContext extends BaseToolContext>(
    * started executing.
    */
   onValidated?: () => void,
+  /**
+   * The single approval seam in front of every non-read-only tool. Absent →
+   * every such call is denied.
+   */
+  approvalGate?: ApprovalGate,
 ): Promise<ToolResult> {
   if (!context) {
     // Defensive: the run loop always resolves a trusted context before
@@ -128,6 +177,16 @@ export async function runTool<TContext extends BaseToolContext>(
       type: "invalid_input",
       message: `Invalid arguments for tool "${tool.id}".`,
     };
+  }
+
+  const refusal = await resolveApproval(
+    tool.id,
+    tool.classification,
+    parsed.data,
+    approvalGate,
+  );
+  if (refusal) {
+    return refusal;
   }
 
   const timeoutMs = (tool.timeoutSeconds ?? callTimeoutSeconds) * 1000;

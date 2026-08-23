@@ -110,4 +110,6 @@ revisions, trust boundaries, rollout, and troubleshooting.
 - [docs/mcp-tools.md](docs/mcp-tools.md): remote MCP operator runbook
 
 The monorepo is TypeScript end to end: Next.js in `apps/web`, NestJS and the
-worker in `apps/api`, and shared UI components in `packages/ui`.
+worker in `apps/api`, shared UI components in `packages/ui`, and the extracted
+harness/interpolation cores in `packages/harness` and
+`packages/config-interpolation`.
