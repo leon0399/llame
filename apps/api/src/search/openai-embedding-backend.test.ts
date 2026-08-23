@@ -411,7 +411,20 @@ describe('createOpenAIEmbeddingBackend — response-order verification via raw H
 });
 
 describe('createOpenAIEmbeddingBackend — vector validation (task 5.5)', () => {
-  it('rejects a wrong-length vector: absent from the result, nothing else is persisted for it', async () => {
+  // Deliberately updated by a later review (chat-search-embeddings, High-
+  // severity gap): an earlier version of this suite pinned a silent-`continue`
+  // behavior (the bad document simply absent from `results`, no throw). That
+  // left a systematic dimensions misconfiguration completely un-tombstoned —
+  // `search-embed.worker.ts`'s `processBatch` only tombstones on a THROWN
+  // terminal error, so the outstanding rows just stayed `embedding IS NULL AND
+  // embedding_fail_reason IS NULL` forever, re-attempted (and re-billed) by
+  // every write-hook enqueue and every sweep tick with no operator-visible
+  // error — exactly the unbounded-spend-with-no-error failure design D16's
+  // tombstone exists to prevent. A vector failing OUR OWN validation cannot
+  // succeed on retry (the model returns the same width every call), so it now
+  // throws terminal, reaching the tombstone path the same way a terminal HTTP
+  // status does.
+  it('a wrong-length vector throws terminal, naming expected vs received width', async () => {
     const { dependencies } = withModel({
       embeddings: [embeddingOf(0, 3), embeddingOf(0, 5)],
     });
@@ -419,14 +432,23 @@ describe('createOpenAIEmbeddingBackend — vector validation (task 5.5)', () => 
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
-    const results = await backend.embedDocuments([
-      { documentId: 'ok', contentHash: 'h1', content: 'x' },
-      { documentId: 'bad-length', contentHash: 'h2', content: 'y' },
-    ]);
-    expect(results.map((r) => r.documentId)).toEqual(['ok']);
+    try {
+      await backend.embedDocuments([
+        { documentId: 'ok', contentHash: 'h1', content: 'x' },
+        { documentId: 'bad-length', contentHash: 'h2', content: 'y' },
+      ]);
+      expect.unreachable('expected throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(EmbeddingBackendError);
+      if (!(error instanceof EmbeddingBackendError)) return;
+      expect(error.terminal).toBe(true);
+      // Concrete width mismatch — the operator's only signal (design D16).
+      expect(error.message).toContain('5');
+      expect(error.message).toContain('3');
+    }
   });
 
-  it('rejects a non-finite vector', async () => {
+  it('a non-finite vector throws terminal', async () => {
     const { dependencies } = withModel({
       embeddings: [embeddingOf(0, 3), [1, Number.NaN, 3]],
     });
@@ -434,11 +456,38 @@ describe('createOpenAIEmbeddingBackend — vector validation (task 5.5)', () => 
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
-    const results = await backend.embedDocuments([
-      { documentId: 'ok', contentHash: 'h1', content: 'x' },
-      { documentId: 'bad-value', contentHash: 'h2', content: 'y' },
-    ]);
-    expect(results.map((r) => r.documentId)).toEqual(['ok']);
+    try {
+      await backend.embedDocuments([
+        { documentId: 'ok', contentHash: 'h1', content: 'x' },
+        { documentId: 'bad-value', contentHash: 'h2', content: 'y' },
+      ]);
+      expect.unreachable('expected throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(EmbeddingBackendError);
+      if (!(error instanceof EmbeddingBackendError)) return;
+      expect(error.terminal).toBe(true);
+    }
+  });
+
+  it('the error names no credential, request content, or endpoint value', async () => {
+    const { dependencies } = withModel({
+      embeddings: [embeddingOf(0, 5)],
+    });
+    const backend = createOpenAIEmbeddingBackend(
+      { providerModelId: 'm', dimensions: 3 },
+      dependencies,
+    );
+    try {
+      await backend.embedDocuments([
+        { documentId: 'bad-length', contentHash: 'h2', content: 'y' },
+      ]);
+      expect.unreachable('expected throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(EmbeddingBackendError);
+      if (!(error instanceof EmbeddingBackendError)) return;
+      expect(error.message).not.toContain('y');
+      expect(error.message).not.toContain('bad-length');
+    }
   });
 });
 

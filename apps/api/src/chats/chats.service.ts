@@ -7,6 +7,10 @@ import {
 import { type Chat, type Compaction, type Message } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import {
+  SearchEmbedDispatchService,
+  type ChatEmbedDispatcher,
+} from '../search/search-embed-dispatch.service';
+import {
   SearchReindexDispatchService,
   type ChatReindexDispatcher,
 } from '../search/search-reindex-dispatch.service';
@@ -32,6 +36,8 @@ export class ChatsService {
     private readonly aborts: RunAbortRegistry,
     @Inject(SearchReindexDispatchService)
     private readonly reindexDispatch: ChatReindexDispatcher,
+    @Inject(SearchEmbedDispatchService)
+    private readonly embedDispatch: ChatEmbedDispatcher,
   ) {}
 
   /**
@@ -313,6 +319,13 @@ export class ChatsService {
     // behind, and a fork is a copy of an already-indexed chat. Best-effort,
     // post-commit; the discovery sweep backstops a missed enqueue.
     void this.reindexDispatch.enqueueChatReindex(forked.id, callerId);
+    // chat-search-embeddings design D5: fork is one of the three enqueue
+    // sites embed work must fire from. The reindex above hasn't run yet, so
+    // this job typically finds nothing outstanding on its first pass — the
+    // reindex worker's own post-rebuild enqueue (or the sweep) drives the
+    // real embed once the fork's projection actually exists. Coalesced by
+    // singletonKey, so this early send is never wasted more than once.
+    void this.embedDispatch.enqueueChatEmbed(forked.id, callerId);
     return forked;
   }
 
@@ -440,6 +453,9 @@ export class ChatsService {
     // behind, and a fork is a copy of an already-indexed chat. Best-effort,
     // post-commit; the discovery sweep backstops a missed enqueue.
     void this.reindexDispatch.enqueueChatReindex(forked.id, ownerUserId);
+    // chat-search-embeddings design D5 — see the sibling fork() above for
+    // why this is safe to send before the reindex has run.
+    void this.embedDispatch.enqueueChatEmbed(forked.id, ownerUserId);
     return forked;
   }
 }

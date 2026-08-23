@@ -48,6 +48,7 @@ describe('WorkerProfileService — profile resolution', () => {
     expect(service.concurrencyFor('runs')).toBe(1);
     expect(service.concurrencyFor('search-reindex')).toBe(1);
     expect(service.concurrencyFor('sessions-cleanup')).toBe(1);
+    expect(service.concurrencyFor('search-embed')).toBe(1);
   });
 
   it('`web` (empty profile) resolves every group to null — no consumer registers anything', () => {
@@ -58,6 +59,7 @@ describe('WorkerProfileService — profile resolution', () => {
     expect(service.concurrencyFor('runs')).toBeNull();
     expect(service.concurrencyFor('search-reindex')).toBeNull();
     expect(service.concurrencyFor('sessions-cleanup')).toBeNull();
+    expect(service.concurrencyFor('search-embed')).toBeNull();
   });
 
   it('a profile with a SUBSET of groups resolves only those — the rest are null (taint routing)', () => {
@@ -68,6 +70,7 @@ describe('WorkerProfileService — profile resolution', () => {
     expect(service.concurrencyFor('runs')).toBe(3);
     expect(service.concurrencyFor('search-reindex')).toBeNull();
     expect(service.concurrencyFor('sessions-cleanup')).toBeNull();
+    expect(service.concurrencyFor('search-embed')).toBeNull();
   });
 
   it('fails closed when LLAME_WORKER_PROFILE names a profile absent from the workers map', () => {

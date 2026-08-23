@@ -34,3 +34,10 @@ ALTER FUNCTION llame_search_stale_chats(integer, integer) OWNER TO app_rls;
 -- only identifiers + counts, never content or vectors. Idempotent; safe to
 -- re-run on every migrate.
 ALTER FUNCTION llame_search_embedding_coverage(text, integer, integer) OWNER TO app_rls;
+-- chat-search-embeddings (task 6.5/trap 5): the embedding-backlog sweep
+-- function (the STATIC never-attempted-only branch, servable by the partial
+-- index) must also run AS app_rls (BYPASSRLS) to enumerate incremental
+-- embedding lag across all tenants under FORCE RLS. Same rationale as above;
+-- it returns only identifiers + a count, never content or vectors.
+-- Idempotent; safe to re-run on every migrate.
+ALTER FUNCTION llame_search_embedding_backlog(integer) OWNER TO app_rls;

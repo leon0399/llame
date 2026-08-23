@@ -42,11 +42,19 @@ LOCKED`, so adding workers needs no coordination: M processes polling one
 ## Worker profiles — the topology primitive (durable-run-workers D2/D4, #116)
 
 A **worker profile** is a named `{ group → concurrency }` map: which of the
-three fixed **consumer groups** — `runs` (RunsWorkerService + its `runs.dead`
-DLQ), `search-reindex` (SearchReindexWorker + the 5-minute sweep), and
-`sessions-cleanup` (SessionCleanupService) — a process consumes, and each
-group's main-queue concurrency. A group absent from the active profile means
-that process registers **nothing** for it, not even at concurrency 1.
+four fixed **consumer groups** — `runs` (RunsWorkerService + its `runs.dead`
+DLQ), `search-reindex` (SearchReindexWorker + the 5-minute sweep),
+`sessions-cleanup` (SessionCleanupService), and `search-embed`
+(SearchEmbedWorker, chat-search-embeddings design D14 — a separate group from
+`search-reindex` because it is network-bound and latency-tolerant where
+reindexing is DB-bound and latency-sensitive, and because its concurrency is
+the operator's provider-spend/self-hosted-saturation dial) — a process
+consumes, and each group's main-queue concurrency. A group absent from the
+active profile means that process registers **nothing** for it, not even at
+concurrency 1. `search-embed` additionally gates on an embedding model being
+configured (`search.chats.embeddingModelId`, off by default): a process whose
+profile covers the group still registers nothing for it until an operator
+declares a model.
 
 Configured in `llame.config.json`'s `workers` map, selected at boot by the
 `LLAME_WORKER_PROFILE` env var (default `all`). Two profiles are always
@@ -54,7 +62,7 @@ available as built-ins (no config file needed):
 
 - **`all`** — every group at concurrency 1. This is today's co-located
   behavior exactly: `main.ts` (the api) with no `LLAME_WORKER_PROFILE` set
-  runs all three groups in-process, one debugger target, no compose changes
+  runs all four groups in-process, one debugger target, no compose changes
   required for a small/dev install.
 - **`web`** — no groups. An HTTP-only process that enqueues (chat messages,
   reindex jobs) but consumes nothing; pairs with a separate process running
@@ -70,7 +78,7 @@ runs the dedicated entrypoint.
 
 **Fail-closed misconfiguration guards**, enforced at boot:
 
-- A profile referencing a group name that isn't one of the three fixed groups
+- A profile referencing a group name that isn't one of the four fixed groups
   fails the JSON Schema validation (`llame.config.schema.json`'s closed
   per-profile shape) — never silently ignored.
 - `LLAME_WORKER_PROFILE` naming a profile absent from the configured

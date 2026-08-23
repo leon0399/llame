@@ -1,23 +1,23 @@
 /**
  * SearchReindexWorker's boot-time provisioning self-check (#195, D6; extended
- * for chat-search-embeddings, design D10) — pure unit test, no database.
- * `assertDiscoveryProvisioned` reads only `pg_proc`/`pg_roles` catalog
- * metadata via `tenantDb.runAsPublic`, so its contract (log loudly, never
- * throw, gate on `rolbypassrls`) is exercised here by stubbing that call
- * rather than standing up a live Postgres — simulating a mis-provisioned
+ * for chat-search-embeddings, design D10/task 6.5) — pure unit test, no
+ * database. `assertDiscoveryProvisioned` reads only `pg_proc`/`pg_roles`
+ * catalog metadata via `tenantDb.runAsPublic`, so its contract (log loudly,
+ * never throw, gate on `rolbypassrls`) is exercised here by stubbing that
+ * call rather than standing up a live Postgres — simulating a mis-provisioned
  * function (owned by a non-BYPASSRLS role, or absent entirely, e.g. before
  * migrations run) would otherwise require reassigning the function's owner,
  * which the RLS integration harness cannot do connected as the
  * non-superuser `app` role (see apps/api/CLAUDE.md's `app_rls` section) —
  * this is the lighter, DB-free alternative the task called for.
  *
- * `assertDiscoveryProvisioned` now checks TWO functions in sequence
- * (`llame_search_stale_chats`, then `llame_search_embedding_coverage`), each
- * via its own `runAsPublic` call — so the mock below drives an ORDERED
- * SEQUENCE of responses, one per call, repeating the last entry once
- * exhausted. Most tests pass a single-entry sequence (applied to both
- * calls); the "independently" test below passes two different entries to
- * prove the checks do not share state.
+ * `assertDiscoveryProvisioned` now checks THREE functions in sequence
+ * (`llame_search_stale_chats`, `llame_search_embedding_coverage`, then
+ * `llame_search_embedding_backlog`), each via its own `runAsPublic` call — so
+ * the mock below drives an ORDERED SEQUENCE of responses, one per call,
+ * repeating the last entry once exhausted. Most tests pass a single-entry
+ * sequence (applied to all three calls); the "independently" test below
+ * passes three different entries to prove the checks do not share state.
  *
  * The worker runs through Nest's public bootstrap lifecycle in a TestingModule.
  * Queue setup resolves without invoking the registered consumer callbacks, so
@@ -28,8 +28,11 @@ import { Logger } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 
 import { TenantDbService } from '../db/tenant-db.service';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { WorkerProfileService } from '../instance-config/worker-profile.service';
 import { QUEUE } from '../queue/queue';
+import { SearchEmbedDispatchService } from './search-embed-dispatch.service';
 import { SearchReindexDispatchService } from './search-reindex-dispatch.service';
 import { SearchReindexWorker } from './search-reindex.worker';
 import { SearchIndexService } from './search-index.service';
@@ -75,9 +78,14 @@ async function buildWorker(runAsPublic: PublicRunner) {
       { provide: TenantDbService, useValue: { runAsPublic } },
       { provide: SearchIndexService, useValue: {} },
       { provide: SearchReindexDispatchService, useValue: {} },
+      { provide: SearchEmbedDispatchService, useValue: {} },
       {
         provide: WorkerProfileService,
         useValue: { concurrencyFor: () => 1 },
+      },
+      {
+        provide: InstanceConfigService,
+        useValue: { config: BUILT_IN_DEFAULTS },
       },
     ],
   }).compile();
@@ -95,7 +103,7 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
     vi.restoreAllMocks();
   });
 
-  it('is silent when both functions are owned by a BYPASSRLS role', async () => {
+  it('is silent when all three functions are owned by a BYPASSRLS role', async () => {
     const { check, errorSpy, warnSpy } = await buildWorker(
       provisioned([[{ bypass: true }]]),
     );
@@ -104,34 +112,59 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('logs a loud error per function (and does not throw) when both are owned by a non-BYPASSRLS role', async () => {
+  it('logs a loud error per function (and does not throw) when all three are owned by a non-BYPASSRLS role', async () => {
     const { check, errorSpy, warnSpy } = await buildWorker(
       provisioned([[{ bypass: false }]]),
     );
     await expect(check()).resolves.toBeUndefined();
-    expect(errorSpy).toHaveBeenCalledTimes(2);
+    expect(errorSpy).toHaveBeenCalledTimes(3);
     expect(errorSpy.mock.calls[0][0]).toContain('BYPASSRLS');
     expect(errorSpy.mock.calls[1][0]).toContain('BYPASSRLS');
+    expect(errorSpy.mock.calls[2][0]).toContain('BYPASSRLS');
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('logs a loud error per function (and does not throw) when both are absent', async () => {
+  it('logs a loud error per function (and does not throw) when all three are absent', async () => {
     // No row at all — e.g. the migration creating the functions hasn't run yet.
     const { check, errorSpy } = await buildWorker(provisioned([[]]));
     await expect(check()).resolves.toBeUndefined();
-    expect(errorSpy).toHaveBeenCalledTimes(2);
+    expect(errorSpy).toHaveBeenCalledTimes(3);
   });
 
   it('checks the embedding coverage function independently of the lexical staleness function', async () => {
     // Stale-chats check passes (bypass: true), embedding-coverage check fails
-    // (bypass: false) — proves the two checks do not share a single verdict.
+    // (bypass: false), embedding-backlog check passes again — proves each
+    // check does not share a single verdict.
     const { check, errorSpy } = await buildWorker(
-      provisioned([[{ bypass: true }], [{ bypass: false }]]),
+      provisioned([
+        [{ bypass: true }],
+        [{ bypass: false }],
+        [{ bypass: true }],
+      ]),
     );
     await expect(check()).resolves.toBeUndefined();
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy.mock.calls[0][0]).toContain(
       'llame_search_embedding_coverage',
+    );
+    expect(errorSpy.mock.calls[0][0]).toContain('BYPASSRLS');
+  });
+
+  it('checks the embedding backlog function independently of the other two (chat-search-embeddings task 6.5)', async () => {
+    // Stale-chats + embedding-coverage checks pass, embedding-backlog check
+    // fails — proves the backlog check is not just re-reading the coverage
+    // check's verdict.
+    const { check, errorSpy } = await buildWorker(
+      provisioned([
+        [{ bypass: true }],
+        [{ bypass: true }],
+        [{ bypass: false }],
+      ]),
+    );
+    await expect(check()).resolves.toBeUndefined();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls[0][0]).toContain(
+      'llame_search_embedding_backlog',
     );
     expect(errorSpy.mock.calls[0][0]).toContain('BYPASSRLS');
   });
@@ -142,8 +175,9 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
     );
     await expect(check()).resolves.toBeUndefined();
     expect(errorSpy).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledTimes(2);
+    expect(warnSpy).toHaveBeenCalledTimes(3);
     expect(warnSpy.mock.calls[0][0]).toContain('connection refused');
     expect(warnSpy.mock.calls[1][0]).toContain('connection refused');
+    expect(warnSpy.mock.calls[2][0]).toContain('connection refused');
   });
 });

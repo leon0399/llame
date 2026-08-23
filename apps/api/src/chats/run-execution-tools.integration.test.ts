@@ -40,6 +40,8 @@ import type {
   LanguageModelV3StreamResult,
   LanguageModelV3Usage,
 } from '@ai-sdk/provider';
+import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
+import { type ChatEmbedDispatcher } from '../search/search-embed-dispatch.service';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { type ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -414,6 +416,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
     searchIndex?: ChatSearchIndexer;
     reindexDispatch?: ChatReindexDispatcher;
     knowledgeResolver?: KnowledgeToolResolver;
+
+    embedDispatch?: ChatEmbedDispatcher;
     dynamicToolResolver?: DynamicToolExecutorResolver;
   }): RunExecutionService {
     const noopCompaction: CompactionCapability = {
@@ -447,6 +451,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
       overrides?.searchIndex ?? new SearchIndexService(tenantDb),
       overrides?.reindexDispatch ?? noopReindexDispatch(),
       overrides?.knowledgeResolver ?? knowledgeResolver,
+
+      overrides?.embedDispatch ?? noopEmbedDispatch(),
       overrides?.dynamicToolResolver,
     );
   }
@@ -604,9 +610,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
   it('retry-exhaustion finalization settles durable open calls before run.expired and persists them in request order', async () => {
     const reindexChat = vi.fn().mockResolvedValue(undefined);
     const enqueueChatReindex = vi.fn().mockResolvedValue(undefined);
+    const enqueueChatEmbed = vi.fn().mockResolvedValue(undefined);
     const service = serviceWithTools({
       searchIndex: { reindexChat },
       reindexDispatch: { enqueueChatReindex },
+      embedDispatch: { enqueueChatEmbed },
     });
     const touchSpy = vi.spyOn(ChatsRepository.prototype, 'touch');
     const telemetryLog = vi
@@ -683,6 +691,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
       expect(reindexChat).toHaveBeenCalledTimes(1);
       expect(reindexChat).toHaveBeenCalledWith(seeded.chatId, userId);
       expect(enqueueChatReindex).not.toHaveBeenCalled();
+      // chat-search-embeddings design D5/task 6.4: an ordinary turn (inline
+      // rebuild succeeds) enqueues embed work directly, WITHOUT any sweep or
+      // async reindex job having run — enqueueChatReindex above stays
+      // uncalled while enqueueChatEmbed fires once for this chat.
+      expect(enqueueChatEmbed).toHaveBeenCalledTimes(1);
+      expect(enqueueChatEmbed).toHaveBeenCalledWith(seeded.chatId, userId);
       expect(telemetryLog).not.toHaveBeenCalled();
     } finally {
       touchSpy.mockRestore();
@@ -696,9 +710,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
       .fn()
       .mockRejectedValue(new Error('simulated inline reindex failure'));
     const enqueueChatReindex = vi.fn().mockResolvedValue(undefined);
+    const enqueueChatEmbed = vi.fn().mockResolvedValue(undefined);
     const service = serviceWithTools({
       searchIndex: { reindexChat },
       reindexDispatch: { enqueueChatReindex },
+      embedDispatch: { enqueueChatEmbed },
     });
     const settlementSpy = vi.spyOn(service, 'settleTerminalRun');
     const touchSpy = vi
@@ -790,6 +806,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
       expect(reindexChat).toHaveBeenCalledWith(seeded.chatId, userId);
       expect(enqueueChatReindex).toHaveBeenCalledTimes(1);
       expect(enqueueChatReindex).toHaveBeenCalledWith(seeded.chatId, userId);
+      // The inline rebuild FAILED and fell back to the async reindex queue —
+      // embed must NOT be dispatched directly here; the reindex worker
+      // enqueues it after its own rebuild succeeds (a separate enqueue site,
+      // not exercised by this suite).
+      expect(enqueueChatEmbed).not.toHaveBeenCalled();
       expect(telemetryLog).toHaveBeenCalledTimes(1);
     } finally {
       appendSpy.mockRestore();

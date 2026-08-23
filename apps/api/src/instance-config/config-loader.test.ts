@@ -934,13 +934,14 @@ describe('loadInstanceConfig — worker profiles (durable-run-workers D2, task 3
   it('merges a file profile over a built-in PER GROUP — tuning one group keeps the others (no silent drop)', () => {
     writeConfig(`{ "workers": { "all": { "runs": 4 } } }`);
     const config = loadInstanceConfig();
-    // `all` keeps search-reindex/sessions-cleanup at their built-in 1; only
-    // runs is overridden — the footgun fix (a wholesale replace would have
-    // silently disabled the other two groups instance-wide).
+    // `all` keeps search-reindex/sessions-cleanup/search-embed at their
+    // built-in 1; only runs is overridden — the footgun fix (a wholesale
+    // replace would have silently disabled the other groups instance-wide).
     expect(config.workers.all).toEqual({
       runs: 4,
       'search-reindex': 1,
       'sessions-cleanup': 1,
+      'search-embed': 1,
     });
     expect(config.workers.web).toEqual({});
   });

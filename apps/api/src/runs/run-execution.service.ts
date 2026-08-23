@@ -24,6 +24,10 @@ import {
 import { requestFitsContextWindow } from '../compaction/compaction';
 import { SearchIndexService } from '../search/search-index.service';
 import {
+  SearchEmbedDispatchService,
+  type ChatEmbedDispatcher,
+} from '../search/search-embed-dispatch.service';
+import {
   SearchReindexDispatchService,
   type ChatReindexDispatcher,
 } from '../search/search-reindex-dispatch.service';
@@ -458,6 +462,9 @@ export class RunExecutionService {
     private readonly reindexDispatch: ChatReindexDispatcher,
     @Inject(KnowledgeToolRuntimeResolver)
     private readonly knowledgeResolver: KnowledgeToolResolver,
+
+    @Inject(SearchEmbedDispatchService)
+    private readonly embedDispatch: ChatEmbedDispatcher,
     @Optional()
     @Inject(DYNAMIC_TOOL_EXECUTOR_RESOLVER)
     private readonly dynamicToolResolver?: DynamicToolExecutorResolver,
@@ -1700,6 +1707,13 @@ export class RunExecutionService {
     // queue (a producer of the general per-chat reindex job).
     try {
       await this.searchIndex.reindexChat(assistantMessage.chatId, userId);
+      // chat-search-embeddings design D5: the inline Tier-1 rebuild is one of
+      // the three enqueue sites embed work must fire from — the reindex
+      // worker only runs on the fallback/fork/sweep paths below, so an
+      // ordinary turn would otherwise produce no embedding work until a
+      // sweep noticed. Best-effort + off-by-default; see the dispatch
+      // service's own contract.
+      void this.embedDispatch.enqueueChatEmbed(assistantMessage.chatId, userId);
     } catch (error) {
       this.logger.error(
         `Inline reindex failed for chat ${assistantMessage.chatId}; falling back to async`,

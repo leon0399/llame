@@ -403,7 +403,8 @@
         "properties": {
           "runs": { "type": "integer", "minimum": 1 },
           "search-reindex": { "type": "integer", "minimum": 1 },
-          "sessions-cleanup": { "type": "integer", "minimum": 1 }
+          "sessions-cleanup": { "type": "integer", "minimum": 1 },
+          "search-embed": { "type": "integer", "minimum": 1 }
         }
       }
     }

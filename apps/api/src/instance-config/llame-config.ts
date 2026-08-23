@@ -64,17 +64,22 @@ export type McpServerConfig = McpRemoteServerConfig | McpStdioServerConfig;
  * The fixed set of worker "consumer groups" a profile can reference — one per
  * consumer-owning service (durable-run-workers D2): `runs` (RunsWorkerService,
  * + its `runs.dead` DLQ), `search-reindex` (SearchReindexWorker, + the sweep
- * cron), `sessions-cleanup` (SessionCleanupService). Each group owns its main
- * queue AND whatever internal/control queues it needs at a fixed internal
- * concurrency; the operator only tunes the group's MAIN-queue concurrency via
- * the `workers` profile map below. Code-owned, not user-extensible — adding a
- * group (e.g. a future `embeddings` group, #196) is a code change here,
- * matched by a new service that gates itself on WorkerProfileService.
+ * cron), `sessions-cleanup` (SessionCleanupService), `search-embed`
+ * (SearchEmbedWorker — chat-search-embeddings design D14; a SEPARATE group
+ * from `search-reindex` because it is network-bound and latency-tolerant
+ * where reindexing is DB-bound and latency-sensitive, and because its
+ * concurrency is the operator's provider-spend/self-hosted-saturation dial).
+ * Each group owns its main queue AND whatever internal/control queues it
+ * needs at a fixed internal concurrency; the operator only tunes the group's
+ * MAIN-queue concurrency via the `workers` profile map below. Code-owned, not
+ * user-extensible — adding a group is a code change here, matched by a new
+ * service that gates itself on WorkerProfileService.
  */
 export const WORKER_GROUPS = [
   'runs',
   'search-reindex',
   'sessions-cleanup',
+  'search-embed',
 ] as const;
 export type WorkerGroup = (typeof WORKER_GROUPS)[number];
 
@@ -348,7 +353,12 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   mcpServers: {},
   knowledge: {},
   workers: {
-    all: { runs: 1, 'search-reindex': 1, 'sessions-cleanup': 1 },
+    all: {
+      runs: 1,
+      'search-reindex': 1,
+      'sessions-cleanup': 1,
+      'search-embed': 1,
+    },
     web: {},
   },
   providers: [],

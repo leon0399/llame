@@ -20,6 +20,7 @@
 
 import { streamText } from 'ai';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -182,6 +183,8 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       new SearchIndexService(tenantDb),
       noopReindexDispatch(),
       knowledgeResolver,
+
+      noopEmbedDispatch(),
     );
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'R', ${`r-${userId}@t.com`})`;

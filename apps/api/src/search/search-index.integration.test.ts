@@ -257,6 +257,113 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     expect(after[0].content).toContain('rewritten distinctive wording');
   });
 
+  // chat-search-embeddings design D7 "upsert trap" (trap 1) — the ONE silent-
+  // wrong-answer path in the design: an ON CONFLICT DO UPDATE that rewrites
+  // content_hash without also nulling the embedding columns would preserve a
+  // STALE vector across a content change. Read the embedding columns DIRECTLY
+  // — the existing `llame_search_embedding_coverage` tests above only prove
+  // the coverage predicate re-flags the chat via `embedded_content_hash IS
+  // DISTINCT FROM content_hash`, which stays true (and so still reports the
+  // chat as outstanding) whether or not `embedding` itself was actually
+  // nulled — they cannot detect this defect. This test can: it was run
+  // against the code with the five nulled columns removed from the upsert's
+  // `set:` block and failed (embedding, embedding_model_key,
+  // embedded_content_hash, and embed_input_version were all still populated
+  // with the pre-edit values after the rebuild) before the fix restored it
+  // to green.
+  it('nulls all five embedding columns when a rebuild changes content_hash (trap 1)', async () => {
+    const id = await seed('Stale vector guard', [
+      { role: 'user', text: 'original embeddable phrasing' },
+    ]);
+    await indexService.reindexChat(id, u);
+    const [{ content_hash: originalHash }] = await ownedRows(
+      sql`SELECT content_hash FROM search_chat_documents WHERE chat_id = ${id}`,
+      z.object({ content_hash: z.string() }),
+    );
+    // Simulate a prior successful embed directly, as the coverage-predicate
+    // tests above already do — nothing in this layer writes an embedding yet.
+    await tenantDb.runAs(u, (tx) =>
+      tx.execute(sql`
+        UPDATE search_chat_documents
+        SET embedding = '[0.1,0.2,0.3]'::vector,
+            embedding_model_key = 'model-a',
+            embedded_content_hash = ${originalHash},
+            embed_input_version = 1,
+            embedding_fail_reason = 'stale reason should also clear'
+        WHERE chat_id = ${id}`),
+    );
+
+    const [{ id: msgId }] = await ownedRows(
+      sql`SELECT id FROM messages WHERE chat_id = ${id} LIMIT 1`,
+      z.object({ id: z.string() }),
+    );
+    await tenantDb.runAs(u, (tx) =>
+      tx.execute(
+        sql`UPDATE messages SET parts = ${JSON.stringify(text('a completely different embeddable phrasing'))}::jsonb WHERE id = ${msgId}`,
+      ),
+    );
+    await indexService.reindexChat(id, u);
+
+    const rowSchema = z.object({
+      content_hash: z.string(),
+      embedding: z.string().nullable(),
+      embedding_model_key: z.string().nullable(),
+      embedded_content_hash: z.string().nullable(),
+      embed_input_version: z.number().nullable(),
+      embedding_fail_reason: z.string().nullable(),
+    });
+    const [after] = await ownedRows(
+      sql`
+      SELECT content_hash, embedding::text AS embedding, embedding_model_key,
+             embedded_content_hash, embed_input_version, embedding_fail_reason
+      FROM search_chat_documents WHERE chat_id = ${id}`,
+      rowSchema,
+    );
+    expect(after.content_hash).not.toBe(originalHash);
+    expect(after.embedding).toBeNull();
+    expect(after.embedding_model_key).toBeNull();
+    expect(after.embedded_content_hash).toBeNull();
+    expect(after.embed_input_version).toBeNull();
+    expect(after.embedding_fail_reason).toBeNull();
+  });
+
+  it('leaves the embedding columns untouched when a rebuild is a hash no-op', async () => {
+    const id = await seed('Stable vector', [
+      { role: 'user', text: 'content that will not change' },
+    ]);
+    await indexService.reindexChat(id, u);
+    const [{ content_hash }] = await ownedRows(
+      sql`SELECT content_hash FROM search_chat_documents WHERE chat_id = ${id}`,
+      z.object({ content_hash: z.string() }),
+    );
+    await tenantDb.runAs(u, (tx) =>
+      tx.execute(sql`
+        UPDATE search_chat_documents
+        SET embedding = '[0.4,0.5,0.6]'::vector,
+            embedding_model_key = 'model-a',
+            embedded_content_hash = ${content_hash},
+            embed_input_version = 1
+        WHERE chat_id = ${id}`),
+    );
+
+    // No content change — the changed-chunk filter excludes this row from
+    // the upsert entirely, so the vector must survive untouched.
+    await indexService.reindexChat(id, u);
+
+    const rowSchema = z.object({
+      embedding: z.string().nullable(),
+      embedding_model_key: z.string().nullable(),
+    });
+    const [after] = await ownedRows(
+      sql`
+      SELECT embedding::text AS embedding, embedding_model_key
+      FROM search_chat_documents WHERE chat_id = ${id}`,
+      rowSchema,
+    );
+    expect(after.embedding).not.toBeNull();
+    expect(after.embedding_model_key).toBe('model-a');
+  });
+
   it('cascades the projection away when the chat is deleted', async () => {
     const id = await seed('Doomed', [{ role: 'user', text: 'transient' }]);
     await indexService.reindexChat(id, u);

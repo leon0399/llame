@@ -33,6 +33,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { sql as dsql } from 'drizzle-orm';
+import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
@@ -477,6 +478,7 @@ describeIfDb(
         new TenantDbService(db),
         new RunAbortRegistry(),
         noopReindexDispatch(),
+        noopEmbedDispatch(),
       );
 
       userAId = crypto.randomUUID();
