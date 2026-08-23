@@ -122,6 +122,29 @@ api. Across the fleet, `Σ(poolSize × replicas)` must stay within Postgres
 `max_connections`. The concurrency knob without a matching pool just moves the
 bottleneck from the queue to the connection — raise them together.
 
+## Knowledge root mounts
+
+Personal Knowledge adds one operator-configured `knowledge.root`; it is not a
+worker-profile group or a queue-routing key. Every API process that authors Runs
+must declare the setting so accept-time availability is consistent. A process
+serving `PUT /api/v1/me/knowledge-space` needs write access to create stable-ID
+children. Every process consuming `runs` needs read access to every owner child
+it may execute. A split deployment may use different absolute paths only when
+they expose the same logical stable-ID directory set. Subset mounts and
+owner-affinity routing are unsupported until execution placement exists.
+
+Configuration loading does not probe the root. A missing or unusable mount is
+reported as a closed Knowledge-unavailable outcome during provisioning or worker
+execution; it never falls back to the process working directory, another owner,
+or remote storage. Keep the root and its children trusted-writer-only. Tenant-
+writable and synchronization-managed mounts are unsupported. Final symlinks are
+refused and final files are opened with `O_NOFOLLOW`, but hostile concurrent
+parent swaps or hardlink races still require future descriptor-relative
+containment hardening.
+
+See [docs/knowledge.md](knowledge.md) for the operator setup, rollout, limits,
+and rollback boundary.
+
 Run-liveness config changed alongside this (durable-run-workers D7): the
 queue's native `heartbeatSeconds` (set via `runs.heartbeatSeconds` in
 `llame.config.json`) replaced the old application-level heartbeat +

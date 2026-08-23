@@ -12,7 +12,6 @@
   // MCP Explorer: https://mcpplaygroundonline.com/mcp-test-server
   "mcpServers": {
     // "docs": { "type": "http", "url": "https://example.com/mcp" }
-
     // A local server runs as a child process, unsandboxed, as the llame user.
     // Interpolating a value marks it secret; write non-secrets literally.
     // "github": {
@@ -183,7 +182,10 @@
   },
 
   // Optional private root for server-managed Knowledge Space directories.
-  // Loading this setting does not require the path to exist or be mounted.
+  // The value must resolve to an absolute path. Loading this setting does not
+  // require the path to exist or be mounted; provisioning creates one stable-ID
+  // child per owner. Mount the same logical children read-only into every runs
+  // consumer and with write access only where provisioning is served.
   // "knowledge": {
   //   "root": "{env:KNOWLEDGE_ROOT}",
   // },
@@ -191,7 +193,8 @@
   // Empty allowed disables tools. MCP ids are mcp__<server>__<tool>.
   // Exact ids are safer; use mcp__<server>__* only for an entirely read-only server.
   "tools": {
-    // Built-in or discovered MCP tool ids to allow.
+    // Built-in or discovered MCP tool ids to allow. To enable Knowledge after
+    // mounting the root above, add "knowledge_search" and "knowledge_read".
     "allowed": ["search_conversations"],
     // Maximum tool-requesting steps per run.
     "maxStepsPerRun": 8,

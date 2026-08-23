@@ -1,6 +1,6 @@
 # llame current architecture
 
-**Status:** Current cross-cutting contract. Updated 2026-08-22.
+**Status:** Current cross-cutting contract. Updated 2026-08-23.
 
 This file records system boundaries and invariants that span capabilities. It is not a future feature inventory, release plan, API catalogue, schema sketch, or research report.
 
@@ -24,7 +24,7 @@ When prose conflicts with code or a capability spec, treat the prose as stale an
 
 ## 1. Product boundary
 
-llame currently provides authenticated multi-user chat, durable agentic Runs, operator-configured models, owner-only Projects, hybrid chat search, and a bounded read-only tool loop over native and operator-configured remote MCP tools.
+llame currently provides authenticated multi-user chat, durable agentic Runs, operator-configured models, owner-only Projects, hybrid chat search, owner-scoped personal Markdown Knowledge reads, and a bounded read-only tool loop over native, Knowledge, and operator-configured remote MCP tools.
 
 A Project currently groups one owner's Chats. It does not grant shared membership, own knowledge, attach tools, or provide a filesystem workspace. See [`openspec/specs/projects`](openspec/specs/projects/spec.md).
 
@@ -34,7 +34,7 @@ Future behavior belongs in [VISION.md](VISION.md) until sequenced in the roadmap
 
 The future Surface, Node, Personal Realm, Workspace, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. No first-party CLI or Android Node, standalone personal store, Node enrollment, Personal Realm mirroring, remote Workspace registry, cross-node execution placement or handoff, or foreign-authority mount ships.
 
-The current web, API, and worker processes form one installation and one PostgreSQL ownership boundary. A dedicated worker is an operational process role inside that installation, not an autonomous personal Node. A current Project is not a filesystem Workspace, Knowledge Space, Personal Realm, or security boundary. Future terminology must not be projected onto present APIs, database rows, or deployment roles without a shipped capability spec.
+The current web, API, and worker processes form one installation and one PostgreSQL ownership boundary. A dedicated worker is an operational process role inside that installation, not an autonomous personal Node. A current Project is not a filesystem Workspace, Knowledge Space, Personal Realm, or security boundary. The hosted Knowledge Space ID is a portable logical identity, while its owner row and configured filesystem child remain installation-local bindings. Future terminology must not be projected onto present APIs, database rows, or deployment roles without a shipped capability spec.
 
 ## 2. Conversation continuity
 
@@ -112,7 +112,7 @@ Reserved delimiters are neutralized on the user and tool rails so untrusted cont
 
 ## 13. Tools and integrations
 
-The current Run loop interleaves model output with tool calls within an operator step cap. The native tool is `search_conversations`; operators may also configure instance-scoped Streamable HTTP MCP servers through the restart-applied top-level `mcpServers` map. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation; malformed or unsupported declarations refuse only that tool before it enters the immutable Run snapshot.
+The current Run loop interleaves model output with tool calls within an operator step cap. The code-owned tools are `search_conversations` and the optional personal Knowledge readers; operators may also configure instance-scoped Streamable HTTP MCP servers through the restart-applied top-level `mcpServers` map. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation; malformed or unsupported declarations refuse only that tool before it enters the immutable Run snapshot.
 
 Remote ids are stable `mcp__<server>__<tool>` names. Only the exact ids in `tools.allowed` may be advertised or executed, and an MCP allowlist entry is the operator's attestation that the operation is read-only—not automated semantic verification. Write, send, delete, execute, financial, and administrative MCP operations are prohibited. Two transports ship: remote Streamable HTTP, and local stdio servers llame runs as child processes. Supported protocol revisions are the session-capable `2025-03-26`, `2025-06-18`, and `2025-11-25` on both; sessionless MCP `2026-07-28` and deprecated HTTP+SSE do not ship. A stdio child receives only its declared `env` over the MCP SDK's base allowlist — llame's own environment is not passed through — and executes unsandboxed as the llame user.
 
@@ -124,13 +124,55 @@ Queue retries restart a still-claimable Run's tool loop from its first step. Tha
 
 Every tool declares one classification: `read_only`, `write_low_risk`, `write_high_risk`, `execute_code`, `external_send`, `financial_or_sensitive`, or `admin`. The current runtime executes only operator-allowlisted `read_only` tools. See [`tool-calling`](openspec/specs/tool-calling/spec.md).
 
+### 13.6 Personal Knowledge reads
+
+The code-owned `knowledge_search` and `knowledge_read` tools are optional,
+operator-allowlisted `read_only` tools. Run acceptance resolves availability
+for the authenticated owner inside the Run-binding RLS transaction, without
+probing the API process filesystem. Workers resolve the binding from trusted Run
+context, revalidate their local mount at execution, and fail closed when it is
+unavailable. Tool declarations remain static; no tenant mutates the registry.
+
+Completed calls, bounded outputs, failures, and unavailable reasons use the
+generic durable tool-event and message-part path, so replay and the browser show
+the same Knowledge-relative attribution. See
+[`tool-calling`](openspec/specs/tool-calling/spec.md) and the
+[operator runbook](docs/knowledge.md).
+
 ## 14. Provider and model configuration
 
-Operators configure providers, models, defaults, secret references, and optional whole-file per-model system-prompt overrides in `llame.config.json`. Omitted overrides use the packaged project default; invalid configured files fail startup rather than silently falling back. The API exposes executable model metadata and routes opaque model ids without exposing host prompt paths. User BYOK does not ship. See [`instance-config`](openspec/specs/instance-config/spec.md), [`available-models`](openspec/specs/available-models/spec.md), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).
+Operators configure providers, models, defaults, secret references, and optional whole-file per-model system-prompt overrides in `llame.config.json`. Omitted overrides use the packaged project default; invalid configured files fail startup rather than silently falling back. The optional `knowledge.root` is one absolute operator-owned process-local path; configuration loading validates its shape without probing the filesystem. The API exposes executable model metadata and routes opaque model ids without exposing host prompt paths. User BYOK does not ship. See [`instance-config`](openspec/specs/instance-config/spec.md), [`available-models`](openspec/specs/available-models/spec.md), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).
 
 ## 15. Knowledge
 
-No Markdown vault, Knowledge Space, knowledge index, or agent knowledge-write path ships. Chat search is not a knowledge base. See [ROADMAP.md](ROADMAP.md) for the next boundary.
+Each authenticated owner may self-service one personal Knowledge Space beneath
+the operator-configured `knowledge.root`. The durable PostgreSQL record contains
+only the tenant-scoped owner-to-space linkage and the stable opaque logical ID;
+Knowledge Markdown content and search state remain in files. The hosted binding
+derives a direct child from that ID and never accepts a caller-selected binding
+path or alternate source. Chat search is not a Knowledge Space.
+
+Provisioning is an idempotent, authenticated, bodyless
+`PUT /api/v1/me/knowledge-space`; its response exposes only the stable logical
+ID. The root is not probed while loading configuration. A provisioning process
+needs write access to create children, while every `runs` consumer needs read
+access to all children it may execute. Missing or unusable mounts fail closed,
+with no fallback to another owner or host path.
+
+`knowledge_search` and `knowledge_read` read the current bounded Markdown
+filesystem, including modified or newly created files without a Git commit.
+They return response-time attribution (logical space ID, Knowledge-relative path,
+and exact-byte SHA-256 hash), not a permanent revision. Git history, recoverable
+agent writes, accepted revisions, and synchronization begin in #212 or later
+capabilities. No Knowledge index, embedding projection, generic filesystem,
+Workspace, Sandbox, local Node, or Personal Realm synchronization ships here.
+
+The configured root and all child directories are trusted-writer-only. The
+filesystem boundary rejects traversal and symlink components and opens final
+files with `O_NOFOLLOW`. Path-based checks do not fully defend against a hostile
+concurrent parent swap or hardlink race; future descriptor-relative containment
+is required before supporting tenant-writable or synchronization-managed mounts,
+which are unsupported by this MVP.
 
 ## 19. Channels
 

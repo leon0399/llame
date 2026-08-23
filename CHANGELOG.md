@@ -1,5 +1,22 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-23
+
+- **Personal Knowledge reads** (#213, #519, #520): authenticated owners can
+  self-service one stable logical Knowledge Space beneath an operator-configured
+  root, while forced-RLS PostgreSQL stores only the owner linkage and files
+  remain the live source of truth. The bounded `knowledge_search` and
+  `knowledge_read` tools read current Markdown, including uncommitted changes,
+  and persist response-time attribution with the logical space ID,
+  Knowledge-relative path, and exact-byte SHA-256 hash. Caller-selected owners,
+  roots, host paths, or alternate bindings; cross-owner access; traversal;
+  symlinks; malformed text; unavailable mounts; and oversized work fail closed.
+  The hosted binding is not a local Node
+  or Personal Realm replica; Git initialization and recoverable agent writes are
+  deferred to #212. Knowledge roots and children are trusted-writer-only: final
+  symlinks are refused and files use `O_NOFOLLOW`, while descriptor-relative
+  containment remains future hardening for hostile concurrent swaps or hardlinks.
+
 # 2026-08-22
 
 - **Distributed agent direction**: recorded the local-node, Workspace, Sandbox,

@@ -79,6 +79,8 @@ const TOOL_ANSWER_TOKENS = [
 
 const MCP_TOOL_ID = "mcp__fixture_search__search";
 const STDIO_TOOL_ID = "mcp__fixture_local__lookup";
+const KNOWLEDGE_SEARCH_TOOL_ID = "knowledge_search";
+const KNOWLEDGE_READ_TOOL_ID = "knowledge_read";
 const STDIO_PROMPT_MARKER = "local stdio fixture evidence";
 const STDIO_RESULT_SENTINEL = "FIXTURE_STDIO_SENTINEL";
 const STDIO_ANSWER_TOKENS = [
@@ -105,6 +107,40 @@ const MCP_ANSWER_TOKENS = [
   " [Fixture source]",
   "(https://fixture.invalid/operator-mcp/current)",
 ];
+const KNOWLEDGE_PROMPT_MARKER = "knowledge fixture";
+const KNOWLEDGE_CHANGED_MARKER = "knowledge changed fixture";
+const KNOWLEDGE_ERROR_ANSWER_TOKENS = [
+  "I",
+  " could",
+  " not",
+  " read",
+  " that",
+  " Knowledge",
+  " note",
+  " safely",
+  ".",
+];
+
+function toolIsOffered(tools: unknown[] | undefined, id: string): boolean {
+  return (
+    tools?.some((candidate) => {
+      if (
+        candidate === null ||
+        typeof candidate !== "object" ||
+        Array.isArray(candidate)
+      ) {
+        return false;
+      }
+      const fn = (candidate as { function?: unknown }).function;
+      return (
+        fn !== null &&
+        typeof fn === "object" &&
+        !Array.isArray(fn) &&
+        (fn as { name?: unknown }).name === id
+      );
+    }) ?? false
+  );
+}
 
 /** OpenAI-compatible streaming tool_call delta (AI SDK requires id + type +
  * function.name on the first chunk; full args in one string is valid). */
@@ -154,14 +190,49 @@ function toolFinishChunk(): string {
 
 type ChatMessage = { role?: string; content?: unknown };
 
+function findStringProperty(value: unknown, key: string): string | undefined {
+  if (typeof value === "string") {
+    try {
+      return findStringProperty(JSON.parse(value) as unknown, key);
+    } catch {
+      return undefined;
+    }
+  }
+  if (Array.isArray(value)) {
+    for (const item of value.toReversed()) {
+      const found = findStringProperty(item, key);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  if (value === null || typeof value !== "object") return undefined;
+
+  const record = value as Record<string, unknown>;
+  if (typeof record[key] === "string") return record[key];
+  for (const item of Object.values(record).toReversed()) {
+    const found = findStringProperty(item, key);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
 /** Classify native and fixture-MCP tool-loop requests independently. */
 function classify(raw: string): {
   hasTools: boolean;
   hasToolResult: boolean;
+  hasCurrentTurnToolResult: boolean;
   asksSearch: boolean;
   asksMcpFixtureSearch: boolean;
   hasMcpFixtureTool: boolean;
   hasMcpFixtureResult: boolean;
+  asksStdioFixture: boolean;
+  hasStdioFixtureResult: boolean;
+  asksKnowledge: boolean;
+  hasKnowledgeTool: boolean;
+  knowledgeOperation: "search" | "read" | "error";
+  knowledgeReadPath: string;
+  knowledgeResultPath: string | undefined;
+  lastUserContent: string;
 } {
   try {
     const body = JSON.parse(raw) as {
@@ -171,47 +242,82 @@ function classify(raw: string): {
     const messages = body.messages ?? [];
     const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
     const hasToolResult = messages.some((m) => m.role === "tool");
-    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    const lastUserIndex = messages.findLastIndex((m) => m.role === "user");
+    const lastUser = lastUserIndex >= 0 ? messages[lastUserIndex] : undefined;
     const content =
       typeof lastUser?.content === "string"
         ? lastUser.content
         : JSON.stringify(lastUser?.content ?? "");
-    const hasMcpFixtureTool = body.tools?.some((candidate) => {
-      if (
-        candidate === null ||
-        typeof candidate !== "object" ||
-        Array.isArray(candidate)
-      ) {
-        return false;
-      }
-      const fn = (candidate as { function?: unknown }).function;
-      return (
-        fn !== null &&
-        typeof fn === "object" &&
-        !Array.isArray(fn) &&
-        (fn as { name?: unknown }).name === MCP_TOOL_ID
-      );
-    });
+    const hasCurrentTurnToolResult =
+      lastUserIndex >= 0 &&
+      messages.slice(lastUserIndex + 1).some((m) => m.role === "tool");
+    const knowledgeResultPath = findStringProperty(
+      messages.slice(lastUserIndex + 1).findLast((m) => m.role === "tool")
+        ?.content,
+      "path",
+    );
+    const knowledgeReadPath = content.includes("traversal")
+      ? "../outside.md"
+      : content.includes("symlink")
+        ? "notes/link.md"
+        : content.includes("oversized")
+          ? "notes/oversized.md"
+          : content.includes("missing")
+            ? "notes/missing.md"
+            : "notes/worker-note.md";
+    const knowledgeOperation =
+      content.includes("traversal") ||
+      content.includes("symlink") ||
+      content.includes("oversized") ||
+      content.includes("missing") ||
+      content.includes("unavailable")
+        ? "error"
+        : content.includes("read")
+          ? "read"
+          : "search";
     return {
       hasTools,
       hasToolResult,
+      hasCurrentTurnToolResult,
       asksSearch: /\bsearch\b/i.test(content),
       asksMcpFixtureSearch: content.includes(MCP_PROMPT_MARKER),
-      hasMcpFixtureTool: hasMcpFixtureTool === true,
+      hasMcpFixtureTool: toolIsOffered(body.tools, MCP_TOOL_ID),
       hasMcpFixtureResult: raw.includes(MCP_RESULT_SENTINEL),
       asksStdioFixture: content.includes(STDIO_PROMPT_MARKER),
       hasStdioFixtureResult: raw.includes(STDIO_RESULT_SENTINEL),
+      asksKnowledge:
+        content.includes(KNOWLEDGE_PROMPT_MARKER) ||
+        content.includes(KNOWLEDGE_CHANGED_MARKER) ||
+        content.includes("knowledge traversal") ||
+        content.includes("knowledge symlink") ||
+        content.includes("knowledge oversized") ||
+        content.includes("knowledge missing") ||
+        content.includes("knowledge unavailable"),
+      hasKnowledgeTool:
+        toolIsOffered(body.tools, KNOWLEDGE_SEARCH_TOOL_ID) ||
+        toolIsOffered(body.tools, KNOWLEDGE_READ_TOOL_ID),
+      knowledgeOperation,
+      knowledgeReadPath,
+      knowledgeResultPath,
+      lastUserContent: content,
     };
   } catch {
     return {
       hasTools: false,
       hasToolResult: false,
+      hasCurrentTurnToolResult: false,
       asksSearch: false,
       asksMcpFixtureSearch: false,
       hasMcpFixtureTool: false,
       hasMcpFixtureResult: false,
       asksStdioFixture: false,
       hasStdioFixtureResult: false,
+      asksKnowledge: false,
+      hasKnowledgeTool: false,
+      knowledgeOperation: "search",
+      knowledgeReadPath: "notes/worker-note.md",
+      knowledgeResultPath: undefined,
+      lastUserContent: "",
     };
   }
 }
@@ -253,6 +359,13 @@ const server = http.createServer((req, res) => {
           hasMcpFixtureResult,
           asksStdioFixture,
           hasStdioFixtureResult,
+          asksKnowledge,
+          hasKnowledgeTool,
+          hasCurrentTurnToolResult,
+          knowledgeOperation,
+          knowledgeReadPath,
+          knowledgeResultPath,
+          lastUserContent,
         } = classify(raw);
 
         res.writeHead(200, {
@@ -260,6 +373,57 @@ const server = http.createServer((req, res) => {
           "cache-control": "no-cache",
           connection: "keep-alive",
         });
+
+        if (asksKnowledge && hasKnowledgeTool && !hasCurrentTurnToolResult) {
+          const read =
+            knowledgeOperation === "read" || knowledgeOperation === "error";
+          res.write(
+            toolCallChunk({
+              id: read
+                ? `call_knowledge_read_${knowledgeReadPath.replaceAll(/[^a-z]/g, "_")}_e2e`
+                : lastUserContent.includes(KNOWLEDGE_CHANGED_MARKER)
+                  ? "call_knowledge_search_changed_e2e"
+                  : "call_knowledge_search_e2e",
+              name: read ? KNOWLEDGE_READ_TOOL_ID : KNOWLEDGE_SEARCH_TOOL_ID,
+              arguments: read
+                ? { path: knowledgeReadPath }
+                : {
+                    query: lastUserContent.includes(KNOWLEDGE_CHANGED_MARKER)
+                      ? "KNOWLEDGE_E2E_CHANGED"
+                      : "KNOWLEDGE_E2E_MARKER",
+                    limit: 5,
+                  },
+            }),
+          );
+          res.write(toolFinishChunk());
+          res.write("data: [DONE]\n\n");
+          res.end();
+          return;
+        }
+
+        if (asksKnowledge && hasKnowledgeTool && hasCurrentTurnToolResult) {
+          const tokens =
+            knowledgeOperation === "error"
+              ? KNOWLEDGE_ERROR_ANSWER_TOKENS
+              : [
+                  "I",
+                  " found",
+                  lastUserContent.includes(KNOWLEDGE_CHANGED_MARKER)
+                    ? " the changed"
+                    : " the",
+                  " note",
+                  " at",
+                  ` ${knowledgeResultPath ?? "[missing Knowledge result path]"}`,
+                  ".",
+                ];
+          for (const token of tokens) {
+            res.write(chunk(token, false));
+          }
+          res.write(chunk(undefined, true));
+          res.write("data: [DONE]\n\n");
+          res.end();
+          return;
+        }
 
         // MCP acceptance first turn. It must have both the unique user marker
         // and the exact offered dynamic tool, so it cannot affect native

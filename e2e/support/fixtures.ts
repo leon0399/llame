@@ -20,10 +20,21 @@ type Fixtures = {
   freshAccount: TestAccount;
 };
 
+export type KnowledgeSpaceFixture = {
+  id: string;
+  directory: string;
+};
+
 type WorkerFixtures = {
   workerAccount: TestAccount;
   workerStorageState: string;
+  knowledgeRoot: string;
+  workerKnowledgeSpace: KnowledgeSpaceFixture;
 };
+
+const knowledgeApiUrl =
+  process.env.NEXT_PUBLIC_API_URL ??
+  `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
 
 export const test = baseTest.extend<Fixtures, WorkerFixtures>({
   // An uncaught client exception fails the test that caused it. Without this
@@ -79,6 +90,52 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
             test.info().parallelIndex,
           ),
         );
+      } finally {
+        await request.dispose();
+      }
+    },
+    { scope: "worker" },
+  ],
+
+  knowledgeRoot: [
+    async ({}, use) => {
+      const root = process.env.E2E_KNOWLEDGE_ROOT;
+      if (!root) {
+        throw new Error("E2E_KNOWLEDGE_ROOT is required for Knowledge tests");
+      }
+      fs.mkdirSync(root, { recursive: true });
+      await use(root);
+    },
+    { scope: "worker" },
+  ],
+
+  workerKnowledgeSpace: [
+    async ({ workerAccount, knowledgeRoot }, use) => {
+      const request = await playwrightRequest.newContext();
+
+      try {
+        const response = await request.put(
+          `${knowledgeApiUrl}/api/v1/me/knowledge-space`,
+          {
+            headers: { Authorization: `Bearer ${workerAccount.token}` },
+          },
+        );
+        if (!response.ok()) {
+          throw new Error(
+            `Failed to provision the worker Knowledge Space: ${response.status()} ${await response.text()}`,
+          );
+        }
+        const body = (await response.json()) as { id?: unknown };
+        if (typeof body.id !== "string") {
+          throw new Error(
+            "Worker Knowledge provisioning returned no stable ID",
+          );
+        }
+
+        await use({
+          id: body.id,
+          directory: path.join(knowledgeRoot, body.id),
+        });
       } finally {
         await request.dispose();
       }

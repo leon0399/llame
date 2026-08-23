@@ -9,27 +9,24 @@ No dates or effort estimates are implied.
 
 ## Immediate cut: file-native personal intelligence
 
-Outcome: any authenticated owner can self-service one personal Markdown
-Knowledge Space beneath an operator-configured root, and the existing hosted Run
-loop gains bounded reads over its live files. A later layer adds recoverable Git
-writes and then reuses that change path for inspectable file-backed Profile
-context. The duplicated database personalization surface is retired only after
-the file path has proven the replacement.
+Remaining outcome: build on the shipped live personal Knowledge reads with
+recoverable Git writes, then reuse that change path for inspectable file-backed
+Profile context. Retire the duplicated database personalization surface only
+after the file path has proven the replacement.
 
 ### 1. v0.7 Runnable personal knowledge agent
 
 Tracking: [milestone v0.7](https://github.com/leon0399/llame/milestone/5) and
 [tracker #39](https://github.com/leon0399/llame/issues/39).
 
-Outcome: building on the shipped remote-MCP foundation, the assistant can use
-remote research, read a live personal Markdown Knowledge Space, land a
-recoverable Git-backed update, and deliberately recall a prior Chat. The
-unshipped components do not count as a release until the combined product loop
-runs end to end.
+Outcome: the assistant builds on the shipped remote-MCP and live Knowledge-read
+foundation to use remote research, land a recoverable Git-backed update, and
+deliberately recall a prior Chat. The remaining components do not count as a
+release until the combined product loop runs end to end.
 
 ```mermaid
 flowchart TD
-    K0["#519 provision Knowledge Space"] --> K1["#520 live Markdown read"] --> K2["#212 recoverable Git write"]
+    K2["#212 recoverable Git write"]
     E0["#216 episodic recall proof"]
     Gate{"#39 combined release gate"}
 
@@ -39,12 +36,9 @@ flowchart TD
 
 - [#216](https://github.com/leon0399/llame/issues/216) proves safe recall across
   two Chats. It can proceed in parallel with the mainline.
-- [#213](https://github.com/leon0399/llame/issues/213) tracks self-service
-  provisioning ([#519](https://github.com/leon0399/llame/issues/519)) and bounded
-  live Markdown search/read ([#520](https://github.com/leon0399/llame/issues/520)).
 - [#212](https://github.com/leon0399/llame/issues/212) introduces the minimum Git
   substrate and lands one visible, recoverable agent-authored knowledge commit
-  after #213.
+  after the shipped #213 live-read boundary.
 - [#39](https://github.com/leon0399/llame/issues/39) owns the combined MCP to
   knowledge to later-recall exit gate. Its remote-MCP prerequisite is already
   shipped, so it is context for the gate rather than an open roadmap node.

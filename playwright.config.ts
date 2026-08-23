@@ -1,4 +1,5 @@
 import path from "node:path";
+import { tmpdir } from "node:os";
 
 import { defineConfig, devices } from "@playwright/test";
 
@@ -19,6 +20,12 @@ const dbPort = readPort("E2E_DB_PORT", "55433");
 const dbReadyPort = readPort("E2E_DB_READY_PORT", "4302");
 const modelPort = readPort("E2E_MODEL_PORT", "4303");
 const mcpPort = readPort("E2E_MCP_PORT", "4304");
+// One test-only operator root is shared by the co-located API/worker process;
+// each Playwright worker gets an isolated stable-ID child beneath it.
+const knowledgeRoot =
+  process.env.E2E_KNOWLEDGE_ROOT ??
+  path.join(tmpdir(), `llame-e2e-knowledge-${process.pid}`);
+process.env.E2E_KNOWLEDGE_ROOT = knowledgeRoot;
 const webUrl = `http://localhost:${webPort}`;
 const apiUrl = `http://localhost:${apiPort}`;
 const dbReadyUrl = `http://localhost:${dbReadyPort}/ready`;
