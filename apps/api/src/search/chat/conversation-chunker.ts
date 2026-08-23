@@ -89,7 +89,14 @@ function findCutIndex(text: string, maxLen: number): number {
     if (/\s/.test(window.charAt(i))) return i + 1;
   }
 
-  return maxLen;
+  // No boundary at all within the budget: hard-cut at maxLen. Never split the
+  // two UTF-16 code units of a surrogate pair (e.g. an emoji) — that would
+  // corrupt both halves into unpaired surrogates once persisted as UTF-8.
+  const high = text.charCodeAt(maxLen - 1);
+  const low = text.charCodeAt(maxLen);
+  const splitsSurrogatePair =
+    high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff;
+  return splitsSurrogatePair ? maxLen - 1 : maxLen;
 }
 
 /** Bounded, word-boundary-truncated excerpt with an elision marker when cut. */

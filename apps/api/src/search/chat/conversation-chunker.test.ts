@@ -324,4 +324,29 @@ describe('chunkConversation — oversized messages (#517)', () => {
     ];
     expect(chunkConversation(convo)).toEqual(chunkConversation(convo));
   });
+
+  it('never splits a surrogate pair (e.g. an emoji) when the hard-cut fallback lands mid-character', () => {
+    // No whitespace anywhere: forces findCutIndex's final hard-cut fallback.
+    // The emoji straddles the exact firstMax boundary for a user message
+    // ('[user] ' prefix, 7 chars → firstMax = CHUNK_MAX_CHARS - 7 = 2993), so
+    // an unguarded `return maxLen` would cut between its two UTF-16 code units.
+    const before = 'x'.repeat(CHUNK_MAX_CHARS - 8);
+    const big = `${before}\u{1F600}${'x'.repeat(20)}`; // 😀 is a surrogate pair
+    const chunks = chunkConversation([userMsg('u1', big, 0)]);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    const loneSurrogate =
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    for (const chunk of chunks) {
+      expect(loneSurrogate.test(chunk.content)).toBe(false);
+    }
+
+    // The emoji survives fully intact in exactly one chunk, never torn across
+    // a chunk boundary. (Not a full-text reconstruction check: adjacent chunks
+    // can legitimately overlap by a whole carried-over block — see the
+    // "no anchor" oversized-message test above — so naive concatenation of
+    // every chunk isn't expected to reproduce `big` byte-for-byte here.)
+    const chunksWithEmoji = chunks.filter((c) => c.content.includes('😀'));
+    expect(chunksWithEmoji).toHaveLength(1);
+  });
 });
