@@ -1,14 +1,14 @@
 import { createOpenAI, type OpenAIProvider } from '@ai-sdk/openai';
 import { APICallError, embedMany } from 'ai';
 
-import { KEYLESS_PLACEHOLDER_API_KEY } from '../models/openai-model-client';
+import { KEYLESS_PLACEHOLDER_API_KEY } from '@workspace/harness';
 import {
   type EmbeddingBackend,
   type EmbeddingDocumentInput,
   type EmbeddingResult,
 } from './core';
 import { DEFAULT_EMBEDDING_BATCH_SIZE } from '../instance-config/llame-config';
-import { isNumber, isRecord, type UnknownRecord } from '../unknown-record';
+import { isNumber, isRecord, type UnknownRecord } from '@workspace/harness';
 
 export type OpenAIEmbeddingBackendConfig = {
   credential?: string;

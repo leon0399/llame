@@ -1,4 +1,4 @@
-import { cutStringAtCodePointBoundary } from '../code-point-boundary';
+import { cutStringAtCodePointBoundary } from "./code-point-boundary";
 import {
   isBoolean,
   isNumber,

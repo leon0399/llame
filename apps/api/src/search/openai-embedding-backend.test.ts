@@ -13,8 +13,8 @@ import type {
 import { APICallError } from 'ai';
 import { MockEmbeddingModelV3 } from 'ai/test';
 
-import { KEYLESS_PLACEHOLDER_API_KEY } from '../models/openai-model-client';
-import type { UnknownRecord } from '../unknown-record';
+import { KEYLESS_PLACEHOLDER_API_KEY } from '@workspace/harness';
+import type { UnknownRecord } from '@workspace/harness';
 import {
   classifyEmbeddingFailure,
   createOpenAIEmbeddingBackend,

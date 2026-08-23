@@ -14,7 +14,10 @@ export {
 } from "./models/openai-model-client";
 export { wrapStreamTextResult } from "./models/stream-text-result-proxy";
 export {
+  codePointSafeCutIndex,
   cutStringAtCodePointBoundary,
+} from "./tools/code-point-boundary";
+export {
   RESULT_TRUNCATE_CHARS,
   truncateOversizedResult,
 } from "./tools/result-truncation";

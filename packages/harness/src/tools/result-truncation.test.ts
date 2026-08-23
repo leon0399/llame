@@ -1,7 +1,7 @@
 import { z } from "zod";
 
+import { cutStringAtCodePointBoundary } from "./code-point-boundary";
 import {
-  cutStringAtCodePointBoundary,
   RESULT_TRUNCATE_CHARS,
   truncateOversizedResult,
 } from "./result-truncation";

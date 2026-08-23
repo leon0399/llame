@@ -25,7 +25,7 @@ import 'reflect-metadata';
 
 import { PgBossService } from '@wavezync/nestjs-pgboss';
 
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/harness';
 import { PgBossQueueService } from './pgboss-queue.service';
 
 /** What `@Inject(TOKEN)` accepts: a class, a string, or a symbol. */
