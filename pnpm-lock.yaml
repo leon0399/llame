@@ -175,9 +175,9 @@ importers:
       '@wavezync/nestjs-pgboss':
         specifier: ^6.0.0
         version: 6.0.0(@nestjs/common@11.1.29(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.1.18)(pg-boss@12.25.0)(reflect-metadata@0.2.2)(rxjs@7.8.1)
-      '@workspace/config':
+      '@workspace/config-interpolation':
         specifier: workspace:*
-        version: link:../../packages/config
+        version: link:../../packages/config-interpolation
       '@workspace/harness':
         specifier: workspace:*
         version: link:../../packages/harness
@@ -527,7 +527,7 @@ importers:
         specifier: 'catalog:'
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.16.5)(@vitest/browser-playwright@4.1.10)(jsdom@28.1.0(@noble/hashes@1.8.0))(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.2)(tsx@4.23.12)(yaml@2.9.0))
 
-  packages/config:
+  packages/config-interpolation:
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
