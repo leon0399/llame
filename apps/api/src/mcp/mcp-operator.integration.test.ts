@@ -17,10 +17,7 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { CompactionCapability } from '../compaction/compaction.service';
-import {
-  type ModelClient,
-  type ModelStreamInput,
-} from '@workspace/harness';
+import { type ModelClient, type ModelStreamInput } from '@workspace/harness';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { SearchIndexService } from '../search/search-index.service';
