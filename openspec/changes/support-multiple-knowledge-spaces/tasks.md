@@ -1,10 +1,17 @@
+## 0. Legacy Writer Compatibility Layer (`multiple-kb/compat`)
+
+- [ ] 0.1 Make legacy singleton provisioning lock the authenticated owner row, use targetless conflict handling, and reread after conflict without changing schema or public behavior; verify focused repository/service tests and concurrent real-PostgreSQL provisioning pass.
+- [ ] 0.2 Verify the compatibility writer before and after removal of owner uniqueness, including stable concurrent results, existing multi-row owners receiving no additional row, and the pre-compatibility targeted conflict statement failing after cutover; document that all provisioning replicas must deploy this layer first and that it is the rollback floor.
+- [ ] 0.3 Run affected API tests, typecheck, lint, and sequential build; verify the compatibility layer is green before submitting it.
+
 ## 1. Storage and API Layer (`multiple-kb/storage`)
 
 - [ ] 1.1 Add name and timestamp fields, remove owner uniqueness, and migrate each existing stable ID and child as `Personal`; verify schema, upgrade, RLS/FORCE-RLS, duplicate-name, and concurrent-owner integration tests pass.
 - [ ] 1.2 Replace singleton repository/service assumptions with owner-scoped create, list, retrieve, rename, and exact-owned-ID query primitives; verify missing and other-owner identifiers are indistinguishable and no owner count cap exists.
 - [ ] 1.3 Make provisioning directory-first and authority-row-second without recovery deletion; verify filesystem/service tests cover usable children before commit, database-failure orphans, symlink refusal, missing roots, and preserved migrated paths.
 - [ ] 1.4 Replace bodyless singleton `PUT` with authenticated collection/item REST operations and the Knowledge-local `(createdAt, id)` opaque cursor; verify DTO, malformed-cursor, deterministic pagination, unauthorized, excess-field, cross-tenant, and OpenAPI contract tests pass.
-- [ ] 1.5 Run the affected API unit/integration tests, typecheck, lint, migration checks, and sequential build; verify the storage layer is green before submitting it.
+- [ ] 1.5 Regenerate and commit the web API bindings for the breaking Knowledge REST surface in the same layer; verify the removed singleton operation, new collection/item operations, generation-drift check, and affected web typecheck/build pass.
+- [ ] 1.6 Run the affected API unit/integration tests, typecheck, lint, migration checks, and sequential build; verify the storage layer is green before submitting it.
 
 ## 2. Multi-Space Tool Layer (`multiple-kb/tools`)
 
@@ -23,7 +30,7 @@
 
 ## 4. Acceptance Layer (`multiple-kb/acceptance`)
 
-- [ ] 4.1 Regenerate the API client for the breaking Knowledge REST surface and remove the singleton operation without adding a web management page; verify generated-client and affected web typecheck/build checks pass.
+- [ ] 4.1 Verify the committed generated client remains drift-free and no web management page was added; verify affected web typecheck/build checks pass.
 - [ ] 4.2 Add end-to-end coverage for creating, listing, retrieving, and renaming duplicate-named spaces; current multi-space search; explicit reads; live addition/revocation; incomplete all-space search; reload attribution; and cross-account denial.
 - [ ] 4.3 Update `SPEC.md` authority links, operator/user documentation, `ROADMAP.md`, and `CHANGELOG.md` in the shipping layer; verify no UI, upload, indexing, sync, or lifecycle behavior is claimed shipped.
 - [ ] 4.4 Run all affected tests, typechecks, lints, OpenAPI checks, formatting, Markdown lint, and sequential workspace builds; verify all stack layers are green and the repaired stack is ready for review.

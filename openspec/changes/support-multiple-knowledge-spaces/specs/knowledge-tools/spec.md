@@ -42,7 +42,7 @@ At worker execution, the static tool executor SHALL receive the Knowledge filesy
 
 ### Requirement: Knowledge search scans one or all current spaces deterministically within global bounds
 
-`knowledge_search` SHALL accept a non-empty literal query of at most 200 Unicode code points, an integer result limit from 1 through 10 defaulting to 5, and an optional `knowledgeSpaceId`. When the identifier is present, search SHALL target only that currently owner-accessible space. When absent, search SHALL iterate the owner's complete current inventory in `(createdAt, id)` keyset pages without materializing the uncapped inventory in memory. Inventory paging SHALL obey the same operation timeout and cancellation signal; it SHALL impose no separate total-space count cap. Before opening each targeted child, search SHALL recheck current access under the trusted Run owner. Within a space, files SHALL be ordered by Knowledge-relative path.
+`knowledge_search` SHALL accept a non-empty literal query of at most 200 Unicode code points, an integer result limit from 1 through 10 defaulting to 5, and an optional `knowledgeSpaceId`. When the identifier is present, search SHALL target only that currently owner-accessible space. When absent, search SHALL iterate the owner's complete current inventory in `(createdAt, id)` keyset pages without materializing the uncapped inventory in memory. Inventory paging SHALL obey the same operation timeout and cancellation signal; it SHALL impose no separate total-space count cap. Before opening each targeted child, search SHALL recheck current access under the trusted Run owner. If a row from an unscoped inventory page is no longer accessible at that check, search SHALL omit it as no longer current without adding a warning or incrementing `warningCount`; if no currently accessible target remains, the call SHALL return `knowledge_space_not_configured`. Within a space, files SHALL be ordered by Knowledge-relative path.
 
 Search SHALL perform a case-insensitive literal scan over safe UTF-8 Markdown files as they are read from the live targeted spaces, return at most one result per file, and include the first matching line with a surrounding snippet of at most 500 Unicode code points. A Markdown path is one whose final component ends with `.md`, compared ASCII case-insensitively. Search SHALL use no grep subprocess, index, or PostgreSQL content projection.
 
@@ -84,6 +84,12 @@ There is no operation-wide content revision or snapshot. A file changed after it
 - **WHEN** search supplies one currently owner-accessible `knowledgeSpaceId`
 - **THEN** search rechecks that resource and traverses only its stable-ID child
 - **AND** no other space is inspected
+
+#### Scenario: Revoked unscoped target is no longer current
+
+- **WHEN** an unscoped inventory page contains a space whose access is removed before its pre-open check
+- **THEN** search omits that target without adding a warning or incrementing `warningCount`
+- **AND** an explicit request for that same identifier still returns `knowledge_space_not_found`
 
 #### Scenario: One failed space produces incomplete success
 

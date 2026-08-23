@@ -54,6 +54,8 @@ Root or child failures map to the existing safe `503 knowledge_space_unavailable
 
 `POST` remains non-idempotent. A lost success followed by retry may create another distinct space; idempotency-key infrastructure and cleanup belong to later work.
 
+Before the migration removes owner uniqueness, a compatibility release changes the legacy singleton writer to lock the authenticated owner's `users` row, read the existing space, insert with targetless conflict handling only when absent, and reread after a conflict. The compatibility release changes no schema. Every API replica that can provision the legacy singleton must run it before the storage migration. It remains the rollback floor after the constraint is removed; rolling back to an older targeted `ON CONFLICT (owner_user_id)` writer is unsafe because PostgreSQL can no longer resolve that conflict target.
+
 ### D4: Tool eligibility is independent from resource availability
 
 Allowlisting and process configuration decide whether `knowledge_search` and `knowledge_read` are advertised. Owner inventory does not. With a configured root and permitted declarations, an owner with zero spaces still receives callable tools; an unscoped search returns `knowledge_space_not_configured`, while an explicit guessed selector remains `knowledge_space_not_found`.
@@ -86,13 +88,13 @@ The model discovers IDs through search results in this iteration. A later contex
 
 The global tool execution union stays `success | error`; #542 does not introduce `status: partial`. A successful search with `complete:false` is immediately usable and persists its bounded warnings normally. Whenever later model projection clears payload detail—during ordinary bounded next-turn projection or compaction—its projected outcome is `incomplete`, not `success`, so replay cannot silently upgrade degraded work. A follow-up issue will standardize incomplete tool results across execution, replay, truncation, and UI.
 
-### D9: Ship as four implementation layers plus a finalization PR
+### D9: Ship a compatibility prerequisite, four implementation layers, and a finalization PR
 
 The stack is:
 
-`master <- multiple-kb/proposal <- multiple-kb/storage <- multiple-kb/tools <- multiple-kb/replay <- multiple-kb/acceptance <- multiple-kb/finalize`
+`master <- multiple-kb/proposal <- multiple-kb/compat <- multiple-kb/storage <- multiple-kb/tools <- multiple-kb/replay <- multiple-kb/acceptance <- multiple-kb/finalize`
 
-Storage owns schema, migration, directory-first creation, REST resources, and the local cursor. Tools owns availability cleanup, live resolution, multi-space search/read, warnings, and persisted response-time attribution. Replay owns only the generic run/observation mapping that preserves incomplete Knowledge results through compaction and replay. Acceptance owns generated clients, end-to-end API/tool coverage, documentation, roadmap, and changelog. There is no web product layer.
+Compatibility owns only the legacy singleton writer's cross-version safety and rollback floor. Storage owns schema, migration, directory-first creation, REST resources, the local cursor, and the generated client required for its API contract to pass drift checks. Tools owns availability cleanup, live resolution, multi-space search/read, warnings, and persisted response-time attribution. Replay owns only the generic run/observation mapping that preserves incomplete Knowledge results through compaction and replay. Acceptance owns end-to-end API/tool coverage, documentation, roadmap, and changelog. There is no web product layer.
 
 Finalization is its own reviewable PR after acceptance. It applies the verified delta to canonical specs with `openspec-sync-specs`, marks completed tasks from implementation evidence, then moves the change to the dated archive with `openspec-archive-change`. It owns no implementation behavior.
 
@@ -108,16 +110,18 @@ Finalization is its own reviewable PR after acceptance. It applies the verified 
 
 ## Migration Plan
 
-1. Add labels/timestamps, remove owner uniqueness, and backfill existing rows as `Personal` without changing IDs or directories.
-2. Deploy the breaking REST collection and remove the singleton route/client operation.
-3. Change candidate resolution so configured/allowlisted Knowledge tools remain advertised without owner rows.
-4. Deploy current-owner runtime resolution, multi-space search/read, bounded incomplete results, and the compacted marker together.
-5. Verify duplicate names, pagination, cross-tenant denial, directory/DB failure residues, live addition/revocation, partial search, explicit reads, and historical attribution.
-6. In the separate `multiple-kb/finalize` PR, sync the verified delta into canonical specs and archive the completed change.
-7. Roll back application code only with additive schema left in place. Never restore owner uniqueness after multiple rows exist, remap stable IDs, or delete stable-ID children during rollback.
+1. Deploy the compatibility writer to every API replica that can provision the legacy singleton, then wait for pre-compatibility provisioning requests to finish. No Run drain is required.
+2. Add labels/timestamps, remove owner uniqueness, and backfill existing rows as `Personal` without changing IDs or directories.
+3. Deploy the breaking REST collection and remove the singleton route/client operation.
+4. Change candidate resolution so configured/allowlisted Knowledge tools remain advertised without owner rows.
+5. Deploy current-owner runtime resolution, multi-space search/read, bounded incomplete results, and the compacted marker together.
+6. Verify duplicate names, pagination, cross-tenant denial, directory/DB failure residues, live addition/revocation, partial search, explicit reads, and historical attribution.
+7. In the separate `multiple-kb/finalize` PR, sync the verified delta into canonical specs and archive the completed change.
+8. Roll back application code no earlier than the compatibility release and leave the additive schema in place. Never restore owner uniqueness after multiple rows exist, remap stable IDs, or delete stable-ID children during rollback.
 
 ## Revision History
 
+- **2026-08-23 — rollout compatibility:** Inserted a code-only legacy-writer layer before owner uniqueness is removed, made it the rollback floor, and moved generated-client ownership into the API-changing storage layer.
 - **2026-08-23 — contract tightening:** Fixed the Knowledge-local cursor shape from optional to required base64url `(createdAt,id)` encoding, added malformed-cursor failure coverage, and clarified that `knowledge_space_not_configured` survives only as a tool-call result while manifest unavailability stays `knowledge_space_unavailable`.
 - **2026-08-23 — review round 1:** Split generic incomplete-result replay from Knowledge execution, closed the per-space warning vocabulary, aligned name validation, and added the separate finalization PR.
 - **2026-08-23 — grilled rewrite:** Removed the count cap, Chat bindings, Run resource snapshots, compatibility reads, generic cursor layer, web UI, and lifecycle work. Adopted current-access-per-call resolution, explicit reads, all-current search with bounded incomplete results, and three implementation layers above the proposal.
