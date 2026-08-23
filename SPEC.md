@@ -136,7 +136,8 @@ unavailable. Tool declarations remain static; no tenant mutates the registry.
 Completed calls, bounded outputs, failures, and unavailable reasons use the
 generic durable tool-event and message-part path, so replay and the browser show
 the same Knowledge-relative attribution. See
-[`tool-calling`](openspec/specs/tool-calling/spec.md) and the
+[`knowledge-tools`](openspec/specs/knowledge-tools/spec.md),
+[`tool-calling`](openspec/specs/tool-calling/spec.md), and the
 [operator runbook](docs/knowledge.md).
 
 ## 14. Provider and model configuration
@@ -173,6 +174,10 @@ files with `O_NOFOLLOW`. Path-based checks do not fully defend against a hostile
 concurrent parent swap or hardlink race; future descriptor-relative containment
 is required before supporting tenant-writable or synchronization-managed mounts,
 which are unsupported by this MVP.
+
+See [`knowledge-spaces`](openspec/specs/knowledge-spaces/spec.md),
+[`knowledge-tools`](openspec/specs/knowledge-tools/spec.md), and the
+[operator runbook](docs/knowledge.md).
 
 ## 19. Channels
 
