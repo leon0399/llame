@@ -160,6 +160,7 @@ async function searchAllCurrentSpaces(
         const access = await resolveExplicitAccess(context, space.id);
         if (isToolResult(access)) {
           if (access.type === 'knowledge_space_not_found') continue;
+          currentSpaces += 1;
           const warning = warningFromResult(access, space);
           if (warning === undefined) return access;
           warningCount += 1;

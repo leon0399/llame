@@ -670,6 +670,32 @@ describe('knowledge_search', () => {
       message: 'Knowledge Space is not configured.',
     });
   });
+
+  it('returns the first closed failure when listed spaces cannot be resolved', async () => {
+    const listedSpace: KnowledgeToolSpaceReference = {
+      id: binding.id,
+      name: 'Unavailable',
+      createdAt: new Date(0),
+    };
+    const baseContext = multiSpaceContext([listedSpace], new Map(), new Map());
+    const toolContext: ToolContext = {
+      ...baseContext,
+      knowledgeResolver: {
+        ...baseContext.knowledgeResolver!,
+        resolveBindingForOwnerById: vi.fn(() =>
+          Promise.reject(new Error('/private/host/path')),
+        ),
+      },
+    };
+
+    await expect(
+      knowledgeSearchTool.execute(toolContext, { query: 'term', limit: 5 }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_space_unavailable',
+      message: 'The Knowledge Space is unavailable.',
+    });
+  });
 });
 
 describe('knowledge_read', () => {
