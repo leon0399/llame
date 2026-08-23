@@ -15,21 +15,27 @@ multi-user isolation needed for a household, team, or organization.
 - Owner-only Projects for organizing chats, plus pinning and reversible archival.
 - A bounded read-only tool loop with native `search_conversations` plus
   operator-configured Streamable HTTP MCP tools.
+- Owner-scoped personal Markdown Knowledge Spaces with bounded
+  `knowledge_search` and `knowledge_read` tools over live files, including
+  uncommitted changes, when the operator configures and allowlists the
+  capability.
 - Optional owner-scoped chat recency digests: an owner can opt in to send a
   bounded list of their other chats' titles and opening excerpts to the
   operator-configured model provider.
 
-Personal Markdown knowledge, agent-authored knowledge, user BYOK, fine-grained
+Agent-authored knowledge writes, Git-backed recovery, user BYOK, fine-grained
 tool permissions, and subagents are not shipped yet. The next release slices
-are tracked in [ROADMAP.md](ROADMAP.md).
+are tracked in [ROADMAP.md](ROADMAP.md). See [docs/knowledge.md](docs/knowledge.md)
+for the operator setup and deployment boundary.
 
 ## Direction
 
 llame is being built toward an assistant that can use external tools, maintain a
 Git-backed Markdown knowledge base, recall prior work, and improve its future
-context through recoverable changes. Workspaces, artifacts, child agents,
-automation, external coding harnesses, and messaging channels follow only after
-that core loop works. See [VISION.md](VISION.md).
+context through recoverable changes. The current Knowledge slice reads live
+owner-scoped files; Git-backed writes begin in #212. Workspaces, artifacts, child
+agents, automation, external coding harnesses, and messaging channels follow
+only after that core loop works. See [VISION.md](VISION.md).
 
 ## Getting started
 
@@ -47,6 +53,15 @@ pnpm dev
 `llame.config.json`. `apps/web` is a thin client configured with
 `NEXT_PUBLIC_API_URL`. See [AGENTS.md](AGENTS.md) for the complete development
 setup and commands.
+
+Personal Knowledge is opt-in. Set an absolute `knowledge.root` in the operator
+configuration, mount the same logical stable-ID child directories into every
+process that can provision or consume Runs, and add both Knowledge tool IDs to
+`tools.allowed`. Every API that authors Runs must declare the setting for
+consistent accept-time availability, even if an authoring-only process does not
+mount it. Configuration loading does not probe the root; provisioning and worker
+execution fail closed when their mount is missing. The root and local binding
+never enter model context or owner-facing results. See [docs/knowledge.md](docs/knowledge.md).
 
 Each `models[]` entry may set `systemPromptFile` to a complete prompt file; an
 omitted setting uses llame's packaged project default. Relative paths resolve
@@ -91,6 +106,7 @@ revisions, trust boundaries, rollout, and troubleshooting.
 - [SPEC.md](SPEC.md): current architecture, invariants, and authority map
 - [CHANGELOG.md](CHANGELOG.md): shipped history
 - [AGENTS.md](AGENTS.md): repository workflow and engineering rules
+- [docs/knowledge.md](docs/knowledge.md): personal Knowledge operator runbook
 - [docs/mcp-tools.md](docs/mcp-tools.md): remote MCP operator runbook
 
 The monorepo is TypeScript end to end: Next.js in `apps/web`, NestJS and the

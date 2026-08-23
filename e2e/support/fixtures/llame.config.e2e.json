@@ -76,9 +76,14 @@
   "tools": {
     "allowed": [
       "search_conversations",
+      "knowledge_search",
+      "knowledge_read",
       "mcp__fixture_search__search",
       "mcp__fixture_local__lookup"
     ]
+  },
+  "knowledge": {
+    "root": "{env:E2E_KNOWLEDGE_ROOT:-/tmp/llame-e2e-knowledge}"
   },
   // fullyParallel browser workers need real `runs` concurrency (the default
   // profile's 1 backs up past assertion timeouts); poolSize >= concurrency

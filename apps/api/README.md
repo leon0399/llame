@@ -50,5 +50,7 @@ the native configuration—no bespoke wrapper, reporter, or checker.
   database ownership, and security requirements.
 - [Architecture contract](../../SPEC.md) defines the cross-cutting system
   invariants.
+- [Personal Knowledge operator runbook](../../docs/knowledge.md) defines the
+  configured root, worker mounts, live-file authority, and security boundary.
 - [Testing](../../docs/testing.md) and [scaling](../../docs/scaling.md) document
   the test pyramid and durable-worker topology.

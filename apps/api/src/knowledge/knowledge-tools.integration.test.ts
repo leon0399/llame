@@ -16,8 +16,10 @@ import postgres from 'postgres';
 
 import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { runTool } from '../tools/runner';
 import { type ToolContext, type ToolResult } from '../tools/types';
+import { KnowledgeToolCandidateResolver } from './knowledge-tool-candidate-resolver';
 import { knowledgeReadTool, knowledgeSearchTool } from './knowledge-tools';
 import { KnowledgeSpaceLocalResolver } from './knowledge-space.local-resolver';
 import { KnowledgeSpaceService } from './knowledge-space.service';
@@ -259,6 +261,56 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
       contentHash: contentHash(after),
     });
     expect(first).not.toEqual(second);
+  });
+
+  it('accepts independently of the API mount and fails closed on a separately mounted worker', async () => {
+    const apiCandidateResolver = new KnowledgeToolCandidateResolver({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        knowledge: { root },
+      },
+    });
+    const candidates = await tenantDb.runAs(ownerAId, (tx) =>
+      apiCandidateResolver.resolve({
+        tx,
+        ownerUserId: ownerAId,
+        allowedToolRules: ['knowledge_search', 'knowledge_read'],
+      }),
+    );
+
+    expect(
+      candidates
+        .filter(
+          (candidate) =>
+            candidate.state === 'available' &&
+            candidate.tool.id.startsWith('knowledge_'),
+        )
+        .map((candidate) =>
+          candidate.state === 'available' ? candidate.tool.id : undefined,
+        ),
+    ).toEqual(['knowledge_search', 'knowledge_read']);
+
+    const workerRoot = path.join(root, 'separate-worker-mount-is-missing');
+    const workerResolver = new KnowledgeToolRuntimeResolver(
+      new KnowledgeSpaceService(
+        tenantDb,
+        new KnowledgeSpaceLocalResolver(workerRoot),
+      ),
+    );
+    const result = await runKnowledge(
+      knowledgeReadTool,
+      ownerAId,
+      { path: 'notes/owner-a.md' },
+      workerResolver,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'knowledge_space_unavailable',
+      message: 'The Knowledge Space is unavailable.',
+    });
+    expect(() => lstatSync(workerRoot)).toThrow();
+    expect(json(result)).not.toContain(root);
   });
 
   it('rejects caller-selected identity and location arguments before filesystem access', async () => {
