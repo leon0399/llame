@@ -1,0 +1,19 @@
+{
+  "id": "bdfe87372",
+  "name": "api integration tests",
+  "command": "cd /home/leon0399/.herdr/worktrees/llame/cli-experiment && E2E_DB_PORT=15433 pnpm --filter api test:integration > /tmp/llame-scratch/api-integration.log 2>&1",
+  "description": "Runs apps/api vitest integration project (Testcontainers Postgres) after the package extraction",
+  "status": "completed",
+  "outputPath": ".pi/tasks/session-2363222-2363222/bdfe87372.output",
+  "cwd": "/home/leon0399/.herdr/worktrees/llame/cli-experiment",
+  "startTime": 1787447654816,
+  "endTime": 1787447804240,
+  "exitCode": 0,
+  "signal": null,
+  "pid": 2442093,
+  "bytesWritten": 0,
+  "isAgent": false,
+  "notified": true,
+  "notifyOnCompletion": true,
+  "triggerOnCompletion": true
+}
