@@ -6,8 +6,9 @@
  * provisioning code.
  */
 
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 
+import { users } from '../db/schema/auth';
 import {
   knowledgeSpaces,
   type KnowledgeSpace,
@@ -50,6 +51,7 @@ export class KnowledgeSpaceRepository {
       .select()
       .from(knowledgeSpaces)
       .where(eq(knowledgeSpaces.ownerUserId, ownerUserId))
+      .orderBy(asc(knowledgeSpaces.knowledgeSpaceId))
       .limit(1);
     return row;
   }
@@ -61,29 +63,45 @@ export class KnowledgeSpaceRepository {
       .select()
       .from(knowledgeSpaces)
       .where(eq(knowledgeSpaces.ownerUserId, ownerUserId))
+      .orderBy(asc(knowledgeSpaces.knowledgeSpaceId))
       .for('share')
       .limit(1);
     return row;
   }
 
   async createOrGet(ownerUserId: string): Promise<KnowledgeSpace> {
+    const [owner] = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, ownerUserId))
+      .for('update')
+      .limit(1);
+    if (owner === undefined) {
+      throw new Error('Knowledge Space owner was not available');
+    }
+
+    const existing = await this.findForOwner(ownerUserId);
+    if (existing !== undefined) {
+      return existing;
+    }
+
     const [created] = await this.db
       .insert(knowledgeSpaces)
       .values({
         knowledgeSpaceId: crypto.randomUUID(),
         ownerUserId,
       })
-      .onConflictDoNothing({ target: knowledgeSpaces.ownerUserId })
+      .onConflictDoNothing()
       .returning();
 
     if (created !== undefined) {
       return created;
     }
 
-    const existing = await this.findForOwner(ownerUserId);
-    if (existing === undefined) {
+    const conflicted = await this.findForOwner(ownerUserId);
+    if (conflicted === undefined) {
       throw new Error('Knowledge Space owner row was not available');
     }
-    return existing;
+    return conflicted;
   }
 }
