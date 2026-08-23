@@ -99,8 +99,30 @@ same Chat, Run, Profile Space, and Knowledge Space contracts. It operates withou
 an account and uses inference providers configured by the user. llame does not
 bundle, download, update, or operate a local model runtime.
 
-This stage excludes Personal Realm synchronization, remote Workspace dispatch,
-external coding-harness adapters, and child-agent orchestration.
+When the user explicitly starts the CLI inside a directory, only that directory
+is advertised and the local harness may grant native execution there. The grant
+is bound to trusted CLI placement provenance, remains sticky for follow-up Runs,
+does not authorize later model-selected directories, and is disclosed honestly as
+host-user authority rather than filesystem confinement.
+
+This stage excludes a daemon Workspace registry, model-directed entry into other
+directories, Personal Realm synchronization, remote Workspace dispatch, external
+coding-harness adapters, and child-agent orchestration.
+
+## Then: local Sandbox execution
+
+Add an explicit local Sandbox mode before accepting remote Workspace placement:
+
+1. run an approved current-directory or derived-worktree view in one fixed managed
+   environment;
+2. reuse Sandbox instances and non-secret dependency caches across follow-up Runs;
+3. keep the original checkout available for ordinary host-side work; and
+4. let an authorized agent propose Git-backed environment changes that the Node
+   validates, builds, and activates only as a later accepted revision.
+
+Native execution remains an explicit policy option. Sandbox failure never falls
+back to native execution without a new authorization decision. Exact Nix,
+container, process-confinement, or VM realization remains capability design.
 
 ## Then: Personal Realm synchronization
 
@@ -113,9 +135,10 @@ runtime state remain local.
 
 ## After personal synchronization
 
-1. Registered Workspaces, `EnterWorkspace`, derived worktrees, reproducible
-   Sandboxes, sticky execution affinity, phone-visible remote control, and
-   transparent `ask | wait | fallback | exit` recovery.
+1. Registered Workspaces, `EnterWorkspace`, sandbox-by-default model-inferred and
+   remote entry, sticky execution affinity, phone-visible remote control, and
+   transparent `ask | wait | fallback | exit` recovery. Native placement remains
+   available only through explicit policy and is never a silent fallback.
 2. Android as a local-capable Chat and remote-steering surface, using a configured
    platform inference provider when available but no llame-bundled model.
 3. Shared family, team, school, and organization Knowledge Spaces with explicit

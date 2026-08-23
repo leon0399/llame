@@ -186,17 +186,27 @@ already retained copies.
 
 Surface, Node, executor, Workspace, and Sandbox remain separate boundaries. A
 Workspace is a user-selected project directory, repository, or file collection. A
-Sandbox is the isolated, reproducible system environment into which approved
-Workspace views are mounted. A Run may answer on its initiating executor, enter a
-Workspace only after the task reveals that need, or transfer at a safe checkpoint
-to an eligible executor.
+Workspace view may be attached to an explicitly trusted native executor or mounted
+into an isolated, reproducible Sandbox. A Run may answer on its initiating
+executor, enter a Workspace only after the task reveals that need, or transfer at
+a safe checkpoint to an eligible executor.
 
 Workspace entry is requested by the model but authorized and performed by the
 trusted harness. A CLI Run advertises only the directory in which it was started.
-A host daemon exposes only directories the user registered explicitly. llame does
-not clone repositories or copy Workspace contents onto a user's machine merely
-because a Run wants them. Git worktrees or other copy-on-write checkouts are
-derived Workspace views, not synchronized replicas.
+Starting the CLI there may create an explicit native-placement grant for that
+Workspace and its derived views. That grant is trusted harness provenance, not a
+claim the model can supply, and it grants no later model-selected Workspace.
+
+A host daemon exposes only directories the user registered explicitly. A
+model-requested entry, remote routing, or cross-node transfer defaults to a
+Sandbox unless policy asks for or explicitly permits a different executor. The
+model never chooses native execution. Native execution must be disclosed as host
+user authority rather than misrepresented as confinement to the working
+directory. Sandbox failure never silently downgrades to native execution.
+
+llame does not clone repositories or copy Workspace contents onto a user's
+machine merely because a Run wants them. Git worktrees or other copy-on-write
+checkouts are derived Workspace views, not synchronized replicas.
 
 After entry, a Chat branch normally retains affinity to that Workspace and
 executor across follow-up Runs. Placement changes, Workspace loss, fallback, and
@@ -270,9 +280,21 @@ control-plane state outside those files.
 
 A first-party CLI and lightweight single-owner personal Node reuse the same Chat,
 Run, Profile Space, and Knowledge Space contracts. They work without a llame
-account using user-configured inference providers. This stage does not require
-Personal Realm synchronization, Workspace execution, an external coding harness,
-or a bundled local model.
+account using user-configured inference providers. The first useful CLI cut may
+execute natively in its explicitly advertised current directory, retaining that
+placement across follow-up Runs and disclosing its host authority. It does not yet
+require a daemon Workspace registry, model-directed entry into other directories,
+Personal Realm synchronization, an external coding harness, or a bundled local
+model.
+
+### Then: local isolated Workspace execution
+
+Add an opt-in local Sandbox executor before remote Workspace routing. Begin with
+one managed environment and explicit Workspace or worktree mounts; then reuse
+instances and non-secret caches, and finally accept Git-backed reproducible
+environment revisions proposed by an agent and validated by the Node. Native
+local execution remains available by explicit policy rather than becoming a
+temporary migration mode.
 
 ### Then: personal continuity across nodes
 
@@ -284,10 +306,10 @@ concurrent offline Chat continuation preserves both branches.
 
 ### Later, ordered by dependency
 
-1. Workspace-aware execution across enrolled user machines, including explicit
-   directory registration, `EnterWorkspace`, reproducible Sandboxes, derived Git
-   worktrees, sticky executor affinity, remote observation and steering, and
-   transparent outage recovery.
+1. Registered Workspace routing across enrolled user machines, including explicit
+   directory registration, `EnterWorkspace`, sandbox-by-default inferred entry,
+   sticky executor affinity, remote observation and steering, and transparent
+   outage recovery without silent native fallback.
 2. An Android system-assistant surface using configured platform inference when
    available and steering remote Runs when Workspace work belongs elsewhere.
 3. Shared family, team, school, and organization knowledge with explicit
