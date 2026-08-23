@@ -2,8 +2,8 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { tool, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { toFlexibleSchema } from '../tools/schema-utils';
-import { type ModelClient } from '../models/model-client';
+import { toFlexibleSchema } from '@workspace/harness';
+import { type ModelClient } from '@workspace/harness';
 import {
   ModelsService,
   type ModelClientFactory,
@@ -31,7 +31,7 @@ import {
 } from '../chats/context-builder';
 import { buildTurnTelemetry } from '../chats/turn-telemetry';
 import { type Message, type ModelToolDeclaration } from '../db/schema';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/harness';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import {

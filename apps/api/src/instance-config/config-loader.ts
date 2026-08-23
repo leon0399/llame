@@ -35,7 +35,7 @@ import {
   isRecord,
   isString,
   type UnknownRecord,
-} from '../unknown-record';
+} from '@workspace/harness';
 
 const DEFAULT_CONFIG_FILENAME = 'llame.config.json';
 

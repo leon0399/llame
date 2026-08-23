@@ -20,7 +20,7 @@ import {
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
-import { type ModelClient } from '../models/model-client';
+import { type ModelClient } from '@workspace/harness';
 import {
   ModelsService,
   type ModelSelectionValidator,
@@ -31,7 +31,7 @@ import {
   MessagesRepository,
 } from './chats-repository';
 import { type MessagePart } from './context-builder';
-import { isRecord, isString, type UnknownRecord } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '@workspace/harness';
 import { RunAbortRegistry, type RunAborter } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
 import {

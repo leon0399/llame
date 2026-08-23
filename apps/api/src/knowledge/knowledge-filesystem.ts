@@ -2,7 +2,7 @@ import { constants, promises as fs } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/harness';
 
 export const KNOWLEDGE_MAX_ENTRIES = 20_000;
 export const KNOWLEDGE_MAX_FILES = 5_000;

@@ -14,7 +14,7 @@ import request from 'supertest';
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/harness';
 import { type UpdatePersonalizationDto } from './dto/personalization.dto';
 import { PERSONALIZATION_CAPS } from './personalization.constants';
 

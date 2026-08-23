@@ -3,35 +3,35 @@
  * Zod (code-authored) or JSON Schema (external sources, #214 D2/D3).
  */
 
-import Ajv from 'ajv';
-import Ajv2019 from 'ajv/dist/2019';
-import Ajv2020 from 'ajv/dist/2020';
-import addFormats from 'ajv-formats';
-import { type FlexibleSchema, asSchema, jsonSchema } from 'ai';
-import { type z } from 'zod';
+import Ajv from "ajv";
+import Ajv2019 from "ajv/dist/2019";
+import Ajv2020 from "ajv/dist/2020";
+import addFormats from "ajv-formats";
+import { type FlexibleSchema, asSchema, jsonSchema } from "ai";
+import { type z } from "zod";
 
-import { type JsonSchemaDocument } from './types';
-import { isRecord, isString } from '../unknown-record';
+import { type JsonSchemaDocument } from "./types";
+import { isRecord, isString } from "../unknown-record";
 
 export function isZodSchema(
   schema: z.ZodTypeAny | JsonSchemaDocument,
 ): schema is z.ZodTypeAny {
   if (
     schema === null ||
-    typeof schema !== 'object' ||
-    !('safeParse' in schema)
+    typeof schema !== "object" ||
+    !("safeParse" in schema)
   ) {
     return false;
   }
 
-  return typeof schema.safeParse === 'function';
+  return typeof schema.safeParse === "function";
 }
 
 const DIALECT_CONSTRUCTORS = new Map<string, typeof Ajv>([
-  ['http://json-schema.org/draft-07/schema', Ajv],
-  ['https://json-schema.org/draft-07/schema', Ajv],
-  ['https://json-schema.org/draft/2019-09/schema', Ajv2019],
-  ['https://json-schema.org/draft/2020-12/schema', Ajv2020],
+  ["http://json-schema.org/draft-07/schema", Ajv],
+  ["https://json-schema.org/draft-07/schema", Ajv],
+  ["https://json-schema.org/draft/2019-09/schema", Ajv2019],
+  ["https://json-schema.org/draft/2020-12/schema", Ajv2020],
 ]);
 
 type JsonSchemaValidator = (
@@ -43,17 +43,17 @@ export type JsonSchemaCompilation =
   | { success: true; validate: JsonSchemaValidator }
   | {
       success: false;
-      reason: 'unsupported_dialect' | 'invalid_schema';
+      reason: "unsupported_dialect" | "invalid_schema";
       dialect: string;
       message: string;
     };
 
 function normalizedDialectUri(dialect: string): string {
-  return dialect.endsWith('#') ? dialect.slice(0, -1) : dialect;
+  return dialect.endsWith("#") ? dialect.slice(0, -1) : dialect;
 }
 
 function schemaDialect(doc: JsonSchemaDocument): string {
-  return isString(doc.$schema) ? doc.$schema : 'draft-07 (default)';
+  return isString(doc.$schema) ? doc.$schema : "draft-07 (default)";
 }
 
 function resolveAjvConstructor(
@@ -68,20 +68,20 @@ function resolveAjvConstructor(
 function addDraft07HttpsMetaSchemaAlias(ajv: Ajv, dialect: unknown): void {
   if (
     !isString(dialect) ||
-    normalizedDialectUri(dialect) !== 'https://json-schema.org/draft-07/schema'
+    normalizedDialectUri(dialect) !== "https://json-schema.org/draft-07/schema"
   ) {
     return;
   }
 
   const draft07MetaSchema = ajv.getSchema(
-    'http://json-schema.org/draft-07/schema',
+    "http://json-schema.org/draft-07/schema",
   )?.schema;
   if (!isRecord(draft07MetaSchema)) {
-    throw new Error('draft-07 meta-schema is unavailable');
+    throw new Error("draft-07 meta-schema is unavailable");
   }
   ajv.addMetaSchema({
     ...draft07MetaSchema,
-    $id: 'https://json-schema.org/draft-07/schema',
+    $id: "https://json-schema.org/draft-07/schema",
   });
 }
 
@@ -100,13 +100,13 @@ export function compileJsonSchemaValidator(
   if (!AjvCtor) {
     return {
       success: false,
-      reason: 'unsupported_dialect',
+      reason: "unsupported_dialect",
       dialect,
       message: `no validator is available for dialect "${dialect}"`,
     };
   }
 
-  let validate: import('ajv').ValidateFunction;
+  let validate: import("ajv").ValidateFunction;
   try {
     const ajv = new AjvCtor({ allErrors: true, strict: false });
     addDraft07HttpsMetaSchemaAlias(ajv, doc.$schema);
@@ -115,7 +115,7 @@ export function compileJsonSchemaValidator(
   } catch (error) {
     return {
       success: false,
-      reason: 'invalid_schema',
+      reason: "invalid_schema",
       dialect,
       message: error instanceof Error ? error.message : String(error),
     };
@@ -129,8 +129,8 @@ export function compileJsonSchemaValidator(
         return { success: true, value };
       }
       const message =
-        validate.errors?.map((e) => e.message).join('; ') ??
-        'validation failed';
+        validate.errors?.map((e) => e.message).join("; ") ??
+        "validation failed";
       return { success: false, error: new Error(message) };
     },
   };

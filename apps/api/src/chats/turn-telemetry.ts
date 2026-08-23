@@ -1,8 +1,8 @@
 import type { FinishReason, LanguageModelUsage } from 'ai';
 import pino from 'pino';
 
-import type { TokenPrice } from '../models/model-catalog';
-import { type UnknownRecord } from '../unknown-record';
+import type { TokenPrice } from '@workspace/harness';
+import { type UnknownRecord } from '@workspace/harness';
 
 export type { TokenPrice };
 

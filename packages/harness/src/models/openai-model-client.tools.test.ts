@@ -3,18 +3,18 @@
  * is replaced at its provider boundary; AI SDK `streamText`, step scheduling,
  * tool validation, and repair callbacks remain real.
  */
-import type { OpenAIProvider } from '@ai-sdk/openai';
-import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import type { OpenAIProvider } from "@ai-sdk/openai";
+import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import {
   simulateReadableStream,
   streamText,
   tool,
   type ModelMessage,
-} from 'ai';
-import { MockLanguageModelV3 } from 'ai/test';
-import { z } from 'zod';
+} from "ai";
+import { MockLanguageModelV3 } from "ai/test";
+import { z } from "zod";
 
-import { createOpenAIModelClient } from './openai-model-client';
+import { createOpenAIModelClient } from "./openai-model-client";
 
 const tools = {
   echo: tool({
@@ -24,7 +24,7 @@ const tools = {
 };
 
 const messages = [
-  { role: 'user', content: 'Use the available tools.' },
+  { role: "user", content: "Use the available tools." },
 ] satisfies ModelMessage[];
 
 const PROVIDER_USAGE = {
@@ -39,15 +39,15 @@ const PROVIDER_USAGE = {
 
 function providerResponse(
   content: LanguageModelV3StreamPart[],
-  finishReason: 'stop' | 'tool-calls',
+  finishReason: "stop" | "tool-calls",
 ) {
   return {
     stream: simulateReadableStream<LanguageModelV3StreamPart>({
       chunks: [
-        { type: 'stream-start', warnings: [] },
+        { type: "stream-start", warnings: [] },
         ...content,
         {
-          type: 'finish',
+          type: "finish",
           finishReason: { unified: finishReason, raw: undefined },
           usage: PROVIDER_USAGE,
         },
@@ -56,34 +56,34 @@ function providerResponse(
   };
 }
 
-function textResponse(text = 'done') {
+function textResponse(text = "done") {
   return providerResponse(
     [
-      { type: 'text-start', id: 'answer' },
-      { type: 'text-delta', id: 'answer', delta: text },
-      { type: 'text-end', id: 'answer' },
+      { type: "text-start", id: "answer" },
+      { type: "text-delta", id: "answer", delta: text },
+      { type: "text-end", id: "answer" },
     ],
-    'stop',
+    "stop",
   );
 }
 
 function toolResponse(calls: Array<{ toolName: string; input: string }>) {
   return providerResponse(
     calls.map((call, index) => ({
-      type: 'tool-call',
+      type: "tool-call",
       toolCallId: `call-${index}`,
       toolName: call.toolName,
       input: call.input,
     })),
-    'tool-calls',
+    "tool-calls",
   );
 }
 
 function scriptedModel(responses: Array<ReturnType<typeof providerResponse>>) {
   let responseIndex = 0;
   return new MockLanguageModelV3({
-    provider: 'openai.test',
-    modelId: 'gpt-test',
+    provider: "openai.test",
+    modelId: "gpt-test",
     doStream: () => {
       const response = responses[responseIndex++];
       if (!response) {
@@ -97,21 +97,21 @@ function scriptedModel(responses: Array<ReturnType<typeof providerResponse>>) {
 function buildClient(model: MockLanguageModelV3) {
   const provider = vi.fn<OpenAIProvider>();
   provider.mockReturnValue(model);
-  provider.chat = vi.fn<OpenAIProvider['chat']>(() => model);
+  provider.chat = vi.fn<OpenAIProvider["chat"]>(() => model);
 
   return createOpenAIModelClient(
     {
-      providerModelId: 'gpt-test',
-      modelId: 'system:openai:gpt-test',
+      providerModelId: "gpt-test",
+      modelId: "system:openai:gpt-test",
       contextWindowTokens: 128_000,
     },
     { createOpenAI: () => provider, streamText },
   );
 }
 
-describe('createOpenAIModelClient — abort handling', () => {
-  it.each(['consumeStream', 'text'] as const)(
-    'maps abort onto ModelClient error settlement before %s settles',
+describe("createOpenAIModelClient — abort handling", () => {
+  it.each(["consumeStream", "text"] as const)(
+    "maps abort onto ModelClient error settlement before %s settles",
     async (consumer) => {
       let providerStarted: () => void = () => undefined;
       const started = new Promise<void>((resolve) => {
@@ -126,17 +126,17 @@ describe('createOpenAIModelClient — abort handling', () => {
         releaseError = resolve;
       });
       const model = new MockLanguageModelV3({
-        provider: 'openai.test',
-        modelId: 'gpt-test',
+        provider: "openai.test",
+        modelId: "gpt-test",
         doStream: ({ abortSignal }) =>
           Promise.resolve({
             stream: new ReadableStream<LanguageModelV3StreamPart>({
               start(controller) {
                 providerStarted();
                 abortSignal?.addEventListener(
-                  'abort',
+                  "abort",
                   () =>
-                    controller.error(new DOMException('Aborted', 'AbortError')),
+                    controller.error(new DOMException("Aborted", "AbortError")),
                   { once: true },
                 );
               },
@@ -155,7 +155,7 @@ describe('createOpenAIModelClient — abort handling', () => {
         onError,
       });
       const consumption =
-        consumer === 'consumeStream'
+        consumer === "consumeStream"
           ? result.consumeStream()
           : result.text.then(
               () => undefined,
@@ -167,7 +167,7 @@ describe('createOpenAIModelClient — abort handling', () => {
       });
 
       await started;
-      abort.abort('run-timeout');
+      abort.abort("run-timeout");
       await errorStartedPromise;
       await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -175,27 +175,27 @@ describe('createOpenAIModelClient — abort handling', () => {
       releaseError();
       await consumption;
 
-      expect(onError).toHaveBeenCalledWith({ error: 'run-timeout' });
+      expect(onError).toHaveBeenCalledWith({ error: "run-timeout" });
     },
   );
 });
 
-describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () => {
-  it('forwards provider-neutral toolChoice to the AI SDK request', async () => {
+describe("createOpenAIModelClient — step-cap enforcement (prepareStep)", () => {
+  it("forwards provider-neutral toolChoice to the AI SDK request", async () => {
     const model = scriptedModel([textResponse()]);
     const client = buildClient(model);
 
     await expect(
-      client.streamText({ messages, tools, toolChoice: 'none' }).text,
-    ).resolves.toBe('done');
+      client.streamText({ messages, tools, toolChoice: "none" }).text,
+    ).resolves.toBe("done");
 
-    expect(model.doStreamCalls[0]?.toolChoice).toEqual({ type: 'none' });
+    expect(model.doStreamCalls[0]?.toolChoice).toEqual({ type: "none" });
   });
 
-  it('leaves tools active while prior tool-requesting steps are under the cap', async () => {
+  it("leaves tools active while prior tool-requesting steps are under the cap", async () => {
     const model = scriptedModel([
-      toolResponse([{ toolName: 'echo', input: '{"value":"first"}' }]),
-      toolResponse([{ toolName: 'echo', input: '{"value":"second"}' }]),
+      toolResponse([{ toolName: "echo", input: '{"value":"first"}' }]),
+      toolResponse([{ toolName: "echo", input: '{"value":"second"}' }]),
       textResponse(),
     ]);
     const client = buildClient(model);
@@ -208,17 +208,17 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
         maxSteps: 3,
         onCapReached,
       }).text,
-    ).resolves.toBe('done');
+    ).resolves.toBe("done");
 
     expect(model.doStreamCalls).toHaveLength(3);
     expect(model.doStreamCalls[2]?.tools).toHaveLength(1);
     expect(onCapReached).not.toHaveBeenCalled();
   });
 
-  it('disables tools and fires onCapReached when maxSteps prior tool-steps have run', async () => {
+  it("disables tools and fires onCapReached when maxSteps prior tool-steps have run", async () => {
     const model = scriptedModel([
-      toolResponse([{ toolName: 'echo', input: '{"value":"first"}' }]),
-      toolResponse([{ toolName: 'echo', input: '{"value":"second"}' }]),
+      toolResponse([{ toolName: "echo", input: '{"value":"first"}' }]),
+      toolResponse([{ toolName: "echo", input: '{"value":"second"}' }]),
       textResponse(),
     ]);
     const client = buildClient(model);
@@ -231,19 +231,19 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
         maxSteps: 2,
         onCapReached,
       }).text,
-    ).resolves.toBe('done');
+    ).resolves.toBe("done");
 
     expect(model.doStreamCalls).toHaveLength(3);
     expect(model.doStreamCalls[2]?.tools).toEqual([]);
     expect(onCapReached).toHaveBeenCalledTimes(1);
   });
 
-  it('counts parallel calls within one step as one step toward the cap', async () => {
+  it("counts parallel calls within one step as one step toward the cap", async () => {
     const model = scriptedModel([
       toolResponse([
-        { toolName: 'echo', input: '{"value":"first"}' },
-        { toolName: 'echo', input: '{"value":"second"}' },
-        { toolName: 'echo', input: '{"value":"third"}' },
+        { toolName: "echo", input: '{"value":"first"}' },
+        { toolName: "echo", input: '{"value":"second"}' },
+        { toolName: "echo", input: '{"value":"third"}' },
       ]),
       textResponse(),
     ]);
@@ -257,17 +257,17 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
         maxSteps: 2,
         onCapReached,
       }).text,
-    ).resolves.toBe('done');
+    ).resolves.toBe("done");
 
     expect(model.doStreamCalls).toHaveLength(2);
     expect(model.doStreamCalls[1]?.tools).toHaveLength(1);
     expect(onCapReached).not.toHaveBeenCalled();
   });
 
-  it('uses maxSteps + 1 as a hard backstop after the forced final step', async () => {
+  it("uses maxSteps + 1 as a hard backstop after the forced final step", async () => {
     const model = scriptedModel(
       Array.from({ length: 3 }, (_, index) =>
-        toolResponse([{ toolName: 'echo', input: `{"value":"${index}"}` }]),
+        toolResponse([{ toolName: "echo", input: `{"value":"${index}"}` }]),
       ),
     );
     const client = buildClient(model);
@@ -279,35 +279,35 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
   });
 });
 
-describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal', () => {
+describe("createOpenAIModelClient — unavailable/hallucinated tool call refusal", () => {
   it.each([
     {
-      name: 'undeclared tool',
-      toolName: 'not_a_real_tool',
+      name: "undeclared tool",
+      toolName: "not_a_real_tool",
       input: '{"x":1}',
       expectedInput: { x: 1 },
-      reason: 'not_available',
+      reason: "not_available",
     },
     {
-      name: 'schema-invalid arguments',
-      toolName: 'echo',
+      name: "schema-invalid arguments",
+      toolName: "echo",
       input: '{"bad":true}',
       expectedInput: { bad: true },
-      reason: 'invalid_input',
+      reason: "invalid_input",
     },
     {
-      name: 'malformed JSON',
-      toolName: 'not_a_real_tool',
-      input: 'not valid json{{{',
-      expectedInput: 'not valid json{{{',
-      reason: 'not_available',
+      name: "malformed JSON",
+      toolName: "not_a_real_tool",
+      input: "not valid json{{{",
+      expectedInput: "not valid json{{{",
+      reason: "not_available",
     },
   ] as const)(
-    'reports $reason for $name without crashing',
+    "reports $reason for $name without crashing",
     async ({ toolName, input, expectedInput, reason }) => {
       const model = scriptedModel([
         toolResponse([{ toolName, input }]),
-        textResponse('fallback'),
+        textResponse("fallback"),
       ]);
       const client = buildClient(model);
       const onUnavailableToolCall = vi.fn();
@@ -319,10 +319,10 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
           maxSteps: 4,
           onUnavailableToolCall,
         }).text,
-      ).resolves.toBe('fallback');
+      ).resolves.toBe("fallback");
 
       expect(onUnavailableToolCall).toHaveBeenCalledWith({
-        toolCallId: 'call-0',
+        toolCallId: "call-0",
         toolName,
         input: expectedInput,
         reason,

@@ -37,13 +37,10 @@ import {
   type LlameConfig,
 } from '../instance-config/llame-config';
 import { ModelsService } from '../models/models.service';
-import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
+import { wrapStreamTextResult } from '@workspace/harness';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
-import {
-  type ModelClient,
-  type ModelStreamInput,
-} from '../models/model-client';
+import { type ModelClient, type ModelStreamInput } from '@workspace/harness';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type TextPart } from '../chats/context-builder';
 import { RunDispatchService } from './run-dispatch.service';
