@@ -17,7 +17,7 @@ Search SHALL execute against a derived projection (`search_chat_documents`) of c
 
 ### Requirement: Chunking is deterministic, versioned, and content-hashed
 
-Chunks SHALL be produced by a deterministic, versioned chunker: multi-message windows with a bounded character budget and adjacent-message overlap, carrying role markers and the covered message range (`first/last message id` and timestamps). Windows SHALL split on message boundaries **except** where a single message alone exceeds the budget, in which case that message SHALL be split into budget-sized parts at a text boundary so that **no document ever exceeds the budget**. Each part after the first SHALL carry a bounded anchor — the preceding user message, truncated at a word boundary with an explicit elision marker — so that a fragment of a long message remains interpretable on its own; a split user message carries no anchor, and a message with no preceding user message carries none. A message that fits the budget SHALL chunk exactly as before.
+Chunks SHALL be produced by a deterministic, versioned chunker: multi-message windows with a bounded character budget and adjacent-message overlap, carrying role markers and the covered message range (`first/last message id` and timestamps). Windows SHALL split on message boundaries **except** where a single message alone exceeds the budget, in which case that message SHALL be split into budget-sized parts at a text boundary so that **no single message contributes more than the budget to any one document**. (A packed document may still exceed the budget by carrying an overlap block alongside a full block; the `search-embeddings` capability states that bound, which consumers must size against.) Each part after the first SHALL carry a bounded anchor — the preceding user message, truncated at a word boundary with an explicit elision marker — so that a fragment of a long message remains interpretable on its own; a split user message carries no anchor, and a message with no preceding user message carries none. A message that fits the budget SHALL chunk exactly as before.
 
 Each chunk SHALL store role-labelled original-cased presentation `content` for snippets and a role-free normalized lexical representation for matching. The content hash SHALL cover both representations, the chunker version, and the covered message range; re-running the chunker over unchanged input MUST produce byte-identical chunks (idempotent, no-op upserts). Changing either representation algorithm, the budget, or the splitting or anchoring rules SHALL require a version bump, and documents of different `chunker_version` SHALL NOT mix within one chat's live projection.
 
@@ -39,7 +39,7 @@ Each chunk SHALL store role-labelled original-cased presentation `content` for s
 #### Scenario: A single oversized message is split rather than emitted whole
 
 - **WHEN** a chat contains one message several times larger than the chunk budget
-- **THEN** it is chunked into multiple documents each within the budget, together covering the message in full with nothing discarded
+- **THEN** it is chunked into multiple documents, each contributing at most one budget-sized slice of that message, together covering the message in full with nothing discarded
 
 #### Scenario: A continuation part carries the question it answers
 
