@@ -137,6 +137,7 @@ function preflightSuccess<T extends { readonly status: 'success' }>(
 
 function mapKnowledgeFailure(error: unknown): ToolResult {
   if (error instanceof KnowledgeFilesystemError) {
+    if (error.code === 'knowledge_cancelled') throw error;
     return {
       status: 'error',
       type: error.code,

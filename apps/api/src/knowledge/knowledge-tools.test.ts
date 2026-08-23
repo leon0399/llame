@@ -9,6 +9,7 @@ import {
   type KnowledgeFilesystemAdapterPort,
   type KnowledgeFilesystemBinding,
 } from './knowledge-filesystem';
+import { runTool } from '../tools/runner';
 import { isZodSchema } from '../tools/schema-utils';
 import { type ToolContext } from '../tools/types';
 
@@ -325,7 +326,7 @@ describe('Knowledge tool failure boundaries', () => {
     });
   });
 
-  it('propagates the trusted abort signal to both adapter operations', async () => {
+  it('propagates the trusted abort signal and cancellation to the runner', async () => {
     const abort = new AbortController();
     const adapter = fakeAdapter({
       search: vi.fn<KnowledgeFilesystemAdapterPort['search']>(
@@ -349,9 +350,64 @@ describe('Knowledge tool failure boundaries', () => {
 
     await expect(
       knowledgeSearchTool.execute(toolContext, { query: 'x', limit: 5 }),
-    ).resolves.toMatchObject({ type: 'knowledge_cancelled' });
+    ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
     await expect(
       knowledgeReadTool.execute(toolContext, { path: 'note.md' }),
-    ).resolves.toMatchObject({ type: 'knowledge_cancelled' });
+    ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
+  });
+
+  it('records parent abort and call timeout through the canonical runner outcomes', async () => {
+    const abort = new AbortController();
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const parentAbortAdapter = fakeAdapter({
+      search: vi.fn<KnowledgeFilesystemAdapterPort['search']>(
+        (_query, _limit, options = {}) =>
+          new Promise((_resolve, reject) => {
+            markStarted();
+            options.signal?.addEventListener(
+              'abort',
+              () => reject(new KnowledgeFilesystemError('knowledge_cancelled')),
+              { once: true },
+            );
+          }),
+      ),
+    });
+
+    const parentAbortResult = runTool(
+      knowledgeSearchTool,
+      { query: 'x', limit: 5 },
+      { ...context(parentAbortAdapter), abortSignal: abort.signal },
+      15,
+    );
+    await started;
+    abort.abort();
+    await expect(parentAbortResult).resolves.toMatchObject({
+      status: 'error',
+      type: 'cancelled',
+    });
+
+    const timeoutAdapter = fakeAdapter({
+      search: vi.fn<KnowledgeFilesystemAdapterPort['search']>(
+        (_query, _limit, options = {}) =>
+          new Promise((_resolve, reject) => {
+            options.signal?.addEventListener(
+              'abort',
+              () => reject(new KnowledgeFilesystemError('knowledge_cancelled')),
+              { once: true },
+            );
+          }),
+      ),
+    });
+    await expect(
+      runTool(
+        knowledgeSearchTool,
+        { query: 'x', limit: 5 },
+        context(timeoutAdapter),
+        0.01,
+      ),
+    ).resolves.toMatchObject({ status: 'error', type: 'timeout' });
   });
 });
