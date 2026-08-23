@@ -44,6 +44,25 @@ export async function findEmbeddingBinding(tx: Db, modelKey: string) {
 }
 
 /**
+ * Ledger keys that have a binding row (a model that has embedded at least
+ * once) but are absent from `declaredKeys` — i.e. models an operator has
+ * undeclared. Read-only; consumed by `EmbeddingBindingBootCheckService`'s
+ * non-fatal startup warning (chat-search-embeddings/operations, layer 7,
+ * task 7.3) so undeclaring a model is visible even though its vectors are
+ * deliberately left unread and undeleted until the operator runs `prune`.
+ */
+export async function listUndeclaredBindingKeys(
+  tx: Db,
+  declaredKeys: readonly string[],
+): Promise<string[]> {
+  const rows = await tx
+    .select({ modelKey: embeddingModelBindings.modelKey })
+    .from(embeddingModelBindings);
+  const declared = new Set(declaredKeys);
+  return rows.map((row) => row.modelKey).filter((key) => !declared.has(key));
+}
+
+/**
  * The binding ledger row (design D1) is written on the FIRST PERSISTED
  * vector for a key — never on declaration — so `search-embed.worker.ts`
  * calls this beside its persist path rather than at worker boot.

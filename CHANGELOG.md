@@ -34,6 +34,25 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   symlinks are refused and files use `O_NOFOLLOW`, while descriptor-relative
   containment remains future hardening for hostile concurrent swaps or hardlinks.
 
+- **Chat search embeddings: operator commands and the coverage readout**:
+  four `pnpm --filter api search:*` commands round out the embedding layer's
+  operator-initiated half. `search:backfill` enumerates outstanding chats
+  through the existing coverage discovery function and enqueues one
+  `search-embed` job per chat — a pure producer, issuing no provider request
+  and idempotent by construction. `search:prune` clears the vectors and
+  attempt metadata of a model no longer declared in `embeddingModels[]`
+  (undeclaring a model alone never deletes data). `search:retry-failed`
+  clears the full attempt-metadata tuple for a terminally failed document
+  under the current model/version, so it is picked up again instead of
+  staying silently suppressed. `search:coverage` reports per-chat embedded /
+  failed / outstanding counts via a new `llame_search_embedding_report`
+  function — a sibling of the coverage discovery function with a widened
+  `HAVING` so a chat whose every document failed is still shown, closing a
+  gap where a fully-failed corpus looked identical to "nothing outstanding."
+  `EmbeddingBindingBootCheckService` also now warns (non-fatally) at startup
+  when a model's ledger row is no longer declared, since its vectors are
+  otherwise left silently unread and undeleted until `search:prune` runs.
+
 - **Chat search: oversized messages no longer bypass chunking** (#517): a
   single message's text exceeding the chunker's 3000-character budget is now
   split into several budget-sized documents cut at a text boundary (blank

@@ -295,6 +295,13 @@
       "when": 1787456234193,
       "tag": "20260823033714_stormy_gorgon",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1787474394168,
+      "tag": "20260823083954_embedding_report_function",
+      "breakpoints": true
     }
   ]
 }

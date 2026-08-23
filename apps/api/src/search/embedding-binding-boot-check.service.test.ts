@@ -4,6 +4,7 @@
  * no database, mirroring `search-reindex.worker.test.ts`'s DB-free pattern
  * for a `runAsPublic`-backed boot check.
  */
+import { Logger } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 
 import { TenantDbService } from '../db/tenant-db.service';
@@ -14,12 +15,30 @@ import { EmbeddingBindingBootCheckService } from './embedding-binding-boot-check
 
 const openModules: TestingModule[] = [];
 
-/** Minimal fake for `tx.select().from().where()` returning `rows`. */
-function fakeTx(rows: EmbeddingModelBinding[]) {
+/** Shared row shape covering both query results this fake stands in for —
+ *  a full ledger row (`findEmbeddingBinding`) or a bare `modelKey` projection
+ *  (`listUndeclaredBindingKeys`). */
+type FakeRow = Partial<EmbeddingModelBinding> & { modelKey: string };
+
+/**
+ * Minimal fake for both query shapes this service issues: `tx.select().
+ * from().where()` (per-key lookup, `findEmbeddingBinding`) and `tx.select().
+ * from()` alone (the undeclared-keys listing, `listUndeclaredBindingKeys`,
+ * task 7.3 — no `.where()`, it wants every ledger row). `from()`'s result is
+ * therefore both directly awaitable AND chainable with `.where()`.
+ */
+function fakeTx(rows: FakeRow[]) {
   const query = {
     select: () => query,
-    from: () => query,
-    where: () => Promise.resolve(rows),
+    // A real Promise (not a hand-rolled thenable — oxlint's
+    // unicorn/no-thenable forbids that) with `.where()` attached, so it
+    // satisfies both call shapes: `await tx.select().from()` directly
+    // (`listUndeclaredBindingKeys`) and `await tx.select().from().where()`
+    // (`findEmbeddingBinding`).
+    from: () =>
+      Object.assign(Promise.resolve(rows), {
+        where: () => Promise.resolve(rows),
+      }),
   };
   return query;
 }
@@ -27,16 +46,21 @@ function fakeTx(rows: EmbeddingModelBinding[]) {
 async function buildService(
   embeddingModels: typeof BUILT_IN_DEFAULTS.embeddingModels,
   bindingsByKey: Record<string, EmbeddingModelBinding[]>,
+  undeclaredKeys: string[] = [],
 ) {
   let calls = 0;
+  const declaredKeyCount = embeddingModels.length;
   const runAsPublic = async <T>(
     fn: (tx: ReturnType<typeof fakeTx>) => Promise<T>,
   ): Promise<T> => {
     calls += 1;
-    // Each call's tx.where() resolves the SAME rows regardless of the actual
-    // where-clause value (the fake has no query planner) — tests instead
-    // drive per-key behavior by calling the service once per key, or by
-    // asserting on total call count.
+    // The first `declaredKeyCount` calls are per-key lookups (in `models`
+    // order); the one call after that (task 7.3) lists every ledger row —
+    // fed `undeclaredKeys` directly since `listUndeclaredBindingKeys` does
+    // its own declared-set filtering, so the fake need not replicate it.
+    if (calls > declaredKeyCount) {
+      return fn(fakeTx(undeclaredKeys.map((modelKey) => ({ modelKey }))));
+    }
     const key = Object.keys(bindingsByKey)[calls - 1] ?? '';
     return fn(fakeTx(bindingsByKey[key] ?? []));
   };
@@ -84,7 +108,56 @@ describe('EmbeddingBindingBootCheckService', () => {
       { e: [] },
     );
     await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
-    expect(callCount()).toBe(1);
+    // 1 per-key lookup for 'e' + 1 undeclared-keys listing (task 7.3).
+    expect(callCount()).toBe(2);
+  });
+
+  it('warns, non-fatally, for a ledger key with no matching declared model (task 7.3)', async () => {
+    const warnSpy = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => {});
+    const { service } = await buildService(
+      [
+        {
+          id: 'e',
+          provider: 'openai',
+          providerModelId: 'text-embedding-3-small',
+          dimensions: 1536,
+          batchSize: 32,
+          distanceMetric: 'cosine',
+        },
+      ],
+      { e: [] },
+      ['retired-model'],
+    );
+    await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"retired-model"'),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('issues no undeclared-keys warning when every ledger key is still declared', async () => {
+    const warnSpy = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => {});
+    const { service } = await buildService(
+      [
+        {
+          id: 'e',
+          provider: 'openai',
+          providerModelId: 'text-embedding-3-small',
+          dimensions: 1536,
+          batchSize: 32,
+          distanceMetric: 'cosine',
+        },
+      ],
+      { e: [] },
+      [],
+    );
+    await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it('throws, aborting bootstrap, when a declared model differs from its recorded binding', async () => {
