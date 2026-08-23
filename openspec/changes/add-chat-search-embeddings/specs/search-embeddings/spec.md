@@ -76,14 +76,21 @@ Embeddings SHALL be stored on the projection rows they describe, under the proje
 - **WHEN** a chat is deleted
 - **THEN** no embedding derived from any of its content remains
 
-### Requirement: Every document fits the embedding budget
+### Requirement: Document size is bounded, and the bound is what the embedding layer sizes for
 
-The projection SHALL guarantee that no document exceeds the size the embedding backend can accept, so a document is always at most one vector. Embedding SHALL NOT truncate, sample, or otherwise silently discard part of a document: content that cannot be embedded whole is a projection defect, not something the embedding layer resolves by dropping the tail.
+The projection SHALL guarantee a **stated upper bound** on document size, so a document is always at most one vector and the embedding layer can size its headroom against a real number rather than an assumption. Embedding SHALL NOT truncate, sample, or otherwise silently discard part of a document: content that cannot be embedded whole is a projection defect, not something the embedding layer resolves by dropping the tail.
 
-#### Scenario: An oversized message is embedded in full
+The bound is **not** the per-message chunk budget. No single message contributes more than the budget, but a chunk may carry an overlap block from the preceding chunk in addition to a full-budget block, so a document may reach approximately twice the budget plus its joining separator. That is existing, deliberate behavior of the contextual chunker — the overlap is what gives a chunk its surrounding context — and the embedding layer SHALL accommodate the real bound rather than the per-message one.
+
+#### Scenario: An oversized message is represented in full
 
 - **WHEN** a chat contains a single message far larger than the chunk budget
 - **THEN** every part of that message is represented by some document, and no part of it is discarded
+
+#### Scenario: The stated bound holds even with overlap carry
+
+- **WHEN** consecutive messages are each close to the chunk budget, so a chunk carries an overlap block alongside a full block
+- **THEN** the resulting document is within the stated bound, and the bound is asserted by test rather than assumed
 
 ### Requirement: An embedding is valid only while its source content and input version are unchanged
 
