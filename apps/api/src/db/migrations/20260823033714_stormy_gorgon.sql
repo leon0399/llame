@@ -37,3 +37,9 @@ AS $$
   ORDER BY count(*) DESC
   LIMIT max_rows;
 $$;
+--> statement-breakpoint
+-- Same reasoning as `llame_search_embedding_coverage` in
+-- 20260823014832_friendly_swarm: SECURITY DEFINER + a BYPASSRLS owner means the
+-- default `EXECUTE TO PUBLIC` is a cross-tenant read. Only `app` needs it.
+REVOKE ALL ON FUNCTION llame_search_embedding_backlog(integer) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION llame_search_embedding_backlog(integer) TO app;
