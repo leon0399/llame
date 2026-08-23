@@ -19,7 +19,7 @@ If a higher-layer test exposes a lower-layer defect, check out the owning branch
 - [x] 0.1 Start from `master`, confirm `origin/master` is the trunk and `remote.pushDefault` is configured, enable Git rerere, then create and publish `knowledge-read/proposal` before writing implementation code.
 - [x] 0.2 Create `knowledge-read/storage` directly above the proposal layer and keep it empty until the revised proposal is committed, published, and revalidated.
 - [x] 0.3 After committing each implementation layer, create only its immediate successor with `gh stack add`; carry no uncommitted changes across a layer boundary.
-- [ ] 0.4 Inspect ownership and bases with `gh stack view --json`; publish updates with `gh stack submit --auto --open`; inspect again and never merge a layer without Leo's explicit permission.
+- [x] 0.4 Inspect ownership and bases with `gh stack view --json`; publish updates with `gh stack submit --auto --open`; inspect again and never merge a layer without Leo's explicit permission.
 
 ## 1. `knowledge-read/storage`: Configuration, Identity, and Self-Service Provisioning
 
@@ -50,5 +50,5 @@ If a higher-layer test exposes a lower-layer defect, check out the owning branch
 
 - [x] 4.1 Only after tasks 1-3 pass and their PRs are published, create `knowledge-read/archive` above `knowledge-read/product`.
 - [x] 4.2 Run the `openspec-sync-specs` flow to merge this change's delta requirements into canonical specs, preserving unrelated canonical behavior.
-- [ ] 4.3 Run the `openspec-archive-change` flow, validate the archived change and canonical specs strictly, and verify no active change remains under `openspec/changes/add-personal-knowledge-read`.
-- [ ] 4.4 Commit and publish only the sync/archive result as the final stacked PR layer. Do not merge any layer without Leo's explicit permission.
+- [x] 4.3 Run the `openspec-archive-change` flow, validate the archived change and canonical specs strictly, and verify no active change remains under `openspec/changes/add-personal-knowledge-read`.
+- [x] 4.4 Commit and publish only the sync/archive result as the final stacked PR layer. Do not merge any layer without Leo's explicit permission.
