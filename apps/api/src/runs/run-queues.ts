@@ -5,7 +5,7 @@ import {
   expectString,
   type QueueDefinition,
 } from '../queue/queue';
-import { isNumber, isRecord } from '../unknown-record';
+import { isNumber, isRecord } from '@workspace/harness';
 import { type RunUserMessage } from './run-execution.service';
 
 /**

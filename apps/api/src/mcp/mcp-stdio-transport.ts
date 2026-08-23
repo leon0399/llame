@@ -9,7 +9,7 @@ import {
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
 import { redactProtectedString } from './protected-values';
-import { isString } from '../unknown-record';
+import { isString } from '@workspace/harness';
 
 /**
  * Upper bound on diagnostic text retained per server, in UTF-16 code units —

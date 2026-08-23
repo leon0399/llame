@@ -1,7 +1,7 @@
 export const TOOL_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/u;
 
 export function isToolId(value: unknown): value is string {
-  return typeof value === 'string' && TOOL_ID_PATTERN.test(value);
+  return typeof value === "string" && TOOL_ID_PATTERN.test(value);
 }
 
 export function asciiCaseFoldToolId(id: string): string {
@@ -19,6 +19,6 @@ export function matchesAllowedToolId(
   allowedRules: readonly string[],
 ): boolean {
   return allowedRules.some((rule) =>
-    rule.endsWith('*') ? toolId.startsWith(rule.slice(0, -1)) : rule === toolId,
+    rule.endsWith("*") ? toolId.startsWith(rule.slice(0, -1)) : rule === toolId,
   );
 }

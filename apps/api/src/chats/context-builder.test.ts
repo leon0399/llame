@@ -23,7 +23,7 @@ import {
   TOOL_REPLAY_CALL_LIMIT,
   TOOL_REPLAY_TURN_LIMIT,
 } from './tool-observation-part';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/harness';
 import { modelMessageSchema } from 'ai';
 
 /**

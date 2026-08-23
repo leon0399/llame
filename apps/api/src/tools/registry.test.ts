@@ -8,7 +8,7 @@ import {
   resolveAdvertisedTools,
   TOOL_REGISTRY,
 } from './registry';
-import { matchesAllowedToolId } from './tool-id';
+import { matchesAllowedToolId } from '@workspace/harness';
 import { type Tool } from './types';
 
 describe('tool registry', () => {

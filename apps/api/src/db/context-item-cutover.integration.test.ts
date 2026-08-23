@@ -22,7 +22,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from './schema';
 import { TenantDbService } from './tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/harness';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;

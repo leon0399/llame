@@ -20,7 +20,7 @@ import type { CompactionCapability } from '../compaction/compaction.service';
 import {
   type ModelClient,
   type ModelStreamInput,
-} from '../models/model-client';
+} from '@workspace/harness';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
@@ -50,7 +50,7 @@ import {
   McpRuntimeModule,
 } from './mcp-runtime.module';
 import { McpRuntimeService } from './mcp-runtime.service';
-import { type UnknownRecord } from '../unknown-record';
+import { type UnknownRecord } from '@workspace/harness';
 import { type KnowledgeToolResolver } from '../tools/types';
 import {
   createMcpTestFixture,

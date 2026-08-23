@@ -13,7 +13,7 @@ import {
   type TemporalAnchor,
 } from './prompt-loader';
 import type { PromptChatsInput } from '../models/model-catalog';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/harness';
 
 let tmpDir: string;
 let configPath: string;

@@ -14,7 +14,7 @@
 export type UnknownRecord = Record<string, unknown>;
 
 export const isRecord = (value: unknown): value is UnknownRecord =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
+  value !== null && typeof value === "object" && !Array.isArray(value);
 
 /**
  * Primitive type-guards for narrowing an `unknown` value at its boundary.
@@ -24,10 +24,10 @@ export const isRecord = (value: unknown): value is UnknownRecord =>
  * a named contract instead of a bare inline comparison scattered ad hoc.
  */
 export const isString = (value: unknown): value is string =>
-  typeof value === 'string';
+  typeof value === "string";
 
 export const isNumber = (value: unknown): value is number =>
-  typeof value === 'number';
+  typeof value === "number";
 
 export const isBoolean = (value: unknown): value is boolean =>
-  typeof value === 'boolean';
+  typeof value === "boolean";

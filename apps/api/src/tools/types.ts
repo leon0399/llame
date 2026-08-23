@@ -1,18 +1,17 @@
-import { type z } from 'zod';
-
 import { type TenantRunner } from '../db/tenant-db.service';
 import {
   type KnowledgeFilesystemAdapterPort,
   type KnowledgeFilesystemBinding,
 } from '../knowledge/knowledge-filesystem';
-import { type UnknownRecord } from '../unknown-record';
+import type { UnknownRecord } from '@workspace/harness';
 
-/**
- * A JSON Schema document used as a tool's input schema. Accepted as-is from
- * external sources (D2: "accepted as the source ships it"). Distinct from
- * `z.ZodTypeAny` which is the code-authored schema form.
- */
-export type JsonSchemaDocument = UnknownRecord;
+// The shared tool contracts live in @workspace/harness; this module binds
+// them to the API's trusted context transport.
+export {
+  type JsonSchemaDocument,
+  type ToolClassification,
+  type ToolResult,
+} from '@workspace/harness';
 
 /** Trusted, worker-bound capability for live owner Knowledge access. */
 export type KnowledgeToolResolver = {
@@ -42,44 +41,8 @@ export interface ToolContext {
   readonly knowledgeResolver?: KnowledgeToolResolver;
 }
 
-/**
- * SPEC §13.5 tool safety classification — verbatim enum. This slice executes
- * ONLY `read_only`; the rest are reserved so a tool's classification is
- * always one of the seven SPEC-mandated values (design D2: foundation over
- * YAGNI — one union type now avoids re-touching every tool definition when
- * the first write tool + §7.5 approvals land).
- */
-export type ToolClassification =
-  | 'read_only'
-  | 'write_low_risk'
-  | 'write_high_risk'
-  | 'execute_code'
-  | 'external_send'
-  | 'financial_or_sensitive'
-  | 'admin';
-
-/**
- * Structured tool observation — never a raw blob; small and typed. The
- * `status` discriminant lets the model react to failures as data, not
- * exceptions (D6: tool failure is an observation, not a crash).
- */
-export type ToolResult =
-  | ({ status: 'success' } & UnknownRecord)
-  | { status: 'error'; type: string; message: string };
-
-/**
- * A registered tool (design D2): `{ id, description, inputSchema,
- * classification, execute(ctx, args) }`. `classification` is required —
- * an unclassified tool is unrepresentable in the type, and the registry
- * additionally validates it at startup (fail loud, not at call time).
- * `timeoutSeconds` is an optional per-tool override of the global
- * `tools.callTimeoutSeconds` (D6), a code-level property, not a config key.
- */
-export interface Tool<TArgs = UnknownRecord> {
-  readonly id: string;
-  readonly description: string;
-  readonly classification: ToolClassification;
-  readonly timeoutSeconds?: number;
-  readonly inputSchema: z.ZodTypeAny | JsonSchemaDocument;
-  execute(context: ToolContext, args: TArgs): ToolResult | Promise<ToolResult>;
-}
+/** The API's tool contract: the shared harness Tool bound to the API context. */
+export type Tool<TArgs = UnknownRecord> = import('@workspace/harness').Tool<
+  TArgs,
+  ToolContext
+>;
