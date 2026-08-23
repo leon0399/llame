@@ -2,7 +2,7 @@ import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 
 import { UpdatePersonalizationDto } from './personalization.dto';
-import { type UnknownRecord } from '../../unknown-record';
+import { type UnknownRecord } from '@workspace/harness';
 
 const validate = (payload: UnknownRecord) =>
   validateSync(plainToInstance(UpdatePersonalizationDto, payload), {

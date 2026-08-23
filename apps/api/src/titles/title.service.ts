@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { ModelMessage as AiModelMessage } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { type ModelClient } from '../models/model-client';
+import { type ModelClient } from '@workspace/harness';
 import { ModelsService } from '../models/models.service';
 import { ChatsRepository } from '../chats/chats-repository';
 import {

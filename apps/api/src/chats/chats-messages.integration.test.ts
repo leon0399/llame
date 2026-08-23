@@ -19,7 +19,7 @@ import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelsService } from '../models/models.service';
 import { turnTelemetryLogger } from '../chats/turn-telemetry';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/harness';
 import {
   FakeModelsService,
   cookieOf,

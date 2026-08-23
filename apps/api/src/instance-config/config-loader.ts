@@ -18,13 +18,13 @@ import {
   type RawInstanceConfig,
   type RawMcpServerEntry,
 } from './llame-config';
-import { InstanceConfigError } from './instance-config.error';
+import { InstanceConfigError } from '@workspace/config';
 import { getConfigValidator } from './schema';
 import {
   InterpolationError,
   interpolateString,
   interpolateStringWithSubstitutions,
-} from './interpolation';
+} from '@workspace/config';
 import { createModelPromptLoader } from './prompt-loader';
 import { getRegisteredToolIds } from '../tools/registry';
 import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
@@ -34,7 +34,7 @@ import {
   isRecord,
   isString,
   type UnknownRecord,
-} from '../unknown-record';
+} from '@workspace/harness';
 
 const DEFAULT_CONFIG_FILENAME = 'llame.config.json';
 

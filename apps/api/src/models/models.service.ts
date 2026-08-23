@@ -16,7 +16,7 @@ import {
   resolveModelCredential as resolveModelCredentialSeam,
   type ModelClient,
   type ModelCredentialResolver,
-} from './model-client';
+} from '@workspace/harness';
 
 export type ModelsAvailability = {
   defaultModelId: string;

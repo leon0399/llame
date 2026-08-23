@@ -1,7 +1,7 @@
 import type { ProviderConfig } from '../instance-config/llame-config';
 import { toTokenPrice, type SystemModelCatalogEntry } from './model-catalog';
-import type { ModelClient } from './model-client';
-import { createOpenAIModelClient } from './openai-model-client';
+import type { ModelClient } from '@workspace/harness';
+import { createOpenAIModelClient } from '@workspace/harness';
 
 /**
  * Type-dispatch client factory (providers-and-models-as-code, #167): the

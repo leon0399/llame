@@ -43,10 +43,7 @@ import { z } from 'zod';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import {
-  type ModelClient,
-  type ModelStreamInput,
-} from '../models/model-client';
+import { type ModelClient, type ModelStreamInput } from '@workspace/harness';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { isTextPart } from './context-builder';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
@@ -69,7 +66,7 @@ import {
 } from '../tools/registry';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
 import { type Tool, type ToolContext } from '../tools/types';
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '@workspace/harness';
 import { turnTelemetryLogger } from './turn-telemetry';
 import {
   createModelChangeItem,

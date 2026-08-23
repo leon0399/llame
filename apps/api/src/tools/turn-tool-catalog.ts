@@ -7,9 +7,14 @@ import {
   hashWithDomain,
 } from '../canonical-json';
 import { type ModelToolDeclaration } from '../db/schema';
-import { isRecord, isString, type UnknownRecord } from '../unknown-record';
-import { admitToolInputSchema } from './schema-utils';
-import { asciiCaseFoldToolId, isToolId, matchesAllowedToolId } from './tool-id';
+import { isRecord, isString, type UnknownRecord } from '@workspace/harness';
+import { admitToolInputSchema } from '@workspace/harness';
+import {
+  asciiCaseFoldToolId,
+  hasValidTrustedTimeout,
+  isToolId,
+  matchesAllowedToolId,
+} from '@workspace/harness';
 import { type Tool, type ToolClassification } from './types';
 
 const logger = new Logger('TurnToolCatalog');
@@ -96,31 +101,6 @@ export type TurnToolCatalog = {
   readonly admitted: readonly AdmittedTurnTool[];
   readonly manifest: ToolAvailabilityManifestV1;
 };
-
-export function hasValidTrustedTimeout(
-  timeoutSeconds: number | undefined,
-  callTimeoutSeconds: number,
-): boolean {
-  if (!isRepresentableAbortTimeout(callTimeoutSeconds)) {
-    return false;
-  }
-  return (
-    timeoutSeconds === undefined ||
-    (isRepresentableAbortTimeout(timeoutSeconds) &&
-      timeoutSeconds <= callTimeoutSeconds)
-  );
-}
-
-const MAX_ABORT_TIMEOUT_MS = 2_147_483_647;
-
-function isRepresentableAbortTimeout(timeoutSeconds: number): boolean {
-  const timeoutMilliseconds = timeoutSeconds * 1000;
-  return (
-    Number.isInteger(timeoutMilliseconds) &&
-    timeoutMilliseconds >= 1 &&
-    timeoutMilliseconds <= MAX_ABORT_TIMEOUT_MS
-  );
-}
 
 const hasExactKeys = (
   value: UnknownRecord,

@@ -30,7 +30,7 @@ import {
 } from './context-item-producers';
 import { resolveForm } from './context-item';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
-import { type UnknownRecord } from '../unknown-record';
+import { type UnknownRecord } from '@workspace/harness';
 import {
   projectCompactionToolObservationLedger,
   projectToolObservations,

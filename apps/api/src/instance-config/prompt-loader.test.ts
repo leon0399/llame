@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { InstanceConfigError } from './instance-config.error';
+import { InstanceConfigError } from '@workspace/config';
 import {
   createModelPromptLoader,
   renderSystemPromptTemplate,
@@ -13,7 +13,7 @@ import {
   type TemporalAnchor,
 } from './prompt-loader';
 import type { PromptChatsInput } from '../models/model-catalog';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/harness';
 
 let tmpDir: string;
 let configPath: string;
