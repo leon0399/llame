@@ -31,6 +31,15 @@ external-harness adapters are deliberately postponed. llame supports
 user-configured inference providers but does not bundle or manage a local model
 runtime.
 
+A 2026-08-23 follow-up supersedes only that immediate read-slice sequencing:
+issue #213 now starts with self-service stable-ID directories beneath one
+configured Knowledge root and reads the live Markdown filesystem without
+requiring Git. Issue #212 introduces the first Git-backed recoverable mutation
+afterward. The older Git-backed-read statements below remain historical decision
+provenance; they are not the current #213 implementation contract. The stable
+logical Knowledge Space identity and later local-Node synchronization direction
+remain unchanged.
+
 ## 1. Why this checkpoint exists
 
 The discussion started from a desired first-party CLI experience similar to
