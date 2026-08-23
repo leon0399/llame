@@ -1,31 +1,49 @@
 /**
  * `prune` (chat-search-embeddings/operations, layer 7, task 7.3) — deletes
  * vectors (and their attempt metadata) of a model no longer declared in
- * `embeddingModels[]`. Undeclaring a model on its own leaves those rows
- * completely alone: they are never read (no query anywhere compares against
- * an arbitrary undeclared key) and never deleted except by this explicit
- * command — a config edit must never delete data.
+ * `embeddingModels[]`, AND retires that key's `embedding_model_bindings`
+ * ledger row. Undeclaring a model on its own leaves both completely alone:
+ * neither is ever read (no query anywhere compares against an arbitrary
+ * undeclared key) or deleted except by this explicit command — a config edit
+ * must never delete data.
  *
- * NO NEW SECURITY DEFINER DISCOVERY FUNCTION. Every other cross-tenant
- * operation in this domain (coverage, backlog, and this layer's `report`)
- * follows the same two-step shape: a BYPASSRLS function discovers
- * identifiers, then an ordinary owner-scoped `runAs` write acts on them. That
- * shape doesn't fit a WRITE command well: if the discovery function is ever
- * unprovisioned (`pnpm db:provision-rls` not yet run), it silently returns
- * zero candidates and this command would report success having pruned
- * nothing — exactly the "looks fine, does nothing" failure the brief calls
- * out for `retry-failed`. `users` carries no RLS at all (no owner column, no
- * policy), so this iterates every user id and issues one ordinary
- * owner-scoped `UPDATE` per user instead — most affecting zero rows, cheap
- * (the owner+chat index covers it), and with no BYPASSRLS surface to leave
- * unprovisioned: an unmigrated `app_rls` role simply doesn't matter here.
+ * THE LEDGER ROW MUST GO TOO, not just the vectors: `EmbeddingBindingBootCheckService`'s
+ * undeclared-key warning is driven purely by ledger-row presence
+ * (`listUndeclaredBindingKeys`), so leaving the row behind after pruning its
+ * vectors would make that warning fire forever, permanently claiming the key
+ * "has stored vectors" after none remain, and would leave a future
+ * re-declaration of the same id under different provider params rejected by
+ * `assertBindingConsistent` even though nothing is left to conflict with.
+ * `embedding_model_bindings` is instance-global with no tenant column and
+ * deliberately no RLS (same as `findEmbeddingBinding`/
+ * `listUndeclaredBindingKeys`), so this DELETE runs once under `runAsPublic`,
+ * not per-owner.
+ *
+ * NO NEW SECURITY DEFINER DISCOVERY FUNCTION for the per-owner vector sweep.
+ * Every other cross-tenant operation in this domain (coverage, backlog, and
+ * this layer's `report`) follows the same two-step shape: a BYPASSRLS
+ * function discovers identifiers, then an ordinary owner-scoped `runAs`
+ * write acts on them. That shape doesn't fit a WRITE command well: if the
+ * discovery function is ever unprovisioned (`pnpm db:provision-rls` not yet
+ * run), it silently returns zero candidates and this command would report
+ * success having pruned nothing — exactly the "looks fine, does nothing"
+ * failure the brief calls out for `retry-failed`. `users` carries no RLS at
+ * all (no owner column, no policy), so this iterates every user id and
+ * issues one ordinary owner-scoped `UPDATE` per user instead — most
+ * affecting zero rows, cheap (the owner+chat index covers it), and with no
+ * BYPASSRLS surface to leave unprovisioned: an unmigrated `app_rls` role
+ * simply doesn't matter here.
  */
 import { sql } from 'drizzle-orm';
 
 import { users } from '../../db/schema/auth';
 import type { TenantDbService } from '../../db/tenant-db.service';
 
-export type PruneResult = { prunedDocuments: number; affectedOwners: number };
+export type PruneResult = {
+  prunedDocuments: number;
+  affectedOwners: number;
+  retiredBindings: number;
+};
 
 /**
  * Clears all five embedding columns (embedding, embedding_model_key,
@@ -54,10 +72,10 @@ export async function pruneUndeclaredModelVectors(
   // that entirely. An empty declared set has no valid `IN (...)` form (bare
   // `()` is a syntax error), so it collapses to `TRUE`: every non-null key
   // is then "not declared," which is the correct semantics.
-  const notDeclared =
+  const notInDeclared = (column: ReturnType<typeof sql>) =>
     declaredModelKeys.length === 0
       ? sql`TRUE`
-      : sql`embedding_model_key NOT IN (${sql.join(
+      : sql`${column} NOT IN (${sql.join(
           declaredModelKeys.map((key) => sql`${key}`),
           sql`, `,
         )})`;
@@ -74,7 +92,7 @@ export async function pruneUndeclaredModelVectors(
             embed_input_version = NULL,
             embedding_fail_reason = NULL
         WHERE embedding_model_key IS NOT NULL
-          AND ${notDeclared}
+          AND ${notInDeclared(sql`embedding_model_key`)}
       `),
     );
     if (result.count > 0) {
@@ -82,5 +100,21 @@ export async function pruneUndeclaredModelVectors(
       affectedOwners += 1;
     }
   }
-  return { prunedDocuments, affectedOwners };
+
+  // Retire the ledger row for every undeclared key — see this file's header
+  // for why leaving it behind after clearing the vectors is itself a bug.
+  // `embedding_model_bindings` carries no tenant column and no RLS, so this
+  // is one global DELETE, not a per-owner loop.
+  const retired = await tenantDb.runAsPublic((tx) =>
+    tx.execute(sql`
+      DELETE FROM embedding_model_bindings
+      WHERE ${notInDeclared(sql`model_key`)}
+    `),
+  );
+
+  return {
+    prunedDocuments,
+    affectedOwners,
+    retiredBindings: retired.count,
+  };
 }

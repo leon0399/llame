@@ -172,6 +172,17 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
     return rows.length > 0;
   }
 
+  /** Insert a ledger row directly — test setup only; the real ledger row is
+   *  written by the embed worker's own persist (design D1), not by anything
+   *  under test here. */
+  async function insertLedgerRow(modelKey: string): Promise<void> {
+    await sqlClient`
+      INSERT INTO embedding_model_bindings
+        (model_key, provider_id, provider_model_id, dimensions)
+      VALUES (${modelKey}, 'openai', 'text-embedding-3-small', 1536)
+    `;
+  }
+
   beforeAll(async () => {
     const postgres = require('postgres');
     const connect = postgres.default ?? postgres;
@@ -272,11 +283,20 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
         EMBED_INPUT_VERSION,
       );
 
-      const { prunedDocuments, affectedOwners } =
+      // Ledger rows for both models — a real worker persist writes these
+      // (design D1), so prune must retire the undeclared one without
+      // touching the declared one.
+      await insertLedgerRow(declaredModel);
+      await insertLedgerRow(undeclaredModel);
+
+      const { prunedDocuments, affectedOwners, retiredBindings } =
         await pruneUndeclaredModelVectors(tenantDb, [declaredModel]);
 
       expect(prunedDocuments).toBeGreaterThanOrEqual(2);
       expect(affectedOwners).toBe(2);
+      expect(retiredBindings).toBeGreaterThanOrEqual(1);
+      expect(await ledgerRowExists(undeclaredModel)).toBe(false);
+      expect(await ledgerRowExists(declaredModel)).toBe(true);
 
       const [keptRow] = await ownedRows(
         owner,
@@ -313,6 +333,11 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
         expect(prunedRow.embedding_fail_reason).toBeNull();
         expect(prunedRow.has_embedding).toBe(false);
       }
+
+      // `embedding_model_bindings` is global with no owner/cascade — clean
+      // up the row this test inserted directly so it doesn't linger in the
+      // shared integration database.
+      await sqlClient`DELETE FROM embedding_model_bindings WHERE model_key = ${declaredModel}`;
     });
   });
 

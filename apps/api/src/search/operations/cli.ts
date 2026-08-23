@@ -79,10 +79,10 @@ async function runCommand(command: string): Promise<void> {
         const declaredModelKeys = instanceConfig.config.embeddingModels.map(
           (model) => model.id,
         );
-        const { prunedDocuments, affectedOwners } =
+        const { prunedDocuments, affectedOwners, retiredBindings } =
           await pruneUndeclaredModelVectors(tenantDb, declaredModelKeys);
         console.log(
-          `prune: cleared ${prunedDocuments} document(s) across ${affectedOwners} owner(s)`,
+          `prune: cleared ${prunedDocuments} document(s) across ${affectedOwners} owner(s), retired ${retiredBindings} ledger key(s)`,
         );
         return;
       }
@@ -134,7 +134,17 @@ async function runCommand(command: string): Promise<void> {
         );
     }
   } finally {
-    await app.close();
+    // Log-and-swallow, not rethrow: a close-time error (e.g. a queue
+    // connection already gone) must never overturn a command that already
+    // printed its own success line above — a rethrow here would reach the
+    // outer .catch and report `❌ search:${command} failed` with exit code 1
+    // for a command that, in fact, succeeded.
+    await app.close().catch((error: unknown) => {
+      console.error(
+        'Warning: error while closing the application context',
+        error,
+      );
+    });
   }
 }
 
