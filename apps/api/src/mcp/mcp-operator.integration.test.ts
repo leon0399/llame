@@ -22,6 +22,7 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
+import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { SearchIndexService } from '../search/search-index.service';
 import {
@@ -274,6 +275,8 @@ function executionService(
     new SearchIndexService(tenantDb),
     noopReindexDispatch(),
     knowledgeResolver,
+
+    noopEmbedDispatch(),
     runtime,
   );
 }

@@ -7,6 +7,10 @@ import {
 import { sql } from 'drizzle-orm';
 
 import { TenantDbService } from '../db/tenant-db.service';
+import {
+  InstanceConfigService,
+  type InstanceConfigReader,
+} from '../instance-config/instance-config.service';
 import { WorkerProfileService } from '../instance-config/worker-profile.service';
 import { QUEUE, type Queue } from '../queue/queue';
 import { CHUNKER_VERSION } from './chat/conversation-chunker';
@@ -16,8 +20,32 @@ import {
   SEARCH_SWEEP_CRON,
   SEARCH_SWEEP_QUEUE,
 } from './reindex-queues';
+import { SearchEmbedDispatchService } from './search-embed-dispatch.service';
 import { SearchReindexDispatchService } from './search-reindex-dispatch.service';
 import { SearchIndexService } from './search-index.service';
+
+/** One discovered chat identifier a sweep branch enqueues work for. */
+type SweepRow = { chat_id: string; owner_user_id: string };
+
+/**
+ * Enqueue `rows` in bounded-parallel batches rather than one-at-a-time —
+ * matters for the deploy-time backfill burst (up to SEARCH_SWEEP_BATCH chats
+ * in one tick). Each chat is independent (distinct singletonKey), so ordering
+ * across the batch carries no meaning.
+ */
+async function enqueueRowsBounded(
+  rows: readonly SweepRow[],
+  enqueueOne: (chatId: string, ownerUserId: string) => Promise<void>,
+): Promise<void> {
+  const CONCURRENCY = 20;
+  for (let i = 0; i < rows.length; i += CONCURRENCY) {
+    await Promise.all(
+      rows
+        .slice(i, i + CONCURRENCY)
+        .map((row) => enqueueOne(row.chat_id, row.owner_user_id)),
+    );
+  }
+}
 
 /**
  * SearchReindexWorker (#195) — consumes the reindex queue (one chat per job) and
@@ -36,6 +64,18 @@ import { SearchIndexService } from './search-index.service';
  * last-resort backstop (defense-in-depth), not the sweep's named purpose.
  * The actual reindex of each chat then runs strictly inside that owner's
  * `runAs` scope.
+ *
+ * chat-search-embeddings design D5: the SAME sweep tick is also the embed
+ * discovery producer — after the lexical branch above, a second branch reads
+ * the embedding-backlog predicate (`llame_search_embedding_backlog`, the
+ * STATIC never-attempted-only branch of coverage — design trap 5: unlike
+ * `llame_search_embedding_coverage`, this one is servable by a partial index,
+ * see the schema migration) and enqueues `search-embed` jobs for lagging
+ * chats. Gated on `search.chats.embeddingModelId` being configured — off by
+ * default, so an instance that never declares a model never even queries it.
+ * This ONLY covers incremental lag by construction (D6): the static branch
+ * excludes model-change/version-bump rows, which stay the explicit `backfill`
+ * command's job.
  */
 @Injectable()
 export class SearchReindexWorker implements OnApplicationBootstrap {
@@ -47,7 +87,10 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
     private readonly tenantDb: TenantDbService,
     private readonly indexService: SearchIndexService,
     private readonly dispatch: SearchReindexDispatchService,
+    private readonly embedDispatch: SearchEmbedDispatchService,
     private readonly workerProfile: WorkerProfileService,
+    @Inject(InstanceConfigService)
+    private readonly instanceConfig: InstanceConfigReader,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -71,6 +114,11 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
       async (job) => {
         try {
           await this.indexService.reindexChat(job.chatId, job.ownerUserId);
+          // chat-search-embeddings design D5: this is the second of the
+          // three enqueue sites — the reindex worker itself, after its own
+          // rebuild succeeds. Best-effort + off-by-default; see the dispatch
+          // service's own contract.
+          void this.embedDispatch.enqueueChatEmbed(job.chatId, job.ownerUserId);
         } catch (error) {
           this.logger.error(
             `Reindex failed for chat ${job.chatId}`,
@@ -138,6 +186,13 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
       'llame_search_embedding_coverage',
       "Search embedding coverage function 'llame_search_embedding_coverage' is not owned by a BYPASSRLS role — cross-tenant embedding-lag discovery is DISABLED until 'pnpm db:provision-rls' runs. Existing lexical search and per-chat write-hook indexing are unaffected; only cross-tenant embedding backfill discovery is deferred.",
     );
+    // chat-search-embeddings task 6.5/trap 5: the sweep's own incremental
+    // embedding-backlog discovery function, distinct from the reporting-only
+    // coverage function above.
+    await this.assertFunctionOwnedByBypassRlsRole(
+      'llame_search_embedding_backlog',
+      "Search embedding backlog function 'llame_search_embedding_backlog' is not owned by a BYPASSRLS role — cross-tenant incremental embedding discovery is DISABLED until 'pnpm db:provision-rls' runs. Existing lexical search and per-chat write-hook indexing are unaffected; only cross-tenant embed-backlog discovery is deferred.",
+    );
   }
 
   private async assertFunctionOwnedByBypassRlsRole(
@@ -168,27 +223,45 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
     // DEFINER (runs AS app_rls, BYPASSRLS) and does not filter by caller, so it
     // returns every stale chat regardless. Only identifiers cross this boundary.
     const stale = await this.tenantDb.runAsPublic((tx) =>
-      tx.execute<{ chat_id: string; owner_user_id: string }>(sql`
+      tx.execute<SweepRow>(sql`
         SELECT chat_id, owner_user_id
         FROM llame_search_stale_chats(${CHUNKER_VERSION}, ${SEARCH_SWEEP_BATCH})
       `),
     );
     const rows = [...stale];
-    // Each chat is independent (distinct singletonKey), so enqueue in bounded-
-    // parallel batches rather than one-at-a-time — matters for the deploy-time
-    // backfill burst (up to SEARCH_SWEEP_BATCH chats in one tick).
-    const CONCURRENCY = 20;
-    for (let i = 0; i < rows.length; i += CONCURRENCY) {
-      await Promise.all(
-        rows
-          .slice(i, i + CONCURRENCY)
-          .map((row) =>
-            this.dispatch.enqueueChatReindex(row.chat_id, row.owner_user_id),
-          ),
-      );
-    }
+    await enqueueRowsBounded(rows, (chatId, ownerUserId) =>
+      this.dispatch.enqueueChatReindex(chatId, ownerUserId),
+    );
     if (rows.length > 0) {
       this.logger.log(`Sweep enqueued ${rows.length} chat reindex job(s)`);
+    }
+    await this.runEmbedBacklogSweep();
+  }
+
+  /**
+   * chat-search-embeddings design D5/D6/D14: the embed side of the SAME
+   * sweep tick. Off-by-default (no query at all) when the chats corpus has
+   * no configured model. Reads ONLY the static never-attempted branch —
+   * `llame_search_embedding_backlog`, not `llame_search_embedding_coverage`
+   * — so this deliberately covers incremental lag only; a model change or
+   * input-version bump is bulk work the explicit `backfill` command handles.
+   */
+  private async runEmbedBacklogSweep(): Promise<void> {
+    if (!this.instanceConfig.config.search.chats.embeddingModelId) {
+      return;
+    }
+    const backlog = await this.tenantDb.runAsPublic((tx) =>
+      tx.execute<SweepRow>(sql`
+        SELECT chat_id, owner_user_id
+        FROM llame_search_embedding_backlog(${SEARCH_SWEEP_BATCH})
+      `),
+    );
+    const rows = [...backlog];
+    await enqueueRowsBounded(rows, (chatId, ownerUserId) =>
+      this.embedDispatch.enqueueChatEmbed(chatId, ownerUserId),
+    );
+    if (rows.length > 0) {
+      this.logger.log(`Sweep enqueued ${rows.length} chat embed job(s)`);
     }
   }
 }

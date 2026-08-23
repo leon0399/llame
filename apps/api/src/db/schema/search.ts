@@ -157,6 +157,22 @@ export const searchChatDocuments = pgTable(
       t.ownerUserId,
       t.lastMessageAt.desc(),
     ),
+    // Partial index over the embedding-backlog sweep's STATIC branch
+    // (chat-search-embeddings design D10/task 6.5, trap 5): "never
+    // attempted" — embedding IS NULL AND embedding_fail_reason IS NULL — is
+    // the ONE branch of the coverage predicate that binds no runtime
+    // parameter, so it is the only one a static index can serve. The three
+    // `IS DISTINCT FROM` branches (model/hash/version changed) compare
+    // against bind parameters and stay unindexed by design — they only
+    // produce rows after an operator-invoked model change or version bump,
+    // which is exactly when the explicit `backfill` command runs a one-off
+    // full scan. `llame_search_embedding_backlog` (the migration's
+    // hand-appended function) reads ONLY this branch so it can use this
+    // index; `llame_search_embedding_coverage` (all four branches, for
+    // reporting) cannot and still full-scans by design.
+    index('search_chat_documents_embedding_backlog_idx')
+      .on(t.chatId, t.ownerUserId)
+      .where(sql`embedding IS NULL AND embedding_fail_reason IS NULL`),
     // Owner is the whole boundary: SELECT (search) and write (reindex worker under
     // runAs(owner)) are both owner-scoped. FOR ALL covers both; empty identity
     // (runAsPublic) matches nothing, so public reads never reach this table.

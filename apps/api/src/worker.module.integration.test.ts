@@ -13,6 +13,15 @@
  * - default `all` -> every group's main queue gets a consumer registered
  * - `web` (empty profile) -> nothing registers at all
  *
+ * `search-embed` (chat-search-embeddings design D14) is a FOURTH group in
+ * `all`, but SearchEmbedWorker additionally gates on
+ * `search.chats.embeddingModelId` being configured (off-by-default, design
+ * D5/spec "off by default"). This suite boots with no llame.config.json — no
+ * embedding model declared — so `search-embed` registers NOTHING even under
+ * `all`, proving the off-by-default contract at this integration boundary.
+ * The configured (model declared, consuming) state is covered by
+ * SearchEmbedWorker's own tests, not here.
+ *
  * The fail-closed-on-unknown-profile behavior (WorkerProfileService's
  * constructor throw) is deliberately NOT re-exercised here through a full
  * WorkerModule compile: a `.compile()` that rejects mid-DI-graph leaves
@@ -122,6 +131,10 @@ describeIfDb(
             'sessions.cleanup',
           ]),
         );
+        // Off-by-default (design D5/D14): no embeddingModels declared at this
+        // cwd, so SearchEmbedWorker registers nothing for 'search-embed' even
+        // though the group IS present in the built-in `all` profile.
+        expect(registeredQueues).not.toContain('search-embed');
       } finally {
         // Graceful drain (design D5): close() runs onModuleDestroy, which
         // triggers nestjs-pgboss's boss.stop({ graceful }).
