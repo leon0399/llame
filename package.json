@@ -19,7 +19,7 @@
     "typecheck": "turbo run typecheck",
     "format": "prettier --write --cache .",
     "format:check": "prettier --check --cache .",
-    "test:e2e": "playwright test",
+    "test:e2e": "pnpm --filter @workspace/config-interpolation build && playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug",

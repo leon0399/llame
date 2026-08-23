@@ -19,13 +19,13 @@ import {
   type RawInstanceConfig,
   type RawMcpServerEntry,
 } from './llame-config';
-import { InstanceConfigError } from './instance-config.error';
+import { InstanceConfigError } from '@workspace/config-interpolation';
 import { getConfigValidator } from './schema';
 import {
   InterpolationError,
   interpolateString,
   interpolateStringWithSubstitutions,
-} from './interpolation';
+} from '@workspace/config-interpolation';
 import { createModelPromptLoader } from './prompt-loader';
 import { getRegisteredToolIds } from '../tools/registry';
 import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
