@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url';
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
 
-// @workspace/config-interpolation normally resolves to built ./dist; the integration
-// project runs outside turbo on fresh checkouts, so compile it from source
-// here instead.
+// Workspace packages whose consumers normally resolve built ./dist — the
+// integration project runs outside turbo on fresh checkouts, so compile
+// them from source here instead.
 const pkgSrc = (name: string) =>
   path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -19,10 +19,8 @@ const pkgSrc = (name: string) =>
 export default defineConfig({
   resolve: {
     alias: [
-      {
-        find: /^@workspace\/config-interpolation$/,
-        replacement: pkgSrc('config-interpolation'),
-      },
+      { find: /^@workspace\/config-interpolation$/, replacement: pkgSrc('config-interpolation') },
+      { find: /^@workspace\/harness$/, replacement: pkgSrc('harness') },
     ],
   },
   // NestJS DI resolves constructor parameters from reflect-metadata's
@@ -76,7 +74,6 @@ export default defineConfig({
           include: ['evals/mcp-web-search-eval.test.ts'],
           fileParallelism: false,
           testTimeout: 120_000,
-          hookTimeout: 120_000,
         },
       },
     ],

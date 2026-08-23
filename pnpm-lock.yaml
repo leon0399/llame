@@ -309,37 +309,6 @@ importers:
         specifier: 'catalog:'
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.16.5)(@vitest/browser-playwright@4.1.10)(jsdom@28.1.0(@noble/hashes@1.8.0))(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.2)(tsx@4.23.12)(yaml@2.9.0))
 
-  apps/cli:
-    dependencies:
-      '@workspace/config':
-        specifier: workspace:*
-        version: link:../../packages/config
-      '@workspace/harness':
-        specifier: workspace:*
-        version: link:../../packages/harness
-      ai:
-        specifier: 'catalog:'
-        version: 6.0.217(zod@3.25.76)
-      zod:
-        specifier: 'catalog:'
-        version: 3.25.76
-    devDependencies:
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.16.5
-      '@workspace/config-typescript':
-        specifier: workspace:*
-        version: link:../../packages/config-typescript
-      tsx:
-        specifier: 'catalog:'
-        version: 4.23.12
-      typescript:
-        specifier: 'catalog:'
-        version: 5.7.3
-      vitest:
-        specifier: 'catalog:'
-        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.16.5)(@vitest/browser-playwright@4.1.10)(jsdom@28.1.0(@noble/hashes@1.8.0))(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.2)(tsx@4.23.12)(yaml@2.9.0))
-
   apps/storybook:
     dependencies:
       '@workspace/ui':
