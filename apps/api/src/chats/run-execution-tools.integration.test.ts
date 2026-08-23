@@ -2216,6 +2216,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         return Promise.resolve(
           turn === 1
             ? jsonToolCallResponse('knowledge-call', 'knowledge_read', {
+                knowledgeSpaceId: space.id,
                 path: relativePath,
               })
             : textResponse('The checkpoint is Friday at 09:00 UTC.'),

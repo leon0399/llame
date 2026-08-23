@@ -502,6 +502,48 @@ describe('knowledge_search', () => {
     });
   });
 
+  it('omits an unscoped row revoked before its pre-open access check', async () => {
+    const revoked = {
+      id: '7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
+      name: 'Revoked',
+      createdAt: new Date(0),
+    };
+    const current = {
+      id: binding.id,
+      name: binding.name ?? binding.id,
+      createdAt: new Date(1),
+    };
+    const adapter = fakeAdapter();
+
+    await expect(
+      knowledgeSearchTool.execute(
+        multiSpaceContext(
+          [revoked, current],
+          new Map([[binding.id, binding]]),
+          new Map([[binding.id, adapter]]),
+        ),
+        { query: 'term', limit: 5 },
+      ),
+    ).resolves.toMatchObject({
+      status: 'success',
+      complete: true,
+      warningCount: 0,
+      warnings: [],
+    });
+    expect(adapter.search).toHaveBeenCalledOnce();
+
+    await expect(
+      knowledgeSearchTool.execute(
+        multiSpaceContext([revoked], new Map(), new Map()),
+        { query: 'term', limit: 5 },
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_space_not_configured',
+      message: 'Knowledge Space is not configured.',
+    });
+  });
+
   it('returns bounded incomplete warnings when one current space fails', async () => {
     const bindingB: KnowledgeFilesystemBinding = {
       ...binding,

@@ -152,21 +152,21 @@ async function searchAllCurrentSpaces(
   const warnings: KnowledgeSearchWarning[] = [];
   let warningCount = 0;
   let inspectedSpaces = 0;
-  let discoveredSpaces = 0;
+  let currentSpaces = 0;
 
   try {
     for await (const page of currentSpacePages(context)) {
-      discoveredSpaces += page.length;
       for (const space of page) {
         const access = await resolveExplicitAccess(context, space.id);
         if (isToolResult(access)) {
-          if (access.type === 'knowledge_space_not_found') return access;
+          if (access.type === 'knowledge_space_not_found') continue;
           const warning = warningFromResult(access, space);
           if (warning === undefined) return access;
           warningCount += 1;
           appendBoundedWarning(warnings, warning);
           continue;
         }
+        currentSpaces += 1;
 
         try {
           const spaceMatches = await access.adapter.search(query, limit, {
@@ -196,7 +196,7 @@ async function searchAllCurrentSpaces(
     return mapResolverFailure(error);
   }
 
-  if (discoveredSpaces === 0) return notConfiguredResult();
+  if (currentSpaces === 0) return notConfiguredResult();
   if (inspectedSpaces === 0) {
     const firstWarning = warnings[0];
     return firstWarning === undefined
