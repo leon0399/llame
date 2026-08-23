@@ -8,6 +8,7 @@ import {
   type EmbeddingResult,
 } from './core';
 import { DEFAULT_EMBEDDING_BATCH_SIZE } from '../instance-config/llame-config';
+import { isNumber, isRecord, type UnknownRecord } from '../unknown-record';
 
 export type OpenAIEmbeddingBackendConfig = {
   credential?: string;
@@ -42,10 +43,13 @@ export class EmbeddingBackendError extends Error {
   }
 }
 
-/** Terminal HTTP-status classification (design D16) — a small predicate over the error's status, not an error taxonomy. Written against `APICallError.statusCode` directly rather than the SDK's own `.isRetryable` (which treats other statuses, e.g. 409, as retryable — the design's terminal rule is 4xx-excluding-408/429, not the SDK's opinion). */
+/** Terminal HTTP-status classification (design D16) — a small predicate over the error's status, not an error taxonomy. Written against `APICallError.statusCode` directly rather than the SDK's own `.isRetryable` (which treats other statuses, e.g. 409, as retryable — the design's terminal rule is 4xx-excluding-408/429, not the SDK's opinion). Passes an already-classified `EmbeddingBackendError` straight through (rather than re-wrapping it into the generic fallback message below) — that's how `assertResponseOrderPreserved`'s verification failure, thrown from inside the custom `fetch`, reaches the caller with its own specific message intact. */
 export function classifyEmbeddingFailure(
   error: unknown,
 ): EmbeddingBackendError {
+  if (error instanceof EmbeddingBackendError) {
+    return error;
+  }
   if (APICallError.isInstance(error)) {
     const status = error.statusCode;
     const terminal =
@@ -74,6 +78,74 @@ function isValidVector(
   );
 }
 
+/**
+ * Design D7's correlation guarantee, enforced at the one place it can still
+ * be observed: the raw HTTP response body's `data[].index`. Verified against
+ * the installed `@ai-sdk/openai@3.0.79` source that `embedMany`/`embed`
+ * strip this field entirely before our code ever sees a result (its response
+ * schema parses only `{embedding: number[]}[]`) — position-zipping
+ * `embeddings[i]` against the request's `values[i]`, exactly what `embed()`
+ * below does, is therefore the SDK's own contract, not our shortcut. This
+ * function is what makes that position-zip provably safe rather than merely
+ * assumed: an index sequence that is not exactly `0..n-1` in order — an
+ * outright reorder, or any item simply missing its index — means the pairing
+ * cannot be trusted, so it throws instead of silently writing one document's
+ * vector onto another's row (design D7's stated failure mode).
+ *
+ * An absent `index` is treated as UNVERIFIABLE, not as "assume order held":
+ * a compatible endpoint that never emits `index` gives no signal at all, and
+ * trusting position anyway is exactly the corruption D7 exists to prevent.
+ * Failing loud beats a silent, undetectable mispairing.
+ *
+ * A response whose shape isn't `{data: [...]}` at all is left alone — that's
+ * the SDK's own schema validation's job to reject, not this function's.
+ */
+function assertResponseOrderPreserved(body: UnknownRecord): void {
+  if (!Array.isArray(body.data)) return;
+  const inOrder = body.data.every(
+    (item, position) =>
+      isRecord(item) && isNumber(item.index) && item.index === position,
+  );
+  if (!inOrder) {
+    throw new EmbeddingBackendError(
+      'embedding provider response order could not be verified',
+      false,
+    );
+  }
+}
+
+/**
+ * Wraps a fetch implementation so every response is checked by
+ * `assertResponseOrderPreserved` before the SDK's own parsed result is
+ * trusted. `response.clone()` is required: the SDK's own response handler
+ * reads the SAME `Response`'s body afterward, and a Fetch API body stream
+ * can only be consumed once. A non-2xx response, or a body that isn't valid
+ * JSON or isn't record-shaped, is left untouched for the SDK's own
+ * `failedResponseHandler`/schema validation to reject with its own error —
+ * this wrapper only ever narrows an otherwise-successful response.
+ */
+function wrapFetchWithOrderVerification(
+  underlyingFetch: typeof fetch,
+): typeof fetch {
+  return async (
+    input: Parameters<typeof fetch>[0],
+    init: Parameters<typeof fetch>[1],
+  ) => {
+    const response = await underlyingFetch(input, init);
+    if (!response.ok) return response;
+    let body: unknown;
+    try {
+      body = await response.clone().json();
+    } catch {
+      return response;
+    }
+    if (isRecord(body)) {
+      assertResponseOrderPreserved(body);
+    }
+    return response;
+  };
+}
+
 /** Narrows `OpenAIProvider` to the one capability this adapter calls (#268 pattern) — a fake provider in a test needs to implement only this, not the whole languageModel/image/transcription/speech surface. */
 export type OpenAIEmbeddingProvider = Pick<
   OpenAIProvider,
@@ -87,14 +159,21 @@ export type OpenAIEmbeddingProvider = Pick<
  * `createOpenAI` whose `textEmbeddingModel` returns `ai/test`'s
  * `MockEmbeddingModelV3` (real `embed`/`embedMany` still runs against it —
  * only the provider boundary is replaced, same as
- * `openai-model-client.tools.test.ts`). Production call sites never pass
- * this — the default is the real SDK.
+ * `openai-model-client.tools.test.ts`) to exercise application-level logic
+ * (chunking, prefixes, vector validation, per-document failure), or overrides
+ * `fetch` to exercise `assertResponseOrderPreserved` end to end through the
+ * REAL `createOpenAI`/`textEmbeddingModel`/`embedMany` chain with a synthetic
+ * HTTP response — `MockEmbeddingModelV3` bypasses the HTTP layer entirely, so
+ * it cannot exercise the fetch-level guard. Production call sites never pass
+ * either — the default is the real SDK and the real global `fetch`.
  */
 export type OpenAIEmbeddingBackendDependencies = {
   createOpenAI: (settings: {
     apiKey: string;
     baseURL?: string;
+    fetch?: typeof fetch;
   }) => OpenAIEmbeddingProvider;
+  fetch?: typeof fetch;
 };
 
 const DEFAULT_DEPENDENCIES: OpenAIEmbeddingBackendDependencies = {
@@ -116,9 +195,20 @@ export function createOpenAIEmbeddingBackend(
   const openai = dependencies.createOpenAI({
     apiKey: config.credential || KEYLESS_PLACEHOLDER_API_KEY,
     ...(config.baseUrl && { baseURL: config.baseUrl }),
+    fetch: wrapFetchWithOrderVerification(dependencies.fetch ?? fetch),
   });
   const model = openai.textEmbeddingModel(config.providerModelId);
   const batchSize = config.batchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE;
+  // Schema validation (embeddingModels[].batchSize: minimum 1) keeps this
+  // out of reach through the normal config path, but this function is also
+  // callable directly (design D8/D15) with no such guarantee — a non-positive
+  // batchSize would otherwise never advance `start` in embed()'s chunk loop
+  // below and hang forever instead of failing.
+  if (batchSize < 1) {
+    throw new RangeError(
+      `createOpenAIEmbeddingBackend: batchSize must be >= 1, got ${batchSize}`,
+    );
+  }
 
   async function embed(
     documents: readonly EmbeddingDocumentInput[],

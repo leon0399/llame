@@ -5,6 +5,7 @@
  * flow" pattern `openai-model-client.tools.test.ts` uses for streamText — the
  * real `embed`/`embedMany` from `ai` runs against it.
  */
+import { createOpenAI } from '@ai-sdk/openai';
 import type {
   EmbeddingModelV3,
   EmbeddingModelV3Embedding,
@@ -13,6 +14,7 @@ import { APICallError } from 'ai';
 import { MockEmbeddingModelV3 } from 'ai/test';
 
 import { KEYLESS_PLACEHOLDER_API_KEY } from '../models/openai-model-client';
+import type { UnknownRecord } from '../unknown-record';
 import {
   classifyEmbeddingFailure,
   createOpenAIEmbeddingBackend,
@@ -95,7 +97,10 @@ describe('createOpenAIEmbeddingBackend — keyless provider (task 5.4)', () => {
       dependencies,
     );
     await backend.embedQuery('hello');
-    expect(settingsCalls[0]).toEqual({
+    // toMatchObject, not toEqual: settings also carries the response-order
+    // verification `fetch` wrapper (see the "response-order verification"
+    // describe block below), which this test isn't asserting on.
+    expect(settingsCalls[0]).toMatchObject({
       apiKey: 'sk-real',
       baseURL: 'http://localhost:11434/v1',
     });
@@ -190,7 +195,14 @@ describe('createOpenAIEmbeddingBackend — batching (task 5.4/D5)', () => {
 });
 
 describe('createOpenAIEmbeddingBackend — result correlation (task 5.6)', () => {
-  it('correlates each result to its requesting document by explicit id, not response position confusion', async () => {
+  // This is a happy-path pairing test, not a robustness test: `withModel`'s
+  // mock always returns embeddings in request order, so it cannot fail on a
+  // reordered response — it only proves the zip is correctly indexed when
+  // the provider behaves. The actual reorder-detection guarantee (design
+  // D7) is exercised end to end through the REAL SDK/fetch chain in the
+  // "response-order verification via raw HTTP" describe block below, which
+  // is the one that can fail.
+  it('pairs each result with its requesting document by position when the provider returns embeddings in request order', async () => {
     const { dependencies } = withModel((options) => ({
       embeddings: options.values.map((_, i) => embeddingOf(i * 10)),
     }));
@@ -262,6 +274,139 @@ describe('createOpenAIEmbeddingBackend — result correlation (task 5.6)', () =>
     expect(results).toEqual([
       { documentId: 'c', contentHash: 'hc', embedding: embeddingOf(0) },
     ]);
+  });
+});
+
+/**
+ * Returns `dependencies.fetch` responding with the given raw JSON body,
+ * regardless of the request — for exercising `assertResponseOrderPreserved`
+ * end to end through the REAL `createOpenAI`/`textEmbeddingModel`/`embedMany`
+ * chain. `MockEmbeddingModelV3` (used everywhere else in this file) bypasses
+ * the whole HTTP layer, so it cannot reach this guard at all.
+ */
+function fakeEmbeddingHttpFetch(
+  responseBody: UnknownRecord,
+  status = 200,
+): typeof fetch {
+  return () =>
+    Promise.resolve(
+      new Response(JSON.stringify(responseBody), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+}
+
+describe('createOpenAIEmbeddingBackend — response-order verification via raw HTTP (design D7, task 5.6)', () => {
+  it('detects a reordered same-count response and rejects rather than silently pairing wrong vectors', async () => {
+    // Same count as requested (3), so the length-mismatch guard alone would
+    // NOT catch this — the provider claims each item's true position via
+    // `index`, but the array itself arrives scrambled: physically the first
+    // item is d2's vector, the second is d0's, the third is d1's. A plain
+    // positional zip (no order verification) would silently write d2's
+    // vector onto d0's row, d0's onto d1's row, and d1's onto d2's row.
+    const dependencies = {
+      createOpenAI: (settings: Parameters<typeof createOpenAI>[0]) =>
+        createOpenAI(settings),
+      fetch: fakeEmbeddingHttpFetch({
+        data: [
+          { object: 'embedding', index: 2, embedding: embeddingOf(300) },
+          { object: 'embedding', index: 0, embedding: embeddingOf(100) },
+          { object: 'embedding', index: 1, embedding: embeddingOf(200) },
+        ],
+        model: 'text-embedding-3-small',
+      }),
+    };
+    const backend = createOpenAIEmbeddingBackend(
+      { providerModelId: 'text-embedding-3-small', dimensions: 3 },
+      dependencies,
+    );
+    const documents = [
+      { documentId: 'd0', contentHash: 'h0', content: 'A' },
+      { documentId: 'd1', contentHash: 'h1', content: 'B' },
+      { documentId: 'd2', contentHash: 'h2', content: 'C' },
+    ];
+    try {
+      await backend.embedDocuments(documents);
+      expect.unreachable('expected throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(EmbeddingBackendError);
+      if (!(error instanceof EmbeddingBackendError)) return;
+      expect(error.terminal).toBe(false);
+    }
+  });
+
+  it('treats a response with no index metadata at all as unverifiable and rejects it', async () => {
+    const dependencies = {
+      createOpenAI: (settings: Parameters<typeof createOpenAI>[0]) =>
+        createOpenAI(settings),
+      fetch: fakeEmbeddingHttpFetch({
+        data: [
+          { object: 'embedding', embedding: embeddingOf(0) },
+          { object: 'embedding', embedding: embeddingOf(10) },
+        ],
+      }),
+    };
+    const backend = createOpenAIEmbeddingBackend(
+      { providerModelId: 'm', dimensions: 3 },
+      dependencies,
+    );
+    try {
+      await backend.embedDocuments([
+        { documentId: 'a', contentHash: 'ha', content: 'A' },
+        { documentId: 'b', contentHash: 'hb', content: 'B' },
+      ]);
+      expect.unreachable('expected throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(EmbeddingBackendError);
+    }
+  });
+
+  it('a well-formed in-order response with index metadata passes verification and embeds normally', async () => {
+    const dependencies = {
+      createOpenAI: (settings: Parameters<typeof createOpenAI>[0]) =>
+        createOpenAI(settings),
+      fetch: fakeEmbeddingHttpFetch({
+        data: [
+          { object: 'embedding', index: 0, embedding: embeddingOf(100) },
+          { object: 'embedding', index: 1, embedding: embeddingOf(200) },
+        ],
+      }),
+    };
+    const backend = createOpenAIEmbeddingBackend(
+      { providerModelId: 'm', dimensions: 3 },
+      dependencies,
+    );
+    const results = await backend.embedDocuments([
+      { documentId: 'd0', contentHash: 'h0', content: 'A' },
+      { documentId: 'd1', contentHash: 'h1', content: 'B' },
+    ]);
+    expect(results).toEqual([
+      { documentId: 'd0', contentHash: 'h0', embedding: embeddingOf(100) },
+      { documentId: 'd1', contentHash: 'h1', embedding: embeddingOf(200) },
+    ]);
+  });
+
+  it('leaves a non-2xx response untouched for the SDK own error handling', async () => {
+    const dependencies = {
+      createOpenAI: (settings: Parameters<typeof createOpenAI>[0]) =>
+        createOpenAI(settings),
+      fetch: fakeEmbeddingHttpFetch({ error: { message: 'bad request' } }, 400),
+    };
+    const backend = createOpenAIEmbeddingBackend(
+      { providerModelId: 'm', dimensions: 3 },
+      dependencies,
+    );
+    try {
+      await backend.embedDocuments([
+        { documentId: 'a', contentHash: 'ha', content: 'A' },
+      ]);
+      expect.unreachable('expected throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(EmbeddingBackendError);
+      if (!(error instanceof EmbeddingBackendError)) return;
+      expect(error.terminal).toBe(true);
+    }
   });
 });
 
