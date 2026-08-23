@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-23
 
+- **Harness extraction + local coding-harness CLI experiment** (`cli-experiment`,
+  stacked as #537 → #538 → #539): extracted the framework-free cores into
+  reusable packages. `packages/config-interpolation` owns `{env:}`/`{path:}`
+  secret interpolation and the config error contract; `packages/harness` owns
+  the agent harness core — classified tool contracts, schema utilities, result
+  truncation, the tool runner (generic over trusted context, with a fail-closed
+  approval seam), the OpenAI-compatible model client, a narrated run loop that
+  binds a context receipt per run, and an append-only JSONL session log.
+  `apps/api` consumes both; new `apps/cli` runs the same core locally with five
+  workspace-bound coding tools and interactive approvals.
+
 - **Personal Knowledge reads** (#213, #519, #520): authenticated owners can
   self-service one stable logical Knowledge Space beneath an operator-configured
   root, while forced-RLS PostgreSQL stores only the owner linkage and files

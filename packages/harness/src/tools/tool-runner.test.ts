@@ -267,3 +267,79 @@ describe("runTool", () => {
     expect(result).toMatchObject({ status: "success", truncated: true });
   });
 });
+
+describe("runTool approval gate", () => {
+  const writer: Tool<{ path: string }, CliToolContext> = {
+    id: "writer",
+    description: "writes a file",
+    classification: "write_low_risk",
+    inputSchema: z.object({ path: z.string() }).strict(),
+    execute: (_ctx, { path }) => ({ status: "success", path }),
+  };
+
+  it("denies a non-read-only call when no gate is present (fail closed)", async () => {
+    const result = await runTool(writer, { path: "f" }, {}, 15);
+    expect(result).toMatchObject({ status: "error", type: "not_approved" });
+  });
+
+  it("denies when the gate rejects, executes when it approves", async () => {
+    const rejected = await runTool(
+      writer,
+      { path: "f" },
+      {},
+      15,
+      undefined,
+      () => Promise.resolve("rejected" as const),
+    );
+    expect(rejected).toMatchObject({ status: "error", type: "not_approved" });
+
+    const approved = await runTool(
+      writer,
+      { path: "f" },
+      {},
+      15,
+      undefined,
+      () => Promise.resolve("approved" as const),
+    );
+    expect(approved).toMatchObject({ status: "success", path: "f" });
+  });
+
+  it("treats a throwing gate as denial", async () => {
+    const result = await runTool(
+      writer,
+      { path: "f" },
+      {},
+      15,
+      undefined,
+      () => {
+        throw new Error("gate crashed");
+      },
+    );
+    expect(result).toMatchObject({
+      status: "error",
+      type: "not_approved",
+      message: 'Approval for "writer" could not be obtained.',
+    });
+  });
+
+  it("does not consult the gate for read-only tools", async () => {
+    const gate = vi.fn(() => Promise.resolve("rejected" as const));
+    const result = await runTool(
+      echoTool,
+      { value: "hi" },
+      {},
+      15,
+      undefined,
+      gate,
+    );
+    expect(result).toEqual({ status: "success", value: "hi" });
+    expect(gate).not.toHaveBeenCalled();
+  });
+
+  it("does not reach the gate when input validation fails", async () => {
+    const gate = vi.fn(() => Promise.resolve("approved" as const));
+    const result = await runTool(writer, { path: 42 }, {}, 15, undefined, gate);
+    expect(result).toMatchObject({ status: "error", type: "invalid_input" });
+    expect(gate).not.toHaveBeenCalled();
+  });
+});

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://turbo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // Consumes @workspace/harness and @workspace/config-interpolation as built dist —
+    // same exception as apps/api (see its turbo.json).
+    "lint": { "dependsOn": ["^build"] },
+    "typecheck": { "dependsOn": ["^build"] },
+    "test": { "dependsOn": ["^build"] }
+  }
+}

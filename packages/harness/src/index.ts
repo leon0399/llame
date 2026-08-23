@@ -1,4 +1,9 @@
 export {
+  type ApprovalDecision,
+  type ApprovalGate,
+  type ApprovalRequest,
+} from "./approval";
+export {
   type ModelClient,
   type ModelObjectInput,
   type ModelStreamInput,
@@ -18,6 +23,16 @@ export {
   RESULT_TRUNCATE_CHARS,
   truncateOversizedResult,
 } from "./tools/result-truncation";
+export {
+  executeRun,
+  type ContextReceipt,
+  type ExecuteRunInput,
+  type LoopTool,
+  type RunEvent,
+  type RunModelClient,
+  type RunOutcome,
+} from "./run";
+export { SessionLog, type SessionEntry, type SessionEvent } from "./session";
 export {
   asciiCaseFoldToolId,
   isToolId,
