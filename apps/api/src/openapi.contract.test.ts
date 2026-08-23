@@ -112,6 +112,7 @@ const EXPECTED_OPERATION_IDS = [
   'loginUser',
   'logoutUser',
   'pinItem',
+  'provisionKnowledgeSpace',
   'registerUser',
   'resumeChatStream',
   'revokeOrgUnitMembership',
@@ -307,6 +308,12 @@ describe('committed OpenAPI contract', () => {
     ['post', '/api/v1/org-units/{id}/memberships'],
   ] as const)('%s %s documents 204 without a response body', (method, path) => {
     expect(response(method, path, '204')).not.toHaveProperty('content');
+  });
+
+  it('documents knowledge-space provisioning as a bodyless endpoint', () => {
+    expect(operation('put', '/api/v1/me/knowledge-space')).not.toHaveProperty(
+      'requestBody',
+    );
   });
 
   it.each([

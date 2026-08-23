@@ -2275,6 +2275,51 @@
         "summary": "",
         "tags": ["org-units"]
       }
+    },
+    "/api/v1/me/knowledge-space": {
+      "put": {
+        "description": "Creates or resolves the authenticated owner personal Knowledge Space and returns only its stable logical identifier.",
+        "operationId": "provisionKnowledgeSpace",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeSpaceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeSpaceUnavailableResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Provision the current owner Knowledge Space",
+        "tags": ["knowledge"]
+      }
     }
   },
   "info": {
@@ -3668,6 +3713,35 @@
           }
         },
         "required": ["role", "viaOrgUnitId", "inherited"]
+      },
+      "KnowledgeSpaceResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": ["id"]
+      },
+      "KnowledgeSpaceUnavailableResponse": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number"
+          },
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "enum": ["knowledge_space_unavailable"]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["statusCode", "error", "code", "message"]
       }
     }
   }
