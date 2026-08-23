@@ -118,3 +118,14 @@ AS $$
   ORDER BY count(*) FILTER (WHERE needs_embedding) DESC
   LIMIT max_rows;
 $$;
+--> statement-breakpoint
+-- A SECURITY DEFINER function runs with its owner's rights, and after
+-- `pnpm db:provision-rls` that owner is the BYPASSRLS `app_rls` role — so the
+-- default `EXECUTE TO PUBLIC` would hand every role a cross-tenant read of
+-- chat/owner identifiers that FORCE RLS exists to deny. Only `app`, the role
+-- the application connects as, needs it. Today `app` is the sole LOGIN role so
+-- PUBLIC is effectively just `app`, but that is a property of the current
+-- deployment, not a guarantee — a reporting or read-only role added later must
+-- not silently inherit this.
+REVOKE ALL ON FUNCTION llame_search_embedding_coverage(text, integer, integer) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION llame_search_embedding_coverage(text, integer, integer) TO app;
