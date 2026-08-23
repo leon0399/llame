@@ -107,12 +107,19 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
   }
 
   /**
-   * Boot-time provisioning self-check (NON-FATAL). `llame_search_stale_chats`
-   * must be owned by a BYPASSRLS role (`app_rls`) to see rows across tenants
-   * under FORCE RLS; until `pnpm db:provision-rls` reassigns it there from
-   * `app` (same lifecycle as `llame_role_on_unit_path` — see AGENTS.md), it
-   * silently returns zero rows and cross-tenant backfill is disabled with no
-   * error anywhere else. This check makes that failure mode visible.
+   * Boot-time provisioning self-check (NON-FATAL) for BOTH cross-tenant
+   * discovery functions this worker's sweep(s) depend on: the lexical
+   * staleness function `llame_search_stale_chats` (#195) and the embedding
+   * coverage function `llame_search_embedding_coverage` (chat-search-
+   * embeddings, design D10 — schema-only in this layer; no embed worker
+   * consumes it yet, but a mis-provisioned instance must be visible from the
+   * moment the migration lands, not only once a later layer starts reading
+   * it). Each must be owned by a BYPASSRLS role (`app_rls`) to see rows
+   * across tenants under FORCE RLS; until `pnpm db:provision-rls` reassigns
+   * it there from `app` (same lifecycle as `llame_role_on_unit_path` — see
+   * AGENTS.md), it silently returns zero rows and cross-tenant discovery for
+   * THAT function is disabled with no error anywhere else. This check makes
+   * that failure mode visible, per function, independently.
    *
    * Non-circular: reads `pg_proc`/`pg_roles` catalog metadata, not tenant
    * data, so it never hits the RLS wall it's checking for.
@@ -123,23 +130,35 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
    * caught and logged as a warning, never rethrown.
    */
   private async assertDiscoveryProvisioned(): Promise<void> {
+    await this.assertFunctionOwnedByBypassRlsRole(
+      'llame_search_stale_chats',
+      "Search discovery function 'llame_search_stale_chats' is not owned by a BYPASSRLS role — cross-tenant backfill and chunker-version rebuilds are DISABLED until 'pnpm db:provision-rls' runs. New activity still indexes synchronously (Tier 1); only dormant-chat backfill is deferred.",
+    );
+    await this.assertFunctionOwnedByBypassRlsRole(
+      'llame_search_embedding_coverage',
+      "Search embedding coverage function 'llame_search_embedding_coverage' is not owned by a BYPASSRLS role — cross-tenant embedding-lag discovery is DISABLED until 'pnpm db:provision-rls' runs. Existing lexical search and per-chat write-hook indexing are unaffected; only cross-tenant embedding backfill discovery is deferred.",
+    );
+  }
+
+  private async assertFunctionOwnedByBypassRlsRole(
+    functionName: string,
+    unprovisionedMessage: string,
+  ): Promise<void> {
     try {
       const result = await this.tenantDb.runAsPublic((tx) =>
         tx.execute<{ bypass: boolean }>(sql`
           SELECT r.rolbypassrls AS bypass
           FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
-          WHERE p.proname = 'llame_search_stale_chats'
+          WHERE p.proname = ${functionName}
         `),
       );
       const row = [...result][0];
       if (!row || !row.bypass) {
-        this.logger.error(
-          "Search discovery function 'llame_search_stale_chats' is not owned by a BYPASSRLS role — cross-tenant backfill and chunker-version rebuilds are DISABLED until 'pnpm db:provision-rls' runs. New activity still indexes synchronously (Tier 1); only dormant-chat backfill is deferred.",
-        );
+        this.logger.error(unprovisionedMessage);
       }
     } catch (error) {
       this.logger.warn(
-        `Discovery provisioning self-check failed to run: ${error instanceof Error ? error.message : String(error)}`,
+        `Discovery provisioning self-check failed to run for '${functionName}': ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }

@@ -22,6 +22,18 @@ const tsvector = customType<{ data: string }>({
   },
 });
 
+// pgvector's `vector` type (chat-search-embeddings, design D2) — drizzle-orm/
+// pg-core has no native mapping either, same reasoning as tsvector above.
+// Declared WITHOUT a dimension modifier deliberately: `vector(N)` would bake
+// one model's dimensionality into the schema, making every model change a
+// migration. Dimensions are validated in application code against the
+// operator's declared catalog before insert, not by the column.
+const vector = customType<{ data: string }>({
+  dataType() {
+    return 'vector';
+  },
+});
+
 // Derived lexical search projection (#195, phase 1 of #194). A `search_chat_documents`
 // row is one contextual multi-message CHUNK of a chat, produced by the deterministic
 // versioned conversation chunker (src/search/chat) over the text parts of user/
@@ -79,6 +91,33 @@ export const searchChatDocuments = pgTable(
     // content + message range) — lets the reindex worker skip unchanged chunks and
     // (phase 2) guard stale embeddings.
     contentHash: text('content_hash').notNull(),
+    // --- Embedding columns (chat-search-embeddings, design D2) ---------------
+    // All five nullable: at most one vector per document, produced
+    // asynchronously and independently of the lexical rebuild above. A column
+    // form (not a separate table) so embeddings inherit this row's existing
+    // owner RLS policy automatically — see the header comment and D2/D3.
+    // Dimensionless (no `vector(N)`) — see the `vector` customType above.
+    embedding: vector('embedding'),
+    // The operator-declared internal model key that produced `embedding`
+    // (`embeddingModels[].id` in llame.config.json) — NEVER the provider-side
+    // model identifier (spec: "Provider-side identifiers SHALL NOT leak past
+    // the backend adapter into stored rows").
+    embeddingModelKey: text('embedding_model_key'),
+    // Snapshot of `content_hash` at embed time (D7). The sole validity rule:
+    // an embedding is current only while this matches the live `content_hash`
+    // for the same model key and input version; a rebuild that changes
+    // `content_hash` implicitly invalidates it.
+    embeddedContentHash: text('embedded_content_hash'),
+    // Bumped when the embedding INPUT shape changes independent of a model
+    // change (e.g. whether role labels are embedded, D11's open question) —
+    // a second axis alongside `embeddingModelKey`/`embeddedContentHash` that
+    // the coverage predicate below must also compare.
+    embedInputVersion: integer('embed_input_version'),
+    // Terminal-failure tombstone (D16): set together with a NULL `embedding`
+    // in the same statement as a permanent (non-retryable) embed failure, so
+    // the coverage predicate stops re-attempting it. NULL means either "never
+    // attempted" or "succeeded" — disambiguated by `embedding IS NOT NULL`.
+    embeddingFailReason: text('embedding_fail_reason'),
     // STORED generated column — the FTS match target. Language-neutral `simple`
     // config (no stemming): correct for multilingual/mixed-language chats; the
     // trigram leg recovers shared stems, embeddings (phase 3) cover semantics.
@@ -164,3 +203,52 @@ export const searchChatState = pgTable(
 ).enableRLS();
 
 export type SearchChatState = InferSelectModel<typeof searchChatState>;
+
+// Embedding-model binding ledger (chat-search-embeddings, design D1). ONE row
+// per operator-declared internal model key (`embeddingModels[].id` in
+// llame.config.json), written on the FIRST persisted vector for that key —
+// NOT on declaration, so a declared-but-never-used key can be corrected
+// freely. It records the binding actually used to produce vectors: provider
+// connection, provider-side model identifier, revision, dimensions, distance
+// metric, optional asymmetric document/query prefixes, and batch size. A
+// later declaration of the same key whose binding differs is rejected at
+// boot (application-layer check, a later layer) — this table exists ONLY to
+// make that check possible, turning silent embedding-space mixing under one
+// key into a startup failure instead of corrupted ranking.
+//
+// `providerModelId` is server-only and MUST NOT leak past the backend
+// adapter into stored document rows, application interfaces, logs, or any
+// user- or model-visible surface (search-embeddings spec) — `embedding_model_key`
+// on `search_chat_documents` carries only the internal key, never this value.
+//
+// Instance-global operator state: NO tenant column, and therefore NO RLS —
+// FORCE RLS on a policy-less, owner-less table would make it unreadable by
+// the non-BYPASSRLS request role every real request runs as. Deliberately NOT
+// foreign-keyed from `search_chat_documents.embedding_model_key`: a document
+// may still name a key whose ledger row has since been pruned (an operator
+// may remove a declared model that still has vectors), and the binding check
+// is an application-layer comparison against the declared catalog, not a
+// referential constraint.
+export const embeddingModelBindings = pgTable('embedding_model_bindings', {
+  modelKey: text('model_key').primaryKey(),
+  providerId: text('provider_id').notNull(),
+  providerModelId: text('provider_model_id').notNull(),
+  revision: text('revision'),
+  dimensions: integer('dimensions').notNull(),
+  // Cosine is the only distance metric this design produces (D12); the
+  // column stays a per-key catalog field rather than a hardcoded assumption.
+  distanceMetric: text('distance_metric').notNull().default('cosine'),
+  documentPrefix: text('document_prefix'),
+  queryPrefix: text('query_prefix'),
+  batchSize: integer('batch_size'),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type EmbeddingModelBinding = InferSelectModel<
+  typeof embeddingModelBindings
+>;

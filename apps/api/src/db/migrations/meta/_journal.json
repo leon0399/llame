@@ -281,6 +281,13 @@
       "when": 1787441414285,
       "tag": "20260822233014_curved_gwen_stacy",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1787449712485,
+      "tag": "20260823014832_friendly_swarm",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,23 @@
+-- Runs ONCE, on a fresh data volume, as the `postgres` superuser, connected to `llame`.
+--
+-- `vector` (pgvector) is NOT a trusted extension (unlike `pg_trgm`, created
+-- directly by the chat-search-platform migration): its control file carries
+-- no `trusted = true`, so PostgreSQL requires superuser to install it —
+-- verified empirically against pgvector/pgvector:pg17's 0.8.6 package
+-- ("permission denied to create extension \"vector\" ... Must be superuser").
+-- The non-superuser `app` role that owns the schema and runs every migration
+-- (01-app-role.sql) therefore cannot create it itself.
+--
+-- Provisioning it here, before any migration runs, means the
+-- `CREATE EXTENSION IF NOT EXISTS vector` statement hand-appended to the
+-- chat-search-embeddings migration is a harmless no-op for `app`: Postgres
+-- checks existence before the permission check for IF NOT EXISTS, so a
+-- non-superuser re-issuing it against an already-installed extension
+-- succeeds — the same shape as `02-app-rls-role.sql` provisioning a role
+-- migrations only reference.
+--
+-- Existing dev volumes that predate this change: `db:migrate` will fail on
+-- that CREATE EXTENSION statement with the permission error above. Run
+-- `pnpm db:reset` (destroys the dev volume — confirm first) or hand-run this
+-- file as the `postgres` superuser, same as the `02-app-rls-role.sql` gotcha.
+CREATE EXTENSION IF NOT EXISTS vector;
