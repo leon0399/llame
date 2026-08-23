@@ -2,10 +2,10 @@
   "$schema": "https://turbo.dev/schema.json",
   "extends": ["//"],
   "tasks": {
-    // This workspace consumes @workspace/config as built dist (exports →
+    // This workspace consumes @workspace/config-interpolation as built dist (exports →
     // ./dist), so its checks need the upstream build first — the root
     // "nothing tests consume is built" rule has an exception here. Local
-    // equivalent: pnpm --filter @workspace/config build (bypasses turbo's
+    // equivalent: pnpm --filter @workspace/config-interpolation build (bypasses turbo's
     // output-less build cache).
     "lint": { "dependsOn": ["^build"] },
     "typecheck": { "dependsOn": ["^build"] },

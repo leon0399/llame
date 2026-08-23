@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { InstanceConfigError } from '@workspace/config';
+import { InstanceConfigError } from '@workspace/config-interpolation';
 import {
   renderSystemPromptTemplate,
   type TemporalAnchor,

@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { InstanceConfigError } from '@workspace/config';
+import { InstanceConfigError } from '@workspace/config-interpolation';
 import { loadInstanceConfig } from './config-loader';
 
 describe('knowledge.root instance configuration', () => {
