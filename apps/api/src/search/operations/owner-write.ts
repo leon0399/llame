@@ -24,16 +24,86 @@
  * a tenancy bug (e.g. one copy silently dropping the `runAs` scoping). A
  * future caller of this helper inherits the scoping automatically instead of
  * re-deriving it.
+ *
+ * BOUNDED CONCURRENCY, NOT SERIAL (efficiency finding). A plain sequential
+ * `for...of` loop is 5,000 round trips for 5,000 users — seconds against
+ * local Postgres, minutes against a networked one, and none of that latency
+ * is required by the safety property above: each `runAs(ownerId, ...)` is
+ * an INDEPENDENT transaction, so nothing about "loud failure, no silent
+ * no-op" depends on running them one at a time. Batches 20-wide via
+ * `Promise.allSettled` — the exact pattern `backfill.ts` already uses for
+ * the same reason, which itself mirrors `search-reindex.worker.ts`'s
+ * `enqueueRowsBounded`; this is the third use of that shape, not a new one.
+ * `allSettled` (not `all`) is what makes the two properties below hold
+ * simultaneously: one owner's rejection must not discard the other 19
+ * outcomes in its batch, the same reason `backfill.ts` chose it.
+ *
+ * Split into two functions so the batching/accumulation logic — the part
+ * with genuine new behavior — is unit-testable with a plain id array and a
+ * fake `runAs` callback, with no Drizzle `Db` type to fake: `runOwnerBatches`
+ * takes neither the query builder nor any SQL, only `ownerIds` and a
+ * `(ownerId) => Promise<{count}>` callback. `forEachOwner` is the thin,
+ * DB-touching wrapper `prune.ts`/`retry-failed.ts` actually call.
  */
 import type { Db, TenantDbService } from '../../db/tenant-db.service';
 import { users } from '../../db/schema/auth';
 
-export type OwnerWriteResult = { total: number; affectedOwners: number };
+/** One owner whose write rejected. */
+export type OwnerWriteFailure = { ownerId: string; message: string };
+
+export type OwnerWriteResult = {
+  total: number;
+  affectedOwners: number;
+  /** Owners whose write rejected; empty on a fully successful run. A
+   *  non-empty result must be treated as a failed command — see this
+   *  file's header — never folded into a lower `total`/`affectedOwners`. */
+  failures: OwnerWriteFailure[];
+};
+
+const CONCURRENCY = 20;
+
+/**
+ * The pure batching/accumulation core: runs `runAsOwner` once per id in
+ * `ownerIds`, batched 20-wide via `Promise.allSettled`, and accumulates row
+ * counts and failures. No Drizzle types anywhere — `runAsOwner` is already
+ * the fully-bound "do the write for this one owner" callback.
+ */
+export async function runOwnerBatches(
+  ownerIds: readonly string[],
+  runAsOwner: (ownerId: string) => Promise<{ count: number }>,
+): Promise<OwnerWriteResult> {
+  let total = 0;
+  let affectedOwners = 0;
+  const failures: OwnerWriteFailure[] = [];
+  for (let i = 0; i < ownerIds.length; i += CONCURRENCY) {
+    const batch = ownerIds.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map((ownerId) => runAsOwner(ownerId)),
+    );
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        if (result.value.count > 0) {
+          total += result.value.count;
+          affectedOwners += 1;
+        }
+      } else {
+        failures.push({
+          ownerId: batch[index],
+          message:
+            result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason),
+        });
+      }
+    });
+  }
+  return { total, affectedOwners, failures };
+}
 
 /**
  * Runs `writeForOwner` once per user id, each inside its own
- * `tenantDb.runAs(ownerId, ...)` transaction, and accumulates the row
- * counts it returns. Most owners affect zero rows for a typical
+ * `tenantDb.runAs(ownerId, ...)` transaction — see `runOwnerBatches` for the
+ * batching contract. Most owners affect zero rows for a typical
  * `prune`/`retry-failed` scope — cheap, since the write is index-covered
  * (`search_chat_documents_owner_chat_idx`) and a zero-row `UPDATE` doesn't
  * count toward `affectedOwners`.
@@ -45,15 +115,8 @@ export async function forEachOwner(
   const owners = await tenantDb.runAsPublic((tx) =>
     tx.select({ id: users.id }).from(users),
   );
-
-  let total = 0;
-  let affectedOwners = 0;
-  for (const { id } of owners) {
-    const result = await tenantDb.runAs(id, (tx) => writeForOwner(tx, id));
-    if (result.count > 0) {
-      total += result.count;
-      affectedOwners += 1;
-    }
-  }
-  return { total, affectedOwners };
+  return runOwnerBatches(
+    owners.map((owner) => owner.id),
+    (ownerId) => tenantDb.runAs(ownerId, (tx) => writeForOwner(tx, ownerId)),
+  );
 }

@@ -32,6 +32,7 @@ import { EMBED_INPUT_VERSION } from '../search-embed.worker';
 import { runBackfill } from './backfill';
 import { getEmbeddingCoverageReport } from './coverage-report';
 import { OperationsModule } from './operations.module';
+import { type OwnerWriteFailure } from './owner-write';
 import { pruneUndeclaredModelVectors } from './prune';
 import { retryFailedDocuments } from './retry-failed';
 import { SearchEmbedDispatchService } from '../search-embed-dispatch.service';
@@ -55,6 +56,29 @@ function requireEmbeddingModelId(
     );
   }
   return modelId;
+}
+
+/**
+ * `prune`/`retry-failed` shared failure reporting (efficiency-pass addendum
+ * to the review findings above): `forEachOwner` now runs bounded-concurrent,
+ * so a single owner's write can reject independently of the rest — this
+ * must still fail the command loudly, exactly like `backfill`'s enqueue
+ * failures above, not quietly report a lower count. Throws when `failures`
+ * is non-empty; a no-op otherwise.
+ */
+function failIfAnyOwnerFailed(
+  command: string,
+  failures: readonly OwnerWriteFailure[],
+): void {
+  if (failures.length === 0) return;
+  for (const failure of failures) {
+    console.error(
+      `${command}: failed for owner ${failure.ownerId}: ${failure.message}`,
+    );
+  }
+  throw new Error(
+    `${command}: FAILED for ${failures.length} owner(s) — see errors above. Safe to re-run; an owner that already succeeded simply affects zero rows the second time.`,
+  );
 }
 
 async function runCommand(command: string): Promise<void> {
@@ -99,8 +123,9 @@ async function runCommand(command: string): Promise<void> {
         const declaredModelKeys = instanceConfig.config.embeddingModels.map(
           (model) => model.id,
         );
-        const { prunedDocuments, affectedOwners, retiredBindings } =
+        const { prunedDocuments, affectedOwners, retiredBindings, failures } =
           await pruneUndeclaredModelVectors(tenantDb, declaredModelKeys);
+        failIfAnyOwnerFailed('prune', failures);
         console.log(
           `prune: cleared ${prunedDocuments} document(s) across ${affectedOwners} owner(s), retired ${retiredBindings} ledger key(s)`,
         );
@@ -108,11 +133,9 @@ async function runCommand(command: string): Promise<void> {
       }
       case 'retry-failed': {
         const modelId = requireEmbeddingModelId(instanceConfig);
-        const { clearedDocuments, affectedOwners } = await retryFailedDocuments(
-          tenantDb,
-          modelId,
-          EMBED_INPUT_VERSION,
-        );
+        const { clearedDocuments, affectedOwners, failures } =
+          await retryFailedDocuments(tenantDb, modelId, EMBED_INPUT_VERSION);
+        failIfAnyOwnerFailed('retry-failed', failures);
         console.log(
           `retry-failed: reset ${clearedDocuments} document(s) across ${affectedOwners} owner(s) — run 'backfill' (or wait for the sweep) to re-embed them`,
         );

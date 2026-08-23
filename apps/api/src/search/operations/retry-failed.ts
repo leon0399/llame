@@ -35,11 +35,15 @@
 import { sql } from 'drizzle-orm';
 
 import type { TenantDbService } from '../../db/tenant-db.service';
-import { forEachOwner } from './owner-write';
+import { forEachOwner, type OwnerWriteFailure } from './owner-write';
 
 export type RetryFailedResult = {
   clearedDocuments: number;
   affectedOwners: number;
+  /** Owners whose clear rejected; empty on full success. The caller must
+   *  treat any non-empty result as a failed command — see
+   *  `owner-write.ts`'s header. */
+  failures: OwnerWriteFailure[];
 };
 
 export async function retryFailedDocuments(
@@ -47,10 +51,12 @@ export async function retryFailedDocuments(
   modelId: string,
   inputVersion: number,
 ): Promise<RetryFailedResult> {
-  const { total: clearedDocuments, affectedOwners } = await forEachOwner(
-    tenantDb,
-    (tx) =>
-      tx.execute(sql`
+  const {
+    total: clearedDocuments,
+    affectedOwners,
+    failures,
+  } = await forEachOwner(tenantDb, (tx) =>
+    tx.execute(sql`
         UPDATE search_chat_documents
         SET embedding_model_key = NULL,
             embedded_content_hash = NULL,
@@ -62,5 +68,5 @@ export async function retryFailedDocuments(
           AND embed_input_version = ${inputVersion}
       `),
   );
-  return { clearedDocuments, affectedOwners };
+  return { clearedDocuments, affectedOwners, failures };
 }

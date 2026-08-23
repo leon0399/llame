@@ -35,12 +35,17 @@
 import { sql } from 'drizzle-orm';
 
 import type { TenantDbService } from '../../db/tenant-db.service';
-import { forEachOwner } from './owner-write';
+import { forEachOwner, type OwnerWriteFailure } from './owner-write';
 
 export type PruneResult = {
   prunedDocuments: number;
   affectedOwners: number;
   retiredBindings: number;
+  /** Owners whose vector clear rejected; empty on full success. The caller
+   *  must treat any non-empty result as a failed command (see
+   *  `owner-write.ts`'s header) — the ledger row is still retired
+   *  regardless, since it is a separate global operation, not per-owner. */
+  failures: OwnerWriteFailure[];
 };
 
 /**
@@ -74,10 +79,12 @@ export async function pruneUndeclaredModelVectors(
           sql`, `,
         )})`;
 
-  const { total: prunedDocuments, affectedOwners } = await forEachOwner(
-    tenantDb,
-    (tx) =>
-      tx.execute(sql`
+  const {
+    total: prunedDocuments,
+    affectedOwners,
+    failures,
+  } = await forEachOwner(tenantDb, (tx) =>
+    tx.execute(sql`
         UPDATE search_chat_documents
         SET embedding = NULL,
             embedding_model_key = NULL,
@@ -104,5 +111,6 @@ export async function pruneUndeclaredModelVectors(
     prunedDocuments,
     affectedOwners,
     retiredBindings: retired.count,
+    failures,
   };
 }
