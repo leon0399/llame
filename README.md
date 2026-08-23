@@ -67,7 +67,8 @@ Self-hosted Postgres must ship the `vector` extension (pgvector), alongside the
 already-required `pg_trgm`, for embeddings-backed search. The bundled `pnpm
 db:up` compose service already provides it. This is a **breaking** requirement
 for existing self-hosters running their own Postgres: move to a
-pgvector-capable image before upgrading.
+pgvector-capable image, or an equivalent managed Postgres that ships `vector`,
+before upgrading — otherwise the migration that creates the extension fails.
 
 Each `models[]` entry may set `systemPromptFile` to a complete prompt file; an
 omitted setting uses llame's packaged project default. Relative paths resolve
