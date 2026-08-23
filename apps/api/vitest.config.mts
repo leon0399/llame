@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
 
-// @workspace/config normally resolves to built ./dist; the integration
+// @workspace/config-interpolation normally resolves to built ./dist; the integration
 // project runs outside turbo on fresh checkouts, so compile it from source
 // here instead.
 const pkgSrc = (name: string) =>
@@ -18,7 +18,12 @@ const pkgSrc = (name: string) =>
 
 export default defineConfig({
   resolve: {
-    alias: [{ find: /^@workspace\/config$/, replacement: pkgSrc('config') }],
+    alias: [
+      {
+        find: /^@workspace\/config-interpolation$/,
+        replacement: pkgSrc('config-interpolation'),
+      },
+    ],
   },
   // NestJS DI resolves constructor parameters from reflect-metadata's
   // design:paramtypes. Vitest's default esbuild transform does not emit
