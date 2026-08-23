@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-23
 
+- **Embedding discovery provisioning**: transferring the three PUBLIC-revoked
+  `SECURITY DEFINER` functions to the BYPASSRLS `app_rls` owner now re-grants
+  execution to the runtime `app` role, restoring backfill, coverage, and
+  incremental discovery without exposing those cross-tenant functions to
+  unrelated database roles.
+
 - **Upgrading an existing database to pgvector**: `vector` is not a trusted
   extension — only a superuser can install it, and the non-superuser role that
   runs migrations cannot. A fresh volume is provisioned automatically by

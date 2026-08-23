@@ -34,6 +34,11 @@ ALTER FUNCTION llame_search_stale_chats(integer, integer) OWNER TO app_rls;
 -- only identifiers + counts, never content or vectors. Idempotent; safe to
 -- re-run on every migrate.
 ALTER FUNCTION llame_search_embedding_coverage(text, integer, integer) OWNER TO app_rls;
+-- The migration grants EXECUTE while `app` still owns the function. Owner
+-- privileges are implicit rather than a durable ACL entry, so transferring
+-- ownership removes `app`'s ability to call this PUBLIC-revoked function.
+-- Re-grant after the transfer, when it becomes a real explicit privilege.
+GRANT EXECUTE ON FUNCTION llame_search_embedding_coverage(text, integer, integer) TO app;
 -- chat-search-embeddings (task 6.5/trap 5): the embedding-backlog sweep
 -- function (the STATIC never-attempted-only branch, servable by the partial
 -- index) must also run AS app_rls (BYPASSRLS) to enumerate incremental
@@ -41,6 +46,7 @@ ALTER FUNCTION llame_search_embedding_coverage(text, integer, integer) OWNER TO 
 -- it returns only identifiers + a count, never content or vectors.
 -- Idempotent; safe to re-run on every migrate.
 ALTER FUNCTION llame_search_embedding_backlog(integer) OWNER TO app_rls;
+GRANT EXECUTE ON FUNCTION llame_search_embedding_backlog(integer) TO app;
 -- chat-search-embeddings/operations (layer 7): the coverage READOUT's own
 -- discovery function (deliberately a same-signature sibling of
 -- llame_search_embedding_coverage, not an in-place edit of it — see
@@ -50,3 +56,4 @@ ALTER FUNCTION llame_search_embedding_backlog(integer) OWNER TO app_rls;
 -- identifiers + counts, never content or vectors. Idempotent; safe to
 -- re-run on every migrate.
 ALTER FUNCTION llame_search_embedding_report(text, integer, integer) OWNER TO app_rls;
+GRANT EXECUTE ON FUNCTION llame_search_embedding_report(text, integer, integer) TO app;

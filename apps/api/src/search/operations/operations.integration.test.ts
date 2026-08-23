@@ -24,7 +24,9 @@
  * - both `llame_search_embedding_coverage` and `llame_search_embedding_report`
  *   are BYPASSRLS-provisioned in this harness (globalSetup runs the
  *   provisioning script), so the fail-loud provisioning check does NOT
- *   false-positive on a correctly provisioned instance.
+ *   false-positive on a correctly provisioned instance;
+ * - PUBLIC remains unable to execute all three BYPASSRLS discovery functions
+ *   after provisioning transfers their ownership to `app_rls`.
  *
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
@@ -54,6 +56,7 @@ import { pruneUndeclaredModelVectors } from './prune';
 import { retryFailedDocuments } from './retry-failed';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+const TEST_UNPRIVILEGED_DB_URL = process.env['TEST_UNPRIVILEGED_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = any;
 const text = (t: string) => [{ type: 'text', text: t }];
@@ -317,6 +320,47 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
           'llame_search_embedding_report',
         ),
       ).resolves.toBeUndefined();
+    });
+
+    it('does not grant PUBLIC access to the BYPASSRLS embedding discovery functions', async () => {
+      if (!TEST_UNPRIVILEGED_DB_URL) {
+        const rows = await sqlClient`
+          SELECT p.proname, has_function_privilege('pg_monitor', p.oid, 'EXECUTE') AS can_execute
+          FROM pg_proc p
+          WHERE p.proname IN (
+            'llame_search_embedding_coverage',
+            'llame_search_embedding_backlog',
+            'llame_search_embedding_report'
+          )
+          ORDER BY p.proname
+        `;
+        expect(rows).toEqual([
+          { proname: 'llame_search_embedding_backlog', can_execute: false },
+          { proname: 'llame_search_embedding_coverage', can_execute: false },
+          { proname: 'llame_search_embedding_report', can_execute: false },
+        ]);
+        return;
+      }
+
+      const postgres = require('postgres');
+      const connect = postgres.default ?? postgres;
+      const ssl = /sslmode=require/.test(TEST_UNPRIVILEGED_DB_URL)
+        ? 'require'
+        : false;
+      const unprivileged = connect(TEST_UNPRIVILEGED_DB_URL, { ssl, max: 1 });
+      try {
+        for (const statement of [
+          `SELECT * FROM llame_search_embedding_coverage('probe', 1, 1)`,
+          `SELECT * FROM llame_search_embedding_backlog(1)`,
+          `SELECT * FROM llame_search_embedding_report('probe', 1, 1)`,
+        ]) {
+          await expect(unprivileged.unsafe(statement)).rejects.toMatchObject({
+            code: '42501',
+          });
+        }
+      } finally {
+        await unprivileged.end();
+      }
     });
   });
 
