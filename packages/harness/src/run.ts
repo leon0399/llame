@@ -7,7 +7,7 @@ import {
 } from "ai";
 
 import { type ApprovalGate } from "./approval";
-import { type HarnessModelClient } from "./models/model-client";
+import { type ModelStreamInput } from "./models/model-client";
 import { toFlexibleSchema } from "./tools/schema-utils";
 import { runTool } from "./tools/tool-runner";
 import {
@@ -19,6 +19,22 @@ import { type UnknownRecord } from "./unknown-record";
 
 /** The loosest tool shape the loop advertises; concrete hosts pass their own. */
 export type LoopTool = Tool<UnknownRecord, BaseToolContext>;
+
+/**
+ * The narrow client surface the run loop consumes. The extracted
+ * `ModelClient` satisfies it structurally; test fakes implement it directly
+ * without touching the AI SDK.
+ */
+export interface RunModelClient {
+  readonly model: string;
+  readonly provider: string;
+  streamText(input: ModelStreamInput): {
+    readonly text: Promise<string>;
+    readonly usage: Promise<LanguageModelUsage>;
+    readonly finishReason: Promise<FinishReason>;
+    readonly response: Promise<{ messages: ModelMessage[] }>;
+  };
+}
 
 /**
  * The immutable record of the context one run executed against: the model it
@@ -70,7 +86,7 @@ const DEFAULT_MAX_STEPS = 8;
 const DEFAULT_CALL_TIMEOUT_SECONDS = 60;
 
 export interface ExecuteRunInput {
-  client: HarnessModelClient;
+  client: RunModelClient;
   /** Effective system prompt; bound verbatim into the receipt. */
   system: string;
   /** Model context so far (projected from the session log by the caller). */
@@ -128,6 +144,7 @@ export async function executeRun(input: ExecuteRunInput): Promise<RunOutcome> {
             description: entry.description,
             inputSchema,
             execute: async (
+              // eslint-disable-next-line anti-slop/no-unknown-parameters -- mirrors the AI SDK's own `tool({ execute })` callback signature; `args` is validated against the tool's declared `inputSchema` (`toFlexibleSchema` above) by the SDK itself before this executor is invoked, and `runTool` re-validates at its own boundary -- the parse happens one frame down, not here.
               args: unknown,
               { toolCallId }: { toolCallId: string },
             ) => {

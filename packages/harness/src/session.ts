@@ -3,8 +3,13 @@ import { dirname } from "node:path";
 
 import type { ModelMessage } from "ai";
 
-import { isRecord } from "./unknown-record";
 import { type RunEvent } from "./run";
+import {
+  isNumber,
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from "./unknown-record";
 
 /**
  * One durable entry in a session. The log is the single source of model
@@ -18,32 +23,64 @@ export type SessionEvent =
   | { type: "run_event"; event: RunEvent }
   | { type: "assistant_messages"; messages: ModelMessage[] };
 
+/**
+ * A read-back entry. The event is only known to be a record: lines are
+ * re-validated structurally on read, so a hand-edited or foreign line can
+ * never smuggle a malformed message into the projection.
+ */
 export interface SessionEntry {
   readonly seq: number;
   readonly timestamp: string;
-  readonly event: SessionEvent;
+  readonly event: UnknownRecord;
+}
+
+/** A model message as projected back out of the log. */
+function isModelMessage(value: unknown): value is ModelMessage {
+  if (!isRecord(value) || !isString(value.role)) {
+    return false;
+  }
+  const { content } = value;
+  // Content is either a plain string or an SDK part array; both shapes are
+  // only ever WRITTEN here by append(), straight from AI SDK responses.
+  return isString(content) || Array.isArray(content);
 }
 
 function parseLine(line: string): SessionEntry | undefined {
   try {
+    // SAFETY: the result is immediately narrowed by isRecord/isNumber/isString
+    // guards below; anything failing them reads as an absent line.
     const value = JSON.parse(line) as unknown;
     if (
       isRecord(value) &&
-      typeof value.seq === "number" &&
-      typeof value.timestamp === "string" &&
+      isNumber(value.seq) &&
+      isString(value.timestamp) &&
       isRecord(value.event) &&
-      typeof value.event.type === "string"
+      isString(value.event.type)
     ) {
       return {
         seq: value.seq,
         timestamp: value.timestamp,
-        event: value.event as unknown as SessionEvent,
+        event: value.event,
       };
     }
   } catch {
     // A torn trailing line (crash mid-append) reads as absent.
   }
   return undefined;
+}
+
+function toModelMessages(event: UnknownRecord): ModelMessage[] {
+  if (event.type === "user_prompt" && isString(event.text)) {
+    return [{ role: "user", content: event.text }];
+  }
+  if (
+    event.type === "assistant_messages" &&
+    Array.isArray(event.messages) &&
+    event.messages.every(isModelMessage)
+  ) {
+    return event.messages;
+  }
+  return [];
 }
 
 /**
@@ -99,11 +136,7 @@ export class SessionLog {
   deriveMessages(): ModelMessage[] {
     const messages: ModelMessage[] = [];
     for (const { event } of this.entries) {
-      if (event.type === "user_prompt") {
-        messages.push({ role: "user", content: event.text });
-      } else if (event.type === "assistant_messages") {
-        messages.push(...event.messages);
-      }
+      messages.push(...toModelMessages(event));
     }
     return messages;
   }

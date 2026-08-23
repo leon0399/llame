@@ -1,8 +1,13 @@
 import { type ApprovalGate } from "../approval";
 import { truncateOversizedResult } from "./result-truncation";
 import { safeParseArgs } from "./schema-utils";
-import { isRecord } from "../unknown-record";
-import { type BaseToolContext, type Tool, type ToolResult } from "./types";
+import { isRecord, type UnknownRecord } from "../unknown-record";
+import {
+  type BaseToolContext,
+  type Tool,
+  type ToolClassification,
+  type ToolResult,
+} from "./types";
 
 class ToolAbortError extends Error {}
 
@@ -86,17 +91,18 @@ export function invalidCallResult(toolName: string): ToolResult {
  * `read_only` tools never reach the gate.
  */
 async function resolveApproval(
-  tool: Tool<never, never>,
-  args: Record<string, unknown>,
+  toolId: string,
+  classification: ToolClassification,
+  args: UnknownRecord,
   gate: ApprovalGate | undefined,
 ): Promise<ToolResult | undefined> {
-  if (tool.classification === "read_only") {
+  if (classification === "read_only") {
     return undefined;
   }
   try {
     const decision = await gate?.({
-      toolId: tool.id,
-      classification: tool.classification,
+      toolId,
+      classification,
       input: args,
     });
     if (decision === "approved") {
@@ -105,13 +111,13 @@ async function resolveApproval(
     return {
       status: "error",
       type: "not_approved",
-      message: `The call to "${tool.id}" was not approved.`,
+      message: `The call to "${toolId}" was not approved.`,
     };
   } catch {
     return {
       status: "error",
       type: "not_approved",
-      message: `Approval for "${tool.id}" could not be obtained.`,
+      message: `Approval for "${toolId}" could not be obtained.`,
     };
   }
 }
@@ -124,11 +130,9 @@ async function resolveApproval(
  * throws — always resolves to a `ToolResult` the run loop can persist or
  * record.
  */
-export async function runTool<
-  TArgs extends Record<string, unknown>,
-  TContext extends BaseToolContext,
->(
-  tool: Tool<TArgs, TContext>,
+export async function runTool<TContext extends BaseToolContext>(
+  tool: Tool<UnknownRecord, TContext>,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- this whole function's body IS `args`'s validation: `safeParseArgs(tool.inputSchema, args)` runs below, after the identity/abort/timeout guards that must run first; genuinely validated, just not as this function's *first* statement.
   args: unknown,
   context: TContext | undefined,
   callTimeoutSeconds: number,
@@ -175,7 +179,12 @@ export async function runTool<
     };
   }
 
-  const refusal = await resolveApproval(tool, parsed.data, approvalGate);
+  const refusal = await resolveApproval(
+    tool.id,
+    tool.classification,
+    parsed.data,
+    approvalGate,
+  );
   if (refusal) {
     return refusal;
   }
@@ -192,7 +201,7 @@ export async function runTool<
   onValidated?.();
   try {
     const result = await withAbort(
-      Promise.resolve(tool.execute(executionContext, parsed.data as TArgs)),
+      Promise.resolve(tool.execute(executionContext, parsed.data)),
       composedSignal,
     );
     return truncateOversizedResult(result);

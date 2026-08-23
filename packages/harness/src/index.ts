@@ -4,19 +4,19 @@ export {
   type ApprovalRequest,
 } from "./approval";
 export {
-  createOpenAICompatibleModelClient,
-  KEYLESS_PLACEHOLDER_API_KEY,
-  type HarnessModelClient,
+  type ModelClient,
   type ModelObjectInput,
   type ModelStreamInput,
   type ModelCredentialResolver,
   MissingModelCredentialError,
   requireModelCredential,
   resolveModelCredential,
-  type RunStreamResult,
   type TokenPrice,
 } from "./models/model-client";
-export { createOpenAIModelClient } from "./models/openai-model-client";
+export {
+  createOpenAIModelClient,
+  KEYLESS_PLACEHOLDER_API_KEY,
+} from "./models/openai-model-client";
 export { wrapStreamTextResult } from "./models/stream-text-result-proxy";
 export {
   cutStringAtCodePointBoundary,
@@ -29,26 +29,22 @@ export {
   type ExecuteRunInput,
   type LoopTool,
   type RunEvent,
+  type RunModelClient,
   type RunOutcome,
 } from "./run";
 export { SessionLog, type SessionEntry, type SessionEvent } from "./session";
 export {
   asciiCaseFoldToolId,
-  hasValidTrustedTimeout,
-  invalidCallResult,
   isToolId,
   TOOL_ID_PATTERN,
   matchesAllowedToolId,
+} from "./tools/tool-id";
+export {
+  hasValidTrustedTimeout,
+  invalidCallResult,
   refusalResult,
   runTool,
 } from "./tools/tool-runner";
-export {
-  type BaseToolContext,
-  type JsonSchemaDocument,
-  type Tool,
-  type ToolClassification,
-  type ToolResult,
-} from "./tools/types";
 export {
   admitToolInputSchema,
   buildJsonSchemaValidator,
@@ -60,6 +56,13 @@ export {
   type JsonSchemaCompilation,
   type ToolSchemaAdmission,
 } from "./tools/schema-utils";
+export {
+  type BaseToolContext,
+  type JsonSchemaDocument,
+  type Tool,
+  type ToolClassification,
+  type ToolResult,
+} from "./tools/types";
 export {
   isRecord,
   isString,
