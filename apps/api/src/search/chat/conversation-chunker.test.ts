@@ -220,6 +220,31 @@ describe('chunkConversation — oversized messages (#517)', () => {
     expect(reconstructed).toBe(big);
   });
 
+  it('chunks a large unspaced message correctly (quadratic-slice regression, #517)', () => {
+    // 500KB with no whitespace anywhere forces the hard-cut path on every
+    // slice — the worst case for a splitter that re-slices a shrinking
+    // "remaining" string each iteration (O(N^2) in message length). This test
+    // pins correctness (exact reconstruction), not wall-clock time, which
+    // would be flaky; the whole point of the linear-cursor fix is that this
+    // now runs in a fraction of a second instead of visibly hanging.
+    const big = 'x'.repeat(500_000);
+    const chunks = chunkConversation([userMsg('u1', big, 0)]);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.content.length).toBeLessThanOrEqual(CHUNK_MAX_CHARS);
+    }
+
+    // Same lossless-coverage argument as the smaller oversized-message case
+    // above: every non-final slice fills its full budget, so the packer never
+    // carries one forward as overlap, and stripping the constant prefix from
+    // each chunk and concatenating reproduces the original text exactly.
+    const reconstructed = chunks
+      .map((c) => c.content.replace(/^\[user\] /, ''))
+      .join('');
+    expect(reconstructed).toBe(big);
+  });
+
   it('anchors continuation slices of an oversized assistant message to the preceding user message', () => {
     const question = 'What should the migration plan be?';
     const answer = 'y'.repeat(CHUNK_MAX_CHARS + 500); // one boundary-free split

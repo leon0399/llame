@@ -2,6 +2,7 @@ import { isTextPart } from '../../chats/context-builder';
 import {
   chunkByCharBudget,
   chunkContentHash,
+  cutTextAtBoundary,
   normalizeForSearch,
 } from '../core';
 
@@ -65,46 +66,12 @@ function extractMessageText(message: ChunkerMessage): string {
     .trim();
 }
 
-/**
- * Cut `text` at index <= `maxLen`, preferring (in order) a blank line, a
- * newline or sentence end, then plain whitespace — never mid-word unless no
- * boundary exists at all within the budget. Returns `text.length` unchanged
- * when it already fits.
- */
-function findCutIndex(text: string, maxLen: number): number {
-  if (text.length <= maxLen) return text.length;
-  const window = text.slice(0, maxLen);
-
-  const blankLine = window.lastIndexOf('\n\n');
-  if (blankLine > 0) return blankLine + 2;
-
-  let sentenceEnd = -1;
-  for (const token of ['\n', '. ', '! ', '? ']) {
-    const idx = window.lastIndexOf(token);
-    if (idx > 0) sentenceEnd = Math.max(sentenceEnd, idx + token.length);
-  }
-  if (sentenceEnd > 0) return sentenceEnd;
-
-  for (let i = window.length - 1; i > 0; i -= 1) {
-    if (/\s/.test(window.charAt(i))) return i + 1;
-  }
-
-  // No boundary at all within the budget: hard-cut at maxLen. Never split the
-  // two UTF-16 code units of a surrogate pair (e.g. an emoji) — that would
-  // corrupt both halves into unpaired surrogates once persisted as UTF-8.
-  const high = text.charCodeAt(maxLen - 1);
-  const low = text.charCodeAt(maxLen);
-  const splitsSurrogatePair =
-    high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff;
-  return splitsSurrogatePair ? maxLen - 1 : maxLen;
-}
-
 /** Bounded, word-boundary-truncated excerpt with an elision marker when cut. */
 function truncateAnchorExcerpt(text: string): string {
   if (text.length <= CHUNK_ANCHOR_MAX_CHARS) return text;
-  const cut = findCutIndex(text, CHUNK_ANCHOR_MAX_CHARS);
-  // trimEnd: findCutIndex includes the boundary whitespace in the head (the
-  // splitter needs that to reconstruct losslessly; a presentation-only
+  const cut = cutTextAtBoundary(text, 0, CHUNK_ANCHOR_MAX_CHARS);
+  // trimEnd: cutTextAtBoundary includes the boundary whitespace in the head
+  // (the splitter needs that to reconstruct losslessly; a presentation-only
   // excerpt doesn't), so drop it before the elision marker.
   return `${text.slice(0, cut).trimEnd()}…`;
 }
@@ -145,22 +112,30 @@ function messageToBlocks(
 
   const anchor = anchorSource === null ? '' : formatAnchor(anchorSource);
   const firstMax = CHUNK_MAX_CHARS - prefix.length;
-  const continuationMax = CHUNK_MAX_CHARS - prefix.length - anchor.length;
+  // The continuation budget is the first-slice budget minus what the anchor
+  // itself costs — every continuation slice carries the anchor on top of the
+  // same `prefix`, so its content budget is smaller by exactly that much.
+  const continuationMax = firstMax - anchor.length;
 
   const blocks: MessageBlock[] = [];
-  let remaining = text;
+  // A cursor into `text` rather than a shrinking `remaining` string: slicing
+  // off the consumed head on every iteration would re-copy the whole
+  // unconsumed tail each time (O(text.length) per iteration), which is
+  // quadratic in the message length. `cutTextAtBoundary` bounds its own
+  // lookahead to `budget`, so advancing the cursor keeps total work linear.
+  let cursor = 0;
   let isFirst = true;
-  while (remaining.length > 0) {
+  while (cursor < text.length) {
     const budget = isFirst ? firstMax : continuationMax;
-    const cut = findCutIndex(remaining, budget);
-    const slice = remaining.slice(0, cut);
+    const cut = cutTextAtBoundary(text, cursor, budget);
+    const slice = text.slice(cursor, cut);
     blocks.push({
       messageId: message.id,
       createdAt: message.createdAt,
       content: `${prefix}${isFirst ? '' : anchor}${slice}`,
       lexicalContent: slice,
     });
-    remaining = remaining.slice(cut);
+    cursor = cut;
     isFirst = false;
   }
   return blocks;

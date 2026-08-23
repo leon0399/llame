@@ -26,7 +26,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   in the snippet source, never in the lexically-matched text. Chunking for
   every message that already fit the budget is unchanged; the chunker
   version bump (2 → 3) drives a one-time rebuild of every existing chat
-  through the discovery sweep.
+  through the discovery sweep. A packed chunk can still reach roughly twice
+  the budget: it carries one overlap block from the preceding chunk alongside
+  a full new block, deliberately, so a chunk always has surrounding context —
+  the embedding layer must size against that ~2x bound, not the base budget.
 
 # 2026-08-22
 
