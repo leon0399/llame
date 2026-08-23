@@ -163,8 +163,11 @@ d('PUT /api/v1/me/knowledge-space', () => {
       .set('Cookie', cookieA)
       .send({})
       .expect(503);
-    expect(response.body).toMatchObject({
+    expect(response.body).toEqual({
+      statusCode: 503,
+      error: 'Service Unavailable',
       code: 'knowledge_space_unavailable',
+      message: 'Knowledge Space is unavailable.',
     });
     expect(JSON.stringify(response.body)).not.toContain(root);
   });

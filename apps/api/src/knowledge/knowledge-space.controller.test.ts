@@ -1,5 +1,8 @@
+import { HttpException, HttpStatus } from '@nestjs/common';
+
 import { AppModule } from '../app.module';
 import { KnowledgeSpaceController } from './knowledge-space.controller';
+import { KnowledgeSpaceUnavailableError } from './knowledge-space.local-resolver';
 import { KnowledgeModule } from './knowledge.module';
 
 describe('KnowledgeSpaceController', () => {
@@ -44,5 +47,29 @@ describe('KnowledgeSpaceController', () => {
         body: ['not-an-object'],
       }),
     ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('returns the documented safe 503 response when provisioning is unavailable', async () => {
+    const controller = new KnowledgeSpaceController({
+      provisionForOwner: vi
+        .fn()
+        .mockRejectedValue(new KnowledgeSpaceUnavailableError()),
+    });
+
+    try {
+      await controller.putKnowledgeSpace('session-owner', {});
+      throw new Error('expected controller to throw');
+    } catch (error) {
+      if (!(error instanceof HttpException)) {
+        throw new Error('Expected an HttpException');
+      }
+      expect(error.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+      expect(error.getResponse()).toEqual({
+        statusCode: 503,
+        error: 'Service Unavailable',
+        code: 'knowledge_space_unavailable',
+        message: 'Knowledge Space is unavailable.',
+      });
+    }
   });
 });

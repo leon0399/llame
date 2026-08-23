@@ -76,6 +76,8 @@ export class KnowledgeSpaceController {
     } catch (error) {
       if (!(error instanceof KnowledgeSpaceUnavailableError)) throw error;
       throw new ServiceUnavailableException({
+        statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+        error: 'Service Unavailable',
         code: KNOWLEDGE_SPACE_UNAVAILABLE,
         message: error.message,
       });
