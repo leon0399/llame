@@ -28,11 +28,13 @@ export type LoopTool = Tool<UnknownRecord, BaseToolContext>;
 export interface RunModelClient {
   readonly model: string;
   readonly provider: string;
+  // PromiseLike: the AI SDK's StreamTextResult exposes these as
+  // PromiseLike, and the loop only awaits them.
   streamText(input: ModelStreamInput): {
-    readonly text: Promise<string>;
-    readonly usage: Promise<LanguageModelUsage>;
-    readonly finishReason: Promise<FinishReason>;
-    readonly response: Promise<{ messages: ModelMessage[] }>;
+    readonly text: PromiseLike<string>;
+    readonly usage: PromiseLike<LanguageModelUsage>;
+    readonly finishReason: PromiseLike<FinishReason>;
+    readonly response: PromiseLike<{ messages: ModelMessage[] }>;
   };
 }
 
