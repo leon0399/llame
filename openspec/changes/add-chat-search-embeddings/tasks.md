@@ -25,9 +25,9 @@ Tests and fixtures only; no production code. Establishes what "no observable cha
 against, so every later claim is falsifiable. Must merge first: recorded after the chunker bump,
 the baseline would be circular.
 
-- [ ] 1.1 Extend `apps/api/src/search/chat/eval/dataset.ts` with genuinely inflected Russian and Spanish queries (case-marked and conjugated forms that do **not** reuse the fixture's surface word forms) in the recorded — not floored — categories, and verify `pnpm --filter api test:integration` still passes with the existing floors untouched
-- [ ] 1.2 Add an oversized-message fixture (one message several times the 3000-character budget) with a query targeting its tail, in a **recorded (non-floored)** category, and verify it is currently retrievable lexically — the corpus has no oversized fixture today. Its recorded row is expected to move in layer 2; every pre-existing fixture's row is not.
-- [ ] 1.3 **Exit:** run `RUN_SEARCH_EVAL=1`, rewrite `apps/api/src/search/chat/eval/BASELINE.md` with the true pre-change numbers, and verify the new rows are recorded with a "Reading it" note stating what they measure
+- [x] 1.1 Extend `apps/api/src/search/chat/eval/dataset.ts` with genuinely inflected Russian and Spanish queries (case-marked and conjugated forms that do **not** reuse the fixture's surface word forms) in the recorded — not floored — categories, and verify `pnpm --filter api test:integration` still passes with the existing floors untouched
+- [x] 1.2 Add an oversized-message fixture (one message several times the 3000-character budget) with a query targeting its tail, in a **recorded (non-floored)** category, and verify it is currently retrievable lexically — the corpus has no oversized fixture today. Its recorded row is expected to move in layer 2; every pre-existing fixture's row is not.
+- [x] 1.3 **Exit:** run `RUN_SEARCH_EVAL=1`, rewrite `apps/api/src/search/chat/eval/BASELINE.md` with the true pre-change numbers, and verify the new rows are recorded with a "Reading it" note stating what they measure
 
 ## 2. `search-embeddings/chunker-fit` — guarantee every document fits (#517)
 
