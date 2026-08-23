@@ -5,7 +5,7 @@
  */
 import type { EmbeddingModelBinding } from '../db/schema/search';
 import type { EmbeddingModelCatalogEntry } from '../instance-config/llame-config';
-import { InstanceConfigError } from '../instance-config/instance-config.error';
+import { InstanceConfigError } from '@workspace/config-interpolation';
 import {
   assertBindingConsistent,
   assertDeclaredBindingsConsistent,

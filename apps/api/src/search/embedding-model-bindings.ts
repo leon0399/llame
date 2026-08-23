@@ -13,7 +13,7 @@
  * tests need no database — the real Drizzle-backed reader lives in
  * `embedding-binding-boot-check.service.ts`.
  */
-import { InstanceConfigError } from '../instance-config/instance-config.error';
+import { InstanceConfigError } from '@workspace/config-interpolation';
 import type { EmbeddingModelCatalogEntry } from '../instance-config/llame-config';
 import type { EmbeddingModelBinding } from '../db/schema/search';
 
