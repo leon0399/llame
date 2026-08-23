@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import {
@@ -6,17 +7,26 @@ import {
   type KnowledgeSpaceLocalResolverPort,
 } from './knowledge-space.local-resolver';
 import {
+  decodeKnowledgeSpaceCursor,
+  encodeKnowledgeSpaceCursor,
+  type KnowledgeSpaceCursor,
+} from './knowledge-space.cursor';
+import {
   KnowledgeSpaceRepository,
-  toKnowledgeSpaceLogicalProjection,
+  toKnowledgeSpaceApiProjection,
   toKnowledgeSpaceBindingProjection,
+  type KnowledgeSpaceApiProjection,
   type KnowledgeSpaceBindingProjection,
-  type KnowledgeSpaceLogicalProjection,
 } from './knowledge-space.repository';
+import { normalizeKnowledgeSpaceName } from './knowledge-space-name';
 
-/** The HTTP-safe capability exposed by this service. */
-export type KnowledgeSpaceProvisioner = Pick<
+export const KNOWLEDGE_SPACE_DEFAULT_LIMIT = 50;
+export const KNOWLEDGE_SPACE_MAX_LIMIT = 100;
+
+/** The HTTP and owner-scoped management capability exposed by this service. */
+export type KnowledgeSpaceManagement = Pick<
   KnowledgeSpaceService,
-  'provisionForOwner'
+  'provisionForOwner' | 'listForOwner' | 'getForOwner' | 'renameForOwner'
 >;
 
 /** Trusted worker-side binding resolution, never an HTTP response shape. */
@@ -34,21 +44,127 @@ export class KnowledgeSpaceService {
     private readonly localResolver: KnowledgeSpaceLocalResolverPort,
   ) {}
 
+  /**
+   * Provisioning is deliberately directory-first. A database error after the
+   * child exists leaves an inert empty orphan; no recovery deletion is safe.
+   */
   async provisionForOwner(
     ownerUserId: string,
-  ): Promise<KnowledgeSpaceLogicalProjection> {
-    // Root validation must happen before the row transaction. Once a row is
-    // committed, a later filesystem failure intentionally leaves that ID as
-    // the retry anchor.
+    input?: { name: string },
+  ): Promise<KnowledgeSpaceApiProjection> {
+    const name = normalizeKnowledgeSpaceName(input?.name ?? 'Personal');
     const canonicalRoot = this.localResolver.resolveRoot();
-    const space = await this.tenantDb.runAs(ownerUserId, (tx) =>
-      new KnowledgeSpaceRepository(tx).createOrGet(ownerUserId),
-    );
 
-    this.localResolver.ensureChild(canonicalRoot, space.knowledgeSpaceId);
-    return toKnowledgeSpaceLogicalProjection(space);
+    // Existing non-HTTP workers still call the former singleton helper without
+    // a name. Keep that compatibility path anchored to the earliest row and
+    // repair its child, while named HTTP creation stays non-idempotent.
+    if (input === undefined) {
+      const existing = await this.tenantDb.runAs(ownerUserId, (tx) =>
+        new KnowledgeSpaceRepository(tx).findForOwnerForBinding(ownerUserId),
+      );
+      if (existing !== undefined) {
+        this.localResolver.ensureChild(
+          canonicalRoot,
+          existing.knowledgeSpaceId,
+        );
+        return toKnowledgeSpaceApiProjection(existing);
+      }
+    }
+
+    const knowledgeSpaceId = randomUUID();
+    this.localResolver.ensureChild(canonicalRoot, knowledgeSpaceId);
+
+    const space = await this.tenantDb.runAs(ownerUserId, (tx) =>
+      new KnowledgeSpaceRepository(tx).create({
+        knowledgeSpaceId,
+        ownerUserId,
+        name,
+      }),
+    );
+    return toKnowledgeSpaceApiProjection(space);
   }
 
+  async listForOwner(
+    ownerUserId: string,
+    options: {
+      limit?: number;
+      after?: string;
+    } = {},
+  ): Promise<{
+    items: KnowledgeSpaceApiProjection[];
+    nextCursor: string | null;
+  }> {
+    const limit = options.limit ?? KNOWLEDGE_SPACE_DEFAULT_LIMIT;
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > KNOWLEDGE_SPACE_MAX_LIMIT
+    ) {
+      throw new Error('Knowledge Space list limit is invalid');
+    }
+    const after =
+      options.after === undefined
+        ? undefined
+        : decodeKnowledgeSpaceCursor(options.after);
+    const rows = await this.tenantDb.runAs(ownerUserId, (tx) =>
+      new KnowledgeSpaceRepository(tx).listForOwnerPage(
+        ownerUserId,
+        limit,
+        after,
+      ),
+    );
+    const page = rows.slice(0, limit);
+    const nextCursor =
+      rows.length > limit
+        ? encodeKnowledgeSpaceCursor({
+            createdAt: page[page.length - 1].createdAt,
+            id: page[page.length - 1].knowledgeSpaceId,
+          })
+        : null;
+
+    return {
+      items: page.map(toKnowledgeSpaceApiProjection),
+      nextCursor,
+    };
+  }
+
+  async getForOwner(
+    ownerUserId: string,
+    knowledgeSpaceId: string,
+  ): Promise<KnowledgeSpaceApiProjection | undefined> {
+    const space = await this.tenantDb.runAs(ownerUserId, (tx) =>
+      new KnowledgeSpaceRepository(tx).findByIdForOwner(
+        knowledgeSpaceId,
+        ownerUserId,
+      ),
+    );
+    return space === undefined
+      ? undefined
+      : toKnowledgeSpaceApiProjection(space);
+  }
+
+  async renameForOwner(
+    ownerUserId: string,
+    knowledgeSpaceId: string,
+    input: { name: string },
+  ): Promise<KnowledgeSpaceApiProjection | undefined> {
+    const name = normalizeKnowledgeSpaceName(input.name);
+    const space = await this.tenantDb.runAs(ownerUserId, (tx) =>
+      new KnowledgeSpaceRepository(tx).updateName(
+        knowledgeSpaceId,
+        ownerUserId,
+        name,
+      ),
+    );
+    return space === undefined
+      ? undefined
+      : toKnowledgeSpaceApiProjection(space);
+  }
+
+  /**
+   * Temporary singleton binding compatibility: select the earliest owned row,
+   * with the ID tie-breaker matching the inventory order.
+   */
   async resolveBindingForOwner(
     ownerUserId: string,
   ): Promise<KnowledgeSpaceBindingProjection | undefined> {
@@ -63,5 +179,20 @@ export class KnowledgeSpaceService {
       space.knowledgeSpaceId,
     );
     return toKnowledgeSpaceBindingProjection(space, canonicalRoot, directory);
+  }
+
+  /** Worker/tool helper for a page of current owner rows without API DTOs. */
+  async listForOwnerPage(
+    ownerUserId: string,
+    limit: number,
+    after?: KnowledgeSpaceCursor,
+  ) {
+    return this.tenantDb.runAs(ownerUserId, (tx) =>
+      new KnowledgeSpaceRepository(tx).listForOwnerPage(
+        ownerUserId,
+        limit,
+        after,
+      ),
+    );
   }
 }

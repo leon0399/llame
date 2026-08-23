@@ -1298,13 +1298,22 @@
         "tags": ["memory"]
       }
     },
-    "/api/v1/me/knowledge-space": {
-      "put": {
-        "description": "Creates or resolves the authenticated owner personal Knowledge Space and returns only its stable logical identifier.",
-        "operationId": "provisionKnowledgeSpace",
+    "/api/v1/knowledge-spaces": {
+      "post": {
+        "operationId": "createKnowledgeSpace",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateKnowledgeSpaceDto"
+              }
+            }
+          }
+        },
         "responses": {
-          "200": {
+          "201": {
             "description": "",
             "content": {
               "application/json": {
@@ -1339,7 +1348,162 @@
             "bearer": []
           }
         ],
-        "summary": "Provision the current owner Knowledge Space",
+        "summary": "Create a Knowledge Space for the current owner",
+        "tags": ["knowledge"]
+      },
+      "get": {
+        "operationId": "listKnowledgeSpaces",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "after",
+            "required": false,
+            "in": "query",
+            "description": "Opaque base64url keyset cursor from the preceding page.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeSpaceCollectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the current owner Knowledge Spaces",
+        "tags": ["knowledge"]
+      }
+    },
+    "/api/v1/knowledge-spaces/{id}": {
+      "get": {
+        "operationId": "getKnowledgeSpace",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeSpaceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed Knowledge Space id"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get one current owner Knowledge Space",
+        "tags": ["knowledge"]
+      },
+      "patch": {
+        "operationId": "renameKnowledgeSpace",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateKnowledgeSpaceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeSpaceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed id or name"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Rename one current owner Knowledge Space",
         "tags": ["knowledge"]
       }
     },
@@ -3339,15 +3503,37 @@
           }
         }
       },
+      "CreateKnowledgeSpaceDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": ["name"]
+      },
       "KnowledgeSpaceResponse": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
           }
         },
-        "required": ["id"]
+        "required": ["id", "name", "createdAt", "updatedAt"]
       },
       "KnowledgeSpaceUnavailableResponse": {
         "type": "object",
@@ -3367,6 +3553,33 @@
           }
         },
         "required": ["statusCode", "error", "code", "message"]
+      },
+      "KnowledgeSpaceCollectionResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeSpaceResponse"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": ["items", "nextCursor"]
+      },
+      "UpdateKnowledgeSpaceDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": ["name"]
       },
       "CreateProjectDto": {
         "type": "object",

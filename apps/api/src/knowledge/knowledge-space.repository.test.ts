@@ -7,6 +7,7 @@ import { KnowledgeSpaceRepository } from './knowledge-space.repository';
 
 const OWNER_ID = 'owner-a';
 const SPACE_ID = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
+const NOW = new Date('2026-08-23T12:00:00.000Z');
 
 type Row = { id: string } | KnowledgeSpace;
 
@@ -71,7 +72,13 @@ function fakeDb(input: {
 describe('KnowledgeSpaceRepository.createOrGet', () => {
   it('locks the owner before reading and does not insert when a space exists', async () => {
     const events: string[] = [];
-    const existing = { knowledgeSpaceId: SPACE_ID, ownerUserId: OWNER_ID };
+    const existing = {
+      knowledgeSpaceId: SPACE_ID,
+      ownerUserId: OWNER_ID,
+      name: 'Personal',
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
     const onConflict = vi.fn();
     const repository = new KnowledgeSpaceRepository(
       fakeDb({ selects: [[{ id: OWNER_ID }], [existing]], events, onConflict }),
@@ -84,7 +91,13 @@ describe('KnowledgeSpaceRepository.createOrGet', () => {
 
   it('uses targetless conflict handling and rereads after a conflict', async () => {
     const events: string[] = [];
-    const existing = { knowledgeSpaceId: SPACE_ID, ownerUserId: OWNER_ID };
+    const existing = {
+      knowledgeSpaceId: SPACE_ID,
+      ownerUserId: OWNER_ID,
+      name: 'Personal',
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
     const onConflict = vi.fn();
     const repository = new KnowledgeSpaceRepository(
       fakeDb({

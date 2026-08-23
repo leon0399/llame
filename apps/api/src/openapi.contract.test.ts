@@ -80,6 +80,7 @@ const EXPECTED_OPERATION_IDS = [
   'changeOrgUnitMembershipRole',
   'createChatMessage',
   'createChildOrgUnit',
+  'createKnowledgeSpace',
   'createProject',
   'createRootOrgUnit',
   'deleteChat',
@@ -92,6 +93,7 @@ const EXPECTED_OPERATION_IDS = [
   'getCurrentSession',
   'getCurrentUser',
   'getHealth',
+  'getKnowledgeSpace',
   'getMemory',
   'getMyOrgUnitEffectiveRole',
   'getOrgUnit',
@@ -103,6 +105,7 @@ const EXPECTED_OPERATION_IDS = [
   'grantOrgUnitMembership',
   'listActiveRuns',
   'listChats',
+  'listKnowledgeSpaces',
   'listModels',
   'listOrgUnitMemberships',
   'listOrgUnits',
@@ -112,8 +115,8 @@ const EXPECTED_OPERATION_IDS = [
   'loginUser',
   'logoutUser',
   'pinItem',
-  'provisionKnowledgeSpace',
   'registerUser',
+  'renameKnowledgeSpace',
   'resumeChatStream',
   'revokeOrgUnitMembership',
   'revokeSession',
@@ -310,10 +313,31 @@ describe('committed OpenAPI contract', () => {
     expect(response(method, path, '204')).not.toHaveProperty('content');
   });
 
-  it('documents knowledge-space provisioning as a bodyless endpoint', () => {
-    expect(operation('put', '/api/v1/me/knowledge-space')).not.toHaveProperty(
-      'requestBody',
-    );
+  it('documents the breaking owner-scoped Knowledge Space REST surface', () => {
+    expect(
+      operation('post', '/api/v1/knowledge-spaces').responses,
+    ).toHaveProperty('201');
+    expect(
+      operation('get', '/api/v1/knowledge-spaces').responses,
+    ).toHaveProperty('200');
+    expect(
+      operation('get', '/api/v1/knowledge-spaces/{id}').responses,
+    ).toHaveProperty('200');
+    expect(
+      operation('patch', '/api/v1/knowledge-spaces/{id}').responses,
+    ).toHaveProperty('200');
+    const listParameters = z
+      .array(
+        z.object({
+          name: z.string(),
+          schema: z.object({ type: z.string() }).passthrough(),
+        }),
+      )
+      .parse(operation('get', '/api/v1/knowledge-spaces').parameters);
+    expect(
+      listParameters.find(({ name }) => name === 'limit')?.schema.type,
+    ).toBe('integer');
+    expect(document.paths).not.toHaveProperty('/api/v1/me/knowledge-space');
   });
 
   it.each([

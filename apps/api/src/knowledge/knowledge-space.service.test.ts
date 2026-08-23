@@ -7,6 +7,13 @@ import { KnowledgeSpaceUnavailableError } from './knowledge-space.local-resolver
 import { KnowledgeSpaceService } from './knowledge-space.service';
 
 const SPACE_ID = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
+const SPACE = {
+  knowledgeSpaceId: SPACE_ID,
+  ownerUserId: 'owner-a',
+  name: 'Personal',
+  createdAt: new Date('2026-08-23T12:00:00.000Z'),
+  updatedAt: new Date('2026-08-23T12:00:00.000Z'),
+};
 
 function fakeDb(): Db {
   return drizzle.mock({ schema });
@@ -14,106 +21,134 @@ function fakeDb(): Db {
 
 function makeService(root: string | undefined) {
   const tx = fakeDb();
-  const runAsCalls: string[] = [];
-  const runAs: TenantRunner['runAs'] = (ownerUserId, callback) => {
-    runAsCalls.push(ownerUserId);
+  const events: string[] = [];
+  const runAs: TenantRunner['runAs'] = async (ownerUserId, callback) => {
+    events.push(`db:${ownerUserId}`);
     return callback(tx);
   };
   const tenantDb: TenantRunner = { runAs };
   const localResolver = {
     resolveRoot: vi.fn(() => {
+      events.push('root');
       if (root === undefined) throw new KnowledgeSpaceUnavailableError();
       return root;
     }),
-    ensureChild: vi.fn(() => `/srv/knowledge/${SPACE_ID}`),
+    ensureChild: vi.fn((_root: string, _id: string) => {
+      events.push('child');
+      return `${root}/${_id}`;
+    }),
     resolveChild: vi.fn(() => `/srv/knowledge/${SPACE_ID}`),
   };
   const service = new KnowledgeSpaceService(tenantDb, localResolver);
-  return { service, localResolver, runAsCalls };
+  return { service, localResolver, events };
 }
 
 describe('KnowledgeSpaceService', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('validates the configured root before opening a tenant transaction', async () => {
-    const { service, localResolver, runAsCalls } = makeService(undefined);
+    const { service, localResolver, events } = makeService(undefined);
 
-    await expect(service.provisionForOwner('owner-a')).rejects.toBeInstanceOf(
-      KnowledgeSpaceUnavailableError,
-    );
+    await expect(
+      service.provisionForOwner('owner-a', { name: 'Personal' }),
+    ).rejects.toBeInstanceOf(KnowledgeSpaceUnavailableError);
     expect(localResolver.resolveRoot).toHaveBeenCalledTimes(1);
-    expect(runAsCalls).toEqual([]);
+    expect(events).toEqual(['root']);
   });
 
-  it('keeps the committed row as the stable retry anchor after child creation fails', async () => {
-    const { service, localResolver, runAsCalls } =
-      makeService('/srv/knowledge');
-    const createOrGet = vi
-      .spyOn(KnowledgeSpaceRepository.prototype, 'createOrGet')
-      .mockResolvedValue({
-        knowledgeSpaceId: SPACE_ID,
-        ownerUserId: 'owner-a',
-      });
-    localResolver.ensureChild
-      .mockImplementationOnce(() => {
-        throw new KnowledgeSpaceUnavailableError();
-      })
-      .mockReturnValueOnce(`/srv/knowledge/${SPACE_ID}`);
-
-    await expect(service.provisionForOwner('owner-a')).rejects.toBeInstanceOf(
-      KnowledgeSpaceUnavailableError,
+  it('creates and validates the child before inserting the authority row', async () => {
+    const { service, localResolver, events } = makeService('/srv/knowledge');
+    vi.spyOn(KnowledgeSpaceRepository.prototype, 'create').mockResolvedValue(
+      SPACE,
     );
-    await expect(service.provisionForOwner('owner-a')).resolves.toEqual({
+
+    await expect(
+      service.provisionForOwner('owner-a', { name: '  Personal  ' }),
+    ).resolves.toEqual({
       id: SPACE_ID,
+      name: 'Personal',
+      createdAt: SPACE.createdAt,
+      updatedAt: SPACE.updatedAt,
     });
-
-    expect(createOrGet).toHaveBeenCalledTimes(2);
-    expect(runAsCalls).toEqual(['owner-a', 'owner-a']);
-    expect(localResolver.ensureChild).toHaveBeenNthCalledWith(
-      2,
+    expect(localResolver.ensureChild).toHaveBeenCalledWith(
       '/srv/knowledge',
-      SPACE_ID,
+      expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      ),
     );
+    expect(events).toEqual(['root', 'child', 'db:owner-a']);
   });
 
-  it('does not expose a local binding in its logical result', async () => {
+  it('leaves an already-created child when database insertion fails', async () => {
+    const { localResolver, events } = makeService('/srv/knowledge');
+    const databaseError = new Error('database unavailable');
+    const runAs: TenantRunner['runAs'] = () => Promise.reject(databaseError);
+    const failingService = new KnowledgeSpaceService({ runAs }, localResolver);
+
+    await expect(
+      failingService.provisionForOwner('owner-a', { name: 'Personal' }),
+    ).rejects.toBe(databaseError);
+    expect(localResolver.ensureChild).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['root', 'child']);
+  });
+
+  it('lists a bounded owner page and returns a keyset cursor only when needed', async () => {
     const { service } = makeService('/srv/knowledge');
+    const second = {
+      ...SPACE,
+      knowledgeSpaceId: '7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
+      createdAt: new Date('2026-08-23T12:01:00.000Z'),
+    };
     vi.spyOn(
       KnowledgeSpaceRepository.prototype,
-      'createOrGet',
-    ).mockResolvedValue({
-      knowledgeSpaceId: SPACE_ID,
-      ownerUserId: 'owner-a',
-    });
+      'listForOwnerPage',
+    ).mockResolvedValue([SPACE, second]);
 
-    const result = await service.provisionForOwner('owner-a');
-
-    expect(result).toEqual({ id: SPACE_ID });
-    expect(result).not.toHaveProperty('root');
-    expect(result).not.toHaveProperty('directory');
+    const result = await service.listForOwner('owner-a', { limit: 1 });
+    expect(result.items).toEqual([
+      expect.objectContaining({ id: SPACE_ID, name: 'Personal' }),
+    ]);
+    expect(result.nextCursor).not.toBeNull();
   });
 
-  it('resolves the private binding only from the authenticated owner row', async () => {
-    const { service, localResolver, runAsCalls } =
-      makeService('/srv/knowledge');
-    const findForOwnerForBinding = vi
-      .spyOn(KnowledgeSpaceRepository.prototype, 'findForOwnerForBinding')
-      .mockResolvedValue({
-        knowledgeSpaceId: SPACE_ID,
-        ownerUserId: 'owner-a',
-      });
+  it('resolves compatibility bindings from the earliest deterministic row', async () => {
+    const { service, localResolver } = makeService('/srv/knowledge');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findForOwnerForBinding',
+    ).mockResolvedValue(SPACE);
 
     await expect(service.resolveBindingForOwner('owner-a')).resolves.toEqual({
       id: SPACE_ID,
+      name: 'Personal',
       root: '/srv/knowledge',
       directory: `/srv/knowledge/${SPACE_ID}`,
     });
-    expect(findForOwnerForBinding).toHaveBeenCalledWith('owner-a');
-    expect(runAsCalls).toEqual(['owner-a']);
     expect(localResolver.resolveChild).toHaveBeenCalledWith(
       '/srv/knowledge',
       SPACE_ID,
     );
-    expect(localResolver.ensureChild).not.toHaveBeenCalled();
+  });
+
+  it('reuses the earliest row for legacy no-name provisioning callers', async () => {
+    const { service, localResolver, events } = makeService('/srv/knowledge');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findForOwnerForBinding',
+    ).mockResolvedValue(SPACE);
+    const create = vi.spyOn(KnowledgeSpaceRepository.prototype, 'create');
+
+    await expect(service.provisionForOwner('owner-a')).resolves.toEqual({
+      id: SPACE_ID,
+      name: 'Personal',
+      createdAt: SPACE.createdAt,
+      updatedAt: SPACE.updatedAt,
+    });
+    expect(localResolver.ensureChild).toHaveBeenCalledWith(
+      '/srv/knowledge',
+      SPACE_ID,
+    );
+    expect(create).not.toHaveBeenCalled();
+    expect(events).toEqual(['root', 'db:owner-a', 'child']);
   });
 });

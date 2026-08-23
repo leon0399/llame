@@ -1,6 +1,6 @@
-/** Real HTTP + Postgres coverage for self-service Knowledge Space provisioning. */
+/** Real HTTP + Postgres coverage for the multi-space Knowledge API. */
 
-import { lstatSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -13,17 +13,54 @@ import { configureApp } from '../app.setup';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '../unknown-record';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
 
-d('PUT /api/v1/me/knowledge-space', () => {
+type SpaceResponse = {
+  id: string;
+  name: string;
+};
+
+type SpaceListResponse = {
+  items: SpaceResponse[];
+  nextCursor: string | null;
+};
+
+function readSpaceResponse(value: UnknownRecord): SpaceResponse {
+  if (!isString(value.id) || !isString(value.name)) {
+    throw new Error('Expected a Knowledge Space response');
+  }
+  return { id: value.id, name: value.name };
+}
+
+function readSpaceListResponse(value: UnknownRecord): SpaceListResponse {
+  if (!Array.isArray(value.items)) {
+    throw new Error('Expected a Knowledge Space list response');
+  }
+  const nextCursor = value.nextCursor;
+  if (nextCursor !== null && !isString(nextCursor)) {
+    throw new Error('Expected a nullable Knowledge Space cursor');
+  }
+  return {
+    items: value.items.map((item) => {
+      if (!isRecord(item)) {
+        throw new Error('Expected a Knowledge Space item');
+      }
+      return readSpaceResponse(item);
+    }),
+    nextCursor,
+  };
+}
+
+d('Knowledge Spaces REST API', () => {
   let app: INestApplication<import('http').Server>;
   let http: import('http').Server;
   let root: string;
   let cookieA = '';
   let cookieB = '';
+  let firstId = '';
   const tag = Date.now();
   const password = 'password123';
 
@@ -70,98 +107,173 @@ d('PUT /api/v1/me/knowledge-space', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('rejects unauthenticated provisioning', async () => {
-    await request(http).put('/api/v1/me/knowledge-space').send({}).expect(401);
+  it('rejects unauthenticated collection creation', async () => {
+    await request(http)
+      .post('/api/v1/knowledge-spaces')
+      .send({ name: 'Personal' })
+      .expect(401);
   });
 
-  it('provisions one stable logical ID and exact direct child per owner', async () => {
+  it('creates duplicate-named spaces with distinct stable children', async () => {
     const first = await request(http)
-      .put('/api/v1/me/knowledge-space')
+      .post('/api/v1/knowledge-spaces')
       .set('Cookie', cookieA)
-      .expect(200);
-    const firstBody: unknown = first.body;
-    if (!isRecord(firstBody) || !isString(firstBody.id)) {
-      throw new Error('Expected a logical Knowledge Space response');
-    }
-    const firstId = firstBody.id;
-    expect(firstId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
-    expect(Object.keys(firstBody)).toEqual(['id']);
-
+      .send({ name: '  Personal  ' })
+      .expect(201);
     const second = await request(http)
-      .put('/api/v1/me/knowledge-space')
+      .post('/api/v1/knowledge-spaces')
       .set('Cookie', cookieA)
-      .send({})
-      .expect(200);
+      .send({ name: 'Personal' })
+      .expect(201);
+
+    const firstBody: unknown = first.body;
     const secondBody: unknown = second.body;
-    expect(secondBody).toEqual(firstBody);
+    if (!isRecord(firstBody) || !isRecord(secondBody)) {
+      throw new Error('Expected Knowledge Space response objects');
+    }
+    const firstSpace = readSpaceResponse(firstBody);
+    const secondSpace = readSpaceResponse(secondBody);
+    expect(firstSpace.name).toBe('Personal');
+    expect(secondSpace.name).toBe('Personal');
+    expect(firstSpace.id).not.toBe(secondSpace.id);
+    expect(Object.keys(firstBody).sort()).toEqual([
+      'createdAt',
+      'id',
+      'name',
+      'updatedAt',
+    ]);
+    expect(first.headers.location).toBe(
+      `/api/v1/knowledge-spaces/${firstSpace.id}`,
+    );
+    expect(lstatSync(path.join(root, firstSpace.id)).isDirectory()).toBe(true);
+    expect(lstatSync(path.join(root, secondSpace.id)).isDirectory()).toBe(true);
+    firstId = firstSpace.id;
+  });
 
-    const other = await request(http)
-      .put('/api/v1/me/knowledge-space')
+  it('lists with deterministic keyset pagination and retrieves one item', async () => {
+    const paginationCookie = (
+      await register(`knowledge-page-${tag}@test.com`, 'Knowledge Pages')
+    ).cookie;
+    await request(http)
+      .post('/api/v1/knowledge-spaces')
+      .set('Cookie', paginationCookie)
+      .send({ name: 'First' })
+      .expect(201);
+    await request(http)
+      .post('/api/v1/knowledge-spaces')
+      .set('Cookie', paginationCookie)
+      .send({ name: 'Second' })
+      .expect(201);
+
+    const firstPage = await request(http)
+      .get('/api/v1/knowledge-spaces')
+      .query({ limit: 1 })
+      .set('Cookie', paginationCookie)
+      .expect(200);
+    const firstPageRaw: unknown = firstPage.body;
+    if (!isRecord(firstPageRaw)) {
+      throw new Error('Expected a Knowledge Space list object');
+    }
+    const firstPageBody = readSpaceListResponse(firstPageRaw);
+    expect(firstPageBody.items).toHaveLength(1);
+    expect(firstPageBody.nextCursor).not.toBeNull();
+    if (firstPageBody.nextCursor === null) {
+      throw new Error('Expected a next cursor for the first page');
+    }
+
+    const secondPage = await request(http)
+      .get('/api/v1/knowledge-spaces')
+      .query({ limit: 1, after: firstPageBody.nextCursor })
+      .set('Cookie', paginationCookie)
+      .expect(200);
+    const secondPageRaw: unknown = secondPage.body;
+    if (!isRecord(secondPageRaw)) {
+      throw new Error('Expected a Knowledge Space list object');
+    }
+    const secondPageBody = readSpaceListResponse(secondPageRaw);
+    expect(secondPageBody.items).toHaveLength(1);
+    expect(secondPageBody.nextCursor).toBeNull();
+
+    await request(http)
+      .get(`/api/v1/knowledge-spaces/${firstId}`)
+      .set('Cookie', cookieA)
+      .expect(200)
+      .expect((response) => {
+        const body: unknown = response.body;
+        if (!isRecord(body)) {
+          throw new Error('Expected a Knowledge Space response object');
+        }
+        expect(readSpaceResponse(body).id).toBe(firstId);
+        expect(Object.keys(body).sort()).toEqual([
+          'createdAt',
+          'id',
+          'name',
+          'updatedAt',
+        ]);
+      });
+  });
+
+  it('renames by stable ID and rejects empty or excess bodies', async () => {
+    const renamed = await request(http)
+      .patch(`/api/v1/knowledge-spaces/${firstId}`)
+      .set('Cookie', cookieA)
+      .send({ name: '  Archive  ' })
+      .expect(200);
+    const renamedBody: unknown = renamed.body;
+    if (!isRecord(renamedBody)) {
+      throw new Error('Expected a Knowledge Space response object');
+    }
+    expect(readSpaceResponse(renamedBody).name).toBe('Archive');
+
+    await request(http)
+      .patch(`/api/v1/knowledge-spaces/${firstId}`)
+      .set('Cookie', cookieA)
+      .send({})
+      .expect(400);
+    await request(http)
+      .post('/api/v1/knowledge-spaces')
+      .set('Cookie', cookieA)
+      .send({ name: 'Personal', root: '/tmp/attacker' })
+      .expect(400);
+  });
+
+  it('returns the same 404 response for missing and other-owner identifiers', async () => {
+    const missing = await request(http)
+      .get(`/api/v1/knowledge-spaces/${crypto.randomUUID()}`)
       .set('Cookie', cookieB)
-      .send({})
-      .expect(200);
-    const otherBody: unknown = other.body;
-    if (!isRecord(otherBody) || !isString(otherBody.id)) {
-      throw new Error('Expected a logical Knowledge Space response');
-    }
-    expect(otherBody.id).not.toBe(firstId);
-    expect(Object.keys(otherBody)).toEqual(['id']);
-    expect(lstatSync(path.join(root, firstId)).isDirectory()).toBe(true);
-    expect(lstatSync(path.join(root, otherBody.id)).isDirectory()).toBe(true);
+      .expect(404);
+    const otherOwner = await request(http)
+      .get(`/api/v1/knowledge-spaces/${firstId}`)
+      .set('Cookie', cookieB)
+      .expect(404);
+    expect(otherOwner.body).toEqual(missing.body);
+
+    await request(http)
+      .patch(`/api/v1/knowledge-spaces/${firstId}`)
+      .set('Cookie', cookieB)
+      .send({ name: 'Hijacked' })
+      .expect(404);
   });
 
-  it('rejects selector-shaped payloads instead of accepting caller identity or location', async () => {
+  it('rejects malformed cursors and path IDs', async () => {
     await request(http)
-      .put('/api/v1/me/knowledge-space')
+      .get('/api/v1/knowledge-spaces')
+      .query({ after: 'not-a-cursor=' })
       .set('Cookie', cookieA)
-      .send({ ownerUserId: 'other-owner' })
       .expect(400);
     await request(http)
-      .put('/api/v1/me/knowledge-space')
+      .get('/api/v1/knowledge-spaces/not-a-uuid')
       .set('Cookie', cookieA)
-      .send({ directory: '/tmp/other-root' })
       .expect(400);
-  });
-
-  it('retains the row ID when child creation fails, then repairs the exact child on retry', async () => {
-    const provisioned = await request(http)
-      .put('/api/v1/me/knowledge-space')
-      .set('Cookie', cookieA)
-      .send({})
-      .expect(200);
-    const provisionedBody: unknown = provisioned.body;
-    if (!isRecord(provisionedBody) || !isString(provisionedBody.id)) {
-      throw new Error('Expected a logical Knowledge Space response');
-    }
-    const child = path.join(root, provisionedBody.id);
-    rmSync(child, { recursive: true, force: true });
-    writeFileSync(child, 'not a directory');
-
-    await request(http)
-      .put('/api/v1/me/knowledge-space')
-      .set('Cookie', cookieA)
-      .send({})
-      .expect(503);
-
-    rmSync(child, { force: true });
-    const retry = await request(http)
-      .put('/api/v1/me/knowledge-space')
-      .set('Cookie', cookieA)
-      .send({})
-      .expect(200);
-    expect(retry.body).toEqual({ id: provisionedBody.id });
-    expect(lstatSync(child).isDirectory()).toBe(true);
   });
 
   it('returns a safe unavailable response when the configured root disappears', async () => {
     rmSync(root, { recursive: true, force: true });
 
     const response = await request(http)
-      .put('/api/v1/me/knowledge-space')
+      .post('/api/v1/knowledge-spaces')
       .set('Cookie', cookieA)
-      .send({})
+      .send({ name: 'Unavailable' })
       .expect(503);
     expect(response.body).toEqual({
       statusCode: 503,

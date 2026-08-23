@@ -1,18 +1,8 @@
-/**
- * Real-Postgres RLS and create-or-get coverage for Knowledge Spaces.
- *
- * The suite is intentionally skipped without TEST_DATABASE_URL. The
- * integration global setup supplies a non-superuser role that also owns the
- * table, so FORCE RLS is exercised rather than bypassed.
- */
+/** Real-Postgres RLS and owner-scoped multi-space repository coverage. */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
-import { eq } from 'drizzle-orm';
+import { eq, sql as drizzleSql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
 
 import * as schema from '../db/schema';
 import { knowledgeSpaces } from '../db/schema/knowledge-spaces';
@@ -21,7 +11,7 @@ import { KnowledgeSpaceRepository } from './knowledge-space.repository';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const d = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = ReturnType<typeof postgres>;
 
 d('Knowledge Space RLS and tenant repository', () => {
   let sql: SqlClient;
@@ -30,15 +20,19 @@ d('Knowledge Space RLS and tenant repository', () => {
   let userBId: string;
 
   beforeAll(async () => {
-    const postgres = require('postgres');
-    const connect = postgres.default ?? postgres;
-    const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-    sql = connect(TEST_DB_URL!, { ssl, max: 6 });
+    sql = postgres(TEST_DB_URL!, {
+      ssl: /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false,
+      max: 6,
+    });
     tenantDb = new TenantDbService(drizzle(sql, { schema }));
     userAId = crypto.randomUUID();
     userBId = crypto.randomUUID();
-    await sql`INSERT INTO users (id, name, email) VALUES (${userAId}, 'Knowledge A', ${`knowledge-a-${userAId}@test.com`})`;
-    await sql`INSERT INTO users (id, name, email) VALUES (${userBId}, 'Knowledge B', ${`knowledge-b-${userBId}@test.com`})`;
+    await sql`
+      INSERT INTO users (id, name, email)
+      VALUES
+        (${userAId}, 'Knowledge A', ${`knowledge-a-${userAId}@test.com`}),
+        (${userBId}, 'Knowledge B', ${`knowledge-b-${userBId}@test.com`})
+    `;
   });
 
   afterAll(async () => {
@@ -52,7 +46,8 @@ d('Knowledge Space RLS and tenant repository', () => {
     const [role] = await sql`
       SELECT current_user, rolsuper, rolbypassrls
       FROM pg_roles
-      WHERE rolname = current_user`;
+      WHERE rolname = current_user
+    `;
     expect(role.rolsuper).toBe(false);
     expect(role.rolbypassrls).toBe(false);
 
@@ -60,85 +55,169 @@ d('Knowledge Space RLS and tenant repository', () => {
       SELECT c.relrowsecurity, c.relforcerowsecurity,
              pg_get_userbyid(c.relowner) AS owner
       FROM pg_class c
-      WHERE c.relname = 'knowledge_spaces'`;
+      WHERE c.relname = 'knowledge_spaces'
+    `;
     expect(table.relrowsecurity).toBe(true);
     expect(table.relforcerowsecurity).toBe(true);
     expect(table.owner).toBe(role.current_user);
   });
 
-  it('fails closed with no identity and across owners', async () => {
+  it('allows same-owner duplicate names and concurrent independent IDs', async () => {
+    const results = await Promise.all([
+      tenantDb.runAs(userAId, (tx) =>
+        new KnowledgeSpaceRepository(tx).create({
+          knowledgeSpaceId: crypto.randomUUID(),
+          ownerUserId: userAId,
+          name: 'Personal',
+        }),
+      ),
+      tenantDb.runAs(userAId, (tx) =>
+        new KnowledgeSpaceRepository(tx).create({
+          knowledgeSpaceId: crypto.randomUUID(),
+          ownerUserId: userAId,
+          name: 'Personal',
+        }),
+      ),
+    ]);
+
+    expect(results[0].knowledgeSpaceId).not.toBe(results[1].knowledgeSpaceId);
+    expect(results[0].name).toBe('Personal');
+    expect(results[1].name).toBe('Personal');
+    const page = await tenantDb.runAs(userAId, (tx) =>
+      new KnowledgeSpaceRepository(tx).listForOwnerPage(userAId, 1),
+    );
+    expect(page).toHaveLength(2);
+  });
+
+  it('traverses equal creation timestamps by the stable-ID tie-breaker', async () => {
+    const createdAt = new Date('2026-08-23T12:00:00.123Z');
+    const firstId = '00000000-0000-4000-8000-000000000001';
+    const secondId = '00000000-0000-4000-8000-000000000002';
+    await tenantDb.runAs(userBId, (tx) =>
+      tx.insert(knowledgeSpaces).values([
+        {
+          knowledgeSpaceId: secondId,
+          ownerUserId: userBId,
+          name: 'Second',
+          createdAt,
+          updatedAt: createdAt,
+        },
+        {
+          knowledgeSpaceId: firstId,
+          ownerUserId: userBId,
+          name: 'First',
+          createdAt,
+          updatedAt: createdAt,
+        },
+      ]),
+    );
+
+    const firstPage = await tenantDb.runAs(userBId, (tx) =>
+      new KnowledgeSpaceRepository(tx).listForOwnerPage(userBId, 1),
+    );
+    expect(firstPage.map((row) => row.knowledgeSpaceId)).toEqual([
+      firstId,
+      secondId,
+    ]);
+
+    const secondPage = await tenantDb.runAs(userBId, (tx) =>
+      new KnowledgeSpaceRepository(tx).listForOwnerPage(userBId, 1, {
+        createdAt,
+        id: firstId,
+      }),
+    );
+    expect(secondPage.map((row) => row.knowledgeSpaceId)).toEqual([secondId]);
+  });
+
+  it('makes missing and other-owner IDs indistinguishable through owner predicates', async () => {
     const created = await tenantDb.runAs(userAId, (tx) =>
-      new KnowledgeSpaceRepository(tx).createOrGet(userAId),
+      new KnowledgeSpaceRepository(tx).create({
+        knowledgeSpaceId: crypto.randomUUID(),
+        ownerUserId: userAId,
+        name: 'Private',
+      }),
     );
 
     await expect(
-      sql.begin(async (tx: SqlClient) => {
-        await tx`SELECT set_config('app.current_user_id', '', true)`;
-        const rows = await tx`
-          SELECT knowledge_space_id
-          FROM knowledge_spaces
-          WHERE knowledge_space_id = ${created.knowledgeSpaceId}`;
-        expect(rows).toHaveLength(0);
-      }),
+      tenantDb.runAs(userBId, (tx) =>
+        new KnowledgeSpaceRepository(tx).findByIdForOwner(
+          created.knowledgeSpaceId,
+          userBId,
+        ),
+      ),
     ).resolves.toBeUndefined();
-
     await expect(
       tenantDb.runAs(userBId, (tx) =>
-        new KnowledgeSpaceRepository(tx).findForOwner(userAId),
+        new KnowledgeSpaceRepository(tx).updateName(
+          created.knowledgeSpaceId,
+          userBId,
+          'Hijacked',
+        ),
       ),
     ).resolves.toBeUndefined();
 
     const crossOwnerUpdate = await tenantDb.runAs(userBId, (tx) =>
       tx
         .update(knowledgeSpaces)
-        .set({ knowledgeSpaceId: crypto.randomUUID() })
+        .set({ name: 'Hijacked' })
         .where(eq(knowledgeSpaces.knowledgeSpaceId, created.knowledgeSpaceId))
         .returning(),
     );
     expect(crossOwnerUpdate).toHaveLength(0);
-
-    const crossOwnerDelete = await tenantDb.runAs(userBId, (tx) =>
-      tx
-        .delete(knowledgeSpaces)
-        .where(eq(knowledgeSpaces.knowledgeSpaceId, created.knowledgeSpaceId))
-        .returning(),
-    );
-    expect(crossOwnerDelete).toHaveLength(0);
-    await expect(
-      tenantDb.runAs(userAId, (tx) =>
-        new KnowledgeSpaceRepository(tx).findForOwner(userAId),
-      ),
-    ).resolves.toMatchObject({ knowledgeSpaceId: created.knowledgeSpaceId });
   });
 
-  it('concurrent create-or-get calls converge on one globally stable ID', async () => {
-    const results = await Promise.all(
-      Array.from({ length: 12 }, () =>
-        tenantDb.runAs(userBId, (tx) =>
-          new KnowledgeSpaceRepository(tx).createOrGet(userBId),
-        ),
-      ),
-    );
+  it('keeps a binding share lock through the compatibility lookup', async () => {
+    let releaseLock!: () => void;
+    let reportLocked!: () => void;
+    let bindingSpaceId = '';
+    const holdLock = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const locked = new Promise<void>((resolve) => {
+      reportLocked = resolve;
+    });
 
-    expect(new Set(results.map((row) => row.knowledgeSpaceId)).size).toBe(1);
-    expect(results.every((row) => row.ownerUserId === userBId)).toBe(true);
-    await expect(
-      tenantDb.runAs(userBId, (tx) =>
-        tx
-          .select({ id: knowledgeSpaces.knowledgeSpaceId })
-          .from(knowledgeSpaces)
-          .where(eq(knowledgeSpaces.ownerUserId, userBId)),
-      ),
-    ).resolves.toHaveLength(1);
+    const binding = tenantDb.runAs(userAId, async (tx) => {
+      const row = await new KnowledgeSpaceRepository(tx).findForOwnerForBinding(
+        userAId,
+      );
+      expect(row).toBeDefined();
+      if (row === undefined) {
+        throw new Error('Expected an existing Knowledge Space');
+      }
+      bindingSpaceId = row.knowledgeSpaceId;
+      reportLocked();
+      await holdLock;
+      return row;
+    });
+    await locked;
+
+    const updateWhileLocked = tenantDb.runAs(userAId, async (tx) => {
+      await tx.execute(drizzleSql`SET LOCAL lock_timeout = '100ms'`);
+      return tx
+        .update(knowledgeSpaces)
+        .set({ name: 'Blocked' })
+        .where(eq(knowledgeSpaces.knowledgeSpaceId, bindingSpaceId))
+        .returning();
+    });
+    try {
+      await expect(updateWhileLocked).rejects.toMatchObject({
+        cause: { code: '55P03' },
+      });
+    } finally {
+      releaseLock();
+      await binding;
+    }
   });
 
-  it('table owner cannot bypass policies by writing without identity', async () => {
+  it('fails closed with no identity even for the table owner', async () => {
     await expect(
-      sql.begin(async (tx: SqlClient) => {
+      sql.begin(async (tx) => {
         await tx`SELECT set_config('app.current_user_id', '', true)`;
         await tx`
-          INSERT INTO knowledge_spaces (knowledge_space_id, owner_user_id)
-          VALUES (${crypto.randomUUID()}, ${userAId})`;
+          INSERT INTO knowledge_spaces (knowledge_space_id, owner_user_id, name)
+          VALUES (${crypto.randomUUID()}, ${userAId}, 'forged')
+        `;
       }),
     ).rejects.toThrow(/row-level security|policy/i);
   });

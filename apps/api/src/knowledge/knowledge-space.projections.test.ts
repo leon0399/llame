@@ -9,6 +9,7 @@ describe('Knowledge Space projections', () => {
   const row = {
     knowledgeSpaceId: SPACE_ID,
     ownerUserId: 'hosted-owner-id',
+    name: 'Personal',
   };
 
   it('exposes only the portable stable ID in the logical projection', () => {
@@ -31,6 +32,7 @@ describe('Knowledge Space projections', () => {
       ),
     ).toEqual({
       id: SPACE_ID,
+      name: 'Personal',
       root: '/srv/knowledge',
       directory: `/srv/knowledge/${SPACE_ID}`,
     });

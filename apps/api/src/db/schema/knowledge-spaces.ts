@@ -1,10 +1,17 @@
 import { InferSelectModel, sql } from 'drizzle-orm';
-import { pgPolicy, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+import {
+  index,
+  pgPolicy,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 import { users } from './auth';
 
 /**
- * One portable logical Knowledge Space per owner.
+ * One portable logical Knowledge Space authority row per owner.
  *
  * The local filesystem root and stable-ID child are deliberately not stored in
  * PostgreSQL. The configured root is process-local operator state; this row is
@@ -18,10 +25,21 @@ export const knowledgeSpaces = pgTable(
     knowledgeSpaceId: uuid('knowledge_space_id').primaryKey().defaultRandom(),
     ownerUserId: text('owner_user_id')
       .notNull()
-      .unique('knowledge_spaces_owner_user_id_unique')
       .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull().default('Personal'),
+    createdAt: timestamp('created_at', { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
   },
-  () => [
+  (table) => [
+    index('knowledge_spaces_owner_created_id_idx').on(
+      table.ownerUserId,
+      table.createdAt,
+      table.knowledgeSpaceId,
+    ),
     pgPolicy('knowledge_spaces_owner_select', {
       for: 'select',
       using: sql`owner_user_id = current_setting('app.current_user_id', true)`,

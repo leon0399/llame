@@ -1,98 +1,186 @@
 import {
   BadRequestException,
+  Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Inject,
-  Put,
-  Req,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Res,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiCookieAuth,
+  ApiCreatedResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiParam,
   ApiResponse,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
 
 import { CurrentUser } from '../auth/auth-context';
-import { isRecord } from '../unknown-record';
 import {
-  KNOWLEDGE_SPACE_UNAVAILABLE,
   KnowledgeSpaceUnavailableError,
+  KNOWLEDGE_SPACE_UNAVAILABLE,
 } from './knowledge-space.local-resolver';
+import { KnowledgeSpaceCursorError } from './knowledge-space.cursor';
 import {
+  CreateKnowledgeSpaceDto,
+  KnowledgeSpaceCollectionResponse,
   KnowledgeSpaceResponse,
   KnowledgeSpaceUnavailableResponse,
+  ListKnowledgeSpacesQueryDto,
+  toKnowledgeSpaceCollectionResponse,
   toKnowledgeSpaceResponse,
+  UpdateKnowledgeSpaceDto,
 } from './dto/knowledge-space.dto';
 import {
   KnowledgeSpaceService,
-  type KnowledgeSpaceProvisioner,
+  type KnowledgeSpaceManagement,
 } from './knowledge-space.service';
 
-type KnowledgeSpaceRequest = {
-  body?: unknown;
-};
+type KnowledgeSpaceResponseWriter = Pick<Response, 'setHeader'>;
 
 @ApiTags('knowledge')
 @ApiBearerAuth('bearer')
 @ApiCookieAuth('cookie')
-@Controller('api/v1/me/knowledge-space')
+@Controller('api/v1/knowledge-spaces')
 export class KnowledgeSpaceController {
   constructor(
     @Inject(KnowledgeSpaceService)
-    private readonly knowledgeSpace: KnowledgeSpaceProvisioner,
+    private readonly knowledgeSpace: KnowledgeSpaceManagement,
   ) {}
 
-  @Put()
-  @HttpCode(HttpStatus.OK)
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    operationId: 'provisionKnowledgeSpace',
-    summary: 'Provision the current owner Knowledge Space',
-    description:
-      'Creates or resolves the authenticated owner personal Knowledge Space and returns only its stable logical identifier.',
+    operationId: 'createKnowledgeSpace',
+    summary: 'Create a Knowledge Space for the current owner',
   })
-  @ApiOkResponse({ type: KnowledgeSpaceResponse })
+  @ApiCreatedResponse({ type: KnowledgeSpaceResponse })
   @ApiBadRequestResponse()
   @ApiUnauthorizedResponse()
   @ApiResponse({
     status: HttpStatus.SERVICE_UNAVAILABLE,
     type: KnowledgeSpaceUnavailableResponse,
   })
-  async putKnowledgeSpace(
+  async createKnowledgeSpace(
     @CurrentUser() ownerUserId: string,
-    @Req() request: KnowledgeSpaceRequest,
+    @Body() input: CreateKnowledgeSpaceDto,
+    @Res({ passthrough: true }) response: KnowledgeSpaceResponseWriter,
   ): Promise<KnowledgeSpaceResponse> {
-    assertEmptyKnowledgeSpaceBody(request.body);
     try {
-      return toKnowledgeSpaceResponse(
-        await this.knowledgeSpace.provisionForOwner(ownerUserId),
+      const space = await this.knowledgeSpace.provisionForOwner(
+        ownerUserId,
+        input,
+      );
+      response.setHeader('Location', `/api/v1/knowledge-spaces/${space.id}`);
+      return toKnowledgeSpaceResponse(space);
+    } catch (error) {
+      throw mapProvisioningError(error);
+    }
+  }
+
+  @Get()
+  @ApiOperation({
+    operationId: 'listKnowledgeSpaces',
+    summary: 'List the current owner Knowledge Spaces',
+  })
+  @ApiOkResponse({ type: KnowledgeSpaceCollectionResponse })
+  @ApiBadRequestResponse()
+  @ApiUnauthorizedResponse()
+  async listKnowledgeSpaces(
+    @CurrentUser() ownerUserId: string,
+    @Query() query: ListKnowledgeSpacesQueryDto,
+  ): Promise<KnowledgeSpaceCollectionResponse> {
+    try {
+      return toKnowledgeSpaceCollectionResponse(
+        await this.knowledgeSpace.listForOwner(ownerUserId, {
+          limit: query.limit,
+          after: query.after,
+        }),
       );
     } catch (error) {
-      if (!(error instanceof KnowledgeSpaceUnavailableError)) throw error;
-      throw new ServiceUnavailableException({
-        statusCode: HttpStatus.SERVICE_UNAVAILABLE,
-        error: 'Service Unavailable',
-        code: KNOWLEDGE_SPACE_UNAVAILABLE,
-        message: error.message,
-      });
+      if (error instanceof KnowledgeSpaceCursorError) {
+        throw new BadRequestException('Invalid Knowledge Space cursor.');
+      }
+      throw error;
     }
+  }
+
+  @Get(':id')
+  @ApiOperation({
+    operationId: 'getKnowledgeSpace',
+    summary: 'Get one current owner Knowledge Space',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: KnowledgeSpaceResponse })
+  @ApiBadRequestResponse({ description: 'Malformed Knowledge Space id' })
+  @ApiNotFoundResponse()
+  @ApiUnauthorizedResponse()
+  async getKnowledgeSpace(
+    @CurrentUser() ownerUserId: string,
+    @Param('id', ParseUUIDPipe) knowledgeSpaceId: string,
+  ): Promise<KnowledgeSpaceResponse> {
+    const space = await this.knowledgeSpace.getForOwner(
+      ownerUserId,
+      knowledgeSpaceId,
+    );
+    if (space === undefined) throw knowledgeSpaceNotFound();
+    return toKnowledgeSpaceResponse(space);
+  }
+
+  @Patch(':id')
+  @ApiOperation({
+    operationId: 'renameKnowledgeSpace',
+    summary: 'Rename one current owner Knowledge Space',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: KnowledgeSpaceResponse })
+  @ApiBadRequestResponse({ description: 'Malformed id or name' })
+  @ApiNotFoundResponse()
+  @ApiUnauthorizedResponse()
+  async renameKnowledgeSpace(
+    @CurrentUser() ownerUserId: string,
+    @Param('id', ParseUUIDPipe) knowledgeSpaceId: string,
+    @Body() input: UpdateKnowledgeSpaceDto,
+  ): Promise<KnowledgeSpaceResponse> {
+    const space = await this.knowledgeSpace.renameForOwner(
+      ownerUserId,
+      knowledgeSpaceId,
+      input,
+    );
+    if (space === undefined) throw knowledgeSpaceNotFound();
+    return toKnowledgeSpaceResponse(space);
   }
 }
 
-function assertEmptyKnowledgeSpaceBody(
-  body: KnowledgeSpaceRequest['body'],
-): void {
-  if (body === undefined) return;
-  if (!isRecord(body)) {
-    throw new BadRequestException('Request body must be empty.');
+function knowledgeSpaceNotFound(): NotFoundException {
+  return new NotFoundException('Knowledge Space not found');
+}
+
+function mapProvisioningError(error: unknown): Error {
+  if (!(error instanceof KnowledgeSpaceUnavailableError)) {
+    return error instanceof Error
+      ? error
+      : new Error('Knowledge Space provisioning failed');
   }
-  if (Object.keys(body).length > 0) {
-    throw new BadRequestException('Request body must be empty.');
-  }
+  return new ServiceUnavailableException({
+    statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+    error: 'Service Unavailable',
+    code: KNOWLEDGE_SPACE_UNAVAILABLE,
+    message: error.message,
+  });
 }

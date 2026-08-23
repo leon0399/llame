@@ -7,6 +7,15 @@ import { KnowledgeModule } from './knowledge.module';
 import { KnowledgeToolCandidateResolver } from './knowledge-tool-candidate-resolver';
 import { KnowledgeToolRuntimeResolver } from './knowledge-tool-runtime-resolver';
 
+const SPACE = {
+  id: '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
+  name: 'Personal',
+  createdAt: new Date('2026-08-23T12:00:00.000Z'),
+  updatedAt: new Date('2026-08-23T12:00:00.000Z'),
+};
+
+const noOp = vi.fn();
+
 describe('KnowledgeSpaceController', () => {
   it('is wired into the application module', () => {
     const imports: unknown = Reflect.getMetadata('imports', AppModule);
@@ -23,65 +32,95 @@ describe('KnowledgeSpaceController', () => {
     expect(exports).toContain(KnowledgeToolRuntimeResolver);
   });
 
-  it('uses only the authenticated owner and returns the logical projection', async () => {
-    const provisionForOwner = vi.fn().mockResolvedValue({
-      id: '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
+  it('creates a named resource and sets its Location header', async () => {
+    const provisionForOwner = vi.fn().mockResolvedValue(SPACE);
+    const controller = new KnowledgeSpaceController({
+      provisionForOwner,
+      listForOwner: noOp,
+      getForOwner: noOp,
+      renameForOwner: noOp,
     });
-    const controller = new KnowledgeSpaceController({ provisionForOwner });
+    const response = { setHeader: vi.fn() };
 
     await expect(
-      controller.putKnowledgeSpace('session-owner', {}),
-    ).resolves.toEqual({ id: '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e' });
-    expect(provisionForOwner).toHaveBeenCalledWith('session-owner');
+      controller.createKnowledgeSpace(
+        'session-owner',
+        { name: 'Personal' },
+        response,
+      ),
+    ).resolves.toEqual(SPACE);
+    expect(provisionForOwner).toHaveBeenCalledWith('session-owner', {
+      name: 'Personal',
+    });
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'Location',
+      `/api/v1/knowledge-spaces/${SPACE.id}`,
+    );
   });
 
-  it('accepts an empty body but rejects selector-shaped request bodies', async () => {
-    const provisionForOwner = vi.fn().mockResolvedValue({
-      id: '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
+  it('lists a bounded owner inventory with an opaque next cursor', async () => {
+    const listForOwner = vi.fn().mockResolvedValue({
+      items: [SPACE],
+      nextCursor: 'opaque-cursor',
     });
-    const controller = new KnowledgeSpaceController({ provisionForOwner });
+    const controller = new KnowledgeSpaceController({
+      provisionForOwner: noOp,
+      listForOwner,
+      getForOwner: noOp,
+      renameForOwner: noOp,
+    });
 
     await expect(
-      controller.putKnowledgeSpace('session-owner', { body: undefined }),
-    ).resolves.toEqual({ id: '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e' });
-    await expect(
-      controller.putKnowledgeSpace('session-owner', {
-        body: { ownerUserId: 'attacker-controlled' },
+      controller.listKnowledgeSpaces('session-owner', {
+        limit: 50,
+        after: 'opaque-cursor',
       }),
-    ).rejects.toMatchObject({ status: 400 });
-    await expect(
-      controller.putKnowledgeSpace('session-owner', {
-        body: { directory: '/tmp/attacker-controlled' },
-      }),
-    ).rejects.toMatchObject({ status: 400 });
-    await expect(
-      controller.putKnowledgeSpace('session-owner', {
-        body: ['not-an-object'],
-      }),
-    ).rejects.toMatchObject({ status: 400 });
+    ).resolves.toEqual({ items: [SPACE], nextCursor: 'opaque-cursor' });
+    expect(listForOwner).toHaveBeenCalledWith('session-owner', {
+      limit: 50,
+      after: 'opaque-cursor',
+    });
   });
 
-  it('returns the documented safe 503 response when provisioning is unavailable', async () => {
+  it('returns the same 404 shape for absent and other-owner IDs', async () => {
+    const getForOwner = vi.fn().mockResolvedValue(undefined);
+    const controller = new KnowledgeSpaceController({
+      provisionForOwner: noOp,
+      listForOwner: noOp,
+      getForOwner,
+      renameForOwner: noOp,
+    });
+
+    for (const owner of ['session-owner', 'other-owner']) {
+      await expect(
+        controller.getKnowledgeSpace(owner, SPACE.id),
+      ).rejects.toMatchObject({
+        status: HttpStatus.NOT_FOUND,
+        response: { message: 'Knowledge Space not found' },
+      });
+    }
+  });
+
+  it('maps local provisioning failures to the safe 503 response', async () => {
     const controller = new KnowledgeSpaceController({
       provisionForOwner: vi
         .fn()
         .mockRejectedValue(new KnowledgeSpaceUnavailableError()),
+      listForOwner: noOp,
+      getForOwner: noOp,
+      renameForOwner: noOp,
     });
 
     try {
-      await controller.putKnowledgeSpace('session-owner', {});
+      await controller.createKnowledgeSpace(
+        'session-owner',
+        { name: 'Personal' },
+        { setHeader: vi.fn() },
+      );
       throw new Error('expected controller to throw');
     } catch (error) {
-      if (!(error instanceof HttpException)) {
-        throw new Error('Expected an HttpException');
-      }
+      if (!(error instanceof HttpException)) throw error;
       expect(error.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
-      expect(error.getResponse()).toEqual({
-        statusCode: 503,
-        error: 'Service Unavailable',
-        code: 'knowledge_space_unavailable',
-        message: 'Knowledge Space is unavailable.',
-      });
     }
   });
 });

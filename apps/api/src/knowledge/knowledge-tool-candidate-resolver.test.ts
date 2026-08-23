@@ -113,6 +113,9 @@ describe('KnowledgeToolCandidateResolver', () => {
       .mockResolvedValue({
         knowledgeSpaceId: SPACE_ID,
         ownerUserId: OWNER_ID,
+        name: 'Personal',
+        createdAt: new Date('2026-08-23T12:00:00.000Z'),
+        updatedAt: new Date('2026-08-23T12:00:00.000Z'),
       });
     const resolver = new KnowledgeToolCandidateResolver(makeConfig(undefined));
 
@@ -147,6 +150,9 @@ describe('KnowledgeToolCandidateResolver', () => {
       .mockResolvedValue({
         knowledgeSpaceId: SPACE_ID,
         ownerUserId: OWNER_ID,
+        name: 'Personal',
+        createdAt: new Date('2026-08-23T12:00:00.000Z'),
+        updatedAt: new Date('2026-08-23T12:00:00.000Z'),
       });
     const resolver = new KnowledgeToolCandidateResolver(
       makeConfig('/path/that/does/not/exist'),
@@ -183,6 +189,9 @@ describe('KnowledgeToolCandidateResolver', () => {
       .mockResolvedValue({
         knowledgeSpaceId: SPACE_ID,
         ownerUserId: OWNER_ID,
+        name: 'Personal',
+        createdAt: new Date('2026-08-23T12:00:00.000Z'),
+        updatedAt: new Date('2026-08-23T12:00:00.000Z'),
       });
     const resolver = new KnowledgeToolCandidateResolver(
       makeConfig('/srv/knowledge'),

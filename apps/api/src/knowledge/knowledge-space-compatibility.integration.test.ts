@@ -46,7 +46,10 @@ describe('Knowledge Space legacy-writer compatibility', () => {
     await compatSql`
       CREATE TABLE knowledge_spaces (
         knowledge_space_id uuid PRIMARY KEY,
-        owner_user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE
+        owner_user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name text NOT NULL DEFAULT 'Personal',
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
       )`;
     tenantDb = new TenantDbService(drizzle(compatSql, { schema }));
   });
