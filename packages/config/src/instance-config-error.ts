@@ -7,6 +7,6 @@
 export class InstanceConfigError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'InstanceConfigError';
+    this.name = "InstanceConfigError";
   }
 }

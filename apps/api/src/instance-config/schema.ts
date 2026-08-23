@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020';
 
-import { InstanceConfigError } from './instance-config.error';
+import { InstanceConfigError } from '@workspace/config';
 import type { RawInstanceConfig } from './llame-config';
 import { isRecord, type UnknownRecord } from '../unknown-record';
 

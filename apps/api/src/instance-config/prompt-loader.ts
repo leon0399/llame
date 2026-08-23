@@ -4,7 +4,7 @@ import path from 'node:path';
 import Handlebars from 'handlebars';
 
 import { sanitizeAuthoredText } from './authored-text';
-import { InstanceConfigError } from './instance-config.error';
+import { InstanceConfigError } from '@workspace/config';
 import { isString } from '../unknown-record';
 import type {
   PromptChatDigestEntry,
