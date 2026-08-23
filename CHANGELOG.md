@@ -19,6 +19,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   the migration that creates it lands with the embedding schema, and fails
   outright on an image without it.
 
+- **Config interpolation extraction** (#537): moved the `{env:}`/`{path:}`
+  secret-interpolation engine and `InstanceConfigError` from
+  `apps/api/src/instance-config` into `packages/config-interpolation`,
+  verbatim with their suites, so every surface (API today, local CLI next)
+  resolves operator secrets through one owned implementation. API behavior
+  unchanged.
+
 - **Personal Knowledge reads** (#213, #519, #520): authenticated owners can
   self-service one stable logical Knowledge Space beneath an operator-configured
   root, while forced-RLS PostgreSQL stores only the owner linkage and files
