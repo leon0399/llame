@@ -562,6 +562,49 @@ describe('buildCompactionRequest', () => {
 });
 
 describe('compacted tool-observation ledger', () => {
+  it('stores and replays an incomplete outcome after clearing a degraded Knowledge search', () => {
+    const assistant = msg('', 'assistant');
+    assistant.parts = [
+      {
+        type: 'tool-knowledge_search',
+        toolCallId: 'knowledge-incomplete-ledger',
+        state: 'output-available',
+        input: { query: 'checkpoint' },
+        output: {
+          status: 'success',
+          complete: false,
+          results: [{ path: 'notes/checkpoint.md' }],
+          warnings: [],
+          warningCount: 1,
+        },
+        outcome: 'success',
+      },
+    ];
+
+    const ledger = buildNextCompactionToolObservationLedger({
+      previous: undefined,
+      absorb: [assistant],
+    });
+
+    expect(ledger.observations).toEqual([
+      {
+        toolCallId: 'knowledge-incomplete-ledger',
+        toolName: 'knowledge_search',
+        outcome: 'incomplete',
+      },
+    ]);
+    const replay = buildContext([], {
+      systemPrompt: 'system',
+      compaction: {
+        summary: 'Checkpoint',
+        uptoSeq: assistant.seq,
+        toolObservationLedger: ledger,
+      },
+    }).messages;
+    expect(JSON.stringify(replay)).toContain('Outcome: incomplete');
+    expect(JSON.stringify(replay)).not.toContain('"complete":false');
+  });
+
   it('resets a hostile previous ledger before writing with no absorbed observations', () => {
     const ledger = buildNextCompactionToolObservationLedger({
       previous: {

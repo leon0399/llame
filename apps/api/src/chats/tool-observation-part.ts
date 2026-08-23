@@ -66,6 +66,7 @@ interface ObservationPayload extends CompactionToolObservation {
   partIndex: number;
   input: unknown;
   resultBody: string | null;
+  clearedOutcome: string;
 }
 
 interface PairCandidate {
@@ -241,7 +242,7 @@ function makePair(
       toolName: observation.toolName,
       output: textOutput(
         resultText(
-          observation.outcome,
+          cleared ? observation.clearedOutcome : observation.outcome,
           cleared ? null : observation.resultBody,
         ),
       ),
@@ -389,11 +390,21 @@ function storedObservations(parts: MessagePart[]): ObservationPayload[] {
     if (!isToolActivityPart(part)) return;
     const toolName = part.type.slice(TOOL_PART_PREFIX.length);
     if (!isToolName(toolName)) return;
+    const outcome = resolveOutcome(part);
     observations.push({
       partIndex,
       toolCallId: part.toolCallId,
       toolName,
-      outcome: resolveOutcome(part),
+      outcome,
+      clearedOutcome:
+        part.type === 'tool-knowledge_search' &&
+        part.state === 'output-available' &&
+        outcome === 'success' &&
+        isRecord(part.output) &&
+        part.output.status === 'success' &&
+        part.output.complete === false
+          ? 'incomplete'
+          : outcome,
       input: part.input,
       resultBody: resolveResultBody(part),
     });
@@ -449,6 +460,7 @@ function parseCompactionToolObservationLedger(
       partIndex,
       input: {},
       resultBody: null,
+      clearedOutcome: observation.outcome,
     }),
   );
   const bounded = boundCandidates(
@@ -486,6 +498,7 @@ export function projectCompactionToolObservationLedger(
       partIndex,
       input: {},
       resultBody: null,
+      clearedOutcome: observation.outcome,
     }),
   );
   const bounded = boundCandidates(
@@ -510,6 +523,7 @@ export function buildCompactionToolObservationLedger(
       partIndex,
       input: {},
       resultBody: null,
+      clearedOutcome: observation.outcome,
     })),
     ...absorbedAssistantParts.flatMap((parts) =>
       storedObservations(parts).map((observation) => ({
@@ -537,7 +551,7 @@ export function buildCompactionToolObservationLedger(
       return {
         toolCallId: observation.toolCallId,
         toolName: observation.toolName,
-        outcome: observation.outcome,
+        outcome: observation.clearedOutcome,
       };
     }),
   };
