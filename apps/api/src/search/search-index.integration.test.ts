@@ -69,6 +69,24 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
           SELECT chat_id FROM llame_search_stale_chats(${CHUNKER_VERSION}, 1000)`),
       )
       .then((rows) => [...rows].map((r) => r.chat_id));
+  // chat-search-embeddings, design D10 — cross-tenant embedding-lag discovery.
+  type CoverageRow = {
+    chat_id: string;
+    owner_user_id: string;
+    outstanding_count: number;
+    embedded_count: number;
+    failed_count: number;
+  };
+  const embeddingCoverage = (
+    modelKey: string,
+    inputVersion: number,
+  ): Promise<CoverageRow[]> =>
+    tenantDb
+      .runAsPublic((tx) =>
+        tx.execute<CoverageRow>(sql`
+          SELECT * FROM llame_search_embedding_coverage(${modelKey}, ${inputVersion}, 1000)`),
+      )
+      .then((rows) => [...rows]);
 
   async function seed(
     title: string,
@@ -320,5 +338,109 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         ['chat_id', 'owner_user_id', 'updated_at'].sort(),
       );
     }
+  });
+
+  // chat-search-embeddings, design D10 — llame_search_embedding_coverage.
+  // Nothing in this layer writes an embedding; these tests stamp the
+  // embedding columns directly to exercise the coverage predicate.
+  describe('llame_search_embedding_coverage', () => {
+    it('flags a fully-indexed, never-embedded chat — the null-comparison trap (IS DISTINCT FROM, not =)', async () => {
+      const id = await seed('Never embedded', [
+        { role: 'user', text: 'find this via embedding one day' },
+      ]);
+      await indexService.reindexChat(id, u);
+      const rows = await embeddingCoverage('model-a', 1);
+      const row = rows.find((r) => r.chat_id === id);
+      expect(row).toBeDefined();
+      expect(row!.outstanding_count).toBeGreaterThan(0);
+      expect(row!.embedded_count).toBe(0);
+      expect(row!.failed_count).toBe(0);
+    });
+
+    it('excludes a chat whose document already matches the model key, content hash, and input version', async () => {
+      const id = await seed('Fully embedded', [
+        { role: 'user', text: 'already covered content' },
+      ]);
+      await indexService.reindexChat(id, u);
+      const [{ content_hash }] = await ownedRows(
+        sql`SELECT content_hash FROM search_chat_documents WHERE chat_id = ${id}`,
+        z.object({ content_hash: z.string() }),
+      );
+      await tenantDb.runAs(u, (tx) =>
+        tx.execute(sql`
+          UPDATE search_chat_documents
+          SET embedding = '[0.1,0.2,0.3]',
+              embedding_model_key = 'model-a',
+              embedded_content_hash = ${content_hash},
+              embed_input_version = 1
+          WHERE chat_id = ${id}`),
+      );
+      const rows = await embeddingCoverage('model-a', 1);
+      expect(rows.find((r) => r.chat_id === id)).toBeUndefined();
+    });
+
+    it('re-flags a document whose embedded_content_hash is stale after a rebuild', async () => {
+      const id = await seed('Rebuilt after embed', [
+        { role: 'user', text: 'original content' },
+      ]);
+      await indexService.reindexChat(id, u);
+      const [{ content_hash }] = await ownedRows(
+        sql`SELECT content_hash FROM search_chat_documents WHERE chat_id = ${id}`,
+        z.object({ content_hash: z.string() }),
+      );
+      await tenantDb.runAs(u, (tx) =>
+        tx.execute(sql`
+          UPDATE search_chat_documents
+          SET embedding = '[0.1,0.2,0.3]',
+              embedding_model_key = 'model-a',
+              embedded_content_hash = ${content_hash},
+              embed_input_version = 1
+          WHERE chat_id = ${id}`),
+      );
+      expect(
+        (await embeddingCoverage('model-a', 1)).find((r) => r.chat_id === id),
+      ).toBeUndefined();
+
+      const [{ id: msgId }] = await ownedRows(
+        sql`SELECT id FROM messages WHERE chat_id = ${id} LIMIT 1`,
+        z.object({ id: z.string() }),
+      );
+      await tenantDb.runAs(u, (tx) =>
+        tx.execute(
+          sql`UPDATE messages SET parts = ${JSON.stringify(text('rewritten content'))}::jsonb WHERE id = ${msgId}`,
+        ),
+      );
+      await indexService.reindexChat(id, u);
+
+      const row = (await embeddingCoverage('model-a', 1)).find(
+        (r) => r.chat_id === id,
+      );
+      expect(row).toBeDefined();
+      expect(row!.outstanding_count).toBeGreaterThan(0);
+    });
+
+    it('returns only identifiers + counts (no content, no vectors)', async () => {
+      // Seed an unambiguous never-embedded document so this row-shape
+      // assertion is guaranteed at least one row to check, rather than
+      // relying on ambient state from earlier tests in this file (which
+      // would let the assertion below silently no-op if that state ever
+      // changed).
+      const id = await seed('Coverage shape check', [
+        { role: 'user', text: 'row shape only' },
+      ]);
+      await indexService.reindexChat(id, u);
+      const rows = await embeddingCoverage('coverage-shape-model', 1);
+      expect(rows.length).toBeGreaterThan(0);
+      const cols = new Set(Object.keys(rows[0] ?? {}));
+      expect([...cols].sort()).toEqual(
+        [
+          'chat_id',
+          'owner_user_id',
+          'outstanding_count',
+          'embedded_count',
+          'failed_count',
+        ].sort(),
+      );
+    });
   });
 });

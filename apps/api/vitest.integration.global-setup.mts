@@ -59,6 +59,13 @@ async function provision(superuserUri: string): Promise<string> {
     await superuserOnTestDb.unsafe(
       sqlFile('../../docker/postgres/initdb/02-app-rls-role.sql'),
     );
+    // `vector` (pgvector) is not a trusted extension, so only the superuser can
+    // install it (docker/postgres/initdb/03-vector-extension.sql provisions the
+    // same thing for the compose dev database). Must run before migrate(): the
+    // chat-search-embeddings migration's ADD COLUMN uses the `vector` type.
+    await superuserOnTestDb.unsafe(
+      sqlFile('../../docker/postgres/initdb/03-vector-extension.sql'),
+    );
     // app must own schema `public` to create tables in it (PG15+ locks this down).
     await superuserOnTestDb.unsafe(`ALTER SCHEMA public OWNER TO app`);
 

@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-23
 
+- **Upgrading an existing database to pgvector**: `vector` is not a trusted
+  extension — only a superuser can install it, and the non-superuser role that
+  runs migrations cannot. A fresh volume is provisioned automatically by
+  `docker/postgres/initdb/03-vector-extension.sql`; an **existing** volume
+  predating this change must have that script hand-run as `postgres` before
+  `pnpm db:migrate`, which otherwise fails on the extension statement.
+
 - **BREAKING (self-hosters running their own Postgres)**: the dev/deploy
   Postgres image now requires the `vector` (pgvector) extension alongside the
   already-required `pg_trgm`, for embeddings-backed search — `compose.yaml`

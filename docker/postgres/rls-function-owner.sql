@@ -28,3 +28,9 @@ ALTER FUNCTION llame_role_on_unit_path(uuid, org_role[]) OWNER TO app_rls;
 -- under FORCE RLS. Same rationale as above; it returns only identifiers +
 -- timestamps, never content. Idempotent; safe to re-run on every migrate.
 ALTER FUNCTION llame_search_stale_chats(integer, integer) OWNER TO app_rls;
+-- chat-search-embeddings (design D10): the embedding-coverage discovery
+-- function must also run AS app_rls (BYPASSRLS) to enumerate embedding lag
+-- across all tenants under FORCE RLS. Same rationale as above; it returns
+-- only identifiers + counts, never content or vectors. Idempotent; safe to
+-- re-run on every migrate.
+ALTER FUNCTION llame_search_embedding_coverage(text, integer, integer) OWNER TO app_rls;

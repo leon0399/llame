@@ -1,15 +1,23 @@
 /**
- * SearchReindexWorker's boot-time provisioning self-check (#195, D6) — pure
- * unit test, no database. `assertDiscoveryProvisioned` reads only
- * `pg_proc`/`pg_roles` catalog metadata via `tenantDb.runAsPublic`, so its
- * contract (log loudly, never throw, gate on `rolbypassrls`) is exercised
- * here by stubbing that one call rather than standing up a live Postgres —
- * simulating a mis-provisioned `llame_search_stale_chats` (owned by a
- * non-BYPASSRLS role, or absent entirely, e.g. before migrations run) would
- * otherwise require reassigning the function's owner, which the RLS
- * integration harness cannot do connected as the non-superuser `app` role
- * (see apps/api/CLAUDE.md's `app_rls` section) — this is the lighter,
- * DB-free alternative the task called for.
+ * SearchReindexWorker's boot-time provisioning self-check (#195, D6; extended
+ * for chat-search-embeddings, design D10) — pure unit test, no database.
+ * `assertDiscoveryProvisioned` reads only `pg_proc`/`pg_roles` catalog
+ * metadata via `tenantDb.runAsPublic`, so its contract (log loudly, never
+ * throw, gate on `rolbypassrls`) is exercised here by stubbing that call
+ * rather than standing up a live Postgres — simulating a mis-provisioned
+ * function (owned by a non-BYPASSRLS role, or absent entirely, e.g. before
+ * migrations run) would otherwise require reassigning the function's owner,
+ * which the RLS integration harness cannot do connected as the
+ * non-superuser `app` role (see apps/api/CLAUDE.md's `app_rls` section) —
+ * this is the lighter, DB-free alternative the task called for.
+ *
+ * `assertDiscoveryProvisioned` now checks TWO functions in sequence
+ * (`llame_search_stale_chats`, then `llame_search_embedding_coverage`), each
+ * via its own `runAsPublic` call — so the mock below drives an ORDERED
+ * SEQUENCE of responses, one per call, repeating the last entry once
+ * exhausted. Most tests pass a single-entry sequence (applied to both
+ * calls); the "independently" test below passes two different entries to
+ * prove the checks do not share state.
  *
  * The worker runs through Nest's public bootstrap lifecycle in a TestingModule.
  * Queue setup resolves without invoking the registered consumer callbacks, so
@@ -32,9 +40,17 @@ type PublicRunner = <T>(fn: (tx: ProvisioningTx) => Promise<T>) => Promise<T>;
 
 const openModules: TestingModule[] = [];
 
-function provisioned(rows: ProvisioningRow[]): PublicRunner {
-  return <T>(fn: (tx: ProvisioningTx) => Promise<T>) =>
-    fn({ execute: () => Promise.resolve(rows) });
+/**
+ * Returns a PublicRunner that yields the next row-set in `sequence` for each
+ * successive call, repeating the last entry once the sequence is exhausted.
+ */
+function provisioned(sequence: ProvisioningRow[][]): PublicRunner {
+  let call = 0;
+  return <T>(fn: (tx: ProvisioningTx) => Promise<T>) => {
+    const rows = sequence[Math.min(call, sequence.length - 1)];
+    call += 1;
+    return fn({ execute: () => Promise.resolve(rows) });
+  };
 }
 
 async function buildWorker(runAsPublic: PublicRunner) {
@@ -79,40 +95,55 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
     vi.restoreAllMocks();
   });
 
-  it('is silent when the function is owned by a BYPASSRLS role', async () => {
+  it('is silent when both functions are owned by a BYPASSRLS role', async () => {
     const { check, errorSpy, warnSpy } = await buildWorker(
-      provisioned([{ bypass: true }]),
+      provisioned([[{ bypass: true }]]),
     );
     await check();
     expect(errorSpy).not.toHaveBeenCalled();
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('logs a loud error (and does not throw) when owned by a non-BYPASSRLS role', async () => {
+  it('logs a loud error per function (and does not throw) when both are owned by a non-BYPASSRLS role', async () => {
     const { check, errorSpy, warnSpy } = await buildWorker(
-      provisioned([{ bypass: false }]),
+      provisioned([[{ bypass: false }]]),
     );
     await expect(check()).resolves.toBeUndefined();
-    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledTimes(2);
     expect(errorSpy.mock.calls[0][0]).toContain('BYPASSRLS');
+    expect(errorSpy.mock.calls[1][0]).toContain('BYPASSRLS');
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('logs a loud error (and does not throw) when the function is absent', async () => {
-    // No row at all — e.g. the migration creating llame_search_stale_chats
-    // hasn't run yet.
-    const { check, errorSpy } = await buildWorker(provisioned([]));
+  it('logs a loud error per function (and does not throw) when both are absent', async () => {
+    // No row at all — e.g. the migration creating the functions hasn't run yet.
+    const { check, errorSpy } = await buildWorker(provisioned([[]]));
     await expect(check()).resolves.toBeUndefined();
-    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('degrades to a warning (never throws) when the check itself fails to run', async () => {
+  it('checks the embedding coverage function independently of the lexical staleness function', async () => {
+    // Stale-chats check passes (bypass: true), embedding-coverage check fails
+    // (bypass: false) — proves the two checks do not share a single verdict.
+    const { check, errorSpy } = await buildWorker(
+      provisioned([[{ bypass: true }], [{ bypass: false }]]),
+    );
+    await expect(check()).resolves.toBeUndefined();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls[0][0]).toContain(
+      'llame_search_embedding_coverage',
+    );
+    expect(errorSpy.mock.calls[0][0]).toContain('BYPASSRLS');
+  });
+
+  it('degrades to a warning per function (never throws) when the check itself fails to run', async () => {
     const { check, errorSpy, warnSpy } = await buildWorker(() =>
       Promise.reject(new Error('connection refused')),
     );
     await expect(check()).resolves.toBeUndefined();
     expect(errorSpy).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledTimes(2);
     expect(warnSpy.mock.calls[0][0]).toContain('connection refused');
+    expect(warnSpy.mock.calls[1][0]).toContain('connection refused');
   });
 });
