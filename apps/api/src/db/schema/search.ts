@@ -114,9 +114,15 @@ export const searchChatDocuments = pgTable(
     // the coverage predicate below must also compare.
     embedInputVersion: integer('embed_input_version'),
     // Terminal-failure tombstone (D16): set together with a NULL `embedding`
-    // in the same statement as a permanent (non-retryable) embed failure, so
-    // the coverage predicate stops re-attempting it. NULL means either "never
-    // attempted" or "succeeded" — disambiguated by `embedding IS NOT NULL`.
+    // AND matching `embedding_model_key`/`embedded_content_hash`/
+    // `embed_input_version` (the current model/content/version the attempt
+    // was made against) in the same statement as a permanent (non-retryable)
+    // embed failure. All four must be written together — the coverage
+    // predicate's `IS DISTINCT FROM` checks are what stop re-attempting it,
+    // and a failure write that stamps only this column while leaving the
+    // other three NULL (or stale) leaves `needs_embedding` true forever,
+    // silently defeating the tombstone. NULL means either "never attempted"
+    // or "succeeded" — disambiguated by `embedding IS NOT NULL`.
     embeddingFailReason: text('embedding_fail_reason'),
     // STORED generated column — the FTS match target. Language-neutral `simple`
     // config (no stemming): correct for multilingual/mixed-language chats; the

@@ -420,19 +420,27 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     });
 
     it('returns only identifiers + counts (no content, no vectors)', async () => {
+      // Seed an unambiguous never-embedded document so this row-shape
+      // assertion is guaranteed at least one row to check, rather than
+      // relying on ambient state from earlier tests in this file (which
+      // would let the assertion below silently no-op if that state ever
+      // changed).
+      const id = await seed('Coverage shape check', [
+        { role: 'user', text: 'row shape only' },
+      ]);
+      await indexService.reindexChat(id, u);
       const rows = await embeddingCoverage('coverage-shape-model', 1);
+      expect(rows.length).toBeGreaterThan(0);
       const cols = new Set(Object.keys(rows[0] ?? {}));
-      if (cols.size > 0) {
-        expect([...cols].sort()).toEqual(
-          [
-            'chat_id',
-            'owner_user_id',
-            'outstanding_count',
-            'embedded_count',
-            'failed_count',
-          ].sort(),
-        );
-      }
+      expect([...cols].sort()).toEqual(
+        [
+          'chat_id',
+          'owner_user_id',
+          'outstanding_count',
+          'embedded_count',
+          'failed_count',
+        ].sort(),
+      );
     });
   });
 });
