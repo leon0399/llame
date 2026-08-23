@@ -1,5 +1,5 @@
 {
-  "$schema": "https://turborepo.dev/schema.json",
+  "$schema": "https://turbo.dev/schema.json",
   "extends": ["//"],
   "tasks": {
     "build": {
@@ -18,6 +18,14 @@
     },
     "test:evals": {
       "cache": false
-    }
+    },
+    // This workspace consumes @workspace/config-interpolation as built dist
+    // (exports → ./dist), so its checks need the upstream build first — the
+    // root "nothing tests consume is built" rule has an exception here.
+    // Local equivalent: pnpm --filter @workspace/config-interpolation build
+    // (bypasses turbo's cache entirely).
+    "lint": { "dependsOn": ["^build"] },
+    "typecheck": { "dependsOn": ["^build"] },
+    "test": { "dependsOn": ["^build"] }
   }
 }

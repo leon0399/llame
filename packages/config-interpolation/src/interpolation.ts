@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync } from "node:fs";
 
 /**
  * Value interpolation (D4 / spec "Environment-variable interpolation" +
@@ -15,8 +15,8 @@ import { readFileSync } from 'node:fs';
 
 /** Where an unresolved-but-required token came from — named in errors, never the value. */
 export type InterpolationSource =
-  | { kind: 'env'; name: string }
-  | { kind: 'path'; location: string };
+  | { kind: "env"; name: string }
+  | { kind: "path"; location: string };
 
 export class InterpolationError extends Error {
   constructor(
@@ -24,7 +24,7 @@ export class InterpolationError extends Error {
     readonly source: InterpolationSource,
   ) {
     super(message);
-    this.name = 'InterpolationError';
+    this.name = "InterpolationError";
   }
 }
 
@@ -70,12 +70,12 @@ export function interpolateStringWithSubstitutions(
   env: NodeJS.ProcessEnv = process.env,
 ): InterpolationResult {
   const substituted: string[] = [];
-  let out = '';
+  let out = "";
   let i = 0;
   while (i < input.length) {
-    if (input[i] === '{') {
-      if (input[i + 1] === '{') {
-        out += '{';
+    if (input[i] === "{") {
+      if (input[i + 1] === "{") {
+        out += "{";
         i += 2;
         continue;
       }
@@ -119,14 +119,14 @@ function resolveEnvToken(
     // Bash/docker-compose `:-` semantics (D4): the fallback applies when the
     // variable is unset OR empty — that is precisely what distinguishes `:-`
     // from `-`. A blank env var must not shadow the declared default.
-    return value === undefined || value === '' ? fallback : value;
+    return value === undefined || value === "" ? fallback : value;
   }
   if (value !== undefined) {
     return value;
   }
   throw new InterpolationError(
     `required environment variable ${name} is not set`,
-    { kind: 'env', name },
+    { kind: "env", name },
   );
 }
 
@@ -139,13 +139,13 @@ function resolveEnvToken(
  */
 function resolvePathToken(location: string): string {
   try {
-    return readFileSync(location, 'utf8').trim();
+    return readFileSync(location, "utf8").trim();
   } catch (err) {
     // The fs error names the path and errno only — never file contents.
     const detail = err instanceof Error ? err.message : String(err);
     throw new InterpolationError(
       `required file ${location} could not be read: ${detail}`,
-      { kind: 'path', location },
+      { kind: "path", location },
     );
   }
 }

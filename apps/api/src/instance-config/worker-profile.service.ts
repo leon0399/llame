@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 
-import { InstanceConfigError } from './instance-config.error';
+import { InstanceConfigError } from '@workspace/config-interpolation';
 import {
   InstanceConfigService,
   type InstanceConfigReader,
