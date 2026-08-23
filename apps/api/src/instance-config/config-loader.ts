@@ -11,6 +11,7 @@ import {
 import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
+  type KnowledgeConfig,
   type McpRemoteServerConfig,
   type McpServerConfig,
   type McpStdioServerConfig,
@@ -170,10 +171,36 @@ export function loadInstanceConfig(
       ),
     },
     mcpServers,
+    knowledge: resolveKnowledge(raw, env),
     workers: resolveWorkerProfiles(raw),
     providers,
     models,
   };
+}
+
+function resolveKnowledge(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
+): KnowledgeConfig {
+  const root = raw?.knowledge?.root;
+  if (root === undefined) {
+    return BUILT_IN_DEFAULTS.knowledge;
+  }
+  if (!isString(root)) {
+    throw new InstanceConfigError('knowledge.root: must be a string');
+  }
+
+  const resolved = resolveInterpolatedString(
+    root,
+    'knowledge.root',
+    env,
+  ).trim();
+  if (!path.isAbsolute(resolved)) {
+    throw new InstanceConfigError(
+      'knowledge.root: must resolve to an absolute path',
+    );
+  }
+  return { root: resolved };
 }
 
 // ---- File read + parse -----------------------------------------------

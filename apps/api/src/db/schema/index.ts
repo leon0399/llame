@@ -1,6 +1,7 @@
 export * from './auth';
 export * from './chats';
 export * from './identity';
+export * from './knowledge-spaces';
 export * from './model-context';
 export * from './memory';
 export * from './personalization';

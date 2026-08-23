@@ -81,6 +81,16 @@ export type WorkerGroup = (typeof WORKER_GROUPS)[number];
 /** A worker profile: which groups a process consumes, and each one's main-queue concurrency. Absent group = not consumed by a process running this profile. */
 export type WorkerProfile = Partial<Record<WorkerGroup, number>>;
 
+/** Unresolved operator-owned Knowledge settings. */
+export type RawKnowledgeConfig = {
+  root?: unknown;
+};
+
+/** Resolved operator-owned Knowledge settings. */
+export type KnowledgeConfig = {
+  root?: string;
+};
+
 /**
  * The still-uninterpolated `mcpServers` entry shape once the published JSON
  * Schema has validated it (config-loader.ts's `assertValidRaw`) — scalar
@@ -141,6 +151,7 @@ export type RawModelEntry = {
  */
 export interface RawInstanceConfig extends Record<string, unknown> {
   mcpServers?: Record<string, RawMcpServerEntry>;
+  knowledge?: RawKnowledgeConfig;
   workers?: Record<string, WorkerProfile>;
   providers?: RawProviderEntry[];
   models?: RawModelEntry[];
@@ -194,6 +205,8 @@ export type LlameConfig = {
   };
   /** Operator-managed remote Streamable HTTP servers. Default: empty. */
   mcpServers: Readonly<Record<string, McpServerConfig>>;
+  /** Optional process-local root for trusted Knowledge Space directories. */
+  knowledge: KnowledgeConfig;
   /**
    * Worker profiles (durable-run-workers D2/D4): profile name → the groups it
    * consumes and each one's concurrency. Selected at boot by
@@ -250,6 +263,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
     callTimeoutSeconds: 15,
   },
   mcpServers: {},
+  knowledge: {},
   workers: {
     all: { runs: 1, 'search-reindex': 1, 'sessions-cleanup': 1 },
     web: {},

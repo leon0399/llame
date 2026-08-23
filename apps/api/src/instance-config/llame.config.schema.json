@@ -246,6 +246,18 @@
         ]
       }
     },
+    "knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional operator-managed root for private Knowledge Space directories. The loader validates only the interpolated absolute-path shape; it never probes the filesystem.",
+      "properties": {
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute process-local root beneath which trusted code allocates stable Knowledge Space ID directories. May contain {env:...}/{path:...} interpolation and is never public or caller-selectable."
+        }
+      }
+    },
     "runs": {
       "type": "object",
       "additionalProperties": false,

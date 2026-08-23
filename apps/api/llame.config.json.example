@@ -182,6 +182,12 @@
     "poolSize": "{env:DB_POOL_SIZE:-10}",
   },
 
+  // Optional private root for server-managed Knowledge Space directories.
+  // Loading this setting does not require the path to exist or be mounted.
+  // "knowledge": {
+  //   "root": "{env:KNOWLEDGE_ROOT}",
+  // },
+
   // Empty allowed disables tools. MCP ids are mcp__<server>__<tool>.
   // Exact ids are safer; use mcp__<server>__* only for an entirely read-only server.
   "tools": {
