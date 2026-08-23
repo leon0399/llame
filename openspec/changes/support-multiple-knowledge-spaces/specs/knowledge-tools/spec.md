@@ -46,13 +46,13 @@ At worker execution, the static tool executor SHALL receive the Knowledge filesy
 
 Search SHALL perform a case-insensitive literal scan over safe UTF-8 Markdown files as they are read from the live targeted spaces, return at most one result per file, and include the first matching line with a surrounding snippet of at most 500 Unicode code points. A Markdown path is one whose final component ends with `.md`, compared ASCII case-insensitively. Search SHALL use no grep subprocess, index, or PostgreSQL content projection.
 
-One tool call SHALL share the existing global bounds across every target: at most 20,000 filesystem entries, 5,000 admitted Markdown files, 1 MiB per file, 32 MiB of aggregate Markdown content, paths of 1,024 UTF-8 bytes and 32 components, the requested result limit, and a structured result of at most 15,000 JavaScript UTF-16 code units. It SHALL also obey the common tool timeout and abort signal. Space boundaries SHALL NOT reset any operation limit.
+One tool call SHALL share the existing global bounds across every target: at most 20,000 filesystem entries, 5,000 admitted Markdown files, 1 MiB per file, 32 MiB of aggregate Markdown content, paths of 1,024 UTF-8 bytes and 32 components, and a structured result of at most 15,000 JavaScript UTF-16 code units. It SHALL also obey the common tool timeout and abort signal. Space boundaries SHALL NOT reset any operation limit. The requested result limit is a successful response cap, not a safety-bound failure: search SHALL return the first matching files in deterministic space and path order up to that limit and SHALL continue inventory traversal as needed to surface later space failures.
 
 Every returned match SHALL carry the response-time Knowledge Space identifier and display name, exact Knowledge-relative path, and lowercase SHA-256 hash of the exact file bytes searched. The call SHALL resolve each name once for that invocation. Later rename or file changes SHALL NOT rewrite the persisted result.
 
 When an unscoped search successfully inspects at least one space but another target has a space-scoped unavailable binding, unsafe path or symbolic-link condition, or invalid Markdown content, it SHALL continue with remaining spaces and return `status: "success"`, usable `results`, `complete: false`, a bounded top-level `warnings` array with at most one warning object per failed space, and `warningCount` for the total failed spaces. Each warning SHALL carry exactly one of `knowledge_space_unavailable`, `knowledge_path_invalid`, or `knowledge_content_invalid` as its type, plus the response-time space ID and name and a safe message; it SHALL NOT be attached to a valid result. `warningCount` MAY exceed `warnings.length` when the structured output budget requires omitting warning detail. A complete success SHALL return `complete: true`, `warnings: []`, and `warningCount: 0`.
 
-If an explicit target fails, every target in an unscoped search fails, the owner has no current spaces, or a global entry, file-count, byte, path, timeout, cancellation, result, or output bound prevents completion, the tool SHALL return the applicable top-level closed error and SHALL NOT return partial matches as complete. A currently owned target whose root or stable-ID child cannot be resolved safely SHALL return `knowledge_space_unavailable`; an absent, removed, or other-owner explicit target SHALL return `knowledge_space_not_found`. A global safety or output bound SHALL return `knowledge_limit_exceeded`; zero inventory for an unscoped search SHALL return `knowledge_space_not_configured`.
+If an explicit target fails, every target in an unscoped search fails, the owner has no current spaces, or a global entry, file-count, byte, path, timeout, cancellation, or output bound prevents completion, the tool SHALL return the applicable top-level closed error and SHALL NOT return partial matches as complete. A currently owned target whose root or stable-ID child cannot be resolved safely SHALL return `knowledge_space_unavailable`; an absent, removed, or other-owner explicit target SHALL return `knowledge_space_not_found`. A global safety or output bound SHALL return `knowledge_limit_exceeded`; zero inventory for an unscoped search SHALL return `knowledge_space_not_configured`. If every non-revoked target in an unscoped search fails with different space-scoped errors, the first failed target in deterministic inventory order SHALL determine the top-level error type and safe message.
 
 There is no operation-wide content revision or snapshot. A file changed after it was inspected does not rewrite the recorded result, while another file inspected later may reflect newer bytes.
 
@@ -69,7 +69,7 @@ There is no operation-wide content revision or snapshot. A file changed after it
 
 #### Scenario: Corpus bound is exceeded
 
-- **WHEN** completing a search would exceed any global traversal, content, path, timeout, result, or output bound
+- **WHEN** completing a search would exceed any global traversal, content, path, timeout, or output bound
 - **THEN** the tool returns the applicable closed limit or cancellation outcome
 - **AND** it returns no partial matches
 
@@ -78,6 +78,12 @@ There is no operation-wide content revision or snapshot. A file changed after it
 - **WHEN** an owner has two currently accessible spaces and search omits `knowledgeSpaceId`
 - **THEN** both are traversed in `(createdAt, id)` order under one shared operation budget
 - **AND** each match identifies its source space by stable ID and response-time name
+
+#### Scenario: Requested result limit caps a successful response
+
+- **WHEN** deterministic search finds more matching files than the requested result limit
+- **THEN** the tool returns the first matches up to the requested limit as a successful result
+- **AND** the requested cap alone does not produce `knowledge_limit_exceeded` or make the result incomplete
 
 #### Scenario: Explicit selector narrows and reauthorizes
 
@@ -100,7 +106,7 @@ There is no operation-wide content revision or snapshot. A file changed after it
 #### Scenario: All failed spaces produce a top-level error
 
 - **WHEN** every target in an unscoped search fails before producing a complete per-space search
-- **THEN** the tool returns the applicable top-level closed error
+- **THEN** the first non-revoked target in deterministic inventory order determines the top-level closed error
 - **AND** it does not present accumulated matches as complete
 
 ### Requirement: Knowledge read returns one explicitly selected safe live Markdown file
