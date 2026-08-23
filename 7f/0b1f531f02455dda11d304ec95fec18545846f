@@ -1,0 +1,38 @@
+CHANGELOG.md
+  f5d97e14cd6d580e 5-10
+apps/api/vitest.integration.global-setup.mts
+  f5d97e14cd6d580e 39-41,44-45,51-53,95-97,102-104,106,163,165-166,176
+apps/api/src/search/operations/operations.integration.test.ts
+  f5d97e14cd6d580e 27-29,59,324-363
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "7f0b1f531f02455dda11d304ec95fec18545846f",
+  "prompts": {
+    "0d389c13ab75a060": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a02f41-b822-7aa2-b186-2e1943d9848b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 16,
+      "total_deletions": 16,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "f5d97e14cd6d580e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03062-40ed-77a1-944b-3b7b777d9c83",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 73,
+      "total_deletions": 6,
+      "accepted_lines": 71,
+      "overriden_lines": 0
+    }
+  }
+}
