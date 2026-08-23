@@ -6,7 +6,7 @@ import {
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
 import { TOOL_REGISTRY } from '../tools/registry';
-import { matchesAllowedToolId } from '../tools/tool-id';
+import { matchesAllowedToolId } from '@workspace/harness';
 import {
   type TurnToolCandidate,
   type ToolUnavailableReason,
