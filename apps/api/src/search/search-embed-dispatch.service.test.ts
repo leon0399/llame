@@ -106,3 +106,55 @@ describe('SearchEmbedDispatchService.enqueueChatEmbed', () => {
     vi.restoreAllMocks();
   });
 });
+
+/**
+ * enqueueChatEmbedStrict (chat-search-embeddings/operations, layer 7, review
+ * finding) — the opposite contract from enqueueChatEmbed above, for the ONE
+ * caller (`backfill`) that must know whether its enqueues actually happened.
+ */
+describe('SearchEmbedDispatchService.enqueueChatEmbedStrict', () => {
+  it('enqueues with the coalescing singletonKey, same shape as the best-effort method', async () => {
+    const ensureQueue = vi.fn().mockResolvedValue(undefined);
+    const enqueue = vi.fn().mockResolvedValue('job-id');
+    const service = new SearchEmbedDispatchService(
+      fakeQueue({ ensureQueue, enqueue }),
+      fakeInstanceConfig('model-a'),
+    );
+
+    await service.enqueueChatEmbedStrict('c1', 'u1');
+
+    expect(ensureQueue).toHaveBeenCalledWith(SEARCH_EMBED_QUEUE);
+    expect(enqueue).toHaveBeenCalledWith(
+      SEARCH_EMBED_QUEUE,
+      { chatId: 'c1', ownerUserId: 'u1' },
+      { singletonKey: 'c1' },
+    );
+  });
+
+  it('propagates a failed enqueue instead of swallowing it — the whole point of the strict variant', async () => {
+    const ensureQueue = vi.fn().mockResolvedValue(undefined);
+    const enqueue = vi.fn().mockRejectedValue(new Error('queue down'));
+    const service = new SearchEmbedDispatchService(
+      fakeQueue({ ensureQueue, enqueue }),
+      fakeInstanceConfig('model-a'),
+    );
+
+    await expect(service.enqueueChatEmbedStrict('c1', 'u1')).rejects.toThrow(
+      'queue down',
+    );
+  });
+
+  it('propagates a failed ensureQueue instead of swallowing it', async () => {
+    const ensureQueue = vi.fn().mockRejectedValue(new Error('boot failed'));
+    const enqueue = vi.fn().mockResolvedValue('job-id');
+    const service = new SearchEmbedDispatchService(
+      fakeQueue({ ensureQueue, enqueue }),
+      fakeInstanceConfig('model-a'),
+    );
+
+    await expect(service.enqueueChatEmbedStrict('c1', 'u1')).rejects.toThrow(
+      'boot failed',
+    );
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+});

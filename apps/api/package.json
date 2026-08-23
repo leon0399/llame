@@ -33,7 +33,11 @@
     "db:push": "drizzle-kit push",
     "db:pull": "drizzle-kit pull",
     "db:check": "drizzle-kit check",
-    "db:up": "drizzle-kit up"
+    "db:up": "drizzle-kit up",
+    "search:backfill": "npx tsx src/search/operations/cli.ts backfill",
+    "search:prune": "npx tsx src/search/operations/cli.ts prune",
+    "search:retry-failed": "npx tsx src/search/operations/cli.ts retry-failed",
+    "search:coverage": "npx tsx src/search/operations/cli.ts coverage"
   },
   "dependencies": {
     "@ai-sdk/mcp": "catalog:",

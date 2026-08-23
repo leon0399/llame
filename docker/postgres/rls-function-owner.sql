@@ -41,3 +41,12 @@ ALTER FUNCTION llame_search_embedding_coverage(text, integer, integer) OWNER TO 
 -- it returns only identifiers + a count, never content or vectors.
 -- Idempotent; safe to re-run on every migrate.
 ALTER FUNCTION llame_search_embedding_backlog(integer) OWNER TO app_rls;
+-- chat-search-embeddings/operations (layer 7): the coverage READOUT's own
+-- discovery function (deliberately a same-signature sibling of
+-- llame_search_embedding_coverage, not an in-place edit of it — see
+-- 20260823083954_embedding_report_function.sql's header for why) must also
+-- run AS app_rls (BYPASSRLS) to enumerate embedding coverage across all
+-- tenants under FORCE RLS. Same rationale as above; it returns only
+-- identifiers + counts, never content or vectors. Idempotent; safe to
+-- re-run on every migrate.
+ALTER FUNCTION llame_search_embedding_report(text, integer, integer) OWNER TO app_rls;

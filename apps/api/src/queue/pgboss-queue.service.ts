@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { PgBossService } from '@wavezync/nestjs-pgboss';
 
 // Structural subset of pg-boss's Job — a type-only import of pg-boss (ESM-only
@@ -57,7 +57,17 @@ export const DEFAULT_QUEUE_OPTIONS: Required<
  */
 @Injectable()
 export class PgBossQueueService implements Queue {
-  constructor(private readonly pgBoss: PgBossService) {}
+  // Explicit @Inject, not type-based injection: the `search:*` operator CLI
+  // boots this graph under `tsx` (esbuild), which does NOT implement
+  // `emitDecoratorMetadata`. Without the token, `design:paramtypes` is
+  // undefined there and Nest injects `undefined` SILENTLY — no resolution
+  // error, just `this.pgBoss.boss` throwing on the first enqueue. Every other
+  // provider in that graph already injects by token; this was the one class
+  // relying on metadata.
+  constructor(
+    @Inject(PgBossService)
+    private readonly pgBoss: PgBossService,
+  ) {}
 
   private get boss() {
     return this.pgBoss.boss;

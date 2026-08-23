@@ -20,6 +20,7 @@ import {
   SEARCH_SWEEP_CRON,
   SEARCH_SWEEP_QUEUE,
 } from './reindex-queues';
+import { isFunctionOwnedByBypassRlsRole } from './discovery-provisioning';
 import { findEmbeddingBinding } from './embedding-binding-ledger';
 import { SearchEmbedDispatchService } from './search-embed-dispatch.service';
 import { SearchReindexDispatchService } from './search-reindex-dispatch.service';
@@ -211,15 +212,11 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
     unprovisionedMessage: string,
   ): Promise<void> {
     try {
-      const result = await this.tenantDb.runAsPublic((tx) =>
-        tx.execute<{ bypass: boolean }>(sql`
-          SELECT r.rolbypassrls AS bypass
-          FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
-          WHERE p.proname = ${functionName}
-        `),
+      const provisioned = await isFunctionOwnedByBypassRlsRole(
+        this.tenantDb,
+        functionName,
       );
-      const row = [...result][0];
-      if (!row || !row.bypass) {
+      if (!provisioned) {
         this.logger.error(unprovisionedMessage);
       }
     } catch (error) {
