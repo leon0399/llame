@@ -19,7 +19,10 @@ const pkgSrc = (name: string) =>
 export default defineConfig({
   resolve: {
     alias: [
-      { find: /^@workspace\/config-interpolation$/, replacement: pkgSrc('config-interpolation') },
+      {
+        find: /^@workspace\/config-interpolation$/,
+        replacement: pkgSrc('config-interpolation'),
+      },
       { find: /^@workspace\/harness$/, replacement: pkgSrc('harness') },
     ],
   },
