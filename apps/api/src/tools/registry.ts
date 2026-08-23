@@ -1,10 +1,18 @@
+import {
+  knowledgeReadTool,
+  knowledgeSearchTool,
+} from '../knowledge/knowledge-tools';
 import { searchConversationsTool } from './search-conversations';
 import { isToolId, matchesAllowedToolId } from './tool-id';
 import { type Tool } from './types';
 import { isString } from '../unknown-record';
 
 /** Every tool the harness knows about (design D2: in-code registry). */
-export const TOOLS: readonly Tool[] = [searchConversationsTool];
+export const TOOLS: readonly Tool[] = [
+  searchConversationsTool,
+  knowledgeSearchTool,
+  knowledgeReadTool,
+];
 
 type ToolRegistrationCandidate = Omit<Tool, 'classification'> & {
   readonly classification?: unknown;

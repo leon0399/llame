@@ -4,11 +4,23 @@ import { AppModule } from '../app.module';
 import { KnowledgeSpaceController } from './knowledge-space.controller';
 import { KnowledgeSpaceUnavailableError } from './knowledge-space.local-resolver';
 import { KnowledgeModule } from './knowledge.module';
+import { KnowledgeToolCandidateResolver } from './knowledge-tool-candidate-resolver';
+import { KnowledgeToolRuntimeResolver } from './knowledge-tool-runtime-resolver';
 
 describe('KnowledgeSpaceController', () => {
   it('is wired into the application module', () => {
     const imports: unknown = Reflect.getMetadata('imports', AppModule);
     expect(imports).toContain(KnowledgeModule);
+  });
+
+  it('exports the accepted-turn candidate capability', () => {
+    const exports: unknown = Reflect.getMetadata('exports', KnowledgeModule);
+    expect(exports).toContain(KnowledgeToolCandidateResolver);
+  });
+
+  it('exports the worker-side runtime capability', () => {
+    const exports: unknown = Reflect.getMetadata('exports', KnowledgeModule);
+    expect(exports).toContain(KnowledgeToolRuntimeResolver);
   });
 
   it('uses only the authenticated owner and returns the logical projection', async () => {

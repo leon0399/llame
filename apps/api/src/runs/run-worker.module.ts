@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CompactionModule } from '../compaction/compaction.module';
+import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { McpRuntimeModule } from '../mcp/mcp-runtime.module';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import { ModelsModule } from '../models/models.module';
@@ -28,6 +29,7 @@ import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './snapshot-tool-execution';
     QueueModule,
     ModelsModule,
     CompactionModule,
+    KnowledgeModule,
     TitlesModule,
     RunsModule,
     SearchModule,

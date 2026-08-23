@@ -20,6 +20,19 @@ import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { ChatLoopService } from './chat-loop.service';
 import { type RecencyDigestResolver } from './recency-digest.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import { type KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
+import { TOOL_REGISTRY } from '../tools/registry';
+
+const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
+  resolve: () =>
+    Promise.resolve(
+      [...TOOL_REGISTRY.values()].map((tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      })),
+    ),
+};
 
 const model: SystemModelCatalogEntry = {
   id: 'system:openai:gpt-5.4-mini',
@@ -72,6 +85,7 @@ function makeService(models?: {
       { snapshotCandidates: () => [] },
       memory,
       recencyDigest,
+      knowledgeCandidates,
     ),
     runAs,
     validateModelSelection,

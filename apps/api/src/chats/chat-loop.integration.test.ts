@@ -65,11 +65,24 @@ import {
   type ToolAvailabilityManifestV1,
   type ToolUnavailableReason,
 } from '../tools/turn-tool-catalog';
+import { type KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
+import { TOOL_REGISTRY } from '../tools/registry';
 import { type ContextItemPart } from './context-item';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = any;
+
+const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
+  resolve: () =>
+    Promise.resolve(
+      [...TOOL_REGISTRY.values()].map((tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      })),
+    ),
+};
 
 describeIfDb(
   'ChatLoopService — single-flight regression (design D3/D7)',
@@ -291,6 +304,7 @@ describeIfDb(
         { snapshotCandidates: () => [] },
         new MemoryService(tenantDb),
         new RecencyDigestService(tenantDb),
+        knowledgeCandidates,
       );
     });
 
@@ -795,6 +809,7 @@ describeIfDb(
         { snapshotCandidates: () => [] },
         new MemoryService(tenantDb),
         new RecencyDigestService(tenantDb),
+        knowledgeCandidates,
       );
       const before = await tenantDb.runAs(userId, async (tx) => ({
         chats: (await tx.select().from(schema.chats)).length,

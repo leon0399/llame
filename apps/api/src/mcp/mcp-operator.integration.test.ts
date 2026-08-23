@@ -50,6 +50,7 @@ import {
 } from './mcp-runtime.module';
 import { McpRuntimeService } from './mcp-runtime.service';
 import { type UnknownRecord } from '../unknown-record';
+import { type KnowledgeToolResolver } from '../tools/types';
 import {
   createMcpTestFixture,
   mcpStreamableHttpInitialize,
@@ -61,6 +62,14 @@ const HEADER_SENTINEL = 'AUTH-HEADER-SENTINEL';
 const API_SESSION_SENTINEL = 'api-session-sentinel';
 const WORKER_SESSION_SENTINEL = 'worker-session-sentinel';
 const RECONNECTED_SESSION_SENTINEL = 'api-reconnected-session-sentinel';
+
+const knowledgeResolver: KnowledgeToolResolver = {
+  resolveBindingForOwner: () => Promise.resolve(undefined),
+  createAdapter: () => ({
+    search: () => Promise.resolve([]),
+    read: () => Promise.reject(new Error('Knowledge adapter is not exercised')),
+  }),
+};
 
 type SqlClient = ReturnType<typeof postgres>;
 
@@ -264,6 +273,7 @@ function executionService(
     },
     new SearchIndexService(tenantDb),
     noopReindexDispatch(),
+    knowledgeResolver,
     runtime,
   );
 }

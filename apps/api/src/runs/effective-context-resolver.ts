@@ -44,17 +44,19 @@ export async function resolveEffectiveContext(input: {
   allowedToolRules: readonly string[];
   callTimeoutSeconds: number;
   candidates?: Iterable<Tool>;
+  /** Owner-bound static candidates, including closed unavailable entries. */
+  codeOwnedCandidates?: Iterable<TurnToolCandidate>;
   /** Synchronous source snapshots; shared allowlist and declaration admission still apply. */
   dynamicCandidates?: Iterable<TurnToolCandidate>;
 }): Promise<EffectiveContextSnapshotInput> {
   const { systemPrompt } = input;
-  const codeOwnedCandidates: TurnToolCandidate[] = [
-    ...(input.candidates ?? TOOL_REGISTRY.values()),
-  ].map((tool) => ({
-    source: { type: 'code_owned' as const },
-    state: 'available' as const,
-    tool,
-  }));
+  const codeOwnedCandidates: TurnToolCandidate[] = input.codeOwnedCandidates
+    ? [...input.codeOwnedCandidates]
+    : [...(input.candidates ?? TOOL_REGISTRY.values())].map((tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      }));
   const catalog = await composeTurnToolCatalog({
     allowedToolRules: input.allowedToolRules,
     callTimeoutSeconds: input.callTimeoutSeconds,

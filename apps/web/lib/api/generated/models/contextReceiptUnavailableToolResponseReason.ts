@@ -17,4 +17,6 @@ export const ContextReceiptUnavailableToolResponseReason = {
   tool_missing: "tool_missing",
   declaration_refused: "declaration_refused",
   name_collision: "name_collision",
+  knowledge_space_not_configured: "knowledge_space_not_configured",
+  knowledge_space_unavailable: "knowledge_space_unavailable",
 } as const;

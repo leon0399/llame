@@ -9,6 +9,7 @@
 
 import { expectMessageParts, expectTemporalRow } from '../testing/support';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { sql as drizzleSql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { Logger } from '@nestjs/common';
 
@@ -60,6 +61,11 @@ import {
   type ToolAvailabilityManifest,
   type TurnToolCandidate,
 } from '../tools/turn-tool-catalog';
+import {
+  type KnowledgeToolCandidateResolverInput,
+  type KnowledgeToolCandidateResolverPort,
+} from '../knowledge/knowledge-tool-candidate-resolver';
+import { TOOL_REGISTRY } from '../tools/registry';
 import { type RunJob } from '../runs/run-queues';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -71,6 +77,17 @@ if (!TEST_DB_URL) {
 
 type RuntimeCatalogSnapshotter = {
   snapshotCandidates(): readonly TurnToolCandidate[];
+};
+
+const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
+  resolve: () =>
+    Promise.resolve(
+      [...TOOL_REGISTRY.values()].map((tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      })),
+    ),
 };
 
 function fakeInstanceConfig(
@@ -126,6 +143,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     runtime?: RuntimeCatalogSnapshotter;
     memory?: MemorySettingsResolver & MemorySettingsBindingResolver;
     recencyDigest?: RecencyDigestResolver;
+    knowledgeCandidates?: KnowledgeToolCandidateResolverPort;
     baseline?: RecencyDigestBaseline;
     told?: Chat['recencyDigestTold'];
     rebakedFrom?: string | null;
@@ -158,21 +176,20 @@ describe('ChatLoopService effective-context transaction binding', () => {
       userMessage: undefined,
       assistantMessage: undefined,
     });
-    vi.spyOn(
-      MessagesRepository.prototype,
-      'createUserMessageIfAbsent',
-    ).mockResolvedValue({
-      id: 'message-id',
-      chatId: 'chat-id',
-      seq: 1,
-      role: 'user',
-      senderUserId: 'user-id',
-      parts: [{ type: 'text', text: 'hello' }],
-      attachments: [],
-      usage: null,
-      inReplyTo: null,
-      createdAt: new Date(),
-    });
+    const createUserMessage = vi
+      .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
+      .mockResolvedValue({
+        id: 'message-id',
+        chatId: 'chat-id',
+        seq: 1,
+        role: 'user',
+        senderUserId: 'user-id',
+        parts: [{ type: 'text', text: 'hello' }],
+        attachments: [],
+        usage: null,
+        inReplyTo: null,
+        createdAt: new Date(),
+      });
     vi.spyOn(
       RunsRepository.prototype,
       'cancelActiveRunsForMessage',
@@ -278,6 +295,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       runtime,
       options?.memory ?? memory,
       options?.recencyDigest ?? recencyDigest,
+      options?.knowledgeCandidates ?? knowledgeCandidates,
     );
 
     return {
@@ -289,6 +307,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       createRun,
       appendEvent,
       updateRecencyDigestTold,
+      createUserMessage,
     };
   }
 
@@ -330,6 +349,96 @@ describe('ChatLoopService effective-context transaction binding', () => {
     expect(dispatch.mock.invocationCallOrder[0]).toBeGreaterThan(
       appendEvent.mock.invocationCallOrder[0],
     );
+  });
+
+  it('resolves owner-bound code-owned candidates inside the accepted transaction', async () => {
+    const resolve = vi.fn(
+      async ({
+        tx,
+        ownerUserId,
+        allowedToolRules,
+      }: KnowledgeToolCandidateResolverInput) => {
+        const [currentUser] = await tx.execute(
+          drizzleSql`select current_setting('app.current_user_id', true) as current_user_id`,
+        );
+        expect(currentUser?.current_user_id).toBe('user-id');
+        expect(ownerUserId).toBe('user-id');
+        expect(allowedToolRules).toEqual(['knowledge_search']);
+
+        return [...TOOL_REGISTRY.values()].map((tool) =>
+          tool.id === 'knowledge_search'
+            ? {
+                source: { type: 'code_owned' as const },
+                state: 'unavailable' as const,
+                id: tool.id,
+                classification: tool.classification,
+                reason: 'knowledge_space_not_configured' as const,
+              }
+            : {
+                source: { type: 'code_owned' as const },
+                state: 'available' as const,
+                tool,
+              },
+        );
+      },
+    );
+    const { service, createSnapshot, dispatch } = setup({
+      toolsAllowed: ['knowledge_search'],
+      knowledgeCandidates: { resolve },
+    });
+
+    await service.createMessageStream(input);
+
+    expect(resolve).toHaveBeenCalledOnce();
+    const resolveInput = resolve.mock.calls[0]?.[0];
+    expect(resolveInput?.ownerUserId).toBe('user-id');
+    expect(resolveInput?.allowedToolRules).toEqual(['knowledge_search']);
+    expect(resolveInput?.tx).toBeDefined();
+    expect(resolve.mock.invocationCallOrder[0]).toBeLessThan(
+      createSnapshot.mock.invocationCallOrder[0],
+    );
+    expect(createSnapshot).toHaveBeenCalledWith(
+      'user-id',
+      expect.objectContaining({
+        toolAvailabilityManifest: {
+          version: 1,
+          entries: [
+            {
+              id: 'knowledge_search',
+              state: 'unavailable',
+              reason: 'knowledge_space_not_configured',
+            },
+          ],
+        },
+        toolDeclarations: [],
+      }),
+    );
+    expect(dispatch).toHaveBeenCalledOnce();
+  });
+
+  it('rolls back the accepted turn when owner-bound candidate resolution rejects', async () => {
+    const error = new Error('candidate resolution failed');
+    const resolve = vi.fn(() => Promise.reject(error));
+    const {
+      service,
+      dispatch,
+      createSnapshot,
+      createUserMessage,
+      createRun,
+      appendEvent,
+    } = setup({
+      toolsAllowed: ['knowledge_search'],
+      knowledgeCandidates: { resolve },
+    });
+
+    await expect(service.createMessageStream(input)).rejects.toBe(error);
+
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(createSnapshot).not.toHaveBeenCalled();
+    expect(createUserMessage).not.toHaveBeenCalled();
+    expect(createRun).not.toHaveBeenCalled();
+    expect(appendEvent).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it('binds one synchronous process-local runtime snapshot into the accepted turn', async () => {
