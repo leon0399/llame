@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-23
 
+- **BREAKING (self-hosters running their own Postgres)**: the dev/deploy
+  Postgres image now requires the `vector` (pgvector) extension alongside the
+  already-required `pg_trgm`, for embeddings-backed search — `compose.yaml`
+  moves from `postgres:17-alpine` to `pgvector/pgvector:pg17`, and the
+  integration and e2e harnesses pin the same image. Move to a pgvector-capable
+  image, or an equivalent managed Postgres that ships `vector`, before
+  upgrading. Nothing requires the extension yet at this point in the sequence;
+  the migration that creates it lands with the embedding schema, and fails
+  outright on an image without it.
+
 - **Personal Knowledge reads** (#213, #519, #520): authenticated owners can
   self-service one stable logical Knowledge Space beneath an operator-configured
   root, while forced-RLS PostgreSQL stores only the owner linkage and files

@@ -22,11 +22,13 @@ import postgres from 'postgres';
 
 // Pinned by digest, same as compose.yaml's dev database — a floating tag
 // would let an upstream refresh change test behavior with no code change.
+// pgvector/pgvector:pg17 (not stock postgres:17-alpine) — the `vector`
+// extension must be available for embeddings-backed search.
 // Refresh both together:
-//   docker pull postgres:17-alpine && docker inspect \
-//     --format '{{index .RepoDigests 0}}' postgres:17-alpine
+//   docker pull pgvector/pgvector:pg17 && docker inspect \
+//     --format '{{index .RepoDigests 0}}' pgvector/pgvector:pg17
 const POSTGRES_IMAGE =
-  'postgres:17-alpine@sha256:dc17045ccfd343b49600570ea734b9c4991cf1c3f3302e67df51e3b402dd55c4';
+  'pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f';
 
 function sqlFile(relativePath: string): string {
   return readFileSync(path.resolve(import.meta.dirname, relativePath), 'utf8');
