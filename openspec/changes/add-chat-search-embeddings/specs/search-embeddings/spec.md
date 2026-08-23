@@ -279,12 +279,21 @@ Provider credentials, endpoints, and configuration text SHALL never be written i
 
 ### Requirement: pgvector is a declared platform dependency
 
-The schema SHALL create the `vector` extension via a migration. Unlike `pg_trgm`, `vector` is not present in the stock Postgres image, so the development, test, and CI database images SHALL provide it, and pgvector SHALL be documented as a self-host deployment requirement. Migrations SHALL create the extension as the non-superuser owning role without superuser intervention.
+The `vector` extension SHALL be a declared platform dependency. Unlike `pg_trgm`, it is absent from the stock Postgres image, so the development, test, and CI database images SHALL provide it, and pgvector SHALL be documented as a self-host deployment requirement.
+
+Unlike `pg_trgm`, `vector` is **not a trusted extension**: installing it requires superuser, which the non-superuser role that owns the schema and runs migrations does not have. Its installation is therefore **provisioning, not migration** — performed once against a fresh database by the superuser, in the same class as the roles that migrations only reference. The migration SHALL still declare the dependency idempotently, which is a harmless no-op for the migrating role once the extension exists.
+
+Because provisioning precedes migration, an **existing** database predating this requirement SHALL fail its next migration with a clear permission error rather than proceeding into a partially provisioned state, and that upgrade path SHALL be documented.
 
 #### Scenario: Fresh database provisions cleanly
 
-- **WHEN** migrations run against a fresh pgvector-capable database as the non-superuser owner role
-- **THEN** the extension and the embedding schema are created without superuser intervention
+- **WHEN** a fresh database is provisioned and migrations then run as the non-superuser owner role
+- **THEN** the extension is present, the embedding schema is created, and the migration's own extension declaration succeeds as a no-op
+
+#### Scenario: An unprovisioned existing database fails loudly
+
+- **WHEN** migrations run against a database where the extension was never provisioned
+- **THEN** migration fails naming the missing privilege and extension, rather than starting into a partially provisioned state
 
 #### Scenario: A database without pgvector fails loudly at migration
 
