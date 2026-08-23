@@ -67,6 +67,24 @@ GRANT SELECT ON search_chat_documents TO app_rls;--> statement-breakpoint
 -- embedding worker's discovery sweep (a later layer) sees only its own rows —
 -- exactly the silent-zero-rows failure the boot self-check exists to make
 -- visible.
+-- SCAN CHARACTERISTIC (measured during review, recorded so the layer that wires
+-- this to the sweep does not rediscover it): the CTE below has no WHERE clause,
+-- so every call reads every document of every tenant, aggregates, and only then
+-- applies HAVING/ORDER BY/LIMIT — `max_rows` bounds the OUTPUT, never the scan.
+-- Nothing calls this function yet, so the cost is currently zero; it becomes a
+-- full-corpus scan on every sweep tick once a consumer exists.
+--
+-- The OR has two kinds of branch, and they differ in what can be done about it:
+--   * `embedding IS NULL AND embedding_fail_reason IS NULL` (never attempted) is
+--     a STATIC predicate, so it is indexable with a partial index. This is the
+--     steady-state case a periodic sweep hits forever.
+--   * the three IS DISTINCT FROM branches compare against runtime bind
+--     parameters and are not sargable by any static index — but they only
+--     produce rows after an operator changes the model or bumps the input
+--     version, which is precisely when the explicit backfill command runs.
+-- So the frequent path is indexable and the unindexable paths are rare and
+-- operator-initiated. Add the partial index with the consumer, not here, where
+-- nothing reads these columns yet.
 CREATE FUNCTION llame_search_embedding_coverage(current_model_key text, current_input_version integer, max_rows integer)
 RETURNS TABLE (chat_id uuid, owner_user_id text, outstanding_count integer, embedded_count integer, failed_count integer)
 LANGUAGE sql
