@@ -57,5 +57,9 @@ the chunker-fit layer (#517) are measured against. **Cutoff K = 10.**
   that budget; `chunkByCharBudget` passes an over-budget item through as its
   own unsplit chunk (no truncation), so the whole message — including content
   near its tail — is indexed and currently fully retrievable lexically. This
-  row is expected to move once the chunker-fit layer (#517) changes how an
-  oversized message is chunked; every pre-existing fixture's row is not.
+  row is expected to MOVE once the chunker-fit layer (#517) changes how an
+  oversized message is chunked (splitting it changes what a lexical query
+  against its tail can retrieve). **Every other row in this document —
+  exact-title through paraphrase — is expected to stay byte-identical** after
+  that layer; that is the exit criterion the next implementer checks against,
+  not a target to hit approximately.
