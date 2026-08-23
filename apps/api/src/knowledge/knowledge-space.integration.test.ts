@@ -13,7 +13,7 @@ import { configureApp } from '../app.setup';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/harness';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;

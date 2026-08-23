@@ -9,7 +9,7 @@
  */
 
 import { assertNotArchived } from '../db/assert-not-archived';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/harness';
 
 import {
   and,

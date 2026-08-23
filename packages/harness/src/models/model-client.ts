@@ -7,9 +7,19 @@ import type {
   streamText,
   ToolChoice,
   ToolSet,
-} from 'ai';
+} from "ai";
 
-import type { TokenPrice } from './model-catalog';
+/**
+ * A single model's resolved pricing, carried on its `ModelClient` and
+ * consumed by cost telemetry. Unlike optional display metadata, `input`/
+ * `output` are required here — pricing that can't compute a cost is simply
+ * absent (`ModelClient.pricing === undefined`), not a partial `TokenPrice`.
+ */
+export type TokenPrice = {
+  inputUsdPer1M: number;
+  cachedInputUsdPer1M?: number;
+  outputUsdPer1M: number;
+};
 
 export interface ModelStreamInput {
   messages: ModelMessage[];
@@ -52,7 +62,7 @@ export interface ModelStreamInput {
     toolCallId: string;
     toolName: string;
     input: unknown;
-    reason: 'not_available' | 'invalid_input';
+    reason: "not_available" | "invalid_input";
   }) => void;
   /**
    * Called for each streamed text delta (#48/#49): lets the loop persist
@@ -125,15 +135,15 @@ export type ModelCredentialResolver = (
 ) => Promise<string | null | undefined> | string | null | undefined;
 
 export class MissingModelCredentialError extends Error {
-  readonly code = 'missing_model_credential';
+  readonly code = "missing_model_credential";
 
   constructor(readonly userId?: string) {
     super(
       userId
         ? `No model credential configured for user ${userId}.`
-        : 'No model credential configured.',
+        : "No model credential configured.",
     );
-    this.name = 'MissingModelCredentialError';
+    this.name = "MissingModelCredentialError";
   }
 }
 

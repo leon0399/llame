@@ -4,8 +4,8 @@ import {
   isRecord,
   isString,
   type UnknownRecord,
-} from '../unknown-record';
-import { type ToolResult } from './types';
+} from "../unknown-record";
+import { type ToolResult } from "./types";
 
 /** ~16KB result cap (D5/D6): oversized tool output is truncated, visibly. */
 export const RESULT_TRUNCATE_CHARS = 16_000;
@@ -16,8 +16,8 @@ export const RESULT_TRUNCATE_CHARS = 16_000;
  * findable place, and a tool-declared `truncated` would otherwise be
  * indistinguishable from ours.
  */
-const TRUNCATED_FIELD = 'truncated';
-const NOTICE_FIELD = 'truncationNotice';
+const TRUNCATED_FIELD = "truncated";
+const NOTICE_FIELD = "truncationNotice";
 
 function isHighSurrogate(code: number): boolean {
   return code >= 0xd800 && code <= 0xdbff;
@@ -88,7 +88,7 @@ function capRecord(
   return Object.fromEntries(
     (keepAllEntries ? entries : entries.slice(0, limit)).map(([key, entry]) => [
       key,
-      capValues(entry, limit, lists, path === '' ? key : `${path}.${key}`),
+      capValues(entry, limit, lists, path === "" ? key : `${path}.${key}`),
     ]),
   );
 }
@@ -97,7 +97,7 @@ function capValues(
   value: unknown,
   limit: number,
   lists: ShortenedList[],
-  path = '',
+  path = "",
   keepAllEntries = false,
 ): CappedValue {
   if (isString(value)) {
@@ -107,7 +107,7 @@ function capValues(
     const kept = value.slice(0, limit);
     if (kept.length < value.length) {
       lists.push({
-        path: path === '' ? 'the result' : path,
+        path: path === "" ? "the result" : path,
         kept: kept.length,
         total: value.length,
       });
@@ -141,16 +141,16 @@ function capValues(
  * many small lists would otherwise spend the whole cap on its own marker.
  */
 function shortenedListPhrase(lists: readonly ShortenedList[]): string {
-  if (lists.length === 0) return '';
+  if (lists.length === 0) return "";
   const ranked = [...lists].sort(
     (left, right) => right.total - right.kept - (left.total - left.kept),
   );
   const named = ranked
     .slice(0, NAMED_LIST_LIMIT)
     .map((list) => `${list.path} kept ${list.kept} of ${list.total}`)
-    .join('; ');
+    .join("; ");
   const remaining = ranked.length - Math.min(ranked.length, NAMED_LIST_LIMIT);
-  const more = remaining > 0 ? ` (and ${remaining} more)` : '';
+  const more = remaining > 0 ? ` (and ${remaining} more)` : "";
   return ` Lists shortened: ${named}${more}.`;
 }
 
@@ -160,7 +160,7 @@ function omittedFieldPhrase(
   omittedFields: number,
   totalFields: number,
 ): string {
-  if (omittedFields === 0) return '';
+  if (omittedFields === 0) return "";
   return ` ${omittedFields} of ${totalFields} result fields omitted entirely.`;
 }
 
@@ -190,7 +190,7 @@ function truncationNotice(
  * can only mean a bug elsewhere, not something to silently cap here.
  */
 export function truncateOversizedResult(result: ToolResult): ToolResult {
-  if (result.status !== 'success') return result;
+  if (result.status !== "success") return result;
   const json = JSON.stringify(result);
   if (json.length <= RESULT_TRUNCATE_CHARS) return result;
 
@@ -198,8 +198,8 @@ export function truncateOversizedResult(result: ToolResult): ToolResult {
   // applied `toJSON`, dropped undefined, and fixed every length, so what is
   // measured below is exactly what the model receives.
   const parsed: unknown = JSON.parse(json);
-  if (!isRecord(parsed) || parsed.status !== 'success') {
-    throw new TypeError('Malformed oversized tool result projection.');
+  if (!isRecord(parsed) || parsed.status !== "success") {
+    throw new TypeError("Malformed oversized tool result projection.");
   }
   const { status: _status, ...payload } = parsed;
 
@@ -207,11 +207,11 @@ export function truncateOversizedResult(result: ToolResult): ToolResult {
 
   const build = (limit: number, keepAllFields: boolean): ToolResult => {
     const lists: ShortenedList[] = [];
-    const capped = capRecord(payload, limit, lists, '', keepAllFields);
+    const capped = capRecord(payload, limit, lists, "", keepAllFields);
     const omittedChars =
-      json.length - JSON.stringify({ status: 'success', ...capped }).length;
+      json.length - JSON.stringify({ status: "success", ...capped }).length;
     return {
-      status: 'success',
+      status: "success",
       ...capped,
       [TRUNCATED_FIELD]: true,
       [NOTICE_FIELD]: truncationNotice(

@@ -10,7 +10,7 @@ import {
   isRecord,
   isString,
   type UnknownRecord,
-} from '../unknown-record';
+} from '@workspace/harness';
 import {
   admitMcpToolDefinitions,
   type AdmittedMcpToolDefinition,

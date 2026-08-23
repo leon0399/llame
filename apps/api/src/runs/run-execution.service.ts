@@ -2,14 +2,14 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { tool, type ToolSet } from 'ai';
 
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import { isNumber, isRecord, isString } from '../unknown-record';
+import { isNumber, isRecord, isString } from '@workspace/harness';
 import {
   type Message,
   type ModelToolDeclaration,
   type RunEvent,
   type RunStatus,
 } from '../db/schema';
-import { type ModelClient } from '../models/model-client';
+import { type ModelClient } from '@workspace/harness';
 import {
   ChatsRepository,
   CompactionsRepository,
@@ -42,8 +42,8 @@ import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
-import { invalidCallResult, refusalResult, runTool } from '../tools/runner';
-import { toFlexibleSchema } from '../tools/schema-utils';
+import { invalidCallResult, refusalResult, runTool } from '@workspace/harness';
+import { toFlexibleSchema } from '@workspace/harness';
 import {
   type KnowledgeToolResolver,
   type ToolContext,

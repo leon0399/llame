@@ -6,7 +6,7 @@ import { ChatsRepository } from '../chats/chats-repository';
 import * as schema from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { searchConversationsTool } from './search-conversations';
-import { isZodSchema } from './schema-utils';
+import { isZodSchema } from '@workspace/harness';
 import { type ToolContext } from './types';
 
 /**

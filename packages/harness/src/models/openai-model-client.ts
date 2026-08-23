@@ -1,19 +1,19 @@
-import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAI } from "@ai-sdk/openai";
 import {
   generateText,
   NoSuchToolError,
   stepCountIs,
   streamText,
   tool,
-} from 'ai';
+} from "ai";
 
 import {
   type ModelClient,
   type ModelObjectInput,
   type ModelStreamInput,
-} from './model-client';
-import type { TokenPrice } from './model-catalog';
-import { wrapStreamTextResult } from './stream-text-result-proxy';
+} from "./model-client";
+import type { TokenPrice } from "./model-client";
+import { wrapStreamTextResult } from "./stream-text-result-proxy";
 
 /**
  * Non-empty placeholder credential for a keyless provider (#162): a genuinely
@@ -26,7 +26,7 @@ import { wrapStreamTextResult } from './stream-text-result-proxy';
  * which matches the existing "provider credential validity is not
  * prevalidated" contract.
  */
-export const KEYLESS_PLACEHOLDER_API_KEY = 'keyless-no-credential-configured';
+export const KEYLESS_PLACEHOLDER_API_KEY = "keyless-no-credential-configured";
 
 /**
  * Best-effort parse of a tool call's raw stringified-JSON `input`
@@ -87,7 +87,7 @@ export function createOpenAIModelClient(
 
   return {
     model: config.modelId,
-    provider: 'openai',
+    provider: "openai",
     contextWindowTokens: config.contextWindowTokens,
     ...(config.pricing !== undefined && { pricing: config.pricing }),
     ...(config.compactionThresholdTokens !== undefined && {
@@ -120,7 +120,7 @@ export function createOpenAIModelClient(
             input.onError?.({
               error:
                 input.abortSignal?.reason ??
-                new DOMException('Aborted', 'AbortError'),
+                new DOMException("Aborted", "AbortError"),
             }),
           ).catch((error: unknown) => {
             abortSettlementError = { error };
@@ -130,7 +130,7 @@ export function createOpenAIModelClient(
       };
       if (config.nativeOpenAI) {
         streamOptions.providerOptions = {
-          openai: { reasoningSummary: 'auto' },
+          openai: { reasoningSummary: "auto" },
         };
       }
       // Tool-calling loop: the SDK auto-executes tools and re-calls the
@@ -180,17 +180,17 @@ export function createOpenAIModelClient(
             // instead of a thrown error here.
             input: parseToolCallInput(toolCall.input),
             reason: NoSuchToolError.isInstance(error)
-              ? 'not_available'
-              : 'invalid_input',
+              ? "not_available"
+              : "invalid_input",
           });
           return Promise.resolve(null);
         };
       }
       if (input.onTextDelta || input.onReasoningDelta) {
         streamOptions.onChunk = ({ chunk }) => {
-          if (chunk.type === 'text-delta') {
+          if (chunk.type === "text-delta") {
             input.onTextDelta?.(chunk.text);
-          } else if (chunk.type === 'reasoning-delta') {
+          } else if (chunk.type === "reasoning-delta") {
             input.onReasoningDelta?.(chunk.text);
           }
         };
@@ -223,7 +223,7 @@ export function createOpenAIModelClient(
       // calling is more widely implemented across OpenAI-compatible backends.
       // The SDK validates the call's input against the schema; a backend that
       // can't comply throws (or returns no call) — callers keep a fallback.
-      const toolName = input.schemaName ?? 'output';
+      const toolName = input.schemaName ?? "output";
       const result = await generateText({
         // .chat (chat/completions), same as streamText above: the default
         // `openai(model)` targets OpenAI's /responses endpoint, which
@@ -239,7 +239,7 @@ export function createOpenAIModelClient(
             inputSchema: input.schema,
           }),
         },
-        toolChoice: { type: 'tool', toolName },
+        toolChoice: { type: "tool", toolName },
       });
 
       // `dynamic` is the discriminant: unparsable/invalid calls surface as
