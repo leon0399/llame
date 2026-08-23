@@ -1,17 +1,18 @@
 ## Why
 
-The shipped Knowledge capability gives each owner exactly one filesystem-backed space, so unrelated vaults cannot remain separately named, selected, or carried safely into future personal-node synchronization. Issue #542 makes multiple owner-scoped spaces part of the current usable personal-knowledge set, while preserving deterministic Runs and the existing fail-closed filesystem boundary.
+The shipped Knowledge capability gives each owner exactly one filesystem-backed space. That collapses distinct vaults into one identity and cannot preserve same-named resources for future personal-node portability. Issue #542 makes multiple stable Knowledge Spaces available through a small owner-scoped API and the existing live read tools, without inventing Chat bindings, Run snapshots, indexing, or file-management UX.
 
 ## What Changes
 
-- Replace the one-space-per-owner database and provisioning contract with a bounded owner inventory of stable, opaque Knowledge Space identities and non-unique display names.
-- Add authenticated list, create, and rename operations while retaining the singular create-or-get operation as a compatibility path for the migrated default space.
-- Add a minimal authenticated web surface to list, create, and rename Knowledge Spaces and to edit the current Chat's selected set; file browsing, upload, and editing remain outside this change.
-- Let an owner replace a Chat's explicit Knowledge Space set, including an intentionally empty set; initialize an unconfigured Chat once from the owner's then-current spaces rather than resolving dynamic “all spaces” on every turn.
-- Snapshot the Chat's resolved space IDs, names, and binding revision into each accepted Run. Later attachments apply only to later Runs; detachment or loss of ownership revokes subsequent tool access even for an already accepted Run.
-- Extend Knowledge tools with trusted Run-bound multi-space resolution: search may target one bound space or the complete Run-bound set under global operation limits, while read uses a space selector whenever paths could be ambiguous.
-- Persist and disclose the bounded Run binding without exposing owner IDs, configured roots, host paths, or alternate filesystem selectors.
-- Preserve existing single-space identities and files during migration. Do not add indexing, embeddings, import/synchronization, shared ownership, arbitrary filesystem paths, or Knowledge Space content deletion.
+- Replace the one-space-per-owner row with an uncapped owner inventory of stable opaque IDs and non-unique display names.
+- Replace bodyless `PUT /api/v1/me/knowledge-space` with breaking REST collection operations: create, cursor-paginated list, retrieve, and rename under `/api/v1/knowledge-spaces`; deletion remains out of scope.
+- Create each trusted stable-ID child before committing its authority row. A failed database commit may leave an empty unauthoritative orphan; error recovery never deletes filesystem entries.
+- Keep Knowledge tool availability separate from resource availability. When configuration and allowlisting permit the tools, they remain callable even when the owner has no spaces.
+- Resolve the owner's current accessible spaces at every tool call. No Chat binding or Run-level Knowledge membership is persisted; later calls immediately observe additions and reject removed access.
+- Let `knowledge_search` optionally target one current space or search all current spaces under one shared operation budget. Scoped failures produce an honest bounded incomplete result; global limits still fail the whole call.
+- Require `knowledge_read` to name one current Knowledge Space ID explicitly.
+- Persist exact response-time space ID, name, relative path, and hash attribution. A minimal compacted `incomplete` marker preserves degraded search honesty without adding a third generic tool-result status.
+- Ship API, storage, and tools only. Do not add web management, user file population, lifecycle removal, indexing, embeddings, synchronization, shared ownership, or arbitrary filesystem paths.
 
 ## Capabilities
 
@@ -21,14 +22,15 @@ None.
 
 ### Modified Capabilities
 
-- `knowledge-spaces`: Changes owner cardinality, display metadata, management APIs, Chat bindings, accepted-Run snapshots, migration, and revocation behavior.
-- `knowledge-tools`: Changes trusted binding resolution and tool inputs/results from one implicit space to a bounded Run-authorized set.
+- `knowledge-spaces`: Changes owner cardinality, labels, provisioning order, REST operations, pagination, migration, and runtime resolution.
+- `knowledge-tools`: Changes tool eligibility, live multi-space authorization, inputs, search fan-out, incomplete results, and attribution.
+- `tool-calling`: Preserves a bounded `incomplete` outcome through compaction for successful results that explicitly declare incomplete work.
 
 ## Impact
 
-- **Database:** `knowledge_spaces` cardinality and metadata; new tenant-enforced Chat and Run binding state; generated migration and RLS/FORCE-RLS coverage.
-- **API and web:** additive Knowledge Space collection operations and Chat binding fields; updated OpenAPI/generated client; owner inventory management and per-Chat selection UI.
-- **Run acceptance and receipts:** atomically resolved Knowledge bindings, immutable per-Run upper bounds, model-visible binding disclosure, and worker revalidation.
-- **Tools:** multi-binding runtime context, aggregate search budgets, space-qualified reads/results, availability and revocation outcomes.
-- **Operations:** every API/worker still mounts the same configured stable-ID children; names and bindings never become host directory selectors.
-- **Product verification:** migration, concurrent ownership, duplicate names, Chat isolation, retry/handoff determinism, live revocation, cross-tenant denial, and browser acceptance.
+- **Database:** remove the one-owner uniqueness constraint; add display name and deterministic creation ordering while retaining RLS/FORCE-RLS and stable IDs.
+- **API:** remove the singleton endpoint; add owner-derived REST collection/item operations and a Knowledge-local opaque cursor.
+- **Filesystem:** retain `knowledge.root/<stable-id>`; creation becomes directory-first and may leave harmless unauthoritative empty orphans after database failure.
+- **Tools:** resolve current owner rows per call; optional search selector, mandatory read selector, aggregate budgets, bounded warnings, and response-time names.
+- **Replay:** preserve an `incomplete` compacted outcome without changing the global `success | error` execution union.
+- **Verification:** migration, pagination, duplicate names, concurrent owners, cross-tenant denial, live additions/revocations, partial all-space search, explicit reads, and persisted attribution.

@@ -1,103 +1,122 @@
 ## Context
 
-The shipped capability gives each authenticated owner one stable Knowledge Space whose live Markdown files are read from a trusted stable-ID child below `knowledge.root`. Tools resolve that sole row from trusted Run-owner context; PostgreSQL stores ownership and receipts but not Knowledge content. This is safe and useful, but one implicit space cannot preserve deliberate boundaries between vaults, cannot represent same-named resources independently, and is the wrong shape for future personal-node synchronization.
+The shipped capability resolves one owner row to one trusted `knowledge.root/<stable-id>` child and reads live Markdown, including uncommitted changes. PostgreSQL stores authority and tool observations, not Knowledge content. Multiple vaults require multiple logical identities, but they do not require Chat-specific bindings or frozen Run membership: the content is already intentionally live, and current authorization must win for long-running Runs.
 
-Issue #542 is the immediate multi-space layer under tracker #39. It depends on the shipped filesystem capability from #213 and blocks later import/synchronization work in #547. Indexing, embeddings, and semantic search are separate later capabilities. The local filesystem remains live and authoritative, including uncommitted edits.
-
-The critical tension is between user control and deterministic execution. Resolving “all spaces I own now” at tool execution would silently widen an accepted Run whenever inventory changes. Freezing access forever at acceptance would ignore later detachment or revocation. The design therefore treats the accepted snapshot as an immutable upper bound and reapplies current authorization before each operation.
+Issue #542 is the immediate multi-space layer under tracker #39. It depends on shipped #213 and blocks replica/import work in #547. User-facing population, agent writes, indexing, semantic search, removal lifecycle, and availability reminders remain separate work.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Give each owner a bounded inventory of independently identified, non-uniquely named Knowledge Spaces.
-- Let an owner explicitly select an ordered set for each Chat, including an intentional empty set.
-- Persist a deterministic Knowledge binding upper bound with every accepted Run and expose a safe owner/model receipt.
-- Keep runtime access fail-closed when a selected space is detached or no longer owned.
-- Search one selected space or the complete Run-bound set under one global budget, and make reads unambiguous.
-- Preserve the existing stable identifier and filesystem child for every migrated owner.
-- Provide the minimum web management and per-Chat selection surface required for ordinary use.
-- Preserve the personal-node boundary: portable logical IDs, authority-local ownership and mounts.
+- Let one owner hold any number of independently identified, non-uniquely named Knowledge Spaces.
+- Expose a small breaking REST API for create, paginated list, retrieve, and rename.
+- Resolve current owner access at each search/read call so additions appear and revocations take effect without Run state.
+- Search one current space or all current spaces under the existing global safety budgets.
+- Preserve useful matches when independent spaces fail while marking the call incomplete.
+- Require reads to select one stable ID and persist exact response-time attribution.
+- Preserve existing stable IDs and filesystem children during migration and future personal-node movement.
 
 **Non-Goals:**
 
-- File browsing, upload, editing, deletion, import, synchronization, or conflict resolution.
-- Space sharing, group ownership, public access, or cross-owner selection.
+- Chat bindings, owner defaults, ordered selections, or Run-level Knowledge snapshots/receipts.
+- Web management, upload, file browsing/editing, user-selected host directories, or import.
+- Space archive, deletion, file deletion, orphan cleanup, or other lifecycle management.
 - Indexed, trigram, normalized, embedding, or semantic retrieval.
-- User- or model-controlled host paths, mount roots, source keys, or filesystem discovery.
-- A permanent content snapshot or guarantee that a live path/hash remains stable.
-- Knowledge Space deletion; detachment is reversible, while canonical-file deletion needs a separate recovery contract.
+- Shared ownership, public access, synchronization, replica conflict resolution, or automatic mounting.
+- A generic cursor framework or a generic third tool-result status.
 
 ## Decisions
 
-### D1: Stable UUID identity, untrusted non-unique names, and a hard inventory cap
+### D1: Stable IDs are authority; duplicate names are labels
 
-Each owner may hold at most 32 spaces. IDs remain trusted-code-generated UUIDs and are the only identity used by authorization, persistence, mounts, and tool selection. Names are trimmed 1-100-code-point labels, may collide, and reject invisible/control classes that would make model-visible or UI-visible disambiguation unsafe. Concurrent creation serializes on owner state before enforcing the cap.
+`knowledge_spaces` loses owner uniqueness and gains `name`, `created_at`, and `updated_at`. There is no per-owner count cap. Trusted code generates each UUID. Names are trimmed, contain 1-100 Unicode code points, reject control, format, line-separator, and paragraph-separator characters, and may collide. The migrated singleton keeps its ID and child and receives `Personal`.
 
-The fixed cap bounds Chat settings, Run receipts, relational snapshots, prompt disclosure, and all-space search fan-out. Treating names as unique would create false identity and make local-node imports silently merge distinct resources.
+IDs alone drive ownership checks, filesystem children, tool selectors, cursors, and portable references. Names are untrusted response-time metadata.
 
-### D2: Add collection APIs and retain the singular endpoint as compatibility
+### D2: Replace the singleton endpoint with minimal REST resources
 
-The owner API adds list, create, rename, and idempotent ensure operations. Creation accepts only a name and allocates an ID in trusted code. Ensure accepts an existing owned ID only to repair its derived child; absent and other-owner IDs are indistinguishable. The old bodyless singular `PUT` returns/ensures the oldest owner space and creates `Personal` only when inventory is empty.
+The old bodyless `PUT /api/v1/me/knowledge-space` is removed. The replacement is:
 
-The database row is the recovery anchor. If derived-child creation fails after row commit, the row remains visible and a later ensure repairs the exact same child. Compensating deletion would destroy stable identity and make retry races worse.
+- `POST /api/v1/knowledge-spaces` with `{name}` -> `201` plus `Location`;
+- `GET /api/v1/knowledge-spaces?limit=&after=` -> `{items,nextCursor}`;
+- `GET /api/v1/knowledge-spaces/:id`;
+- `PATCH /api/v1/knowledge-spaces/:id` with `{name}`.
 
-### D3: Chat binding is an ordered, revisioned set—not dynamic all
+There is no `PUT` or `DELETE`. Authentication supplies owner identity. Missing and other-owner item IDs produce the same `404`. Resource representations contain only `{id,name,createdAt,updatedAt}`.
 
-`PATCH /api/v1/chats/:id` accepts an optional `knowledgeSpaceIds` replacement with at most 32 unique IDs. Replacement validates every ID under one owner-scoped transaction and is all-or-nothing. The Chat stores an explicit monotonically increasing binding revision so zero rows can mean either uninitialized or intentionally empty.
+The list uses deterministic `(created_at, knowledge_space_id)` keyset ordering. `after` is a validated base64url encoding of those two values; it is not signed, encrypted, version-framework-backed, or shared outside this capability. RLS plus an explicit owner predicate is the data boundary. Malformed cursors return `400`. Page size is bounded, but total inventory is not.
 
-At the first accepted Run for an uninitialized Chat, the transaction binds all then-current owner spaces in creation order if inventory is non-empty. Once initialized, new spaces are not auto-attached. This gives existing Chats a usable default without allowing later inventory changes to widen them silently. Chat forks copy the ordered set into their own binding state; later edits are independent.
+### D3: Filesystem first, authority row second
 
-### D4: Accepted Runs persist an immutable relational upper bound
+Creation resolves the configured root, generates a UUID, and creates the exact stable-ID child before inserting the owner row in a PostgreSQL transaction. A committed row therefore begins with a usable child. If database insertion or commit fails, the empty unlinked directory may remain. It grants no authority and error recovery never deletes it.
 
-The accepted-turn transaction persists the Chat revision plus ordered `(knowledge_space_id, display_name)` rows with the user message, context snapshot, Run, and `run.created`. Empty snapshots retain their revision on the Run. Owner-scoped keys, composite ownership constraints, RLS, and FORCE RLS protect Chat and Run binding tables; application queries keep explicit owner predicates.
+`POST` remains non-idempotent. A lost success followed by retry may create another distinct space; idempotency-key infrastructure and cleanup belong to later work.
 
-The accepted snapshot is immutable but not an irrevocable grant. Runtime access is:
+### D4: Tool eligibility is independent from resource availability
 
-`run snapshot ∩ current Chat binding ∩ current active owner inventory`
+Allowlisting and process configuration decide whether `knowledge_search` and `knowledge_read` are advertised. Owner inventory does not. With a configured root and permitted declarations, an owner with zero spaces still receives callable tools; a call returns `knowledge_space_not_configured`.
 
-Later attachments cannot widen an old Run. Detachment or loss of ownership revokes access before the next filesystem operation, including retry and handoff. Acceptance-time names remain in the receipt and tool attribution so later renames do not rewrite history. A trusted Run identifier is added to tool execution context; model arguments never carry authority.
+This removes the owner-row lookup from accepted-turn candidate resolution. A missing `knowledge.root` still makes the tools unavailable because no worker-local binding can execute safely.
 
-### D5: Search can fan out; read must resolve one space
+### D5: Every tool call resolves current authorization
 
-`knowledge_search` adds an optional `knowledgeSpaceId`. When omitted, it traverses the complete current authorized intersection in persisted Chat order, then relative-path order. All existing entry, file, byte, timeout, result, path, and output limits are shared across the whole call. Any inaccessible target or exceeded bound fails the entire call without partial matches.
+There are no Chat or Run Knowledge bindings. At each invocation, trusted context supplies the authenticated owner. Search without a selector loads the current owner rows; explicit search/read validates the supplied stable ID under current RLS ownership. An added space can appear in a later call within the same Run. Removed access rejects the next call even when an earlier call succeeded.
 
-`knowledge_read` also adds an optional selector. Omission remains compatible only when exactly one space is currently authorized; multiple spaces return `knowledge_space_selection_required` without probing a file. Guessed, detached, absent, and other-owner IDs share `knowledge_space_not_found` to prevent an existence oracle.
+Authorization is checked immediately before opening each targeted space. Revocation after that check does not cancel an already-open filesystem operation; the next target or call observes it. Guessed, absent, removed, and other-owner explicit IDs share `knowledge_space_not_found`.
 
-Tool successes and empty searches include stable IDs and acceptance-time names. The browser renders both name and ID with the relative path because names may collide. No content index is introduced; every call reads the live filesystem and hashes the exact bytes observed.
+### D6: Search fans out under one budget; read is always explicit
 
-### D6: Minimal web UX ships with the capability
+`knowledge_search` adds optional `knowledgeSpaceId`. Omission searches current owner spaces in `(created_at,id)` order, with relative paths ordered inside each space. Entry, file, byte, timeout, result, path, and output limits are shared across the whole call; space boundaries never reset them.
 
-The web app provides authenticated inventory list/create/rename controls and a current-Chat multi-select. It uses the generated API client and exposes no root or directory input. Selection is explicit save/replace, shows duplicate names with stable-ID disambiguation, and permits an intentional empty set. It does not become a file manager.
+Failures scoped to one space—unavailable binding, unsafe path/symlink, or invalid content—allow other spaces to finish. The result remains `status: success` but carries `complete:false`, top-level per-space warning objects, and `warningCount`. Warnings are diagnostics for the call, never properties of valid matches. The warning array is bounded; `warningCount > warnings.length` discloses omitted warning detail. If every space fails, or a global limit, timeout, or cancellation occurs, the call returns a top-level error and no partial matches.
 
-An API-only implementation would satisfy storage mechanics but fail the product intent: ordinary users could neither create a second logical space nor control which context a Chat receives without browser-console calls.
+The closed per-space warning types are `knowledge_space_unavailable`, `knowledge_path_invalid`, and `knowledge_content_invalid`. They preserve the existing safe error vocabulary without carrying raw filesystem diagnostics.
 
-### D7: Filesystem binding stays authority-local and unchanged
+`knowledge_read` requires both `knowledgeSpaceId` and one admitted relative Markdown path even when the owner has one space. It never probes multiple spaces to resolve ambiguity.
 
-Every space maps to the direct `knowledge.root/<stable-id>` child. Names never affect paths. All API and worker processes serving the same queue still require a compatible view of the configured root. Personal nodes may use different local ownership rows and mount roots while retaining the same logical IDs. Synchronization and cross-authority collisions remain #547 work.
+### D7: Attribution is live and history is immutable
 
-### D8: Implementation is a linear, independently green PR stack
+Search matches and reads include call-time space ID/name, exact relative path, and SHA-256 hash of the exact bytes used. Empty search need not enumerate an uncapped inventory. Later rename, file changes, or ownership changes never rewrite persisted tool results.
 
-The proposal is the first layer. Implementation then follows this `gh-stack` topology:
+The model discovers IDs through search results in this iteration. A later context-reminder issue will disclose bounded inventory changes; #542 adds no list tool or prompt inventory.
 
-`master <- multiple-kb/proposal <- multiple-kb/storage <- multiple-kb/bindings <- multiple-kb/tools <- multiple-kb/product`
+### D8: Preserve incomplete honesty with one compacted marker
 
-The storage layer owns inventory schema, migration, provisioning, and owner APIs. The bindings layer owns Chat selection, Run snapshots, transactional acceptance, and trusted runtime context. The tools layer owns multi-space resolution, search/read contracts, and persisted attribution. The product layer owns generated-client consumption, ordinary-user management/selection UI, browser acceptance, documentation, roadmap, and changelog. Each layer SHALL pass its affected checks before `gh stack submit`; fixes land in the owning layer followed by `gh stack rebase --upstack`, never as unrelated repairs at the tip.
+The global tool execution union stays `success | error`; #542 does not introduce `status: partial`. A successful search with `complete:false` is immediately usable and persists its bounded warnings normally. When payload detail is later compacted, its ledger outcome is `incomplete`, not `success`, so replay cannot silently upgrade degraded work. A follow-up issue will standardize incomplete tool results across execution, replay, truncation, and UI.
+
+### D9: Ship as four implementation layers plus a finalization PR
+
+The stack is:
+
+`master <- multiple-kb/proposal <- multiple-kb/storage <- multiple-kb/tools <- multiple-kb/replay <- multiple-kb/acceptance <- multiple-kb/finalize`
+
+Storage owns schema, migration, directory-first creation, REST resources, and the local cursor. Tools owns availability cleanup, live resolution, multi-space search/read, warnings, and persisted response-time attribution. Replay owns only the generic run/observation mapping that preserves incomplete Knowledge results through compaction and replay. Acceptance owns generated clients, end-to-end API/tool coverage, documentation, roadmap, and changelog. There is no web product layer.
+
+Finalization is its own reviewable PR after acceptance. It applies the verified delta to canonical specs with `openspec-sync-specs`, marks completed tasks from implementation evidence, then moves the change to the dated archive with `openspec-archive-change`. It owns no implementation behavior.
 
 ## Risks / Trade-offs
 
-- **Revocation weakens byte-for-byte retry determinism:** an accepted Run may lose access before retry. This is intentional; current authorization outranks replaying a stale grant. The immutable receipt still records the original upper bound and the closed outcome.
-- **All-space scan cost scales with selected spaces:** the fixed inventory cap and single global operation budget prevent per-space multiplication. Large corpora still need the later indexed-KB tracker.
-- **Row/filesystem creation is not atomic:** retaining the row creates a visible temporarily unavailable space. An idempotent ensure path makes repair explicit without minting identity.
-- **Same-name UI ambiguity:** every selection and citation pairs the label with a stable-ID discriminator. Enforcing unique names would merely push collision handling into import/synchronization.
-- **Chat detachment is not space deletion:** files and inventory rows remain. This avoids irreversible canonical-content semantics in a selection feature but leaves lifecycle cleanup for a separate proposal.
-- **Trusted-writer filesystem assumption remains:** stable-ID containment and final-file no-follow defenses do not support tenant-writable or synchronization-managed mounts with hostile concurrent writers. That threat-model expansion still requires descriptor-relative containment.
+- **Dynamic membership weakens retry determinism:** retries can see different spaces, just as existing live reads can see different bytes. Response-time attribution remains honest.
+- **No count cap permits large inventories:** REST pagination and global per-call search budgets bound operations. Capacity quotas require operational evidence before becoming product contract.
+- **One broken space yields incomplete success:** `complete:false`, bounded warnings, and the compacted `incomplete` outcome prevent false completeness.
+- **Directory-first creation leaves orphans:** unlinked random-ID empty directories are inert. Automatic deletion is more dangerous than bounded operational cleanup.
+- **POST retries can duplicate resources:** accepted for this API-only iteration; removal/idempotency belong to later lifecycle/platform work.
+- **Search-only model discovery is weak:** direct reads require an ID learned from prior search. The agreed context-reminder follow-up owns better discovery.
+- **Trusted-writer filesystem assumption remains:** tenant-writable or synchronization-managed mounts still require descriptor-relative containment before support.
 
 ## Migration Plan
 
-1. Add display name and creation ordering to `knowledge_spaces`; backfill every existing row as `Personal`; remove the one-owner unique constraint while retaining its identifier and child directory.
-2. Add owner-scoped Chat binding state, Run binding state, composite constraints, RLS/FORCE-RLS policies, and negative integration tests before exposing writers.
-3. Deploy additive inventory and Chat APIs plus the generated client. Keep the singular compatibility endpoint operational throughout.
-4. Cut accepted-turn authoring over to atomic Chat initialization and Run snapshots only after compatible workers can consume the new trusted context. Quiesce old API writers and drain accepted Runs at the coordinated schema/writer boundary described by the repository rollout contract.
-5. Deploy multi-space tools and web controls, then verify migration, concurrent caps, duplicate names, cross-tenant denial, explicit-empty Chats, retry/handoff, late attach, live detach, and browser citations.
-6. Roll back application code only while preserving additive columns/tables and migrated identifiers. Do not restore the one-owner unique constraint after multiple rows exist. A forward repair may disable new selection while retaining data; it must never remap stable IDs or delete filesystem children.
+1. Add labels/timestamps, remove owner uniqueness, and backfill existing rows as `Personal` without changing IDs or directories.
+2. Deploy the breaking REST collection and remove the singleton route/client operation.
+3. Change candidate resolution so configured/allowlisted Knowledge tools remain advertised without owner rows.
+4. Deploy current-owner runtime resolution, multi-space search/read, bounded incomplete results, and the compacted marker together.
+5. Verify duplicate names, pagination, cross-tenant denial, directory/DB failure residues, live addition/revocation, partial search, explicit reads, and historical attribution.
+6. In the separate `multiple-kb/finalize` PR, sync the verified delta into canonical specs and archive the completed change.
+7. Roll back application code only with additive schema left in place. Never restore owner uniqueness after multiple rows exist, remap stable IDs, or delete stable-ID children during rollback.
+
+## Revision History
+
+- **2026-08-23 — contract tightening:** Fixed the Knowledge-local cursor shape from optional to required base64url `(createdAt,id)` encoding, added malformed-cursor failure coverage, and clarified that `knowledge_space_not_configured` survives only as a tool-call result while manifest unavailability stays `knowledge_space_unavailable`.
+- **2026-08-23 — review round 1:** Split generic incomplete-result replay from Knowledge execution, closed the per-space warning vocabulary, aligned name validation, and added the separate finalization PR.
+- **2026-08-23 — grilled rewrite:** Removed the count cap, Chat bindings, Run resource snapshots, compatibility reads, generic cursor layer, web UI, and lifecycle work. Adopted current-access-per-call resolution, explicit reads, all-current search with bounded incomplete results, and three implementation layers above the proposal.
+- **2026-08-23 — initial proposal:** Explored bounded multi-space inventory, Chat selection, and immutable Run membership; superseded by the simpler live-access contract above.

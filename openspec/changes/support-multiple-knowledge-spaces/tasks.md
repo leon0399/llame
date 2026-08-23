@@ -1,36 +1,36 @@
-## 1. Storage and Owner Inventory Layer (`multiple-kb/storage`)
+## 1. Storage and API Layer (`multiple-kb/storage`)
 
-- [ ] 1.1 Add the `knowledge_spaces` name/creation-order fields, remove single-owner uniqueness, preserve existing IDs as `Personal`, and add the serialized 32-space cap using a generated migration; verify schema, migration-contract, migration-upgrade, RLS, FORCE-RLS, duplicate-name, and concurrent-cap integration tests pass.
-- [ ] 1.2 Replace the sole-space repository/service assumptions with owner-scoped list, create, rename, oldest-space compatibility, and owned-ID lookup operations; verify unit tests cover deterministic ordering, same-name spaces, cap outcomes, and absent-versus-other-owner non-disclosure.
-- [ ] 1.3 Generalize stable-ID child provisioning and add idempotent owned-space ensure while retaining bodyless singular `PUT` behavior; verify focused filesystem/service tests cover independent children, partial-failure repair, symlink refusal, missing roots, and unchanged migrated paths.
-- [ ] 1.4 Add authenticated collection list/create/rename/ensure endpoints with closed DTO validation and update OpenAPI; verify controller, API integration, unauthorized, excess-field, cross-tenant, and OpenAPI contract tests pass.
-- [ ] 1.5 Run `pnpm --filter api test`, `pnpm --filter api test:integration`, `pnpm --filter api typecheck`, `pnpm --filter api lint`, and `pnpm --filter api build`; verify the layer is green before `gh stack submit`.
+- [ ] 1.1 Add name and timestamp fields, remove owner uniqueness, and migrate each existing stable ID and child as `Personal`; verify schema, upgrade, RLS/FORCE-RLS, duplicate-name, and concurrent-owner integration tests pass.
+- [ ] 1.2 Replace singleton repository/service assumptions with owner-scoped create, list, retrieve, rename, and exact-owned-ID query primitives; verify missing and other-owner identifiers are indistinguishable and no owner count cap exists.
+- [ ] 1.3 Make provisioning directory-first and authority-row-second without recovery deletion; verify filesystem/service tests cover usable children before commit, database-failure orphans, symlink refusal, missing roots, and preserved migrated paths.
+- [ ] 1.4 Replace bodyless singleton `PUT` with authenticated collection/item REST operations and the Knowledge-local `(createdAt, id)` opaque cursor; verify DTO, malformed-cursor, deterministic pagination, unauthorized, excess-field, cross-tenant, and OpenAPI contract tests pass.
+- [ ] 1.5 Run the affected API unit/integration tests, typecheck, lint, migration checks, and sequential build; verify the storage layer is green before submitting it.
 
-## 2. Chat and Run Binding Layer (`multiple-kb/bindings`)
+## 2. Multi-Space Tool Layer (`multiple-kb/tools`)
 
-- [ ] 2.1 Add owner-scoped ordered Chat bindings, nullable initialized/revision state, immutable ordered Run snapshots, composite ownership constraints, and RLS/FORCE-RLS policies through a generated migration; verify schema, migration, cross-tenant denial, and explicit-empty persistence tests pass.
-- [ ] 2.2 Extend Chat reads and atomic patch replacement with `knowledgeSpaceIds`; verify unit/integration tests cover unique/max validation, all-or-nothing missing and other-owner rejection, monotonically increasing revisions, explicit empty, and no existence oracle.
-- [ ] 2.3 Initialize unconfigured Chats once from current inventory and copy bindings on fork; verify integration tests cover zero-inventory deferral, deterministic creation order, no later auto-attachment, explicit-empty stability, and independent fork edits.
-- [ ] 2.4 Persist the Knowledge binding upper bound atomically with accepted-turn state and disclose bounded ID/name receipts; verify transaction-failure rollback, same-name distinction, rename-history stability, and queue retry/handoff tests pass.
-- [ ] 2.5 Add trusted Run identity and current-authorization intersection resolution to tool execution/candidate context; verify tests cover late attachment exclusion, detachment revocation, ownership loss, empty/not-configured/unavailable manifests, and absence of host or owner details.
-- [ ] 2.6 Regenerate OpenAPI and the web client, then run affected API/web tests, typechecks, lints, and sequential builds; verify the layer is green and run `gh stack rebase --upstack` before submission.
+- [ ] 2.1 Remove owner-inventory gating and the obsolete `knowledge_space_not_configured` manifest/recovery path from accepted-turn Knowledge candidates while retaining allowlist and configured-root gates; verify zero inventory advertises callable tools whose calls return `knowledge_space_not_configured`, and update availability receipt/reminder tests.
+- [ ] 2.2 Resolve current owner resources inside every tool invocation, rechecking each target before open; verify later additions appear, later removals fail, guessed/absent/other-owner IDs are indistinguishable, and no root or owner detail leaks.
+- [ ] 2.3 Extend `knowledge_search` with optional `knowledgeSpaceId`, deterministic all-current traversal, and one shared operation budget; verify selector narrowing, ordering, live file changes, global limits, timeout, cancellation, and zero-inventory behavior.
+- [ ] 2.4 Return bounded call-level warnings and `complete: false` when one space-scoped failure leaves usable all-space results; verify explicit-target, all-target, and global-limit failures remain top-level errors with no false completeness.
+- [ ] 2.5 Require explicit `knowledgeSpaceId` for every `knowledge_read`; verify omission fails before filesystem access and same-named spaces, containment, symlink refusal, bounded reads, and exact hash/content attribution remain safe.
+- [ ] 2.6 Persist response-time space names/IDs with Knowledge results; verify reload and rename/file-change history retain exact call-time attribution.
+- [ ] 2.7 Run focused Knowledge and tool-loop unit/integration suites plus affected API typecheck, lint, and sequential build; verify the tool layer is green before submitting it.
 
-## 3. Multi-Space Tool Layer (`multiple-kb/tools`)
+## 3. Incomplete Replay Layer (`multiple-kb/replay`)
 
-- [ ] 3.1 Extend `knowledge_search` with an optional bound-space selector and deterministic all-bound traversal sharing one operation budget; verify unit tests cover ordinal/path ordering, selector narrowing, global entry/file/byte/output limits, abort/timeout, inaccessible-target whole-call failure, and no partial results.
-- [ ] 3.2 Extend `knowledge_read` with optional bound-space selection and single-space compatibility; verify tests cover same-name disambiguation, `knowledge_space_selection_required`, detached/guessed/other-owner non-disclosure, path containment, symlink refusal, bounded reads, and exact hash/content attribution.
-- [ ] 3.3 Persist and stream acceptance-time space names/IDs with search/read results and render unambiguous structured citations; verify reconstruction tests preserve historical attribution after rename/file changes and expose no local paths.
-- [ ] 3.4 Update packaged tool descriptions and availability/recovery outcomes for `knowledge_space_not_bound`, selection, untrusted names/content, and space-plus-path citation; verify catalog snapshots, context items, and tool-loop tests pass.
-- [ ] 3.5 Run focused Knowledge unit/integration suites plus API/web tests, typechecks, lints, and sequential builds; verify the layer is green and run `gh stack rebase --upstack` before submission.
+- [ ] 3.1 Map a payload-cleared successful Knowledge search with `complete: false` to ledger outcome `incomplete` in the generic run/observation pipeline without adding a third `ToolResult.status`; verify full payload, durable event, compaction, and later model replay preserve the distinction.
+- [ ] 3.2 Preserve existing `success`, exact error, pairing, omission, and budget behavior for every other tool observation; verify focused generic run/observation tests and affected API typecheck, lint, and sequential build pass before submitting the layer.
 
-## 4. Product Surface and Acceptance Layer (`multiple-kb/product`)
+## 4. Acceptance Layer (`multiple-kb/acceptance`)
 
-- [ ] 4.1 Add the authenticated Knowledge Space inventory UI using generated client operations for list, create, and rename, with duplicate-name ID disambiguation and no path/file controls; verify component stories cover empty, populated, duplicate-name, validation, loading, unavailable, and mutation-error states.
-- [ ] 4.2 Add an explicit-save current-Chat multi-select that supports zero through 32 spaces and refreshes Chat binding state without silently selecting new inventory; verify stories cover uninitialized defaults, explicit empty, duplicate names, concurrent update failure, and persisted selection.
-- [ ] 4.3 Add browser acceptance for creating two spaces, selecting both, searching both, selecting one for read, detaching one before a later Run, reload attribution, cross-account denial, and compatibility with a migrated single space; verify the focused Playwright suite passes against isolated fixtures.
-- [ ] 4.4 Update `SPEC.md` authority links, user/operator documentation, `ROADMAP.md`, and `CHANGELOG.md` in the shipping layer; verify `pnpm lint:markdown` and `pnpm format:check` pass and no indexed/search/sync behavior is claimed shipped.
-- [ ] 4.5 Run all affected unit, integration, Storybook, E2E, typecheck, lint, OpenAPI, format, and sequential workspace-build checks; verify every stack layer is green, then run `gh stack rebase --upstack`, inspect `gh stack view --json`, and submit the repaired stack for review.
+- [ ] 4.1 Regenerate the API client for the breaking Knowledge REST surface and remove the singleton operation without adding a web management page; verify generated-client and affected web typecheck/build checks pass.
+- [ ] 4.2 Add end-to-end coverage for creating, listing, retrieving, and renaming duplicate-named spaces; current multi-space search; explicit reads; live addition/revocation; incomplete all-space search; reload attribution; and cross-account denial.
+- [ ] 4.3 Update `SPEC.md` authority links, operator/user documentation, `ROADMAP.md`, and `CHANGELOG.md` in the shipping layer; verify no UI, upload, indexing, sync, or lifecycle behavior is claimed shipped.
+- [ ] 4.4 Run all affected tests, typechecks, lints, OpenAPI checks, formatting, Markdown lint, and sequential workspace builds; verify all stack layers are green and the repaired stack is ready for review.
 
-## 5. Post-Merge OpenSpec Finalization
+## 5. OpenSpec Finalization Layer (`multiple-kb/finalize`)
 
-- [ ] 5.1 After every implementation layer merges, sync the delta specifications into canonical specs and archive `support-multiple-knowledge-spaces`; verify `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, and `pnpm format:check` pass in the finalization change.
+- [ ] 5.1 After the acceptance layer is complete, verify the implementation tasks above have evidence and mark them complete; verify OpenSpec reports complete planning artifacts and `tasks.md` contains no unchecked implementation task.
+- [ ] 5.2 Apply `openspec-sync-specs` to merge the delta requirements into canonical `knowledge-spaces`, `knowledge-tools`, and `tool-calling` specs; verify unrelated canonical requirements remain and strict OpenSpec validation passes.
+- [ ] 5.3 Apply `openspec-archive-change` in the same finalization PR; verify the active change is absent, the dated archive contains every artifact, and strict OpenSpec validation still passes.
+- [ ] 5.4 Run `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify the finalization PR contains only canonical spec synchronization, completed task records, and the archive move—no implementation behavior.
