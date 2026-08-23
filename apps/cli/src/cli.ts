@@ -95,6 +95,9 @@ interface TurnDeps {
 
 async function runTurn(prompt: string, deps: TurnDeps): Promise<void> {
   await deps.session.append({ type: "user_prompt", text: prompt });
+  // Events are buffered and flushed with the outcome: appending each one
+  // fire-and-forget races process exit and loses log lines.
+  const events: RunEvent[] = [];
   try {
     const outcome = await executeRun({
       client: deps.client,
@@ -104,14 +107,13 @@ async function runTurn(prompt: string, deps: TurnDeps): Promise<void> {
       approvalGate: deps.approvalGate,
       maxSteps: deps.maxSteps,
       onEvent: (event) => {
-        // Fire-and-forget durability: the audit trail must not corrupt the
-        // stream, and a failed append is never fatal mid-run.
-        void deps.session
-          .append({ type: "run_event", event })
-          .catch(() => undefined);
+        events.push(event);
         printEvent(event);
       },
     });
+    for (const event of events) {
+      await deps.session.append({ type: "run_event", event });
+    }
     await deps.session.append({
       type: "assistant_messages",
       messages: outcome.responseMessages,

@@ -112,15 +112,18 @@ export class SessionLog {
   }
 
   async append(event: SessionEvent): Promise<SessionEntry> {
+    // Claim the sequence number synchronously: concurrent appends (the run
+    // loop tees events fire-and-forget while the caller awaits the outcome)
+    // must never observe the same seq across the first await boundary.
+    const seq = this.nextSeq++;
     const entry: SessionEntry = {
-      seq: this.nextSeq,
+      seq,
       timestamp: new Date().toISOString(),
       event,
     };
     await mkdir(dirname(this.filePath), { recursive: true });
     await appendFile(this.filePath, `${JSON.stringify(entry)}\n`, "utf8");
     this.entries.push(entry);
-    this.nextSeq += 1;
     return entry;
   }
 
