@@ -24,7 +24,7 @@
  */
 
 import { compareCodePoints } from '../canonical-json';
-import { isRecord, isString, type UnknownRecord } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '@workspace/harness';
 
 /**
  * Forms with a producer in this revision. A form is NOT defined ahead of a

@@ -20,7 +20,7 @@ import {
 } from '@nestjs/swagger';
 
 import { CurrentUser } from '../auth/auth-context';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/harness';
 import {
   KNOWLEDGE_SPACE_UNAVAILABLE,
   KnowledgeSpaceUnavailableError,

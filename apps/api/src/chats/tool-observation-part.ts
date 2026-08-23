@@ -19,7 +19,7 @@ import type {
   CompactionToolObservation,
   CompactionToolObservationLedgerV1,
 } from '../db/schema/chats';
-import { isRecord, isString, type UnknownRecord } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '@workspace/harness';
 import { type ToolResult } from '../tools/types';
 import type { MessagePart } from './context-builder';
 

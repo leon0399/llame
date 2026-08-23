@@ -17,10 +17,7 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { CompactionCapability } from '../compaction/compaction.service';
-import {
-  type ModelClient,
-  type ModelStreamInput,
-} from '../models/model-client';
+import { type ModelClient, type ModelStreamInput } from '@workspace/harness';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
@@ -50,7 +47,7 @@ import {
   McpRuntimeModule,
 } from './mcp-runtime.module';
 import { McpRuntimeService } from './mcp-runtime.service';
-import { type UnknownRecord } from '../unknown-record';
+import { type UnknownRecord } from '@workspace/harness';
 import { type KnowledgeToolResolver } from '../tools/types';
 import {
   createMcpTestFixture,

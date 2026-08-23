@@ -1,7 +1,7 @@
 import { type ModelToolDeclaration } from '../db/schema';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/harness';
 import { TOOL_REGISTRY } from '../tools/registry';
-import { resolveJsonSchema, toFlexibleSchema } from '../tools/schema-utils';
+import { resolveJsonSchema, toFlexibleSchema } from '@workspace/harness';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
 import { type Tool } from '../tools/types';
 import { canonicalJson } from '../canonical-json';

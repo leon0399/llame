@@ -3,9 +3,9 @@ import {
   knowledgeSearchTool,
 } from '../knowledge/knowledge-tools';
 import { searchConversationsTool } from './search-conversations';
-import { isToolId, matchesAllowedToolId } from './tool-id';
+import { isToolId, matchesAllowedToolId } from '@workspace/harness';
 import { type Tool } from './types';
-import { isString } from '../unknown-record';
+import { isString } from '@workspace/harness';
 
 /** Every tool the harness knows about (design D2: in-code registry). */
 export const TOOLS: readonly Tool[] = [

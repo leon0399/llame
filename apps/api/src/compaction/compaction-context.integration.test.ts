@@ -25,10 +25,7 @@ const TEST_ANCHOR: TemporalAnchor = {
   systemTimezone: 'Europe/Madrid',
 };
 import { createFakeModelClient } from '../models/fake-model-client';
-import {
-  type ModelClient,
-  type ModelStreamInput,
-} from '../models/model-client';
+import { type ModelClient, type ModelStreamInput } from '@workspace/harness';
 import { type ModelClientFactory } from '../models/models.service';
 import { MemoryService } from '../memory/memory.service';
 import { SearchIndexService } from '../search/search-index.service';

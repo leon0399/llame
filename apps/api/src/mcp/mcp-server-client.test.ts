@@ -14,7 +14,7 @@ import {
   mcpStreamableHttpInitialize,
   type McpFixtureResponse,
 } from './mcp-test-fixture';
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '@workspace/harness';
 
 const emptyToolSchema = { type: 'object' as const, properties: {} };
 const ONE_MIB = 1024 * 1024;

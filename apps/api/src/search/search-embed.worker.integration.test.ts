@@ -42,7 +42,7 @@ import {
 } from '../instance-config/llame-config';
 import { WorkerProfileService } from '../instance-config/worker-profile.service';
 import { QUEUE } from '../queue/queue';
-import { type UnknownRecord } from '../unknown-record';
+import { type UnknownRecord } from '@workspace/harness';
 import {
   type EmbeddingBackend,
   type EmbeddingDocumentInput,

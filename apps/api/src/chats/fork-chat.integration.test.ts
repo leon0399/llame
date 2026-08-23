@@ -21,7 +21,7 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/harness';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;

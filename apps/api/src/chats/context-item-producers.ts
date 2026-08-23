@@ -30,7 +30,7 @@ import {
   isIanaTimeZone,
 } from '../prompts/temporal-anchor';
 import { type RecencyDigestEntry } from '../db/schema';
-import { isToolId } from '../tools/tool-id';
+import { isToolId } from '@workspace/harness';
 import {
   parseToolAvailabilityManifest,
   TOOL_UNAVAILABLE_REASON_LABELS,
@@ -46,7 +46,7 @@ import {
   isRecord,
   isString,
   type UnknownRecord,
-} from '../unknown-record';
+} from '@workspace/harness';
 
 function isExactRecord(
   value: unknown,

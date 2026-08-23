@@ -1,8 +1,8 @@
 import { canonicalize } from '../canonical-json';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
-import { admitToolInputSchema } from '../tools/schema-utils';
+import { admitToolInputSchema } from '@workspace/harness';
 import { type JsonSchemaDocument } from '../tools/types';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/harness';
 import {
   createMcpToolId,
   findAsciiCaseFoldedCollisionIndexes,

@@ -10,7 +10,7 @@ import {
   type KnowledgeFilesystemBinding,
 } from './knowledge-filesystem';
 import { runTool } from '../tools/runner';
-import { isZodSchema } from '../tools/schema-utils';
+import { isZodSchema } from '@workspace/harness';
 import { type ToolContext } from '../tools/types';
 
 const binding: KnowledgeFilesystemBinding = {
