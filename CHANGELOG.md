@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-23
 
+- **Harness run loop + local coding CLI** (#539): `packages/harness` gains the
+  narrated run loop (context receipt per run), the append-only JSONL session
+  log, and a fail-closed approval seam in the tool runner; new `apps/cli` runs
+  the same core locally as a workspace-bound coding CLI with interactive
+  approvals.
+
 - **Upgrading an existing database to pgvector**: `vector` is not a trusted
   extension — only a superuser can install it, and the non-superuser role that
   runs migrations cannot. A fresh volume is provisioned automatically by
