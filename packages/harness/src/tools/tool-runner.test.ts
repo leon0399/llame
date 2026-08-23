@@ -1,7 +1,9 @@
 import { z } from "zod";
 
-import { RESULT_TRUNCATE_CHARS, runTool } from "@workspace/harness";
-import type { Tool, UnknownRecord } from "@workspace/harness";
+import { RESULT_TRUNCATE_CHARS } from "./result-truncation";
+import { runTool } from "./tool-runner";
+import type { Tool } from "./types";
+import type { UnknownRecord } from "../unknown-record";
 
 interface CliToolContext {
   readonly abortSignal?: AbortSignal;
