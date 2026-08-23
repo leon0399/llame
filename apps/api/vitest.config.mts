@@ -1,7 +1,25 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
 
+// @workspace/config normally resolves to built ./dist; the integration
+// project runs outside turbo on fresh checkouts, so compile it from source
+// here instead.
+const pkgSrc = (name: string) =>
+  path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../packages',
+    name,
+    'src',
+    'index.ts',
+  );
+
 export default defineConfig({
+  resolve: {
+    alias: [{ find: /^@workspace\/config$/, replacement: pkgSrc('config') }],
+  },
   // NestJS DI resolves constructor parameters from reflect-metadata's
   // design:paramtypes. Vitest's default esbuild transform does not emit
   // decorator metadata, so without this plugin Test.createTestingModule
