@@ -92,6 +92,10 @@ revisions, trust boundaries, rollout, and troubleshooting.
 - [CHANGELOG.md](CHANGELOG.md): shipped history
 - [AGENTS.md](AGENTS.md): repository workflow and engineering rules
 - [docs/mcp-tools.md](docs/mcp-tools.md): remote MCP operator runbook
+- [apps/cli](apps/cli/README.md): experimental local coding-harness CLI (no DB, no server)
+- [packages/harness](packages/harness/README.md): agent harness core shared by the API and the CLI
+- [packages/config](packages/config/README.md): `{env:}`/`{path:}` secret interpolation primitives
 
 The monorepo is TypeScript end to end: Next.js in `apps/web`, NestJS and the
-worker in `apps/api`, and shared UI components in `packages/ui`.
+worker in `apps/api`, shared UI components in `packages/ui`, and the
+extracted harness/config cores in `packages/harness` and `packages/config`.
