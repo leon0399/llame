@@ -49,10 +49,7 @@ import { z } from 'zod';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import {
-  type ModelClient,
-  type ModelStreamInput,
-} from '@workspace/harness';
+import { type ModelClient, type ModelStreamInput } from '@workspace/harness';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import {
   buildContext,
