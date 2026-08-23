@@ -119,6 +119,74 @@ export type RawProviderEntry = {
   baseUrl?: unknown;
 };
 
+/**
+ * Distance metric a declared embedding model produces (chat-search-embeddings
+ * design D12). Cosine is the default and, in this change, the ONLY metric any
+ * adapter produces — closed on purpose so a config naming an unimplemented
+ * metric fails validation, not execution (same posture as `ProviderType`).
+ */
+export const EMBEDDING_DISTANCE_METRICS = ['cosine'] as const;
+export type EmbeddingDistanceMetric =
+  (typeof EMBEDDING_DISTANCE_METRICS)[number];
+
+/** Default request batch size when an `embeddingModels[]` entry omits `batchSize` (design D5). */
+export const DEFAULT_EMBEDDING_BATCH_SIZE = 32;
+
+/** The still-uninterpolated `embeddingModels[]` entry shape once schema-validated. */
+export type RawEmbeddingModelEntry = {
+  id: string;
+  provider: string;
+  providerModelId: string;
+  dimensions: number;
+  batchSize?: number;
+  distanceMetric?: EmbeddingDistanceMetric;
+  revision?: string;
+  documentPrefix?: string;
+  queryPrefix?: string;
+};
+
+/**
+ * A resolved embedding-model catalog entry (chat-search-embeddings design
+ * D1/D8). References a `providers[].id`, reusing that connection rather than
+ * introducing a parallel credential/endpoint concept. `providerModelId` is
+ * server-only and MUST NOT leak past the backend adapter into stored rows,
+ * application interfaces, logs, or any user- or model-visible surface.
+ */
+export type EmbeddingModelCatalogEntry = {
+  id: string;
+  provider: string;
+  providerModelId: string;
+  dimensions: number;
+  /** Always resolved (defaults to `DEFAULT_EMBEDDING_BATCH_SIZE`) — NOT part of the binding-ledger comparison set; a throughput knob, not part of the embedding space. */
+  batchSize: number;
+  /** Always resolved (defaults to `'cosine'`). */
+  distanceMetric: EmbeddingDistanceMetric;
+  revision?: string;
+  documentPrefix?: string;
+  queryPrefix?: string;
+};
+
+/**
+ * The still-uninterpolated `search` block once schema-validated. `chats` is
+ * the only corpus this change embeds; a later corpus (knowledge/RAG, curated
+ * memory) adds its own key here, not a new shape.
+ */
+export interface RawSearchConfig extends Record<string, unknown> {
+  chats?: { embeddingModelId?: unknown };
+}
+
+/**
+ * Per-corpus intended-embedding-model selection (chat-search-embeddings
+ * design D6): naming an `embeddingModels[].id` per corpus rather than one
+ * instance-wide flag, so corpora embedding at different rates cannot strand
+ * one another. `embeddingModelId: null` (unset, the default) means the
+ * corpus has no intended model and produces no embedding work — part of the
+ * off-by-default contract.
+ */
+export type SearchCorpusConfig = {
+  embeddingModelId: string | null;
+};
+
 /** The still-uninterpolated `models[]` entry shape once schema-validated. */
 export type RawModelEntry = {
   id: string;
@@ -155,6 +223,8 @@ export interface RawInstanceConfig extends Record<string, unknown> {
   workers?: Record<string, WorkerProfile>;
   providers?: RawProviderEntry[];
   models?: RawModelEntry[];
+  embeddingModels?: RawEmbeddingModelEntry[];
+  search?: RawSearchConfig;
 }
 
 export type LlameConfig = {
@@ -235,6 +305,19 @@ export type LlameConfig = {
    * integrity isn't expressible in the JSON Schema itself.
    */
   models: SystemModelCatalogEntry[];
+  /**
+   * The declared embedding-model catalog (chat-search-embeddings, design
+   * D1). Default: empty — an instance declaring none is unchanged from
+   * today (off-by-default; part of the exit contract).
+   */
+  embeddingModels: EmbeddingModelCatalogEntry[];
+  /**
+   * Per-corpus search settings (chat-search-embeddings, design D6). `chats`
+   * is the only corpus this change embeds.
+   */
+  search: {
+    chats: SearchCorpusConfig;
+  };
 };
 
 /**
@@ -270,4 +353,8 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   },
   providers: [],
   models: [],
+  embeddingModels: [],
+  search: {
+    chats: { embeddingModelId: null },
+  },
 };

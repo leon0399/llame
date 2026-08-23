@@ -1264,6 +1264,133 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
   });
 });
 
+describe('loadInstanceConfig — embeddingModels[] / search.* (chat-search-embeddings, task 5.1)', () => {
+  it('resolves a valid embedding model and per-corpus selection', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "embeddingModels": [
+        { "id": "e", "provider": "p", "providerModelId": "text-embedding-3-small", "dimensions": 1536 }
+      ],
+      "search": { "chats": { "embeddingModelId": "e" } }
+    }`);
+    const config = loadInstanceConfig();
+    expect(config.embeddingModels).toHaveLength(1);
+    expect(config.embeddingModels[0]).toMatchObject({
+      id: 'e',
+      provider: 'p',
+      providerModelId: 'text-embedding-3-small',
+      dimensions: 1536,
+      batchSize: 32,
+      distanceMetric: 'cosine',
+    });
+    expect(config.search.chats.embeddingModelId).toBe('e');
+  });
+
+  it('defaults batchSize and distanceMetric off unedited config, and omits optional fields', () => {
+    expect(loadInstanceConfig().embeddingModels).toEqual([]);
+    expect(loadInstanceConfig().search).toEqual({
+      chats: { embeddingModelId: null },
+    });
+  });
+
+  it('resolves batchSize/distanceMetric/revision/prefixes when set', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "embeddingModels": [
+        {
+          "id": "e", "provider": "p", "providerModelId": "m", "dimensions": 8,
+          "batchSize": 16, "distanceMetric": "cosine", "revision": "v2",
+          "documentPrefix": "passage: ", "queryPrefix": "query: "
+        }
+      ]
+    }`);
+    expect(loadInstanceConfig().embeddingModels[0]).toMatchObject({
+      batchSize: 16,
+      distanceMetric: 'cosine',
+      revision: 'v2',
+      documentPrefix: 'passage: ',
+      queryPrefix: 'query: ',
+    });
+  });
+
+  it('rejects a duplicate embedding model id', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "embeddingModels": [
+        { "id": "e", "provider": "p", "providerModelId": "m1", "dimensions": 8 },
+        { "id": "e", "provider": "p", "providerModelId": "m2", "dimensions": 8 }
+      ]
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /duplicate embedding model id "e"/,
+    );
+  });
+
+  it('fails boot naming the embedding model id and the dangling reference when embeddingModels[].provider is unknown', () => {
+    writeConfig(`{
+      "embeddingModels": [
+        { "id": "e", "provider": "ghost", "providerModelId": "m", "dimensions": 8 }
+      ]
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /embeddingModels\[e\]\.provider/,
+    );
+    expect(() => loadInstanceConfig()).toThrow(/"ghost"/);
+  });
+
+  it('fails schema validation when dimensions is non-positive', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "embeddingModels": [
+        { "id": "e", "provider": "p", "providerModelId": "m", "dimensions": 0 }
+      ]
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  });
+
+  it('fails schema validation when batchSize is non-positive', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "embeddingModels": [
+        { "id": "e", "provider": "p", "providerModelId": "m", "dimensions": 8, "batchSize": 0 }
+      ]
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  });
+
+  it('fails schema validation on an unsupported distanceMetric', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "embeddingModels": [
+        { "id": "e", "provider": "p", "providerModelId": "m", "dimensions": 8, "distanceMetric": "euclidean" }
+      ]
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  });
+
+  it('fails boot naming the dangling reference when search.chats.embeddingModelId does not match any embeddingModels[].id', () => {
+    writeConfig(`{
+      "search": { "chats": { "embeddingModelId": "not-configured" } }
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /search\.chats\.embeddingModelId/,
+    );
+  });
+
+  it('a self-hosted keyless local provider needs no new configuration concept', () => {
+    writeConfig(`{
+      "providers": [{ "id": "local", "type": "openai", "baseUrl": "http://localhost:11434/v1" }],
+      "embeddingModels": [
+        { "id": "e", "provider": "local", "providerModelId": "bge-m3", "dimensions": 1024 }
+      ]
+    }`);
+    expect(loadInstanceConfig().embeddingModels[0].provider).toBe('local');
+  });
+});
+
 describe('loadInstanceConfig — no secret in logs', () => {
   it('a coercion failure alongside an already-resolved sibling secret never leaks the secret', () => {
     // http.trustProxy resolves before runs.* in loadInstanceConfig's assembly
@@ -1288,5 +1415,38 @@ describe('loadInstanceConfig — no secret in logs', () => {
       );
     }
     delete process.env.RUN_TIMEOUT_SECONDS_SRC;
+  });
+
+  it('a resolved embedding-provider credential never appears in a duplicate-id, dangling-reference, or binding error (extends the models[] redaction coverage for embeddingModels[])', () => {
+    writeConfig(`{
+      "providers": [{ "id": "p", "type": "openai", "key": "sk-embed-should-never-leak" }],
+      "embeddingModels": [
+        { "id": "e", "provider": "p", "providerModelId": "m1", "dimensions": 8 },
+        { "id": "e", "provider": "p", "providerModelId": "m2", "dimensions": 8 }
+      ]
+    }`);
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected throw');
+    } catch (err) {
+      expect(errorMessage(err)).not.toContain('sk-embed-should-never-leak');
+    }
+  });
+
+  it('a dangling search.chats.embeddingModelId error never contains a resolved (secret-sourced) value', () => {
+    const secretFile = path.join(tmpDir, 'embedding-model-id.secret');
+    writeFileSync(secretFile, 'sk-embed-should-never-appear-either');
+    const escapedPath = secretFile.replace(/\\/g, '\\\\');
+    writeConfig(
+      `{ "search": { "chats": { "embeddingModelId": "{path:${escapedPath}}" } } }`,
+    );
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected throw');
+    } catch (err) {
+      expect(errorMessage(err)).not.toContain(
+        'sk-embed-should-never-appear-either',
+      );
+    }
   });
 });
