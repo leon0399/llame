@@ -174,7 +174,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     page,
     request,
     workerKnowledgeSpace,
-  }) => {
+  }, testInfo) => {
     const freshSpace = await provisionKnowledgeSpace(request, freshAccount);
     rmSync(workerKnowledgeSpace.directory, { recursive: true, force: true });
     mkdirSync(workerKnowledgeSpace.directory, { recursive: true });
@@ -212,6 +212,10 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       baseURL:
         process.env.NEXT_PUBLIC_WEB_URL ??
         `http://localhost:${process.env.E2E_WEB_PORT ?? "4300"}`,
+      locale:
+        typeof testInfo.project.use.locale === "string"
+          ? testInfo.project.use.locale
+          : undefined,
     });
     const freshPage = await context.newPage();
     try {

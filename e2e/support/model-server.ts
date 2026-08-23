@@ -228,7 +228,8 @@ function classify(raw: string): {
   asksStdioFixture: boolean;
   hasStdioFixtureResult: boolean;
   asksKnowledge: boolean;
-  hasKnowledgeTool: boolean;
+  hasKnowledgeSearchTool: boolean;
+  hasKnowledgeReadTool: boolean;
   knowledgeOperation: "search" | "read" | "error";
   knowledgeReadPath: string;
   knowledgeResultPath: string | undefined;
@@ -293,9 +294,11 @@ function classify(raw: string): {
         content.includes("knowledge oversized") ||
         content.includes("knowledge missing") ||
         content.includes("knowledge unavailable"),
-      hasKnowledgeTool:
-        toolIsOffered(body.tools, KNOWLEDGE_SEARCH_TOOL_ID) ||
-        toolIsOffered(body.tools, KNOWLEDGE_READ_TOOL_ID),
+      hasKnowledgeSearchTool: toolIsOffered(
+        body.tools,
+        KNOWLEDGE_SEARCH_TOOL_ID,
+      ),
+      hasKnowledgeReadTool: toolIsOffered(body.tools, KNOWLEDGE_READ_TOOL_ID),
       knowledgeOperation,
       knowledgeReadPath,
       knowledgeResultPath,
@@ -313,7 +316,8 @@ function classify(raw: string): {
       asksStdioFixture: false,
       hasStdioFixtureResult: false,
       asksKnowledge: false,
-      hasKnowledgeTool: false,
+      hasKnowledgeSearchTool: false,
+      hasKnowledgeReadTool: false,
       knowledgeOperation: "search",
       knowledgeReadPath: "notes/worker-note.md",
       knowledgeResultPath: undefined,
@@ -360,7 +364,8 @@ const server = http.createServer((req, res) => {
           asksStdioFixture,
           hasStdioFixtureResult,
           asksKnowledge,
-          hasKnowledgeTool,
+          hasKnowledgeSearchTool,
+          hasKnowledgeReadTool,
           hasCurrentTurnToolResult,
           knowledgeOperation,
           knowledgeReadPath,
@@ -374,18 +379,27 @@ const server = http.createServer((req, res) => {
           connection: "keep-alive",
         });
 
-        if (asksKnowledge && hasKnowledgeTool && !hasCurrentTurnToolResult) {
-          const read =
-            knowledgeOperation === "read" || knowledgeOperation === "error";
+        const readKnowledge =
+          knowledgeOperation === "read" || knowledgeOperation === "error";
+        const hasRequestedKnowledgeTool = readKnowledge
+          ? hasKnowledgeReadTool
+          : hasKnowledgeSearchTool;
+        if (
+          asksKnowledge &&
+          hasRequestedKnowledgeTool &&
+          !hasCurrentTurnToolResult
+        ) {
           res.write(
             toolCallChunk({
-              id: read
+              id: readKnowledge
                 ? `call_knowledge_read_${knowledgeReadPath.replaceAll(/[^a-z]/g, "_")}_e2e`
                 : lastUserContent.includes(KNOWLEDGE_CHANGED_MARKER)
                   ? "call_knowledge_search_changed_e2e"
                   : "call_knowledge_search_e2e",
-              name: read ? KNOWLEDGE_READ_TOOL_ID : KNOWLEDGE_SEARCH_TOOL_ID,
-              arguments: read
+              name: readKnowledge
+                ? KNOWLEDGE_READ_TOOL_ID
+                : KNOWLEDGE_SEARCH_TOOL_ID,
+              arguments: readKnowledge
                 ? { path: knowledgeReadPath }
                 : {
                     query: lastUserContent.includes(KNOWLEDGE_CHANGED_MARKER)
@@ -401,7 +415,11 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        if (asksKnowledge && hasKnowledgeTool && hasCurrentTurnToolResult) {
+        if (
+          asksKnowledge &&
+          hasRequestedKnowledgeTool &&
+          hasCurrentTurnToolResult
+        ) {
           const tokens =
             knowledgeOperation === "error"
               ? KNOWLEDGE_ERROR_ANSWER_TOKENS
