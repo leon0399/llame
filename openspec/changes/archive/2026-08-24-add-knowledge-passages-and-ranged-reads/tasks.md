@@ -38,8 +38,8 @@ The proposal and finalization are mandatory isolated PR boundaries. Runtime impl
 
 ## 4. OpenSpec Finalization Layer (`knowledge-ranges/finalize`)
 
-- [ ] 4.1 After implementation evidence exists, mark completed tasks accurately and verify OpenSpec reports every apply-required artifact complete with no unchecked implementation task.
-- [ ] 4.2 Run `openspec-sync-specs` to merge the verified `knowledge-tools`, `knowledge-spaces`, and `tool-calling` deltas into canonical specs; verify unrelated requirements remain intact and strict validation passes.
-- [ ] 4.3 Verify the synchronized canonical specs, completed active-change artifacts, Markdown lint, formatting, and diff checks; then mark every checkbox complete so archive preflight observes no unfinished task.
+- [x] 4.1 After implementation evidence exists, mark completed tasks accurately and verify OpenSpec reports every apply-required artifact complete with no unchecked implementation task.
+- [x] 4.2 Run `openspec-sync-specs` to merge the verified `knowledge-tools`, `knowledge-spaces`, and `tool-calling` deltas into canonical specs; verify unrelated requirements remain intact and strict validation passes.
+- [x] 4.3 Verify the synchronized canonical specs, completed active-change artifacts, Markdown lint, formatting, and diff checks; then mark every checkbox complete so archive preflight observes no unfinished task.
 
 After every checkbox is complete, run `openspec-archive-change` in this same finalization layer. Verify the active change is absent, the dated archive contains every artifact including the completed task record, canonical specs remain exactly as synchronized earlier in the PR, and strict validation still passes. The finalization PR SHALL contain only accurate completed-task records, canonical spec synchronization, and the archive move, with no runtime behavior. Archiving is intentionally described after the checklist rather than as a self-referential unchecked task, so the archive preflight can truthfully observe zero incomplete tasks.

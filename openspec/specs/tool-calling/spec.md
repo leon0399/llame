@@ -762,6 +762,10 @@ Worker execution SHALL receive the private filesystem resolver through trusted d
 
 Knowledge results SHALL retain the global execution envelope `status: "success" | "error"`; this change SHALL NOT add a generic `partial` status. A successful `knowledge_search` MAY additionally declare `complete: false` with bounded warnings. While its full payload is present, that structured result remains usable. Whenever a later model-replay projection clears that payload—including ordinary bounded next-turn projection and compaction into the observation ledger—the payload-cleared observation SHALL carry outcome `incomplete`, not `success`; later replay SHALL preserve that outcome. Other successful tool results SHALL continue to project and compact as `success`. General partial-result semantics outside Knowledge are not defined by this requirement.
 
+New Knowledge results SHALL persist and render the current passage/range attribution defined by `knowledge-tools` without requiring a content hash. Historical persisted Knowledge results MAY retain their earlier hash-bearing shape. Execution, persistence, replay, compaction, and browser rendering SHALL preserve either bounded observation as authored and SHALL NOT normalize historical results into the new shape or synthesize removed fields. Existing persisted calls without new optional range or cursor arguments SHALL remain valid observations.
+
+Changing either code-owned Knowledge declaration SHALL be a coordinated API/worker revision boundary because an accepted Run binds the exact declaration and a code-owned executor refuses drift. Before replacing binaries for the ranged-read declaration and again before replacing binaries for the passage-search declaration, the deployment SHALL quiesce new Run acceptance and drain every accepted Run bound to the prior declaration. It SHALL deploy matching API and worker binaries before resuming acceptance. Rollback SHALL quiesce and drain Runs bound to the newer declaration before restoring older API or worker binaries. No mixed-revision executor fallback or declaration normalization is introduced by this change.
+
 The canonical closed Knowledge reason vocabulary and model-safe label mapping SHALL retain `knowledge_space_not_configured` and `knowledge_space_unavailable`. Because zero inventory no longer changes tool availability, `knowledge_space_not_configured` SHALL be emitted only as a tool-call result, not as an immutable manifest state. `knowledge_space_unavailable` and its existing recovery mapping SHALL continue to govern missing process configuration without admitting arbitrary reason text.
 
 #### Scenario: Knowledge tool is not allowlisted
@@ -789,9 +793,21 @@ The canonical closed Knowledge reason vocabulary and model-safe label mapping SH
 
 #### Scenario: Knowledge observation persists through reload and replay
 
-- **WHEN** an allowlisted Knowledge tool completes
+- **WHEN** an allowlisted Knowledge tool completes with passage/range attribution and no content hash
 - **THEN** its call and structured result persist and render after browser reload
 - **AND** later model replay receives the complete matched pair, a payload-cleared matched pair with honest `success`, `incomplete`, or error outcome, or a bounded omission marker according to the existing pair and turn/ledger budgets
+
+#### Scenario: Historical Knowledge observation is not rewritten
+
+- **WHEN** a persisted Knowledge observation uses the earlier hash-bearing result shape
+- **THEN** reload and replay preserve the bounded observation as authored
+- **AND** no migration or projection invents new range fields or removes its historical fields
+
+#### Scenario: Knowledge declaration cutover drains prior Runs
+
+- **WHEN** a deployment changes the code-owned declaration for either Knowledge tool
+- **THEN** it stops accepting new Runs and drains Runs bound to the prior declaration before replacing API or worker binaries
+- **AND** acceptance resumes only after every executing process exposes the matching declaration and executor
 
 #### Scenario: Tool permission cannot alter filesystem authority
 
