@@ -70,7 +70,11 @@ layer alone would put master in a state that violates the
 - [ ] 2.3 Update `apps/api/llame.config.json.example` and the operator
       documentation that shows a `models[]` entry; verify `pnpm lint:markdown`
       passes and the example config boots.
-- [ ] 2.4 Layer gate: run
+- [ ] 2.4 Record this layer's breaking config change in `CHANGELOG.md` — the
+      repo rule is that the PR shipping the work carries the entry, and an
+      operator whose config still sets `reasoning: true` cannot start; verify
+      `pnpm lint:markdown` passes.
+- [ ] 2.5 Layer gate: run
       `pnpm exec turbo run build --filter=api --concurrency=1`,
       `pnpm --filter api lint`, `pnpm --filter api test`, and
       `pnpm --filter web build`; verify all pass before opening the
@@ -180,9 +184,11 @@ layer alone would put master in a state that violates the
 One PR, no production code. Runs after every implementation layer above is
 complete and green.
 
-- [ ] 6.1 Add the `CHANGELOG.md` entry describing the breaking
-      `models[].reasoning` shape change, the new per-request `effort`, and the
-      compaction inheritance rule; verify `pnpm lint:markdown` passes.
+- [ ] 6.1 Extend the `CHANGELOG.md` entry — the breaking
+      `models[].reasoning` shape change is recorded by the layer that ships it,
+      so add the new per-request `effort` and the compaction inheritance rule
+      alongside it rather than writing a fresh entry; verify
+      `pnpm lint:markdown` passes.
 - [ ] 6.2 Check off every task in groups 1–5 and re-run
       `openspec validate add-reasoning-effort --strict`; verify it reports the
       change as valid.
