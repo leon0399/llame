@@ -118,8 +118,12 @@ export const PromptInputButton = ({
   size,
   ...props
 }: PromptInputButtonProps) => {
+  // Parenthesised deliberately: `??` binds tighter than `?:`, so the
+  // unparenthesised form `(size ?? count > 1) ? …` made ANY explicit `size` a
+  // truthy string and always yielded "default" — silently ignoring the prop,
+  // including `size="icon"`. Only the child count should pick the fallback.
   const newSize =
-    (size ?? Children.count(props.children) > 1) ? "default" : "icon";
+    size ?? (Children.count(props.children) > 1 ? "default" : "icon");
 
   return (
     <Button

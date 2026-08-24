@@ -86,6 +86,23 @@ export const Basic: Story = {
 };
 
 /**
+ * Mounted with nothing selected yet — no ModelSelector has seeded the context.
+ * The control must still resolve the catalog's own `defaultModelId`; it
+ * previously rendered nothing here, because it depended on another
+ * component's seeding effect rather than on the catalog data.
+ *
+ * @summary resolves the catalog default when no model is selected yet
+ */
+export const NoModelSelectedYet: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvas }) => {
+    await waitFor(async () => {
+      await expect(canvas.getByRole("button").textContent).toContain("medium");
+    });
+  },
+};
+
+/**
  * A model that declares no `reasoning` object accepts no effort at all, so the
  * control renders nothing — including its seam, leaving the composer pill
  * intact rather than showing a disabled or empty cell.

@@ -55,10 +55,15 @@ export function EffortSelector({ className }: { className?: string }) {
   const { selectedModel, selectedEffort, setSelectedEffort } = useChatContext();
   const { data } = useModelsQuery();
 
-  const reasoning = React.useMemo(
-    () => data?.models.find((model) => model.id === selectedModel)?.reasoning,
-    [data, selectedModel],
-  );
+  // Falls back to the catalog default, exactly as ModelSelector does for its
+  // own label. Without it this component is invisible until ModelSelector's
+  // seeding effect commits — a dependency on another component's side effect
+  // rather than on the data, which made it render nothing at all whenever it
+  // was mounted alone.
+  const reasoning = React.useMemo(() => {
+    const modelId = selectedModel ?? data?.defaultModelId;
+    return data?.models.find((model) => model.id === modelId)?.reasoning;
+  }, [data, selectedModel]);
   const levels = reasoning?.effortLevels;
 
   // Keep the selection valid for the CURRENT model: vocabularies differ, so a

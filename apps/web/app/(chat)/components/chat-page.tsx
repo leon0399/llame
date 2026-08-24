@@ -135,11 +135,6 @@ const EMPTY_MESSAGES: UIMessage[] = [];
 // Right cell of the composer model+send pill: square inner corner, rounded
 // outer corner, and a focus ring that lifts above its neighbour (see the group
 // wrapper in the composer). Shared by the Stop and Send branches.
-// Only the box, matching the selector cells' h-8. Standalone, so it keeps
-// Button's own symmetric `rounded-lg` — no corner overrides, which is what
-// makes the icon read centred.
-const COMPOSER_SEND_BUTTON_CLASS = "size-8";
-
 export type ChatPageProps = {
   chatId: string;
   initialChatExists: boolean;
@@ -808,8 +803,12 @@ function ChatSessionContent({
                   <PromptInputButton
                     type="button"
                     variant="outline"
+                    // size-8, the same box as the selector cells' h-8. Stated
+                    // through the API rather than a class override, and with
+                    // no corner overrides — Button's symmetric `rounded-lg` is
+                    // what makes the icon read centred.
+                    size="icon"
                     onClick={handleStop}
-                    className={COMPOSER_SEND_BUTTON_CLASS}
                     aria-label="Stop generation"
                   >
                     {status === "submitted" ? (
@@ -821,7 +820,7 @@ function ChatSessionContent({
                 ) : (
                   <PromptInputButton
                     variant="outline"
-                    className={COMPOSER_SEND_BUTTON_CLASS}
+                    size="icon"
                     type="submit"
                     aria-label="Send message"
                     disabled={!modelReadyForSend}
