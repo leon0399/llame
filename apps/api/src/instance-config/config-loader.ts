@@ -329,9 +329,9 @@ function assertValidRaw(
       // additionalProperties keyword's params always carries this shape.
       const extra = (e.params as { additionalProperty?: string })
         .additionalProperty;
-      return `${instancePath === '/' ? '' : instancePath}/${extra ?? '?'}: unrecognized key`;
+      return `${instancePath}/${extra ?? '?'}: unrecognized key`;
     }
-    return `${instancePath}: ${e.message ?? 'is invalid'}`;
+    return `${instancePath || '/'}: ${e.message ?? 'is invalid'}`;
   });
 
   throw new InstanceConfigError(
@@ -346,6 +346,10 @@ function assertValidRaw(
  * an operator editing a long catalog reads an id far faster than an ordinal.
  * Falls back to the raw path whenever the id is not a usable string — the
  * entry being reported may be exactly the one whose `id` is missing.
+ *
+ * Returns ajv's path unchanged for anything else, INCLUDING the empty root
+ * path: each caller applies its own default for that, because the two want
+ * different ones ('' for an additionalProperties base, '/' for a message).
  */
 function describeInstancePath(
   instancePath: string,
@@ -353,7 +357,7 @@ function describeInstancePath(
 ): string {
   const match = /^\/models\/(\d+)(?<rest>\/.*)?$/.exec(instancePath);
   if (!match) {
-    return instancePath || '/';
+    return instancePath;
   }
   const models: unknown = raw.models;
   if (!Array.isArray(models)) {
