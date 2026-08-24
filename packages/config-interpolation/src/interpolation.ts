@@ -252,8 +252,18 @@ function parseJsonValue(raw: unknown): JsonValue {
   }
   if (isRecord(raw)) {
     const entries: { [key: string]: JsonValue } = {};
-    for (const [key, value] of Object.entries(raw)) {
-      entries[key] = parseJsonValue(value);
+    for (const entry of Object.entries(raw)) {
+      const key = entry[0];
+      const value: unknown = entry[1];
+      // defineProperty — not assignment — so a JSON member named `__proto__`
+      // becomes an own property. `entries[key] = …` would hit Object.prototype's
+      // setter and drop the key, breaking RFC 6901 selection of that member.
+      Object.defineProperty(entries, key, {
+        value: parseJsonValue(value),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
     return entries;
   }

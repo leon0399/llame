@@ -161,6 +161,18 @@ describe("interpolateString — {path:...}", () => {
     );
   });
 
+  it("selects an own JSON member named __proto__", () => {
+    // Object-literal / JSON.stringify would not emit this key; write raw JSON
+    // so the fixture matches what a real secret file can contain.
+    const file = tempSecretFile(
+      '{"__proto__":"proto-secret","other":"x"}',
+      "auth.json",
+    );
+    expect(interpolateString(`{path:${file}|json:/__proto__}`)).toBe(
+      "proto-secret",
+    );
+  });
+
   it("does not trim a JSON-selected string", () => {
     const file = tempSecretFile(
       JSON.stringify({ key: "  spaced  " }),
