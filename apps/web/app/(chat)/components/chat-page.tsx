@@ -132,9 +132,6 @@ const ReasoningContent = dynamic(
 // renders — it is a dependency of the history-adoption effect below.
 const EMPTY_MESSAGES: UIMessage[] = [];
 
-// Right cell of the composer model+send pill: square inner corner, rounded
-// outer corner, and a focus ring that lifts above its neighbour (see the group
-// wrapper in the composer). Shared by the Stop and Send branches.
 export type ChatPageProps = {
   chatId: string;
   initialChatExists: boolean;

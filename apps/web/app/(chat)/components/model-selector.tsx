@@ -111,7 +111,10 @@ export function ModelSelector({ className }: { className?: string }) {
             // ButtonGroup owns corner rounding, border collapsing, and the
             // focus-ring lift — this cell states none of it.
             className={cn(
-              "gap-1 px-2.5 text-[0.8125rem] font-medium text-foreground",
+              // No px here: size="default" already sets px-2.5, and it also
+              // carries conditional icon padding that a duplicate px would
+              // override. Only genuine overrides of the variant belong here.
+              "gap-1 text-[0.8125rem] font-medium text-foreground",
               className,
             )}
           />
