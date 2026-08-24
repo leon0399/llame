@@ -30,10 +30,10 @@
 
 ## 4. Acceptance Layer (`multiple-kb/acceptance`)
 
-- [ ] 4.1 Verify the committed generated client remains drift-free and no web management page was added; verify affected web typecheck/build checks pass.
-- [ ] 4.2 Add end-to-end coverage for creating, listing, retrieving, and renaming duplicate-named spaces; current multi-space search; explicit reads; live addition/revocation; incomplete all-space search; reload attribution; and cross-account denial.
-- [ ] 4.3 Update `SPEC.md` authority links, operator/user documentation, `ROADMAP.md`, and `CHANGELOG.md` in the shipping layer; verify no UI, upload, indexing, sync, or lifecycle behavior is claimed shipped.
-- [ ] 4.4 Run all affected tests, typechecks, lints, OpenAPI checks, formatting, Markdown lint, and sequential workspace builds; verify all stack layers are green and the repaired stack is ready for review.
+- [x] 4.1 Verify the committed generated client remains drift-free and no web management page was added; verify affected web typecheck/build checks pass.
+- [x] 4.2 Add end-to-end coverage for creating, listing, retrieving, and renaming duplicate-named spaces; current multi-space search; explicit reads; live addition/revocation; incomplete all-space search; reload attribution; and cross-account denial.
+- [x] 4.3 Update `SPEC.md` authority links, operator/user documentation, `ROADMAP.md`, and `CHANGELOG.md` in the shipping layer; verify no UI, upload, indexing, sync, or lifecycle behavior is claimed shipped.
+- [x] 4.4 Run all affected tests, typechecks, lints, OpenAPI checks, formatting, Markdown lint, and sequential workspace builds; verify all stack layers are green and the repaired stack is ready for review.
 
 ## 5. OpenSpec Finalization Layer (`multiple-kb/finalize`)
 

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -35,6 +36,48 @@ type WorkerFixtures = {
 const knowledgeApiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
+
+export function revokeKnowledgeSpaceFixtureAccess(
+  ownerUserId: string,
+  knowledgeSpaceId: string,
+): void {
+  const container = process.env.E2E_DB_CONTAINER ?? "llame-e2e-postgres";
+  const dbPort = process.env.E2E_DB_PORT ?? "55433";
+  const databaseUrl =
+    process.env.POSTGRES_URL ??
+    `postgres://app:app@localhost:${dbPort}/llame_e2e`;
+  const databaseName = new URL(databaseUrl).pathname.replace(/^\//, "");
+  const escape = (value: string) => value.replaceAll("'", "''");
+  const statement = `BEGIN; SELECT set_config('app.current_user_id', '${escape(ownerUserId)}', true); DELETE FROM knowledge_spaces WHERE knowledge_space_id = '${escape(knowledgeSpaceId)}'; COMMIT;`;
+
+  if (process.env.POSTGRES_URL) {
+    execFileSync(
+      "psql",
+      [databaseUrl, "-v", "ON_ERROR_STOP=1", "-c", statement],
+      { stdio: "inherit" },
+    );
+    return;
+  }
+
+  execFileSync(
+    "docker",
+    [
+      "exec",
+      "-i",
+      container,
+      "psql",
+      "-U",
+      "app",
+      "-d",
+      databaseName,
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-c",
+      statement,
+    ],
+    { stdio: "inherit" },
+  );
+}
 
 export const test = baseTest.extend<Fixtures, WorkerFixtures>({
   // An uncaught client exception fails the test that caused it. Without this
