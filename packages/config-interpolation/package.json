@@ -2,7 +2,7 @@
   "name": "@workspace/config-interpolation",
   "version": "0.0.1",
   "private": true,
-  "description": "llame's operator-config primitives: {env:}/{path:} secret interpolation and config error contracts, shared by the API and the local CLI.",
+  "description": "llame's operator-config primitives: {env:}/{path:}/{path:…|json:} secret interpolation and config error contracts, shared by the API and the local CLI.",
   "exports": {
     ".": "./dist/index.js"
   },

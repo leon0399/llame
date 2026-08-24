@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://llame.dev/schema/llame.config.schema.json",
   "title": "llame instance configuration",
-  "description": "Operator-owned instance configuration for llame (config-as-code, openspec/changes/instance-config + providers-and-models-as-code). Optional; a setting absent from this file takes its documented built-in default (there is no bare environment-variable fallback — the environment reaches settings only via {env:...} tokens written in this file). String values may contain {env:NAME}, {env:NAME:-default}, and {path:LOCATION} interpolation tokens, resolved once at boot, except models[].systemPromptFile, which is always a literal host path handled by the dedicated prompt loader. This document is both the editor-facing schema (referenced via the top-level $schema key) and the boot-time validator — the same artifact, so they cannot drift.",
+  "description": "Operator-owned instance configuration for llame (config-as-code, openspec/changes/instance-config + providers-and-models-as-code). Optional; a setting absent from this file takes its documented built-in default (there is no bare environment-variable fallback — the environment reaches settings only via {env:...} tokens written in this file). String values may contain {env:NAME}, {env:NAME:-default}, {path:LOCATION}, and {path:LOCATION|json:POINTER} interpolation tokens (RFC 6901; POINTER must select a JSON string), resolved once at boot, except models[].systemPromptFile, which is always a literal host path handled by the dedicated prompt loader. This document is both the editor-facing schema (referenced via the top-level $schema key) and the boot-time validator — the same artifact, so they cannot drift.",
   "type": "object",
   "additionalProperties": false,
   "$defs": {
     "interpolationToken": {
       "type": "string",
-      "description": "A whole-value interpolation token: {env:NAME}, {env:NAME:-default}, or {path:LOCATION}. Only legal on non-string settings as the ENTIRE value (no surrounding text) — string settings may embed tokens anywhere instead.",
+      "description": "A whole-value interpolation token: {env:NAME}, {env:NAME:-default}, {path:LOCATION}, or {path:LOCATION|json:POINTER} (RFC 6901; POINTER must select a JSON string). Only legal on non-string settings as the ENTIRE value (no surrounding text) — string settings may embed tokens anywhere instead.",
       "pattern": "^\\{(?:env:[A-Za-z0-9_]+(?::-[^}]*)?|path:[^}]*)\\}$"
     },
     "numberOrToken": {
