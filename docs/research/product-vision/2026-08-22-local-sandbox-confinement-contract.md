@@ -75,6 +75,11 @@ create
 | `--init`                                | Zombie accumulation; PID 1 reaps properly.                                                                                                     |
 | `--workdir /workspace`                  | Ambiguity about where a command runs; it is fixed, not caller-selected.                                                                        |
 
+Creating and destroying this boundary is **owner-reserved**. In the prototype's route table,
+`sandbox/enter` and `sandbox/exit` — and the same pair for worktrees — require the `owner`
+principal, while executing a command inside an already-created Sandbox requires only `run.execute`.
+An enrolled executor works inside a confinement it cannot define, widen, or remove.
+
 Two writable surfaces exist by design: the Workspace bind at `/workspace`, and a **per-Run named
 volume** at `/home/llame` which survives container removal so caches and tool state persist across
 Sandbox restarts within one Run.
@@ -122,6 +127,21 @@ timeout kill or stdio overflow — is not: it force-removes the container and th
 process that blew its limits is a process whose state is no longer known. If teardown itself fails,
 the code raises an `AggregateError` carrying both failures rather than reporting the original error
 as handled.
+
+### 4.1 Receipts at rest
+
+Command receipts persist in executor-local SQLite, and the storage decisions are part of the posture
+rather than incidental:
+
+- **Only a `sha256` of the request is stored**, never the argv itself. A command line is among the
+  most sensitive things the executor sees, and idempotency needs only to detect a mismatch, not to
+  reproduce the input.
+- **Stored stdout and stderr are capped at 256 KiB**, matching the live capture bound so a replayed
+  receipt cannot exceed the result it replays.
+- **WAL journaling, and the database files are `chmod 0o600`** after creation — owner-only, since the
+  store holds execution history for one person's Node.
+- **A pending receipt found at open becomes `outcome_unknown` and is never re-executed
+  automatically.** Restart is not evidence that a command did not run.
 
 ## 5. Observation: the part worth copying
 

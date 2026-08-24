@@ -181,12 +181,22 @@ findings below are the reasoning behind it.
   promoting it after verifying the on-disk worktree and branch, makes recovery decidable. Recovery
   runs out-of-band at boot, never inside `enter()`. **(verified — the schema carries a `state`
   column with a runtime migration defaulting existing rows to `active`.)**
+- **The worktree root must resolve outside the repository, with symlinks resolved.** The prototype
+  `realpath`s both roots, confirms the configured repository root _is_ the Git toplevel, and refuses
+  a worktree root that lands inside it. Comparing unresolved paths passes a symlink that points back
+  into the repository. **(verified.)**
 - **A dirty worktree refuses removal.** Exit removes only clean worktrees and leaves branches in the
   repository; silent cleanup of uncommitted work is unrecoverable data loss.
 - **Command execution needs at-most-once semantics with immutable receipts.** Reserve, execute once,
   replay the receipt thereafter; interrupted commands become `outcome_unknown` on reopen and are
   never auto-retried. **(verified.)** Note that llame already owns durable-job semantics in pg-boss;
   this is only interesting where a local node has no PostgreSQL.
+- **Sandbox and worktree lifecycle is owner-reserved, command execution is not.** In the prototype's
+  route table, `sandbox/enter`, `sandbox/exit`, `worktree/enter` and `worktree/exit` require the
+  `owner` principal, while running a command inside an already-created Sandbox requires only
+  `run.execute`. An enrolled executor can therefore work inside a confinement boundary it cannot
+  create, widen, or tear down. **(verified.)** Creating the boundary and using it are different
+  authorities; collapsing them hands an executor the power to define its own confinement.
 - **Authority transfer must be rejected while a command is in flight or its outcome is unknown**,
   with single-use transition leases closing the window between the quiescence check and the
   authority mutation. The prototype proves same-daemon fencing only; a disconnected remote executor
