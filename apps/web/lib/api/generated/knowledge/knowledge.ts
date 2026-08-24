@@ -6,39 +6,188 @@
  * OpenAPI spec version: 0.1
  */
 import type {
+  CreateKnowledgeSpaceDto,
+  KnowledgeSpaceCollectionResponse,
   KnowledgeSpaceResponse,
   KnowledgeSpaceUnavailableResponse,
+  ListKnowledgeSpacesParams,
+  UpdateKnowledgeSpaceDto,
 } from "../models";
 
-export type provisionKnowledgeSpaceError =
+export type createKnowledgeSpaceError =
   void | void | KnowledgeSpaceUnavailableResponse;
 
-export const getProvisionKnowledgeSpaceUrl = () => {
-  return `/api/v1/me/knowledge-space`;
+export const getCreateKnowledgeSpaceUrl = () => {
+  return `/api/v1/knowledge-spaces`;
 };
 
 /**
- * Creates or resolves the authenticated owner personal Knowledge Space and returns only its stable logical identifier.
- * @summary Provision the current owner Knowledge Space
+ * @summary Create a Knowledge Space for the current owner
  */
-export const provisionKnowledgeSpace = async (
+export const createKnowledgeSpace = async (
+  createKnowledgeSpaceDto: CreateKnowledgeSpaceDto,
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
 ): Promise<KnowledgeSpaceResponse> => {
-  const res = await fetchFn(getProvisionKnowledgeSpaceUrl(), {
+  const res = await fetchFn(getCreateKnowledgeSpaceUrl(), {
     ...options,
-    method: "PUT",
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createKnowledgeSpaceDto),
   });
 
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & {
-      info?: provisionKnowledgeSpaceError;
+      info?: createKnowledgeSpaceError;
       status?: number;
     } = new globalThis.Error(
-      `PUT ${getProvisionKnowledgeSpaceUrl()} failed (${res.status})`,
+      `POST ${getCreateKnowledgeSpaceUrl()} failed (${res.status})`,
     );
-    const data: provisionKnowledgeSpaceError = (() => {
+    const data: createKnowledgeSpaceError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: KnowledgeSpaceResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type listKnowledgeSpacesError = void | void;
+
+export const getListKnowledgeSpacesUrl = (
+  params?: ListKnowledgeSpacesParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : String(value));
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/v1/knowledge-spaces?${stringifiedParams}`
+    : `/api/v1/knowledge-spaces`;
+};
+
+/**
+ * @summary List the current owner Knowledge Spaces
+ */
+export const listKnowledgeSpaces = async (
+  params: ListKnowledgeSpacesParams | undefined = undefined,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<KnowledgeSpaceCollectionResponse> => {
+  const res = await fetchFn(getListKnowledgeSpacesUrl(params), {
+    ...options,
+    method: "GET",
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: listKnowledgeSpacesError;
+      status?: number;
+    } = new globalThis.Error(
+      `GET ${getListKnowledgeSpacesUrl(params)} failed (${res.status})`,
+    );
+    const data: listKnowledgeSpacesError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: KnowledgeSpaceCollectionResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type getKnowledgeSpaceError = void | void | void;
+
+export const getGetKnowledgeSpaceUrl = (id: string) => {
+  return `/api/v1/knowledge-spaces/${id}`;
+};
+
+/**
+ * @summary Get one current owner Knowledge Space
+ */
+export const getKnowledgeSpace = async (
+  id: string,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<KnowledgeSpaceResponse> => {
+  const res = await fetchFn(getGetKnowledgeSpaceUrl(id), {
+    ...options,
+    method: "GET",
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: getKnowledgeSpaceError;
+      status?: number;
+    } = new globalThis.Error(
+      `GET ${getGetKnowledgeSpaceUrl(id)} failed (${res.status})`,
+    );
+    const data: getKnowledgeSpaceError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: KnowledgeSpaceResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type renameKnowledgeSpaceError = void | void | void;
+
+export const getRenameKnowledgeSpaceUrl = (id: string) => {
+  return `/api/v1/knowledge-spaces/${id}`;
+};
+
+/**
+ * @summary Rename one current owner Knowledge Space
+ */
+export const renameKnowledgeSpace = async (
+  id: string,
+  updateKnowledgeSpaceDto: UpdateKnowledgeSpaceDto,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<KnowledgeSpaceResponse> => {
+  const res = await fetchFn(getRenameKnowledgeSpaceUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateKnowledgeSpaceDto),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: renameKnowledgeSpaceError;
+      status?: number;
+    } = new globalThis.Error(
+      `PATCH ${getRenameKnowledgeSpaceUrl(id)} failed (${res.status})`,
+    );
+    const data: renameKnowledgeSpaceError = (() => {
       try {
         return body ? JSON.parse(body) : {};
       } catch {

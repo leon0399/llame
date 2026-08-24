@@ -1,12 +1,11 @@
 /**
  * Knowledge Space persistence and projection boundaries.
  *
- * The row is the durable tenant-owned identity anchor. Filesystem binding
- * details are never persisted here and are only assembled by trusted local
- * provisioning code.
+ * PostgreSQL stores only tenant-owned authority metadata. Filesystem roots and
+ * stable-ID child paths are local bindings and never enter these projections.
  */
 
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, gt, or } from 'drizzle-orm';
 
 import { users } from '../db/schema/auth';
 import {
@@ -14,13 +13,22 @@ import {
   type KnowledgeSpace,
 } from '../db/schema/knowledge-spaces';
 import { type Db } from '../db/tenant-db.service';
+import type { KnowledgeSpaceCursor } from './knowledge-space.cursor';
 
 export type KnowledgeSpaceLogicalProjection = {
   id: string;
 };
 
+export type KnowledgeSpaceApiProjection = {
+  id: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 export type KnowledgeSpaceBindingProjection = {
   id: string;
+  name: string;
   root: string;
   directory: string;
 };
@@ -31,13 +39,28 @@ export function toKnowledgeSpaceLogicalProjection(
   return { id: space.knowledgeSpaceId };
 }
 
+export function toKnowledgeSpaceApiProjection(
+  space: Pick<
+    KnowledgeSpace,
+    'knowledgeSpaceId' | 'name' | 'createdAt' | 'updatedAt'
+  >,
+): KnowledgeSpaceApiProjection {
+  return {
+    id: space.knowledgeSpaceId,
+    name: space.name,
+    createdAt: space.createdAt,
+    updatedAt: space.updatedAt,
+  };
+}
+
 export function toKnowledgeSpaceBindingProjection(
-  space: Pick<KnowledgeSpace, 'knowledgeSpaceId'>,
+  space: Pick<KnowledgeSpace, 'knowledgeSpaceId' | 'name'>,
   root: string,
   directory: string,
 ): KnowledgeSpaceBindingProjection {
   return {
     id: space.knowledgeSpaceId,
+    name: space.name,
     root,
     directory,
   };
@@ -46,12 +69,19 @@ export function toKnowledgeSpaceBindingProjection(
 export class KnowledgeSpaceRepository {
   constructor(private readonly db: Db) {}
 
+  /**
+   * Deterministic compatibility lookup for existing binding callers. New
+   * callers should use findByIdForOwner or listForOwnerPage instead.
+   */
   async findForOwner(ownerUserId: string): Promise<KnowledgeSpace | undefined> {
     const [row] = await this.db
       .select()
       .from(knowledgeSpaces)
       .where(eq(knowledgeSpaces.ownerUserId, ownerUserId))
-      .orderBy(asc(knowledgeSpaces.knowledgeSpaceId))
+      .orderBy(
+        asc(knowledgeSpaces.createdAt),
+        asc(knowledgeSpaces.knowledgeSpaceId),
+      )
       .limit(1);
     return row;
   }
@@ -63,7 +93,11 @@ export class KnowledgeSpaceRepository {
       .select()
       .from(knowledgeSpaces)
       .where(eq(knowledgeSpaces.ownerUserId, ownerUserId))
-      .orderBy(asc(knowledgeSpaces.knowledgeSpaceId))
+      .orderBy(
+        asc(knowledgeSpaces.createdAt),
+        asc(knowledgeSpaces.knowledgeSpaceId),
+      )
+      // Binding-time reads must serialize with a concurrent revoke/update.
       .for('share')
       .limit(1);
     return row;
@@ -103,5 +137,88 @@ export class KnowledgeSpaceRepository {
       throw new Error('Knowledge Space owner row was not available');
     }
     return conflicted;
+  }
+
+  async findByIdForOwner(
+    knowledgeSpaceId: string,
+    ownerUserId: string,
+  ): Promise<KnowledgeSpace | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(knowledgeSpaces)
+      .where(
+        and(
+          eq(knowledgeSpaces.knowledgeSpaceId, knowledgeSpaceId),
+          eq(knowledgeSpaces.ownerUserId, ownerUserId),
+        ),
+      )
+      .limit(1);
+    return row;
+  }
+
+  /**
+   * Returns at most `limit + 1` rows. The extra row lets the service produce a
+   * next cursor without counting or materializing an uncapped inventory.
+   */
+  async listForOwnerPage(
+    ownerUserId: string,
+    limit: number,
+    after?: KnowledgeSpaceCursor,
+  ): Promise<KnowledgeSpace[]> {
+    const conditions = [eq(knowledgeSpaces.ownerUserId, ownerUserId)];
+    if (after !== undefined) {
+      conditions.push(
+        or(
+          gt(knowledgeSpaces.createdAt, after.createdAt),
+          and(
+            eq(knowledgeSpaces.createdAt, after.createdAt),
+            gt(knowledgeSpaces.knowledgeSpaceId, after.id),
+          ),
+        )!,
+      );
+    }
+
+    return this.db
+      .select()
+      .from(knowledgeSpaces)
+      .where(and(...conditions))
+      .orderBy(
+        asc(knowledgeSpaces.createdAt),
+        asc(knowledgeSpaces.knowledgeSpaceId),
+      )
+      .limit(limit + 1);
+  }
+
+  async create(input: {
+    knowledgeSpaceId: string;
+    ownerUserId: string;
+    name: string;
+  }): Promise<KnowledgeSpace> {
+    const [created] = await this.db
+      .insert(knowledgeSpaces)
+      .values(input)
+      .returning();
+    if (created === undefined) {
+      throw new Error('Knowledge Space was not created');
+    }
+    return created;
+  }
+
+  async updateName(
+    knowledgeSpaceId: string,
+    ownerUserId: string,
+    name: string,
+  ): Promise<KnowledgeSpace | undefined> {
+    const [updated] = await this.db
+      .update(knowledgeSpaces)
+      .set({ name, updatedAt: new Date() })
+      .where(
+        and(
+          eq(knowledgeSpaces.knowledgeSpaceId, knowledgeSpaceId),
+          eq(knowledgeSpaces.ownerUserId, ownerUserId),
+        ),
+      )
+      .returning();
+    return updated;
   }
 }

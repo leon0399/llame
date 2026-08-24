@@ -6,10 +6,10 @@
 
 ## 1. Storage and API Layer (`multiple-kb/storage`)
 
-- [ ] 1.1 Add name and timestamp fields, remove owner uniqueness, and migrate each existing stable ID and child as `Personal`; verify schema, upgrade, RLS/FORCE-RLS, duplicate-name, and concurrent-owner integration tests pass.
-- [ ] 1.2 Replace singleton repository/service assumptions with owner-scoped create, list, retrieve, rename, and exact-owned-ID query primitives; verify missing and other-owner identifiers are indistinguishable and no owner count cap exists.
-- [ ] 1.3 Make provisioning directory-first and authority-row-second without recovery deletion; verify filesystem/service tests cover usable children before commit, database-failure orphans, symlink refusal, missing roots, and preserved migrated paths.
-- [ ] 1.4 Replace bodyless singleton `PUT` with authenticated collection/item REST operations and the Knowledge-local `(createdAt, id)` opaque cursor; verify DTO, malformed-cursor, deterministic pagination, unauthorized, excess-field, cross-tenant, and OpenAPI contract tests pass.
+- [x] 1.1 Add name and timestamp fields, remove owner uniqueness, and migrate each existing stable ID and child as `Personal`; verify schema, upgrade, RLS/FORCE-RLS, duplicate-name, and concurrent-owner integration tests pass.
+- [x] 1.2 Replace singleton repository/service assumptions with owner-scoped create, list, retrieve, rename, and exact-owned-ID query primitives; verify missing and other-owner identifiers are indistinguishable and no owner count cap exists.
+- [x] 1.3 Make provisioning directory-first and authority-row-second without recovery deletion; verify filesystem/service tests cover usable children before commit, database-failure orphans, symlink refusal, missing roots, and preserved migrated paths.
+- [x] 1.4 Replace bodyless singleton `PUT` with authenticated collection/item REST operations and the Knowledge-local `(createdAt, id)` opaque cursor; verify DTO, malformed-cursor, deterministic pagination, unauthorized, excess-field, cross-tenant, and OpenAPI contract tests pass.
 - [ ] 1.5 Regenerate and commit the web API bindings for the breaking Knowledge REST surface in the same layer; verify the removed singleton operation, new collection/item operations, generation-drift check, and affected web typecheck/build pass.
 - [ ] 1.6 Run the affected API unit/integration tests, typecheck, lint, migration checks, and sequential build; verify the storage layer is green before submitting it.
 

@@ -5,8 +5,9 @@ import {
 import { KnowledgeToolRuntimeResolver } from './knowledge-tool-runtime-resolver';
 import { type KnowledgeSpaceBindingResolver } from './knowledge-space.service';
 
-const binding: KnowledgeFilesystemBinding = {
+const binding: KnowledgeFilesystemBinding & { name: string } = {
   id: '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
+  name: 'Personal',
   root: '/srv/knowledge',
   directory: '/srv/knowledge/6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
 };
@@ -14,7 +15,7 @@ const binding: KnowledgeFilesystemBinding = {
 describe('KnowledgeToolRuntimeResolver', () => {
   it('passes the trusted owner to verify-only binding resolution', async () => {
     const resolveBindingForOwner = vi.fn(() =>
-      Promise.resolve<KnowledgeFilesystemBinding | undefined>(binding),
+      Promise.resolve<typeof binding | undefined>(binding),
     );
     const spaces: KnowledgeSpaceBindingResolver = {
       resolveBindingForOwner,

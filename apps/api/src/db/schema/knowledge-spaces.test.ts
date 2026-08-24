@@ -3,7 +3,7 @@ import { getTableConfig } from 'drizzle-orm/pg-core';
 import { knowledgeSpaces } from './index';
 
 describe('knowledge_spaces schema', () => {
-  it('stores one opaque stable ID per owner and no local binding data', () => {
+  it('stores an opaque stable ID, label, and timestamps without owner uniqueness', () => {
     const config = getTableConfig(knowledgeSpaces);
     const columns = Object.fromEntries(
       config.columns.map((column) => [column.name, column]),
@@ -13,12 +13,15 @@ describe('knowledge_spaces schema', () => {
     expect(columns).toMatchObject({
       knowledge_space_id: { notNull: true, primary: true },
       owner_user_id: { notNull: true },
+      name: { notNull: true },
+      created_at: { notNull: true, precision: 3 },
+      updated_at: { notNull: true, precision: 3 },
     });
     expect(columns).not.toHaveProperty('root');
     expect(columns).not.toHaveProperty('path');
     expect(columns).not.toHaveProperty('source_key');
 
-    expect(columns.owner_user_id.isUnique).toBe(true);
+    expect(columns.owner_user_id.isUnique).not.toBe(true);
   });
 
   it('exposes explicit owner-only policies for every mutation', () => {
