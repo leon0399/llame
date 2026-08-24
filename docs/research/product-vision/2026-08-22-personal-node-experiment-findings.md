@@ -158,7 +158,11 @@ as-reported by the experiment.
 ## 8. Sandbox and worktree execution
 
 The most reusable code in the experiment, and the section most worth re-deriving rather than
-re-inventing when ROADMAP reaches local Sandbox execution.
+re-inventing when ROADMAP reaches local Sandbox execution. The full confinement posture — the exact
+`docker create` contract, the command bounds, the observation discipline, the reproducible Nix base
+image, and its known gaps — is recorded separately in
+[the local Sandbox confinement contract](2026-08-22-local-sandbox-confinement-contract.md); the
+findings below are the reasoning behind it.
 
 - **Observe the isolation state; do not assume the launch contract held.** The prototype inspects
   the running container and compares network mode, IPC and cgroup namespaces, dropped capabilities,
@@ -227,13 +231,13 @@ has not asked yet. The defect is sequencing, not craft.
 
 ## 11. What to re-derive, and when
 
-| Material                                                    | ROADMAP stage                                   | Note                                                                                         |
-| ----------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Sandbox launch contract and Docker inspect adapter (§8)     | Then: local Sandbox execution                   | The security-critical part. Re-derive from the findings; the shape of the contract is sound. |
-| Reproducible Nix sandbox base image                         | Then: local Sandbox execution                   | Small, self-contained, verified by a real detached offline container run.                    |
-| Worktree manager with `pending`/`active` recovery (§8)      | Then: local Sandbox execution                   | Matches VISION's "worktrees are derived Workspace views, not replicas".                      |
-| Workspace approval and placement findings (§7)              | After personal synchronization                  | The wrapper-CLI cwd finding applies earlier, to the CLI cut.                                 |
-| Replication, identity, routing and control findings (§3–§6) | Then: Personal Realm synchronization, and later | Questions the specification must answer; not a design to adopt wholesale.                    |
+| Material                                                    | ROADMAP stage                                   | Note                                                                                                                                            |
+| ----------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sandbox launch contract and Docker inspect adapter (§8)     | Then: local Sandbox execution                   | The security-critical part. Recorded in full, standalone, in [the confinement contract note](2026-08-22-local-sandbox-confinement-contract.md). |
+| Reproducible Nix sandbox base image                         | Then: local Sandbox execution                   | Derivation reproduced verbatim in the same note; verified by a real detached offline container run.                                             |
+| Worktree manager with `pending`/`active` recovery (§8)      | Then: local Sandbox execution                   | Matches VISION's "worktrees are derived Workspace views, not replicas".                                                                         |
+| Workspace approval and placement findings (§7)              | After personal synchronization                  | The wrapper-CLI cwd finding applies earlier, to the CLI cut.                                                                                    |
+| Replication, identity, routing and control findings (§3–§6) | Then: Personal Realm synchronization, and later | Questions the specification must answer; not a design to adopt wholesale.                                                                       |
 
 Nothing in this table is a commitment. Promotion of any of it into VISION, SPEC, or an OpenSpec
 capability is a separate deliberate act, after the immediate file-native cut ships.
