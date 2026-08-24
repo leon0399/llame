@@ -25,8 +25,8 @@
 
 ## 3. Incomplete Replay Layer (`multiple-kb/replay`)
 
-- [ ] 3.1 Map a payload-cleared successful Knowledge search with `complete: false` to outcome `incomplete` in every generic model-replay projection without adding a third `ToolResult.status`; verify full payload, durable event, ordinary bounded next-turn projection, compaction, and later ledger replay preserve the distinction.
-- [ ] 3.2 Preserve existing `success`, exact error, pairing, omission, and budget behavior for every other tool observation; verify focused generic run/observation tests and affected API typecheck, lint, and sequential build pass before submitting the layer.
+- [x] 3.1 Map a payload-cleared successful Knowledge search with `complete: false` to outcome `incomplete` in every generic model-replay projection without adding a third `ToolResult.status`; verify full payload, durable event, ordinary bounded next-turn projection, compaction, and later ledger replay preserve the distinction.
+- [x] 3.2 Preserve existing `success`, exact error, pairing, omission, and budget behavior for every other tool observation; verify focused generic run/observation tests and affected API typecheck, lint, and sequential build pass before submitting the layer.
 
 ## 4. Acceptance Layer (`multiple-kb/acceptance`)
 

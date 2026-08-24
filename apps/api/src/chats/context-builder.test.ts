@@ -1376,6 +1376,61 @@ describe('buildContext', () => {
       );
     });
 
+    it('keeps an incomplete Knowledge search as success while its payload remains', () => {
+      const projected = projectToolObservations([
+        {
+          type: 'tool-knowledge_search',
+          toolCallId: 'knowledge-incomplete-full',
+          state: 'output-available',
+          input: { query: 'checkpoint' },
+          output: {
+            status: 'success',
+            complete: false,
+            results: [{ path: 'notes/checkpoint.md' }],
+            warnings: [],
+            warningCount: 1,
+          },
+          outcome: 'success',
+        },
+      ]);
+
+      const value = projected?.toolResultParts[0]?.output;
+      expect(value).toMatchObject({ type: 'text' });
+      if (value?.type !== 'text') throw new Error('Expected text output');
+      expect(value.value).toContain('Outcome: success');
+      expect(value.value).toContain('"complete":false');
+      expect(value.value).not.toContain('Outcome: incomplete');
+    });
+
+    it('marks an incomplete Knowledge search incomplete when replay clears its payload', () => {
+      const projected = projectToolObservations([
+        {
+          type: 'tool-knowledge_search',
+          toolCallId: 'knowledge-incomplete-cleared',
+          state: 'output-available',
+          input: { query: 'checkpoint' },
+          output: {
+            status: 'success',
+            complete: false,
+            results: [
+              {
+                path: 'notes/checkpoint.md',
+                snippet: 'R'.repeat(TOOL_REPLAY_CALL_LIMIT * 2),
+              },
+            ],
+            warnings: [],
+            warningCount: 1,
+          },
+          outcome: 'success',
+        },
+      ]);
+
+      const serialized = JSON.stringify(projected?.toolResultParts);
+      expect(serialized).toContain('Outcome: incomplete');
+      expect(serialized).not.toContain('"complete":false');
+      expect(serialized).not.toContain('R'.repeat(256));
+    });
+
     it.each([
       [
         'tool-call id',
