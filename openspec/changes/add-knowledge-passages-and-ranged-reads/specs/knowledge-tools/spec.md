@@ -4,11 +4,13 @@
 
 `knowledge_search` SHALL accept a non-empty literal query of at most 200 Unicode code points, an integer result limit from 1 through 10 defaulting to 5, an optional `knowledgeSpaceId`, and an optional opaque continuation cursor. When the identifier is present, search SHALL target only that currently owner-accessible space. When absent, search SHALL iterate the owner's complete current inventory in `(createdAt, id)` keyset pages without materializing the uncapped inventory in memory. Inventory paging SHALL obey the same operation timeout and cancellation signal; it SHALL impose no separate total-space count cap. Before opening each targeted child, search SHALL recheck current access under the trusted Run owner. If a row from an unscoped inventory page is no longer accessible at that check, search SHALL omit it as no longer current without adding a warning or incrementing `warningCount`; if no currently accessible target remains, the call SHALL return `knowledge_space_not_configured`. Within a space, files SHALL be ordered by Knowledge-relative path.
 
-Search SHALL perform a case-insensitive literal scan over safe UTF-8 Markdown files as they are read from the live targeted spaces. LF SHALL terminate one logical line, CRLF SHALL be one line delimiter, a lone CR SHALL remain source text, and a terminal delimiter SHALL NOT create a phantom line. Every literal occurrence SHALL contribute a candidate passage consisting of its logical line plus at most one preceding and one following logical line. Occurrences on the same line SHALL share one candidate, and candidate passages within one file SHALL be sorted and transitively unioned when they overlap or touch before result limiting. Search SHALL return passages in deterministic space `(createdAt, id)`, relative-path, and zero-based passage-offset order. It SHALL use no grep subprocess, regular expression, Markdown parser, index, or PostgreSQL content projection.
+Search SHALL perform a case-insensitive literal scan over safe UTF-8 Markdown files as they are read from the live targeted spaces. LF SHALL terminate one logical line, CRLF SHALL be one line delimiter, a lone CR SHALL remain source text, and a terminal delimiter SHALL NOT create a phantom line. Every literal occurrence SHALL contribute a candidate passage consisting of its logical line plus at most one preceding and one following logical line. Occurrences on the same line SHALL share one candidate, and candidate passages within one file SHALL be sorted and transitively unioned when they overlap or touch before result limiting. A merged interval longer than 2,000 logical lines SHALL then be partitioned into adjacent deterministic passages of at most 2,000 lines; every emitted passage SHALL contain a literal match and the passages together SHALL cover the complete merged interval. Search SHALL return passages in deterministic space `(createdAt, id)`, relative-path, and zero-based passage-offset order. It SHALL use no grep subprocess, regular expression, Markdown parser, index, or PostgreSQL content projection.
 
-Every returned passage SHALL carry the response-time Knowledge Space identifier and display name, exact Knowledge-relative path, zero-based `offset`, positive source-line `limit`, and an `excerpt` of at most 500 Unicode code points. `offset` and `limit` SHALL identify the complete source-line window and be directly valid `knowledge_read` arguments for that file. If the window exceeds the excerpt cap, search SHALL crop visibly around a literal match without changing the source-line coordinates. Search SHALL NOT duplicate a separate matching-line string, expose a match mode while only literal search exists, or expose a content hash or revision token.
+Every returned passage SHALL carry the response-time Knowledge Space identifier and display name, exact Knowledge-relative path, zero-based `offset`, source-line `limit` from 1 through 2,000, and an `excerpt` of at most 500 Unicode code points. `offset` and `limit` SHALL identify the complete emitted source-line window and be directly valid `knowledge_read` arguments for that file. If the window exceeds the excerpt cap, search SHALL crop visibly around a literal match without changing the source-line coordinates. Search SHALL NOT duplicate a separate matching-line string, expose a match mode while only literal search exists, or expose a content hash or revision token.
 
-The optional cursor SHALL be canonical opaque Knowledge-local keyset state bound to the query, optional explicit selector, and last returned passage ordering tuple. A cursor used with different request bindings or malformed state SHALL fail closed as invalid input. An unchanged accessible corpus SHALL produce deterministic non-overlapping pages. The cursor SHALL NOT claim a filesystem snapshot: current access is resolved again on continuation; removed resources disappear, and concurrent file or inventory changes MAY cause newly ordered passages to appear or passages ordered before the cursor to be skipped. Search SHALL return `nextCursor` only when another passage currently exists after the last returned result.
+The optional cursor SHALL be canonical opaque Knowledge-local keyset state bound to the query, optional explicit selector, and last returned passage ordering tuple. A cursor used with different request bindings or malformed state SHALL fail closed as invalid input. An unchanged accessible corpus SHALL produce deterministic non-overlapping pages. The cursor SHALL NOT claim a filesystem snapshot: current access is resolved again on continuation; removed resources disappear, and concurrent file or inventory changes MAY cause newly ordered passages to appear or passages ordered before the cursor to be skipped. Search SHALL return `nextCursor` only when another passage currently exists after the last returned result, including from an incomplete successful page.
+
+For an unscoped continuation, completeness SHALL be evaluated for that invocation. Spaces ordered strictly before the cursor's space key SHALL NOT be reopened because they cannot contribute a later passage. The anchor space and every later space SHALL be reauthorized and inspected. A failed space before the last returned passage SHALL therefore not be retried by a continuation anchored after it. A failed space after the last returned passage SHALL be re-evaluated while it remains after the anchor and SHALL produce another bounded warning if it still fails. Such a failure SHALL NOT suppress `nextCursor` when a later usable passage exists; an incomplete page with no later passage SHALL omit `nextCursor`.
 
 One tool call SHALL share the existing global bounds across every target: at most 20,000 filesystem entries, 5,000 admitted Markdown files, 1 MiB per file, 32 MiB of aggregate Markdown content, paths of 1,024 UTF-8 bytes and 32 components, and a structured result of at most 15,000 JavaScript UTF-16 code units. It SHALL also obey the common tool timeout and abort signal. Space boundaries and cursor continuation SHALL NOT reset any bound within one invocation. The requested result limit is a successful response cap, not a safety-bound failure: search SHALL return the first passages after the optional cursor up to that limit and SHALL continue inventory traversal as needed to determine continuation and surface later space failures.
 
@@ -30,6 +32,12 @@ There is no operation-wide content revision or snapshot. A file changed after it
 - **THEN** search returns one merged passage for that source range
 - **AND** merging is the transitive interval union rather than an order-dependent split
 - **AND** the requested result limit counts the merged passage once
+
+#### Scenario: A transitive match chain remains readable
+
+- **WHEN** touching or overlapping match windows transitively union into more than 2,000 logical lines
+- **THEN** search partitions the complete merged interval into adjacent passages whose limits are each at most 2,000 and which each contain a literal match
+- **AND** every matching line remains covered in deterministic offset order by coordinates accepted by `knowledge_read`
 
 #### Scenario: Search passage expands through read
 
@@ -90,6 +98,18 @@ There is no operation-wide content revision or snapshot. A file changed after it
 - **WHEN** an unscoped search successfully inspects one space and another has a space-scoped safe failure
 - **THEN** the tool returns the usable passages with `complete: false`
 - **AND** bounded call-level warnings identify the failed space without exposing host details
+
+#### Scenario: A failed space before the cursor anchor is not retried
+
+- **WHEN** an unscoped page warns for a failed space ordered before its last returned passage and exposes a cursor for a later passage
+- **THEN** continuation begins after that passage and does not reopen the earlier failed space
+- **AND** completeness and warnings describe only the continuation invocation
+
+#### Scenario: A failed space after the cursor anchor is re-evaluated
+
+- **WHEN** an unscoped page has a failed space ordered after its last returned passage
+- **THEN** continuation reauthorizes and retries that space while it remains after the anchor
+- **AND** the failure does not suppress a cursor for any later usable passage, while a final incomplete page with no later passage omits `nextCursor`
 
 #### Scenario: All failed spaces produce a top-level error
 
