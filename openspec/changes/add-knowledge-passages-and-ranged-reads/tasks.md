@@ -2,9 +2,9 @@
 
 Each named branch is one gh-stack layer and one PR:
 
-`master <- knowledge-ranges/proposal <- knowledge-ranges/read <- knowledge-ranges/search <- knowledge-ranges/acceptance <- knowledge-ranges/sync-specs <- knowledge-ranges/archive`
+`master <- knowledge-ranges/proposal <- knowledge-ranges/read <- knowledge-ranges/search <- knowledge-ranges/acceptance <- knowledge-ranges/finalize`
 
-The proposal, canonical-spec synchronization, and archive move are mandatory isolated PR boundaries. Runtime implementation remains split by independently reviewable read, search, and acceptance concerns. A layer SHALL contain only its stated ownership; fixes to a lower layer are committed there and rebased upstack.
+The proposal and finalization are mandatory isolated PR boundaries. Runtime implementation remains split by independently reviewable read, search, and acceptance concerns. The finalization PR SHALL run canonical-spec synchronization first and archive the same completed change second. A layer SHALL contain only its stated ownership; fixes to a lower layer are committed there and rebased upstack.
 
 ## 0. Proposal Layer (`knowledge-ranges/proposal`)
 
@@ -36,12 +36,10 @@ The proposal, canonical-spec synchronization, and archive move are mandatory iso
 - [ ] 3.3 Update `SPEC.md`, Knowledge operator/user documentation, `ROADMAP.md`, and `CHANGELOG.md` in the shipping layer; verify the docs claim no headings, index, embeddings, stable citations, Git revision, OKF/OpenWiki behavior, or generated synopsis.
 - [ ] 3.4 Run all affected tests, typechecks, lints, Markdown lint, formatting, and sequential workspace builds; verify every implementation layer is green and the stack contains no unrelated changes.
 
-## 4. Canonical Spec Sync Layer (`knowledge-ranges/sync-specs`)
+## 4. OpenSpec Finalization Layer (`knowledge-ranges/finalize`)
 
 - [ ] 4.1 After implementation evidence exists, mark completed tasks accurately and verify OpenSpec reports every apply-required artifact complete with no unchecked implementation task.
 - [ ] 4.2 Run `openspec-sync-specs` to merge the verified `knowledge-tools`, `knowledge-spaces`, and `tool-calling` deltas into canonical specs; verify unrelated requirements remain intact and strict validation passes.
-- [ ] 4.3 Run `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify this PR contains only canonical spec synchronization and accurate completed-task records, leaves the active change unarchived, and contains no runtime behavior.
+- [ ] 4.3 Verify the synchronized canonical specs, completed active-change artifacts, Markdown lint, formatting, and diff checks; then mark every checkbox complete so archive preflight observes no unfinished task.
 
-## 5. Archive Layer (`knowledge-ranges/archive`)
-
-After every checkbox above is complete and the sync layer is green, run `openspec-archive-change` in this separate final stack layer. Verify the active change is absent, the dated archive contains every artifact including the completed task record, canonical specs are unchanged from the sync layer, strict validation passes, and the PR contains only the archive move plus mechanically necessary archive metadata. This delivery action is intentionally not another unchecked OpenSpec implementation task: the archive skill must observe no incomplete tasks before moving the change.
+After every checkbox is complete, run `openspec-archive-change` in this same finalization layer. Verify the active change is absent, the dated archive contains every artifact including the completed task record, canonical specs remain exactly as synchronized earlier in the PR, and strict validation still passes. The finalization PR SHALL contain only accurate completed-task records, canonical spec synchronization, and the archive move, with no runtime behavior. Archiving is intentionally described after the checklist rather than as a self-referential unchecked task, so the archive preflight can truthfully observe zero incomplete tasks.
