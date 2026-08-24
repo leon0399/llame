@@ -160,6 +160,37 @@ describe('CreateMessageDto', () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
+  it('accepts an optional nonblank effort with no vocabulary restriction', async () => {
+    const modelId = 'system:openai:gpt-5.4-mini';
+
+    // No enum or pattern here on purpose: the legal values are the SELECTED
+    // model's operator-declared provider tokens, checked by exact membership
+    // once the model resolves. The DTO's only job is shape.
+    for (const effort of ['none', 'MAX', 'very-high', 'effort_2']) {
+      await expect(
+        pipe.transform({ modelId, effort, message }, metadata),
+      ).resolves.toMatchObject({ effort });
+    }
+
+    // Absent is the documented way to ask for the model's default.
+    // class-transformer materializes every declared property, so the DTO
+    // carries `effort: undefined` rather than omitting the key — which is
+    // exactly what the controller's `!== undefined` guard keys on.
+    await expect(
+      pipe.transform({ modelId, message }, metadata),
+    ).resolves.toMatchObject({ effort: undefined });
+  });
+
+  it('rejects a blank, null, or non-string effort', async () => {
+    const modelId = 'system:openai:gpt-5.4-mini';
+
+    for (const effort of ['', '   ', null, 7, {}]) {
+      await expect(
+        pipe.transform({ modelId, effort, message }, metadata),
+      ).rejects.toMatchObject({ status: 400 });
+    }
+  });
+
   it('rejects client-authored model-context parts', async () => {
     await expect(
       pipe.transform(

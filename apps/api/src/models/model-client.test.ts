@@ -231,4 +231,77 @@ describe('ModelClient', () => {
       }),
     );
   });
+
+  describe('reasoning effort (add-reasoning-effort)', () => {
+    function build(nativeOpenAI: boolean) {
+      const providerModel = new MockLanguageModelV3({
+        provider: 'openai',
+        modelId: 'gpt-test',
+      });
+      const openaiProvider = Object.assign(
+        vi.fn(() => providerModel),
+        { chat: vi.fn(() => providerModel) },
+      );
+      createOpenAIMock.mockReturnValue(openaiProvider);
+      streamTextMock.mockReturnValue({});
+      return createOpenAIModelClient(
+        {
+          credential: 'sk-user-supplied',
+          providerModelId: 'gpt-test',
+          modelId: 'system:openai:gpt-test',
+          contextWindowTokens: 128_000,
+          nativeOpenAI,
+        },
+        { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+      );
+    }
+
+    // One property, two data points: an ordinary level and a token carrying
+    // casing/separators llame never constrains. Both must reach the provider
+    // byte-for-byte on the Chat Completions path.
+    it.each(['xhigh', 'Very-High_2'])(
+      'sends %s through the Chat Completions path verbatim',
+      (effort) => {
+        build(false).streamText({ messages, effort });
+
+        expect(streamTextMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            providerOptions: { openai: { reasoningEffort: effort } },
+          }),
+        );
+      },
+    );
+
+    it('sends the effort alongside the native reasoning summary, not instead of it', () => {
+      build(true).streamText({ messages, effort: 'max' });
+
+      expect(streamTextMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerOptions: {
+            openai: { reasoningSummary: 'auto', reasoningEffort: 'max' },
+          },
+        }),
+      );
+    });
+
+    // Presence, never truthiness: a level meaning "do not reason" is a real
+    // instruction to the provider, and dropping it would silently fall back to
+    // the provider's own default instead.
+    it('sends a level denoting disabled reasoning rather than dropping it', () => {
+      build(false).streamText({ messages, effort: 'none' });
+
+      expect(streamTextMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerOptions: { openai: { reasoningEffort: 'none' } },
+        }),
+      );
+    });
+
+    it('sets no provider options at all when no effort is supplied on a compatible endpoint', () => {
+      build(false).streamText({ messages });
+
+      const [options] = streamTextMock.mock.calls.at(-1) ?? [];
+      expect(options?.providerOptions).toBeUndefined();
+    });
+  });
 });

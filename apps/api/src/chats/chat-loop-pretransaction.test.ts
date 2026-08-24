@@ -5,6 +5,7 @@ import { type InstanceConfigReader } from '../instance-config/instance-config.se
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import {
   ModelConfigurationError,
+  EffortNotAvailableError,
   ModelNotAvailableError,
   type ModelSelectionValidator,
 } from '../models/models.service';
@@ -46,13 +47,19 @@ const model: SystemModelCatalogEntry = {
 
 function makeService(models?: {
   validateModelSelection?: ModelSelectionValidator['validateModelSelection'];
+  resolveEffortSelection?: ModelSelectionValidator['resolveEffortSelection'];
 }) {
   const runAs = vi.fn();
   const validateModelSelection =
     models?.validateModelSelection ?? vi.fn(() => model);
   const dispatchRun = vi.fn();
   const tenantDb: TenantRunner = { runAs };
-  const modelsService: ModelSelectionValidator = { validateModelSelection };
+  const resolveEffortSelection =
+    models?.resolveEffortSelection ?? vi.fn(() => undefined);
+  const modelsService: ModelSelectionValidator = {
+    validateModelSelection,
+    resolveEffortSelection,
+  };
   const instanceConfig: InstanceConfigReader = {
     config: BUILT_IN_DEFAULTS,
   };
@@ -132,6 +139,38 @@ describe('ChatLoopService pre-transaction guards', () => {
     );
     expect(runAs).not.toHaveBeenCalled();
     expect(dispatchRun).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unavailable effort before any message, run, or queue write', async () => {
+    const { service, runAs, dispatchRun } = makeService({
+      resolveEffortSelection: vi.fn(() => {
+        throw new EffortNotAvailableError(input.modelId, 'ludicrous');
+      }),
+    });
+
+    await expect(
+      service.createMessageStream({ ...input, effort: 'ludicrous' }),
+    ).rejects.toBeInstanceOf(EffortNotAvailableError);
+    expect(runAs).not.toHaveBeenCalled();
+    expect(dispatchRun).not.toHaveBeenCalled();
+  });
+
+  // Model first, then effort: a level's legality is defined by the resolved
+  // model, so an unavailable model must be reported without the effort ever
+  // being considered.
+  it('reports an unavailable model without evaluating the effort', async () => {
+    const resolveEffortSelection = vi.fn(() => undefined);
+    const { service } = makeService({
+      validateModelSelection: vi.fn(() => {
+        throw new ModelNotAvailableError(input.modelId);
+      }),
+      resolveEffortSelection,
+    });
+
+    await expect(
+      service.createMessageStream({ ...input, effort: 'nonsense' }),
+    ).rejects.toBeInstanceOf(ModelNotAvailableError);
+    expect(resolveEffortSelection).not.toHaveBeenCalled();
   });
 
   it('rejects an all-non-text direct-service message before opening a tenant transaction', async () => {

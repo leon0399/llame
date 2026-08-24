@@ -262,6 +262,9 @@ describeIfDb(
           systemPromptTemplate: systemPrompt,
           systemPromptSource: 'project_default',
         }),
+        // No reasoning vocabulary on these doubles: effort always resolves
+        // to "none".
+        resolveEffortSelection: () => undefined,
       };
       const bridge: RunStreamResponder = {
         createUiMessageStreamResponse: vi
@@ -775,6 +778,9 @@ describeIfDb(
           systemPromptTemplate: uniquePrompt,
           systemPromptSource: 'model_override',
         }),
+        // No reasoning vocabulary on these doubles: effort always resolves
+        // to "none".
+        resolveEffortSelection: () => undefined,
       };
       const dispatchRun = vi
         .fn<RunDispatcher['dispatch']>()

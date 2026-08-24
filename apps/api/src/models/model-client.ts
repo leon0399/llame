@@ -25,6 +25,16 @@ export interface ModelStreamInput {
   /** Provider-neutral tool selection policy for this request. */
   toolChoice?: ToolChoice<ToolSet>;
   /**
+   * Reasoning effort for this request, as an opaque PROVIDER-native token —
+   * llame owns no effort vocabulary, so each client maps this string onto its
+   * own provider option unchanged (add-reasoning-effort).
+   *
+   * Presence is what matters, never truthiness: a level denoting disabled
+   * reasoning is a real instruction and differs from omitting the parameter,
+   * which leaves the provider's own default in force.
+   */
+  effort?: string;
+  /**
    * Hard cap on TOOL-REQUESTING steps for the tool loop (SPEC tool-calling
    * §requirement "step cap"). Only meaningful with `tools`. Once this many
    * prior steps have called a tool, the client stops offering tools for the

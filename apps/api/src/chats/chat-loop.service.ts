@@ -116,6 +116,8 @@ type PersistUserMessageAndRunInput = {
   chatId: string;
   userId: string;
   modelId: string;
+  /** Resolved at accept time; absent means "send no effort parameter". */
+  effort: string | undefined;
   message: ChatMessageInput;
   targetRunId: string;
   model: SystemModelCatalogEntry;
@@ -175,10 +177,15 @@ export class ChatLoopService {
     chatId: string;
     userId: string;
     modelId: string;
+    /** Requested by the caller; absent resolves the model's `defaultEffort`. */
+    effort?: string;
     message: ChatMessageInput;
     abortSignal?: AbortSignal;
   }): Promise<ChatMessageStream> {
     const model = this.models.validateModelSelection(input.modelId);
+    // Resolved from the already-validated model, so an unavailable model is
+    // reported without the effort ever being considered.
+    const effort = this.models.resolveEffortSelection(model, input.effort);
     // Validate the message BEFORE any database work. A rejected message must
     // not cost a personalization transaction, and a personalization read that
     // fails must not turn a 400 into a 500 for input that was invalid anyway.
@@ -224,6 +231,7 @@ export class ChatLoopService {
       await this.persistUserMessageAndRun({
         ...input,
         message,
+        effort,
         targetRunId,
         model,
         user,
@@ -447,6 +455,7 @@ export class ChatLoopService {
             messageId: userMessage.id,
             userId: input.userId,
             modelId: input.modelId,
+            effort: input.effort,
             modelContextSnapshotId: snapshot.id,
           }),
         );

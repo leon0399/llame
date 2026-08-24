@@ -36,7 +36,12 @@ import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
 } from '../instance-config/llame-config';
-import { ModelsService } from '../models/models.service';
+import type { ModelReasoning } from '../models/model-catalog';
+import {
+  ModelsService,
+  resolveEffortSelection,
+  type ModelSelectionValidator,
+} from '../models/models.service';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
@@ -87,9 +92,15 @@ class HarnessModelClient implements ModelClient {
       ScriptedBehavior,
       { kind: 'complete' } | { kind: 'provider-error' } | { kind: 'hang' }
     >,
+    /** Shared with the owning ScriptedModelsService so a test can assert what execution actually requested. */
+    private readonly streamCalls: Array<{
+      modelId: string;
+      effort: string | undefined;
+    }> = [],
   ) {}
 
   streamText(input: ModelStreamInput): ReturnType<typeof sdkStreamText> {
+    this.streamCalls.push({ modelId: this.model, effort: input.effort });
     const behavior = this.behavior;
     const text = behavior.kind === 'complete' ? (behavior.text ?? 'ok') : '';
     let abortSettlement = Promise.resolve();
@@ -230,15 +241,32 @@ class HarnessModelClient implements ModelClient {
  * call resolves to it deterministically regardless of which order
  * concurrent jobs actually get claimed in.
  */
-export class ScriptedModelsService {
+/**
+ * `implements ModelSelectionValidator` is load-bearing: the harness injects
+ * this by Nest override, which is not structurally typechecked, so a method
+ * added to the narrow contract would otherwise fail at run time rather than at
+ * compile time.
+ */
+export class ScriptedModelsService implements ModelSelectionValidator {
   private readonly behaviors = new Map<string, ScriptedBehavior>();
   readonly createClientCalls: Array<{ modelId: string }> = [];
+  /** Every streamText the executor issued, with the effort it carried. */
+  readonly streamCalls: Array<{ modelId: string; effort: string | undefined }> =
+    [];
 
   register(modelId: string, behavior: ScriptedBehavior): void {
     this.behaviors.set(modelId, behavior);
   }
 
+  /** Per-model reasoning vocabulary a test declares before sending. */
+  private readonly reasoning = new Map<string, ModelReasoning>();
+
+  registerReasoning(modelId: string, reasoning: ModelReasoning): void {
+    this.reasoning.set(modelId, reasoning);
+  }
+
   validateModelSelection(modelId: string) {
+    const reasoning = this.reasoning.get(modelId);
     return {
       id: modelId,
       source: 'system' as const,
@@ -247,7 +275,20 @@ export class ScriptedModelsService {
       providerModelId: modelId,
       systemPromptTemplate: `Harness prompt for ${modelId}`,
       systemPromptSource: 'project_default' as const,
+      ...(reasoning !== undefined && { reasoning }),
     };
+  }
+
+  /**
+   * Delegates to the production resolver rather than restating its rules, so a
+   * change to effort semantics cannot pass the integration tests while the API
+   * behaves differently.
+   */
+  resolveEffortSelection(
+    model: Parameters<typeof resolveEffortSelection>[0],
+    requested: string | undefined,
+  ): string | undefined {
+    return resolveEffortSelection(model, requested);
   }
 
   resolveTitleModelConfig() {
@@ -272,7 +313,7 @@ export class ScriptedModelsService {
         behavior.message ?? `simulated infra failure for ${modelId}`,
       );
     }
-    return new HarnessModelClient(modelId, behavior);
+    return new HarnessModelClient(modelId, behavior, this.streamCalls);
   }
 }
 
@@ -396,6 +437,8 @@ export async function seedRun(input: {
   modelId: string;
   text?: string;
   chatId?: string;
+  /** Persisted on the run exactly as the accepting API would have stored it. */
+  effort?: string;
 }): Promise<{
   chatId: string;
   runId: string;
@@ -431,6 +474,7 @@ export async function seedRun(input: {
       messageId: message.id,
       userId: input.userId,
       modelId: input.modelId,
+      ...(input.effort !== undefined && { effort: input.effort }),
       modelContextSnapshotId: snapshot.id,
     });
     return {
@@ -480,6 +524,8 @@ export async function seedAndDispatchRun(
     modelId: string;
     text?: string;
     chatId?: string;
+    /** Persisted on the run exactly as the accepting API would have stored it. */
+    effort?: string;
     enqueueOptions?: EnqueueOptions;
   },
 ): Promise<{
@@ -494,6 +540,7 @@ export async function seedAndDispatchRun(
     modelId: input.modelId,
     text: input.text,
     chatId: input.chatId,
+    ...(input.effort !== undefined && { effort: input.effort }),
   });
   await dispatchRun({
     queue: harness.queue,

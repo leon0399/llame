@@ -15,7 +15,10 @@ import { Logger } from '@nestjs/common';
 
 import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
-import { type ModelSelectionValidator } from '../models/models.service';
+import {
+  resolveEffortSelection,
+  type ModelSelectionValidator,
+} from '../models/models.service';
 import { type RunAborter } from '../runs/run-abort-registry';
 import { type PromptUserResolver } from '../personalization/personalization.service';
 import {
@@ -246,6 +249,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
           userId: runInput.userId,
           modelId: runInput.modelId,
           modelContextSnapshotId: runInput.modelContextSnapshotId,
+          effort: null,
           status: 'queued',
           workerId: null,
           cancelRequestedAt: null,
@@ -272,6 +276,10 @@ describe('ChatLoopService effective-context transaction binding', () => {
 
     const modelsService: ModelSelectionValidator = {
       validateModelSelection: vi.fn(() => model),
+      // Delegates to production so a suite that declares a vocabulary on
+      // `model` exercises the real resolution rather than a stub's.
+      resolveEffortSelection: (m, requested) =>
+        resolveEffortSelection(m, requested),
     };
     const instanceConfig = fakeInstanceConfig(options?.toolsAllowed);
     const bridge: RunStreamResponder = {
@@ -799,6 +807,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       userId: 'user-id',
       modelId: 'system:openai:previous-model',
       modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
+      effort: null,
       status: 'failed',
       workerId: null,
       cancelRequestedAt: null,
@@ -893,6 +902,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       userId: 'user-id',
       modelId: model.id,
       modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
+      effort: null,
       status: 'failed',
       workerId: null,
       cancelRequestedAt: null,
@@ -961,6 +971,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       userId: 'user-id',
       modelId: model.id,
       modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
+      effort: null,
       status: 'completed',
       workerId: null,
       cancelRequestedAt: null,
@@ -1047,6 +1058,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       userId: 'user-id',
       modelId: model.id,
       modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
+      effort: null,
       status: 'completed',
       workerId: null,
       cancelRequestedAt: null,
@@ -1136,6 +1148,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       userId: 'user-id',
       modelId: model.id,
       modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
+      effort: null,
       status: 'completed',
       workerId: null,
       cancelRequestedAt: null,
@@ -1226,6 +1239,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       userId: 'user-id',
       modelId: model.id,
       modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
+      effort: null,
       status: 'completed',
       workerId: null,
       cancelRequestedAt: null,
@@ -1289,6 +1303,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       userId: 'user-id',
       modelId: 'previous-model',
       modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
+      effort: null,
       status: 'completed',
       workerId: null,
       cancelRequestedAt: null,

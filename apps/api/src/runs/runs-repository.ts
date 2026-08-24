@@ -31,6 +31,8 @@ export class RunsRepository {
     messageId: string;
     userId: string;
     modelId: string;
+    /** Resolved at accept time. Absent stores NULL: the run sends no effort. */
+    effort?: string | undefined;
     modelContextSnapshotId: string;
   }): Promise<Run> {
     const values: typeof runs.$inferInsert = {
@@ -40,6 +42,7 @@ export class RunsRepository {
       modelId: input.modelId,
       modelContextSnapshotId: input.modelContextSnapshotId,
     };
+    if (input.effort !== undefined) values.effort = input.effort;
     if (input.id !== undefined) values.id = input.id;
 
     const [created] = await this.db.insert(runs).values(values).returning();

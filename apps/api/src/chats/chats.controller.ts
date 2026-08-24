@@ -42,6 +42,7 @@ import { ChatLoopService } from './chat-loop.service';
 import { ChatsService } from './chats.service';
 import {
   ModelConfigurationError,
+  EffortNotAvailableError,
   ModelNotAvailableError,
 } from '../models/models.service';
 import { ModelDomainErrorResponse } from '../models/dto/models.dto';
@@ -297,7 +298,9 @@ export class ChatsController {
     type: ModelDomainErrorResponse,
   })
   @ApiUnprocessableEntityResponse({
-    description: 'Selected model is not available',
+    description:
+      'Selected model is not available, or the requested effort is not one of ' +
+      "that model's declared levels",
     type: ModelDomainErrorResponse,
   })
   @ApiNotFoundResponse({ description: 'Chat not found or not owned' })
@@ -318,6 +321,7 @@ export class ChatsController {
         chatId: id,
         userId,
         modelId: input.modelId,
+        ...(input.effort !== undefined && { effort: input.effort }),
         message: input.message,
         abortSignal: abort.signal,
       });
@@ -334,7 +338,13 @@ export class ChatsController {
 
       await writeWebResponse(streamResponse, response, abort.signal);
     } catch (error) {
-      if (error instanceof ModelNotAvailableError) {
+      // Same 422 envelope for both; the `code` discriminates. Model
+      // resolution already ran first, so an effort failure here always names a
+      // model that IS available.
+      if (
+        error instanceof ModelNotAvailableError ||
+        error instanceof EffortNotAvailableError
+      ) {
         throw new HttpException(
           {
             statusCode: HttpStatus.UNPROCESSABLE_ENTITY,

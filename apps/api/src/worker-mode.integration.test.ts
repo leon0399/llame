@@ -22,7 +22,11 @@ import { configureApp } from './app.setup';
 import { TenantDbService } from './db/tenant-db.service';
 import { MessagesRepository } from './chats/chats-repository';
 import { RunEventsRepository, RunsRepository } from './runs/runs-repository';
-import { ModelsService } from './models/models.service';
+import {
+  ModelsService,
+  resolveEffortSelection,
+  type ModelSelectionValidator,
+} from './models/models.service';
 import {
   cookieOf,
   expectRegisteredUserId,
@@ -54,7 +58,12 @@ async function waitFor<T>(
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-class FakeModelsService {
+/**
+ * `implements ModelSelectionValidator` is load-bearing: Nest overrides are not
+ * structurally typechecked, so without it a method added to the narrow contract
+ * surfaces as a 500 in every test here instead of a compile error.
+ */
+class FakeModelsService implements ModelSelectionValidator {
   readonly client = new FakeStreamingModelClient();
   readonly createClientCalls: unknown[] = [];
 
@@ -69,13 +78,21 @@ class FakeModelsService {
   validateModelSelection(modelId: string) {
     return {
       id: modelId,
-      source: 'system',
+      source: 'system' as const,
       contextWindowTokens: 128_000,
       provider: 'openai',
       providerModelId: 'test-provider-model',
       systemPromptTemplate: `Worker-mode prompt for ${modelId}`,
-      systemPromptSource: 'project_default',
+      systemPromptSource: 'project_default' as const,
     };
+  }
+
+  /** Delegates to production rather than restating the rules. */
+  resolveEffortSelection(
+    model: Parameters<typeof resolveEffortSelection>[0],
+    requested: string | undefined,
+  ): string | undefined {
+    return resolveEffortSelection(model, requested);
   }
 
   resolveTitleModelConfig() {

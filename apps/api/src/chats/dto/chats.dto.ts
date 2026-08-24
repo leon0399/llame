@@ -165,6 +165,23 @@ export class CreateMessageDto {
   @Matches(/\S/, { message: 'modelId must not be blank' })
   modelId!: string;
 
+  // ValidateIf (not IsOptional): IsOptional also waves an explicit `null`
+  // through unvalidated, and `null` is not "omitted" — only absence means "use
+  // the model's default". No enum or pattern here on purpose: the legal values
+  // are the selected model's operator-declared provider tokens, checked by
+  // exact membership after the model resolves, so the DTO's only job is to
+  // reject a blank or non-string one.
+  @ApiPropertyOptional({
+    description:
+      "Reasoning effort for this turn. Must be one of the selected model's " +
+      '`reasoning.effortLevels`; omit to use its `defaultEffort`. Matched ' +
+      'byte-exactly — not case-folded.',
+  })
+  @ValidateIf((o: CreateMessageDto) => o.effort !== undefined)
+  @IsString()
+  @Matches(/\S/, { message: 'effort must not be blank' })
+  effort?: string;
+
   // @IsDefined is required: without it, an omitted `message` is `undefined` and
   // @ValidateNested silently passes, so the handler would deref `input.message.id`.
   @ApiProperty({ type: () => CreateMessageBodyDto })

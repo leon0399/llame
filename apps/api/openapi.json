@@ -720,7 +720,7 @@
             "description": "Message id already exists, or another run is already in flight for this chat"
           },
           "422": {
-            "description": "Selected model is not available",
+            "description": "Selected model is not available, or the requested effort is not one of that model's declared levels",
             "content": {
               "application/json": {
                 "schema": {
@@ -2958,6 +2958,10 @@
           "modelId": {
             "type": "string",
             "description": "Opaque llame model id selected for this turn."
+          },
+          "effort": {
+            "type": "string",
+            "description": "Reasoning effort for this turn. Must be one of the selected model's `reasoning.effortLevels`; omit to use its `defaultEffort`. Matched byte-exactly — not case-folded."
           },
           "message": {
             "$ref": "#/components/schemas/CreateMessageBodyDto"
