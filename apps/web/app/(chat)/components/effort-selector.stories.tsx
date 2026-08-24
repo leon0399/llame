@@ -142,24 +142,30 @@ export const SelectsWithKeyboard: Story = {
 };
 
 /**
- * Every cell of the composer pill is one height. The three cells drifted apart
- * once — two triggers at `sm` (h-7) beside a `size-8` send button, inside an
- * `items-center` wrapper — so this pins the invariant rather than the pixel
- * value: whatever the shared box is, all cells report it.
+ * The composer's real shape: the selectors attached to each other, and send
+ * standing apart. Every control is still one height — they drifted apart once
+ * (triggers at `sm` = h-7 beside a `size-8` send) — so this pins the
+ * invariant rather than a pixel value, and survives a deliberate resize.
  *
- * @summary composer cells all share one height
+ * Send sits outside the group so it keeps symmetric corners; as the group's
+ * last cell it was forced `rounded-r-lg` with a squared left edge, which made
+ * the paper-plane glyph read off-centre.
+ *
+ * @summary composer controls share one height across both units
  */
 export const CellsShareOneHeight: Story = {
   tags: ["ai-generated"],
   decorators: [
     (Story) => (
       <ChatProvider>
-        <ButtonGroup>
-          <Story />
+        <div className="flex items-center gap-2">
+          <ButtonGroup>
+            <Story />
+          </ButtonGroup>
           <Button variant="outline" size="icon" aria-label="Send message">
             <span aria-hidden>→</span>
           </Button>
-        </ButtonGroup>
+        </div>
       </ChatProvider>
     ),
   ],

@@ -135,9 +135,9 @@ const EMPTY_MESSAGES: UIMessage[] = [];
 // Right cell of the composer model+send pill: square inner corner, rounded
 // outer corner, and a focus ring that lifts above its neighbour (see the group
 // wrapper in the composer). Shared by the Stop and Send branches.
-// Only the box. Variant, corners, borders, and the focus lift come from
-// ButtonGroup and the Button variant — restating them per cell is what let the
-// pill drift to three different heights.
+// Only the box, matching the selector cells' h-8. Standalone, so it keeps
+// Button's own symmetric `rounded-lg` — no corner overrides, which is what
+// makes the icon read centred.
 const COMPOSER_SEND_BUTTON_CLASS = "size-8";
 
 export type ChatPageProps = {
@@ -783,24 +783,27 @@ function ChatSessionContent({
               autoFocus
             />
             <PromptInputToolbar>
-              {/* Model picker (+ effort, when the model has one) and send as
-                  one attached pill, pushed to the composer's right edge.
-                  ButtonGroup owns the shared border, the squared inner
-                  corners, and the focus-ring lift — the cells state none of
-                  it. It is also `items-stretch`, so every cell fills one row
-                  height instead of floating inside it.
+              {/* Two units, not one pill: the SELECTORS are attached to each
+                  other, and send stands alone.
 
-                  This replaced a hand-rolled wrapper whose cells had drifted
-                  to three different heights: the two triggers were `sm`
-                  (h-7 = 28px) while send was `size-8` (32px), inside an
-                  `items-center` box, so the seams ran taller than the buttons
-                  they separated. */}
-              <ButtonGroup className="ml-auto">
-                <ModelSelector />
-                {/* Only present when the selected model declares an effort
-                    vocabulary; ButtonGroup re-collapses to two cells when it
-                    renders nothing. */}
-                <EffortSelector />
+                  Send left the group because being its last cell forced
+                  `rounded-r-lg` with squared left corners, and a paper-plane
+                  glyph reads off-centre inside an asymmetric box. Standalone,
+                  it keeps Button's own all-round `rounded-lg` and the icon
+                  centres itself — a shape fix rather than nudging the glyph.
+
+                  `gap-2` is the same 8px ButtonGroup applies between nested
+                  groups (`has-[>[data-slot=button-group]]:gap-2`), so the
+                  separation is the design system's answer, not a hand-picked
+                  number. Both units are h-8, which that gap is scaled for. */}
+              <div className="ml-auto flex items-center gap-2">
+                <ButtonGroup>
+                  <ModelSelector />
+                  {/* Only present when the selected model declares an effort
+                      vocabulary; the group re-collapses to a single cell when
+                      it renders nothing. */}
+                  <EffortSelector />
+                </ButtonGroup>
                 {status === "streaming" || status === "submitted" ? (
                   <PromptInputButton
                     type="button"
@@ -826,7 +829,7 @@ function ChatSessionContent({
                     <SendIcon size={16} />
                   </PromptInputButton>
                 )}
-              </ButtonGroup>
+              </div>
             </PromptInputToolbar>
           </PromptInput>
         </div>
