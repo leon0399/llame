@@ -145,7 +145,6 @@ function validateCursor(cursor: KnowledgeSearchCursor): void {
   if (
     cursor.version !== 1 ||
     cursor.query.length === 0 ||
-    Array.from(cursor.query).length > 200 ||
     cursor.query !== normalizeKnowledgeSearchQuery(cursor.query) ||
     (cursor.knowledgeSpaceId !== undefined &&
       !UUID_PATTERN.test(cursor.knowledgeSpaceId)) ||

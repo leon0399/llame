@@ -68,4 +68,20 @@ describe('Knowledge search cursor', () => {
       assertKnowledgeSearchCursorBinding(cursor, 'needle', undefined),
     ).toThrow(KnowledgeSearchCursorError);
   });
+
+  it('round-trips a valid query whose case fold expands past 200 code points', () => {
+    const query = 'İ'.repeat(101);
+    const expandingCursor: KnowledgeSearchCursor = {
+      ...cursor,
+      query: query.toLowerCase(),
+      knowledgeSpaceId: undefined,
+    };
+
+    const encoded = encodeKnowledgeSearchCursor(expandingCursor);
+
+    expect(decodeKnowledgeSearchCursor(encoded)).toEqual(expandingCursor);
+    expect(() =>
+      assertKnowledgeSearchCursorBinding(expandingCursor, query, undefined),
+    ).not.toThrow();
+  });
 });
