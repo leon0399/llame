@@ -2871,16 +2871,14 @@
           },
           "effort": {
             "type": "string",
-            "nullable": true,
-            "description": "The effort this compaction call ran at — inherited from the run whose prompt prefix it reuses, so its cached prefix stays valid. Null when that run carried none."
+            "description": "The effort this compaction call ran at — inherited from the run whose prompt prefix it reuses, so its cached prefix stays valid. Absent when that run carried none."
           }
         },
         "required": [
           "absorbedMessageCount",
           "beforeTokens",
           "afterTokens",
-          "modelId",
-          "effort"
+          "modelId"
         ]
       },
       "CompactionResponse": {

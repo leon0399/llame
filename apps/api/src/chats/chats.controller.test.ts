@@ -267,7 +267,6 @@ describe('ChatsController', () => {
         beforeTokens: null,
         afterTokens: null,
         modelId: null,
-        effort: null,
       },
     });
   });

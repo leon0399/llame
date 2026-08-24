@@ -24,9 +24,6 @@ export interface CompactionStatsResponse {
   afterTokens: number | null;
   /** @nullable */
   modelId: string | null;
-  /**
-   * The effort this compaction call ran at — inherited from the run whose prompt prefix it reuses, so its cached prefix stays valid. Null when that run carried none.
-   * @nullable
-   */
-  effort: string | null;
+  /** The effort this compaction call ran at — inherited from the run whose prompt prefix it reuses, so its cached prefix stays valid. Absent when that run carried none. */
+  effort?: string;
 }
