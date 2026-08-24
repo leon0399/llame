@@ -32,6 +32,8 @@ import {
   ToolOutput,
 } from "@workspace/ui/components/ai-elements/tool";
 import { MessageForkButton } from "./message-fork-button";
+import { ButtonGroup } from "@workspace/ui/components/button-group";
+
 import { EffortSelector } from "./effort-selector";
 import { ModelSelector } from "./model-selector";
 import {
@@ -133,8 +135,10 @@ const EMPTY_MESSAGES: UIMessage[] = [];
 // Right cell of the composer model+send pill: square inner corner, rounded
 // outer corner, and a focus ring that lifts above its neighbour (see the group
 // wrapper in the composer). Shared by the Stop and Send branches.
-const COMPOSER_SEND_BUTTON_CLASS =
-  "size-8 rounded-l-none rounded-r-md focus-visible:relative focus-visible:z-10";
+// Only the box. Variant, corners, borders, and the focus lift come from
+// ButtonGroup and the Button variant — restating them per cell is what let the
+// pill drift to three different heights.
+const COMPOSER_SEND_BUTTON_CLASS = "size-8";
 
 export type ChatPageProps = {
   chatId: string;
@@ -779,27 +783,28 @@ function ChatSessionContent({
               autoFocus
             />
             <PromptInputToolbar>
-              {/* Model picker + send grouped into one bordered pill, pushed to
-                  the right edge of the composer (design: `.mdl-group`). The end
-                  buttons are individually rounded rather than clipped with
-                  `overflow-hidden`, so their focus rings render in full; the
-                  focused cell lifts above its neighbour (`z-10`) so nothing
-                  clips the ring. */}
-              <div className="ml-auto inline-flex items-center rounded-md border border-border">
-                <ModelSelector className="rounded-l-md rounded-r-none focus-visible:relative focus-visible:z-10" />
-                {/* Third cell, only present when the selected model declares
-                    an effort vocabulary. It brings its own leading seam, so a
-                    model without reasoning collapses the pill back to two
-                    cells instead of leaving a divider with nothing after it. */}
+              {/* Model picker (+ effort, when the model has one) and send as
+                  one attached pill, pushed to the composer's right edge.
+                  ButtonGroup owns the shared border, the squared inner
+                  corners, and the focus-ring lift — the cells state none of
+                  it. It is also `items-stretch`, so every cell fills one row
+                  height instead of floating inside it.
+
+                  This replaced a hand-rolled wrapper whose cells had drifted
+                  to three different heights: the two triggers were `sm`
+                  (h-7 = 28px) while send was `size-8` (32px), inside an
+                  `items-center` box, so the seams ran taller than the buttons
+                  they separated. */}
+              <ButtonGroup className="ml-auto">
+                <ModelSelector />
+                {/* Only present when the selected model declares an effort
+                    vocabulary; ButtonGroup re-collapses to two cells when it
+                    renders nothing. */}
                 <EffortSelector />
-                {/* Seam between the two cells. A plain self-stretch span, not
-                    <Separator>: the shared primitive's vertical variant forces
-                    `h-full`, which collapses to 0 in this auto-height pill (no
-                    definite parent height), so the divider would vanish. */}
-                <span aria-hidden className="w-px self-stretch bg-border" />
                 {status === "streaming" || status === "submitted" ? (
                   <PromptInputButton
                     type="button"
+                    variant="outline"
                     onClick={handleStop}
                     className={COMPOSER_SEND_BUTTON_CLASS}
                     aria-label="Stop generation"
@@ -812,6 +817,7 @@ function ChatSessionContent({
                   </PromptInputButton>
                 ) : (
                   <PromptInputButton
+                    variant="outline"
                     className={COMPOSER_SEND_BUTTON_CLASS}
                     type="submit"
                     aria-label="Send message"
@@ -820,7 +826,7 @@ function ChatSessionContent({
                     <SendIcon size={16} />
                   </PromptInputButton>
                 )}
-              </div>
+              </ButtonGroup>
             </PromptInputToolbar>
           </PromptInput>
         </div>

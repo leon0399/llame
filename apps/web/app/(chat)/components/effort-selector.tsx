@@ -92,97 +92,89 @@ export function EffortSelector({ className }: { className?: string }) {
   const activeIndex = Math.max(0, levels.indexOf(activeLevel));
 
   return (
-    <>
-      {/* The seam is this component's own, so it disappears together with the
-          trigger on a model that declares no effort. Matches the model/send
-          divider: a stretched span, not <Separator>, whose vertical variant
-          forces h-full and collapses in this auto-height pill. */}
-      <span aria-hidden className="w-px self-stretch bg-border" />
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger
-          render={
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-label={`Reasoning effort, ${activeLevel}`}
-              aria-expanded={open}
-              // size="sm" is h-8, matching the model selector and send button so
-              // all three cells of the composer pill share one height.
-              className={cn(
-                "gap-1 rounded-none font-normal focus-visible:relative focus-visible:z-10",
-                className,
-              )}
-            >
-              {/* Verbatim: an opaque provider token, not a display string. */}
-              <span className="font-mono text-xs">{activeLevel}</span>
-              <ChevronDownIcon size={14} aria-hidden className="opacity-60" />
-            </Button>
-          }
-        />
-        {/* Anchored ABOVE the trigger so the level label stays visible while the
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            type="button"
+            variant="outline"
+            // Same box as the other two cells: "default" is h-8, matching the
+            // send cell's size="icon" (size-8).
+            size="default"
+            aria-label={`Reasoning effort, ${activeLevel}`}
+            aria-expanded={open}
+            // No corner, border, or focus-lift classes: ButtonGroup owns all
+            // three for every cell, so restating them here is how cells drift.
+            className={cn("gap-1 font-normal", className)}
+          >
+            {/* Verbatim: an opaque provider token, not a display string. */}
+            <span className="font-mono text-xs">{activeLevel}</span>
+            <ChevronDownIcon size={14} aria-hidden className="opacity-60" />
+          </Button>
+        }
+      />
+      {/* Anchored ABOVE the trigger so the level label stays visible while the
           thumb moves — the choice is legible mid-drag, not only after closing. */}
-        <PopoverContent side="top" align="end" className="w-64 p-3">
-          <div className="flex flex-col gap-2">
-            <div className="text-muted-foreground flex items-center justify-between text-xs">
-              {/* The ends describe the TRADE-OFF, which is stable across
+      <PopoverContent side="top" align="end" className="w-64 p-3">
+        <div className="flex flex-col gap-2">
+          <div className="text-muted-foreground flex items-center justify-between text-xs">
+            {/* The ends describe the TRADE-OFF, which is stable across
                 providers, rather than naming the extreme levels — those are
                 per-model tokens and would be wrong on the next model. */}
-              <span>Faster</span>
-              <span>Smarter</span>
-            </div>
+            <span>Faster</span>
+            <span>Smarter</span>
+          </div>
 
-            <div className="relative">
-              <Slider
-                min={0}
-                max={levels.length - 1}
-                step={1}
-                value={[activeIndex]}
-                onValueChange={(value) => {
-                  const next = Array.isArray(value) ? value[0] : value;
-                  const level = levels[next ?? 0];
-                  // Live: the trigger label re-renders from context as the thumb
-                  // moves, so the choice is legible before the popup closes.
-                  if (level !== undefined) setSelectedEffort(level);
-                }}
-                aria-label="Reasoning effort"
-                className={BOLD_SLIDER_CLASS}
-              />
+          <div className="relative">
+            <Slider
+              min={0}
+              max={levels.length - 1}
+              step={1}
+              value={[activeIndex]}
+              onValueChange={(value) => {
+                const next = Array.isArray(value) ? value[0] : value;
+                const level = levels[next ?? 0];
+                // Live: the trigger label re-renders from context as the thumb
+                // moves, so the choice is legible before the popup closes.
+                if (level !== undefined) setSelectedEffort(level);
+              }}
+              aria-label="Reasoning effort"
+              className={BOLD_SLIDER_CLASS}
+            />
 
-              {/* Stop markers. Decorative — the slider itself is the control, and
+            {/* Stop markers. Decorative — the slider itself is the control, and
                 these only make the discrete positions legible. `justify-between`
                 lines them up with the thumb's travel because the primitive is
                 rendered with `thumbAlignment="edge"`. */}
-              <div
-                aria-hidden
-                className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 items-center justify-between px-[0.4rem]"
-              >
-                {levels.map((level, index) => (
-                  <span
-                    key={level}
-                    className={cn(
-                      "size-1 rounded-full",
-                      index <= activeIndex
-                        ? "bg-primary-foreground/70"
-                        : "bg-muted-foreground/40",
-                    )}
-                  />
-                ))}
-              </div>
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 items-center justify-between px-[0.4rem]"
+            >
+              {levels.map((level, index) => (
+                <span
+                  key={level}
+                  className={cn(
+                    "size-1 rounded-full",
+                    index <= activeIndex
+                      ? "bg-primary-foreground/70"
+                      : "bg-muted-foreground/40",
+                  )}
+                />
+              ))}
             </div>
+          </div>
 
-            {/* The slider's own value is an INDEX, which is meaningless read
+          {/* The slider's own value is an INDEX, which is meaningless read
               aloud ("3"). Base UI exposes `getAriaValueText` on Slider.Thumb,
               which our vendored Slider renders internally and does not forward
               — a real API gap. Until it does, announce the level here rather
               than forking the primitive or letting the control be unreadable.
               Visually hidden because the trigger already shows it. */}
-            <span aria-live="polite" className="sr-only">
-              {activeLevel}
-            </span>
-          </div>
-        </PopoverContent>
-      </Popover>
-    </>
+          <span aria-live="polite" className="sr-only">
+            {activeLevel}
+          </span>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

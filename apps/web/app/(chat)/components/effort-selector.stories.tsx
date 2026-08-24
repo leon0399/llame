@@ -2,6 +2,9 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { vi } from "vitest";
 
+import { ButtonGroup } from "@workspace/ui/components/button-group";
+import { Button } from "@workspace/ui/components/button";
+
 import { ChatProvider } from "@/contexts/chat-context";
 // Import via the REAL specifier: sb.mock (preview.tsx) redirects it to the
 // __mocks__ module, so this is the SAME hook instance the component reads.
@@ -52,11 +55,11 @@ const meta = {
   decorators: [
     (Story) => (
       <ChatProvider>
-        {/* Mirrors the composer pill so the seam this component brings with it
-            has a bordered group to sit inside, as it does in the chat page. */}
-        <div className="border-border inline-flex items-center rounded-md border">
+        {/* The real composer wrapper, so the cell is previewed with the border
+            collapsing and corner rounding it actually ships with. */}
+        <ButtonGroup>
           <Story />
-        </div>
+        </ButtonGroup>
       </ChatProvider>
     ),
   ],
@@ -135,6 +138,38 @@ export const SelectsWithKeyboard: Story = {
     await waitFor(async () => {
       await expect(trigger.textContent).toContain("high");
     });
+  },
+};
+
+/**
+ * Every cell of the composer pill is one height. The three cells drifted apart
+ * once — two triggers at `sm` (h-7) beside a `size-8` send button, inside an
+ * `items-center` wrapper — so this pins the invariant rather than the pixel
+ * value: whatever the shared box is, all cells report it.
+ *
+ * @summary composer cells all share one height
+ */
+export const CellsShareOneHeight: Story = {
+  tags: ["ai-generated"],
+  decorators: [
+    (Story) => (
+      <ChatProvider>
+        <ButtonGroup>
+          <Story />
+          <Button variant="outline" size="icon" aria-label="Send message">
+            <span aria-hidden>→</span>
+          </Button>
+        </ButtonGroup>
+      </ChatProvider>
+    ),
+  ],
+  play: async ({ canvas }) => {
+    const heights = canvas
+      .getAllByRole("button")
+      .map((cell) => cell.getBoundingClientRect().height);
+
+    await expect(heights.length).toBeGreaterThan(1);
+    await expect(new Set(heights).size).toBe(1);
   },
 };
 
