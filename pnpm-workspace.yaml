@@ -36,7 +36,7 @@ minimumReleaseAgeExclude:
 # One shared version per dependency used by 2+ workspaces — reference with
 # "catalog:" in package.json. Single edit point, no cross-package drift.
 catalog:
-  "@ai-sdk/mcp": 1.0.67
+  "@ai-sdk/mcp": 1.0.71
   "@hookform/resolvers": ^5.1.1
   # Pinned exact, alongside `@ai-sdk/mcp`: apps/api pairs the AI SDK's MCP
   # client with this package's `StdioClientTransport`, so the two move
@@ -58,7 +58,7 @@ catalog:
   "@typescript/native-preview": 7.0.0-dev.20260703.1
   "@storybook/nextjs-vite": ^10.5.0
   "@tanstack/react-query": ^5.81.5
-  ai: 6.0.217
+  ai: 6.0.256
   class-variance-authority: ^0.7.1
   lucide-react: ^1.22.0
   # apps/web and apps/storybook must run the same Next (storybook compiles ui

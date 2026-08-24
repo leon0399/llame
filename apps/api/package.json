@@ -41,7 +41,7 @@
   },
   "dependencies": {
     "@ai-sdk/mcp": "catalog:",
-    "@ai-sdk/openai": "3.0.79",
+    "@ai-sdk/openai": "3.0.97",
     "@knaadh/nestjs-drizzle-postgres": "^1.2.0",
     "@modelcontextprotocol/sdk": "catalog:",
     "@nestjs/common": "^11.1.29",
@@ -71,8 +71,8 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@ai-sdk/provider": "3.0.13",
-    "@ai-sdk/provider-utils": "4.0.34",
+    "@ai-sdk/provider": "3.0.15",
+    "@ai-sdk/provider-utils": "4.0.46",
     "@nestjs/cli": "^11.0.24",
     "@nestjs/schematics": "^11.1.0",
     "@nestjs/testing": "^11.0.1",

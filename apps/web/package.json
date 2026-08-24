@@ -15,7 +15,7 @@
     "typecheck": "next typegen && tsgo --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/react": "3.0.219",
+    "@ai-sdk/react": "3.0.259",
     "@hookform/resolvers": "catalog:",
     "@sentry/nextjs": "^10.63.0",
     "@tanstack/react-query": "catalog:",
