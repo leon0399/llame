@@ -93,11 +93,11 @@ Knowledge-specific tests and any structured renderer narrow only the newly autho
 
 ### D9. Split implementation by independently reviewable behavior
 
-The implementation stack is:
+The delivery stack is:
 
-`master <- knowledge-ranges/proposal <- knowledge-ranges/read <- knowledge-ranges/search <- knowledge-ranges/acceptance <- knowledge-ranges/finalize`
+`master <- knowledge-ranges/proposal <- knowledge-ranges/read <- knowledge-ranges/search <- knowledge-ranges/acceptance <- knowledge-ranges/sync-specs <- knowledge-ranges/archive`
 
-The read layer owns line coordinates, streaming range extraction, output continuation, and removal of read hashes. The search layer owns multiple passages, merging/cropping, live cursors, and removal of search hashes. Acceptance owns cross-layer Run persistence/replay/UI compatibility, E2E coverage, documentation, roadmap, and changelog. Finalization separately syncs the verified delta specs and archives the change. No layer mixes indexed-search or overview work from the #541 tracker.
+The proposal layer owns only the planning artifacts. The read layer owns line coordinates, streaming range extraction, output continuation, and removal of read hashes. The search layer owns multiple passages, merging/cropping, live cursors, and removal of search hashes. Acceptance owns cross-layer Run persistence/replay/UI compatibility, E2E coverage, documentation, roadmap, and changelog. The spec-sync layer applies the verified deltas to canonical specs while leaving the active change intact. The archive layer then moves that completed active change into the dated archive without modifying runtime behavior or canonical specs. No layer mixes indexed-search or overview work from the #541 tracker.
 
 ## Risks / Trade-offs
 
@@ -114,5 +114,6 @@ The read layer owns line coordinates, streaming range extraction, output continu
 2. Deploy the backward-compatible read input schema and new read-result shape; existing calls without ranges continue to execute.
 3. Deploy passage search and live continuation; existing calls without cursors continue to execute.
 4. Verify new and historical persisted observations through live streaming, reload, bounded replay, and compaction before updating user/operator documentation.
-5. In a separate finalization PR, sync the verified deltas into canonical specs and archive the completed change.
-6. Rollback may restore the prior executors without a database rollback. Historical new-shape JSON remains renderable through the generic tool-result path; rollback MUST NOT rewrite it or assume every Knowledge result contains a hash.
+5. In a separate spec-sync PR, apply the verified deltas to canonical specs while leaving the completed active change present.
+6. In the final archive PR, archive that change without altering the already-synced canonical specs.
+7. Rollback may restore the prior executors without a database rollback. Historical new-shape JSON remains renderable through the generic tool-result path; rollback MUST NOT rewrite it or assume every Knowledge result contains a hash.
