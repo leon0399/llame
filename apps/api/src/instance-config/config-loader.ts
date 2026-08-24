@@ -957,6 +957,19 @@ function resolveModelReasoning(
     return undefined;
   }
 
+  // `minLength: 1` in the schema only rejects the empty string, so a
+  // whitespace-only level would otherwise reach the provider as a blank token.
+  // `trim()` is the TEST, never a transformation: a level that merely carries
+  // padding is a legitimate (if odd) provider token and is kept byte-for-byte.
+  const blank = raw.effortLevels.findIndex((level) => level.trim() === '');
+  if (blank !== -1) {
+    throw new InstanceConfigError(
+      `models[${modelId}].reasoning.effortLevels[${blank}]: must not be blank`,
+    );
+  }
+
+  // Membership is checked after the blank rule, so a blank default is reported
+  // as the blank level it duplicates rather than as a missing member.
   if (!raw.effortLevels.includes(raw.defaultEffort)) {
     throw new InstanceConfigError(
       `models[${modelId}].reasoning.defaultEffort: "${raw.defaultEffort}" is not one of effortLevels [${raw.effortLevels.join(', ')}]`,

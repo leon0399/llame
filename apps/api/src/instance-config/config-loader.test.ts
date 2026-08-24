@@ -1560,6 +1560,28 @@ describe('loadInstanceConfig — models[].reasoning (add-reasoning-effort)', () 
     );
   });
 
+  it('rejects a whitespace-only level, which minLength:1 alone would admit', () => {
+    writeConfig(
+      model('{ "effortLevels": ["low", "  "], "defaultEffort": "low" }'),
+    );
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /models\[m\]\.reasoning\.effortLevels\[1\]: must not be blank/,
+    );
+  });
+
+  // Guards the blank check against being "fixed" into a trim: padding makes an
+  // odd provider token, not an invalid one, and must survive byte-for-byte.
+  it('keeps a padded but nonblank level verbatim', () => {
+    writeConfig(
+      model('{ "effortLevels": [" low "], "defaultEffort": " low " }'),
+    );
+    expect(loadInstanceConfig().models[0]?.reasoning).toMatchObject({
+      effortLevels: [' low '],
+      defaultEffort: ' low ',
+    });
+  });
+
   it('rejects the retired boolean form, naming the model', () => {
     writeConfig(model('true'));
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);

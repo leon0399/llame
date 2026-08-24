@@ -15,6 +15,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   synopsis, Git revision, stable citation, OKF/OpenWiki behavior, or arbitrary
   filesystem access was added.
 
+- **BREAKING — per-model reasoning effort vocabularies**: `models[].reasoning`
+  in `llame.config.json` changes from a display boolean to an object,
+  `{ effortLevels, defaultEffort, cacheInvalidatedByEffortChange? }`. An
+  instance whose configuration still sets `reasoning: true` **refuses to
+  start**, naming the model — the boolean is rejected rather than coerced,
+  because it carries no vocabulary and any object inferred from it would be a
+  guess about the provider. Update each entry to declare the levels that model
+  accepts, or drop the key entirely for a model that takes no effort;
+  `llame.config.json.example` shows both. `effortLevels` are the provider's own
+  tokens, published and sent verbatim — llame imposes no enum, pattern, or
+  casing rule and never normalizes them — subject only to being nonblank,
+  unique within an entry, and containing `defaultEffort`.
+  `GET /api/v1/models` returns the object in place of the boolean, so generated
+  clients must regenerate. Nothing consumes the declaration yet; accepting a
+  per-request `effort` ships separately.
+
 - Bumped the AI SDK v6 line: `ai` 6.0.217 → 6.0.256, `@ai-sdk/openai`
   3.0.79 → 3.0.97, `@ai-sdk/react` 3.0.219 → 3.0.259, `@ai-sdk/mcp`
   1.0.67 → 1.0.71, and the paired `@ai-sdk/provider` 3.0.13 → 3.0.15 /
