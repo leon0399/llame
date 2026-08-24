@@ -6,37 +6,51 @@ Defines self-service owner-scoped personal Knowledge Spaces, stable identity, tr
 
 ## Requirements
 
-### Requirement: Each owner can self-service at most one personal Knowledge Space
+### Requirement: An owner can manage multiple personal Knowledge Spaces
 
-The system SHALL expose idempotent `PUT /api/v1/me/knowledge-space` for the current authenticated owner. The request SHALL contain no owner ID, Knowledge Space ID, source key, directory name, relative path, absolute path, or alternate resource locator. Its success response SHALL expose only the stable logical Knowledge Space identifier and SHALL NOT expose the hosted owner row or local binding.
+The system SHALL expose authenticated owner-scoped Knowledge Space resources at `/api/v1/knowledge-spaces`. `POST /api/v1/knowledge-spaces` SHALL accept only `{ "name": string }`, return `201 Created` with a `Location` header, and allocate a new globally stable opaque identifier. `GET /api/v1/knowledge-spaces` SHALL return a cursor-paginated owner inventory. `GET /api/v1/knowledge-spaces/:id` SHALL retrieve one owned resource. `PATCH /api/v1/knowledge-spaces/:id` SHALL accept only `{ "name": string }`. This capability SHALL expose no `PUT` or `DELETE` operation.
 
-Trusted code SHALL generate one globally stable opaque Knowledge Space identifier. An owner SHALL have at most one personal Knowledge Space, and repeated or concurrent create-or-get calls SHALL converge on the same identifier.
+The owner identity SHALL come only from the authenticated request context. Each representation SHALL contain exactly `id`, `name`, `createdAt`, and `updatedAt`; it SHALL expose no owner identifier, root, child path, source locator, or content. Names SHALL be trimmed, contain 1 through 100 Unicode code points, reject control, format, line-separator, and paragraph-separator characters, and MAY duplicate another owned space's name. Stable identifiers, not names, SHALL drive authorization, local binding, tool selection, and attribution. The system SHALL impose no per-owner Knowledge Space count cap in this iteration.
 
-The owner-to-space metadata SHALL be stored in tenant-owned PostgreSQL state with row-level security ENABLED and FORCED against the current authenticated user identity. Application queries SHALL retain explicit owner filters as defense-in-depth. The table MAY contain the logical identifier and owner identifier but SHALL contain no Markdown content, content hash, derived index, host path, credential, cache, or checkout state.
+The inventory SHALL be stored in tenant-owned PostgreSQL state with row-level security ENABLED and FORCED against the current authenticated owner. Application queries SHALL retain explicit owner predicates as defense-in-depth. Missing and other-owner item identifiers SHALL return the same `404` response.
 
-#### Scenario: Two owners receive distinct spaces
+List requests SHALL accept an integer `limit` from 1 through 100, default it to 50 when omitted, and accept an optional opaque `after` cursor. They SHALL order by `(createdAt, id)` and return `{ "items": [...], "nextCursor": string | null }`. The Knowledge capability SHALL implement the cursor as validated base64url-encoded `createdAt` and `id` keyset values. A malformed cursor or out-of-range limit SHALL return `400`. This iteration SHALL NOT introduce a reusable pagination framework, signed cursors, total counts, or offset pagination.
 
-- **WHEN** two authenticated owners create their personal Knowledge Spaces
-- **THEN** each receives a distinct stable Knowledge Space identifier
-- **AND** each owner can resolve only their own row under datastore enforcement
+#### Scenario: One owner creates same-named spaces
 
-#### Scenario: Repeated creation is idempotent
+- **WHEN** one authenticated owner creates two Knowledge Spaces with the same valid name
+- **THEN** both requests create distinct stable identifiers and filesystem children
+- **AND** both resources remain independently addressable by identifier
 
-- **WHEN** one owner repeats or concurrently races the create-or-get operation
-- **THEN** every successful response identifies the same Knowledge Space
-- **AND** no second owner row or directory identity is allocated
+#### Scenario: Inventory has no artificial total cap
 
-#### Scenario: Caller cannot select identity or location
+- **WHEN** an owner creates another valid Knowledge Space after already creating many spaces
+- **THEN** creation is not refused solely because of an owner-level count limit
+- **AND** list operations remain page-bounded
 
-- **WHEN** a caller attempts to add an owner, resource identifier, directory name, source key, or path-shaped field to provisioning
-- **THEN** closed request validation rejects it
+#### Scenario: Cursor ordering is deterministic
+
+- **WHEN** multiple owned spaces share a creation timestamp and a client follows `nextCursor`
+- **THEN** `(createdAt, id)` provides a deterministic tie-breaker
+- **AND** the client can traverse the inventory without offset ordering ambiguity
+
+#### Scenario: Malformed cursor fails closed
+
+- **WHEN** a client supplies an `after` cursor that is not valid base64url or does not decode to the expected `createdAt` and `id` keyset shape
+- **THEN** the API returns `400`
+- **AND** it does not fall back to offset pagination or partially trusted cursor state
+
+#### Scenario: Caller cannot select owner or location
+
+- **WHEN** a caller adds an owner identifier, resource identifier, directory name, source key, path, or other excess field to create or rename
+- **THEN** closed request validation rejects the request
 - **AND** trusted code remains the only identity and location authority
 
-#### Scenario: Unauthenticated provisioning is refused
+#### Scenario: Another owner's item is indistinguishable from missing
 
-- **WHEN** a request without a valid session calls the create-or-get endpoint
-- **THEN** it receives the API's standard unauthorized response
-- **AND** no Knowledge Space row or directory is created
+- **WHEN** an authenticated caller retrieves or renames another owner's guessed identifier
+- **THEN** the API returns the same `404` shape as for an absent identifier
+- **AND** no existence or metadata signal is disclosed
 
 #### Scenario: Missing identity fails closed
 
@@ -45,23 +59,31 @@ The owner-to-space metadata SHALL be stored in tenant-owned PostgreSQL state wit
 
 ### Requirement: Provisioning allocates one safe child beneath the configured root
 
-For the hosted binding, trusted code SHALL derive one direct child directory from the stable Knowledge Space identifier beneath the operator-configured Knowledge root. It SHALL canonicalize the root, require it to be an accessible directory, and prove the child resolves directly beneath that root. It SHALL NOT scan for candidate directories, claim a caller-named directory, or fall back to Home, the process working directory, a user-ID-derived location, another owner's child, or remote storage.
+For each hosted resource, trusted code SHALL generate the stable Knowledge Space identifier and derive one direct child directory from it beneath the operator-configured Knowledge root. It SHALL canonicalize the root, require it to be an accessible directory, and prove the child resolves directly beneath that root. It SHALL NOT scan for candidate directories, claim a caller-named directory, or fall back to Home, the process working directory, a user-ID-derived location, another owner's child, or remote storage.
 
-Directory creation SHALL be idempotent. A retry MAY accept an existing real directory at the exact trusted child path but SHALL reject a symbolic link or non-directory. A database row created before a filesystem failure SHALL remain the recovery anchor so a later retry repairs the same binding without minting a second Knowledge Space. Only an owner row visible under RLS grants authority to a child directory; an unlinked directory alone grants none.
+Provisioning SHALL create and validate the exact stable-ID child before inserting its owner row in a PostgreSQL transaction. A committed authority row SHALL therefore begin with a usable real directory. If directory creation fails, no authority row SHALL commit. If database insertion or commit fails after directory creation, the empty unauthoritative child MAY remain; recovery SHALL NOT delete or repurpose it. A later `POST` is a new non-idempotent creation attempt and MAY allocate a distinct resource.
 
-Provisioning SHALL NOT initialize Git, create commits, or require a repository. A safe empty directory is valid. Importing or claiming a pre-existing caller-selected directory is outside this capability.
+Root resolution, child creation, or child validation failure SHALL return the existing safe `503 knowledge_space_unavailable` API response and SHALL expose no filesystem path or raw diagnostic. Database insertion or commit failure SHALL use the API's existing safe internal-error response, expose no database or filesystem diagnostic, and leave any created child unauthoritative. Successful item and list operations SHALL use their declared `2xx` responses; malformed input SHALL return `400`, missing or other-owner items SHALL return the same `404`, and missing authentication SHALL return `401`.
+
+Only an owner row visible under RLS grants authority to a child directory; an unlinked directory alone grants none. Provisioning SHALL NOT initialize Git, create commits, or require a repository. A safe empty directory is valid. Importing or claiming a pre-existing caller-selected directory is outside this capability.
 
 #### Scenario: Empty space is created without Git
 
 - **WHEN** an owner creates a space under a valid writable Knowledge root
-- **THEN** the exact stable-ID child exists as a real directory
+- **THEN** the exact stable-ID child exists as a real directory before the authority row commits
 - **AND** no Git repository, commit, ref, or note is created
 
 #### Scenario: Partial filesystem failure is retryable
 
-- **WHEN** the owner row exists but its directory could not be created
-- **THEN** provisioning returns a closed unavailable result without replacing the row
-- **AND** a later retry targets the same stable-ID child
+- **WHEN** creating or validating the generated child fails before the owner row is inserted
+- **THEN** provisioning returns a closed unavailable result and commits no authority row
+- **AND** a later `POST` may make a new creation attempt without deleting the failed entry
+
+#### Scenario: Database failure leaves no authority
+
+- **WHEN** database insertion or commit fails after the stable-ID child was created
+- **THEN** no owner row grants access to that child
+- **AND** recovery does not delete the child or treat it as an existing resource
 
 #### Scenario: Existing symlink child is refused
 
@@ -77,9 +99,9 @@ Provisioning SHALL NOT initialize Git, create commits, or require a repository. 
 
 ### Requirement: Portable resource identity is separate from local ownership and binding
 
-The Knowledge Space identifier SHALL be globally stable and SHALL NOT encode or derive from a hosted user ID, display name, configured root, child path, provider locator, Git revision, or current installation. The hosted ownership row and owner association are authority-local, but a future personal Node replicating the same Knowledge Space SHALL retain the identifier unchanged rather than mint a replacement or require receipt migration.
+Each Knowledge Space identifier SHALL be globally stable and SHALL NOT encode or derive from a hosted user ID, display name, configured root, child path, provider locator, Git revision, or current installation. Hosted ownership rows and owner associations are authority-local, but a future personal Node replicating a Knowledge Space SHALL retain its identifier unchanged rather than mint a replacement or require receipt migration.
 
-The configured root and resolved child SHALL remain private installation-local binding data. Retrieval attribution exposed outside the binding layer SHALL identify only the logical Knowledge Space, Knowledge-relative path, and exact content hash. It MUST NOT expose hosted owner IDs, root or child paths, credentials, caches, worker identities, or raw filesystem diagnostics.
+Configured roots and resolved children SHALL remain private installation-local binding data. Retrieval attribution exposed outside the binding layer SHALL identify only the logical Knowledge Space, its response-time display name, Knowledge-relative path, and exact content hash. It MUST NOT expose hosted owner IDs, root or child paths, credentials, caches, worker identities, or raw filesystem diagnostics.
 
 A future trusted runtime MAY bind the same Knowledge Space identifier to a different local directory without requiring the hosted PostgreSQL ownership row or path convention to become portable state. A later multi-authority reference MAY qualify the unchanged identifier with governing-authority identity but SHALL NOT replace it.
 
@@ -102,18 +124,30 @@ A future trusted runtime MAY bind the same Knowledge Space identifier to a diffe
 
 ### Requirement: Run workers resolve only the trusted owner binding
 
-Every process consuming the `runs` worker group SHALL be able to resolve every owner directory its queue may execute beneath its configured root. Subset mounting without an execution-routing capability is not supported.
+Every process consuming the `runs` worker group SHALL be able to resolve every current owner resource its queue may execute beneath its configured root. Subset mounting without an execution-routing capability is not supported.
 
-Resolution SHALL start from the trusted Run owner identity, query that owner's row under RLS, and derive only the exact stable-ID child. If the root or child becomes unavailable or invalid at execution time, the capability SHALL return `knowledge_space_unavailable`. It MUST NOT fall back to another local or remote location. User- and model-visible errors SHALL omit root paths, child paths, raw filesystem exceptions, and other-owner existence signals.
+Resolution SHALL start from the trusted Run owner identity. At each tool invocation, datastore access SHALL run under that owner with RLS and an explicit owner predicate. Explicit selectors SHALL resolve only an owned row; an omitted search selector SHALL enumerate the owner's current rows. Before opening each targeted stable-ID child, execution SHALL confirm that the row is still currently accessible. Access removed before that check SHALL be rejected; access removed after that check need not cancel the already-open operation, and the next target or tool call SHALL observe the new state.
+
+If the root or child becomes unavailable or invalid at execution time, the capability SHALL return the applicable closed Knowledge result and MUST NOT fall back to another local or remote location. User- and model-visible errors SHALL omit root paths, child paths, raw filesystem exceptions, and other-owner existence signals.
 
 #### Scenario: Worker lacks the owner's directory
 
-- **WHEN** a Run executes on a worker that cannot safely resolve the trusted owner's stable-ID child
-- **THEN** the Knowledge operation returns `knowledge_space_unavailable`
-- **AND** no other directory is searched
+- **WHEN** a Run executes on a worker that cannot safely resolve one currently selected stable-ID child
+- **THEN** the Knowledge operation records `knowledge_space_unavailable` for that target
+- **AND** no other directory is substituted
 
 #### Scenario: Another owner's identifier cannot redirect resolution
 
 - **WHEN** model or caller input contains another owner's guessed or observed Knowledge Space identifier
-- **THEN** resolution still begins and ends with the accepted Run owner's RLS-protected row
+- **THEN** owner-scoped resolution returns the same closed not-found result as for an absent identifier
 - **AND** no data or existence signal from the other owner is returned
+
+#### Scenario: A later call observes a new space
+
+- **WHEN** an owner gains a Knowledge Space after a Run started
+- **THEN** a later unscoped search in that Run may include the new current resource
+
+#### Scenario: A later call rejects removed access
+
+- **WHEN** an owner loses access after an earlier successful tool call
+- **THEN** the next tool call or not-yet-opened target rejects that resource under the current owner check
