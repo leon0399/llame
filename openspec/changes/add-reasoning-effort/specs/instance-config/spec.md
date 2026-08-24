@@ -89,6 +89,8 @@ The system SHALL NOT verify that a declared level is accepted by the provider. A
 - **THEN** startup succeeds
 - **AND** the mismatch surfaces as a provider request error when a run uses that level
 
+## ADDED Requirements
+
 ### Requirement: Boolean reasoning metadata is replaced by the reasoning object
 
 The `models[].reasoning` boolean SHALL NOT be accepted. A config file setting `reasoning` to a boolean SHALL fail startup naming the model id and directing the operator to the object form. The system SHALL NOT coerce, migrate, or default the boolean into an object, because a boolean carries no effort vocabulary and any inferred vocabulary would be a guess about the provider.
