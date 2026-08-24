@@ -22,6 +22,7 @@ export const TOOL_UNAVAILABLE_REASONS = [
   'tool_missing',
   'declaration_refused',
   'name_collision',
+  // Legacy decode-only reason. Current Knowledge candidates never emit it.
   'knowledge_space_not_configured',
   'knowledge_space_unavailable',
 ] as const;

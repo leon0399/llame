@@ -157,6 +157,7 @@ export const TOOL_RECOVERY_REASONS = [
   'tool_restored',
   'declaration_accepted',
   'name_collision_resolved',
+  // Legacy decode/recovery only; current candidates never author its source reason.
   'knowledge_space_configured',
   'knowledge_space_restored',
 ] as const;

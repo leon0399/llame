@@ -372,7 +372,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
                 state: 'unavailable' as const,
                 id: tool.id,
                 classification: tool.classification,
-                reason: 'knowledge_space_not_configured' as const,
+                reason: 'knowledge_space_unavailable' as const,
               }
             : {
                 source: { type: 'code_owned' as const },
@@ -406,7 +406,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
             {
               id: 'knowledge_search',
               state: 'unavailable',
-              reason: 'knowledge_space_not_configured',
+              reason: 'knowledge_space_unavailable',
             },
           ],
         },

@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { eq } from 'drizzle-orm';
 import postgres from 'postgres';
 
 import * as schema from '../db/schema';
@@ -165,6 +166,21 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
   });
 
   it('binds each owner to only its stable child and returns safe attribution', async () => {
+    const ownerAPage = await runtimeResolver.listForOwnerPage(ownerAId);
+    const ownerABinding = await runtimeResolver.resolveBindingForOwnerById(
+      ownerAId,
+      spaceAId,
+    );
+    expect(ownerAPage.spaces).toContainEqual(
+      expect.objectContaining({ id: spaceAId, name: 'Personal' }),
+    );
+    expect(ownerABinding).toMatchObject({ id: spaceAId, name: 'Personal' });
+    if (ownerABinding === undefined) {
+      throw new Error('Expected owner A binding');
+    }
+    await expect(
+      runtimeResolver.createAdapter(ownerABinding).search('shared-term', 5),
+    ).resolves.toHaveLength(1);
     const resultA = await runKnowledge(knowledgeSearchTool, ownerAId, {
       query: 'shared-term',
       limit: 5,
@@ -174,18 +190,20 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
       limit: 5,
     });
     const readA = await runKnowledge(knowledgeReadTool, ownerAId, {
+      knowledgeSpaceId: spaceAId,
       path: 'notes/owner-a.md',
     });
     const readB = await runKnowledge(knowledgeReadTool, ownerBId, {
+      knowledgeSpaceId: spaceBId,
       path: 'notes/owner-b.md',
     });
 
     expect(resultA).toMatchObject({
       status: 'success',
-      knowledgeSpaceId: spaceAId,
       results: [
         {
           knowledgeSpaceId: spaceAId,
+          knowledgeSpaceName: 'Personal',
           path: 'notes/owner-a.md',
           contentHash: contentHash(ownerAContent),
         },
@@ -193,10 +211,10 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     });
     expect(resultB).toMatchObject({
       status: 'success',
-      knowledgeSpaceId: spaceBId,
       results: [
         {
           knowledgeSpaceId: spaceBId,
+          knowledgeSpaceName: 'Personal',
           path: 'notes/owner-b.md',
           contentHash: contentHash(ownerBContent),
         },
@@ -236,6 +254,117 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     expect(json(readB)).not.toContain(ownerAId);
   });
 
+  it('searches, renames, and revokes multiple current spaces live', async () => {
+    const second = await spaceService.provisionForOwner(ownerAId, {
+      name: 'Projects',
+    });
+    mkdirSync(path.dirname(notePath(second.id, 'projects/note.md')), {
+      recursive: true,
+    });
+    writeNote(spaceAId, 'notes/multi.md', 'multi-space-term personal');
+    writeNote(second.id, 'projects/note.md', 'multi-space-term projects');
+
+    const allSpaces = await runKnowledge(knowledgeSearchTool, ownerAId, {
+      query: 'multi-space-term',
+      limit: 5,
+    });
+    const explicit = await runKnowledge(knowledgeSearchTool, ownerAId, {
+      query: 'multi-space-term',
+      limit: 5,
+      knowledgeSpaceId: second.id,
+    });
+
+    expect(allSpaces).toMatchObject({
+      status: 'success',
+      complete: true,
+      results: [
+        {
+          knowledgeSpaceId: spaceAId,
+          knowledgeSpaceName: 'Personal',
+          path: 'notes/multi.md',
+        },
+        {
+          knowledgeSpaceId: second.id,
+          knowledgeSpaceName: 'Projects',
+          path: 'projects/note.md',
+        },
+      ],
+    });
+    expect(explicit).toMatchObject({
+      status: 'success',
+      results: [
+        {
+          knowledgeSpaceId: second.id,
+          knowledgeSpaceName: 'Projects',
+          path: 'projects/note.md',
+        },
+      ],
+    });
+
+    await spaceService.renameForOwner(ownerAId, second.id, {
+      name: 'Renamed projects',
+    });
+    const renamedRead = await runKnowledge(knowledgeReadTool, ownerAId, {
+      knowledgeSpaceId: second.id,
+      path: 'projects/note.md',
+    });
+    expect(renamedRead).toMatchObject({
+      status: 'success',
+      knowledgeSpaceId: second.id,
+      knowledgeSpaceName: 'Renamed projects',
+    });
+    expect(json(allSpaces)).toContain('Projects');
+    expect(json(allSpaces)).not.toContain('Renamed projects');
+
+    const revoked = await spaceService.provisionForOwner(ownerAId, {
+      name: 'Revoked',
+    });
+    writeNote(revoked.id, 'revoked.md', 'revoked content');
+    await expect(
+      runKnowledge(knowledgeReadTool, ownerAId, {
+        knowledgeSpaceId: revoked.id,
+        path: 'revoked.md',
+      }),
+    ).resolves.toMatchObject({ status: 'success' });
+    await tenantDb.runAs(ownerAId, (tx) =>
+      tx
+        .delete(schema.knowledgeSpaces)
+        .where(eq(schema.knowledgeSpaces.knowledgeSpaceId, revoked.id)),
+    );
+    await expect(
+      runKnowledge(knowledgeReadTool, ownerAId, {
+        knowledgeSpaceId: revoked.id,
+        path: 'revoked.md',
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_space_not_found',
+      message: 'Knowledge Space was not found.',
+    });
+    expect(lstatSync(childPath(revoked.id)).isDirectory()).toBe(true);
+
+    const broken = await spaceService.provisionForOwner(ownerAId, {
+      name: 'Broken',
+    });
+    rmSync(childPath(broken.id), { recursive: true, force: true });
+    const incomplete = await runKnowledge(knowledgeSearchTool, ownerAId, {
+      query: 'multi-space-term',
+      limit: 5,
+    });
+    expect(incomplete).toMatchObject({
+      status: 'success',
+      complete: false,
+      warningCount: 1,
+      warnings: [
+        {
+          type: 'knowledge_space_unavailable',
+          knowledgeSpaceId: broken.id,
+          knowledgeSpaceName: 'Broken',
+        },
+      ],
+    });
+  });
+
   it('observes live writes and changes the exact content hash', async () => {
     const relativePath = 'notes/live.md';
     const before = 'shared-term before the edit';
@@ -243,10 +372,12 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     writeNote(spaceAId, relativePath, before);
 
     const first = await runKnowledge(knowledgeReadTool, ownerAId, {
+      knowledgeSpaceId: spaceAId,
       path: relativePath,
     });
     writeNote(spaceAId, relativePath, after);
     const second = await runKnowledge(knowledgeReadTool, ownerAId, {
+      knowledgeSpaceId: spaceAId,
       path: relativePath,
     });
 
@@ -300,7 +431,7 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     const result = await runKnowledge(
       knowledgeReadTool,
       ownerAId,
-      { path: 'notes/owner-a.md' },
+      { knowledgeSpaceId: spaceAId, path: 'notes/owner-a.md' },
       workerResolver,
     );
 
@@ -314,9 +445,9 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
   });
 
   it('rejects caller-selected identity and location arguments before filesystem access', async () => {
-    const resolveBindingForOwner = vi.spyOn(
+    const resolveBindingForOwnerById = vi.spyOn(
       runtimeResolver,
-      'resolveBindingForOwner',
+      'resolveBindingForOwnerById',
     );
     const invalidCalls: Array<
       [
@@ -325,16 +456,8 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
       ]
     > = [
       [knowledgeSearchTool, { query: 'shared-term', ownerUserId: ownerBId }],
-      [
-        knowledgeSearchTool,
-        { query: 'shared-term', knowledgeSpaceId: spaceBId },
-      ],
       [knowledgeSearchTool, { query: 'shared-term', root }],
       [knowledgeReadTool, { path: 'notes/owner-a.md', ownerUserId: ownerBId }],
-      [
-        knowledgeReadTool,
-        { path: 'notes/owner-a.md', knowledgeSpaceId: spaceBId },
-      ],
       [knowledgeReadTool, { path: 'notes/owner-a.md', root }],
       [knowledgeReadTool, { path: 'notes/owner-a.md', source: 'other' }],
     ];
@@ -346,12 +469,34 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
       expect(json(result)).not.toContain(spaceBId);
       expect(json(result)).not.toContain(ownerBId);
     }
-    expect(resolveBindingForOwner).not.toHaveBeenCalled();
+    expect(resolveBindingForOwnerById).not.toHaveBeenCalled();
+
+    for (const [tool, args] of [
+      [
+        knowledgeSearchTool,
+        { query: 'shared-term', knowledgeSpaceId: spaceBId },
+      ],
+      [
+        knowledgeReadTool,
+        { path: 'notes/owner-a.md', knowledgeSpaceId: spaceBId },
+      ],
+    ] as const) {
+      const result = await runKnowledge(tool, ownerAId, args);
+      expect(result).toEqual({
+        status: 'error',
+        type: 'knowledge_space_not_found',
+        message: 'Knowledge Space was not found.',
+      });
+      expect(json(result)).not.toContain(spaceBId);
+      expect(json(result)).not.toContain(ownerBId);
+      expect(json(result)).not.toContain(root);
+    }
   });
 
   it('keeps a path-shaped other-owner identifier inside the current child', async () => {
     const guessedPath = `${spaceBId}/notes/owner-b.md`;
     const result = await runKnowledge(knowledgeReadTool, ownerAId, {
+      knowledgeSpaceId: spaceAId,
       path: guessedPath,
     });
 
@@ -390,7 +535,7 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     const noRoot = await runKnowledge(
       knowledgeReadTool,
       ownerAId,
-      { path: 'notes/owner-a.md' },
+      { knowledgeSpaceId: spaceAId, path: 'notes/owner-a.md' },
       unavailableRootResolver,
     );
     expect(noRoot).toEqual({
@@ -403,6 +548,7 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     rmSync(child, { recursive: true, force: true });
     try {
       const noChild = await runKnowledge(knowledgeReadTool, ownerBId, {
+        knowledgeSpaceId: spaceBId,
         path: 'notes/owner-b.md',
       });
       expect(noChild).toEqual({
@@ -432,7 +578,7 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     );
     const absent = await runTool(
       knowledgeReadTool,
-      { path: 'notes/owner-a.md' },
+      { knowledgeSpaceId: spaceAId, path: 'notes/owner-a.md' },
       undefined,
       15,
     );
@@ -444,7 +590,7 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
 
     const anonymous = await runTool(
       knowledgeReadTool,
-      { path: 'notes/owner-a.md' },
+      { knowledgeSpaceId: spaceAId, path: 'notes/owner-a.md' },
       context(''),
       15,
     );

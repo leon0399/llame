@@ -231,6 +231,7 @@ function classify(raw: string): {
   hasKnowledgeSearchTool: boolean;
   hasKnowledgeReadTool: boolean;
   knowledgeOperation: "search" | "read" | "error";
+  knowledgeSpaceId: string | undefined;
   knowledgeReadPath: string;
   knowledgeResultPath: string | undefined;
   lastUserContent: string;
@@ -266,6 +267,9 @@ function classify(raw: string): {
           : content.includes("missing")
             ? "notes/missing.md"
             : "notes/worker-note.md";
+    const knowledgeSpaceId = /Knowledge Space ID: ([0-9a-f-]{36})/iu.exec(
+      content,
+    )?.[1];
     const knowledgeOperation =
       content.includes("traversal") ||
       content.includes("symlink") ||
@@ -300,6 +304,7 @@ function classify(raw: string): {
       ),
       hasKnowledgeReadTool: toolIsOffered(body.tools, KNOWLEDGE_READ_TOOL_ID),
       knowledgeOperation,
+      knowledgeSpaceId,
       knowledgeReadPath,
       knowledgeResultPath,
       lastUserContent: content,
@@ -319,6 +324,7 @@ function classify(raw: string): {
       hasKnowledgeSearchTool: false,
       hasKnowledgeReadTool: false,
       knowledgeOperation: "search",
+      knowledgeSpaceId: undefined,
       knowledgeReadPath: "notes/worker-note.md",
       knowledgeResultPath: undefined,
       lastUserContent: "",
@@ -368,6 +374,7 @@ const server = http.createServer((req, res) => {
           hasKnowledgeReadTool,
           hasCurrentTurnToolResult,
           knowledgeOperation,
+          knowledgeSpaceId,
           knowledgeReadPath,
           knowledgeResultPath,
           lastUserContent,
@@ -400,12 +407,16 @@ const server = http.createServer((req, res) => {
                 ? KNOWLEDGE_READ_TOOL_ID
                 : KNOWLEDGE_SEARCH_TOOL_ID,
               arguments: readKnowledge
-                ? { path: knowledgeReadPath }
+                ? { knowledgeSpaceId, path: knowledgeReadPath }
                 : {
                     query: lastUserContent.includes(KNOWLEDGE_CHANGED_MARKER)
                       ? "KNOWLEDGE_E2E_CHANGED"
                       : "KNOWLEDGE_E2E_MARKER",
                     limit: 5,
+                    ...(lastUserContent.includes("explicit") &&
+                    knowledgeSpaceId !== undefined
+                      ? { knowledgeSpaceId }
+                      : {}),
                   },
             }),
           );

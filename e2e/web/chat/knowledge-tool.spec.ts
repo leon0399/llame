@@ -277,26 +277,41 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       await prepareChat(page);
       const log = page.getByRole("log");
 
-      await sendPrompt(page, "Please read the knowledge traversal fixture.");
+      await sendPrompt(
+        page,
+        `Please read the knowledge traversal fixture. Knowledge Space ID: ${workerKnowledgeSpace.id}`,
+      );
       await expectErroredTool(log, "The Knowledge path is invalid.", 0);
 
-      await sendPrompt(page, "Please read the knowledge symlink fixture.");
+      await sendPrompt(
+        page,
+        `Please read the knowledge symlink fixture. Knowledge Space ID: ${workerKnowledgeSpace.id}`,
+      );
       await expectErroredTool(log, "The Knowledge path is invalid.", 1);
 
-      await sendPrompt(page, "Please read the knowledge oversized fixture.");
+      await sendPrompt(
+        page,
+        `Please read the knowledge oversized fixture. Knowledge Space ID: ${workerKnowledgeSpace.id}`,
+      );
       await expectErroredTool(
         log,
         "The Knowledge operation exceeded its limit.",
         2,
       );
 
-      await sendPrompt(page, "Please read the knowledge missing fixture.");
+      await sendPrompt(
+        page,
+        `Please read the knowledge missing fixture. Knowledge Space ID: ${workerKnowledgeSpace.id}`,
+      );
       await expectErroredTool(log, "The Knowledge note was not found.", 3);
 
       // Acceptance still sees the configured API root, while the co-located
       // worker resolver fails closed when its owner child is unavailable.
       rmSync(workerKnowledgeSpace.directory, { recursive: true, force: true });
-      await sendPrompt(page, "Please read the knowledge unavailable fixture.");
+      await sendPrompt(
+        page,
+        `Please read the knowledge unavailable fixture. Knowledge Space ID: ${workerKnowledgeSpace.id}`,
+      );
       await expectErroredTool(log, "The Knowledge Space is unavailable.", 4);
 
       // Missing-root and a separately mounted worker are covered by the

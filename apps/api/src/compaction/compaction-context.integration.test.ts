@@ -79,7 +79,8 @@ const unexercisedModels: ModelClientFactory = {
 };
 
 const knowledgeResolver: KnowledgeToolResolver = {
-  resolveBindingForOwner: () => Promise.resolve(undefined),
+  listForOwnerPage: () => Promise.resolve({ spaces: [] }),
+  resolveBindingForOwnerById: () => Promise.resolve(undefined),
   createAdapter: () => ({
     search: () => Promise.resolve([]),
     read: () => Promise.reject(new Error('Knowledge adapter is not exercised')),

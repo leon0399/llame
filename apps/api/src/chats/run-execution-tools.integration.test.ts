@@ -100,7 +100,8 @@ const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = any;
 
 const knowledgeResolver: KnowledgeToolResolver = {
-  resolveBindingForOwner: () => Promise.resolve(undefined),
+  listForOwnerPage: () => Promise.resolve({ spaces: [] }),
+  resolveBindingForOwnerById: () => Promise.resolve(undefined),
   createAdapter: () => ({
     search: () => Promise.resolve([]),
     read: () => Promise.reject(new Error('Knowledge adapter is not exercised')),
@@ -2215,6 +2216,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         return Promise.resolve(
           turn === 1
             ? jsonToolCallResponse('knowledge-call', 'knowledge_read', {
+                knowledgeSpaceId: space.id,
                 path: relativePath,
               })
             : textResponse('The checkpoint is Friday at 09:00 UTC.'),

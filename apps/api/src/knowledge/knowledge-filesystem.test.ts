@@ -12,6 +12,7 @@ import path from 'node:path';
 
 import {
   KnowledgeFilesystemAdapter,
+  createKnowledgeFilesystemSearchBudget,
   type KnowledgeFilesystemDirectory,
   type KnowledgeFilesystemDirent,
   type KnowledgeFilesystemFile,
@@ -35,7 +36,7 @@ async function fixture() {
   return {
     root,
     directory,
-    binding: { id: SPACE_ID, root, directory },
+    binding: { id: SPACE_ID, name: 'Personal', root, directory },
   };
 }
 
@@ -187,6 +188,28 @@ describe('KnowledgeFilesystemAdapter', () => {
       expect(matches).toHaveLength(1);
       expect(matches[0]?.line).toBe('new text');
       expect(matches[0]?.snippet).toContain('new again');
+    });
+  });
+
+  it('shares search safety accounting when adapters reuse one operation budget', async () => {
+    await withFixture(async ({ binding, directory }) => {
+      await writeFile(path.join(directory, 'a.md'), 'needle a\n');
+      await writeFile(path.join(directory, 'b.md'), 'needle b\n');
+      const budget = createKnowledgeFilesystemSearchBudget();
+      budget.remainingFiles = 2;
+
+      const first = await new KnowledgeFilesystemAdapter(binding).search(
+        'needle',
+        5,
+        { budget },
+      );
+      expect(first).toHaveLength(2);
+      expect(budget.remainingFiles).toBe(0);
+      await expect(
+        new KnowledgeFilesystemAdapter(binding).search('needle', 5, {
+          budget,
+        }),
+      ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
     });
   });
 
@@ -514,6 +537,30 @@ describe('KnowledgeFilesystemAdapter', () => {
       KNOWLEDGE_MAX_SEARCH_FILE_BYTES + 1,
     );
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds a growth-raced read by the remaining shared byte budget', async () => {
+    const binding = {
+      id: SPACE_ID,
+      root: '/trusted/root',
+      directory: `/trusted/root/${SPACE_ID}`,
+    };
+    const readLengths: number[] = [];
+    const fileSystem = fakeFilesystem(
+      [fileEntry('note.md')],
+      fileStats(1),
+      Buffer.alloc(2),
+      readLengths,
+    );
+    const budget = createKnowledgeFilesystemSearchBudget();
+    budget.remainingBytes = 1;
+
+    await expect(
+      new KnowledgeFilesystemAdapter(binding, fileSystem).search('needle', 5, {
+        budget,
+      }),
+    ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
+    expect(readLengths.reduce((sum, length) => sum + length, 0)).toBe(2);
   });
 
   it('rejects aggregate search bytes without returning partial matches', async () => {
