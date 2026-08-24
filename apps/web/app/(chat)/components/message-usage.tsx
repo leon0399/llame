@@ -52,6 +52,7 @@ type TurnUsage = {
   totalTokens?: number;
   reasoningTokens?: number;
   modelId?: string;
+  effort?: string;
   latencyMs?: number;
   costUsd?: number | null;
   status?: string;
@@ -76,6 +77,7 @@ export function parseTurnUsage(metadata: unknown): TurnUsage | null {
     totalTokens: num(u.totalTokens),
     reasoningTokens: num(u.reasoningTokens),
     modelId: typeof u.modelId === "string" ? u.modelId : undefined,
+    effort: typeof u.effort === "string" ? u.effort : undefined,
     latencyMs: num(u.latencyMs),
     costUsd: u.costUsd === null ? null : num(u.costUsd),
     status: typeof u.status === "string" ? u.status : undefined,
@@ -158,11 +160,14 @@ export function buildUsageLine(
 
   let text: string;
   if (usage.modelId) {
-    // The design's badge shape: "model · total time" — tokens/cost live only
-    // in the hover breakdown, not inline.
+    // The design's badge shape: "model · effort · total time" — tokens/cost
+    // live only in the hover breakdown, not inline. Effort sits between the
+    // two because it qualifies the model, not the timing, and drops out
+    // entirely for a turn that carried none rather than showing a placeholder.
     text = [
       label,
       modelName,
+      usage.effort ?? null,
       usage.latencyMs !== undefined ? formatLatency(usage.latencyMs) : null,
     ]
       .filter((part): part is string => Boolean(part))
@@ -220,6 +225,11 @@ export function buildUsageLine(
       label: "Model",
       value: modelName ?? usage.modelId,
     });
+  }
+  // Indented beneath Model the way "of which cached" sits beneath Input: it
+  // qualifies the row above rather than standing as a peer fact.
+  if (usage.effort !== undefined) {
+    costRows.push({ label: "at effort", value: usage.effort });
   }
   if (hasTokens) {
     costRows.push({
@@ -303,7 +313,9 @@ export function MessageUsage({
                 key={row.label}
                 className={cn(
                   "flex items-center justify-between gap-[1.1rem] text-xs",
-                  row.label === "of which cached" && "pl-[0.85rem]",
+                  (row.label === "of which cached" ||
+                    row.label === "at effort") &&
+                    "pl-[0.85rem]",
                 )}
               >
                 <span className="text-muted-foreground">{row.label}</span>

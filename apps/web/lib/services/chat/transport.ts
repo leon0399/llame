@@ -4,6 +4,12 @@ import { buildApiUrl } from "../../api/fetch";
 type PrepareSendMessagesOptions = {
   messages: Array<Pick<UIMessage, "id" | "parts">>;
   modelId: string;
+  /**
+   * Reasoning effort for this turn. Absent means "use the model's own
+   * default" — the api resolves it, so the client never has to guess a level
+   * for a model whose vocabulary it has not loaded.
+   */
+  effort?: string | undefined;
 };
 
 export const NO_MODEL_SELECTED_ERROR =
@@ -31,8 +37,13 @@ export function prepareReconnectToStreamRequest({ id }: { id: string }): {
 export function prepareSendMessagesRequest({
   messages,
   modelId,
+  effort,
 }: PrepareSendMessagesOptions): {
-  body: { modelId: string; message: { id: string; parts: UIMessage["parts"] } };
+  body: {
+    modelId: string;
+    effort?: string;
+    message: { id: string; parts: UIMessage["parts"] };
+  };
 } {
   const lastMessage = messages.at(-1);
   if (!lastMessage) {
@@ -45,6 +56,9 @@ export function prepareSendMessagesRequest({
   return {
     body: {
       modelId,
+      // Omitted, never sent as null or "": the api rejects a blank effort with
+      // 400 and treats absence as "resolve this model's defaultEffort".
+      ...(effort !== undefined && effort.length > 0 && { effort }),
       message: {
         id: lastMessage.id,
         parts: lastMessage.parts,

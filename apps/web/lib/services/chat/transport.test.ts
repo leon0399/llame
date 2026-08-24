@@ -38,6 +38,26 @@ describe("prepareSendMessagesRequest", () => {
     expect(JSON.stringify(body)).not.toContain("m1");
   });
 
+  it("sends a selected effort verbatim", () => {
+    const { body } = prepareSendMessagesRequest({
+      modelId: "system:openai:reasoner",
+      effort: "xhigh",
+      messages: [{ id: "m1", role: "user", parts: [] }],
+    } as never);
+    expect(body.effort).toBe("xhigh");
+  });
+
+  // Absent, never null or "": the api rejects a blank effort with 400 and
+  // treats absence as "resolve this model's own defaultEffort".
+  it.each([undefined, ""])("omits the effort field for %p", (effort) => {
+    const { body } = prepareSendMessagesRequest({
+      modelId: "system:openai:reasoner",
+      effort,
+      messages: [{ id: "m1", role: "user", parts: [] }],
+    } as never);
+    expect(body).not.toHaveProperty("effort");
+  });
+
   it("rejects an empty message list", () => {
     expect(() => prepareSendMessagesRequest({ messages: [] } as never)).toThrow(
       /empty chat request/i,

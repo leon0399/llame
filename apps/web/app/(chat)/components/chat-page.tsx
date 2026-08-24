@@ -32,6 +32,7 @@ import {
   ToolOutput,
 } from "@workspace/ui/components/ai-elements/tool";
 import { MessageForkButton } from "./message-fork-button";
+import { EffortSelector } from "./effort-selector";
 import { ModelSelector } from "./model-selector";
 import {
   PromptInput,
@@ -271,7 +272,7 @@ function ChatSessionContent({
 
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { selectedModel, setSelectedModel } = useChatContext();
+  const { selectedModel, setSelectedModel, selectedEffort } = useChatContext();
   const { trackRun, untrackChat, markChatSeen } = useActiveRuns();
   const modelsQuery = useModelsQuery();
   const availableModels = modelsQuery.data?.models ?? [];
@@ -293,7 +294,16 @@ function ChatSessionContent({
   // the CURRENT selection. Assigned during render (not via an effect) — it's a
   // plain latest-value mirror, only read later inside prepareSendMessagesRequest.
   const selectedModelRef = useRef(selectedModel);
+  // Same frozen-closure hazard as the model above: the transport is created
+  // once, so reading `selectedEffort` directly would pin the first turn's
+  // level for the life of the chat.
+  const selectedEffortRef = useRef(selectedEffort);
+  // Both mirrors are refreshed together, every render. Keeping the pair
+  // adjacent matters: effort is seeded asynchronously by the selector, so a
+  // ref left unassigned here stays `undefined` forever and every send silently
+  // omits effort while the control still looks like it works.
   selectedModelRef.current = selectedModel;
+  selectedEffortRef.current = selectedEffort;
 
   const transport = useMemo(
     () =>
@@ -303,13 +313,14 @@ function ChatSessionContent({
         fetch: authAwareFetch,
         prepareSendMessagesRequest: (options) => {
           const modelId = selectedModelRef.current;
+          const effort = selectedEffortRef.current;
           if (modelId === undefined) {
             // Unreachable in practice (both send affordances are gated on
             // modelReadyForSend), but this narrows undefined → string so a
             // request can never be built without a model.
             throw new Error(NO_MODEL_SELECTED_ERROR);
           }
-          return prepareSendMessagesRequest({ ...options, modelId });
+          return prepareSendMessagesRequest({ ...options, modelId, effort });
         },
         prepareReconnectToStreamRequest,
       }),
@@ -775,6 +786,11 @@ function ChatSessionContent({
                   clips the ring. */}
               <div className="ml-auto inline-flex items-center rounded-md border border-border">
                 <ModelSelector className="rounded-l-md rounded-r-none focus-visible:relative focus-visible:z-10" />
+                {/* Third cell, only present when the selected model declares
+                    an effort vocabulary. It brings its own leading seam, so a
+                    model without reasoning collapses the pill back to two
+                    cells instead of leaving a divider with nothing after it. */}
+                <EffortSelector />
                 {/* Seam between the two cells. A plain self-stretch span, not
                     <Separator>: the shared primitive's vertical variant forces
                     `h-full`, which collapses to 0 in this auto-height pill (no

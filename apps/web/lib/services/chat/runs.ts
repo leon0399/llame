@@ -17,6 +17,10 @@ export type ContextReceiptTool = ContextReceiptToolResponse;
 export type RunContextReceipt = Pick<
   ContextReceiptResponse,
   | "modelId"
+  // Optional on the wire: absent when the run carried no effort. Listed here
+  // deliberately — this Pick is an allowlist, so a new receipt field reaches
+  // the UI only by being named.
+  | "effort"
   | "promptSource"
   | "systemPrompt"
   | "tools"
