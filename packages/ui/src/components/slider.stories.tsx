@@ -35,7 +35,7 @@ type Story = StoryObj<typeof meta>;
  */
 export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  args: { defaultValue: [50], max: 100, step: 1 },
+  args: { defaultValue: [50], max: 100, step: 1, "aria-label": "Volume" },
 };
 
 /**
@@ -46,7 +46,12 @@ export const Basic: Story = {
  */
 export const Range: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  args: { defaultValue: [25, 75], max: 100, step: 1 },
+  args: {
+    defaultValue: [25, 75],
+    max: 100,
+    step: 1,
+    "aria-label": "Price range",
+  },
 };
 
 /**
@@ -57,7 +62,13 @@ export const Range: Story = {
  */
 export const Vertical: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  args: { defaultValue: [40], max: 100, step: 1, orientation: "vertical" },
+  args: {
+    defaultValue: [40],
+    max: 100,
+    step: 1,
+    orientation: "vertical",
+    "aria-label": "Level",
+  },
   decorators: [
     (Story) => (
       <div className="h-48">
@@ -75,7 +86,13 @@ export const Vertical: Story = {
  */
 export const Disabled: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  args: { defaultValue: [30], max: 100, step: 1, disabled: true },
+  args: {
+    defaultValue: [30],
+    max: 100,
+    step: 1,
+    disabled: true,
+    "aria-label": "Opacity",
+  },
 };
 
 /**
@@ -90,7 +107,13 @@ export const Disabled: Story = {
  */
 export const SteppedChoices: Story = {
   tags: ["ai-generated"],
-  args: { defaultValue: [2], min: 0, max: 4, step: 1 },
+  args: {
+    defaultValue: [2],
+    min: 0,
+    max: 4,
+    step: 1,
+    "aria-label": "Reasoning effort",
+  },
   play: async ({ canvas }) => {
     const slider = canvas.getByRole("slider");
     await expect(slider).toHaveValue("2");

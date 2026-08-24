@@ -29,6 +29,14 @@ function Slider({
   min = 0,
   /** Highest selectable value. Defaults to 100. */
   max = 100,
+  /**
+   * Accessible name for the control. REQUIRED unless `aria-labelledby` points
+   * at a visible label — the interactive element is a hidden `<input
+   * type="range">`, and an unnamed form control is an axe violation.
+   */
+  "aria-label": ariaLabel,
+  /** Id of the element naming this control, as an alternative to `aria-label`. */
+  "aria-labelledby": ariaLabelledBy,
   ...props
 }: SliderPrimitive.Root.Props) {
   const _values = Array.isArray(value)
@@ -62,6 +70,14 @@ function Slider({
           <SliderPrimitive.Thumb
             data-slot="slider-thumb"
             key={index}
+            // Forked from the registry output on purpose: the accessible name
+            // has to land on the Thumb, which merges it into the hidden
+            // `<input type="range">` that is the real control. Root spreads
+            // onto a wrapper div, so a name passed there never reaches the
+            // input and every story fails "Form elements must have labels".
+            // Re-apply this when re-running `shadcn add slider`.
+            aria-label={ariaLabel}
+            aria-labelledby={ariaLabelledBy}
             className="relative block size-3 shrink-0 rounded-full border border-ring bg-white ring-ring/50 transition-[color,box-shadow] select-none after:absolute after:-inset-2 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden active:ring-3 disabled:pointer-events-none disabled:opacity-50"
           />
         ))}
