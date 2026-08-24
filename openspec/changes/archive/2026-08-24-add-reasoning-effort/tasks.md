@@ -187,27 +187,27 @@ layer alone would put master in a state that violates the
 One PR, no production code. Runs after every implementation layer above is
 complete and green.
 
-- [ ] 6.1 Extend the `CHANGELOG.md` entry — the breaking
+- [x] 6.1 Extend the `CHANGELOG.md` entry — the breaking
       `models[].reasoning` shape change is recorded by the layer that ships it,
       so add the new per-request `effort` and the compaction inheritance rule
       alongside it rather than writing a fresh entry; verify
       `pnpm lint:markdown` passes.
-- [ ] 6.2 Check off every task in groups 1–5 and re-run
+- [x] 6.2 Check off every task in groups 1–5 and re-run
       `openspec validate add-reasoning-effort --strict`; verify it reports the
       change as valid.
-- [ ] 6.3 Full verification sweep across the whole stack, sequentially:
+- [x] 6.3 Full verification sweep across the whole stack, sequentially:
       `pnpm exec turbo run build --filter=api --concurrency=1`,
       `pnpm --filter web build`, `pnpm --filter api lint`,
       `pnpm --filter api test`, `pnpm --filter api test:integration`, and
       `pnpm lint:markdown`; verify all pass.
-- [ ] 6.4 Run `/opsx:sync add-reasoning-effort` to fold the three delta specs
+- [x] 6.4 Run `/opsx:sync add-reasoning-effort` to fold the three delta specs
       into `openspec/specs/{instance-config,available-models,reasoning-output}/spec.md`;
       verify each main spec carries the new and modified requirements and that
       no `## ADDED`/`## MODIFIED` delta headers leak into a main spec.
-- [ ] 6.5 Run `/opsx:archive add-reasoning-effort` in the same PR; verify the
+- [x] 6.5 Run `/opsx:archive add-reasoning-effort` in the same PR; verify the
       change moves under `openspec/changes/archive/` and `openspec list --json`
       no longer reports it as active. Archive warns about incomplete tasks — its
       own group is necessarily unchecked while it runs, so confirm past that
       warning only after 6.1–6.4 are done.
-- [ ] 6.6 Verify the closure PR contains **only** documentation and spec
+- [x] 6.6 Verify the closure PR contains **only** documentation and spec
       movement: no `apps/` or `packages/` changes in its diff.
