@@ -8,6 +8,7 @@ import {
   UpdateChatDto,
   toSharedChatResponse,
 } from './chats.dto';
+import { toActiveRunResponse } from './active-runs.dto';
 
 describe('UpdateChatDto', () => {
   const pipe = new ValidationPipe({
@@ -293,6 +294,56 @@ describe('ChatSearchQueryDto', () => {
     await expect(
       pipe.transform({ q: 'x'.repeat(201) }, metadata),
     ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+// A17: effort travels with `modelId` and ONLY with it. These two surfaces
+// carry no modelId, so they must carry no effort either — the guard exists so
+// a later change broadening effort has to cross this boundary deliberately.
+describe('surfaces without model identity carry no effort', () => {
+  it('the active-runs list exposes neither modelId nor effort', () => {
+    const dto = toActiveRunResponse({
+      id: 'run-1',
+      chatId: 'chat-1',
+      chatTitle: 'A chat',
+      status: 'queued',
+      createdAt: new Date('2026-08-24T00:00:00.000Z'),
+    });
+
+    expect(Object.keys(dto).sort()).toEqual([
+      'chatId',
+      'chatTitle',
+      'createdAt',
+      'runId',
+      'status',
+    ]);
+  });
+
+  it('the public shared-chat message view exposes no usage, and so no effort', () => {
+    // Complete literal rather than a cast: the point is that a message
+    // carrying an effort in its usage still yields a public view without one.
+    const message: Message = {
+      id: 'm1',
+      chatId: 'chat-1',
+      seq: 1,
+      role: 'assistant',
+      senderUserId: null,
+      parts: [{ type: 'text', text: 'hi' }],
+      attachments: [],
+      usage: { modelId: 'm', effort: 'high' },
+      inReplyTo: null,
+      createdAt: new Date('2026-08-24T00:00:00.000Z'),
+    };
+
+    const dto = toSharedChatResponse({ id: 'chat-1', title: 'T' }, [message]);
+
+    expect(Object.keys(dto.messages[0] ?? {}).sort()).toEqual([
+      'createdAt',
+      'id',
+      'parts',
+      'role',
+      'seq',
+    ]);
   });
 });
 

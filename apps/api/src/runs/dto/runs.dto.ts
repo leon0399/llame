@@ -62,6 +62,14 @@ export class RunResponse {
   @ApiProperty()
   modelId!: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Reasoning effort this run executed at, resolved when the run was ' +
+      'accepted. Absent when the run carried none. An opaque provider token — ' +
+      'a receipt of what ran, never recomputed from current configuration.',
+  })
+  effort?: string;
+
   @ApiProperty({ enum: runStatus.enumValues })
   status!: RunStatus;
 
@@ -159,6 +167,14 @@ export class ContextReceiptResponse {
   })
   modelId!: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Reasoning effort this run executed at, resolved when the run was ' +
+      'accepted. Absent when the run carried none. An opaque provider token — ' +
+      'a receipt of what ran, never recomputed from current configuration.',
+  })
+  effort?: string;
+
   @ApiProperty({ enum: modelContextPromptSource.enumValues })
   promptSource!: (typeof modelContextPromptSource.enumValues)[number];
 
@@ -195,6 +211,7 @@ export function toRunResponse(run: Run): RunResponse {
     chatId: run.chatId,
     messageId: run.messageId,
     modelId: run.modelId,
+    ...(run.effort !== null && { effort: run.effort }),
     status: run.status,
     error: run.error ?? null,
     createdAt: run.createdAt,
@@ -213,6 +230,9 @@ export function toContextReceiptResponse(
   );
   return {
     modelId: run.modelId,
+    // Sourced from the run, like `modelId` above — disclosure only: it does
+    // not participate in the snapshot's content or availability hashes.
+    ...(run.effort !== null && { effort: run.effort }),
     promptSource: snapshot.source,
     systemPrompt: snapshot.systemPrompt,
     tools: snapshot.toolDeclarations.map(

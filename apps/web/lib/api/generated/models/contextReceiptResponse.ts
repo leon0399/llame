@@ -13,6 +13,8 @@ import type { ContextReceiptUnobservedAvailabilityResponse } from "./contextRece
 export interface ContextReceiptResponse {
   /** Public llame model id selected for this run. */
   modelId: string;
+  /** Reasoning effort this run executed at, resolved when the run was accepted. Absent when the run carried none. An opaque provider token — a receipt of what ran, never recomputed from current configuration. */
+  effort?: string;
   promptSource: ContextReceiptResponsePromptSource;
   /** Complete effective system prompt bound to this run. */
   systemPrompt: string;

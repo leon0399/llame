@@ -152,6 +152,8 @@ export class CompactionService {
     client: ModelClient;
     system: string;
     toolDeclarations: readonly ModelToolDeclaration[];
+    /** The triggering run's effort — see `summarize`. */
+    effort?: string;
     lastTurnTotalTokens?: number;
   }): Promise<void> {
     try {
@@ -170,6 +172,8 @@ export class CompactionService {
     client: ModelClient;
     system: string;
     toolDeclarations: readonly ModelToolDeclaration[];
+    /** The triggering run's effort — see `summarize`. */
+    effort?: string;
     lastTurnTotalTokens?: number;
   }): Promise<void> {
     const thresholdTokens = this.thresholdTokens(input.client);
@@ -220,6 +224,7 @@ export class CompactionService {
       system: request.system,
       messages: request.messages,
       toolDeclarations: input.toolDeclarations,
+      ...(input.effort !== undefined && { effort: input.effort }),
     });
     const summary = inference.summary;
     if (summary === null) {
@@ -234,6 +239,7 @@ export class CompactionService {
       finishReason: inference.finishReason,
       status: 'completed',
       modelId: input.client.model,
+      ...(input.effort !== undefined && { effort: input.effort }),
       latencyMs: Date.now() - startedAt,
       price: input.client.pricing,
     });
@@ -371,6 +377,11 @@ export class CompactionService {
       );
     }
     const plan = state.plan;
+    // Captured here, where the guard above has narrowed `sourceRun`: this is
+    // the effort of the run whose model and system prompt the request reuses,
+    // NOT the incoming turn's, which is not part of that prefix and was
+    // validated against a different model's declared levels.
+    const sourceEffort = state.sourceRun.effort ?? undefined;
 
     let sourceClient: ModelClient;
     try {
@@ -415,6 +426,9 @@ export class CompactionService {
         system: request.system,
         messages: request.messages,
         toolDeclarations: state.sourceSnapshot.toolDeclarations,
+        // Read off the source run this method already loaded, so passing the
+        // incoming turn's effort by mistake is not expressible here.
+        ...(sourceEffort !== undefined && { effort: sourceEffort }),
         abortSignal: input.abortSignal,
       });
     } catch (error) {
@@ -463,6 +477,8 @@ export class CompactionService {
           finishReason: inference.finishReason,
           status: 'completed',
           modelId: sourceClient.model,
+          // Matches what `summarize` actually sent.
+          ...(sourceEffort !== undefined && { effort: sourceEffort }),
           latencyMs: inference.latencyMs,
           price: sourceClient.pricing,
         }),
@@ -476,6 +492,13 @@ export class CompactionService {
     system: string;
     messages: ModelMessage[];
     toolDeclarations: readonly ModelToolDeclaration[];
+    /**
+     * The effort of the run whose prompt prefix this request reuses. Sent as
+     * persisted, never re-resolved: the whole point of reproducing that run's
+     * system prompt and message prefix is to land on the provider's still-warm
+     * prompt cache, and a differing effort invalidates exactly that.
+     */
+    effort?: string;
     abortSignal?: AbortSignal;
   }): Promise<{
     summary: string | null;
@@ -499,6 +522,7 @@ export class CompactionService {
       system: input.system,
       messages: input.messages,
       abortSignal: input.abortSignal,
+      ...(input.effort !== undefined && { effort: input.effort }),
       ...(input.toolDeclarations.length > 0 && { tools }),
       toolChoice: 'none',
     });

@@ -769,6 +769,9 @@ export class RunExecutionService {
       const events = new RunEventsRepository(tx);
       await events.append(input.runId, 'model.requested', {
         modelId: client.model,
+        // Travels with modelId wherever it is recorded (available-models
+        // spec); omitted rather than null when the run carried none.
+        ...(effort !== undefined && { effort }),
       });
     });
 
@@ -1115,6 +1118,7 @@ export class RunExecutionService {
             finishReason: null,
             status: input.abortSignal?.aborted ? 'aborted' : 'error',
             modelId: client.model,
+            ...(effort !== undefined && { effort }),
             latencyMs: Date.now() - streamStartedAt,
             price: client.pricing,
           });
@@ -1222,6 +1226,7 @@ export class RunExecutionService {
                 ? 'error'
                 : 'completed',
             modelId: client.model,
+            ...(effort !== undefined && { effort }),
             latencyMs: Date.now() - streamStartedAt,
             price: client.pricing,
           });
@@ -1353,6 +1358,11 @@ export class RunExecutionService {
               // turn just populated (#57).
               system,
               toolDeclarations: prepared.toolDeclarations,
+              // Same reason the system prompt is reused: compaction runs
+              // immediately after the turn to land inside the provider's
+              // prompt-cache TTL, and a differing effort invalidates the
+              // message blocks that request shape exists to reuse.
+              ...(effort !== undefined && { effort }),
               lastTurnTotalTokens: telemetry.totalTokens,
             });
             if (untitled) {

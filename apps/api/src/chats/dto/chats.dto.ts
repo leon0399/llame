@@ -314,6 +314,16 @@ export class CompactionStatsResponse {
 
   @ApiProperty({ type: String, nullable: true })
   modelId!: string | null;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description:
+      'The effort this compaction call ran at — inherited from the run whose ' +
+      'prompt prefix it reuses, so its cached prefix stays valid. Null when ' +
+      'that run carried none.',
+  })
+  effort!: string | null;
 }
 
 /**
@@ -362,6 +372,7 @@ export function toCompactionResponse(
       beforeTokens: isNumber(usage?.inputTokens) ? usage.inputTokens : null,
       afterTokens: isNumber(usage?.outputTokens) ? usage.outputTokens : null,
       modelId: isString(usage?.modelId) ? usage.modelId : null,
+      effort: isString(usage?.effort) ? usage.effort : null,
     },
   };
 }

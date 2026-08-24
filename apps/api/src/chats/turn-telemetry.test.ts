@@ -137,6 +137,62 @@ describe('TurnTelemetry', () => {
     },
   );
 
+  describe('reasoning effort (add-reasoning-effort)', () => {
+    const base = {
+      usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
+      finishReason: 'stop' as const,
+      status: 'completed' as const,
+      modelId: 'm',
+      latencyMs: 1,
+    };
+
+    it('records the effort the call ran at, beside modelId', () => {
+      expect(buildTurnTelemetry({ ...base, effort: 'xhigh' })).toMatchObject({
+        modelId: 'm',
+        effort: 'xhigh',
+      });
+    });
+
+    // Absent, never null: matches the "omitted rather than fabricated" rule
+    // every other optional telemetry field already follows.
+    it('omits effort entirely when the call carried none', () => {
+      expect(buildTurnTelemetry(base)).not.toHaveProperty('effort');
+    });
+
+    it('carries a disabling level through rather than dropping it', () => {
+      expect(buildTurnTelemetry({ ...base, effort: 'none' })).toMatchObject({
+        effort: 'none',
+      });
+    });
+
+    it('includes the effort in the structured log payload', () => {
+      const info = vi.fn<(payload: UnknownRecord) => void>();
+      emitCompletedTurnTelemetryLog({ info } satisfies TurnTelemetryLogger, {
+        chatId: 'c',
+        messageId: 'a',
+        inReplyTo: 'u',
+        telemetry: buildTurnTelemetry({ ...base, effort: 'low' }),
+      });
+
+      expect(info).toHaveBeenCalledWith(
+        expect.objectContaining({ modelId: 'm', effort: 'low' }),
+      );
+    });
+
+    it('omits effort from the log payload when the call carried none', () => {
+      const info = vi.fn<(payload: UnknownRecord) => void>();
+      emitCompletedTurnTelemetryLog({ info } satisfies TurnTelemetryLogger, {
+        chatId: 'c',
+        messageId: 'a',
+        inReplyTo: 'u',
+        telemetry: buildTurnTelemetry(base),
+      });
+
+      const [payload] = info.mock.calls.at(-1) ?? [];
+      expect(payload).not.toHaveProperty('effort');
+    });
+  });
+
   it('omits message content from the structured telemetry log payload', () => {
     const info = vi.fn<(payload: UnknownRecord) => void>();
     const logger = { info } satisfies TurnTelemetryLogger;

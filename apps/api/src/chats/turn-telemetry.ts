@@ -15,6 +15,14 @@ export type TurnTelemetry = {
   totalTokens: number;
   reasoningTokens?: number;
   modelId: string;
+  /**
+   * The effort this call ran at, recorded wherever `modelId` is (see the
+   * available-models spec). Absent — never null — when the run carried none.
+   *
+   * A receipt, not a derivation: like `costUsd`, it is never recomputed when
+   * the model's declared levels or default change later.
+   */
+  effort?: string;
   latencyMs: number;
   finishReason: FinishReason | null;
   status: TurnStatus;
@@ -26,6 +34,7 @@ export type BuildTurnTelemetryInput = {
   finishReason?: FinishReason | null;
   status: TurnStatus;
   modelId: string;
+  effort?: string;
   latencyMs: number;
   /** The executing model's resolved pricing (`ModelClient.pricing`); absent means no configured price for this model. */
   price?: TokenPrice;
@@ -65,6 +74,7 @@ export function buildTurnTelemetry(
     totalTokens,
     ...(reasoningTokens !== undefined && { reasoningTokens }),
     modelId: input.modelId,
+    ...(input.effort !== undefined && { effort: input.effort }),
     latencyMs,
     finishReason: input.finishReason ?? null,
     status: input.status,
@@ -105,6 +115,9 @@ export function emitCompletedTurnTelemetryLog(
         reasoningTokens: input.telemetry.reasoningTokens,
       }),
       modelId: input.telemetry.modelId,
+      ...(input.telemetry.effort !== undefined && {
+        effort: input.telemetry.effort,
+      }),
       latencyMs: input.telemetry.latencyMs,
       finishReason: input.telemetry.finishReason,
       status: input.telemetry.status,
