@@ -20,6 +20,7 @@ import {
   type ProviderConfig,
   type RawInstanceConfig,
   type RawMcpServerEntry,
+  type RawModelEntry,
 } from './llame-config';
 import { InstanceConfigError } from '@workspace/config-interpolation';
 import { getConfigValidator } from './schema';
@@ -31,7 +32,10 @@ import {
 import { createModelPromptLoader } from './prompt-loader';
 import { getRegisteredToolIds } from '../tools/registry';
 import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
-import type { SystemModelCatalogEntry } from '../models/model-catalog';
+import type {
+  ModelReasoning,
+  SystemModelCatalogEntry,
+} from '../models/model-catalog';
 import {
   isNumber,
   isRecord,
@@ -317,6 +321,7 @@ function assertValidRaw(
   }
 
   const messages = (validate.errors ?? []).map((e) => {
+    const instancePath = describeInstancePath(e.instancePath, raw);
     if (e.keyword === 'additionalProperties') {
       // SAFETY: ajv's ErrorObject['params'] isn't discriminated by
       // e.keyword — its type stays a generic union regardless of the
@@ -324,15 +329,43 @@ function assertValidRaw(
       // additionalProperties keyword's params always carries this shape.
       const extra = (e.params as { additionalProperty?: string })
         .additionalProperty;
-      const base = e.instancePath === '' ? '' : e.instancePath;
-      return `${base}/${extra ?? '?'}: unrecognized key`;
+      return `${instancePath === '/' ? '' : instancePath}/${extra ?? '?'}: unrecognized key`;
     }
-    return `${e.instancePath || '/'}: ${e.message ?? 'is invalid'}`;
+    return `${instancePath}: ${e.message ?? 'is invalid'}`;
   });
 
   throw new InstanceConfigError(
     `Invalid ${configPath}:\n${messages.map((m) => `  - ${m}`).join('\n')}`,
   );
+}
+
+/**
+ * Rewrite ajv's positional `/models/0/...` into `/models[<id>]/...`.
+ *
+ * Every hand-written `models[]` failure below already names the model id, and
+ * an operator editing a long catalog reads an id far faster than an ordinal.
+ * Falls back to the raw path whenever the id is not a usable string — the
+ * entry being reported may be exactly the one whose `id` is missing.
+ */
+function describeInstancePath(
+  instancePath: string,
+  raw: UnknownRecord,
+): string {
+  const match = /^\/models\/(\d+)(?<rest>\/.*)?$/.exec(instancePath);
+  if (!match) {
+    return instancePath || '/';
+  }
+  const models: unknown = raw.models;
+  if (!Array.isArray(models)) {
+    return instancePath;
+  }
+  // Annotated `unknown`, not inferred: `Array.isArray` narrows to `any[]`, so
+  // indexing it would hand the rest of this function an unchecked `any`.
+  const entry: unknown = models[Number(match[1])];
+  const id = isRecord(entry) ? entry.id : undefined;
+  return isString(id) && id.length > 0
+    ? `/models[${id}]${match.groups?.rest ?? ''}`
+    : instancePath;
 }
 
 // ---- Per-leaf presence + resolution -------------------------------------
@@ -846,16 +879,19 @@ function resolveModels(
     }
 
     // The remaining fields (pricingUsdPer1M, name, description, tags, icon,
-    // knowledgeCutoff, reasoning, website, apiDocs, modelPage, releasedAt) are
-    // plain pass-through display metadata — schema-validated shape already
+    // knowledgeCutoff, website, apiDocs, modelPage, releasedAt) are plain
+    // pass-through display metadata — schema-validated shape already
     // guarantees they need no further resolution, so they ride along in the
     // spread below rather than each needing its own presence check.
     const {
       contextWindowTokens: rawContextWindowTokens,
       compactionThresholdTokens: rawCompactionThresholdTokens,
       systemPromptFile,
+      reasoning: rawReasoning,
       ...display
     } = entry;
+
+    const reasoning = resolveModelReasoning(entry.id, rawReasoning);
 
     const contextWindowTokens = requireResolvedNumber(
       resolveNumeric({
@@ -898,8 +934,40 @@ function resolveModels(
       ...(compactionThresholdTokens !== undefined && {
         compactionThresholdTokens,
       }),
+      ...(reasoning !== undefined && { reasoning }),
     };
   });
+}
+
+/**
+ * Resolve one entry's `reasoning` block. The schema already guarantees a
+ * nonblank, duplicate-free `effortLevels` and a present `defaultEffort`; the
+ * only rule left is cross-field (the default must be one of the levels), which
+ * JSON Schema cannot express.
+ *
+ * Levels are passed through untouched — no trimming, casing, sorting, or
+ * deduplication. They are opaque provider tokens, and normalizing one here
+ * would silently send the provider a value the operator did not configure.
+ */
+function resolveModelReasoning(
+  modelId: string,
+  raw: RawModelEntry['reasoning'],
+): ModelReasoning | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  if (!raw.effortLevels.includes(raw.defaultEffort)) {
+    throw new InstanceConfigError(
+      `models[${modelId}].reasoning.defaultEffort: "${raw.defaultEffort}" is not one of effortLevels [${raw.effortLevels.join(', ')}]`,
+    );
+  }
+
+  return {
+    effortLevels: raw.effortLevels,
+    defaultEffort: raw.defaultEffort,
+    cacheInvalidatedByEffortChange: raw.cacheInvalidatedByEffortChange ?? false,
+  };
 }
 
 /**

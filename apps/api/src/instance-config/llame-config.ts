@@ -7,7 +7,10 @@
  * drift.
  */
 
-import type { SystemModelCatalogEntry } from '../models/model-catalog';
+import type {
+  ModelReasoning,
+  SystemModelCatalogEntry,
+} from '../models/model-catalog';
 
 /**
  * Executable provider client implementations (providers-and-models-as-code,
@@ -206,7 +209,15 @@ export type RawModelEntry = {
   tags?: string[];
   icon?: string;
   knowledgeCutoff?: string;
-  reasoning?: boolean;
+  /**
+   * Schema-validated shape; `defaultEffort`'s membership in `effortLevels` is
+   * a cross-field rule JSON Schema can't express, so `resolveModels` owns it.
+   * `cacheInvalidatedByEffortChange` is optional here and always resolved on
+   * the catalog entry.
+   */
+  reasoning?: Omit<ModelReasoning, 'cacheInvalidatedByEffortChange'> & {
+    cacheInvalidatedByEffortChange?: boolean;
+  };
   website?: string;
   apiDocs?: string;
   modelPage?: string;

@@ -7,6 +7,7 @@
  */
 import type { AvailableModelResponseSource } from "./availableModelResponseSource";
 import type { ModelPricingResponse } from "./modelPricingResponse";
+import type { ModelReasoningResponse } from "./modelReasoningResponse";
 
 export interface AvailableModelResponse {
   id: string;
@@ -18,7 +19,8 @@ export interface AvailableModelResponse {
   contextWindowTokens: number;
   pricingUsdPer1M?: ModelPricingResponse;
   knowledgeCutoff?: string;
-  reasoning?: boolean;
+  /** Present only when the operator declared an effort vocabulary for this model. Absent means the model accepts no `effort` on a chat send. */
+  reasoning?: ModelReasoningResponse;
   website?: string;
   apiDocs?: string;
   modelPage?: string;

@@ -178,6 +178,28 @@ required `contextWindowTokens` sizes the trigger (× 0.8) unless the entry's opt
 dispatched by the provider's `type` (`model-client-factory.ts`) — an Anthropic adapter is
 a follow-up, not yet supported.
 
+**Reasoning effort is operator-declared, per model.** An optional
+`models[].reasoning` object — `{ effortLevels, defaultEffort,
+cacheInvalidatedByEffortChange? }` — declares that a model accepts a
+per-request effort and which values it accepts. Its presence IS the
+declaration; there is no separate availability flag, and a model that omits it
+accepts no effort. `effortLevels` are the PROVIDER's own tokens, published and
+sent verbatim: llame imposes no enum, no character pattern, no casing rule, and
+never normalizes, sorts, or deduplicates them, because OpenAI and Anthropic
+disagree on the vocabulary and each changes it between releases — any
+constraint here would make a provider release a llame release. Only three rules
+apply, all integrity rather than format: a level is nonblank, levels are unique
+within an entry, and `defaultEffort` must be one of them (a cross-field check
+JSON Schema can't express, so `resolveModels` owns it and fails boot naming the
+model). Order is normative — it is the only scale a client gets, since a token
+carries no comparable magnitude. `cacheInvalidatedByEffortChange` (default
+`false`) records whether _changing_ effort mid-conversation costs a prompt-cache
+prefix re-read on this model; it is operator-declared because the behavior is
+model-specific and partly undocumented, and it is advisory metadata that never
+affects execution. The retired `reasoning: true` boolean is rejected outright
+rather than coerced — a boolean carries no vocabulary, so any inferred one would
+be a guess about the provider.
+
 **Model system prompts are config-as-code.** Every model resolves one complete
 prompt at boot. Omit `models[].systemPromptFile` to use the packaged project
 default; set it to a literal relative path (resolved from the active

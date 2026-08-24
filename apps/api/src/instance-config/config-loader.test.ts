@@ -1451,3 +1451,142 @@ describe('loadInstanceConfig — no secret in logs', () => {
     }
   });
 });
+
+describe('loadInstanceConfig — models[].reasoning (add-reasoning-effort)', () => {
+  const model = (reasoning: string) =>
+    `{
+      ${SINGLE_PROVIDER_JSON},
+      "models": [{
+        "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000,
+        "reasoning": ${reasoning}
+      }]
+    }`;
+
+  it('resolves a declared effort vocabulary and defaults the cache flag to false', () => {
+    writeConfig(
+      model('{ "effortLevels": ["low", "high"], "defaultEffort": "high" }'),
+    );
+    expect(loadInstanceConfig().models[0]?.reasoning).toEqual({
+      effortLevels: ['low', 'high'],
+      defaultEffort: 'high',
+      cacheInvalidatedByEffortChange: false,
+    });
+  });
+
+  it('carries an explicit cache flag through', () => {
+    writeConfig(
+      model(
+        '{ "effortLevels": ["low"], "defaultEffort": "low", "cacheInvalidatedByEffortChange": true }',
+      ),
+    );
+    expect(
+      loadInstanceConfig().models[0]?.reasoning?.cacheInvalidatedByEffortChange,
+    ).toBe(true);
+  });
+
+  it('omits reasoning entirely for a model that declares none', () => {
+    writeConfig(
+      `{ ${SINGLE_PROVIDER_JSON}, "models": [{ "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 }] }`,
+    );
+    expect(loadInstanceConfig().models[0]).not.toHaveProperty('reasoning');
+  });
+
+  // Levels are opaque PROVIDER tokens: llame constrains nothing about their
+  // text, because every provider disagrees on the vocabulary and changes it
+  // between releases. Casing, separators, and order all survive verbatim.
+  it('accepts arbitrary level text and preserves authored order', () => {
+    writeConfig(
+      model(
+        '{ "effortLevels": ["MAX", "very-high", "effort_2", "none"], "defaultEffort": "none" }',
+      ),
+    );
+    expect(loadInstanceConfig().models[0]?.reasoning?.effortLevels).toEqual([
+      'MAX',
+      'very-high',
+      'effort_2',
+      'none',
+    ]);
+  });
+
+  it('rejects a defaultEffort absent from effortLevels, naming the model', () => {
+    writeConfig(
+      model('{ "effortLevels": ["low", "high"], "defaultEffort": "medium" }'),
+    );
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /models\[m\]\.reasoning\.defaultEffort: "medium" is not one of effortLevels \[low, high\]/,
+    );
+  });
+
+  // Case-sensitivity is a consequence of "no normalization", not a rule of its
+  // own — an operator who writes "High" as the default gets a boot failure
+  // rather than a silent fold onto "high".
+  it('rejects a defaultEffort differing only by case', () => {
+    writeConfig(model('{ "effortLevels": ["high"], "defaultEffort": "High" }'));
+    expect(() => loadInstanceConfig()).toThrow(
+      /reasoning\.defaultEffort: "High" is not one of/,
+    );
+  });
+
+  it('rejects a missing defaultEffort rather than implying one', () => {
+    writeConfig(model('{ "effortLevels": ["low", "high"] }'));
+    expect(() => loadInstanceConfig()).toThrow(
+      /models\[m\]\/reasoning: must have required property 'defaultEffort'/,
+    );
+  });
+
+  it('rejects an empty effortLevels', () => {
+    writeConfig(model('{ "effortLevels": [], "defaultEffort": "low" }'));
+    expect(() => loadInstanceConfig()).toThrow(
+      /models\[m\]\/reasoning\/effortLevels: must NOT have fewer than 1 items/,
+    );
+  });
+
+  it('rejects a duplicate level', () => {
+    writeConfig(
+      model('{ "effortLevels": ["low", "low"], "defaultEffort": "low" }'),
+    );
+    expect(() => loadInstanceConfig()).toThrow(
+      /models\[m\]\/reasoning\/effortLevels: must NOT have duplicate items/,
+    );
+  });
+
+  it('rejects a blank level', () => {
+    writeConfig(
+      model('{ "effortLevels": ["low", ""], "defaultEffort": "low" }'),
+    );
+    expect(() => loadInstanceConfig()).toThrow(
+      /models\[m\]\/reasoning\/effortLevels\/1: must NOT have fewer than 1 characters/,
+    );
+  });
+
+  it('rejects the retired boolean form, naming the model', () => {
+    writeConfig(model('true'));
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /models\[m\]\/reasoning: must be object/,
+    );
+  });
+
+  it('rejects an unknown key inside the reasoning object', () => {
+    writeConfig(
+      model(
+        '{ "effortLevels": ["low"], "defaultEffort": "low", "available": true }',
+      ),
+    );
+    expect(() => loadInstanceConfig()).toThrow(
+      /models\[m\]\/reasoning\/available: unrecognized key/,
+    );
+  });
+
+  // The id-bearing path is a general improvement to models[] schema errors,
+  // so it must degrade gracefully for the entry whose own `id` is the problem.
+  it('falls back to the positional path when the entry has no usable id', () => {
+    writeConfig(
+      `{ ${SINGLE_PROVIDER_JSON}, "models": [{ "id": "", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 }] }`,
+    );
+    expect(() => loadInstanceConfig()).toThrow(
+      /\/models\/0\/id: must NOT have fewer than 1 characters/,
+    );
+  });
+});
