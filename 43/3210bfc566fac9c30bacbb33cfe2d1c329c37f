@@ -1,0 +1,32 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "433210bfc566fac9c30bacbb33cfe2d1c329c37f",
+  "prompts": {
+    "0d389c13ab75a060": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a02f41-b822-7aa2-b186-2e1943d9848b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 16,
+      "total_deletions": 16,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "5e19ee6446ee05c4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a02b50-e60d-7ca0-bd8c-aafaf80eb682",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 16,
+      "total_deletions": 16,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
