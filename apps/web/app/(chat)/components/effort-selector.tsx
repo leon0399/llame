@@ -66,7 +66,10 @@ export function EffortSelector({ className }: { className?: string }) {
   // to this model's own default rather than the nearest position, because
   // position carries no meaning across models.
   React.useEffect(() => {
-    if (!reasoning) {
+    // Guard matches the render guard below EXACTLY. A model whose vocabulary
+    // is present but empty renders nothing, so seeding a default here would
+    // set — and send — a level the user can neither see nor change.
+    if (!reasoning || reasoning.effortLevels.length === 0) {
       if (selectedEffort !== undefined) setSelectedEffort(undefined);
       return;
     }

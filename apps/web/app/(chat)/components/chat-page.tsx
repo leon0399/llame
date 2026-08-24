@@ -51,6 +51,7 @@ import {
   AlertTitle,
 } from "@workspace/ui/components/alert";
 import { useChatContext } from "@/contexts/chat-context";
+import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 import { useActiveRuns } from "@/contexts/active-runs-context";
 import {
   notificationLabel,
@@ -293,17 +294,13 @@ function ChatSessionContent({
   // Read the model from a ref instead, so the id-stable transport always sends
   // the CURRENT selection. Assigned during render (not via an effect) — it's a
   // plain latest-value mirror, only read later inside prepareSendMessagesRequest.
-  const selectedModelRef = useRef(selectedModel);
+  const selectedModelRef = useLatestRef(selectedModel);
   // Same frozen-closure hazard as the model above: the transport is created
   // once, so reading `selectedEffort` directly would pin the first turn's
-  // level for the life of the chat.
-  const selectedEffortRef = useRef(selectedEffort);
-  // Both mirrors are refreshed together, every render. Keeping the pair
-  // adjacent matters: effort is seeded asynchronously by the selector, so a
-  // ref left unassigned here stays `undefined` forever and every send silently
-  // omits effort while the control still looks like it works.
-  selectedModelRef.current = selectedModel;
-  selectedEffortRef.current = selectedEffort;
+  // level for the life of the chat. `useLatestRef` bundles the per-render
+  // assignment with the ref's creation — writing the two separately is how
+  // effort came to be silently omitted from every send.
+  const selectedEffortRef = useLatestRef(selectedEffort);
 
   const transport = useMemo(
     () =>
@@ -324,7 +321,11 @@ function ChatSessionContent({
         },
         prepareReconnectToStreamRequest,
       }),
-    [chatId],
+    // The two refs are listed for the exhaustive-deps rule's benefit only: a
+    // ref object is stable for the component's life, so including them cannot
+    // rebuild the transport. `chatId` remains the sole real trigger — which is
+    // the whole point, since useChat never adopts a new transport instance.
+    [chatId, selectedModelRef, selectedEffortRef],
   );
   const refreshChatList = () => {
     void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
