@@ -32,6 +32,7 @@ type SqlClient = ReturnType<typeof postgres>;
 type KnowledgeTestArguments = {
   readonly query?: string;
   readonly limit?: number;
+  readonly offset?: number;
   readonly path?: string;
   readonly ownerUserId?: string;
   readonly knowledgeSpaceId?: string;
@@ -224,15 +225,17 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
       status: 'success',
       knowledgeSpaceId: spaceAId,
       path: 'notes/owner-a.md',
-      content: ownerAContent,
-      contentHash: contentHash(ownerAContent),
+      offset: 0,
+      lineCount: 1,
+      content: `1: ${ownerAContent}`,
     });
     expect(readB).toMatchObject({
       status: 'success',
       knowledgeSpaceId: spaceBId,
       path: 'notes/owner-b.md',
-      content: ownerBContent,
-      contentHash: contentHash(ownerBContent),
+      offset: 0,
+      lineCount: 1,
+      content: `1: ${ownerBContent}`,
     });
 
     const ownerAJson = json(resultA);
@@ -365,7 +368,7 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     });
   });
 
-  it('observes live writes and changes the exact content hash', async () => {
+  it('observes live writes through the current numbered read range', async () => {
     const relativePath = 'notes/live.md';
     const before = 'shared-term before the edit';
     const after = 'shared-term after the edit';
@@ -374,22 +377,28 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     const first = await runKnowledge(knowledgeReadTool, ownerAId, {
       knowledgeSpaceId: spaceAId,
       path: relativePath,
+      offset: 0,
+      limit: 1,
     });
     writeNote(spaceAId, relativePath, after);
     const second = await runKnowledge(knowledgeReadTool, ownerAId, {
       knowledgeSpaceId: spaceAId,
       path: relativePath,
+      offset: 0,
+      limit: 1,
     });
 
     expect(first).toMatchObject({
       status: 'success',
-      content: before,
-      contentHash: contentHash(before),
+      offset: 0,
+      lineCount: 1,
+      content: `1: ${before}`,
     });
     expect(second).toMatchObject({
       status: 'success',
-      content: after,
-      contentHash: contentHash(after),
+      offset: 0,
+      lineCount: 1,
+      content: `1: ${after}`,
     });
     expect(first).not.toEqual(second);
   });

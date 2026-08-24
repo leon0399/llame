@@ -33,8 +33,11 @@ function fakeAdapter(
     read: vi.fn((relativePath: string) =>
       Promise.resolve({
         path: relativePath,
-        content: 'note',
-        contentHash: 'a'.repeat(64),
+        offset: 0,
+        lineCount: 1,
+        content: '1: note',
+        nextOffset: undefined,
+        cutReason: undefined,
       }),
     ),
     ...overrides,
@@ -175,6 +178,43 @@ describe('Knowledge tool declarations', () => {
     expect(
       schema.parse({ path: 'notes/a.md', knowledgeSpaceId: binding.id }),
     ).toEqual({ path: 'notes/a.md', knowledgeSpaceId: binding.id });
+  });
+
+  it('accepts bounded zero-based read ranges and rejects unsafe values', () => {
+    const schema = knowledgeReadTool.inputSchema;
+    if (!isZodSchema(schema)) {
+      throw new Error('Expected a Zod schema');
+    }
+    expect(
+      schema.parse({
+        path: 'notes/a.md',
+        knowledgeSpaceId: binding.id,
+        offset: 0,
+        limit: 2_000,
+      }),
+    ).toEqual({
+      path: 'notes/a.md',
+      knowledgeSpaceId: binding.id,
+      offset: 0,
+      limit: 2_000,
+    });
+    for (const invalid of [
+      { offset: -1 },
+      { offset: 1.5 },
+      { offset: Number.MAX_SAFE_INTEGER + 1 },
+      { limit: 0 },
+      { limit: 2_001 },
+      { limit: 1.5 },
+      { limit: Number.MAX_SAFE_INTEGER + 1 },
+    ]) {
+      expect(() => {
+        void schema.parse({
+          path: 'notes/a.md',
+          knowledgeSpaceId: binding.id,
+          ...invalid,
+        });
+      }).toThrow();
+    }
   });
 });
 
@@ -699,6 +739,71 @@ describe('knowledge_search', () => {
 });
 
 describe('knowledge_read', () => {
+  it('forwards optional ranges and preserves continuation metadata without hashes', async () => {
+    const read = vi.fn<KnowledgeFilesystemAdapterPort['read']>(() =>
+      Promise.resolve({
+        path: 'notes/a.md',
+        offset: 4,
+        lineCount: 2,
+        content: '5: fifth\n6: sixth\n',
+        nextOffset: 6,
+      }),
+    );
+    const result = await knowledgeReadTool.execute(
+      context(fakeAdapter({ read })),
+      {
+        knowledgeSpaceId: binding.id,
+        path: 'notes/a.md',
+        offset: 4,
+        limit: 2,
+      },
+    );
+
+    const readCall = read.mock.calls[0];
+    expect(readCall?.[0]).toBe('notes/a.md');
+    expect(readCall?.[1]).toMatchObject({
+      signal: undefined,
+      offset: 4,
+      limit: 2,
+    });
+    expect(readCall?.[1]?.maxResultCodeUnits).toBe(
+      KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS,
+    );
+    expect(readCall?.[1]?.fixedResultCodeUnits).toBeGreaterThan(0);
+    expect(result).toEqual({
+      status: 'success',
+      knowledgeSpaceId: binding.id,
+      knowledgeSpaceName: binding.name,
+      path: 'notes/a.md',
+      offset: 4,
+      lineCount: 2,
+      content: '5: fifth\n6: sixth\n',
+      nextOffset: 6,
+      notice: KNOWLEDGE_CONTENT_NOTICE,
+    });
+    expect(result).not.toHaveProperty('contentHash');
+  });
+
+  it('returns the closed range error from the adapter', async () => {
+    const adapter = fakeAdapter({
+      read: vi.fn(() =>
+        Promise.reject(new KnowledgeFilesystemError('knowledge_range_invalid')),
+      ),
+    });
+
+    await expect(
+      knowledgeReadTool.execute(context(adapter), {
+        knowledgeSpaceId: binding.id,
+        path: 'notes/a.md',
+        offset: 99,
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_range_invalid',
+      message: 'The Knowledge line range is invalid.',
+    });
+  });
+
   it('returns complete live content and exact attribution', async () => {
     const result = await knowledgeReadTool.execute(context(), {
       knowledgeSpaceId: binding.id,
@@ -710,10 +815,12 @@ describe('knowledge_read', () => {
       knowledgeSpaceId: binding.id,
       knowledgeSpaceName: binding.name,
       path: 'notes/a.md',
-      content: 'note',
-      contentHash: 'a'.repeat(64),
+      offset: 0,
+      lineCount: 1,
+      content: '1: note',
       notice: KNOWLEDGE_CONTENT_NOTICE,
     });
+    expect(result).not.toHaveProperty('contentHash');
   });
 
   it('returns a whole-operation limit error instead of partial content', async () => {
@@ -722,7 +829,8 @@ describe('knowledge_read', () => {
         Promise.resolve({
           path: 'notes/a.md',
           content: 'x'.repeat(KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS),
-          contentHash: 'd'.repeat(64),
+          offset: 0,
+          lineCount: 1,
         }),
       ),
     });
@@ -745,7 +853,8 @@ describe('knowledge_read', () => {
         Promise.resolve({
           path: 'notes/a.md',
           content: '😀'.repeat(6_000),
-          contentHash: 'e'.repeat(64),
+          offset: 0,
+          lineCount: 1,
         }),
       ),
     });

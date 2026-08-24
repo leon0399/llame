@@ -39,6 +39,23 @@ const knowledgeReadInputSchema = z
   .object({
     knowledgeSpaceId: knowledgeSpaceIdSchema,
     path: z.string().min(1),
+    offset: z
+      .number()
+      .int()
+      .nonnegative()
+      .refine(Number.isSafeInteger, {
+        message: 'The read offset must be a safe integer.',
+      })
+      .optional(),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(2_000)
+      .refine(Number.isSafeInteger, {
+        message: 'The read limit must be a safe integer.',
+      })
+      .optional(),
   })
   .strict();
 
@@ -51,6 +68,21 @@ type KnowledgeSearchArguments = {
 type KnowledgeReadArguments = {
   readonly knowledgeSpaceId: string;
   readonly path: string;
+  readonly offset?: number;
+  readonly limit?: number;
+};
+
+type KnowledgeReadSuccess = {
+  status: 'success';
+  knowledgeSpaceId: string;
+  knowledgeSpaceName: string;
+  path: string;
+  offset: number;
+  lineCount: number;
+  content: string;
+  nextOffset?: number;
+  cutReason?: 'line_limit' | 'output_limit';
+  notice: string;
 };
 
 type KnowledgeAccess = {
@@ -121,18 +153,26 @@ export const knowledgeReadTool: Tool<KnowledgeReadArguments> = {
     if (isToolResult(access)) return access;
 
     try {
+      const offset = args.offset ?? 0;
       const note = await access.adapter.read(args.path, {
         signal: context.abortSignal,
+        offset,
+        limit: args.limit,
+        ...readResultBudget(access.binding, args.path, offset),
       });
-      return preflightSuccess({
+      const result: KnowledgeReadSuccess = {
         status: 'success' as const,
         knowledgeSpaceId: access.binding.id,
         knowledgeSpaceName: bindingName(access.binding),
         path: note.path,
+        offset: note.offset,
+        lineCount: note.lineCount,
         content: note.content,
-        contentHash: note.contentHash,
         notice: KNOWLEDGE_CONTENT_NOTICE,
-      });
+      };
+      if (note.nextOffset !== undefined) result.nextOffset = note.nextOffset;
+      if (note.cutReason !== undefined) result.cutReason = note.cutReason;
+      return preflightSuccess(result);
     } catch (error) {
       return mapKnowledgeFailure(error);
     }
@@ -210,6 +250,25 @@ async function searchAllCurrentSpaces(
   }
 
   return buildSearchSuccess(matches, warnings, warningCount);
+}
+
+function readResultBudget(
+  binding: KnowledgeFilesystemBinding,
+  relativePath: string,
+  offset: number,
+) {
+  const fixedResult = {
+    status: 'success' as const,
+    knowledgeSpaceId: binding.id,
+    knowledgeSpaceName: bindingName(binding),
+    path: relativePath,
+    offset,
+    notice: KNOWLEDGE_CONTENT_NOTICE,
+  };
+  return {
+    maxResultCodeUnits: KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS,
+    fixedResultCodeUnits: serializedLength(fixedResult),
+  };
 }
 
 async function* currentSpacePages(
