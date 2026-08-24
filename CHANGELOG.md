@@ -35,8 +35,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `effortLevels`; omitting it resolves that model's `defaultEffort`, and a
   model declaring no vocabulary accepts no effort at all. An unavailable
   `modelId` is reported without the effort being evaluated, since a level's
-  legality is meaningless without a resolved model; anything else invalid is
-  422 `effort_not_available`. The resolved value is stored concretely on the
+  legality is meaningless without a resolved model. A blank or non-string
+  `effort` is rejected as malformed with 400; a well-formed level the selected
+  model does not declare is 422 `effort_not_available`. The resolved value is stored concretely on the
   run, so a later configuration edit cannot alter an already queued or
   historical run, and the worker sends exactly what was stored — a level the
   operator has since withdrawn still executes verbatim rather than being
