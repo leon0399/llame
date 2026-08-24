@@ -59,6 +59,16 @@ as-reported by the experiment.
   distinguish "the receiver applied and the ack was lost" from "the receiver never applied".
   Idempotent batch references make bounded recovery possible without collapsing the ambiguity into
   a false success or a false failure; an explicit `outcome_unknown` state is what preserves it.
+- **An unknown semantic operation rejects its whole batch**, with no partial application and no
+  frontier advancement. A node that skips operations it does not understand silently forks the
+  meaning of the history while still claiming to be caught up — the failure mode the
+  [schema evolution note](2026-08-22-federated-schema-evolution-and-compatibility.md) exists to
+  prevent. All-or-nothing at the batch boundary is what makes "unknown ⇒ fail closed" enforceable.
+- **Signing needs its own encoder; `JSON.stringify` is not one.** The prototype signed a
+  domain-separated, field-ordered encoding, and deliberately restricted `JSON.stringify` to being an
+  in-process payload-equality sentinel — never the bytes under a signature. It also declined to call
+  that encoder canonical: it is one TypeScript implementation, not a cross-language canonicalization
+  standard, and a second-language implementation is where that claim would actually be tested.
 - **Initial synchronization does not need a second protocol.** Immutable Run semantics can use the
   same causal frontier and signed batch exchange as later incremental updates. A separate bootstrap
   path is a second implementation of the same invariants, with its own bugs.
