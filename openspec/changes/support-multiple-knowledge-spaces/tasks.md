@@ -1,8 +1,8 @@
 ## 0. Legacy Writer Compatibility Layer (`multiple-kb/compat`)
 
-- [ ] 0.1 Make legacy singleton provisioning lock the authenticated owner row, use targetless conflict handling, and reread after conflict without changing schema or public behavior; verify focused repository/service tests and concurrent real-PostgreSQL provisioning pass.
-- [ ] 0.2 Verify the compatibility writer before and after removal of owner uniqueness, including stable concurrent results, existing multi-row owners receiving no additional row, and the pre-compatibility targeted conflict statement failing after cutover; document that all provisioning replicas must deploy this layer first and that it is the rollback floor.
-- [ ] 0.3 Run affected API tests, typecheck, lint, and sequential build; verify the compatibility layer is green before submitting it.
+- [x] 0.1 Make legacy singleton provisioning lock the authenticated owner row, use targetless conflict handling, and reread after conflict without changing schema or public behavior; verify focused repository/service tests and concurrent real-PostgreSQL provisioning pass.
+- [x] 0.2 Verify the compatibility writer before and after removal of owner uniqueness, including stable concurrent results, existing multi-row owners receiving no additional row, and the pre-compatibility targeted conflict statement failing after cutover; document that all provisioning replicas must deploy this layer first and that it is the rollback floor.
+- [x] 0.3 Run affected API tests, typecheck, lint, and sequential build; verify the compatibility layer is green before submitting it.
 
 ## 1. Storage and API Layer (`multiple-kb/storage`)
 

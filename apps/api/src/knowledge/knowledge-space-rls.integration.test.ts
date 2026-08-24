@@ -112,17 +112,24 @@ d('Knowledge Space RLS and tenant repository', () => {
   });
 
   it('concurrent create-or-get calls converge on one globally stable ID', async () => {
-    const results = await Promise.all([
-      tenantDb.runAs(userBId, (tx) =>
-        new KnowledgeSpaceRepository(tx).createOrGet(userBId),
+    const results = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        tenantDb.runAs(userBId, (tx) =>
+          new KnowledgeSpaceRepository(tx).createOrGet(userBId),
+        ),
       ),
-      tenantDb.runAs(userBId, (tx) =>
-        new KnowledgeSpaceRepository(tx).createOrGet(userBId),
-      ),
-    ]);
+    );
 
-    expect(results[0].knowledgeSpaceId).toBe(results[1].knowledgeSpaceId);
-    expect(results[0].ownerUserId).toBe(userBId);
+    expect(new Set(results.map((row) => row.knowledgeSpaceId)).size).toBe(1);
+    expect(results.every((row) => row.ownerUserId === userBId)).toBe(true);
+    await expect(
+      tenantDb.runAs(userBId, (tx) =>
+        tx
+          .select({ id: knowledgeSpaces.knowledgeSpaceId })
+          .from(knowledgeSpaces)
+          .where(eq(knowledgeSpaces.ownerUserId, userBId)),
+      ),
+    ).resolves.toHaveLength(1);
   });
 
   it('table owner cannot bypass policies by writing without identity', async () => {
