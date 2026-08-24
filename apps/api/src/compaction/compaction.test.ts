@@ -562,6 +562,109 @@ describe('buildCompactionRequest', () => {
 });
 
 describe('compacted tool-observation ledger', () => {
+  it('accepts current Knowledge passage/range results and historical hash-bearing results', () => {
+    const assistant = msg('', 'assistant');
+    assistant.parts = [
+      {
+        type: 'tool-knowledge_search',
+        toolCallId: 'knowledge-search-current',
+        state: 'output-available',
+        input: {},
+        output: {
+          status: 'success',
+          results: [
+            {
+              offset: 4,
+              limit: 3,
+              excerpt: 'checkpoint',
+            },
+          ],
+          complete: true,
+        },
+        outcome: 'success',
+      },
+      {
+        type: 'tool-knowledge_read',
+        toolCallId: 'knowledge-read-current',
+        state: 'output-available',
+        input: {},
+        output: {
+          status: 'success',
+          offset: 4,
+          lineCount: 3,
+          content: '5: before\n6: checkpoint\n7: after',
+        },
+        outcome: 'success',
+      },
+      {
+        type: 'tool-knowledge_search',
+        toolCallId: 'knowledge-search-historical',
+        state: 'output-available',
+        input: {},
+        output: {
+          status: 'success',
+          results: [
+            {
+              line: 6,
+              snippet: 'checkpoint',
+              contentHash: 'historical-search-hash',
+            },
+          ],
+        },
+        outcome: 'success',
+      },
+      {
+        type: 'tool-knowledge_read',
+        toolCallId: 'knowledge-read-historical',
+        state: 'output-available',
+        input: {},
+        output: {
+          status: 'success',
+          content: 'checkpoint',
+          contentHash: 'historical-read-hash',
+        },
+        outcome: 'success',
+      },
+    ];
+
+    const ledger = buildNextCompactionToolObservationLedger({
+      previous: undefined,
+      absorb: [assistant],
+    });
+
+    expect(
+      ledger.observations.map(
+        ({ toolCallId, toolName, outcome }) =>
+          `${toolCallId}:${toolName}:${outcome}`,
+      ),
+    ).toEqual([
+      'knowledge-search-current:knowledge_search:success',
+      'knowledge-read-current:knowledge_read:success',
+      'knowledge-search-historical:knowledge_search:success',
+      'knowledge-read-historical:knowledge_read:success',
+    ]);
+
+    const replay = buildContext([], {
+      systemPrompt: 'system',
+      compaction: {
+        summary: 'Checkpoint',
+        uptoSeq: assistant.seq,
+        toolObservationLedger: ledger,
+      },
+    }).messages;
+    const serialized = JSON.stringify(replay);
+    for (const callId of [
+      'knowledge-search-current',
+      'knowledge-read-current',
+      'knowledge-search-historical',
+      'knowledge-read-historical',
+    ]) {
+      expect(serialized).toContain(callId);
+    }
+    expect(serialized).not.toContain('historical-search-hash');
+    expect(serialized).not.toContain('historical-read-hash');
+  });
+
   it('stores and replays an incomplete outcome after clearing a degraded Knowledge search', () => {
     const assistant = msg('', 'assistant');
     assistant.parts = [

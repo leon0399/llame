@@ -2,6 +2,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-24
 
+- **Knowledge ranged reads and passage search** (#543): `knowledge_read` now
+  accepts optional zero-based line `offset`/`limit` coordinates and returns
+  bounded, line-numbered content with whole-line `nextOffset` continuation and
+  server cut reasons. `knowledge_search` now returns multiple deterministic
+  literal passages per file, with reusable line coordinates, bounded excerpts,
+  and an opaque live continuation cursor. Both tools recheck current access on
+  every call and continue to read live Markdown, including uncommitted changes;
+  newly executed results expose no model-facing content hash or revision token.
+  Historical persisted Knowledge observations remain immutable and may retain
+  their earlier hash-bearing shape. No index, embeddings, headings, generated
+  synopsis, Git revision, stable citation, OKF/OpenWiki behavior, or arbitrary
+  filesystem access was added.
+
 - **Path JSON-pointer interpolation**: `{path:LOCATION}` may end with
   `|json:POINTER` (RFC 6901) so one JSON secret file can supply many config
   fields. The pointer must select a JSON string; invalid JSON, missing

@@ -1,6 +1,6 @@
 # llame current architecture
 
-**Status:** Current cross-cutting contract. Updated 2026-08-23.
+**Status:** Current cross-cutting contract. Updated 2026-08-24.
 
 This file records system boundaries and invariants that span capabilities. It is not a future feature inventory, release plan, API catalogue, schema sketch, or research report.
 
@@ -168,22 +168,40 @@ host path.
 
 When configured and allowlisted, `knowledge_search` and `knowledge_read` remain
 callable even when the owner has no current space. Every invocation resolves the
-owner's current access under RLS. Search accepts an optional stable ID; without
-one it traverses every current space in deterministic keyset pages under one
-shared operation budget. Read always requires an explicit stable ID. A partial
-all-space search returns usable matches with `complete: false` and bounded
-space-scoped warnings; a missing explicit ID, zero inventory, total failure, or
-global bound fails closed as specified by `knowledge-tools`.
+owner's current access under RLS. Search accepts an optional stable ID and an
+opaque live cursor; without an ID it traverses every current space in
+deterministic keyset pages under one shared operation budget. Search is a
+case-insensitive literal scan of admitted Markdown and returns bounded passages,
+each with response-time space attribution, a Knowledge-relative path, zero-based
+line `offset`/`limit`, and an excerpt. Matching lines in one file may produce
+multiple passages; touching or overlapping context windows are merged before the
+result limit is applied. Passage coordinates are directly usable as
+`knowledge_read` arguments. A partial all-space search returns usable matches
+with `complete: false` and bounded space-scoped warnings; a missing explicit ID,
+zero inventory, total failure, invalid cursor, or global bound fails closed as
+specified by `knowledge-tools`. The cursor is a live keyset continuation, not a
+filesystem snapshot or revision receipt.
 
-The tools read the current bounded Markdown filesystem, including modified or
-newly created files without a Git commit. Results persist response-time space ID
-and name, Knowledge-relative path, and exact-byte SHA-256 hash; this is not a
-permanent revision. Later access changes affect the next check but do not rewrite
-historical results. Git history, recoverable agent writes, accepted revisions,
-and synchronization begin in #212 or later capabilities. No Knowledge index,
-embedding projection, management UI, upload/import flow, delete lifecycle,
-generic filesystem, Workspace, Sandbox, local Node, or Personal Realm
-synchronization ships here.
+`knowledge_read` always requires an explicit stable ID and relative Markdown
+path. It accepts optional zero-based line `offset` and `limit` coordinates, with
+`limit` capped at 2,000. An omitted range requests the current note through EOF,
+subject to the 2,000-line and structured-output bounds. Successful reads return
+one-based line-numbered content, `lineCount`, and `nextOffset` when current lines
+remain; a server cut reports `cutReason` and never clips a line. Search and read
+use the current bounded Markdown filesystem, including modified or newly created
+files without a Git commit. Admitted files remain capped at 1 MiB, and output
+remains bounded. Newly executed results persist response-time space ID and name,
+Knowledge-relative path, and live line coordinates; they expose no content hash,
+expected hash, revision, host path, or alternate locator. Historical persisted
+results may retain the earlier hash-bearing shape and remain immutable. Later
+access changes affect the next check but do not rewrite historical results.
+
+Git history, recoverable agent writes, accepted revisions, and synchronization
+begin in #212 or later capabilities. No Knowledge index or embedding projection,
+heading-aware search, table of contents, generated synopsis, stable citation or
+Git revision contract, OKF/OpenWiki behavior, management UI, upload/import flow,
+delete lifecycle, generic filesystem, Workspace, Sandbox, local Node, or
+Personal Realm synchronization ships here.
 
 The configured root and all child directories are trusted-writer-only. The
 filesystem boundary rejects traversal and symlink components and opens final

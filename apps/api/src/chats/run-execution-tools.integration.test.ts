@@ -2437,6 +2437,202 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }
   });
 
+  it('keeps Knowledge search passage attribution through events, settlement, reconstruction, and bounded replay', async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), 'llame-knowledge-search-run-'),
+    );
+    const knowledgeSpaceService = new KnowledgeSpaceService(
+      tenantDb,
+      new KnowledgeSpaceLocalResolver(root),
+    );
+    const runtimeResolver = new KnowledgeToolRuntimeResolver(
+      knowledgeSpaceService,
+    );
+    const space = await knowledgeSpaceService.provisionForOwner(userId);
+    const relativePath = 'notes/search-attribution.md';
+    const content = 'The launch checkpoint is Friday at 09:00 UTC.';
+    const notePath = path.join(root, space.id, ...relativePath.split('/'));
+    mkdirSync(path.dirname(notePath), { recursive: true });
+    writeFileSync(notePath, content, 'utf8');
+
+    const seeded = await seedBoundRun(
+      `knowledge-search-attribution-${crypto.randomUUID()}`,
+      ['knowledge_search'],
+    );
+
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        return Promise.resolve(
+          turn === 1
+            ? jsonToolCallResponse(
+                'knowledge-search-call',
+                'knowledge_search',
+                {
+                  query: 'checkpoint',
+                  limit: 1,
+                },
+              )
+            : textResponse('The checkpoint is Friday at 09:00 UTC.'),
+        );
+      },
+    });
+    const service = serviceWithTools({
+      allowed: ['knowledge_search'],
+      knowledgeResolver: runtimeResolver,
+    });
+
+    try {
+      const result = await service.executeRun({
+        runId: seeded.run.id,
+        chatId: seeded.chatId,
+        userId,
+        userMessage: {
+          id: seeded.userMessage.id,
+          seq: seeded.userMessage.seq,
+          parts: seeded.userMessage.parts.filter(isTextPart),
+        },
+        client: createMockModelClient(model),
+      });
+      await result.consumeStream?.();
+
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        return events.some((event) => event.eventType === 'run.completed');
+      });
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      const completed = events.find(
+        (event) => event.eventType === 'tool.completed',
+      );
+      expect(completed?.payload).toMatchObject({
+        toolCallId: 'knowledge-search-call',
+        toolName: 'knowledge_search',
+        status: 'success',
+        output: {
+          status: 'success',
+          complete: true,
+          results: [
+            {
+              knowledgeSpaceId: space.id,
+              knowledgeSpaceName: 'Personal',
+              path: relativePath,
+              offset: 0,
+              limit: 1,
+              excerpt: content,
+            },
+          ],
+        },
+      });
+      const currentPayload = JSON.stringify(completed?.payload);
+      expect(currentPayload).not.toContain('contentHash');
+      expect(currentPayload).not.toContain('snippet');
+      expect(currentPayload).not.toContain(root);
+
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+      );
+      const assistant = messages.find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.inReplyTo === seeded.userMessage.id,
+      );
+      if (assistant === undefined) {
+        throw new Error(
+          'Expected a settled Knowledge search assistant message',
+        );
+      }
+      const parts = assistant.parts.filter(isTypedPart);
+      const toolPart = parts.find(
+        (part) => part.type === 'tool-knowledge_search',
+      );
+      expect(toolPart).toMatchObject({
+        toolCallId: 'knowledge-search-call',
+        state: 'output-available',
+        output: {
+          status: 'success',
+          results: [
+            {
+              knowledgeSpaceId: space.id,
+              path: relativePath,
+              offset: 0,
+              limit: 1,
+              excerpt: content,
+            },
+          ],
+        },
+      });
+
+      const apiMessage = toChatMessageResponse(assistant);
+      expect(apiMessage.parts).toContainEqual(
+        expect.objectContaining({
+          type: 'tool-knowledge_search',
+          output: expect.objectContaining({
+            results: [
+              expect.objectContaining({
+                knowledgeSpaceId: space.id,
+                path: relativePath,
+                offset: 0,
+                limit: 1,
+                excerpt: content,
+              }),
+            ],
+          }),
+        }),
+      );
+
+      const translator = createRunEventTranslator(seeded.run.id);
+      const reconstructed = events.flatMap((event) =>
+        translator.translate(event),
+      );
+      expect(reconstructed).toContainEqual(
+        expect.objectContaining({
+          type: 'tool-output-available',
+          toolCallId: 'knowledge-search-call',
+          output: expect.objectContaining({
+            results: [
+              expect.objectContaining({
+                knowledgeSpaceId: space.id,
+                path: relativePath,
+                offset: 0,
+                limit: 1,
+                excerpt: content,
+              }),
+            ],
+          }),
+          dynamic: true,
+        }),
+      );
+
+      const storedAssistant: StoredMessage = {
+        id: assistant.id,
+        chatId: assistant.chatId,
+        seq: assistant.seq,
+        role: 'assistant',
+        senderUserId: assistant.senderUserId,
+        parts: assistant.parts.filter(isRecord),
+        attachments: assistant.attachments,
+        usage: assistant.usage,
+        createdAt: assistant.createdAt,
+      };
+      const replay = buildContext([storedAssistant], {
+        systemPrompt: 'Knowledge search replay test',
+      });
+      const replayed = JSON.stringify(replay.messages);
+      expect(replayed).toContain(space.id);
+      expect(replayed).toContain(relativePath);
+      expect(replayed).toContain(content);
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('records an unlisted/hallucinated tool call as a refusal: tool.requested + tool.completed(error) with no tool.started, and a persisted output-error part', async () => {
     const service = serviceWithTools();
     const chatId = crypto.randomUUID();

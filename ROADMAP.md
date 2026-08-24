@@ -9,20 +9,21 @@ No dates or effort estimates are implied.
 
 ## Immediate cut: file-native personal intelligence
 
-Remaining outcome: build on the shipped live multi-space personal Knowledge
-reads with recoverable Git writes, then reuse that change path for inspectable
-file-backed Profile context. Retire the duplicated database personalization
-surface only after the file path has proven the replacement.
+Remaining outcome: build on the shipped live multi-space, ranged-read, and
+passage-search personal Knowledge foundation with recoverable Git writes, then
+reuse that change path for inspectable file-backed Profile context. Retire the
+duplicated database personalization surface only after the file path has proven
+the replacement.
 
 ### 1. v0.7 Runnable personal knowledge agent
 
 Tracking: [milestone v0.7](https://github.com/leon0399/llame/milestone/5) and
 [tracker #39](https://github.com/leon0399/llame/issues/39).
 
-Outcome: the assistant builds on the shipped remote-MCP and live Knowledge-read
-foundation to use remote research, land a recoverable Git-backed update, and
-deliberately recall a prior Chat. The remaining components do not count as a
-release until the combined product loop runs end to end.
+Outcome: the assistant builds on the shipped remote-MCP and live Knowledge
+retrieval foundation to use remote research, land a recoverable Git-backed
+update, and deliberately recall a prior Chat. The remaining components do not
+count as a release until the combined product loop runs end to end.
 
 ```mermaid
 flowchart TD

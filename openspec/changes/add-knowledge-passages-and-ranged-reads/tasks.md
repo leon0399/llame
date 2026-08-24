@@ -31,10 +31,10 @@ The proposal and finalization are mandatory isolated PR boundaries. Runtime impl
 
 ## 3. Acceptance Layer (`knowledge-ranges/acceptance`)
 
-- [ ] 3.1 Verify live Run execution, event persistence, browser reload, ordinary bounded replay, and compaction for new search/read shapes plus historical hash-bearing observations; add only the compatibility handling proven necessary by focused tests.
-- [ ] 3.2 Add product-level coverage using a long Markdown note and multiple separated matches to prove whole-file continuation, explicit ranges, multi-page literal passage search, current-call authorization, safe attribution, and absence of model-facing hashes; verify the focused Playwright Knowledge scenario passes.
-- [ ] 3.3 Update `SPEC.md`, Knowledge operator/user documentation, coordinated Knowledge declaration rollout/rollback instructions, `ROADMAP.md`, and `CHANGELOG.md` in the shipping layer; verify the docs claim no headings, index, embeddings, stable citations, Git revision, OKF/OpenWiki behavior, or generated synopsis.
-- [ ] 3.4 Run all affected tests, typechecks, lints, Markdown lint, formatting, and sequential workspace builds; verify every implementation layer is green and the stack contains no unrelated changes.
+- [x] 3.1 Verify live Run execution, event persistence, browser reload, ordinary bounded replay, and compaction for new search/read shapes plus historical hash-bearing observations; add only the compatibility handling proven necessary by focused tests.
+- [x] 3.2 Add product-level coverage using a long Markdown note and multiple separated matches to prove whole-file continuation, explicit ranges, multi-page literal passage search, current-call authorization, safe attribution, and absence of model-facing hashes; verify the focused Playwright Knowledge scenario passes.
+- [x] 3.3 Update `SPEC.md`, Knowledge operator/user documentation, coordinated Knowledge declaration rollout/rollback instructions, `ROADMAP.md`, and `CHANGELOG.md` in the shipping layer; verify the docs claim no headings, index, embeddings, stable citations, Git revision, OKF/OpenWiki behavior, or generated synopsis.
+- [x] 3.4 Run all affected tests, typechecks, lints, Markdown lint, formatting, and sequential workspace builds; verify every implementation layer is green and the stack contains no unrelated changes.
 
 ## 4. OpenSpec Finalization Layer (`knowledge-ranges/finalize`)
 
