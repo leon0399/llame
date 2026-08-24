@@ -162,8 +162,10 @@ export type KnowledgeFilesystemReadOptions =
   KnowledgeFilesystemSearchOptions & {
     readonly offset?: number;
     readonly limit?: number;
-    /** Internal result budget, expressed in UTF-16 code units. */
-    readonly maxContentCodeUnits?: number;
+    /** Internal serialized-result budget, expressed in UTF-16 code units. */
+    readonly maxResultCodeUnits?: number;
+    /** Serialized size of the result fields fixed before the read starts. */
+    readonly fixedResultCodeUnits?: number;
   };
 type DirectoryReadResult = {
   readonly entries: KnowledgeFilesystemDirent[];
@@ -270,6 +272,7 @@ export class KnowledgeFilesystemAdapter {
     options: KnowledgeFilesystemReadOptions = {},
   ): Promise<KnowledgeFilesystemReadResult> {
     const components = validatePath(relativePath, true);
+    validateReadRange(options.offset, options.limit);
     const signal = options.signal;
     const directory = await this.resolveBindingDirectory(signal);
     let current = directory;
@@ -305,13 +308,15 @@ export class KnowledgeFilesystemAdapter {
     if (stats.size > KNOWLEDGE_MAX_READ_BYTES) {
       throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
     }
-    validateReadRange(options.offset, options.limit);
+    const offset = options.offset ?? 0;
     return this.readFileLines(
       current,
       relativePath,
-      options.offset ?? 0,
+      offset,
       options.limit,
-      options.maxContentCodeUnits ?? 15_000,
+      options.maxResultCodeUnits ?? 15_000,
+      options.fixedResultCodeUnits ??
+        serializedFixedReadResultLength({ path: relativePath, offset }),
       signal,
     );
   }
@@ -500,7 +505,8 @@ export class KnowledgeFilesystemAdapter {
     relativePath: string,
     offset: number,
     requestedLimit: number | undefined,
-    maxContentCodeUnits: number,
+    maxResultCodeUnits: number,
+    fixedResultCodeUnits: number,
     signal: AbortSignal | undefined,
   ): Promise<KnowledgeFilesystemReadResult> {
     let file: KnowledgeFilesystemFile | undefined;
@@ -531,31 +537,26 @@ export class KnowledgeFilesystemAdapter {
         ? Math.min(KNOWLEDGE_MAX_READ_BYTES + 1, fileStats.size + 1)
         : KNOWLEDGE_MAX_READ_BYTES + 1;
       let lineIndex = 0;
-      let lineCount = 0;
-      let content = '';
+      const selectedLines: string[] = [];
       let serializedContentCodeUnits = 0;
-      let outputCutOffset: number | undefined;
+      let selectionStorageFull = false;
 
       const appendLine = (sourceLine: string, delimiter: string): void => {
         if (
           lineIndex >= offset &&
           lineIndex < offset + maxLines &&
-          outputCutOffset === undefined
+          !selectionStorageFull
         ) {
           const rendered = `${lineIndex + 1}: ${sourceLine}${delimiter}`;
           const renderedCodeUnits = serializedStringLength(rendered);
           if (
             serializedContentCodeUnits + renderedCodeUnits >
-            maxContentCodeUnits
+            maxResultCodeUnits - fixedResultCodeUnits
           ) {
-            if (lineCount === 0) {
-              throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
-            }
-            outputCutOffset = lineIndex;
+            selectionStorageFull = true;
           } else {
-            content += rendered;
+            selectedLines.push(rendered);
             serializedContentCodeUnits += renderedCodeUnits;
-            lineCount += 1;
           }
         }
         lineIndex += 1;
@@ -620,34 +621,32 @@ export class KnowledgeFilesystemAdapter {
       }
 
       if (lineIndex === 0 && offset === 0) {
-        result = { path: relativePath, offset, lineCount: 0, content: '' };
+        const emptyResult = {
+          path: relativePath,
+          offset,
+          lineCount: 0,
+          content: '',
+        };
+        if (
+          measureReadResultCodeUnits(fixedResultCodeUnits, emptyResult) >
+          maxResultCodeUnits
+        ) {
+          throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+        }
+        result = emptyResult;
       } else if (offset >= lineIndex) {
         throw new KnowledgeFilesystemError('knowledge_range_invalid');
-      } else if (outputCutOffset !== undefined) {
-        result = {
-          path: relativePath,
-          offset,
-          lineCount,
-          content,
-          nextOffset: outputCutOffset,
-          cutReason: 'output_limit',
-        };
       } else {
-        const requestedEnd = offset + maxLines;
-        const hasRemaining = lineIndex > requestedEnd;
-        const readResult: KnowledgeFilesystemReadResultBuilder = {
+        result = selectReadResult({
           path: relativePath,
           offset,
-          lineCount,
-          content,
-        };
-        if (hasRemaining) {
-          readResult.nextOffset = requestedEnd;
-          if (requestedLimit === undefined) {
-            readResult.cutReason = 'line_limit';
-          }
-        }
-        result = readResult;
+          requestedLimit,
+          maxLines,
+          totalLines: lineIndex,
+          selectedLines,
+          maxResultCodeUnits,
+          fixedResultCodeUnits,
+        });
       }
     } catch (error) {
       failure = error;
@@ -692,6 +691,72 @@ export class KnowledgeFilesystemAdapter {
       throw new KnowledgeFilesystemError('knowledge_space_unavailable');
     }
   }
+}
+
+type ReadResultSelection = {
+  readonly path: string;
+  readonly offset: number;
+  readonly requestedLimit: number | undefined;
+  readonly maxLines: number;
+  readonly totalLines: number;
+  readonly selectedLines: readonly string[];
+  readonly maxResultCodeUnits: number;
+  readonly fixedResultCodeUnits: number;
+};
+
+function selectReadResult(
+  selection: ReadResultSelection,
+): KnowledgeFilesystemReadResult {
+  const availableLines = selection.totalLines - selection.offset;
+  const requestedLineCount = Math.min(selection.maxLines, availableLines);
+  const storedLineCount = Math.min(
+    selection.selectedLines.length,
+    requestedLineCount,
+  );
+
+  for (let lineCount = storedLineCount; lineCount >= 1; lineCount -= 1) {
+    const hasRemaining = availableLines > lineCount;
+    const result: KnowledgeFilesystemReadResultBuilder = {
+      path: selection.path,
+      offset: selection.offset,
+      lineCount,
+      content: selection.selectedLines.slice(0, lineCount).join(''),
+    };
+    if (hasRemaining) result.nextOffset = selection.offset + lineCount;
+    if (hasRemaining && lineCount < requestedLineCount) {
+      result.cutReason = 'output_limit';
+    } else if (
+      hasRemaining &&
+      selection.requestedLimit === undefined &&
+      availableLines > selection.maxLines
+    ) {
+      result.cutReason = 'line_limit';
+    }
+    if (
+      measureReadResultCodeUnits(selection.fixedResultCodeUnits, result) <=
+      selection.maxResultCodeUnits
+    ) {
+      return result;
+    }
+  }
+
+  throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+}
+
+function measureReadResultCodeUnits(
+  fixedResultCodeUnits: number,
+  result: KnowledgeFilesystemReadResult,
+): number {
+  let codeUnits = fixedResultCodeUnits;
+  codeUnits += serializedPropertyCodeUnits('lineCount', result.lineCount);
+  codeUnits += serializedPropertyCodeUnits('content', result.content);
+  if (result.nextOffset !== undefined) {
+    codeUnits += serializedPropertyCodeUnits('nextOffset', result.nextOffset);
+  }
+  if (result.cutReason !== undefined) {
+    codeUnits += serializedPropertyCodeUnits('cutReason', result.cutReason);
+  }
+  return codeUnits;
 }
 
 function messageFor(code: KnowledgeFilesystemErrorCode): string {
@@ -834,6 +899,24 @@ function hashBytes(bytes: Buffer): string {
 
 function serializedStringLength(value: string): number {
   return JSON.stringify(value).length - 2;
+}
+
+function serializedFixedReadResultLength(value: {
+  readonly path: string;
+  readonly offset: number;
+}): number {
+  return JSON.stringify(value).length;
+}
+
+function serializedScalarLength(value: string | number): number {
+  return JSON.stringify(value).length;
+}
+
+function serializedPropertyCodeUnits(
+  key: string,
+  value: string | number,
+): number {
+  return 1 + serializedScalarLength(key) + 1 + serializedScalarLength(value);
 }
 
 function makeSearchMatch(

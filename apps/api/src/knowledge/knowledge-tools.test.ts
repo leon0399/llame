@@ -766,7 +766,10 @@ describe('knowledge_read', () => {
       offset: 4,
       limit: 2,
     });
-    expect(readCall?.[1]?.maxContentCodeUnits).toBeGreaterThan(0);
+    expect(readCall?.[1]?.maxResultCodeUnits).toBe(
+      KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS,
+    );
+    expect(readCall?.[1]?.fixedResultCodeUnits).toBeGreaterThan(0);
     expect(result).toEqual({
       status: 'success',
       knowledgeSpaceId: binding.id,

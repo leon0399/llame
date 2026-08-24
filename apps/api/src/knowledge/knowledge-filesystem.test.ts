@@ -131,6 +131,31 @@ function fakeFilesystem(
   };
 }
 
+type ReadResultVariableFields = {
+  readonly lineCount: number;
+  readonly content: string;
+  readonly nextOffset?: number;
+  readonly cutReason?: 'line_limit' | 'output_limit';
+};
+
+function serializedAddedProperties(
+  properties: ReadResultVariableFields,
+): number {
+  let length = serializedAddedProperty('lineCount', properties.lineCount);
+  length += serializedAddedProperty('content', properties.content);
+  if (properties.nextOffset !== undefined) {
+    length += serializedAddedProperty('nextOffset', properties.nextOffset);
+  }
+  if (properties.cutReason !== undefined) {
+    length += serializedAddedProperty('cutReason', properties.cutReason);
+  }
+  return length;
+}
+
+function serializedAddedProperty(key: string, value: string | number): number {
+  return 1 + JSON.stringify(key).length + 1 + JSON.stringify(value).length;
+}
+
 describe('KnowledgeFilesystemAdapter', () => {
   it('searches only regular Markdown files in deterministic relative-path order', async () => {
     await withFixture(async ({ binding, directory }) => {
@@ -337,7 +362,7 @@ describe('KnowledgeFilesystemAdapter', () => {
 
       const result = await new KnowledgeFilesystemAdapter(binding).read(
         'long.md',
-        { maxContentCodeUnits: 100_000 },
+        { maxResultCodeUnits: 100_000 },
       );
 
       expect(result.offset).toBe(0);
@@ -352,21 +377,56 @@ describe('KnowledgeFilesystemAdapter', () => {
     await withFixture(async ({ binding, directory }) => {
       await writeFile(
         path.join(directory, 'cut.md'),
-        'first\nsecond line\nthird line',
+        `first\n${'s'.repeat(200)}\nthird line`,
       );
-
-      await expect(
-        new KnowledgeFilesystemAdapter(binding).read('cut.md', {
-          maxContentCodeUnits: 15,
-        }),
-      ).resolves.toEqual({
+      const fixedResultCodeUnits = 100;
+      const expected = {
         path: 'cut.md',
         offset: 0,
         lineCount: 1,
         content: '1: first\n',
         nextOffset: 1,
         cutReason: 'output_limit',
-      });
+      } as const;
+
+      await expect(
+        new KnowledgeFilesystemAdapter(binding).read('cut.md', {
+          fixedResultCodeUnits,
+          maxResultCodeUnits:
+            fixedResultCodeUnits +
+            serializedAddedProperties({
+              lineCount: expected.lineCount,
+              content: expected.content,
+              nextOffset: expected.nextOffset,
+              cutReason: expected.cutReason,
+            }),
+        }),
+      ).resolves.toEqual(expected);
+    });
+  });
+
+  it('uses actual continuation metadata to return the largest fitting prefix', async () => {
+    await withFixture(async ({ binding, directory }) => {
+      await writeFile(
+        path.join(directory, 'exact-cut.md'),
+        `first\n${'s'.repeat(200)}`,
+      );
+      const fixedResultCodeUnits = 100;
+      const expected = {
+        lineCount: 1,
+        content: '1: first\n',
+        nextOffset: 1,
+        cutReason: 'output_limit',
+      } as const;
+      const maxResultCodeUnits =
+        fixedResultCodeUnits + serializedAddedProperties(expected);
+
+      await expect(
+        new KnowledgeFilesystemAdapter(binding).read('exact-cut.md', {
+          fixedResultCodeUnits,
+          maxResultCodeUnits,
+        }),
+      ).resolves.toMatchObject(expected);
     });
   });
 
@@ -382,7 +442,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       ).rejects.toMatchObject({ code: 'knowledge_range_invalid' });
       await expect(
         new KnowledgeFilesystemAdapter(binding).read('wide.md', {
-          maxContentCodeUnits: 10,
+          maxResultCodeUnits: 10,
         }),
       ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
     });
@@ -408,7 +468,7 @@ describe('KnowledgeFilesystemAdapter', () => {
     const result = await new KnowledgeFilesystemAdapter(
       binding,
       fileSystem,
-    ).read('long.md', { limit: 1, maxContentCodeUnits: 100 });
+    ).read('long.md', { limit: 1, maxResultCodeUnits: 100 });
 
     expect(result).toMatchObject({
       offset: 0,
@@ -442,6 +502,51 @@ describe('KnowledgeFilesystemAdapter', () => {
         { limit: 1 },
       ),
     ).rejects.toMatchObject({ code: 'knowledge_content_invalid' });
+  });
+
+  it('validates invalid UTF-8 after an oversized first selected line', async () => {
+    const binding = {
+      id: SPACE_ID,
+      root: '/trusted/root',
+      directory: `/trusted/root/${SPACE_ID}`,
+    };
+    const prefix = Buffer.from(
+      `${'x'.repeat(20_000)}\n${'y'.repeat(50_000)}`,
+      'utf8',
+    );
+    const bytes = Buffer.concat([prefix, Buffer.from([0xc3, 0x28])]);
+    const fileSystem = fakeFilesystem(
+      [fileEntry('oversized-invalid.md')],
+      fileStats(bytes.length),
+      bytes,
+    );
+
+    await expect(
+      new KnowledgeFilesystemAdapter(binding, fileSystem).read(
+        'oversized-invalid.md',
+        { maxResultCodeUnits: 100 },
+      ),
+    ).rejects.toMatchObject({ code: 'knowledge_content_invalid' });
+  });
+
+  it('rejects invalid ranges before filesystem access', async () => {
+    const binding = {
+      id: SPACE_ID,
+      root: '/trusted/root',
+      directory: `/trusted/root/${SPACE_ID}`,
+    };
+    const fileSystem = fakeFilesystem([fileEntry('note.md')]);
+    const mockedFilesystem = vi.mocked(fileSystem);
+
+    await expect(
+      new KnowledgeFilesystemAdapter(binding, fileSystem).read('note.md', {
+        offset: -1,
+      }),
+    ).rejects.toMatchObject({ code: 'knowledge_range_invalid' });
+    expect(mockedFilesystem.realpath.mock.calls).toHaveLength(0);
+    expect(mockedFilesystem.lstat.mock.calls).toHaveLength(0);
+    expect(mockedFilesystem.opendir.mock.calls).toHaveLength(0);
+    expect(mockedFilesystem.open.mock.calls).toHaveLength(0);
   });
 
   it('hashes search bytes exactly, not decoded text', async () => {
@@ -808,7 +913,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       binding,
       fileSystem,
     ).read('note.md', {
-      maxContentCodeUnits: KNOWLEDGE_MAX_READ_BYTES + 100,
+      maxResultCodeUnits: KNOWLEDGE_MAX_READ_BYTES + 100,
     });
 
     expect(Buffer.byteLength(result.content, 'utf8')).toBe(

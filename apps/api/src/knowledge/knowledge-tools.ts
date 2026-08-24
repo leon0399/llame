@@ -158,11 +158,7 @@ export const knowledgeReadTool: Tool<KnowledgeReadArguments> = {
         signal: context.abortSignal,
         offset,
         limit: args.limit,
-        maxContentCodeUnits: readContentBudget(
-          access.binding,
-          args.path,
-          offset,
-        ),
+        ...readResultBudget(access.binding, args.path, offset),
       });
       const result: KnowledgeReadSuccess = {
         status: 'success' as const,
@@ -256,24 +252,23 @@ async function searchAllCurrentSpaces(
   return buildSearchSuccess(matches, warnings, warningCount);
 }
 
-function readContentBudget(
+function readResultBudget(
   binding: KnowledgeFilesystemBinding,
   relativePath: string,
   offset: number,
-): number {
-  const worstCase = {
+) {
+  const fixedResult = {
     status: 'success' as const,
     knowledgeSpaceId: binding.id,
     knowledgeSpaceName: bindingName(binding),
     path: relativePath,
     offset,
-    lineCount: 2_000,
-    content: '',
-    nextOffset: Number.MAX_SAFE_INTEGER,
-    cutReason: 'output_limit' as const,
     notice: KNOWLEDGE_CONTENT_NOTICE,
   };
-  return KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS - serializedLength(worstCase);
+  return {
+    maxResultCodeUnits: KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS,
+    fixedResultCodeUnits: serializedLength(fixedResult),
+  };
 }
 
 async function* currentSpacePages(
