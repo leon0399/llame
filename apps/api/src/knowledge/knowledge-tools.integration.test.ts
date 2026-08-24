@@ -1,6 +1,5 @@
 /** Real-Postgres owner isolation and runtime binding coverage for Knowledge tools. */
 
-import { createHash } from 'node:crypto';
 import {
   lstatSync,
   mkdirSync,
@@ -61,12 +60,6 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
 
   function notePath(spaceId: string, relativePath: string): string {
     return path.join(childPath(spaceId), ...relativePath.split('/'));
-  }
-
-  function contentHash(content: string): string {
-    return createHash('sha256')
-      .update(Buffer.from(content, 'utf8'))
-      .digest('hex');
   }
 
   function writeNote(
@@ -206,7 +199,9 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
           knowledgeSpaceId: spaceAId,
           knowledgeSpaceName: 'Personal',
           path: 'notes/owner-a.md',
-          contentHash: contentHash(ownerAContent),
+          offset: 0,
+          limit: 1,
+          excerpt: ownerAContent,
         },
       ],
     });
@@ -217,7 +212,9 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
           knowledgeSpaceId: spaceBId,
           knowledgeSpaceName: 'Personal',
           path: 'notes/owner-b.md',
-          contentHash: contentHash(ownerBContent),
+          offset: 0,
+          limit: 1,
+          excerpt: ownerBContent,
         },
       ],
     });

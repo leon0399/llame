@@ -175,10 +175,11 @@ describe('KnowledgeFilesystemAdapter', () => {
       ]);
       expect(result[0]).toMatchObject({
         path: 'nested/a.MD',
-        line: 'NEEDLE first',
+        offset: 0,
+        limit: 1,
+        excerpt: 'NEEDLE first\n',
       });
-      expect(result[0]?.snippet).toContain('NEEDLE first');
-      expect(result[0]?.contentHash).toMatch(/^[0-9a-f]{64}$/u);
+      expect(result[0]).not.toHaveProperty('contentHash');
     });
   });
 
@@ -197,7 +198,27 @@ describe('KnowledgeFilesystemAdapter', () => {
     });
   });
 
-  it('returns one match per file and observes newly written bytes', async () => {
+  it('retains only the requested page while scanning many separated passages', async () => {
+    await withFixture(async ({ binding, directory }) => {
+      const repeated = 'n\nx\nx\nx\n'.repeat(
+        KNOWLEDGE_MAX_SEARCH_FILE_BYTES / Buffer.byteLength('n\nx\nx\nx\n'),
+      );
+      await writeFile(path.join(directory, 'many.md'), repeated);
+
+      const result = await new KnowledgeFilesystemAdapter(binding).search(
+        'n',
+        2,
+        { maxResults: 2 },
+      );
+
+      expect(result.map(({ offset, limit }) => ({ offset, limit }))).toEqual([
+        { offset: 0, limit: 2 },
+        { offset: 3, limit: 3 },
+      ]);
+    });
+  });
+
+  it('returns one merged passage per file and observes newly written bytes', async () => {
     await withFixture(async ({ binding, directory }) => {
       const file = path.join(directory, 'note.md');
       await writeFile(file, 'old text\n');
@@ -211,8 +232,12 @@ describe('KnowledgeFilesystemAdapter', () => {
         5,
       );
       expect(matches).toHaveLength(1);
-      expect(matches[0]?.line).toBe('new text');
-      expect(matches[0]?.snippet).toContain('new again');
+      expect(matches[0]).toMatchObject({
+        path: 'note.md',
+        offset: 0,
+        limit: 2,
+        excerpt: 'new text\nnew again\n',
+      });
     });
   });
 
@@ -250,8 +275,8 @@ describe('KnowledgeFilesystemAdapter', () => {
         5,
       );
 
-      expect(match?.snippet).toContain('needle is here');
-      expect(Array.from(match?.snippet ?? []).length).toBeLessThanOrEqual(500);
+      expect(match?.excerpt).toContain('needle is here');
+      expect(Array.from(match?.excerpt ?? []).length).toBeLessThanOrEqual(500);
     });
   });
 
@@ -267,8 +292,8 @@ describe('KnowledgeFilesystemAdapter', () => {
         5,
       );
 
-      expect(match?.snippet).toContain('needle');
-      expect(Array.from(match?.snippet ?? []).length).toBeLessThanOrEqual(500);
+      expect(match?.excerpt).toContain('needle');
+      expect(Array.from(match?.excerpt ?? []).length).toBeLessThanOrEqual(500);
     });
   });
 
@@ -284,8 +309,8 @@ describe('KnowledgeFilesystemAdapter', () => {
         5,
       );
 
-      expect(match?.snippet).toContain('needle');
-      expect(Array.from(match?.snippet ?? []).length).toBeLessThanOrEqual(500);
+      expect(match?.excerpt).toContain('needle');
+      expect(Array.from(match?.excerpt ?? []).length).toBeLessThanOrEqual(500);
     });
   });
 
@@ -549,7 +574,7 @@ describe('KnowledgeFilesystemAdapter', () => {
     expect(mockedFilesystem.open.mock.calls).toHaveLength(0);
   });
 
-  it('hashes search bytes exactly, not decoded text', async () => {
+  it('searches decoded UTF-8 text without a model-facing hash', async () => {
     await withFixture(async ({ binding, directory }) => {
       await writeFile(
         path.join(directory, 'note.md'),
@@ -561,9 +586,8 @@ describe('KnowledgeFilesystemAdapter', () => {
         5,
       );
 
-      expect(match?.contentHash).toBe(
-        '7b49b9e063bd91a4f9252b413261f5557b9c570aa61516989499f64a62dbcdd6',
-      );
+      expect(match).toMatchObject({ path: 'note.md', offset: 0, limit: 1 });
+      expect(match).not.toHaveProperty('contentHash');
     });
   });
 
@@ -1078,6 +1102,54 @@ describe('KnowledgeFilesystemAdapter', () => {
     await expect(
       new KnowledgeFilesystemAdapter(binding, fileSystem).search('needle', 5, {
         signal: AbortSignal.timeout(5),
+      }),
+    ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
+  });
+
+  it('cooperatively aborts while extracting a large search file', async () => {
+    const binding = {
+      id: SPACE_ID,
+      root: '/trusted/root',
+      directory: `/trusted/root/${SPACE_ID}`,
+    };
+    const bytes = Buffer.from('needle\n'.repeat(100_000));
+    const controller = new AbortController();
+    const fileSystem = fakeFilesystem(
+      [fileEntry('large.md')],
+      fileStats(bytes.length),
+      bytes,
+    );
+    let abortScheduled = false;
+    fileSystem.open = vi.fn(() =>
+      Promise.resolve({
+        stat: () => Promise.resolve(fileStats(bytes.length)),
+        read: (
+          buffer: Buffer,
+          offset: number,
+          length: number,
+          position: number,
+        ) => {
+          const bytesRead = Math.min(
+            length,
+            Math.max(0, bytes.length - position),
+          );
+          if (bytesRead > 0) {
+            bytes.copy(buffer, offset, position, position + bytesRead);
+          }
+          if (bytesRead === 0 && !abortScheduled) {
+            abortScheduled = true;
+            setTimeout(() => controller.abort(), 0);
+          }
+          return Promise.resolve({ bytesRead });
+        },
+        close: () => Promise.resolve(),
+      }),
+    );
+
+    await expect(
+      new KnowledgeFilesystemAdapter(binding, fileSystem).search('needle', 2, {
+        signal: controller.signal,
+        maxResults: 2,
       }),
     ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
   });
