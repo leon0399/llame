@@ -162,7 +162,9 @@ re-inventing when ROADMAP reaches local Sandbox execution. The full confinement 
 `docker create` contract, the command bounds, the observation discipline, the reproducible Nix base
 image, and its known gaps — is recorded separately in
 [the local Sandbox confinement contract](2026-08-22-local-sandbox-confinement-contract.md); the
-findings below are the reasoning behind it.
+findings below are the reasoning behind it. The endpoint surface, scope and status vocabularies, and
+`ask | wait | fallback | exit` policy semantics are recorded in
+[the protocol slice note](2026-08-22-personal-node-protocol-slice.md).
 
 - **Observe the isolation state; do not assume the launch contract held.** The prototype inspects
   the running container and compares network mode, IPC and cgroup namespaces, dropped capabilities,
@@ -201,6 +203,44 @@ findings below are the reasoning behind it.
   with single-use transition leases closing the window between the quiescence check and the
   authority mutation. The prototype proves same-daemon fencing only; a disconnected remote executor
   still needs tunneled coordination or an explicit ambiguity-preserving fallback decision.
+
+## 8a. Cross-cutting disciplines, read from the refusals
+
+Not from any pull-request body: these emerged from reading all 189 distinct refusal messages in the
+archived source. Each is a rule the prototype applied everywhere rather than in one feature.
+
+- **Persisted state is re-validated by replay on load, never trusted.** A whole family of refusals —
+  _stored Run authority event does not replay_, _stored Run command sequence does not replay_,
+  _stored Workspace recovery state does not replay_ — exists because reading a row back is treated as
+  a claim to be checked against the semantics that produced it, not as a fact. Corruption and version
+  skew surface at load, loudly, instead of silently becoming current state.
+- **Idempotency keys bind to their payload.** _Run event identity reused at another sequence_,
+  _sequence reused with different payload_, _batch reference reused with different payload_,
+  _command identity reused with different payload_: reuse of an identity with different content is a
+  **conflict**, never an overwrite and never a silent replay. An idempotency key that does not check
+  what it is keying is a corruption vector wearing a safety label.
+- **Every durable store is bound to exactly one Realm and refuses to be reused across Realms.** The
+  same guard is repeated in the Realm store, the Run-control store, the Sandbox command store, and
+  the enrollment registry. Cheap to write, and it turns a catastrophic mix-up into a startup error.
+- **Durable state refuses an ephemeral database.** Stores that carry authority reject `:memory:` and
+  demand a real path, so a configuration mistake cannot quietly produce a node whose history
+  evaporates on restart.
+- **Peer and upstream responses are untrusted, bounded, and shape-checked.** _Response is too large_,
+  _is not valid JSON_, _has no body_, _has invalid shape_ — the same discipline llame already ships
+  for MCP bounded fetch, applied to every federation hop. A peer is a remote party, not a library
+  call, even when it is your own laptop.
+- **Terminal state is immutable, and the prototype re-derived it independently.** _Terminal Run state
+  is immutable_, _terminal Run authority cannot transfer_, _terminal Run cannot accept commands_ —
+  arrived at from first principles here, and identical to SPEC §9.3. Convergence on the same
+  invariant from a different starting point is mild evidence the invariant is right.
+- **Enrollment challenges are single-use, replay-proof, and short-lived**, with a lifetime bounded to
+  at most five minutes, explicit expiry, explicit already-consumed rejection, and a key-id match
+  requirement on the proof.
+- **Credential files must be owner-only, and the process never prints them.** File mode is checked,
+  not assumed; a world-readable peer credential is a startup refusal rather than a warning.
+- **Epochs advance monotonically and detect concurrent movement.** _Writer epoch must advance_ and
+  _writer epoch changed concurrently_ are the two halves that make an epoch a fence rather than a
+  label.
 
 ## 9. Deliberate limits of the prototype
 
