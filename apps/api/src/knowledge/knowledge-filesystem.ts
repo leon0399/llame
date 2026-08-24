@@ -8,7 +8,8 @@ export const KNOWLEDGE_MAX_ENTRIES = 20_000;
 export const KNOWLEDGE_MAX_FILES = 5_000;
 export const KNOWLEDGE_MAX_SEARCH_FILE_BYTES = 1 * 1024 * 1024;
 export const KNOWLEDGE_MAX_SEARCH_BYTES = 32 * 1024 * 1024;
-export const KNOWLEDGE_MAX_READ_BYTES = 64 * 1024;
+export const KNOWLEDGE_MAX_READ_BYTES = 1 * 1024 * 1024;
+export const KNOWLEDGE_MAX_READ_LINES = 2_000;
 export const KNOWLEDGE_MAX_PATH_BYTES = 1_024;
 export const KNOWLEDGE_MAX_PATH_COMPONENTS = 32;
 export const KNOWLEDGE_MAX_SNIPPET_CODE_POINTS = 500;
@@ -109,6 +110,7 @@ const NODE_FILESYSTEM: KnowledgeFilesystemPort = {
 export type KnowledgeFilesystemErrorCode =
   | 'knowledge_path_invalid'
   | 'knowledge_not_found'
+  | 'knowledge_range_invalid'
   | 'knowledge_content_invalid'
   | 'knowledge_limit_exceeded'
   | 'knowledge_space_unavailable'
@@ -130,8 +132,20 @@ export type KnowledgeFilesystemSearchMatch = {
 
 export type KnowledgeFilesystemReadResult = {
   readonly path: string;
+  readonly offset: number;
+  readonly lineCount: number;
   readonly content: string;
-  readonly contentHash: string;
+  readonly nextOffset?: number;
+  readonly cutReason?: 'line_limit' | 'output_limit';
+};
+
+type KnowledgeFilesystemReadResultBuilder = {
+  path: string;
+  offset: number;
+  lineCount: number;
+  content: string;
+  nextOffset?: number;
+  cutReason?: 'line_limit' | 'output_limit';
 };
 
 export type KnowledgeFilesystemAdapterPort = Pick<
@@ -143,6 +157,14 @@ export type KnowledgeFilesystemSearchOptions = {
   readonly signal?: AbortSignal;
   readonly budget?: KnowledgeFilesystemSearchBudget;
 };
+
+export type KnowledgeFilesystemReadOptions =
+  KnowledgeFilesystemSearchOptions & {
+    readonly offset?: number;
+    readonly limit?: number;
+    /** Internal result budget, expressed in UTF-16 code units. */
+    readonly maxContentCodeUnits?: number;
+  };
 type DirectoryReadResult = {
   readonly entries: KnowledgeFilesystemDirent[];
   readonly count: number;
@@ -245,7 +267,7 @@ export class KnowledgeFilesystemAdapter {
 
   async read(
     relativePath: string,
-    options: KnowledgeFilesystemSearchOptions = {},
+    options: KnowledgeFilesystemReadOptions = {},
   ): Promise<KnowledgeFilesystemReadResult> {
     const components = validatePath(relativePath, true);
     const signal = options.signal;
@@ -283,20 +305,15 @@ export class KnowledgeFilesystemAdapter {
     if (stats.size > KNOWLEDGE_MAX_READ_BYTES) {
       throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
     }
-    const bytes = await this.readFile(
+    validateReadRange(options.offset, options.limit);
+    return this.readFileLines(
       current,
-      KNOWLEDGE_MAX_READ_BYTES,
+      relativePath,
+      options.offset ?? 0,
+      options.limit,
+      options.maxContentCodeUnits ?? 15_000,
       signal,
     );
-    if (bytes.length > KNOWLEDGE_MAX_READ_BYTES) {
-      throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
-    }
-
-    return {
-      path: relativePath,
-      content: decodeUtf8(bytes),
-      contentHash: hashBytes(bytes),
-    };
   }
 
   private async resolveBindingDirectory(
@@ -478,6 +495,192 @@ export class KnowledgeFilesystemAdapter {
     return bytes ?? Buffer.alloc(0);
   }
 
+  private async readFileLines(
+    filePath: string,
+    relativePath: string,
+    offset: number,
+    requestedLimit: number | undefined,
+    maxContentCodeUnits: number,
+    signal: AbortSignal | undefined,
+  ): Promise<KnowledgeFilesystemReadResult> {
+    let file: KnowledgeFilesystemFile | undefined;
+    let failure: unknown;
+    let result: KnowledgeFilesystemReadResult | undefined;
+    try {
+      file = await observeResource(
+        () => this.fileSystem.open(filePath),
+        signal,
+      );
+      const fileStats = await observe(file.stat(), signal);
+      if (fileStats.isSymbolicLink() || !fileStats.isFile()) {
+        throw new KnowledgeFilesystemError('knowledge_path_invalid');
+      }
+      if (fileStats.size > KNOWLEDGE_MAX_READ_BYTES) {
+        throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+      }
+
+      const decoder = new TextDecoder('utf-8', { fatal: true });
+      const maxLines = Math.min(
+        requestedLimit ?? KNOWLEDGE_MAX_READ_LINES,
+        KNOWLEDGE_MAX_READ_LINES,
+      );
+      const fragments: string[] = [];
+      let totalBytes = 0;
+      const hasKnownSize = fileStats.size > 0;
+      let readTarget = hasKnownSize
+        ? Math.min(KNOWLEDGE_MAX_READ_BYTES + 1, fileStats.size + 1)
+        : KNOWLEDGE_MAX_READ_BYTES + 1;
+      let lineIndex = 0;
+      let lineCount = 0;
+      let content = '';
+      let serializedContentCodeUnits = 0;
+      let outputCutOffset: number | undefined;
+
+      const appendLine = (sourceLine: string, delimiter: string): void => {
+        if (
+          lineIndex >= offset &&
+          lineIndex < offset + maxLines &&
+          outputCutOffset === undefined
+        ) {
+          const rendered = `${lineIndex + 1}: ${sourceLine}${delimiter}`;
+          const renderedCodeUnits = serializedStringLength(rendered);
+          if (
+            serializedContentCodeUnits + renderedCodeUnits >
+            maxContentCodeUnits
+          ) {
+            if (lineCount === 0) {
+              throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+            }
+            outputCutOffset = lineIndex;
+          } else {
+            content += rendered;
+            serializedContentCodeUnits += renderedCodeUnits;
+            lineCount += 1;
+          }
+        }
+        lineIndex += 1;
+      };
+
+      const consumeText = (text: string): void => {
+        let start = 0;
+        while (start < text.length) {
+          const newline = text.indexOf('\n', start);
+          if (newline < 0) {
+            fragments.push(text.slice(start));
+            return;
+          }
+          fragments.push(text.slice(start, newline));
+          let sourceLine = fragments.join('');
+          const delimiter = sourceLine.endsWith('\r') ? '\r\n' : '\n';
+          if (delimiter === '\r\n') {
+            sourceLine = sourceLine.slice(0, -1);
+          }
+          appendLine(sourceLine, delimiter);
+          fragments.length = 0;
+          start = newline + 1;
+        }
+      };
+
+      while (totalBytes < readTarget) {
+        throwIfAborted(signal);
+        const targetLength = Math.min(
+          KNOWLEDGE_MAX_READ_CHUNK_BYTES,
+          readTarget - totalBytes,
+        );
+        const length =
+          hasKnownSize && totalBytes < fileStats.size
+            ? Math.min(targetLength, fileStats.size - totalBytes)
+            : targetLength;
+        const buffer = Buffer.allocUnsafe(length);
+        const readResult = await observe(
+          file.read(buffer, 0, buffer.length, totalBytes),
+          signal,
+        );
+        if (
+          !Number.isInteger(readResult.bytesRead) ||
+          readResult.bytesRead < 0 ||
+          readResult.bytesRead > buffer.length
+        ) {
+          throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+        }
+        if (readResult.bytesRead === 0) break;
+        totalBytes += readResult.bytesRead;
+        if (totalBytes > KNOWLEDGE_MAX_READ_BYTES) {
+          throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+        }
+        consumeText(decodeChunk(decoder, buffer, readResult.bytesRead));
+        if (hasKnownSize && totalBytes > fileStats.size) {
+          readTarget = KNOWLEDGE_MAX_READ_BYTES + 1;
+        }
+      }
+
+      consumeText(flushDecoder(decoder));
+      if (fragments.length > 0) {
+        appendLine(fragments.join(''), '');
+      }
+
+      if (lineIndex === 0 && offset === 0) {
+        result = { path: relativePath, offset, lineCount: 0, content: '' };
+      } else if (offset >= lineIndex) {
+        throw new KnowledgeFilesystemError('knowledge_range_invalid');
+      } else if (outputCutOffset !== undefined) {
+        result = {
+          path: relativePath,
+          offset,
+          lineCount,
+          content,
+          nextOffset: outputCutOffset,
+          cutReason: 'output_limit',
+        };
+      } else {
+        const requestedEnd = offset + maxLines;
+        const hasRemaining = lineIndex > requestedEnd;
+        const readResult: KnowledgeFilesystemReadResultBuilder = {
+          path: relativePath,
+          offset,
+          lineCount,
+          content,
+        };
+        if (hasRemaining) {
+          readResult.nextOffset = requestedEnd;
+          if (requestedLimit === undefined) {
+            readResult.cutReason = 'line_limit';
+          }
+        }
+        result = readResult;
+      }
+    } catch (error) {
+      failure = error;
+    }
+    if (file !== undefined) {
+      try {
+        await closeResource(file, signal);
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure instanceof KnowledgeFilesystemError) {
+      throw failure;
+    }
+    if (isErrno(failure, 'ENOENT')) {
+      throw new KnowledgeFilesystemError('knowledge_not_found');
+    }
+    if (isErrno(failure, 'ELOOP')) {
+      throw new KnowledgeFilesystemError('knowledge_path_invalid');
+    }
+    if (failure !== undefined) {
+      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+    }
+    return (
+      result ?? {
+        path: relativePath,
+        offset,
+        lineCount: 0,
+        content: '',
+      }
+    );
+  }
+
   private async realpath(
     filePath: string,
     signal: AbortSignal | undefined,
@@ -497,6 +700,8 @@ function messageFor(code: KnowledgeFilesystemErrorCode): string {
       return 'The Knowledge path is invalid.';
     case 'knowledge_not_found':
       return 'The Knowledge note was not found.';
+    case 'knowledge_range_invalid':
+      return 'The Knowledge line range is invalid.';
     case 'knowledge_content_invalid':
       return 'The Knowledge note is not valid UTF-8.';
     case 'knowledge_limit_exceeded':
@@ -529,6 +734,21 @@ function validateSearchInput(query: string, limit: number): void {
     limit > 10
   ) {
     throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+  }
+}
+
+function validateReadRange(
+  offset: number | undefined,
+  limit: number | undefined,
+): void {
+  if (
+    (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0)) ||
+    (limit !== undefined &&
+      (!Number.isSafeInteger(limit) ||
+        limit < 1 ||
+        limit > KNOWLEDGE_MAX_READ_LINES))
+  ) {
+    throw new KnowledgeFilesystemError('knowledge_range_invalid');
   }
 }
 
@@ -588,8 +808,32 @@ function decodeUtf8(bytes: Buffer): string {
   }
 }
 
+function decodeChunk(
+  decoder: TextDecoder,
+  buffer: Buffer,
+  bytesRead: number,
+): string {
+  try {
+    return decoder.decode(buffer.subarray(0, bytesRead), { stream: true });
+  } catch {
+    throw new KnowledgeFilesystemError('knowledge_content_invalid');
+  }
+}
+
+function flushDecoder(decoder: TextDecoder): string {
+  try {
+    return decoder.decode();
+  } catch {
+    throw new KnowledgeFilesystemError('knowledge_content_invalid');
+  }
+}
+
 function hashBytes(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+function serializedStringLength(value: string): number {
+  return JSON.stringify(value).length - 2;
 }
 
 function makeSearchMatch(

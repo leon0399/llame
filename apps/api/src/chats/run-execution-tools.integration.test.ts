@@ -2185,7 +2185,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     await sql`DELETE FROM chats WHERE id = ${chatId}`;
   });
 
-  it('keeps Knowledge path and hash attribution through events, settlement, reconstruction, and bounded replay', async () => {
+  it('keeps Knowledge path and range attribution through events, settlement, reconstruction, and bounded replay', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'llame-knowledge-run-'));
     const knowledgeSpaceService = new KnowledgeSpaceService(
       tenantDb,
@@ -2218,6 +2218,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
             ? jsonToolCallResponse('knowledge-call', 'knowledge_read', {
                 knowledgeSpaceId: space.id,
                 path: relativePath,
+                offset: 0,
+                limit: 1,
               })
             : textResponse('The checkpoint is Friday at 09:00 UTC.'),
         );
@@ -2263,8 +2265,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
           status: 'success',
           knowledgeSpaceId: space.id,
           path: relativePath,
-          content,
-          contentHash,
+          offset: 0,
+          lineCount: 1,
+          content: `1: ${content}`,
         },
       });
       expect(JSON.stringify(completed?.payload)).not.toContain(root);
@@ -2291,8 +2294,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
           status: 'success',
           knowledgeSpaceId: space.id,
           path: relativePath,
-          content,
-          contentHash,
+          offset: 0,
+          lineCount: 1,
+          content: `1: ${content}`,
         },
       });
 
@@ -2303,8 +2307,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
           output: expect.objectContaining({
             knowledgeSpaceId: space.id,
             path: relativePath,
-            content,
-            contentHash,
+            offset: 0,
+            lineCount: 1,
+            content: `1: ${content}`,
           }),
         }),
       );
@@ -2320,8 +2325,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
           output: expect.objectContaining({
             knowledgeSpaceId: space.id,
             path: relativePath,
-            content,
-            contentHash,
+            offset: 0,
+            lineCount: 1,
+            content: `1: ${content}`,
           }),
           dynamic: true,
         }),
@@ -2344,8 +2350,33 @@ describeIfDb('executeRun tool-loop persistence', () => {
       const replayed = JSON.stringify(replay.messages);
       expect(replayed).toContain(space.id);
       expect(replayed).toContain(relativePath);
-      expect(replayed).toContain(contentHash);
-      expect(replayed).toContain(content);
+      expect(replayed).toContain(`1: ${content}`);
+
+      const historical = buildContext(
+        [
+          {
+            ...storedAssistant,
+            parts: [
+              {
+                type: 'tool-knowledge_read',
+                toolCallId: 'historical-knowledge-call',
+                state: 'output-available',
+                input: { path: relativePath },
+                output: {
+                  status: 'success',
+                  knowledgeSpaceId: space.id,
+                  path: relativePath,
+                  content,
+                  contentHash,
+                },
+                outcome: 'success',
+              },
+            ],
+          },
+        ],
+        { systemPrompt: 'Knowledge replay test' },
+      );
+      expect(JSON.stringify(historical.messages)).toContain(contentHash);
 
       const oversizedContent = 'x'.repeat(10_000);
       const degraded = buildContext(
