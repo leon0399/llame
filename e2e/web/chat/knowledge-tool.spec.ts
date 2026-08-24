@@ -34,6 +34,8 @@ const apiUrl =
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
 const knowledgeRoot = process.env.E2E_KNOWLEDGE_ROOT;
 const modelId = "system:openai:gpt-5.4-mini";
+const longNotePath = "notes/long-note.md";
+const pagedQuery = "KNOWLEDGE_E2E_PAGED";
 
 type KnowledgeSpaceResponse = {
   id: string;
@@ -392,6 +394,139 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
         timeout: 15_000,
       },
     );
+  });
+
+  test("navigates long notes with ranges and paged literal passages", async ({
+    account,
+    page,
+    request,
+  }) => {
+    const rangedSpace = await provisionKnowledgeSpace(
+      request,
+      account,
+      "Ranged acceptance",
+    );
+    const longNote = Array.from({ length: 2_005 }, (_, index) => {
+      if (index === 2) return `${pagedQuery} first passage`;
+      if (index === 1_102) return `${pagedQuery} second passage`;
+      if (index === 2_002) return `${pagedQuery} final passage`;
+      return "x";
+    }).join("\n");
+    writeNote(rangedSpace, longNotePath, `${longNote}\n`);
+
+    await prepareChat(page);
+    const log = page.getByRole("log");
+
+    await sendPrompt(
+      page,
+      `Please read the long knowledge fixture. Knowledge Space ID: ${rangedSpace.id}`,
+    );
+    const firstRead = log
+      .getByRole("button")
+      .filter({ hasText: "knowledge_read" })
+      .first();
+    await expect(firstRead).toContainText("Completed", { timeout: 30_000 });
+    await firstRead.click();
+    const firstReadDetails = firstRead.locator("..");
+    await expect(firstReadDetails).toContainText(longNotePath);
+    await expect(firstReadDetails).toContainText('"offset": 0');
+    await expect(firstReadDetails).toContainText('"nextOffset":');
+    await expect(firstReadDetails).toContainText('"cutReason":');
+    await expect(firstReadDetails).not.toContainText("contentHash");
+    await expect(firstReadDetails).not.toContainText("expectedContentHash");
+    await expect(firstReadDetails).not.toContainText(requireKnowledgeRoot());
+
+    const continuedRead = log
+      .getByRole("button")
+      .filter({ hasText: "knowledge_read" })
+      .nth(1);
+    await expect(continuedRead).toContainText("Completed", {
+      timeout: 30_000,
+    });
+    await continuedRead.click();
+    const continuedReadDetails = continuedRead.locator("..");
+    await expect(continuedReadDetails).toContainText(longNotePath);
+    await expect(continuedReadDetails).toContainText('"offset":');
+    await expect(continuedReadDetails).toContainText('"limit": 2000');
+    await expect(continuedReadDetails).toContainText(
+      "KNOWLEDGE_E2E_PAGED final",
+    );
+    await expect(continuedReadDetails).not.toContainText("contentHash");
+    await expect(continuedReadDetails).not.toContainText("expectedContentHash");
+
+    await sendPrompt(
+      page,
+      `Please read an explicit range from the long knowledge fixture. Knowledge Space ID: ${rangedSpace.id}`,
+    );
+    const explicitRead = log
+      .getByRole("button")
+      .filter({ hasText: "knowledge_read" })
+      .nth(2);
+    await expect(explicitRead).toContainText("Completed", { timeout: 30_000 });
+    await explicitRead.click();
+    const explicitReadDetails = explicitRead.locator("..");
+    await expect(explicitReadDetails).toContainText(longNotePath);
+    await expect(explicitReadDetails).toContainText('"offset": 2');
+    await expect(explicitReadDetails).toContainText('"limit": 3');
+    await expect(explicitReadDetails).toContainText("3: KNOWLEDGE_E2E_PAGED");
+    await expect(explicitReadDetails).not.toContainText("contentHash");
+    await expect(explicitReadDetails).not.toContainText(requireKnowledgeRoot());
+
+    await sendPrompt(
+      page,
+      `Please search the knowledge fixture for the paged literal passages. Knowledge Space ID: ${rangedSpace.id}`,
+    );
+    const firstSearch = log
+      .getByRole("button")
+      .filter({ hasText: "knowledge_search" })
+      .first();
+    await expect(firstSearch).toContainText("Completed", { timeout: 30_000 });
+    await firstSearch.click();
+    const firstSearchDetails = firstSearch.locator("..");
+    await expect(firstSearchDetails).toContainText(longNotePath);
+    await expect(firstSearchDetails).toContainText(rangedSpace.id);
+    await expect(firstSearchDetails).toContainText('"limit": 1');
+    await expect(firstSearchDetails).toContainText('"offset": 1');
+    await expect(firstSearchDetails).toContainText(
+      "KNOWLEDGE_E2E_PAGED first passage",
+    );
+    await expect(firstSearchDetails).not.toContainText("contentHash");
+    await expect(firstSearchDetails).not.toContainText("expectedContentHash");
+    await expect(firstSearchDetails).not.toContainText(requireKnowledgeRoot());
+
+    const secondSearch = log
+      .getByRole("button")
+      .filter({ hasText: "knowledge_search" })
+      .nth(1);
+    await expect(secondSearch).toContainText("Completed", { timeout: 30_000 });
+    await secondSearch.click();
+    const secondSearchDetails = secondSearch.locator("..");
+    await expect(secondSearchDetails).toContainText(longNotePath);
+    await expect(secondSearchDetails).toContainText('"cursor":');
+    await expect(secondSearchDetails).toContainText('"limit": 1');
+    await expect(secondSearchDetails).toContainText('"offset": 1101');
+    await expect(secondSearchDetails).toContainText(
+      "KNOWLEDGE_E2E_PAGED second passage",
+    );
+    await expect(secondSearchDetails).not.toContainText("contentHash");
+    await expect(secondSearchDetails).not.toContainText("expectedContentHash");
+    await expect(secondSearchDetails).not.toContainText(requireKnowledgeRoot());
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("log")).toContainText(longNotePath);
+    await expect(page.getByRole("log")).not.toContainText(
+      requireKnowledgeRoot(),
+    );
+
+    // Resource authorization is resolved for every tool call, not retained
+    // from the successful calls above. The next explicit read must fail after
+    // this current Knowledge Space binding is removed.
+    revokeKnowledgeSpaceFixtureAccess(account.id, rangedSpace.id);
+    await sendPrompt(
+      page,
+      `Please read the long knowledge fixture after access was revoked. Knowledge Space ID: ${rangedSpace.id}`,
+    );
+    await expectErroredTool(log, "Knowledge Space was not found.", 3);
   });
 
   test("keeps identical note text tenant-scoped for two users", async ({

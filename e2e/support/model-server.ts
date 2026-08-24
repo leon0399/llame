@@ -109,6 +109,9 @@ const MCP_ANSWER_TOKENS = [
 ];
 const KNOWLEDGE_PROMPT_MARKER = "knowledge fixture";
 const KNOWLEDGE_CHANGED_MARKER = "knowledge changed fixture";
+const KNOWLEDGE_LONG_PATH = "notes/long-note.md";
+const KNOWLEDGE_PAGED_QUERY = "KNOWLEDGE_E2E_PAGED";
+const KNOWLEDGE_PAGED_MARKER = "paged literal passages";
 const KNOWLEDGE_ERROR_ANSWER_TOKENS = [
   "I",
   " could",
@@ -216,11 +219,38 @@ function findStringProperty(value: unknown, key: string): string | undefined {
   return undefined;
 }
 
+function findNumberProperty(value: unknown, key: string): number | undefined {
+  if (typeof value === "string") {
+    try {
+      return findNumberProperty(JSON.parse(value) as unknown, key);
+    } catch {
+      return undefined;
+    }
+  }
+  if (Array.isArray(value)) {
+    for (const item of value.toReversed()) {
+      const found = findNumberProperty(item, key);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  if (value === null || typeof value !== "object") return undefined;
+
+  const record = value as Record<string, unknown>;
+  if (typeof record[key] === "number") return record[key];
+  for (const item of Object.values(record).toReversed()) {
+    const found = findNumberProperty(item, key);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
 /** Classify native and fixture-MCP tool-loop requests independently. */
 function classify(raw: string): {
   hasTools: boolean;
   hasToolResult: boolean;
   hasCurrentTurnToolResult: boolean;
+  currentTurnToolResultCount: number;
   asksSearch: boolean;
   asksMcpFixtureSearch: boolean;
   hasMcpFixtureTool: boolean;
@@ -233,6 +263,8 @@ function classify(raw: string): {
   knowledgeOperation: "search" | "read" | "error";
   knowledgeSpaceId: string | undefined;
   knowledgeReadPath: string;
+  knowledgeNextOffset: number | undefined;
+  knowledgeCursor: string | undefined;
   knowledgeResultPath: string | undefined;
   lastUserContent: string;
 } {
@@ -250,9 +282,16 @@ function classify(raw: string): {
       typeof lastUser?.content === "string"
         ? lastUser.content
         : JSON.stringify(lastUser?.content ?? "");
-    const hasCurrentTurnToolResult =
-      lastUserIndex >= 0 &&
-      messages.slice(lastUserIndex + 1).some((m) => m.role === "tool");
+    const currentTurnToolResultCount =
+      lastUserIndex < 0
+        ? 0
+        : messages
+            .slice(lastUserIndex + 1)
+            .filter((message) => message.role === "tool").length;
+    const hasCurrentTurnToolResult = currentTurnToolResultCount > 0;
+    const latestToolContent = messages.findLast(
+      (m) => m.role === "tool",
+    )?.content;
     const knowledgeResultPath = findStringProperty(
       messages.slice(lastUserIndex + 1).findLast((m) => m.role === "tool")
         ?.content,
@@ -266,7 +305,9 @@ function classify(raw: string): {
           ? "notes/oversized.md"
           : content.includes("missing")
             ? "notes/missing.md"
-            : "notes/worker-note.md";
+            : content.includes("long knowledge")
+              ? KNOWLEDGE_LONG_PATH
+              : "notes/worker-note.md";
     const knowledgeSpaceId = /Knowledge Space ID: ([0-9a-f-]{36})/iu.exec(
       content,
     )?.[1];
@@ -284,6 +325,7 @@ function classify(raw: string): {
       hasTools,
       hasToolResult,
       hasCurrentTurnToolResult,
+      currentTurnToolResultCount,
       asksSearch: /\bsearch\b/i.test(content),
       asksMcpFixtureSearch: content.includes(MCP_PROMPT_MARKER),
       hasMcpFixtureTool: toolIsOffered(body.tools, MCP_TOOL_ID),
@@ -293,6 +335,7 @@ function classify(raw: string): {
       asksKnowledge:
         content.includes(KNOWLEDGE_PROMPT_MARKER) ||
         content.includes(KNOWLEDGE_CHANGED_MARKER) ||
+        content.includes("long knowledge fixture") ||
         content.includes("knowledge traversal") ||
         content.includes("knowledge symlink") ||
         content.includes("knowledge oversized") ||
@@ -306,6 +349,8 @@ function classify(raw: string): {
       knowledgeOperation,
       knowledgeSpaceId,
       knowledgeReadPath,
+      knowledgeNextOffset: findNumberProperty(latestToolContent, "nextOffset"),
+      knowledgeCursor: findStringProperty(latestToolContent, "nextCursor"),
       knowledgeResultPath,
       lastUserContent: content,
     };
@@ -314,6 +359,7 @@ function classify(raw: string): {
       hasTools: false,
       hasToolResult: false,
       hasCurrentTurnToolResult: false,
+      currentTurnToolResultCount: 0,
       asksSearch: false,
       asksMcpFixtureSearch: false,
       hasMcpFixtureTool: false,
@@ -326,6 +372,8 @@ function classify(raw: string): {
       knowledgeOperation: "search",
       knowledgeSpaceId: undefined,
       knowledgeReadPath: "notes/worker-note.md",
+      knowledgeNextOffset: undefined,
+      knowledgeCursor: undefined,
       knowledgeResultPath: undefined,
       lastUserContent: "",
     };
@@ -373,9 +421,12 @@ const server = http.createServer((req, res) => {
           hasKnowledgeSearchTool,
           hasKnowledgeReadTool,
           hasCurrentTurnToolResult,
+          currentTurnToolResultCount,
           knowledgeOperation,
           knowledgeSpaceId,
           knowledgeReadPath,
+          knowledgeNextOffset,
+          knowledgeCursor,
           knowledgeResultPath,
           lastUserContent,
         } = classify(raw);
@@ -407,16 +458,72 @@ const server = http.createServer((req, res) => {
                 ? KNOWLEDGE_READ_TOOL_ID
                 : KNOWLEDGE_SEARCH_TOOL_ID,
               arguments: readKnowledge
-                ? { knowledgeSpaceId, path: knowledgeReadPath }
+                ? {
+                    knowledgeSpaceId,
+                    path: knowledgeReadPath,
+                    ...(lastUserContent.includes("explicit range")
+                      ? { offset: 2, limit: 3 }
+                      : {}),
+                  }
                 : {
-                    query: lastUserContent.includes(KNOWLEDGE_CHANGED_MARKER)
-                      ? "KNOWLEDGE_E2E_CHANGED"
-                      : "KNOWLEDGE_E2E_MARKER",
-                    limit: 5,
-                    ...(lastUserContent.includes("explicit") &&
+                    query: lastUserContent.includes(KNOWLEDGE_PAGED_MARKER)
+                      ? KNOWLEDGE_PAGED_QUERY
+                      : lastUserContent.includes(KNOWLEDGE_CHANGED_MARKER)
+                        ? "KNOWLEDGE_E2E_CHANGED"
+                        : "KNOWLEDGE_E2E_MARKER",
+                    limit: lastUserContent.includes(KNOWLEDGE_PAGED_MARKER)
+                      ? 1
+                      : 5,
+                    ...((lastUserContent.includes("explicit") ||
+                      lastUserContent.includes(KNOWLEDGE_PAGED_MARKER)) &&
                     knowledgeSpaceId !== undefined
                       ? { knowledgeSpaceId }
                       : {}),
+                    ...(lastUserContent.includes("next page") &&
+                    knowledgeCursor !== undefined
+                      ? { cursor: knowledgeCursor }
+                      : {}),
+                  },
+            }),
+          );
+          res.write(toolFinishChunk());
+          res.write("data: [DONE]\n\n");
+          res.end();
+          return;
+        }
+
+        if (
+          asksKnowledge &&
+          hasRequestedKnowledgeTool &&
+          currentTurnToolResultCount === 1 &&
+          ((readKnowledge &&
+            lastUserContent.includes("long knowledge fixture") &&
+            !lastUserContent.includes("explicit range") &&
+            knowledgeNextOffset !== undefined) ||
+            (!readKnowledge &&
+              lastUserContent.includes(KNOWLEDGE_PAGED_MARKER) &&
+              knowledgeCursor !== undefined))
+        ) {
+          res.write(
+            toolCallChunk({
+              id: readKnowledge
+                ? "call_knowledge_read_continued_e2e"
+                : "call_knowledge_search_continued_e2e",
+              name: readKnowledge
+                ? KNOWLEDGE_READ_TOOL_ID
+                : KNOWLEDGE_SEARCH_TOOL_ID,
+              arguments: readKnowledge
+                ? {
+                    knowledgeSpaceId,
+                    path: knowledgeReadPath,
+                    offset: knowledgeNextOffset,
+                    limit: 2_000,
+                  }
+                : {
+                    query: KNOWLEDGE_PAGED_QUERY,
+                    limit: 1,
+                    knowledgeSpaceId,
+                    cursor: knowledgeCursor,
                   },
             }),
           );
