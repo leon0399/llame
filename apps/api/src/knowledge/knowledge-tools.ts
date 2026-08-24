@@ -5,8 +5,17 @@ import {
   KnowledgeFilesystemError,
   type KnowledgeFilesystemAdapterPort,
   type KnowledgeFilesystemBinding,
+  type KnowledgeFilesystemSearchAfter,
   type KnowledgeFilesystemSearchMatch,
 } from './knowledge-filesystem';
+import {
+  assertKnowledgeSearchCursorBinding,
+  decodeKnowledgeSearchCursor,
+  encodeKnowledgeSearchCursor,
+  KnowledgeSearchCursorError,
+  normalizeKnowledgeSearchQuery,
+  type KnowledgeSearchCursor,
+} from './knowledge-search.cursor';
 import { type KnowledgeSpaceCursor } from './knowledge-space.cursor';
 import {
   type KnowledgeToolSpaceReference,
@@ -32,6 +41,7 @@ const knowledgeSearchInputSchema = z
       }),
     limit: z.number().int().min(1).max(10).default(5),
     knowledgeSpaceId: knowledgeSpaceIdSchema.optional(),
+    cursor: z.string().optional(),
   })
   .strict();
 
@@ -63,6 +73,7 @@ type KnowledgeSearchArguments = {
   readonly query: string;
   readonly limit: number;
   readonly knowledgeSpaceId?: string;
+  readonly cursor?: string;
 };
 
 type KnowledgeReadArguments = {
@@ -88,11 +99,13 @@ type KnowledgeReadSuccess = {
 type KnowledgeAccess = {
   readonly binding: KnowledgeFilesystemBinding;
   readonly adapter: KnowledgeFilesystemAdapterPort;
+  readonly spaceCreatedAt: Date;
 };
 
 type AttributedMatch = KnowledgeFilesystemSearchMatch & {
   readonly knowledgeSpaceId: string;
   readonly knowledgeSpaceName: string;
+  readonly spaceCreatedAt: Date;
 };
 
 type KnowledgeSearchWarning = {
@@ -114,6 +127,8 @@ export const knowledgeSearchTool: Tool<KnowledgeSearchArguments> = {
   classification: 'read_only',
   inputSchema: knowledgeSearchInputSchema,
   async execute(context, args) {
+    const cursor = decodeSearchCursor(args);
+    if (cursor !== undefined && isToolResult(cursor)) return cursor;
     const resolver = context.knowledgeResolver;
     if (resolver === undefined) return unavailableResult();
 
@@ -127,18 +142,29 @@ export const knowledgeSearchTool: Tool<KnowledgeSearchArguments> = {
         const matches = await access.adapter.search(args.query, args.limit, {
           signal: context.abortSignal,
           budget: createKnowledgeFilesystemSearchBudget(),
+          after: cursor === undefined ? undefined : cursorAfter(cursor),
+          maxResults: args.limit + 1,
         });
-        return buildSearchSuccess(
-          matches.map((match) => attributeMatch(match, access.binding)),
+        const attributed = matches
+          .map((match) =>
+            attributeMatch(match, access.binding, access.spaceCreatedAt),
+          )
+          .filter((match) => isAfterCursor(match, cursor))
+          .sort(compareAttributedMatches);
+        return buildSearchPage(
+          attributed,
+          args,
           [],
           0,
+          access.spaceCreatedAt,
+          attributed.length > args.limit,
         );
       } catch (error) {
         return mapKnowledgeFailure(error);
       }
     }
 
-    return searchAllCurrentSpaces(context, args.query, args.limit);
+    return searchAllCurrentSpaces(context, args, cursor);
   },
 };
 
@@ -181,8 +207,8 @@ export const knowledgeReadTool: Tool<KnowledgeReadArguments> = {
 
 async function searchAllCurrentSpaces(
   context: ToolContext,
-  query: string,
-  limit: number,
+  args: KnowledgeSearchArguments,
+  cursor: KnowledgeSearchCursor | undefined,
 ): Promise<ToolResult> {
   const resolver = context.knowledgeResolver;
   if (resolver === undefined) return unavailableResult();
@@ -193,11 +219,15 @@ async function searchAllCurrentSpaces(
   let warningCount = 0;
   let inspectedSpaces = 0;
   let currentSpaces = 0;
+  let laterPassageExists = false;
 
   try {
     for await (const page of currentSpacePages(context)) {
       for (const space of page) {
-        const access = await resolveExplicitAccess(context, space.id);
+        if (cursor !== undefined && compareSpaceReference(space, cursor) < 0) {
+          continue;
+        }
+        const access = await resolveExplicitAccess(context, space.id, space);
         if (isToolResult(access)) {
           if (access.type === 'knowledge_space_not_found') continue;
           currentSpaces += 1;
@@ -210,14 +240,41 @@ async function searchAllCurrentSpaces(
         currentSpaces += 1;
 
         try {
-          const spaceMatches = await access.adapter.search(query, limit, {
-            signal: context.abortSignal,
-            budget,
-          });
+          const spaceMatches = await access.adapter.search(
+            args.query,
+            args.limit,
+            {
+              signal: context.abortSignal,
+              budget,
+              after:
+                cursor !== undefined &&
+                compareSpaceReference(space, cursor) === 0
+                  ? cursorAfter(cursor)
+                  : undefined,
+              maxResults: args.limit + 1,
+            },
+          );
           inspectedSpaces += 1;
-          for (const match of spaceMatches) {
-            if (matches.length >= limit) break;
-            matches.push(attributeMatch(match, access.binding));
+          const attributed = spaceMatches
+            .map((match) =>
+              attributeMatch(match, access.binding, access.spaceCreatedAt),
+            )
+            .filter((match) => isAfterCursor(match, cursor))
+            .sort(compareAttributedMatches);
+          for (const match of attributed) {
+            if (matches.length >= args.limit) break;
+            matches.push(match);
+          }
+          if (matches.length >= args.limit && attributed.length > 0) {
+            const last = matches[matches.length - 1];
+            if (
+              last !== undefined &&
+              attributed.some(
+                (match) => compareAttributedMatches(match, last) > 0,
+              )
+            ) {
+              laterPassageExists = true;
+            }
           }
         } catch (error) {
           if (error instanceof KnowledgeFilesystemError) {
@@ -249,7 +306,14 @@ async function searchAllCurrentSpaces(
         };
   }
 
-  return buildSearchSuccess(matches, warnings, warningCount);
+  return buildSearchPage(
+    matches.sort(compareAttributedMatches),
+    args,
+    warnings,
+    warningCount,
+    undefined,
+    laterPassageExists,
+  );
 }
 
 function readResultBudget(
@@ -290,6 +354,7 @@ async function* currentSpacePages(
 async function resolveExplicitAccess(
   context: ToolContext,
   knowledgeSpaceId: string,
+  space?: KnowledgeToolSpaceReference,
 ): Promise<KnowledgeAccess | ToolResult> {
   const resolver = context.knowledgeResolver;
   if (resolver === undefined) return unavailableResult();
@@ -300,55 +365,168 @@ async function resolveExplicitAccess(
       knowledgeSpaceId,
     );
     if (binding === undefined) return notFoundResult();
-    return { binding, adapter: resolver.createAdapter(binding) };
+    return {
+      binding,
+      adapter: resolver.createAdapter(binding),
+      spaceCreatedAt: space?.createdAt ?? new Date(0),
+    };
   } catch (error) {
     return mapResolverFailure(error);
   }
 }
 
-function buildSearchSuccess(
+function buildSearchPage(
   matches: readonly AttributedMatch[],
+  args: KnowledgeSearchArguments,
   warnings: readonly KnowledgeSearchWarning[],
   warningCount: number,
+  explicitSpaceCreatedAt: Date | undefined,
+  laterPassageExists = false,
 ): ToolResult {
+  const results = matches.slice(0, args.limit);
   const base = {
     status: 'success' as const,
-    results: matches.map((match) => ({
+    results: results.map((match) => ({
       knowledgeSpaceId: match.knowledgeSpaceId,
       knowledgeSpaceName: match.knowledgeSpaceName,
       path: match.path,
-      line: match.line,
-      snippet: match.snippet,
-      contentHash: match.contentHash,
+      offset: match.offset,
+      limit: match.limit,
+      excerpt: match.excerpt,
     })),
     complete: warningCount === 0,
     warningCount,
     notice: KNOWLEDGE_CONTENT_NOTICE,
   };
+  const lastAttributed = matches[results.length - 1];
+  const nextCursor =
+    laterPassageExists && lastAttributed !== undefined
+      ? encodeKnowledgeSearchCursor({
+          version: 1,
+          query: normalizeKnowledgeSearchQuery(args.query),
+          knowledgeSpaceId: args.knowledgeSpaceId,
+          spaceCreatedAt:
+            explicitSpaceCreatedAt ?? lastAttributed.spaceCreatedAt,
+          spaceId: lastAttributed.knowledgeSpaceId,
+          path: lastAttributed.path,
+          offset: lastAttributed.offset,
+        })
+      : undefined;
+  const baseWithCursor =
+    nextCursor === undefined ? base : { ...base, nextCursor };
   let visibleWarnings: KnowledgeSearchWarning[] = [];
   for (const warning of warnings) {
-    const candidate = { ...base, warnings: [...visibleWarnings, warning] };
+    const candidate = {
+      ...baseWithCursor,
+      warnings: [...visibleWarnings, warning],
+    };
     if (serializedLength(candidate) > KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS) {
       break;
     }
     visibleWarnings = [...visibleWarnings, warning];
   }
-  return preflightSuccess({ ...base, warnings: visibleWarnings });
+  return preflightSuccess({ ...baseWithCursor, warnings: visibleWarnings });
 }
 
 function attributeMatch(
   match: KnowledgeFilesystemSearchMatch,
   binding: KnowledgeFilesystemBinding,
+  spaceCreatedAt: Date,
 ): AttributedMatch {
   return {
     ...match,
     knowledgeSpaceId: binding.id,
     knowledgeSpaceName: bindingName(binding),
+    spaceCreatedAt,
   };
 }
 
 function bindingName(binding: KnowledgeFilesystemBinding): string {
   return binding.name ?? binding.id;
+}
+
+function decodeSearchCursor(
+  args: KnowledgeSearchArguments,
+): KnowledgeSearchCursor | ToolResult | undefined {
+  if (args.cursor === undefined) return undefined;
+  try {
+    const cursor = decodeKnowledgeSearchCursor(args.cursor);
+    assertKnowledgeSearchCursorBinding(
+      cursor,
+      args.query,
+      args.knowledgeSpaceId,
+    );
+    return cursor;
+  } catch (error) {
+    if (error instanceof KnowledgeSearchCursorError) {
+      return {
+        status: 'error',
+        type: 'knowledge_cursor_invalid',
+        message: error.message,
+      };
+    }
+    return {
+      status: 'error',
+      type: 'knowledge_cursor_invalid',
+      message: 'The Knowledge search cursor is invalid.',
+    };
+  }
+}
+
+function cursorAfter(
+  cursor: KnowledgeSearchCursor,
+): KnowledgeFilesystemSearchAfter {
+  return { path: cursor.path, offset: cursor.offset };
+}
+
+function compareSpaceReference(
+  space: KnowledgeToolSpaceReference,
+  cursor: KnowledgeSearchCursor,
+): number {
+  const dateOrder = space.createdAt.getTime() - cursor.spaceCreatedAt.getTime();
+  return dateOrder !== 0 ? dateOrder : compareNames(space.id, cursor.spaceId);
+}
+
+function isAfterCursor(
+  match: AttributedMatch,
+  cursor: KnowledgeSearchCursor | undefined,
+): boolean {
+  if (cursor === undefined) return true;
+  if (cursor.knowledgeSpaceId !== undefined) {
+    return (
+      compareNames(match.path, cursor.path) > 0 ||
+      (match.path === cursor.path && match.offset > cursor.offset)
+    );
+  }
+  const spaceOrder =
+    match.spaceCreatedAt.getTime() - cursor.spaceCreatedAt.getTime();
+  if (spaceOrder !== 0) return spaceOrder > 0;
+  const idOrder = compareNames(match.knowledgeSpaceId, cursor.spaceId);
+  if (idOrder !== 0) return idOrder > 0;
+  return (
+    compareNames(match.path, cursor.path) > 0 ||
+    (match.path === cursor.path && match.offset > cursor.offset)
+  );
+}
+
+function compareAttributedMatches(
+  left: AttributedMatch,
+  right: AttributedMatch,
+): number {
+  const dateOrder =
+    left.spaceCreatedAt.getTime() - right.spaceCreatedAt.getTime();
+  if (dateOrder !== 0) return dateOrder;
+  const spaceOrder = compareNames(
+    left.knowledgeSpaceId,
+    right.knowledgeSpaceId,
+  );
+  if (spaceOrder !== 0) return spaceOrder;
+  const pathOrder = compareNames(left.path, right.path);
+  return pathOrder !== 0 ? pathOrder : left.offset - right.offset;
+}
+
+function compareNames(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function warningFromFailure(
@@ -457,10 +635,8 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   }
 }
 
-function isToolResult(
-  value: KnowledgeAccess | ToolResult,
-): value is ToolResult {
-  return 'status' in value;
+function isToolResult(value: unknown): value is ToolResult {
+  return value !== null && typeof value === 'object' && 'status' in value;
 }
 
 function notConfiguredResult(): ToolResult {

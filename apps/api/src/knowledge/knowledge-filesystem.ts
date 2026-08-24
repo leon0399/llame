@@ -1,5 +1,4 @@
 import { constants, promises as fs } from 'node:fs';
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { isRecord, isString } from '../unknown-record';
@@ -125,9 +124,9 @@ export class KnowledgeFilesystemError extends Error {
 
 export type KnowledgeFilesystemSearchMatch = {
   readonly path: string;
-  readonly line: string;
-  readonly snippet: string;
-  readonly contentHash: string;
+  readonly offset: number;
+  readonly limit: number;
+  readonly excerpt: string;
 };
 
 export type KnowledgeFilesystemReadResult = {
@@ -156,6 +155,19 @@ export type KnowledgeFilesystemAdapterPort = Pick<
 export type KnowledgeFilesystemSearchOptions = {
   readonly signal?: AbortSignal;
   readonly budget?: KnowledgeFilesystemSearchBudget;
+  readonly after?: KnowledgeFilesystemSearchAfter;
+  readonly maxResults?: number;
+};
+
+export type KnowledgeFilesystemSearchAfter = {
+  readonly path: string;
+  readonly offset: number;
+};
+
+export type KnowledgeFilesystemPassageOptions = {
+  readonly signal?: AbortSignal;
+  readonly after?: KnowledgeFilesystemSearchAfter;
+  readonly maxResults?: number;
 };
 
 export type KnowledgeFilesystemReadOptions =
@@ -192,8 +204,8 @@ export class KnowledgeFilesystemAdapter {
     const signal = options.signal;
     const budget = options.budget ?? createKnowledgeFilesystemSearchBudget();
     const directory = await this.resolveBindingDirectory(signal);
-    const queryFolded = query.toLowerCase();
     const matches: KnowledgeFilesystemSearchMatch[] = [];
+    const maxResults = options.maxResults ?? limit;
     const pending = [{ absolutePath: directory, relativePath: '' }];
 
     while (pending.length > 0) {
@@ -255,16 +267,21 @@ export class KnowledgeFilesystemAdapter {
         }
         budget.remainingBytes -= bytes.length;
         const text = decodeUtf8(bytes);
-        const match = makeSearchMatch(relativePath, text, queryFolded, bytes);
-        if (match !== undefined) {
+        const fileMatches = await collectKnowledgePassages(
+          relativePath,
+          text,
+          query,
+          { signal, after: options.after, maxResults },
+        );
+        for (const match of fileMatches) {
           matches.push(match);
+          matches.sort(compareSearchMatches);
+          if (matches.length > maxResults) matches.pop();
         }
       }
     }
 
-    return matches
-      .sort((left, right) => compareNames(left.path, right.path))
-      .slice(0, limit);
+    return matches.sort(compareSearchMatches);
   }
 
   async read(
@@ -893,10 +910,6 @@ function flushDecoder(decoder: TextDecoder): string {
   }
 }
 
-function hashBytes(bytes: Buffer): string {
-  return createHash('sha256').update(bytes).digest('hex');
-}
-
 function serializedStringLength(value: string): number {
   return JSON.stringify(value).length - 2;
 }
@@ -919,62 +932,365 @@ function serializedPropertyCodeUnits(
   return 1 + serializedScalarLength(key) + 1 + serializedScalarLength(value);
 }
 
-function makeSearchMatch(
+type KnowledgeLogicalLine = {
+  readonly line: number;
+  readonly text: string;
+  readonly delimiter: string;
+};
+
+type KnowledgeSearchOccurrence = {
+  readonly line: number;
+  readonly offset: number;
+  readonly length: number;
+};
+
+type KnowledgeSearchActiveInterval = {
+  start: number;
+  end: number;
+  partitionStart: number;
+  partitionLines: KnowledgeLogicalLine[];
+  partitionFirstOccurrence?: KnowledgeSearchOccurrence;
+  lastOccurrence: KnowledgeSearchOccurrence;
+  lookahead: KnowledgeLogicalLine[];
+};
+
+/**
+ * Bounded passage extraction shared by the live adapter and focused unit tests.
+ * Logical lines intentionally match the ranged reader: only LF terminates a
+ * line, and a preceding CR belongs to that delimiter as CRLF.
+ */
+export async function collectKnowledgePassages(
   relativePath: string,
   text: string,
-  queryFolded: string,
-  bytes: Buffer,
-): KnowledgeFilesystemSearchMatch | undefined {
-  const lines = text.split(/\r\n|\n|\r/u);
-  const matchIndex = lines.findIndex((line) =>
-    line.toLowerCase().includes(queryFolded),
-  );
-  if (matchIndex < 0) return undefined;
-  const matchingLine = lines[matchIndex];
-  if (matchingLine === undefined) return undefined;
-  const surrounding = [
-    ...(matchIndex > 0 ? [lines[matchIndex - 1]] : []),
-    matchingLine,
-    ...(matchIndex + 1 < lines.length ? [lines[matchIndex + 1]] : []),
-  ]
-    .filter((line): line is string => line !== undefined)
-    .join('\n');
+  query: string,
+  options: KnowledgeFilesystemPassageOptions = {},
+): Promise<KnowledgeFilesystemSearchMatch[]> {
+  const queryFolded = query.toLowerCase();
+  if (queryFolded.length === 0) return [];
+
+  const passages: KnowledgeFilesystemSearchMatch[] = [];
+  const maxResults = options.maxResults ?? Number.POSITIVE_INFINITY;
+  let previousLine: KnowledgeLogicalLine | undefined;
+  let active: KnowledgeSearchActiveInterval | undefined;
+  let lastLine = -1;
+
+  for await (const line of iterateKnowledgeLogicalLines(text, options.signal)) {
+    lastLine = line.line;
+    const match = findLineOccurrence(line.text, queryFolded);
+    const occurrence =
+      match === undefined ? undefined : { line: line.line, ...match };
+
+    if (active === undefined) {
+      if (occurrence !== undefined) {
+        active = startKnowledgeSearchInterval(line, previousLine, occurrence);
+      }
+      previousLine = line;
+      continue;
+    }
+
+    if (occurrence !== undefined) {
+      if (line.line <= active.end + 2) {
+        appendKnowledgeSearchLookahead(active);
+        appendKnowledgeSearchLine(active, line);
+        active.end = Math.max(active.end, line.line + 1);
+        active.lastOccurrence = occurrence;
+        if (line.line > active.partitionStart + KNOWLEDGE_MAX_READ_LINES - 1) {
+          splitKnowledgeSearchPartition(
+            active,
+            occurrence,
+            relativePath,
+            passages,
+            options.after,
+            maxResults,
+          );
+        } else if (active.partitionFirstOccurrence === undefined) {
+          active.partitionFirstOccurrence = occurrence;
+        }
+      } else {
+        emitFinalKnowledgeSearchPartition(
+          active,
+          active.end,
+          relativePath,
+          passages,
+          options.after,
+          maxResults,
+        );
+        active = startKnowledgeSearchInterval(line, previousLine, occurrence);
+      }
+    } else if (line.line <= active.end) {
+      appendKnowledgeSearchLine(active, line);
+    } else {
+      active.lookahead.push(line);
+      if (line.line > active.end + 2) {
+        emitFinalKnowledgeSearchPartition(
+          active,
+          active.end,
+          relativePath,
+          passages,
+          options.after,
+          maxResults,
+        );
+        active = undefined;
+      }
+    }
+    previousLine = line;
+  }
+
+  if (active !== undefined) {
+    emitFinalKnowledgeSearchPartition(
+      active,
+      Math.min(active.end, lastLine),
+      relativePath,
+      passages,
+      options.after,
+      maxResults,
+    );
+  }
+
+  return passages;
+}
+
+function startKnowledgeSearchInterval(
+  line: KnowledgeLogicalLine,
+  previousLine: KnowledgeLogicalLine | undefined,
+  occurrence: KnowledgeSearchOccurrence,
+): KnowledgeSearchActiveInterval {
+  const start = Math.max(0, line.line - 1);
+  const partitionLines =
+    previousLine?.line === start ? [previousLine, line] : [line];
   return {
-    path: relativePath,
-    line: matchingLine,
-    snippet: makeSnippet(
-      surrounding,
-      matchingLine,
-      queryFolded,
-      KNOWLEDGE_MAX_SNIPPET_CODE_POINTS,
-    ),
-    contentHash: hashBytes(bytes),
+    start,
+    end: line.line + 1,
+    partitionStart: start,
+    partitionLines,
+    partitionFirstOccurrence: occurrence,
+    lastOccurrence: occurrence,
+    lookahead: [],
   };
 }
 
-function makeSnippet(
-  surrounding: string,
-  matchingLine: string,
+function appendKnowledgeSearchLookahead(
+  active: KnowledgeSearchActiveInterval,
+): void {
+  for (const line of active.lookahead) {
+    appendKnowledgeSearchLine(active, line);
+  }
+  active.lookahead.length = 0;
+}
+
+function appendKnowledgeSearchLine(
+  active: KnowledgeSearchActiveInterval,
+  line: KnowledgeLogicalLine,
+): void {
+  if (line.line >= active.partitionStart) {
+    active.partitionLines.push(line);
+  }
+}
+
+function findLineOccurrence(
+  line: string,
   queryFolded: string,
-  maxCodePoints: number,
+): Omit<KnowledgeSearchOccurrence, 'line'> | undefined {
+  const folded = line.toLowerCase();
+  const matchOffset = folded.indexOf(queryFolded);
+  if (matchOffset < 0) return undefined;
+  const sourceOffset = codePointOffsetForFoldedOffset(line, matchOffset);
+  const sourceEnd = codePointOffsetForFoldedOffset(
+    line,
+    matchOffset + queryFolded.length,
+  );
+  return {
+    offset: sourceOffset,
+    length: Math.max(1, sourceEnd - sourceOffset),
+  };
+}
+
+function makePassageExcerpt(
+  lines: readonly KnowledgeLogicalLine[],
+  partitionStart: number,
+  occurrence: KnowledgeSearchOccurrence,
 ): string {
-  if (Array.from(surrounding).length <= maxCodePoints) return surrounding;
-  const matchOffset = matchingLine.toLowerCase().indexOf(queryFolded);
-  const lineStart = Math.max(0, surrounding.indexOf(matchingLine));
-  const lineStartCodePoints = Array.from(
-    surrounding.slice(0, lineStart),
-  ).length;
-  const matchOffsetCodePoints = codePointOffsetForFoldedOffset(
-    matchingLine,
-    Math.max(0, matchOffset),
+  const source = lines.map((line) => `${line.text}${line.delimiter}`).join('');
+  const codePoints = Array.from(source);
+  if (codePoints.length <= KNOWLEDGE_MAX_SNIPPET_CODE_POINTS) return source;
+
+  let matchStart = 0;
+  const occurrenceIndex = occurrence.line - partitionStart;
+  for (const line of lines.slice(0, occurrenceIndex)) {
+    matchStart += Array.from(`${line.text}${line.delimiter}`).length;
+  }
+  matchStart += occurrence.offset;
+  const matchEnd = matchStart + occurrence.length;
+  const visibleLength = KNOWLEDGE_MAX_SNIPPET_CODE_POINTS - 2;
+  let windowStart = Math.max(0, matchStart - Math.floor(visibleLength / 2));
+  let windowEnd = Math.min(codePoints.length, windowStart + visibleLength);
+  if (windowEnd < matchEnd) {
+    windowStart = Math.max(0, matchEnd - visibleLength);
+    windowEnd = Math.min(codePoints.length, windowStart + visibleLength);
+  }
+  if (windowEnd - windowStart < visibleLength) {
+    windowStart = Math.max(0, windowEnd - visibleLength);
+  }
+  const prefix = windowStart > 0 ? '…' : '';
+  const suffix = windowEnd < codePoints.length ? '…' : '';
+  return `${prefix}${codePoints.slice(windowStart, windowEnd).join('')}${suffix}`;
+}
+
+function emitFinalKnowledgeSearchPartition(
+  active: KnowledgeSearchActiveInterval,
+  finalEnd: number,
+  relativePath: string,
+  passages: KnowledgeFilesystemSearchMatch[],
+  after: KnowledgeFilesystemSearchAfter | undefined,
+  maxResults: number,
+): void {
+  const end = Math.min(active.end, finalEnd);
+  if (end < active.partitionStart) return;
+  const length = end - active.partitionStart + 1;
+  if (length <= KNOWLEDGE_MAX_READ_LINES) {
+    appendKnowledgeSearchPassage(
+      active.partitionLines.slice(0, length),
+      active.partitionStart,
+      active.partitionFirstOccurrence,
+      relativePath,
+      passages,
+      after,
+      maxResults,
+    );
+    return;
+  }
+
+  const boundary = Math.min(
+    active.partitionStart + KNOWLEDGE_MAX_READ_LINES - 1,
+    active.lastOccurrence.line - 1,
   );
-  const windowStart = Math.max(
-    lineStartCodePoints + matchOffsetCodePoints - Math.floor(maxCodePoints / 2),
-    0,
+  const firstLength = boundary - active.partitionStart + 1;
+  appendKnowledgeSearchPassage(
+    active.partitionLines.slice(0, firstLength),
+    active.partitionStart,
+    active.partitionFirstOccurrence,
+    relativePath,
+    passages,
+    after,
+    maxResults,
   );
-  return Array.from(surrounding)
-    .slice(windowStart, windowStart + maxCodePoints)
-    .join('');
+  appendKnowledgeSearchPassage(
+    active.partitionLines.slice(firstLength, length),
+    boundary + 1,
+    active.lastOccurrence,
+    relativePath,
+    passages,
+    after,
+    maxResults,
+  );
+}
+
+function splitKnowledgeSearchPartition(
+  active: KnowledgeSearchActiveInterval,
+  nextOccurrence: KnowledgeSearchOccurrence,
+  relativePath: string,
+  passages: KnowledgeFilesystemSearchMatch[],
+  after: KnowledgeFilesystemSearchAfter | undefined,
+  maxResults: number,
+): void {
+  const boundary = active.partitionStart + KNOWLEDGE_MAX_READ_LINES - 1;
+  const prefixLength = boundary - active.partitionStart + 1;
+  appendKnowledgeSearchPassage(
+    active.partitionLines.slice(0, prefixLength),
+    active.partitionStart,
+    active.partitionFirstOccurrence,
+    relativePath,
+    passages,
+    after,
+    maxResults,
+  );
+  active.partitionStart = boundary + 1;
+  active.partitionLines = active.partitionLines.slice(prefixLength);
+  active.partitionFirstOccurrence = nextOccurrence;
+}
+
+function appendKnowledgeSearchPassage(
+  lines: readonly KnowledgeLogicalLine[],
+  offset: number,
+  occurrence: KnowledgeSearchOccurrence | undefined,
+  relativePath: string,
+  passages: KnowledgeFilesystemSearchMatch[],
+  after: KnowledgeFilesystemSearchAfter | undefined,
+  maxResults: number,
+): void {
+  if (
+    occurrence === undefined ||
+    !isAfterSearchCursor(
+      { path: relativePath, offset, limit: lines.length, excerpt: '' },
+      after,
+    ) ||
+    passages.length >= maxResults
+  ) {
+    return;
+  }
+  passages.push({
+    path: relativePath,
+    offset,
+    limit: lines.length,
+    excerpt: makePassageExcerpt(lines, offset, occurrence),
+  });
+}
+
+async function* iterateKnowledgeLogicalLines(
+  text: string,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<KnowledgeLogicalLine> {
+  let lineStart = 0;
+  let line = 0;
+  let scannedCodeUnits = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    scannedCodeUnits += 1;
+    if (scannedCodeUnits % 65_536 === 0) {
+      await yieldKnowledgeSearch(signal);
+    }
+    if (text.charCodeAt(index) !== 10) continue;
+    const hasCr = index > lineStart && text.charCodeAt(index - 1) === 13;
+    yield {
+      line: line++,
+      text: text.slice(lineStart, hasCr ? index - 1 : index),
+      delimiter: hasCr ? '\r\n' : '\n',
+    };
+    if (line % 256 === 0) {
+      await yieldKnowledgeSearch(signal);
+    }
+    lineStart = index + 1;
+  }
+  if (lineStart < text.length) {
+    yield { line: line, text: text.slice(lineStart), delimiter: '' };
+  }
+  throwIfAborted(signal);
+}
+
+async function yieldKnowledgeSearch(
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  throwIfAborted(signal);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  throwIfAborted(signal);
+}
+
+function isAfterSearchCursor(
+  match: KnowledgeFilesystemSearchMatch,
+  after: KnowledgeFilesystemSearchAfter | undefined,
+): boolean {
+  if (after === undefined) return true;
+  return (
+    compareNames(match.path, after.path) > 0 ||
+    (match.path === after.path && match.offset > after.offset)
+  );
+}
+
+function compareSearchMatches(
+  left: KnowledgeFilesystemSearchMatch,
+  right: KnowledgeFilesystemSearchMatch,
+): number {
+  const pathOrder = compareNames(left.path, right.path);
+  return pathOrder !== 0 ? pathOrder : left.offset - right.offset;
 }
 
 function codePointOffsetForFoldedOffset(
