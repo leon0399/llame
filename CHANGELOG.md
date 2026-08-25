@@ -15,6 +15,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   synopsis, Git revision, stable citation, OKF/OpenWiki behavior, or arbitrary
   filesystem access was added.
 
+- Bumped the AI SDK v6 line: `ai` 6.0.217 → 6.0.256, `@ai-sdk/openai`
+  3.0.79 → 3.0.97, `@ai-sdk/react` 3.0.219 → 3.0.259, `@ai-sdk/mcp`
+  1.0.67 → 1.0.71, and the paired `@ai-sdk/provider` 3.0.13 → 3.0.15 /
+  `@ai-sdk/provider-utils` 4.0.34 → 4.0.46 pins. All six now resolve to one
+  provider pair, ending the drift where `@ai-sdk/mcp` wanted a newer
+  `provider-utils` than `ai` did. `@ai-sdk/openai@3.0.97` also widens the Chat
+  Completions `reasoningEffort` enum to accept `max`, which the pinned 3.0.79
+  rejected in `parseProviderOptions` before the request left the process.
+  Deliberately not the newest releases: `ai@6.0.264` / `@ai-sdk/openai@3.0.99`
+  fail the repository's 7-day `minimumReleaseAge` cooldown, and no
+  `minimumReleaseAgeExclude` entry was added to bypass it.
+
 - **Path JSON-pointer interpolation**: `{path:LOCATION}` may end with
   `|json:POINTER` (RFC 6901) so one JSON secret file can supply many config
   fields. The pointer must select a JSON string; invalid JSON, missing
