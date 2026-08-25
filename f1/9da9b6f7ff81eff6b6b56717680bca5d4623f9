@@ -1,0 +1,24 @@
+apps/api/src/models/openai-model-client.tools.test.ts
+  9d223a45f9185311 97,107,186,188-214,216-240
+apps/api/src/models/openai-model-client.ts
+  9d223a45f9185311 8,50-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "f19da9b6f7ff81eff6b6b56717680bca5d4623f9",
+  "prompts": {
+    "9d223a45f9185311": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03565-6781-7901-8ea6-4b7da668cb5d",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 93,
+      "total_deletions": 2,
+      "accepted_lines": 93,
+      "overriden_lines": 0
+    }
+  }
+}
