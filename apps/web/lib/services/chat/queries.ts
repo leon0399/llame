@@ -1,6 +1,7 @@
 import {
+  type InfiniteData,
+  infiniteQueryOptions,
   type QueryClient,
-  queryOptions,
   type QueryFunctionContext,
   useInfiniteQuery,
   useQuery,
@@ -20,14 +21,11 @@ import { getApiErrorStatus } from "../../api/errors";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import {
   type ChatHistory,
-  type Compaction,
+  type ChatMessagesResponse,
   normalizeChatMessagesResponse,
   toChatUiMessages,
 } from "./history";
-import {
-  CHAT_HISTORY_PAGE_SIZE,
-  paginateAllMessages,
-} from "./paginate-messages";
+import { CHAT_HISTORY_PAGE_SIZE } from "./paginate-messages";
 
 /** Component-facing chat shape, based on the generated list contract. */
 export type ChatResponse = Omit<
@@ -139,52 +137,116 @@ export const fetchChats = (
   );
 };
 
-// Compaction (#57) arrives EMBEDDED in the messages response (#136 — folded
-// from a separate GET :id/compaction call into this one), so there's a
-// single fetch, not two independently-failing ones. `paginateAllMessages`
-// only returns the merged message array across pages; every page in one
-// fetch carries the identical "latest compaction" snapshot (it's not
-// paginated itself), so capturing it from whichever page's response lands
-// last is equivalent to reading it from the first — same pattern
-// `app/shared/[id]/page.tsx` already uses to pull `title` out of each page.
-export const fetchChatMessages = async ({
+// The cursor for one history page: `null` = the newest window (no
+// `beforeSeq`), a number = strictly-older-than-that-seq. `null` rather than
+// `undefined` so the SSR-seeded page param survives dehydration verbatim.
+type ChatMessagesPageParam = number | null;
+
+// One page of history, newest window first. Compaction (#57) arrives
+// EMBEDDED in the messages response (#136 — folded from a separate
+// GET :id/compaction call into this one), so there's a single fetch, not two
+// independently-failing ones.
+const fetchChatMessagesPage = async ({
   queryKey: [, chatId],
+  pageParam,
   signal,
-}: QueryFunctionContext<ChatMessagesQueryKey>): Promise<ChatHistory> => {
-  let compaction: Compaction | null = null;
-  const messages = await paginateAllMessages((beforeSeq) =>
-    getChatMessages(
+}: QueryFunctionContext<
+  ChatMessagesQueryKey,
+  ChatMessagesPageParam
+>): Promise<ChatMessagesResponse> =>
+  normalizeChatMessagesResponse(
+    await getChatMessages(
       encodeURIComponent(chatId),
       {
         limit: CHAT_HISTORY_PAGE_SIZE,
-        ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+        ...(typeof pageParam === "number" ? { beforeSeq: pageParam } : {}),
       },
       { signal },
       createAuthenticatedBrowserFetch(globalThis.fetch),
-    ).then((page) => {
-      const normalized = normalizeChatMessagesResponse(page);
-      compaction = normalized.compaction;
-      return normalized;
-    }),
+    ),
   );
-  return { messages: toChatUiMessages({ messages }), compaction };
-};
+
+/**
+ * The `beforeSeq` cursor for the page after `lastPage`, or `undefined` when
+ * the walk is done. Mirrors the guards the old eager walk had
+ * (paginate-messages.ts): a short page means the chat start was reached, and
+ * a non-advancing cursor (a server that ignored `beforeSeq`) must stop the
+ * walk — under the scroll-driven loader it would otherwise refetch the same
+ * page forever. `seq` starts at 1, so a page whose oldest row is seq 1
+ * already holds the chat's first message.
+ */
+export function olderPageParam(
+  lastPage: { messages: { seq: number }[] },
+  lastPageParam: ChatMessagesPageParam,
+): number | undefined {
+  if (lastPage.messages.length < CHAT_HISTORY_PAGE_SIZE) return undefined;
+  const cursor = lastPage.messages[0]?.seq;
+  if (cursor === undefined || cursor <= 1) return undefined;
+  if (lastPageParam !== null && cursor >= lastPageParam) return undefined;
+  return cursor;
+}
+
+/**
+ * Flatten the paginated cache into the oldest→newest shape `ChatPage`
+ * renders from. `pages[0]` is the newest window and each later page is
+ * strictly older, so the display order is the page order reversed. Every
+ * page carries the identical "latest compaction" snapshot (it's not
+ * paginated itself); the newest page's copy is the freshest after a refetch.
+ *
+ * Pages that fail to advance are truncated here, at the merge point:
+ * TanStack commits a fetched page to the cache BEFORE `getNextPageParam`
+ * can reject it, so a server that ignored `beforeSeq` would otherwise
+ * flatten into overlapping seq/id rows (and duplicate React keys). The old
+ * eager walk rejected such a page outright (paginate-messages.ts); this
+ * restores that property for the windowed cache.
+ */
+export function toChatHistory(
+  data: InfiniteData<ChatMessagesResponse, ChatMessagesPageParam>,
+): ChatHistory {
+  const pages: ChatMessagesResponse["messages"][] = [];
+  for (const page of data.pages) {
+    const previousOldest = pages[pages.length - 1]?.[0]?.seq;
+    const pageNewest = page.messages[page.messages.length - 1]?.seq;
+    if (
+      previousOldest !== undefined &&
+      pageNewest !== undefined &&
+      pageNewest >= previousOldest
+    ) {
+      break;
+    }
+    pages.push(page.messages);
+  }
+  const messages = pages.reverse().flat();
+  return {
+    messages: toChatUiMessages({ messages }),
+    compaction: data.pages[0]?.compaction ?? null,
+  };
+}
 
 export function seedChatMessagesQueryData(
   queryClient: QueryClient,
   chatId: string,
-  history: ChatHistory,
+  firstPage: ChatMessagesResponse,
 ) {
-  queryClient.setQueryData(chatQueryKeys.messages(chatId), history);
+  queryClient.setQueryData<
+    InfiniteData<ChatMessagesResponse, ChatMessagesPageParam>
+  >(chatQueryKeys.messages(chatId), {
+    pages: [firstPage],
+    pageParams: [null],
+  });
 }
 
 export function chatMessagesQueryOptions(
   chatId: string,
   { recoverSentDraft = false }: ChatMessagesQueryOptions = {},
 ) {
-  return queryOptions({
+  return infiniteQueryOptions({
     queryKey: chatQueryKeys.messages(chatId),
-    queryFn: fetchChatMessages,
+    queryFn: fetchChatMessagesPage,
+    initialPageParam: null as ChatMessagesPageParam,
+    getNextPageParam: (lastPage, _allPages, lastPageParam) =>
+      olderPageParam(lastPage, lastPageParam),
+    select: toChatHistory,
     ...(recoverSentDraft
       ? {
           retry: (failureCount: number, error: unknown) =>
@@ -195,21 +257,34 @@ export function chatMessagesQueryOptions(
   });
 }
 
+/**
+ * Windowed chat history (#187): the initial fetch is ONE page (the newest
+ * `CHAT_HISTORY_PAGE_SIZE` messages) instead of the old eager 20-page walk,
+ * and `fetchNextPage` loads strictly-older pages on demand as the reader
+ * scrolls toward the top. Invalidation (after a completed turn) refetches
+ * only the pages already loaded, re-deriving each cursor from the fresh
+ * previous page — TanStack's sequential infinite refetch — so a slid window
+ * cannot leave a seq gap between pages.
+ *
+ * TODO(#187): that refetch walks EVERY loaded page, so a reader deep in
+ * history pays N sequential round trips per completed turn. Fine for the
+ * common 1-page case and never worse than the old always-20-page walk;
+ * TanStack's `maxPages` would cap it but drops the NEWEST page on backward
+ * fetches, which breaks the seq-based adoption's coverage comparison —
+ * revisit only if deep-history sessions show up in practice.
+ */
 export function useChatMessagesQuery({
   chatId,
   enabled = true,
-  initialMessages,
   recoverSentDraft = false,
 }: {
   chatId: string;
   enabled?: boolean;
-  initialMessages?: ChatHistory;
   recoverSentDraft?: boolean;
 }) {
-  return useQuery({
+  return useInfiniteQuery({
     ...chatMessagesQueryOptions(chatId, { recoverSentDraft }),
     enabled,
-    ...(initialMessages === undefined ? {} : { initialData: initialMessages }),
   });
 }
 

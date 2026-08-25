@@ -1,0 +1,88 @@
+/**
+ * The transcript's scroll container: the `Conversation` (`role="log"`)
+ * root's first child — use-stick-to-bottom's scroller element. The ONE
+ * declaration of that DOM contract; the inline script below and
+ * chat-load-older.tsx's pin/observer logic both build on it (the e2e
+ * history-pagination spec mirrors it as a literal, since the e2e island
+ * does not import app code).
+ */
+export const CHAT_SCROLLER_SELECTOR = '[role="log"] > div';
+
+declare global {
+  interface Window {
+    /** Stops the SSR pre-hydration bottom pin (see PREHYDRATION_PIN_SCRIPT). */
+    __llameChatPinStop?: () => void;
+    /**
+     * Set when the reader escaped the pre-hydration pin via wheel / touch /
+     * key before React hydrated. ChatLoadOlder reads (and clears) this so its
+     * mount pin does not yank them back to newest.
+     */
+    __llameChatPinEscaped?: boolean;
+  }
+}
+
+/**
+ * Inline <script> the chat page's SERVER component streams ahead of the
+ * transcript markup (#187). React cannot scroll before it hydrates, so on a
+ * hard reload the streamed SSR HTML would paint TOP-anchored for the whole
+ * hydration window — several hundred ms of "wrong end of the chat" on a big
+ * history. This pins the transcript's scroller (the Conversation `role="log"`
+ * root's first child) to the bottom from the first streamed chunk onward,
+ * re-pinning on every DOM mutation while the HTML streams in.
+ *
+ * Hand-off, whichever comes first:
+ * - ChatLoadOlder's mount layout effect calls `window.__llameChatPinStop`
+ *   once React owns scroll positioning;
+ * - user scroll intent (wheel / touch / scroll keys outside a text field)
+ *   stops the pinning and sets `window.__llameChatPinEscaped`, so React
+ *   skips its initial bottom pin — typing in the autofocused composer does
+ *   not count;
+ * - a hard timeout, so a hydration failure can never leave a page that
+ *   fights manual scrolling forever.
+ */
+export const PREHYDRATION_PIN_SCRIPT = `(() => {
+  var stopped = false;
+  var observer = new MutationObserver(pin);
+  var SCROLL_KEYS = {
+    PageUp: 1, PageDown: 1, Home: 1, End: 1, " ": 1,
+    ArrowUp: 1, ArrowDown: 1
+  };
+  function stop() {
+    if (stopped) return;
+    stopped = true;
+    observer.disconnect();
+    removeEventListener("wheel", onUserEscape, true);
+    removeEventListener("touchstart", onUserEscape, true);
+    removeEventListener("keydown", onKeyEscape, true);
+  }
+  function onKeyEscape(event) {
+    var target = event.target;
+    var tag = target && target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || (target && target.isContentEditable)) return;
+    if (!SCROLL_KEYS[event.key]) return;
+    onUserEscape();
+  }
+  function onUserEscape() {
+    window.__llameChatPinEscaped = true;
+    stop();
+  }
+  function pin() {
+    if (stopped) return;
+    var scroller = document.querySelector(${JSON.stringify(CHAT_SCROLLER_SELECTOR)});
+    if (!scroller) return;
+    // Pre-hydration the scroller is overflow:visible (use-stick-to-bottom
+    // only makes it scrollable from a client effect), so scrollTop writes
+    // are no-ops until this applies the exact style the library will apply.
+    if (getComputedStyle(scroller).overflow === "visible") {
+      scroller.style.overflow = "auto";
+    }
+    scroller.scrollTop = scroller.scrollHeight;
+  }
+  addEventListener("wheel", onUserEscape, true);
+  addEventListener("touchstart", onUserEscape, true);
+  addEventListener("keydown", onKeyEscape, true);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  window.__llameChatPinStop = stop;
+  setTimeout(stop, 10000);
+  pin();
+})()`;

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
 import { draftChatPath, type DraftPhase } from "./draft-route";
+import { rawChatMessage } from "./message-fixtures";
 import { fetchDraftChatMessages, fetchInitialChatMessages } from "./server";
 
 vi.mock("next/headers", () => ({
@@ -140,22 +141,14 @@ describe("fetchDraftChatMessages", () => {
     await expect(fetchDraftChatMessages("chat-1", "fresh")).resolves.toBe(null);
   });
 
-  it("calls notFound when a later history page is missing", async () => {
-    const firstPageMessages = Array.from({ length: 100 }, (_, index) => ({
-      id: `message-${index}`,
-      chatId: "chat-1",
-      seq: index + 1,
-      role: "assistant",
-      senderUserId: null,
-      parts: [],
-      attachments: [],
-      usage: null,
-      inReplyTo: null,
-      createdAt: "2026-01-01T00:00:00.000Z",
-    }));
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
+  it("fetches only the newest page, even when the chat has more (#187)", async () => {
+    // A FULL page means older history exists — SSR must still stop at one
+    // round trip; older pages load on demand from the client-side query.
+    const firstPageMessages = Array.from({ length: 100 }, (_, index) =>
+      rawChatMessage({ id: `message-${index}`, seq: index + 101 }),
+    );
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
         new Response(
           JSON.stringify({ messages: firstPageMessages, compaction: null }),
           {
@@ -163,15 +156,14 @@ describe("fetchDraftChatMessages", () => {
             headers: { "content-type": "application/json" },
           },
         ),
-      )
-      .mockResolvedValueOnce(new Response(null, { status: 404 }));
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(fetchDraftChatMessages("chat-1", "fresh")).rejects.toThrow(
-      "not-found",
-    );
-    expect(notFound).toHaveBeenCalledOnce();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const page = await fetchDraftChatMessages("chat-1", "fresh");
+
+    expect(page?.messages).toHaveLength(100);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it.each(["fresh", "sent"] satisfies DraftPhase[])(

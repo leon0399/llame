@@ -4,18 +4,21 @@
 // seen fetches strictly-older rows — no duplicate, no skip at the page boundary.
 export const CHAT_HISTORY_PAGE_SIZE = 100;
 
-// Safety valve: cap the walk at the most recent N pages so a pathological chat
-// (llame's durable runs can accrue very long histories with large tool-call
-// traces) can't blow up SSR latency or the serialized payload. A chat past this
-// shows the latest MAX_PAGES*PAGE_SIZE turns — still far better than the old
-// 100-message cap; the true tail is a follow-up ("load older" / virtualization).
+// Safety valve for the EAGER walk below: cap it at the most recent N pages so a
+// pathological chat (llame's durable runs can accrue very long histories with
+// large tool-call traces) can't run away. Since #187 the owner chat page no
+// longer walks at all — it fetches one newest window and loads older pages on
+// scroll (useChatMessagesQuery) — so this bound now governs only chat export.
 export const CHAT_HISTORY_MAX_PAGES = 20;
 
 /**
  * Load a chat's history (up to `maxPages` pages, newest-first walk) by
- * following the `beforeSeq` cursor. `fetchPage` is injected (browser, SSR raw
- * fetch, or a test fake), so this loop is pure. Each page is oldest-first;
- * older pages are prepended, yielding a globally oldest→newest array.
+ * following the `beforeSeq` cursor. `fetchPage` is injected (browser fetch or
+ * a test fake), so this loop is pure. Each page is oldest-first; older pages
+ * are prepended, yielding a globally oldest→newest array. Used by the eager
+ * full-history readers (chat export; the public share page, with
+ * `Infinity`) — the owner chat page reads windowed history through
+ * useChatMessagesQuery instead (#187).
  *
  * Generic over any message shape carrying a `seq` cursor (not just the owner
  * `ChatMessageResponse`) — the public share view reuses this EXACT walk for
@@ -23,13 +26,13 @@ export const CHAT_HISTORY_MAX_PAGES = 20;
  * contract. Existing call sites are unaffected: T is inferred as
  * `ChatMessageResponse` from their `fetchPage` return type, same as before.
  *
- * `maxPages` defaults to `CHAT_HISTORY_MAX_PAGES` (the owner chat page's
- * safety valve against a pathological tool-call-heavy history blowing up SSR
- * latency). The public share view passes `Infinity`: faithfulness is the
- * invariant there (same reasoning that removed the api-side message cap on
- * `GET /shared/chats/:id` — per-request cost is already bounded by the
- * `limit`/`beforeSeq` page size itself, so silently truncating the WALK on
- * top of that would just reintroduce truncation one layer up).
+ * `maxPages` defaults to `CHAT_HISTORY_MAX_PAGES` (export's safety valve
+ * against a pathological tool-call-heavy history). The public share view
+ * passes `Infinity`: faithfulness is the invariant there (same reasoning
+ * that removed the api-side message cap on `GET /shared/chats/:id` —
+ * per-request cost is already bounded by the `limit`/`beforeSeq` page size
+ * itself, so silently truncating the WALK on top of that would just
+ * reintroduce truncation one layer up).
  */
 export async function paginateAllMessages<T extends { seq: number }>(
   fetchPage: (beforeSeq: number | undefined) => Promise<{ messages: T[] }>,

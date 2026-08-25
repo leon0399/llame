@@ -35,8 +35,16 @@ function chatPageProps(element: ReactNode): ChatPageProps {
     throw new Error("expected hydration boundary");
   }
 
-  const child = element.props.children;
-  if (!isValidElement<ChatPageProps>(child)) {
+  // The boundary's children are the pre-hydration pin <script> (#187,
+  // prehydration-pin.ts) followed by the chat page — find the page by its
+  // props rather than assuming a single child.
+  const children = element.props.children;
+  const child = (Array.isArray(children) ? children : [children]).find(
+    (candidate): candidate is React.ReactElement<ChatPageProps> =>
+      isValidElement<Partial<ChatPageProps>>(candidate) &&
+      typeof candidate.props.chatId === "string",
+  );
+  if (child === undefined) {
     throw new Error("expected chat page child");
   }
 

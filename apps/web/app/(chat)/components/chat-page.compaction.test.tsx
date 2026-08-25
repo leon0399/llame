@@ -73,7 +73,11 @@ vi.mock("@ai-sdk/react", () => ({
 }));
 
 import { ChatProvider } from "@/contexts/chat-context";
-import { chatQueryKeys } from "@/lib/services/chat/queries";
+import { rawChatMessage } from "@/lib/services/chat/message-fixtures";
+import {
+  chatQueryKeys,
+  seedChatMessagesQueryData,
+} from "@/lib/services/chat/queries";
 import { modelQueryKeys } from "@/lib/services/models/queries";
 import {
   toChatUiMessages,
@@ -123,12 +127,24 @@ function renderChatPage(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  // Seed the SAME combined cache entry SSR hydration provides on a real
-  // reload (#136: one entry, `{ messages, compaction }`, not two) — BEFORE
-  // the component (and its useQuery observer) ever mounts, same timing as
-  // HydrationBoundary.
-  queryClient.setQueryData(chatQueryKeys.messages(chatId), {
-    messages: seed.messages,
+  // Seed the SAME cache entry SSR hydration provides on a real reload —
+  // BEFORE the component (and its query observer) ever mounts, same timing
+  // as HydrationBoundary. The entry is the paginated raw-page shape (#187:
+  // one seeded newest page; compaction embedded per #136), routed through
+  // the one seeding helper the real page.tsx uses, so this test cannot
+  // drift from the production cache shape.
+  seedChatMessagesQueryData(queryClient, chatId, {
+    messages: seed.messages.map((message, index) =>
+      rawChatMessage({
+        id: message.id,
+        chatId,
+        seq: message.metadata?.seq ?? index + 1,
+        role: message.role,
+        parts: message.parts as ChatMessageResponse["parts"],
+        usage: (message.metadata?.usage ??
+          null) as ChatMessageResponse["usage"],
+      }),
+    ),
     compaction: seed.compaction,
   });
   queryClient.setQueryData(modelQueryKeys.all, {

@@ -5,16 +5,10 @@ import { getChatMessages } from "../../api/generated/chats/chats";
 import { getApiErrorStatus } from "../../api/errors";
 import { createServerFetch } from "../../api/fetch";
 import {
-  type ChatHistory,
   type ChatMessagesResponse,
-  type Compaction,
   normalizeChatMessagesResponse,
-  toChatUiMessages,
 } from "./history";
-import {
-  CHAT_HISTORY_PAGE_SIZE,
-  paginateAllMessages,
-} from "./paginate-messages";
+import { CHAT_HISTORY_PAGE_SIZE } from "./paginate-messages";
 import { draftChatPath, type DraftPhase } from "./draft-route";
 
 const SESSION_COOKIE_NAME = "llame_session";
@@ -24,16 +18,35 @@ function loginRedirectPath(chatId: string, phase: DraftPhase | null): Route {
   return `/login?callbackUrl=${encodeURIComponent(draftChatPath(chatId, phase))}`;
 }
 
-// One page of history for SSR, carrying the session cookie. Auth/timeout are
-// applied PER page (redirect/notFound throw and propagate out of the paginator);
-// the timeout bounds each round-trip.
-async function fetchHistoryPage(
+// SSR fetches only the NEWEST page of history (#187) — the window the reader
+// lands on. Older pages load on demand as the reader scrolls toward the top
+// (see useChatMessagesQuery), so a long chat no longer serializes an
+// up-to-20-round-trip walk into its SSR latency. The timeout bounds the one
+// round-trip. The overload pair proves at compile time that only the
+// allowMissing (draft) caller can observe null — a disallowed 404 becomes
+// notFound() inside.
+function fetchChatHistory(
   chatId: string,
-  cookieValue: string,
-  beforeSeq: number | undefined,
+  phase: null,
+  allowMissing: false,
+): Promise<ChatMessagesResponse>;
+function fetchChatHistory(
+  chatId: string,
+  phase: DraftPhase,
+  allowMissing: true,
+): Promise<ChatMessagesResponse | null>;
+async function fetchChatHistory(
+  chatId: string,
   phase: DraftPhase | null,
   allowMissing: boolean,
 ): Promise<ChatMessagesResponse | null> {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME);
+
+  if (!sessionCookie) {
+    redirect(loginRedirectPath(chatId, phase));
+  }
+
   const controller = new AbortController();
   const timeoutId = setTimeout(
     () => controller.abort(),
@@ -43,12 +56,9 @@ async function fetchHistoryPage(
   try {
     const response = await getChatMessages(
       encodeURIComponent(chatId),
+      { limit: CHAT_HISTORY_PAGE_SIZE },
       {
-        limit: CHAT_HISTORY_PAGE_SIZE,
-        ...(beforeSeq !== undefined ? { beforeSeq } : {}),
-      },
-      {
-        headers: { Cookie: `${SESSION_COOKIE_NAME}=${cookieValue}` },
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${sessionCookie.value}` },
         cache: "no-store",
         signal: controller.signal,
       },
@@ -78,67 +88,15 @@ async function fetchHistoryPage(
   }
 }
 
-function fetchChatHistory(
+export function fetchInitialChatMessages(
   chatId: string,
-  phase: null,
-  allowMissingInitial: false,
-): Promise<ChatHistory>;
-function fetchChatHistory(
-  chatId: string,
-  phase: DraftPhase,
-  allowMissingInitial: true,
-): Promise<ChatHistory | null>;
-async function fetchChatHistory(
-  chatId: string,
-  phase: DraftPhase | null,
-  allowMissingInitial: boolean,
-): Promise<ChatHistory | null> {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME);
-
-  if (!sessionCookie) {
-    redirect(loginRedirectPath(chatId, phase));
-  }
-
-  // Compaction (#57) is embedded in the messages response (#136) — capture it
-  // the same way the client-side fetch does (fetchChatMessages in queries.ts):
-  // every page in this one fetch carries the identical "latest compaction"
-  // snapshot, so it doesn't matter which page's value is kept.
-  let compaction: Compaction | null = null;
-  let missingInitialPage = false;
-  const messages = await paginateAllMessages((beforeSeq) => {
-    const allowMissing = allowMissingInitial && beforeSeq === undefined;
-
-    return fetchHistoryPage(
-      chatId,
-      sessionCookie.value,
-      beforeSeq,
-      phase,
-      allowMissing,
-    ).then((page) => {
-      if (page === null) {
-        missingInitialPage = true;
-        return { messages: [], compaction: null };
-      }
-
-      compaction = page.compaction;
-      return page;
-    });
-  });
-
-  if (missingInitialPage) return null;
-  return { messages: toChatUiMessages({ messages }), compaction };
-}
-
-export async function fetchInitialChatMessages(
-  chatId: string,
-): Promise<ChatHistory> {
+): Promise<ChatMessagesResponse> {
   return fetchChatHistory(chatId, null, false);
 }
 
 export function fetchDraftChatMessages(
   chatId: string,
   phase: DraftPhase,
-): Promise<ChatHistory | null> {
+): Promise<ChatMessagesResponse | null> {
   return fetchChatHistory(chatId, phase, true);
 }

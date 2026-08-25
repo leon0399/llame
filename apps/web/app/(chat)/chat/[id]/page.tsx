@@ -5,6 +5,7 @@ import {
 } from "@tanstack/react-query";
 import { ChatPage } from "../../components/chat-page";
 import { draftPhaseFromSearchParam } from "@/lib/services/chat/draft-route";
+import { PREHYDRATION_PIN_SCRIPT } from "@/lib/services/chat/prehydration-pin";
 import { seedChatMessagesQueryData } from "@/lib/services/chat/queries";
 import {
   fetchDraftChatMessages,
@@ -31,6 +32,10 @@ export default async function Page({ params, searchParams }: PageProps) {
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
+      {/* Streams ahead of the transcript markup so the SSR paint is pinned
+          to the newest message from the first frame — React cannot scroll
+          until it hydrates (see prehydration-pin.ts). */}
+      <script dangerouslySetInnerHTML={{ __html: PREHYDRATION_PIN_SCRIPT }} />
       <ChatPage
         chatId={id}
         initialChatExists={initialMessages !== null}

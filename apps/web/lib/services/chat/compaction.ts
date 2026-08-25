@@ -23,8 +23,9 @@
  * shows. Index `0` → the whole loaded window is post-boundary → marker at the
  * top ("earlier messages summarized" above, older ones not yet loaded).
  *
- * Computed over the CURRENTLY-LOADED window (today the full history — no
- * client-side pagination yet).
+ * Computed over the CURRENTLY-LOADED window (#187: the newest page plus any
+ * older pages the reader has scrolled in — the boundary re-derives as the
+ * window grows).
  */
 export function compactionBoundaryIndex(
   messages: ReadonlyArray<{ metadata?: { seq?: number } }>,
