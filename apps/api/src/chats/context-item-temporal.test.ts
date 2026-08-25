@@ -4,7 +4,6 @@ import { buildContext, type MessagePart } from './context-builder';
 import {
   createTemporalItem,
   isTemporalPayload,
-  renderContextItemPart,
 } from './context-item-producers';
 import { type ContextItemPart } from './context-item';
 import { formatTemporalAnchor } from '../prompts/temporal-anchor';
@@ -13,9 +12,11 @@ import { contentBlockTexts, contentText } from '../testing/support';
 const RUN_ID = '11111111-2222-4333-8444-555555555555';
 const INSTANT = new Date('2026-08-19T16:36:00.000Z');
 
-type TemporalOverrides = { instant?: unknown; timeZone?: unknown };
+type TemporalOverrides = { instant?: string; timeZone?: string };
 
-const temporalPart = (overrides: TemporalOverrides = {}): ContextItemPart => ({
+const historicalTemporalPart = (
+  overrides: { instant?: unknown; timeZone?: unknown } = {},
+): ContextItemPart => ({
   type: 'data-context',
   data: {
     v: 1,
@@ -29,6 +30,13 @@ const temporalPart = (overrides: TemporalOverrides = {}): ContextItemPart => ({
     },
   },
 });
+
+const temporalPart = (overrides: TemporalOverrides = {}) =>
+  createTemporalItem({
+    runId: RUN_ID,
+    instant: new Date(overrides.instant ?? INSTANT),
+    timeZone: overrides.timeZone ?? 'Europe/Madrid',
+  });
 
 describe('temporal payload validation', () => {
   it('accepts an ISO instant with a known IANA zone', () => {
@@ -84,6 +92,9 @@ describe('temporal payload validation', () => {
       instant: '2026-08-19T16:36:00.000Z',
       timeZone: 'Europe/Madrid',
     });
+    expect(item.data.text).toContain(
+      'Message received: 2026-08-19 18:36+02:00 (Europe/Madrid)',
+    );
   });
 
   it('refuses to author an item in an unknown timezone', () => {
@@ -99,7 +110,7 @@ describe('temporal payload validation', () => {
 
 describe('temporal rendering', () => {
   it('states receipt in the stored zone, with a numeric offset', () => {
-    expect(renderContextItemPart(temporalPart())).toContain(
+    expect(temporalPart().data.text).toContain(
       'Message received: 2026-08-19 18:36+02:00 (Europe/Madrid)',
     );
   });
@@ -110,13 +121,13 @@ describe('temporal rendering', () => {
     const canonical = new Intl.DateTimeFormat('en-US', {
       timeZone: 'Asia/Kathmandu',
     }).resolvedOptions().timeZone;
-    expect(
-      renderContextItemPart(temporalPart({ timeZone: 'Asia/Kathmandu' })),
-    ).toContain(`Message received: 2026-08-19 22:21+05:45 (${canonical})`);
+    expect(temporalPart({ timeZone: 'Asia/Kathmandu' }).data.text).toContain(
+      `Message received: 2026-08-19 22:21+05:45 (${canonical})`,
+    );
   });
 
   it('renders UTC with a zero offset', () => {
-    expect(renderContextItemPart(temporalPart({ timeZone: 'UTC' }))).toContain(
+    expect(temporalPart({ timeZone: 'UTC' }).data.text).toContain(
       'Message received: 2026-08-19 16:36+00:00 (UTC)',
     );
   });
@@ -125,9 +136,9 @@ describe('temporal rendering', () => {
     const original = process.env.TZ;
     try {
       process.env.TZ = 'America/Los_Angeles';
-      const west = renderContextItemPart(temporalPart());
+      const west = temporalPart().data.text;
       process.env.TZ = 'Asia/Tokyo';
-      const east = renderContextItemPart(temporalPart());
+      const east = temporalPart().data.text;
       // The zone travels with the row, so the process that renders a
       // conversation cannot disagree with the one that accepted the turn.
       expect(west).toBe(east);
@@ -136,10 +147,10 @@ describe('temporal rendering', () => {
     }
   });
 
-  it('renders nothing for a payload it cannot interpret, rather than throwing', () => {
+  it('keeps invalid historical metadata-only rows inert', () => {
     expect(
-      renderContextItemPart(temporalPart({ timeZone: 'Mars/Olympus' })),
-    ).toBeNull();
+      historicalTemporalPart({ timeZone: 'Mars/Olympus' }).data.text,
+    ).toBeUndefined();
   });
 });
 
@@ -246,7 +257,7 @@ describe('temporal rows in assembled context', () => {
       new Date('2026-08-19T16:36:00.000Z'),
       'Europe/Madrid',
     );
-    const row = renderContextItemPart(temporalPart());
+    const row = temporalPart().data.text;
 
     // One format, one zone, two different claims: the anchor is a reference
     // point that is explicitly not now, the row states when its turn arrived.

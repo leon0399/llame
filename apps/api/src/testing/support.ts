@@ -34,7 +34,7 @@ import {
   type ModelSelectionValidator,
 } from '../models/models.service';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '../unknown-record';
 
 /**
  * Asserts a register (or any auth) response body carries `user.id` as a
@@ -519,7 +519,27 @@ export function expectTemporalRow(
   expect(rows).toHaveLength(1);
   expect(isTemporalPayload(rows[0].data.payload)).toBe(true);
   expect(rows[0].data.form).toBe('snapshot');
+  expect(rows[0].data.text).toMatch(
+    /^<system-reminder producer="temporal" form="snapshot">[\s\S]+<\/system-reminder>$/u,
+  );
   if (runId !== undefined) expect(rows[0].data.runId).toBe(runId);
+}
+
+function parseMessagePartAssertions(
+  parts: readonly unknown[],
+): UnknownRecord[] {
+  return parts.map((part) => {
+    if (!isRecord(part)) {
+      throw new TypeError('Expected a message part object');
+    }
+    return part;
+  });
+}
+
+function withoutContextText(part: UnknownRecord): UnknownRecord {
+  if (!isContextItemPart(part) || part.data.text === undefined) return part;
+  const { text: _text, ...data } = part.data;
+  return { ...part, data };
 }
 
 /**
@@ -534,7 +554,9 @@ export function expectMessageParts(
   expected: readonly unknown[],
   runId?: string,
 ): void {
-  expect(withoutTemporalRow(parts)).toEqual(expected);
+  const actualParts = parseMessagePartAssertions(withoutTemporalRow(parts));
+  const expectedParts = parseMessagePartAssertions(expected);
+  expect(actualParts.map(withoutContextText)).toEqual(expectedParts);
   expectTemporalRow(parts, runId);
 }
 

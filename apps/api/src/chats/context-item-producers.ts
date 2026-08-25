@@ -19,7 +19,7 @@ import {
   createContextItemPart,
   isContextItemPart,
   renderContextItem,
-  resolveForm,
+  type AuthoredContextItemPart,
   type ContextItemForm,
   type ContextItemPart,
 } from './context-item';
@@ -107,7 +107,7 @@ export function createModelChangeItem(input: {
   readonly fromModelId: string;
   readonly toModelId: string;
   readonly runId: string;
-}): ContextItemPart {
+}): AuthoredContextItemPart {
   const payload: ModelChangePayload = {
     cause: 'model',
     fromModelId: input.fromModelId,
@@ -116,11 +116,12 @@ export function createModelChangeItem(input: {
   if (!isModelChangePayload(payload)) {
     throw new TypeError('Invalid server-authored model change metadata');
   }
-  return createContextItemPart({
+  return createRenderedContextItem({
     producer: 'effective-context-change',
     form: 'notice',
     runId: input.runId,
     payload,
+    body: renderModelChange(payload),
   });
 }
 
@@ -295,15 +296,16 @@ export function isToolAvailabilityPayload(
 export function createToolAvailabilityItem(input: {
   readonly runId: string;
   readonly payload: ToolAvailabilityPayload;
-}): ContextItemPart {
+}): AuthoredContextItemPart {
   if (!isToolAvailabilityPayload(input.payload)) {
     throw new TypeError('Invalid server-authored tool availability metadata');
   }
-  return createContextItemPart({
+  return createRenderedContextItem({
     producer: 'tool-availability',
     form: 'notice',
     runId: input.runId,
     payload: input.payload,
+    body: renderToolAvailability(input.payload),
   });
 }
 
@@ -513,15 +515,16 @@ export function isRecencyDigestDeltaPayload(
 export function createRecencyDigestDeltaItem(input: {
   readonly runId: string;
   readonly payload: RecencyDigestDeltaPayload;
-}): ContextItemPart {
+}): AuthoredContextItemPart {
   if (!isRecencyDigestDeltaPayload(input.payload)) {
     throw new TypeError('Invalid server-authored recency digest metadata');
   }
-  return createContextItemPart({
+  return createRenderedContextItem({
     producer: 'recency-digest',
     form: 'notice',
     runId: input.runId,
     payload: input.payload,
+    body: renderRecencyDigestDelta(input.payload),
   });
 }
 
@@ -532,12 +535,13 @@ export function createRecencyDigestDeltaItem(input: {
  */
 export function createRecencyDigestSupersessionItem(input: {
   readonly runId: string;
-}): ContextItemPart {
-  return createContextItemPart({
+}): AuthoredContextItemPart {
+  return createRenderedContextItem({
     producer: 'recency-digest',
     form: 'snapshot',
     runId: input.runId,
     payload: {},
+    body: renderRecencyDigestSupersession(),
   });
 }
 
@@ -653,7 +657,7 @@ export function createTemporalItem(input: {
   readonly runId: string;
   readonly instant: Date;
   readonly timeZone: string;
-}): ContextItemPart {
+}): AuthoredContextItemPart {
   const payload: TemporalPayload = {
     instant: input.instant.toISOString(),
     timeZone: input.timeZone,
@@ -661,7 +665,7 @@ export function createTemporalItem(input: {
   if (!isTemporalPayload(payload)) {
     throw new TypeError('Invalid server-authored temporal metadata');
   }
-  return createContextItemPart({
+  return createRenderedContextItem({
     producer: 'temporal',
     // `snapshot`: state as of the moment it was taken, not an event report.
     // Supersession never arises — each turn's row describes its own turn — but
@@ -669,6 +673,7 @@ export function createTemporalItem(input: {
     form: 'snapshot',
     runId: input.runId,
     payload,
+    body: renderTemporal(payload),
   });
 }
 
@@ -746,47 +751,26 @@ export function isRecencyDigestItem(value: unknown): value is ContextItemPart {
   );
 }
 
-/* ------------------------------------------------------------------ *
- * dispatch
- * ------------------------------------------------------------------ */
-
-/**
- * Render a persisted item's body, or `null` when this reader cannot interpret
- * it — an unrecognized producer, or a payload that fails its producer's
- * validation. Rendering nothing is deliberate: a reader that cannot interpret
- * an item cannot state its precedence or apply its framing, so emitting it as
- * content would be worse than omitting it.
- */
-export function renderContextItemPart(part: ContextItemPart): string | null {
-  const body = renderContextItemBody(part);
-  return body === null
-    ? null
-    : renderContextItem({
-        producer: part.data.producer,
-        form: resolveForm(part),
-        body,
-      });
-}
-
-export function renderContextItemBody(part: ContextItemPart): string | null {
-  if (!isContextItemPart(part)) return null;
-  const { producer, payload, form } = part.data;
-  if (producer === 'effective-context-change') {
-    return isModelChangePayload(payload) ? renderModelChange(payload) : null;
+function createRenderedContextItem(input: {
+  readonly producer: Parameters<typeof createContextItemPart>[0]['producer'];
+  readonly form?: ContextItemForm;
+  readonly runId: string;
+  readonly payload: UnknownRecord;
+  readonly body: string;
+}): AuthoredContextItemPart {
+  const text = renderContextItem({
+    producer: input.producer,
+    form: input.form,
+    body: input.body,
+  });
+  if (text === null) {
+    throw new TypeError('Invalid server-authored context item producer');
   }
-  if (producer === 'tool-availability') {
-    return isToolAvailabilityPayload(payload)
-      ? renderToolAvailability(payload)
-      : null;
-  }
-  if (producer === 'recency-digest') {
-    if (form === 'snapshot') return renderRecencyDigestSupersession();
-    return isRecencyDigestDeltaPayload(payload)
-      ? renderRecencyDigestDelta(payload)
-      : null;
-  }
-  if (producer === 'temporal') {
-    return isTemporalPayload(payload) ? renderTemporal(payload) : null;
-  }
-  return null;
+  return createContextItemPart({
+    producer: input.producer,
+    ...(input.form !== undefined && { form: input.form }),
+    runId: input.runId,
+    payload: input.payload,
+    text,
+  });
 }

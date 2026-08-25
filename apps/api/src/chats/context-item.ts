@@ -14,16 +14,14 @@
  *   Ordering, emphasis, and collapse behavior are the consumer's business
  *   and never enter this union.
  *
- * Tolerance is what removes the extension tax. The envelope and a recognized
- * producer's payload are validated strictly — that is what keeps
- * client-authored control metadata unforgeable — while an unrecognized
- * `producer` parses and renders as NOTHING, and an unrecognized `form` is
- * treated as absent. A reader that cannot interpret an item cannot state its
- * precedence or apply its framing, so rendering it as content would be worse
- * than rendering nothing.
+ * Tolerance is what removes the extension tax. The envelope remains strict,
+ * while readers accept future producer/form values and replay their stored
+ * text without interpreting metadata. Historical metadata-only rows remain
+ * valid but inert.
  */
 
 import { compareCodePoints } from '../canonical-json';
+import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { isRecord, isString, type UnknownRecord } from '../unknown-record';
 
 /**
@@ -62,13 +60,19 @@ export interface ContextItemPart {
     /**
      * As PARSED, not as recognized: validation accepts any string here, so
      * typing it as the closed union would let a caller pass a future form
-     * straight into rendering as though it were recognized. `resolveForm` is
-     * the only narrowing to `ContextItemForm`.
+     * straight into metadata behavior as though it were recognized.
+     * `resolveForm` is the only narrowing to `ContextItemForm`.
      */
     readonly form?: string;
     readonly runId: string;
     readonly payload: UnknownRecord;
+    /** Final model-facing block. Absent only on historical metadata-only rows. */
+    readonly text?: string;
   };
+}
+
+export interface AuthoredContextItemPart extends ContextItemPart {
+  readonly data: ContextItemPart['data'] & { readonly text: string };
 }
 
 const UUID_PATTERN =
@@ -97,9 +101,8 @@ function isExactRecord(
 /**
  * Strict persisted-shape validation of the ENVELOPE only.
  *
- * `form` is genuinely optional: an item may decline to declare one, and an
- * absent form renders as opaque content. Both key sets are therefore
- * accepted, and neither tolerates an extra field.
+ * `form` is genuinely optional, as is `text` on historical rows. All four
+ * exact key sets are accepted, and none tolerates an extra field.
  */
 export function isContextItemPart(value: unknown): value is ContextItemPart {
   if (
@@ -110,6 +113,15 @@ export function isContextItemPart(value: unknown): value is ContextItemPart {
   }
   const data = value['data'];
   if (
+    !isExactRecord(data, [
+      'form',
+      'payload',
+      'producer',
+      'runId',
+      'text',
+      'v',
+    ]) &&
+    !isExactRecord(data, ['payload', 'producer', 'runId', 'text', 'v']) &&
     !isExactRecord(data, ['form', 'payload', 'producer', 'runId', 'v']) &&
     !isExactRecord(data, ['payload', 'producer', 'runId', 'v'])
   ) {
@@ -121,7 +133,8 @@ export function isContextItemPart(value: unknown): value is ContextItemPart {
     !PRODUCER_PATTERN.test(data['producer']) ||
     !isString(data['runId']) ||
     !UUID_PATTERN.test(data['runId']) ||
-    !isRecord(data['payload'])
+    !isRecord(data['payload']) ||
+    ('text' in data && !isString(data['text']))
   ) {
     return false;
   }
@@ -144,7 +157,7 @@ function isContextItemForm(value: string): value is ContextItemForm {
   return CONTEXT_ITEM_FORMS.some((form) => form === value);
 }
 
-/** An unrecognized producer parses and is recorded, but renders nothing. */
+/** An unrecognized producer still parses; consumers must not infer behavior. */
 export function isRecognizedProducer(
   producer: string,
 ): producer is ContextItemProducer {
@@ -157,8 +170,12 @@ export function createContextItemPart(input: {
   readonly form?: ContextItemForm;
   readonly runId: string;
   readonly payload: UnknownRecord;
-}): ContextItemPart {
-  const part: ContextItemPart = {
+  readonly text: string;
+}): AuthoredContextItemPart {
+  if (input.text.length === 0) {
+    throw new TypeError('Invalid server-authored context item text');
+  }
+  const part: AuthoredContextItemPart = {
     type: 'data-context',
     data: {
       v: 1,
@@ -166,6 +183,7 @@ export function createContextItemPart(input: {
       ...(input.form !== undefined && { form: input.form }),
       runId: input.runId,
       payload: input.payload,
+      text: input.text,
     },
   };
   if (!isContextItemPart(part)) {
@@ -197,7 +215,7 @@ export function sanitizeClientMessageParts(
     ) {
       return [];
     }
-    return [{ type: 'text' as const, text: part.text }];
+    return [{ type: 'text' as const, text: sanitizeAuthoredText(part.text) }];
   });
 }
 
@@ -267,45 +285,3 @@ export function renderContextItem(input: {
  * superseded. `Array.prototype.sort` is specified as stable, so emission
  * order survives the sort without a secondary key.
  */
-export interface ContentTextBlock {
-  readonly type: 'text';
-  readonly text: string;
-}
-
-/**
- * Assemble one user message's content: one text block per rendered item, then
- * the user's own visible text in a block of its own.
- *
- * Blocks rather than one joined string, because the boundary between
- * server-authored framing and user-authored text then becomes structural
- * instead of a `\n\n` convention user input can imitate. Forging content
- * inside a block stays possible — that is what neutralization is for — but
- * forging a boundary does not.
- *
- * A turn carrying no item yields a single block, which the provider adapter
- * collapses back to a plain string, so an item-free turn serializes exactly
- * as it did before the rail existed.
- */
-export function assembleUserContent(input: {
-  readonly renderedItems: readonly string[];
-  readonly visibleText: string;
-}): ContentTextBlock[] {
-  return [
-    ...input.renderedItems.map((text) => ({ type: 'text' as const, text })),
-    ...(input.visibleText.length > 0
-      ? [{ type: 'text' as const, text: input.visibleText }]
-      : []),
-  ];
-}
-
-export function orderContextItems<T extends { readonly producer: string }>(
-  items: readonly T[],
-): T[] {
-  const rank = (producer: string) => {
-    const index = CONTEXT_ITEM_PRODUCERS.findIndex(
-      (known) => known === producer,
-    );
-    return index === -1 ? CONTEXT_ITEM_PRODUCERS.length : index;
-  };
-  return [...items].sort((a, b) => rank(a.producer) - rank(b.producer));
-}

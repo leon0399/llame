@@ -89,10 +89,7 @@ import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
 import { isRecord, type UnknownRecord } from '../unknown-record';
 import { turnTelemetryLogger } from './turn-telemetry';
-import {
-  createModelChangeItem,
-  renderContextItemPart,
-} from './context-item-producers';
+import { createModelChangeItem } from './context-item-producers';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -1979,7 +1976,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       {
         role: 'user',
         content: [
-          { type: 'text', text: renderContextItemPart(switchPart) ?? '' },
+          { type: 'text', text: switchPart.data.text },
           { type: 'text', text: 'Continue on target.' },
         ],
       },
@@ -1996,7 +1993,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         producer: 'effective-context-change',
         form: 'notice',
         residency: 'rail',
-        text: renderContextItemPart(switchPart),
+        text: switchPart.data.text,
       },
     ]);
     const sentBlocks = calls[0].messages.at(-1)?.content;

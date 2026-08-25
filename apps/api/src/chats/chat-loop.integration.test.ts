@@ -68,6 +68,7 @@ import {
 import { type KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import { TOOL_REGISTRY } from '../tools/registry';
 import { type ContextItemPart } from './context-item';
+import { createToolAvailabilityItem } from './context-item-producers';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -1123,25 +1124,24 @@ describeIfDb(
         'first degraded turn',
         degraded,
       );
-      expect(availabilityPart(first.userMessage.parts)?.data).toEqual({
-        v: 1,
-        producer: 'tool-availability',
-        form: 'notice',
-        runId: first.runId,
-        payload: {
-          kind: 'initial',
-          added: [],
-          removed: [],
-          unavailable: [
-            {
-              id: 'mcp__docs__lookup',
-              reason: 'source_disconnected',
-            },
-          ],
-          becameUnavailable: [],
-          nowAvailable: [],
-        },
-      });
+      expect(availabilityPart(first.userMessage.parts)).toEqual(
+        createToolAvailabilityItem({
+          runId: first.runId,
+          payload: {
+            kind: 'initial',
+            added: [],
+            removed: [],
+            unavailable: [
+              {
+                id: 'mcp__docs__lookup',
+                reason: 'source_disconnected',
+              },
+            ],
+            becameUnavailable: [],
+            nowAvailable: [],
+          },
+        }),
+      );
       await finish(first.runId, 'failed');
 
       const unchangedOutage = await persistWithContext(
