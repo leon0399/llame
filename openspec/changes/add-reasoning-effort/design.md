@@ -283,15 +283,19 @@ code ignores.
 This is **not** a coordinated API/worker revision boundary. No new message-part
 schema is authored, and the one run-event payload that gains a field
 (`model.requested`) gains it optionally, which readers on either version
-tolerate. Deploy order is therefore free.
+tolerate. Nothing breaks in either deploy order, and no quiesce-and-drain
+cutover is needed.
 
-One mixed-version consequence is worth stating rather than discovering: while an
-old worker is still running, a new API can accept and persist `runs.effort`
-that the worker ignores, executing at the provider default instead. The run row
-then claims an effort the turn did not use. Telemetry, written by the executing
-worker, records what actually ran and is the authority — consistent with
-telemetry already being the non-recomputed receipt everywhere else. The window
-closes when the last old worker is replaced.
+Deploy workers first anyway. While an old worker is still running, a new API can
+accept and persist `runs.effort` that the worker ignores, executing at the
+provider default instead — so the run row claims an effort the turn did not use,
+and the owner is silently served a cheaper or slower answer than the one they
+asked for. That is a cost and quality divergence rather than a failure, which is
+why it is not a revision boundary in the schema sense; it is also invisible to
+the owner, which is why the order is a recommendation rather than a free choice.
+Telemetry is the authority for what actually ran: an old worker writes no effort
+at all, so an absent telemetry effort beside a populated `runs.effort` is the
+signature of this window. It closes when the last old worker is replaced.
 
 ## Open Questions
 

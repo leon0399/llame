@@ -21,7 +21,12 @@ catalog entries for the same underlying model.
 - Operators declare each model's effort levels as **opaque provider-native
   tokens** — no llame enumeration and no character pattern, since either is a
   llame-owned vocabulary that a provider release would invalidate. Adding a
-  level a provider ships later is a configuration edit, never a release.
+  level a provider ships later is a configuration edit on the Responses path,
+  which is free-form. On the Chat Completions path the pinned SDK validates
+  against its own closed enum, so a token it does not yet know is rejected
+  locally and needs a dependency bump as well — llame imposes no vocabulary of
+  its own, but it cannot promise config-only reach through a transport that
+  does.
 - Chat sends accept an optional per-request `effort`, matched byte-exactly
   against the selected model's declared levels. Omitting it resolves the model's
   `defaultEffort`. Model validation runs first: an unavailable `modelId` is
