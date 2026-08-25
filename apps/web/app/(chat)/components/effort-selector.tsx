@@ -13,7 +13,6 @@ import { Slider } from "@workspace/ui/components/slider";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { useChatContext } from "@/contexts/chat-context";
-import { effortDisplayLabel } from "@/lib/services/models/effort";
 import { useModelsQuery } from "@/lib/services/models/queries";
 
 /**
@@ -94,14 +93,13 @@ export function EffortSelector({ className }: { className?: string }) {
     levels.some((level) => level.value === selectedEffort)
       ? selectedEffort
       : reasoning.defaultEffort;
+  const activeEntry = levels.find((level) => level.value === activeLevel);
   const activeIndex = Math.max(
     0,
     levels.findIndex((level) => level.value === activeLevel),
   );
-  const activeDisplay = effortDisplayLabel(levels, activeLevel);
-  const activeHasLabel = levels.some(
-    (level) => level.value === activeLevel && level.label !== undefined,
-  );
+  const activeDisplay = activeEntry?.label ?? activeLevel;
+  const activeHasLabel = activeEntry?.label !== undefined;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

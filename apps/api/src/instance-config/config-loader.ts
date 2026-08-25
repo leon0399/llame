@@ -987,7 +987,11 @@ function resolveModelReasoning(
       );
     }
     seen.add(value);
-    effortLevels.push(label !== undefined ? { value, label } : { value });
+    effortLevels.push(
+      isString(item)
+        ? { value: item }
+        : { value: item.value, label: item.label },
+    );
   }
 
   if (!seen.has(raw.defaultEffort)) {

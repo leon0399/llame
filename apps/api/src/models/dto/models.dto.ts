@@ -158,11 +158,9 @@ export function toAvailableModelResponse(
   if (model.reasoning !== undefined) {
     response.reasoning = {
       ...model.reasoning,
-      effortLevels: model.reasoning.effortLevels.map((level) =>
-        level.label !== undefined
-          ? { value: level.value, label: level.label }
-          : { value: level.value },
-      ),
+      effortLevels: model.reasoning.effortLevels.map((level) => ({
+        ...level,
+      })),
     };
   }
   if (model.website !== undefined) response.website = model.website;

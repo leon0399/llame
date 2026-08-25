@@ -44,7 +44,7 @@ import {
   modelDisplayName,
   type AvailableModel,
 } from "@/lib/services/models/queries";
-import { effortDisplayLabelForModel } from "@/lib/services/models/effort";
+import { effortDisplayLabel } from "@/lib/services/models/effort";
 
 type TurnUsage = {
   inputTokens?: number;
@@ -160,7 +160,11 @@ export function buildUsageLine(
       : undefined;
   const effortDisplay =
     usage.effort !== undefined
-      ? effortDisplayLabelForModel(models, usage.modelId, usage.effort)
+      ? effortDisplayLabel(
+          models?.find((model) => model.id === usage.modelId)?.reasoning
+            ?.effortLevels,
+          usage.effort,
+        )
       : undefined;
 
   let text: string;
