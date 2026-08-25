@@ -30,13 +30,21 @@ const TYPE = { PER_CHAR_MS: 30, TOTAL_MS: 1200 };
 const step = (rate: { PER_CHAR_MS: number; TOTAL_MS: number }, chars: number) =>
   Math.min(rate.PER_CHAR_MS, rate.TOTAL_MS / Math.max(chars, 1));
 
+/** How many leading characters `a` and `b` share. */
+export function sharedPrefixLength(a: string, b: string): number {
+  const limit = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < limit && a.charAt(i) === b.charAt(i)) i += 1;
+  return i;
+}
+
 /**
  * useTypewriter returns the text to render for `target`, retyping it whenever
- * `target` changes: the old text is deleted, then the new one typed in. It
- * animates a change to something already on screen — a chat that just earned a
- * generated name, a rename landing from elsewhere — so the name reads as
- * authored rather than swapped. The first value is never animated; there is
- * nothing to replace yet.
+ * `target` changes: the old text is deleted down to the largest common prefix
+ * with the new one, then the remainder typed in. It animates a change to
+ * something already on screen — a chat that just earned a generated name, a
+ * rename landing from elsewhere — so the name reads as authored rather than
+ * swapped. The first value is never animated; there is nothing to replace yet.
  *
  * Returns `target` verbatim, with no timers, under `prefers-reduced-motion`.
  *
@@ -90,22 +98,23 @@ export function useTypewriter(
 
     const tick = () => {
       const current = displayRef.current;
+      // Re-read the goal each tick: a title arriving mid-run redirects this
+      // chain rather than starting a competing one.
+      const goal = targetRef.current;
+      const prefixLen = sharedPrefixLength(current, goal);
 
       if (phase === "delete") {
-        if (current.length > 0) {
+        if (current.length > prefixLen) {
           write(current.slice(0, -1));
-          timer = setTimeout(tick, step(DELETE, current.length));
+          timer = setTimeout(tick, step(DELETE, current.length - prefixLen));
           return;
         }
         phase = "type";
       }
 
-      // Re-read the goal each tick: a title arriving mid-run redirects this
-      // chain rather than starting a competing one.
-      const goal = targetRef.current;
       if (current.length < goal.length) {
         write(goal.slice(0, current.length + 1));
-        timer = setTimeout(tick, step(TYPE, goal.length));
+        timer = setTimeout(tick, step(TYPE, goal.length - prefixLen));
       }
     };
 

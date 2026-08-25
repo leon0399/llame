@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-25
 
+- **Chat page title in the sticky header and browser tab**: `/chat/[id]` shows
+  the chat title in the existing top bar (and as `document.title`), using the
+  same typewriter as the rails. Title changes now delete only down to the
+  largest common prefix before typing the rest, so a rename like
+  `foobar` → `fooqux` no longer wipes the shared head. Untitled chats still
+  show `New chat`; the home route `/` leaves the bar and tab alone.
+
 - **OpenAI tool schemas keep optional fields optional**: every function/dynamic
   tool sent through the OpenAI model client is lowered with `strict: false`.
   Omitting `strict` is not enough — native Responses may normalize the schema
