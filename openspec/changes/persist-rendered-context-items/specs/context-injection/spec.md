@@ -216,8 +216,10 @@ transcript export, or search projection.
 
 For a persisted item, recording SHALL copy the same stored text used by the
 request and SHALL NOT invoke a renderer. A data-only or empty context part that
-contributed nothing SHALL be omitted from the Run item record. A bind-time item
-SHALL record its final computed text.
+contributed nothing SHALL still appear in the Run item record with empty text,
+so intentional omission remains distinguishable from absence; metadata SHALL
+NOT be rendered to fill it. A bind-time item SHALL record its final computed
+text.
 
 When request preparation rebuilds the request after transition compaction, the
 record SHALL describe the rebuilt request. A Run whose preparation fails before
@@ -244,7 +246,8 @@ that limitation SHALL remain documented.
 #### Scenario: An inert context part accompanies a Run
 
 - **WHEN** a stored context part has no non-empty text
-- **THEN** it contributes neither a model part nor a Run context-item entry
+- **THEN** it contributes no model part but remains in the Run context-item
+  record with empty text
 - **AND** metadata is not rendered to fill either location
 
 #### Scenario: Two Runs share an effective-context snapshot

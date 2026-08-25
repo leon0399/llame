@@ -72,11 +72,14 @@ None.
   compacted-prefix replacement atomically with `summary`, and replay it without
   reconstruction.
 - `apps/api/src/runs`: transition compaction and Run context receipts copy the
-  same persisted reminder text that entered the request.
+  same persisted reminder text that entered the request; inert data-only parts
+  remain auditable as empty-text receipt entries.
 - `apps/web`: continue to hide context parts from ordinary transcript rendering
   while reading structured metadata for owner-only boundaries.
 - Public shares, search, ordinary exports, and public forks continue to strip
-  context parts. Private owner forks copy stored message parts wholesale.
+  context parts. Private owner forks copy stored message parts wholesale and
+  retain their existing uncompacted replay; #154 separately owns copying active
+  compaction state for identical summary-plus-tail shape.
 - No historical `messages.parts` backfill and no legacy compaction fallback are
   introduced. This alpha cutover treats the new contract as the only supported
   runtime contract.

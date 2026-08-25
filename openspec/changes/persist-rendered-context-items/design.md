@@ -192,14 +192,18 @@ single revision.
 received. For a persisted reminder it copies the same stored text used by the
 request. This is not a second transcript: `messages.parts` and compaction
 `replacement_history` are replay authority; the Run record is inference audit
-evidence.
+evidence. An inert data-only context part remains in the receipt with empty text
+so its deliberate model omission is auditable without regenerating prose.
 
 Owner-authenticated message responses return the stored parts array in the same
 order. Context parts remain hidden from ordinary transcript rendering. Public
 shares, shared/public forks, ordinary exports, list excerpts, and search select
-only their existing public-safe content. A private owner fork copies message
-parts wholesale. Future work on #154 must also preserve the applicable
-compaction replacement history rather than reconstructing it.
+only their existing public-safe content. A private owner fork continues to copy
+all source message parts; compaction does not delete those rows, so the fork
+continues its existing uncompacted replay rather than losing the superseded
+prefix. It does not reproduce the source's active compacted shape. Future work
+on #154 must copy applicable compaction replacement history wholesale to add
+that parity rather than reconstructing it.
 
 ## Risks / Trade-offs
 
@@ -226,8 +230,10 @@ compaction replacement history rather than reconstructing it.
 
 This is an alpha hard cutover, not a compatibility rollout:
 
-1. Verify the target database contains no compaction rows; stop if that
-   assumption is false.
+1. Merge and verify the complete implementation stack without deploying an
+   intermediate layer. At cutover, stop API writers/workers, drain or terminate
+   every accepted nonterminal Run, and verify the target database contains no
+   compaction rows; stop if any precondition is false.
 2. Change the compaction schema from `tool_observation_ledger` to required
    `replacement_history` and deploy the matching application revision as one
    unit. Do not add a null fallback, data-only checkpoint renderer, or ledger
@@ -241,3 +247,16 @@ This is an alpha hard cutover, not a compatibility rollout:
 Rollback is application/schema rollback to the pre-change alpha database
 contract. It does not rewrite newly stored parts or promise cross-version
 readability. Do not run old and new writers/workers concurrently.
+
+## Revision history
+
+- **v3 (2026-08-25):** Replaced bare interactive stack bootstrap with the exact
+  non-interactive branch chain and moved archive execution after the completed
+  checklist so OpenSpec preflight observes zero unfinished tasks.
+- **v2 (2026-08-25):** Restored empty-text Run receipt entries for inert parts,
+  made stopped writers/workers plus zero accepted Runs/compactions explicit
+  hard-cutover preconditions, and clarified that current owner forks retain all
+  raw messages while #154 owns compacted-shape parity.
+- **v1 (2026-08-25):** Initial post-grilling design: persisted reminder text,
+  author-time user sanitization, materialized compaction replacement history,
+  explicit assistant-projection follow-up, and layered `gh-stack` delivery.
