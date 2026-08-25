@@ -1,5 +1,42 @@
 ## MODIFIED Requirements
 
+### Requirement: Server-authored context is injected as discrete items on one rail
+
+Every server-authored contribution to a chat's model-visible conversation that is not part of the system prompt SHALL be injected as a **context item** on one rail, except for materialized compaction replacement history. An item SHALL be rendered inside a single canonical `<system-reminder>` envelope, and SHALL NOT introduce a top-level delimiter name of its own.
+
+Materialized compaction replacement-history records SHALL replace superseded conversation history rather than inject a rail item. The checkpoint record SHALL be a user-role UI message containing one ordinary text part with the complete final canonical envelope. It SHALL NOT use `data-context` metadata or attached-item placement, and `model-system-prompts` SHALL own its storage and replay contract.
+
+The wire role SHALL remain `user`. A provider-level role for injected context SHALL NOT be invented, and items SHALL NOT be emitted as additional conversation messages of their own where a message already exists to carry them: items attached to a turn SHALL be carried inside that turn's triggering user message.
+
+Each item SHALL occupy its **own text content block** within that message rather than being concatenated with another item or with the user's text. The separation between server-authored content and user-authored content SHALL therefore be structural rather than a textual convention that user input can imitate.
+
+#### Scenario: Two items are injected on one turn
+
+- **WHEN** two context items are injected before a user's message
+- **THEN** each renders in its own `<system-reminder>` envelope in its own text content block
+- **AND** the user's visible text occupies a further block in the same message
+- **AND** no additional conversation message is created
+
+#### Scenario: A turn carries no injected item
+
+- **WHEN** a turn has no context item to inject
+- **THEN** the user message carries only the user's visible text
+- **AND** its serialized form is unchanged from a turn that predates this capability
+
+#### Scenario: An item is not attached to a turn
+
+- **WHEN** an item's producer has no triggering user message to attach to
+- **THEN** the item is carried by the message its producer already owns
+- **AND** it uses the same envelope, framing, and vocabulary as an attached item
+
+#### Scenario: A compaction checkpoint replaces history
+
+- **WHEN** compaction materializes replacement history for a superseded prefix
+- **THEN** its first record is a user-role UI message containing one ordinary
+  text part with the complete final checkpoint envelope
+- **AND** the record is not a `data-context` item and is replayed without
+  metadata reconstruction
+
 ### Requirement: Every item declares metadata and persists its final model-facing text
 
 Each context item SHALL declare the **producer** that authored it and MAY
@@ -15,9 +52,11 @@ exactly the forms that have a producer:
   nothing.
 - `snapshot` — current state, where a later snapshot from the same producer
   supersedes an earlier one.
-- `checkpoint` — a summary that supersedes this chat's own earlier history.
+  A form SHALL NOT be defined ahead of a producer that emits it.
 
-A form SHALL NOT be defined ahead of a producer that emits it.
+A materialized compaction checkpoint SHALL NOT be a context-item form. It is a
+message-shaped replacement-history record under `model-system-prompts`, as the
+rail-level exception above defines.
 
 Every newly authored persisted context part SHALL use `type: "data-context"`,
 retain `data.v: 1`, and carry its complete final model-facing text beneath
