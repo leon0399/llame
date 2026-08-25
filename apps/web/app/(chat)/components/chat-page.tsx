@@ -32,6 +32,9 @@ import {
   ToolOutput,
 } from "@workspace/ui/components/ai-elements/tool";
 import { MessageForkButton } from "./message-fork-button";
+import { ButtonGroup } from "@workspace/ui/components/button-group";
+
+import { EffortSelector } from "./effort-selector";
 import { ModelSelector } from "./model-selector";
 import {
   PromptInput,
@@ -50,6 +53,7 @@ import {
   AlertTitle,
 } from "@workspace/ui/components/alert";
 import { useChatContext } from "@/contexts/chat-context";
+import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 import { useActiveRuns } from "@/contexts/active-runs-context";
 import {
   notificationLabel,
@@ -127,12 +131,6 @@ const ReasoningContent = dynamic(
 // Module-level so a draft's empty history keeps a stable identity across
 // renders — it is a dependency of the history-adoption effect below.
 const EMPTY_MESSAGES: UIMessage[] = [];
-
-// Right cell of the composer model+send pill: square inner corner, rounded
-// outer corner, and a focus ring that lifts above its neighbour (see the group
-// wrapper in the composer). Shared by the Stop and Send branches.
-const COMPOSER_SEND_BUTTON_CLASS =
-  "size-8 rounded-l-none rounded-r-md focus-visible:relative focus-visible:z-10";
 
 export type ChatPageProps = {
   chatId: string;
@@ -271,7 +269,7 @@ function ChatSessionContent({
 
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { selectedModel, setSelectedModel } = useChatContext();
+  const { selectedModel, setSelectedModel, selectedEffort } = useChatContext();
   const { trackRun, untrackChat, markChatSeen } = useActiveRuns();
   const modelsQuery = useModelsQuery();
   const availableModels = modelsQuery.data?.models ?? [];
@@ -292,8 +290,13 @@ function ChatSessionContent({
   // Read the model from a ref instead, so the id-stable transport always sends
   // the CURRENT selection. Assigned during render (not via an effect) — it's a
   // plain latest-value mirror, only read later inside prepareSendMessagesRequest.
-  const selectedModelRef = useRef(selectedModel);
-  selectedModelRef.current = selectedModel;
+  const selectedModelRef = useLatestRef(selectedModel);
+  // Same frozen-closure hazard as the model above: the transport is created
+  // once, so reading `selectedEffort` directly would pin the first turn's
+  // level for the life of the chat. `useLatestRef` bundles the per-render
+  // assignment with the ref's creation — writing the two separately is how
+  // effort came to be silently omitted from every send.
+  const selectedEffortRef = useLatestRef(selectedEffort);
 
   const transport = useMemo(
     () =>
@@ -303,17 +306,22 @@ function ChatSessionContent({
         fetch: authAwareFetch,
         prepareSendMessagesRequest: (options) => {
           const modelId = selectedModelRef.current;
+          const effort = selectedEffortRef.current;
           if (modelId === undefined) {
             // Unreachable in practice (both send affordances are gated on
             // modelReadyForSend), but this narrows undefined → string so a
             // request can never be built without a model.
             throw new Error(NO_MODEL_SELECTED_ERROR);
           }
-          return prepareSendMessagesRequest({ ...options, modelId });
+          return prepareSendMessagesRequest({ ...options, modelId, effort });
         },
         prepareReconnectToStreamRequest,
       }),
-    [chatId],
+    // The two refs are listed for the exhaustive-deps rule's benefit only: a
+    // ref object is stable for the component's life, so including them cannot
+    // rebuild the transport. `chatId` remains the sole real trigger — which is
+    // the whole point, since useChat never adopts a new transport instance.
+    [chatId, selectedModelRef, selectedEffortRef],
   );
   const refreshChatList = () => {
     void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
@@ -767,24 +775,37 @@ function ChatSessionContent({
               autoFocus
             />
             <PromptInputToolbar>
-              {/* Model picker + send grouped into one bordered pill, pushed to
-                  the right edge of the composer (design: `.mdl-group`). The end
-                  buttons are individually rounded rather than clipped with
-                  `overflow-hidden`, so their focus rings render in full; the
-                  focused cell lifts above its neighbour (`z-10`) so nothing
-                  clips the ring. */}
-              <div className="ml-auto inline-flex items-center rounded-md border border-border">
-                <ModelSelector className="rounded-l-md rounded-r-none focus-visible:relative focus-visible:z-10" />
-                {/* Seam between the two cells. A plain self-stretch span, not
-                    <Separator>: the shared primitive's vertical variant forces
-                    `h-full`, which collapses to 0 in this auto-height pill (no
-                    definite parent height), so the divider would vanish. */}
-                <span aria-hidden className="w-px self-stretch bg-border" />
+              {/* Two units, not one pill: the SELECTORS are attached to each
+                  other, and send stands alone.
+
+                  Send left the group because being its last cell forced
+                  `rounded-r-lg` with squared left corners, and a paper-plane
+                  glyph reads off-centre inside an asymmetric box. Standalone,
+                  it keeps Button's own all-round `rounded-lg` and the icon
+                  centres itself — a shape fix rather than nudging the glyph.
+
+                  `gap-2` is the same 8px ButtonGroup applies between nested
+                  groups (`has-[>[data-slot=button-group]]:gap-2`), so the
+                  separation is the design system's answer, not a hand-picked
+                  number. Both units are h-8, which that gap is scaled for. */}
+              <div className="ml-auto flex items-center gap-2">
+                <ButtonGroup>
+                  <ModelSelector />
+                  {/* Only present when the selected model declares an effort
+                      vocabulary; the group re-collapses to a single cell when
+                      it renders nothing. */}
+                  <EffortSelector />
+                </ButtonGroup>
                 {status === "streaming" || status === "submitted" ? (
                   <PromptInputButton
                     type="button"
+                    variant="outline"
+                    // size-8, the same box as the selector cells' h-8. Stated
+                    // through the API rather than a class override, and with
+                    // no corner overrides — Button's symmetric `rounded-lg` is
+                    // what makes the icon read centred.
+                    size="icon"
                     onClick={handleStop}
-                    className={COMPOSER_SEND_BUTTON_CLASS}
                     aria-label="Stop generation"
                   >
                     {status === "submitted" ? (
@@ -795,7 +816,8 @@ function ChatSessionContent({
                   </PromptInputButton>
                 ) : (
                   <PromptInputButton
-                    className={COMPOSER_SEND_BUTTON_CLASS}
+                    variant="outline"
+                    size="icon"
                     type="submit"
                     aria-label="Send message"
                     disabled={!modelReadyForSend}

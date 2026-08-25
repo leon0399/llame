@@ -85,8 +85,12 @@ export function ModelSelector({ className }: { className?: string }) {
       <PopoverTrigger
         render={
           <Button
-            variant="ghost"
-            size="sm"
+            variant="outline"
+            // "default" is h-8, the same box as the send cell's size="icon"
+            // (size-8). They must be stated in the same unit family or they
+            // drift: `sm` is h-7, and a stale comment here once claimed it was
+            // h-8, which is how the pill came to hold three different heights.
+            size="default"
             // Deliberate: this trigger opens a Command/cmdk popup whose own
             // searchable input (not this button) is the real combobox host,
             // so `aria-controls` can't be wired to it meaningfully — and
@@ -104,12 +108,13 @@ export function ModelSelector({ className }: { className?: string }) {
             // Openable while loading so the skeleton list is reachable; only a
             // hard failure (no reachable catalog) locks the trigger.
             disabled={isError}
-            // size="sm" gives h-8 (32px), matching the send button (size-8) so
-            // both cells of the group pill are the same height (design: 1.9rem).
-            // The consumer owns corner rounding (it knows the cell's position in
-            // the group), so the focus ring isn't clipped.
+            // ButtonGroup owns corner rounding, border collapsing, and the
+            // focus-ring lift — this cell states none of it.
             className={cn(
-              "gap-1 px-2.5 text-[0.8125rem] font-medium text-foreground",
+              // No px here: size="default" already sets px-2.5, and it also
+              // carries conditional icon padding that a duplicate px would
+              // override. Only genuine overrides of the variant belong here.
+              "gap-1 text-[0.8125rem] font-medium text-foreground",
               className,
             )}
           />

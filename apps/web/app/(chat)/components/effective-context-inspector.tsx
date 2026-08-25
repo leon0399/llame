@@ -75,6 +75,16 @@ export function EffectiveContextInspector({
             <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
               <dt className="text-muted-foreground">Model</dt>
               <dd className="break-all font-mono">{receipt.data.modelId}</dd>
+              {/* Absent, not null, when the run carried no effort — so the row
+                  is omitted rather than rendering an empty or "—" cell that
+                  would read as "effort was none" instead of "no effort
+                  applied". */}
+              {receipt.data.effort !== undefined ? (
+                <>
+                  <dt className="text-muted-foreground">Effort</dt>
+                  <dd className="break-all font-mono">{receipt.data.effort}</dd>
+                </>
+              ) : null}
               <dt className="text-muted-foreground">Prompt source</dt>
               <dd>{promptSourceLabel(receipt.data.promptSource)}</dd>
               <dt className="text-muted-foreground">Snapshot</dt>
