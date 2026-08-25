@@ -206,7 +206,20 @@ export type RawModelEntry = {
   tags?: string[];
   icon?: string;
   knowledgeCutoff?: string;
-  reasoning?: boolean;
+  /**
+   * The shape an operator WRITES, declared plainly rather than derived from the
+   * resolved `ModelReasoning`: the two are deliberately independent, since a
+   * resolved-only computed field would have no business in the config file.
+   * `defaultEffort`'s membership in `effortLevels` is a cross-field rule JSON
+   * Schema can't express, so `resolveModels` owns it, and
+   * `cacheInvalidatedByEffortChange` is optional here but always resolved on
+   * the catalog entry.
+   */
+  reasoning?: {
+    readonly effortLevels: readonly string[];
+    readonly defaultEffort: string;
+    readonly cacheInvalidatedByEffortChange?: boolean;
+  };
   website?: string;
   apiDocs?: string;
   modelPage?: string;

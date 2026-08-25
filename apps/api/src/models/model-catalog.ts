@@ -20,6 +20,31 @@ export type ModelPricingUsdPer1M = {
   output?: number;
 };
 
+/**
+ * A model's reasoning-effort contract, as the operator declared it.
+ *
+ * `effortLevels` are opaque PROVIDER-native tokens, never a llame vocabulary:
+ * OpenAI and Anthropic disagree on the value set and both change it between
+ * releases, so constraining the strings here — by enum or by pattern — would
+ * make every provider release a llame release. Nothing reads meaning out of a
+ * level; the API matches it byte-exactly against this list and forwards it.
+ *
+ * Order is normative: it is the only scale a client gets, since a token carries
+ * no comparable magnitude of its own.
+ */
+export type ModelReasoning = {
+  readonly effortLevels: readonly string[];
+  readonly defaultEffort: string;
+  /**
+   * Whether CHANGING effort invalidates this model's provider-side prompt
+   * cache — not whether effort does. Operator-declared: Anthropic documents a
+   * model-specific blast radius, OpenAI documents nothing while behaving
+   * differently per model, and neither is derivable from configuration.
+   * Published metadata only; llame's own execution never branches on it.
+   */
+  readonly cacheInvalidatedByEffortChange: boolean;
+};
+
 export interface PublicModelCatalogEntry {
   id: string;
   source: ModelSource;
@@ -34,7 +59,8 @@ export interface PublicModelCatalogEntry {
   contextWindowTokens: number;
   pricingUsdPer1M?: ModelPricingUsdPer1M;
   knowledgeCutoff?: string;
-  reasoning?: boolean;
+  /** Absent when the operator declared no effort vocabulary for this model. */
+  reasoning?: ModelReasoning;
   website?: string;
   apiDocs?: string;
   modelPage?: string;

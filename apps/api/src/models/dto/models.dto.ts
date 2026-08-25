@@ -17,6 +17,34 @@ export class ModelPricingResponse {
   output?: number;
 }
 
+export class ModelReasoningResponse {
+  @ApiProperty({
+    type: [String],
+    description:
+      'Effort levels this model accepts, in the order a client presents them. ' +
+      'Opaque provider-native identifiers, not display strings: derive no ' +
+      'meaning or magnitude from the text, and do not assume a token means ' +
+      'the same thing on another model. Order is the only scale.',
+  })
+  effortLevels!: string[];
+
+  @ApiProperty({
+    description:
+      'The level applied when a chat send omits `effort`. Always one of `effortLevels`.',
+  })
+  defaultEffort!: string;
+
+  @ApiProperty({
+    description:
+      "Whether CHANGING effort between turns invalidates this model's " +
+      'provider-side prompt cache — not whether effort does. Operator-declared, ' +
+      'because the behavior is model-specific and partly undocumented. Advisory ' +
+      'metadata for warning a user before a costly prefix re-read; it does not ' +
+      'affect execution.',
+  })
+  cacheInvalidatedByEffortChange!: boolean;
+}
+
 export class AvailableModelResponse {
   @ApiProperty()
   id!: string;
@@ -45,8 +73,13 @@ export class AvailableModelResponse {
   @ApiPropertyOptional()
   knowledgeCutoff?: string;
 
-  @ApiPropertyOptional()
-  reasoning?: boolean;
+  @ApiPropertyOptional({
+    type: () => ModelReasoningResponse,
+    description:
+      'Present only when the operator declared an effort vocabulary for this ' +
+      'model. Absent means the model accepts no `effort` on a chat send.',
+  })
+  reasoning?: ModelReasoningResponse;
 
   @ApiPropertyOptional()
   website?: string;
@@ -101,7 +134,15 @@ export function toAvailableModelResponse(
   if (model.knowledgeCutoff !== undefined) {
     response.knowledgeCutoff = model.knowledgeCutoff;
   }
-  if (model.reasoning !== undefined) response.reasoning = model.reasoning;
+  // Copied, like `tags` above: the catalog is a process-lifetime singleton, so
+  // handing a response object the config's own array would let a later mutation
+  // reach every subsequent caller.
+  if (model.reasoning !== undefined) {
+    response.reasoning = {
+      ...model.reasoning,
+      effortLevels: [...model.reasoning.effortLevels],
+    };
+  }
   if (model.website !== undefined) response.website = model.website;
   if (model.apiDocs !== undefined) response.apiDocs = model.apiDocs;
   if (model.modelPage !== undefined) response.modelPage = model.modelPage;

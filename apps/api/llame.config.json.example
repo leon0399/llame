@@ -61,7 +61,19 @@
       "description": "Flagship frontier reasoning model for complex agentic and scientific tasks.",
       "contextWindowTokens": 1050000,
       "pricingUsdPer1M": { "input": 5, "cachedInput": 0.5, "output": 30 },
-      "reasoning": true,
+      // Reasoning effort (add-reasoning-effort). Presence declares that this
+      // model accepts a per-request `effort`; absence means it accepts none.
+      // The levels are the PROVIDER's own tokens, passed through untouched —
+      // llame never normalizes them, so a value the provider ships tomorrow
+      // needs only a config edit. Order is what a client presents as the scale.
+      // `cacheInvalidatedByEffortChange` is advisory: set it when CHANGING
+      // effort mid-conversation costs a full prompt-cache prefix re-read on
+      // this model, so a client can warn first. It never affects execution.
+      "reasoning": {
+        "effortLevels": ["none", "low", "medium", "high", "xhigh", "max"],
+        "defaultEffort": "medium",
+        "cacheInvalidatedByEffortChange": true
+      },
       "knowledgeCutoff": "2026-02",
       "website": "https://openai.com",
       "releasedAt": "2026-07-09",
@@ -74,7 +86,11 @@
       "description": "Balanced mid-tier model, competitive with GPT-5.5 at roughly half the cost.",
       "contextWindowTokens": 1050000,
       "pricingUsdPer1M": { "input": 2.5, "cachedInput": 0.25, "output": 15 },
-      "reasoning": true,
+      "reasoning": {
+        "effortLevels": ["none", "low", "medium", "high", "xhigh"],
+        "defaultEffort": "medium",
+        "cacheInvalidatedByEffortChange": true
+      },
       "knowledgeCutoff": "2026-02",
       "website": "https://openai.com",
       "releasedAt": "2026-07-09",
@@ -99,7 +115,11 @@
       "description": "Most capable system OpenAI-compatible model.",
       "contextWindowTokens": 400000,
       "pricingUsdPer1M": { "input": 2.5, "cachedInput": 0.25, "output": 10 },
-      "reasoning": true,
+      "reasoning": {
+        "effortLevels": ["none", "low", "medium", "high", "xhigh"],
+        "defaultEffort": "medium",
+        "cacheInvalidatedByEffortChange": true
+      },
       "website": "https://openai.com",
     },
     {
@@ -110,7 +130,11 @@
       "description": "High-capability system OpenAI-compatible model.",
       "contextWindowTokens": 400000,
       "pricingUsdPer1M": { "input": 1.25, "cachedInput": 0.125, "output": 7.5 },
-      "reasoning": true,
+      "reasoning": {
+        "effortLevels": ["none", "low", "medium", "high", "xhigh"],
+        "defaultEffort": "medium",
+        "cacheInvalidatedByEffortChange": true
+      },
       "website": "https://openai.com",
     },
     {
@@ -121,7 +145,11 @@
       "description": "Balanced default system OpenAI-compatible model.",
       "contextWindowTokens": 400000,
       "pricingUsdPer1M": { "input": 0.75, "cachedInput": 0.075, "output": 4.5 },
-      "reasoning": true,
+      "reasoning": {
+        "effortLevels": ["none", "low", "medium", "high", "xhigh"],
+        "defaultEffort": "medium",
+        "cacheInvalidatedByEffortChange": true
+      },
       "website": "https://openai.com",
       // Optional per-model compaction threshold; otherwise 80% of the context window.
       "compactionThresholdTokens": 300,

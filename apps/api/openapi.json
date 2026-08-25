@@ -3122,6 +3122,31 @@
           }
         }
       },
+      "ModelReasoningResponse": {
+        "type": "object",
+        "properties": {
+          "effortLevels": {
+            "description": "Effort levels this model accepts, in the order a client presents them. Opaque provider-native identifiers, not display strings: derive no meaning or magnitude from the text, and do not assume a token means the same thing on another model. Order is the only scale.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultEffort": {
+            "type": "string",
+            "description": "The level applied when a chat send omits `effort`. Always one of `effortLevels`."
+          },
+          "cacheInvalidatedByEffortChange": {
+            "type": "boolean",
+            "description": "Whether CHANGING effort between turns invalidates this model's provider-side prompt cache — not whether effort does. Operator-declared, because the behavior is model-specific and partly undocumented. Advisory metadata for warning a user before a costly prefix re-read; it does not affect execution."
+          }
+        },
+        "required": [
+          "effortLevels",
+          "defaultEffort",
+          "cacheInvalidatedByEffortChange"
+        ]
+      },
       "AvailableModelResponse": {
         "type": "object",
         "properties": {
@@ -3157,7 +3182,12 @@
             "type": "string"
           },
           "reasoning": {
-            "type": "boolean"
+            "description": "Present only when the operator declared an effort vocabulary for this model. Absent means the model accepts no `effort` on a chat send.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ModelReasoningResponse"
+              }
+            ]
           },
           "website": {
             "type": "string"

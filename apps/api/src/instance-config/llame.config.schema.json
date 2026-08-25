@@ -182,6 +182,30 @@
         "output": { "type": "number", "minimum": 0 }
       }
     },
+    "modelReasoning": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Declares that this model accepts a reasoning-effort request parameter, and which values it accepts. Presence IS the declaration — there is no separate availability flag.",
+      "required": ["effortLevels", "defaultEffort"],
+      "properties": {
+        "effortLevels": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Opaque provider-native effort tokens, in the operator-authored order clients present them in. Deliberately unconstrained beyond nonblank and unique: provider vocabularies differ and change between releases, so any character pattern here would be a llame-owned vocabulary that a provider release invalidates. Levels are identifiers, not display strings."
+        },
+        "defaultEffort": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The level used when a request omits `effort`. Required whenever this object is present — no default is implied from list position. A value absent from effortLevels fails boot naming this model."
+        },
+        "cacheInvalidatedByEffortChange": {
+          "type": "boolean",
+          "description": "Whether CHANGING effort between turns invalidates this model's provider-side prompt cache. Operator-declared because the behavior is model-specific and partly undocumented; nothing in the provider, model id, or level list predicts it. Published so a client can warn before an owner pays for a full prefix re-read. Default false."
+        }
+      }
+    },
     "modelEntry": {
       "type": "object",
       "additionalProperties": false,
@@ -221,7 +245,7 @@
         "tags": { "type": "array", "items": { "type": "string" } },
         "icon": { "type": "string" },
         "knowledgeCutoff": { "type": "string" },
-        "reasoning": { "type": "boolean" },
+        "reasoning": { "$ref": "#/$defs/modelReasoning" },
         "website": { "type": "string" },
         "apiDocs": { "type": "string" },
         "modelPage": { "type": "string" },
