@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { vi } from "vitest";
 
+import { ButtonGroup } from "@workspace/ui/components/button-group";
+
 import { ChatProvider } from "@/contexts/chat-context";
 // Import via the REAL specifier: sb.mock (preview.tsx) redirects it to the
 // __mocks__ module, so this is the SAME hook instance the component reads.
@@ -47,7 +49,12 @@ const meta = {
   decorators: [
     (Story) => (
       <ChatProvider>
-        <Story />
+        {/* Always the group's first cell in production, and it no longer
+            carries its own border or corner classes — ButtonGroup owns those.
+            Previewing it bare would show a shape it never actually ships. */}
+        <ButtonGroup>
+          <Story />
+        </ButtonGroup>
       </ChatProvider>
     ),
   ],

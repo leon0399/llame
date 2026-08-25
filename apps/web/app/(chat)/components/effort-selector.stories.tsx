@@ -3,7 +3,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test";
 import { vi } from "vitest";
 
 import { ButtonGroup } from "@workspace/ui/components/button-group";
-import { Button } from "@workspace/ui/components/button";
+import { SendIcon } from "lucide-react";
 
 import { ChatProvider } from "@/contexts/chat-context";
 // Import via the REAL specifier: sb.mock (preview.tsx) redirects it to the
@@ -11,6 +11,7 @@ import { ChatProvider } from "@/contexts/chat-context";
 import * as modelQueries from "@/lib/services/models/queries";
 import type { AvailableModel } from "@/lib/services/models/queries";
 import { EffortSelector } from "./effort-selector";
+import { PromptInputButton } from "./prompt-input";
 
 const useModelsQuery = vi.mocked(modelQueries.useModelsQuery, {
   partial: true,
@@ -179,9 +180,17 @@ export const CellsShareOneHeight: Story = {
           <ButtonGroup>
             <Story />
           </ButtonGroup>
-          <Button variant="outline" size="icon" aria-label="Send message">
-            <span aria-hidden>→</span>
-          </Button>
+          {/* The REAL send cell, with the props chat-page passes it. A
+              hand-built stand-in would keep passing if the shipped button
+              drifted, which is the regression this story exists to catch. */}
+          <PromptInputButton
+            variant="outline"
+            size="icon"
+            type="submit"
+            aria-label="Send message"
+          >
+            <SendIcon size={16} />
+          </PromptInputButton>
         </div>
       </ChatProvider>
     ),
