@@ -192,9 +192,11 @@ complete and green.
       so add the new per-request `effort` and the compaction inheritance rule
       alongside it rather than writing a fresh entry; verify
       `pnpm lint:markdown` passes.
-- [x] 6.2 Check off every task in groups 1–5 and re-run
-      `openspec validate add-reasoning-effort --strict`; verify it reports the
-      change as valid.
+- [x] 6.2 Verify every task in groups 1–5 is already checked off by the
+      layer that shipped it — each layer marks its own group in its own
+      PR, so this step confirms rather than performs it — and re-run
+      `openspec validate add-reasoning-effort --strict`; verify it reports
+      the change as valid.
 - [x] 6.3 Full verification sweep across the whole stack, sequentially:
       `pnpm exec turbo run build --filter=api --concurrency=1`,
       `pnpm --filter web build`, `pnpm --filter api lint`,
