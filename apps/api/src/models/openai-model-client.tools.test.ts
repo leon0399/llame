@@ -94,7 +94,7 @@ function scriptedModel(responses: Array<ReturnType<typeof providerResponse>>) {
   });
 }
 
-function buildClient(model: MockLanguageModelV3) {
+function buildClient(model: MockLanguageModelV3, nativeOpenAI = false) {
   const provider = vi.fn<OpenAIProvider>();
   provider.mockReturnValue(model);
   provider.chat = vi.fn<OpenAIProvider['chat']>(() => model);
@@ -104,6 +104,7 @@ function buildClient(model: MockLanguageModelV3) {
       providerModelId: 'gpt-test',
       modelId: 'system:openai:gpt-test',
       contextWindowTokens: 128_000,
+      nativeOpenAI,
     },
     { createOpenAI: () => provider, streamText },
   );
@@ -181,6 +182,73 @@ describe('createOpenAIModelClient — abort handling', () => {
 });
 
 describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () => {
+  it('opts every native Responses function tool out of strict schema normalization', async () => {
+    const model = scriptedModel([textResponse()]);
+    const client = buildClient(model, true);
+    const optionalTools = {
+      knowledge_search: tool({
+        inputSchema: z.object({
+          query: z.string(),
+          cursor: z.string().optional(),
+        }),
+      }),
+      mcp__web__search: tool({
+        inputSchema: z.object({
+          query: z.string(),
+          knowledgeSpaceId: z.string().uuid().optional(),
+        }),
+      }),
+    };
+
+    await expect(
+      client.streamText({ messages, tools: optionalTools }).text,
+    ).resolves.toBe('done');
+
+    expect(model.doStreamCalls[0]?.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'knowledge_search', strict: false }),
+        expect.objectContaining({ name: 'mcp__web__search', strict: false }),
+      ]),
+    );
+  });
+
+  it('leaves OpenAI-compatible Chat Completions tool strictness unspecified', async () => {
+    const model = scriptedModel([textResponse()]);
+    const client = buildClient(model);
+
+    await expect(client.streamText({ messages, tools }).text).resolves.toBe(
+      'done',
+    );
+
+    expect(model.doStreamCalls[0]?.tools?.[0]).not.toHaveProperty('strict');
+  });
+
+  it('preserves provider-defined tools on native Responses', async () => {
+    const model = scriptedModel([textResponse()]);
+    const client = buildClient(model, true);
+    const providerTools = {
+      hosted_search: tool({
+        type: 'provider',
+        id: 'openai.hosted_search',
+        args: { mode: 'brief' },
+        inputSchema: z.object({}),
+      }),
+    };
+
+    await expect(
+      client.streamText({ messages, tools: providerTools }).text,
+    ).resolves.toBe('done');
+
+    expect(model.doStreamCalls[0]?.tools).toEqual([
+      {
+        type: 'provider',
+        name: 'hosted_search',
+        id: 'openai.hosted_search',
+        args: { mode: 'brief' },
+      },
+    ]);
+  });
+
   it('forwards provider-neutral toolChoice to the AI SDK request', async () => {
     const model = scriptedModel([textResponse()]);
     const client = buildClient(model);

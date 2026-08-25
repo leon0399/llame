@@ -86,6 +86,15 @@ server at all.
   until it is explicitly registered and tested.
 - The SDK validator is the primary model-call gate; the runner's local parse is
   defense-in-depth for callers that bypass the SDK. Keep both paths aligned.
+- Native OpenAI Responses calls MUST explicitly lower every function/dynamic
+  tool with `strict: false`, including code-owned and MCP declarations. Omitting
+  `strict` is not equivalent: Responses may normalize the schema into strict
+  mode, where every property is required and omission-style optional fields
+  become required nullable fields. That model-facing rewrite diverges from the
+  exact persisted schema and llame's SDK/local validators. Keep the policy at
+  the OpenAI provider boundary; never mutate persisted raw JSON Schema to fit
+  OpenAI's strict subset. Provider-defined tools are excluded, and compatible
+  endpoints remain on Chat Completions' non-strict default.
 - Queue retries restart a still-claimable Run's tool loop from the first step.
   Read-only classification is therefore load-bearing: the first write-capable
   tool must ship checkpoint-or-dedupe semantics, not merely an approval gate.
