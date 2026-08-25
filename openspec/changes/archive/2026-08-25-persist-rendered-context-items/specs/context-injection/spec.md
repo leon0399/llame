@@ -2,9 +2,9 @@
 
 ### Requirement: Server-authored context is injected as discrete items on one rail
 
-Every server-authored contribution to a chat's model-visible conversation that is not part of the system prompt SHALL be injected as a **context item** on one rail, except for materialized compaction replacement history. An item SHALL be rendered inside a single canonical `<system-reminder>` envelope, and SHALL NOT introduce a top-level delimiter name of its own.
+Every server-authored contribution to a chat's model-visible conversation that is not part of the system prompt SHALL be injected as a **context item** on one rail. An item SHALL be rendered inside a single canonical `<system-reminder>` envelope, and SHALL NOT introduce a top-level delimiter name of its own.
 
-Materialized compaction replacement-history records SHALL replace superseded conversation history rather than inject a rail item. The checkpoint record SHALL be a user-role UI message containing one ordinary text part with the complete final canonical envelope. It SHALL NOT use `data-context` metadata or attached-item placement, and `model-system-prompts` SHALL own its storage and replay contract.
+A materialized compaction checkpoint SHALL remain a rail context item with producer `compaction` and form `checkpoint` for envelope and Run-receipt semantics. Its durable representation SHALL be the storage exception: a user-role replacement-history UI message containing one ordinary text part with the complete final canonical envelope, not a persisted `data-context` part. `model-system-prompts` SHALL own that storage and replay contract.
 
 The wire role SHALL remain `user`. A provider-level role for injected context SHALL NOT be invented, and items SHALL NOT be emitted as additional conversation messages of their own where a message already exists to carry them: items attached to a turn SHALL be carried inside that turn's triggering user message.
 
@@ -34,8 +34,9 @@ Each item SHALL occupy its **own text content block** within that message rather
 - **WHEN** compaction materializes replacement history for a superseded prefix
 - **THEN** its first record is a user-role UI message containing one ordinary
   text part with the complete final checkpoint envelope
-- **AND** the record is not a `data-context` item and is replayed without
-  metadata reconstruction
+- **AND** the envelope and Run receipt retain producer `compaction` and form
+  `checkpoint`, while the stored record is not a `data-context` part and replays
+  without metadata reconstruction
 
 ### Requirement: Every item declares metadata and persists its final model-facing text
 
@@ -52,17 +53,19 @@ exactly the forms that have a producer:
   nothing.
 - `snapshot` — current state, where a later snapshot from the same producer
   supersedes an earlier one.
-  A form SHALL NOT be defined ahead of a producer that emits it.
+- `checkpoint` — a summary that supersedes this chat's own earlier history.
 
-A materialized compaction checkpoint SHALL NOT be a context-item form. It is a
-message-shaped replacement-history record under `model-system-prompts`, as the
-rail-level exception above defines.
+A form SHALL NOT be defined ahead of a producer that emits it.
 
 Every newly authored persisted context part SHALL use `type: "data-context"`,
 retain `data.v: 1`, and carry its complete final model-facing text beneath
 `data.text`. The text SHALL include the canonical envelope, attributes,
 provenance, producer body, and closing delimiter. Writers SHALL require a
 non-empty string.
+
+The materialized compaction checkpoint SHALL retain the same canonical envelope
+and form while using the replacement-history storage exception above. It SHALL
+NOT be rewritten as a `data-context` part merely to preserve its semantic form.
 
 `data.text` SHALL be the sole replay authority. Producer, form, Run linkage,
 and payload SHALL remain non-rendering metadata for validated machine behavior,
