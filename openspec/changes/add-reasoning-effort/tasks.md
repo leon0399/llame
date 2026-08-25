@@ -82,59 +82,59 @@ layer alone would put master in a state that violates the
 
 ## 3. Accept and persist the resolved effort — `effort/execution`
 
-- [ ] 3.1 Add a nullable `effort` text column to `runs` in
+- [x] 3.1 Add a nullable `effort` text column to `runs` in
       `apps/api/src/db/schema/chats.ts` and generate the migration with
       `drizzle-kit`; verify `pnpm db:generate` reports no further schema drift
       and the migration applies to a database with existing runs, leaving them
       NULL.
-- [ ] 3.2 Accept an optional `effort` on `CreateMessageDto`
+- [x] 3.2 Accept an optional `effort` on `CreateMessageDto`
       (`chats/dto/chats.dto.ts`) as a nonblank string, using `ValidateIf` rather
       than `IsOptional` so an explicit `null` is rejected; verify DTO tests
       cover absent, valid, blank, `null`, and non-string.
-- [ ] 3.3 Resolve `request.effort ?? model.reasoning?.defaultEffort` in the send
+- [x] 3.3 Resolve `request.effort ?? model.reasoning?.defaultEffort` in the send
       path **after** model resolution and before the user message and run are
       created, rejecting a non-member level or any effort on a non-reasoning
       model with 422 `effort_not_available`; verify controller tests assert no
       message and no run exist after each rejection, including an effort valid
       for a _different_ catalog model and one differing only by letter case.
-- [ ] 3.4 Ensure an unavailable or missing `modelId` short-circuits before
+- [x] 3.4 Ensure an unavailable or missing `modelId` short-circuits before
       effort is evaluated; verify a test posting both an unavailable model and
       an invalid effort receives `model_not_available` only.
-- [ ] 3.5 Write the resolved value through `RunsRepository.create`; verify an
+- [x] 3.5 Write the resolved value through `RunsRepository.create`; verify an
       integration test shows the concrete level persisted (not a default
       marker), and that editing `defaultEffort` afterwards leaves the stored row
       unchanged.
 
 ## 4. Send it to the provider — `effort/execution`
 
-- [ ] 4.1 Add `effort?: string` to `ModelStreamInput`
+- [x] 4.1 Add `effort?: string` to `ModelStreamInput`
       (`models/model-client.ts`) documented as a provider-neutral opaque token;
       verify the type builds and no existing caller is forced to pass it.
-- [ ] 4.2 Map it in `openai-model-client.ts` onto
+- [x] 4.2 Map it in `openai-model-client.ts` onto
       `providerOptions.openai.reasoningEffort`, merged with the existing native
       `reasoningSummary` option rather than replacing it, on both the Responses
       and `openai.chat()` paths; verify tests using the injected `streamText`
       seam assert the option reaches `streamOptions` on each path and that
       `reasoningSummary` survives.
-- [ ] 4.3 Gate the mapping on `effort !== undefined`, never on truthiness;
+- [x] 4.3 Gate the mapping on `effort !== undefined`, never on truthiness;
       verify a test asserts a level denoting disabled reasoning is still sent.
-- [ ] 4.4 Pass the run's persisted effort from `RunExecutionService` into
+- [x] 4.4 Pass the run's persisted effort from `RunExecutionService` into
       `client.streamText` without re-reading or re-validating configuration;
       verify worker tests cover a run executing at its stored level after the
       model's `defaultEffort` changed, a run whose stored level was withdrawn
       from `effortLevels` still sending that level, and a run with NULL effort
       sending no option at all.
-- [ ] 4.5 Assert effort is absent from `model_context_snapshots`; verify an
+- [x] 4.5 Assert effort is absent from `model_context_snapshots`; verify an
       integration test shows two runs differing only in effort binding the
       **same** snapshot row.
-- [ ] 4.6 Assert no context item is authored for an effort change; verify a
+- [x] 4.6 Assert no context item is authored for an effort change; verify a
       test covers effort-changed/model-unchanged (no item) and
       effort-changed/model-changed (the model-change item only, with no mention
       of effort), and that `EFFECTIVE_CONTEXT_CHANGE_CAUSES` is unchanged.
-- [ ] 4.7 Assert reasoning collection is independent of the declaration and of
+- [x] 4.7 Assert reasoning collection is independent of the declaration and of
       the level; verify a test shows normalized reasoning chunks persisted for a
       run at a disabling level and for a model with no `reasoning` object.
-- [ ] 4.8 Layer gate: run
+- [x] 4.8 Layer gate: run
       `pnpm exec turbo run build --filter=api --concurrency=1`,
       `pnpm --filter api lint`, `pnpm --filter api test`, and
       `pnpm --filter api test:integration`; verify all pass before opening the
