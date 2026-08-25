@@ -108,6 +108,9 @@ describeIfDb('personalization binds per run', () => {
         systemPromptTemplate: SYSTEM_PROMPT_TEMPLATE,
         systemPromptSource: 'project_default' as const,
       }),
+      // No reasoning vocabulary on this double: effort always resolves to
+      // "none".
+      resolveEffortSelection: () => undefined,
     };
 
     chatLoop = new ChatLoopService(

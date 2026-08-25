@@ -128,9 +128,19 @@ export function createOpenAIModelClient(
         },
         onFinish: input.onFinish,
       };
-      if (config.nativeOpenAI) {
+      // Merged, not assigned per-branch: native OpenAI wants BOTH the
+      // displayable reasoning summary and the effort, and a compatible
+      // endpoint on Chat Completions still takes `reasoningEffort`.
+      // `!== undefined` rather than truthiness — a level meaning "no
+      // reasoning" is an instruction to send, not an absence.
+      if (config.nativeOpenAI || input.effort !== undefined) {
         streamOptions.providerOptions = {
-          openai: { reasoningSummary: 'auto' },
+          openai: {
+            ...(config.nativeOpenAI && { reasoningSummary: 'auto' }),
+            ...(input.effort !== undefined && {
+              reasoningEffort: input.effort,
+            }),
+          },
         };
       }
       // Tool-calling loop: the SDK auto-executes tools and re-calls the

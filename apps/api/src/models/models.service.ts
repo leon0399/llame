@@ -43,13 +43,59 @@ export class ModelNotAvailableError extends Error {
   }
 }
 
+export class EffortNotAvailableError extends Error {
+  readonly code = 'effort_not_available';
+  readonly statusCode = 422;
+
+  constructor(
+    readonly modelId: string,
+    readonly effort: string,
+  ) {
+    super(`Effort '${effort}' is not available for model '${modelId}'.`);
+    this.name = 'EffortNotAvailableError';
+  }
+}
+
+/**
+ * Resolve the effort a run executes at: the requested level, or the model's
+ * declared default when the request omitted one.
+ *
+ * Takes the ALREADY-VALIDATED catalog entry rather than a model id, so "model
+ * first, then effort" is enforced by the signature instead of by caller
+ * discipline — an unavailable model cannot reach this at all, and a level's
+ * legality is meaningless without a resolved model.
+ *
+ * Matching is byte-exact against the model's own declared levels. Nothing is
+ * trimmed, case-folded, or otherwise normalized: the levels are opaque provider
+ * tokens, so `High` against a declared `high` is simply not a match.
+ *
+ * Returns `undefined` when the model declares no vocabulary and the request
+ * supplied no effort — the run then sends no effort parameter at all, leaving
+ * the provider's own default in force.
+ *
+ * A free function, not just a method, so the worker test harness resolves
+ * effort through the same implementation the API does.
+ */
+export function resolveEffortSelection(
+  model: SystemModelCatalogEntry,
+  requested: string | undefined,
+): string | undefined {
+  if (requested === undefined) {
+    return model.reasoning?.defaultEffort;
+  }
+  if (!model.reasoning?.effortLevels.includes(requested)) {
+    throw new EffortNotAvailableError(model.id, requested);
+  }
+  return requested;
+}
+
 /** The only capability a run needs to obtain a client (#268). */
 export type ModelClientFactory = Pick<ModelsService, 'createClient'>;
 
 /** The only capability the chat send path needs to validate a selection (#268). */
 export type ModelSelectionValidator = Pick<
   ModelsService,
-  'validateModelSelection'
+  'validateModelSelection' | 'resolveEffortSelection'
 >;
 
 /**
@@ -131,6 +177,18 @@ export class ModelsService {
   validateModelSelection(modelId: string): SystemModelCatalogEntry {
     this.resolveDefaultModelConfig();
     return this.requireAvailableModel(modelId);
+  }
+
+  /**
+   * Method form of {@link resolveEffortSelection} — see it for the rules. It
+   * exists because `ModelSelectionValidator` is a `Pick<ModelsService, …>`, so
+   * the narrow contract can only name a method the class actually has.
+   */
+  resolveEffortSelection(
+    model: SystemModelCatalogEntry,
+    requested: string | undefined,
+  ): string | undefined {
+    return resolveEffortSelection(model, requested);
   }
 
   /** Per-user BYOK seam (#37/v0.4) — preserved, unused today: no caller supplies `resolveCredential` yet. */

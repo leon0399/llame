@@ -17,6 +17,7 @@ describe('RunsController context receipt', () => {
     userId: 'owner',
     modelId: 'system:openai:public-model',
     modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
+    effort: null,
     status: 'completed',
     workerId: null,
     cancelRequestedAt: null,

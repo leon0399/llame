@@ -376,6 +376,21 @@ export const runs = pgTable(
       .defaultNow(),
     startedAt: timestamp('started_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
+    // Reasoning effort resolved at accept time, stored concretely rather than
+    // as a marker meaning "use the model's default" — same rule `model_id`
+    // states: a later configuration edit must not alter an already queued run.
+    //
+    // The value is an opaque PROVIDER token, so this column deliberately
+    // carries no enum or check constraint; the accepting API validated it
+    // against the selected model's declared levels, and the worker sends it
+    // verbatim without re-resolving or re-validating.
+    //
+    // Nullable for pre-migration history and for a model that declares no
+    // effort vocabulary — NULL means "send no effort parameter", leaving the
+    // provider's own default in force. Not backfilled with a literal (unlike
+    // `model_id`, which execution cannot proceed without): a run that predates
+    // the feature genuinely had no effort.
+    effort: text('effort'),
   },
   (t) => [
     index('runs_chat_created_idx').on(t.chatId, t.createdAt),

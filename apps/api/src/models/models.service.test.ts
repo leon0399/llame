@@ -11,6 +11,7 @@ import { createModelClient } from './model-client-factory';
 import type { createOpenAIModelClient } from './openai-model-client';
 import {
   ModelConfigurationError,
+  EffortNotAvailableError,
   ModelNotAvailableError,
   ModelsService,
 } from './models.service';
@@ -274,6 +275,90 @@ describe('ModelsService', () => {
       expect(() =>
         service.validateModelSelection('system:openai:ghost'),
       ).toThrow(ModelConfigurationError);
+    });
+  });
+
+  describe('resolveEffortSelection', () => {
+    const REASONING = {
+      effortLevels: ['none', 'low', 'high'],
+      defaultEffort: 'low',
+      cacheInvalidatedByEffortChange: true,
+    } as const;
+    const reasoningModel: SystemModelCatalogEntry = {
+      id: 'system:openai:reasoner',
+      source: 'system',
+      provider: 'openai',
+      providerModelId: 'reasoner',
+      contextWindowTokens: 128_000,
+      systemPromptTemplate: 'Internal prompt R',
+      systemPromptSource: 'project_default',
+      reasoning: REASONING,
+    };
+    // Destructured out rather than deleted after the fact: `reasoning` is
+    // optional, so omitting it needs no cast and no mutation.
+    const { reasoning: _declared, ...plainModel } = {
+      ...reasoningModel,
+      id: 'system:openai:plain',
+    };
+
+    const service = () =>
+      createService({
+        defaultModelId: 'system:openai:reasoner',
+        models: [reasoningModel, plainModel],
+      });
+
+    it('resolves the model default when the request omits an effort', () => {
+      expect(service().resolveEffortSelection(reasoningModel, undefined)).toBe(
+        'low',
+      );
+    });
+
+    it('resolves a requested level that the model declares', () => {
+      expect(service().resolveEffortSelection(reasoningModel, 'high')).toBe(
+        'high',
+      );
+    });
+
+    // A level meaning "do not reason" is a selection like any other; it must
+    // survive resolution rather than collapsing into "nothing requested".
+    it('resolves a disabling level rather than treating it as absent', () => {
+      expect(service().resolveEffortSelection(reasoningModel, 'none')).toBe(
+        'none',
+      );
+    });
+
+    it('rejects a level the model does not declare', () => {
+      expect(() =>
+        service().resolveEffortSelection(reasoningModel, 'medium'),
+      ).toThrow(EffortNotAvailableError);
+    });
+
+    // Case-sensitivity falls out of "no normalization" rather than being a
+    // rule of its own — nothing folds the request onto a declared level.
+    it('rejects a level differing only by letter case', () => {
+      expect(() =>
+        service().resolveEffortSelection(reasoningModel, 'High'),
+      ).toThrow(EffortNotAvailableError);
+    });
+
+    it('rejects any effort for a model that declares no vocabulary', () => {
+      expect(() => service().resolveEffortSelection(plainModel, 'low')).toThrow(
+        EffortNotAvailableError,
+      );
+    });
+
+    it('resolves to nothing for a model that declares no vocabulary and no request', () => {
+      expect(
+        service().resolveEffortSelection(plainModel, undefined),
+      ).toBeUndefined();
+    });
+
+    // A level legal somewhere in the catalog is still illegal here: legality is
+    // a property of the SELECTED model, never of the instance.
+    it('rejects a level declared by a different catalog model', () => {
+      expect(() =>
+        service().resolveEffortSelection(plainModel, 'high'),
+      ).toThrow(EffortNotAvailableError);
     });
   });
 });

@@ -556,12 +556,20 @@ export class RunExecutionService {
         return false;
       }
 
+      // The claim returns the persisted effort rather than setting an outer
+      // variable: it is read inside the transaction (the run row is the single
+      // source of truth for what this run executes at, not the queue payload)
+      // and can only be reached on the path that actually claimed the run.
+      // Deliberately never re-resolved or re-validated against current
+      // configuration — a level the operator has since withdrawn is still sent
+      // verbatim, and a run that stored none sends no provider option at all.
       await events.append(input.runId, 'run.started');
-      return true;
+      return { effort: started.effort ?? undefined };
     });
     if (!claim) {
       throw new RunNotRunnableError(input.runId);
     }
+    const { effort } = claim;
     if (input.abortSignal?.aborted) {
       await this.settleAbortedRun(input);
     }
@@ -1026,6 +1034,8 @@ export class RunExecutionService {
         system,
         messages,
         abortSignal: input.abortSignal,
+        // Absent → no provider option at all, leaving the provider default.
+        ...(effort !== undefined && { effort }),
         // Tool loop: pass the pre-filtered set + the operator step cap.
         // Absent when no tool is available → the answer-only single-
         // generation path (today's pre-tool-loop behavior).

@@ -27,8 +27,12 @@ import {
   type ModelClient,
   type ModelStreamInput,
 } from '../models/model-client';
-import type { TokenPrice } from '../models/model-catalog';
-import { ModelNotAvailableError } from '../models/models.service';
+import type { ModelReasoning, TokenPrice } from '../models/model-catalog';
+import {
+  ModelNotAvailableError,
+  resolveEffortSelection,
+  type ModelSelectionValidator,
+} from '../models/models.service';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import { isRecord, isString } from '../unknown-record';
 
@@ -374,7 +378,13 @@ export class FakeStreamingModelClient {
   }
 }
 
-export class FakeModelsService {
+/**
+ * `implements ModelSelectionValidator` is load-bearing, not decoration: this
+ * double is injected by Nest override, which is not structurally typechecked,
+ * so a method added to the narrow contract would otherwise surface as a 500 in
+ * the HTTP-boundary suites instead of a compile error here.
+ */
+export class FakeModelsService implements ModelSelectionValidator {
   credential: string | null = 'sk-test';
   readonly client = new FakeStreamingModelClient();
   readonly createClientCalls: unknown[] = [];
@@ -387,19 +397,40 @@ export class FakeModelsService {
     return this.credential;
   }
 
+  /** Per-model reasoning vocabulary an HTTP-boundary test declares before sending. */
+  private readonly reasoning = new Map<string, ModelReasoning>();
+
+  registerReasoning(modelId: string, reasoning: ModelReasoning): void {
+    this.reasoning.set(modelId, reasoning);
+  }
+
   validateModelSelection(modelId: string) {
     if (!this.isAvailable(modelId)) {
       throw new ModelNotAvailableError(modelId);
     }
+    const reasoning = this.reasoning.get(modelId);
     return {
       id: modelId,
-      source: 'system',
+      source: 'system' as const,
       contextWindowTokens: 128_000,
       provider: 'openai',
       providerModelId: 'test-provider-model',
       systemPromptTemplate: `Test prompt for ${modelId}`,
-      systemPromptSource: 'project_default',
+      systemPromptSource: 'project_default' as const,
+      ...(reasoning !== undefined && { reasoning }),
     };
+  }
+
+  /**
+   * Delegates to the production resolver rather than restating its rules, so
+   * the HTTP-boundary suites cannot pass while the real API rejects or accepts
+   * a different set of levels.
+   */
+  resolveEffortSelection(
+    model: Parameters<typeof resolveEffortSelection>[0],
+    requested: string | undefined,
+  ): string | undefined {
+    return resolveEffortSelection(model, requested);
   }
 
   resolveTitleModelConfig() {
