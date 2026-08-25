@@ -26,8 +26,6 @@ import {
   renderToolObservationOmission,
 } from './compaction-replacement-history';
 
-export { renderToolObservationOmission };
-
 export const TOOL_PART_PREFIX = 'tool-';
 export const TOOL_REPLAY_CALL_LIMIT = 8_000;
 export const TOOL_REPLAY_TURN_LIMIT = 32_000;

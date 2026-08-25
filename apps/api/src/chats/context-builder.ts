@@ -36,12 +36,12 @@ import { resolveForm } from './context-item';
 import type { UnknownRecord } from '../unknown-record';
 import {
   projectToolObservations,
-  renderToolObservationOmission,
   type ToolObservationProjection,
 } from './tool-observation-part';
 import {
   isStoredReplacementToolPart,
   parseCompactionReplacementHistory,
+  renderToolObservationOmission,
 } from './compaction-replacement-history';
 
 export { projectToolObservations };
