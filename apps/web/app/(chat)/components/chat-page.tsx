@@ -799,11 +799,7 @@ function ChatSessionContent({
                 {status === "streaming" || status === "submitted" ? (
                   <PromptInputButton
                     type="button"
-                    // Filled, like send — this is the same slot, and a control
-                    // that drops to outline the moment streaming starts reads
-                    // as a glitch rather than a state change. The glyph is what
-                    // changes; the weight stays put.
-                    variant="default"
+                    variant="outline"
                     // size-8, the same box as the selector cells' h-8. Stated
                     // through the API rather than a class override, and with
                     // no corner overrides — Button's symmetric `rounded-lg` is
@@ -820,10 +816,7 @@ function ChatSessionContent({
                   </PromptInputButton>
                 ) : (
                   <PromptInputButton
-                    // Filled: send is the composer's focal action, and now that
-                    // it sits outside the selector group it can carry that
-                    // weight without unbalancing the row.
-                    variant="default"
+                    variant="outline"
                     size="icon"
                     type="submit"
                     aria-label="Send message"

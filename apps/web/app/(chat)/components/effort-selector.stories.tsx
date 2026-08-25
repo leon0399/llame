@@ -184,7 +184,7 @@ export const CellsShareOneHeight: Story = {
               hand-built stand-in would keep passing if the shipped button
               drifted, which is the regression this story exists to catch. */}
           <PromptInputButton
-            variant="default"
+            variant="outline"
             size="icon"
             type="submit"
             aria-label="Send message"
