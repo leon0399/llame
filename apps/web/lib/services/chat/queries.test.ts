@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ChatHistory } from "./history";
+import type { ChatMessagesResponse } from "./history";
+import { rawChatMessage } from "./message-fixtures";
 
 const { getChatMessages, listChats } = vi.hoisted(() => ({
   getChatMessages: vi.fn(),
@@ -22,7 +23,9 @@ import {
   ChatGroupPeriod,
   groupChatsByTimePeriod,
   isChatHistoryMissing,
+  olderPageParam,
   seedChatMessagesQueryData,
+  toChatHistory,
 } from "./queries";
 
 function generatedApiError(
@@ -163,12 +166,14 @@ describe("chat message query options", () => {
     const options = chatMessagesQueryOptions("closed-over-chat");
     const queryFn = options.queryFn as (context: {
       queryKey: ReturnType<typeof chatQueryKeys.messages>;
+      pageParam: number | null;
       signal?: AbortSignal;
-    }) => Promise<ChatHistory>;
+    }) => Promise<ChatMessagesResponse>;
     const abortController = new AbortController();
 
     await queryFn({
       queryKey: chatQueryKeys.messages("query-key-chat"),
+      pageParam: null,
       signal: abortController.signal,
     });
 
@@ -178,37 +183,133 @@ describe("chat message query options", () => {
       { signal: abortController.signal },
       expect.any(Function),
     );
+
+    await queryFn({
+      queryKey: chatQueryKeys.messages("query-key-chat"),
+      pageParam: 250,
+      signal: abortController.signal,
+    });
+
+    expect(getChatMessages).toHaveBeenLastCalledWith(
+      "query-key-chat",
+      { limit: 100, beforeSeq: 250 },
+      { signal: abortController.signal },
+      expect.any(Function),
+    );
   });
 
-  it("overwrites stale chat message cache with SSR-provided messages", () => {
+  it("overwrites stale chat message cache with the SSR-provided newest page", () => {
     const queryClient = new QueryClient();
-    const staleHistory = {
-      messages: [
-        {
-          id: "stale",
-          role: "assistant",
-          parts: [{ type: "text", text: "old" }],
+    const stalePage = messagesPage([{ id: "stale", seq: 1, text: "old" }]);
+    const serverPage = messagesPage([{ id: "server", seq: 2, text: "fresh" }]);
+
+    queryClient.setQueryData(chatQueryKeys.messages("chat-1"), {
+      pages: [stalePage],
+      pageParams: [null],
+    });
+
+    seedChatMessagesQueryData(queryClient, "chat-1", serverPage);
+
+    expect(queryClient.getQueryData(chatQueryKeys.messages("chat-1"))).toEqual({
+      pages: [serverPage],
+      pageParams: [null],
+    });
+  });
+});
+
+function messagesPage(
+  rows: { id: string; seq: number; text: string }[],
+): ChatMessagesResponse {
+  return {
+    messages: rows.map(({ id, seq, text }) =>
+      rawChatMessage({ id, seq, parts: [{ type: "text" as const, text }] }),
+    ),
+    compaction: null,
+  };
+}
+
+describe("olderPageParam", () => {
+  const fullPage = (oldestSeq: number) => ({
+    messages: Array.from({ length: 100 }, (_, index) => ({
+      seq: oldestSeq + index,
+    })),
+  });
+
+  it("follows the page's oldest seq as the next beforeSeq cursor", () => {
+    expect(olderPageParam(fullPage(101), null)).toBe(101);
+    expect(olderPageParam(fullPage(101), 201)).toBe(101);
+  });
+
+  it("stops at a short page — the chat start was reached", () => {
+    expect(olderPageParam({ messages: [{ seq: 5 }] }, null)).toBeUndefined();
+    expect(olderPageParam({ messages: [] }, null)).toBeUndefined();
+  });
+
+  it("stops when the page already holds the chat's first message", () => {
+    expect(olderPageParam(fullPage(1), 101)).toBeUndefined();
+  });
+
+  it("stops on a non-advancing cursor instead of refetching forever", () => {
+    expect(olderPageParam(fullPage(101), 101)).toBeUndefined();
+    expect(olderPageParam(fullPage(101), 42)).toBeUndefined();
+  });
+});
+
+describe("toChatHistory", () => {
+  it("flattens pages oldest-first and reads compaction from the newest page", () => {
+    const newest = {
+      ...messagesPage([
+        { id: "m3", seq: 3, text: "three" },
+        { id: "m4", seq: 4, text: "four" },
+      ]),
+      compaction: {
+        uptoSeq: 2,
+        summary: "earlier turns",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        stats: {
+          absorbedMessageCount: null,
+          beforeTokens: null,
+          afterTokens: null,
+          modelId: null,
         },
-      ],
-      compaction: null,
-    } satisfies ChatHistory;
-    const serverHistory = {
-      messages: [
-        {
-          id: "server",
-          role: "assistant",
-          parts: [{ type: "text", text: "fresh" }],
-        },
-      ],
-      compaction: null,
-    } satisfies ChatHistory;
+      },
+    };
+    const older = messagesPage([
+      { id: "m1", seq: 1, text: "one" },
+      { id: "m2", seq: 2, text: "two" },
+    ]);
 
-    queryClient.setQueryData(chatQueryKeys.messages("chat-1"), staleHistory);
+    const history = toChatHistory({
+      pages: [newest, older],
+      pageParams: [null, 3],
+    });
 
-    seedChatMessagesQueryData(queryClient, "chat-1", serverHistory);
+    expect(history.messages.map((message) => message.id)).toEqual([
+      "m1",
+      "m2",
+      "m3",
+      "m4",
+    ]);
+    expect(history.compaction).toBe(newest.compaction);
+  });
 
-    expect(queryClient.getQueryData(chatQueryKeys.messages("chat-1"))).toEqual(
-      serverHistory,
-    );
+  it("truncates at a page that failed to advance instead of flattening duplicates", () => {
+    // TanStack commits a fetched page before getNextPageParam can reject it;
+    // a server that ignored beforeSeq must not surface overlapping rows.
+    const newest = messagesPage([
+      { id: "m3", seq: 3, text: "three" },
+      { id: "m4", seq: 4, text: "four" },
+    ]);
+    const overlapping = messagesPage([
+      { id: "m3", seq: 3, text: "three" },
+      { id: "m4", seq: 4, text: "four" },
+    ]);
+
+    const history = toChatHistory({
+      pages: [newest, overlapping],
+      pageParams: [null, 3],
+    });
+
+    expect(history.messages.map((message) => message.id)).toEqual(["m3", "m4"]);
   });
 });

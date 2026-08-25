@@ -2,6 +2,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-25
 
+- **Chat history loads bottom-up with endless upward pagination** (#187): the
+  owner chat page now fetches only the newest 100-message window (one round
+  trip in SSR and on the client, replacing the eager up-to-20-page walk) and
+  lands the reader at the newest message instantly instead of animating from
+  the top. Older pages load automatically as the reader scrolls toward the
+  top — with a prefetch band, all the way to the chat's first message, with
+  the reading position held steady across each prepend. History adoption is
+  now durable-seq-based, so healed answers, fork ids, and on-demand older
+  pages all reach the transcript on chats of any length (previously broken
+  past the walk cap), and an interrupted turn keeps its partial answer
+  visible until the durable copy lands. Chat export and the public share
+  page keep the eager full-history walk.
+
 - **BREAKING — effort level display labels**: `models[].reasoning.effortLevels`
   accepts bare strings or `{ value, label }` objects. Boot normalizes to
   `{ value, label? }[]` on `GET /api/v1/models` (was `string[]`). Chat-send

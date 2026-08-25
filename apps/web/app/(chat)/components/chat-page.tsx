@@ -88,12 +88,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
 import type { Compaction } from "@/lib/services/chat/history";
 import {
+  adoptServerHistory,
   mergeTrustedModelContextParts,
   messageRenderKey,
   modelSwitchPart,
   runIdFromMessageMetadata,
-  shouldAdoptServerHistory,
 } from "@/lib/services/chat/history";
+import { ChatLoadOlder } from "./chat-load-older";
 import { CompactionBoundary } from "./compaction-boundary";
 import { ModelSwitchBoundary } from "@workspace/ui/components/custom/model-switch-boundary";
 import {
@@ -113,6 +114,13 @@ import {
   type DraftPhase,
 } from "@/lib/services/chat/draft-route";
 
+// TODO(#187/#417): these client-only chunks leave EMPTY message bubbles on a
+// hard reload until they load — the transcript SSRs as shells (reasoning
+// accordions, buttons, no bodies). The principled fix is server-rendered
+// markdown per message under 'use cache' (messages are immutable, so the
+// render caches perfectly), which belongs to the #417 Cache Components
+// adoption; a chunk preload or skeleton placeholder is the acceptable
+// stopgap until then. Do NOT paper over it with raw-text fallbacks.
 const MessageResponse = dynamic(
   () =>
     import("@workspace/ui/components/ai-elements/message-response").then(
@@ -238,6 +246,13 @@ function ChatSession({
       chatId={chatId}
       chatMessages={history?.messages ?? EMPTY_MESSAGES}
       compaction={history?.compaction ?? null}
+      hasOlderMessages={historyQuery.hasNextPage}
+      isLoadingOlderMessages={historyQuery.isFetchingNextPage}
+      onLoadOlderMessages={() =>
+        // cancelRefetch: false — an intersection re-fire while a page is
+        // already in flight must join it, not abort and restart it.
+        void historyQuery.fetchNextPage({ cancelRefetch: false })
+      }
       onFinished={onFinished}
       onSendFailed={onSendFailed}
       onSendStarted={onSendStarted}
@@ -250,6 +265,9 @@ function ChatSessionContent({
   chatId,
   chatMessages,
   compaction,
+  hasOlderMessages,
+  isLoadingOlderMessages,
+  onLoadOlderMessages,
   onFinished,
   onSendFailed,
   onSendStarted,
@@ -258,6 +276,9 @@ function ChatSessionContent({
   chatId: string;
   chatMessages: UIMessage[];
   compaction: Compaction | null;
+  hasOlderMessages: boolean;
+  isLoadingOlderMessages: boolean;
+  onLoadOlderMessages: () => void;
   onFinished: () => void;
   onSendFailed: () => void;
   onSendStarted: () => void;
@@ -468,20 +489,20 @@ function ChatSessionContent({
   // resume can leave the log stale in two ways — 204 with no stream at all, or
   // a reconnect that arrives after the run's deltas were already emitted and
   // so replays nothing visible. Both end with the server holding the truth.
-  // Guarded on settled state: mid-turn the live copy legitimately runs AHEAD of
-  // the server (an optimistic user turn, an answer still streaming), and
-  // overwriting it there is how duplicated/rewound transcripts happen (#259).
+  // This is also how an on-demand older page (#187) reaches the transcript:
+  // the query grows, adoptServerHistory sees newer coverage or a longer
+  // window, and the merged list lands via the same setMessages. Guarded on
+  // settled state inside adoptServerHistory: mid-turn the live copy
+  // legitimately runs AHEAD of the server (an optimistic user turn, an answer
+  // still streaming), and overwriting it there is how duplicated/rewound
+  // transcripts happen (#259).
   useEffect(() => {
-    if (
-      !shouldAdoptServerHistory({
-        status,
-        serverMessages: chatMessages,
-        liveMessages: messages,
-      })
-    ) {
-      return;
-    }
-    setMessages(chatMessages);
+    const healed = adoptServerHistory({
+      status,
+      serverMessages: chatMessages,
+      liveMessages: messages,
+    });
+    if (healed !== null) setMessages(healed);
   }, [chatMessages, messages, status, setMessages]);
 
   // Register the active run globally so its completion notifies (toast + badge)
@@ -567,8 +588,34 @@ function ChatSessionContent({
   return (
     <>
       <div className="relative flex-1 overflow-hidden">
-        <Conversation className="h-full">
+        {/* initial="instant": the reader must LAND at the newest message, not
+            watch the page scroll from the top to it — with SSR-rendered
+            history the smooth initial animation reads as a jump to the top
+            and back down once hydration finishes.
+            resize="instant": the markdown/reasoning renderers are deliberate
+            client-only dynamic chunks (chat-bundle-boundary.test.ts), so on a
+            hard reload the transcript mounts as short shells and grows by
+            thousands of px when they arrive. A smooth resize animates that
+            catch-up as a visible scroll down the page; instant keeps the view
+            pinned to the bottom within the same frame. Streaming growth gets
+            the same instant follow, which reads as steady, not animated. */}
+        <Conversation className="h-full" initial="instant" resize="instant">
+          {/* TODO(#187): a reader who walks a several-thousand-message chat
+              to the top accumulates the whole transcript in the DOM. If that
+              ever measures heavy, [content-visibility:auto] on message rows
+              (or the virtualization #187 originally named) is the next step
+              — measure before reaching for either. */}
           <ConversationContent className="mx-auto w-full max-w-3xl space-y-4 px-5 py-12">
+            <ChatLoadOlder
+              hasOlder={hasOlderMessages}
+              isLoading={isLoadingOlderMessages}
+              onLoadOlder={onLoadOlderMessages}
+              oldestMessageKey={
+                displayMessages.length > 0
+                  ? messageRenderKey(displayMessages[0])
+                  : null
+              }
+            />
             {displayMessages.map((message, index) => {
               const renderKey = messageRenderKey(message);
               const isUserMessage = message.role === "user";
@@ -608,7 +655,9 @@ function ChatSessionContent({
                 <React.Fragment key={`message-${renderKey}`}>
                   {boundary}
                   {modelBoundary}
-                  <Message from={message.role}>
+                  {/* data-message-key anchors ChatLoadOlder's scroll
+                      compensation when older pages prepend. */}
+                  <Message from={message.role} data-message-key={renderKey}>
                     <MessageContent>
                       {message.parts.map((part, partIndex) => {
                         const messagePartKey = `message-part-${renderKey}-${partIndex}`;

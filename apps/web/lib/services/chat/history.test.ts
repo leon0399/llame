@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 import {
+  adoptServerHistory,
   messageRenderKey,
   mergeTrustedModelContextParts,
   modelSwitchPart,
   runIdFromMessageMetadata,
-  shouldAdoptServerHistory,
   toChatUiMessages,
 } from "./history";
 
@@ -194,16 +194,33 @@ describe("trusted model-context projection", () => {
   });
 });
 
-describe("shouldAdoptServerHistory", () => {
+describe("adoptServerHistory", () => {
   const LIVE_RUN_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
-  const OTHER_RUN_ID = "42668ca4-5fb2-4f90-a52a-7f5f104f7c2a";
 
-  const userMessage = (id: string): UIMessage => ({
+  // Durable rows carry the seq toChatUiMessages stamps; live-authored rows
+  // (optimistic user turns, streamed answers) carry at most usage metadata.
+  const durableUser = (id: string, seq: number): UIMessage => ({
+    id,
+    role: "user",
+    parts: [{ type: "text", text: id }],
+    metadata: { seq },
+  });
+  const durableAssistant = (
+    id: string,
+    seq: number,
+    runId?: string,
+  ): UIMessage => ({
+    id,
+    role: "assistant",
+    parts: [{ type: "text", text: id }],
+    metadata: { seq, ...(runId === undefined ? {} : { usage: { runId } }) },
+  });
+  const liveUser = (id: string): UIMessage => ({
     id,
     role: "user",
     parts: [{ type: "text", text: id }],
   });
-  const assistantMessage = (id: string, runId?: string): UIMessage => ({
+  const liveAssistant = (id: string, runId?: string): UIMessage => ({
     id,
     role: "assistant",
     parts: [{ type: "text", text: id }],
@@ -213,123 +230,196 @@ describe("shouldAdoptServerHistory", () => {
     status: string,
     serverMessages: readonly UIMessage[],
     liveMessages: readonly UIMessage[],
-  ) => shouldAdoptServerHistory({ status, serverMessages, liveMessages });
+  ) => adoptServerHistory({ status, serverMessages, liveMessages });
 
   it("adopts a strictly longer server history once the turn is settled (#261)", () => {
     // The 204-resume case: the log holds only the user turn, the answer is
     // durable server-side, and nothing else will ever re-read it.
-    expect(
-      adopt(
-        "ready",
-        [userMessage("user-1"), assistantMessage("assistant-1")],
-        [userMessage("user-1")],
-      ),
-    ).toBe(true);
+    const server = [
+      durableUser("user-1", 1),
+      durableAssistant("assistant-1", 2),
+    ];
+
+    expect(adopt("ready", server, [durableUser("user-1", 1)])).toEqual(server);
   });
 
   it("never adopts mid-turn — the live copy legitimately runs ahead (#259)", () => {
     // An optimistic user turn, or an answer still streaming, is newer than
     // anything the server can return; replacing it rewinds the transcript.
-    const server = [userMessage("user-1"), assistantMessage("assistant-1")];
-    const live = [userMessage("user-1")];
+    const server = [
+      durableUser("user-1", 1),
+      durableAssistant("assistant-1", 2),
+    ];
+    const live = [durableUser("user-1", 1)];
 
-    expect(adopt("streaming", server, live)).toBe(false);
-    expect(adopt("submitted", server, live)).toBe(false);
+    expect(adopt("streaming", server, live)).toBe(null);
+    expect(adopt("submitted", server, live)).toBe(null);
   });
 
-  it("adopts an equal-length ready history for the same final assistant Run", () => {
-    expect(
-      adopt(
-        "ready",
-        [
-          userMessage("user-1"),
-          assistantMessage("durable-assistant-1", LIVE_RUN_ID),
-        ],
-        [userMessage("user-1"), assistantMessage(LIVE_RUN_ID)],
-      ),
-    ).toBe(true);
-  });
-
-  it("rejects an equal-length ready history for a different final Run", () => {
-    expect(
-      adopt(
-        "ready",
-        [
-          userMessage("user-1"),
-          assistantMessage("durable-assistant-1", OTHER_RUN_ID),
-        ],
-        [userMessage("user-1"), assistantMessage(LIVE_RUN_ID)],
-      ),
-    ).toBe(false);
-  });
-
-  it("does not infer identity from a non-final assistant position", () => {
-    expect(
-      adopt(
-        "ready",
-        [
-          assistantMessage("durable-assistant-1", LIVE_RUN_ID),
-          userMessage("user-1"),
-        ],
-        [assistantMessage(LIVE_RUN_ID), userMessage("user-1")],
-      ),
-    ).toBe(false);
-  });
-
-  it("does not re-adopt after the durable message id is already live", () => {
-    const durable = [
-      userMessage("user-1"),
-      assistantMessage("durable-assistant-1", LIVE_RUN_ID),
+  it("swaps a completed turn's streaming representation for the durable one", () => {
+    // Live streaming uses the Run ID as the assistant message ID (and no
+    // seq); durable history uses the Message ID and carries the Run ID in
+    // metadata. The durable copy advances the newest seq, so it adopts.
+    const server = [
+      durableUser("user-1", 1),
+      durableAssistant("durable-assistant-1", 2, LIVE_RUN_ID),
     ];
 
-    expect(adopt("ready", durable, durable)).toBe(false);
+    expect(
+      adopt("ready", server, [
+        durableUser("user-1", 1),
+        liveAssistant(LIVE_RUN_ID),
+      ]),
+    ).toEqual(server);
   });
 
-  it("does not adopt a shorter server history", () => {
+  it("does not re-adopt after the durable history is already live", () => {
+    const durable = [
+      durableUser("user-1", 1),
+      durableAssistant("durable-assistant-1", 2, LIVE_RUN_ID),
+    ];
+
+    expect(adopt("ready", durable, durable)).toBe(null);
+  });
+
+  it("does not adopt a server read with no new durable coverage", () => {
+    // A refetch that raced the send: the server hasn't persisted anything
+    // the log doesn't already know, and adopting would delete what the user
+    // typed.
     expect(
       adopt(
         "ready",
-        [userMessage("user-1")],
-        [userMessage("user-1"), assistantMessage(LIVE_RUN_ID)],
+        [durableUser("user-1", 1)],
+        [durableUser("user-1", 1), liveAssistant(LIVE_RUN_ID)],
       ),
-    ).toBe(false);
+    ).toBe(null);
   });
 
-  it("still heals after a failed turn", () => {
-    // 'error' is settled: a partial answer persisted by the run is worth
-    // showing, and no live stream can be clobbered.
+  it("heals a disconnected turn whose partial answer the server completed", () => {
+    // Disconnect mid-answer: the SDK keeps the partial assistant message (no
+    // seq, its id is the Run id), the durable answer advances the newest seq
+    // and carries that Run id in metadata — count comparisons could not tell
+    // these apart, and the Run-id join is what proves the partial subsumed.
+    const server = [
+      durableUser("user-1", 1),
+      durableAssistant("durable-assistant-1", 2, LIVE_RUN_ID),
+    ];
+
+    expect(
+      adopt("error", server, [
+        durableUser("user-1", 1),
+        liveAssistant(LIVE_RUN_ID),
+      ]),
+    ).toEqual(server);
+  });
+
+  it("keeps a partial answer the server has not persisted yet", () => {
+    // Disconnect mid-answer, BEFORE the run terminates: the user turn is
+    // durable (committed synchronously at send, under the client-supplied
+    // id) but the assistant row does not exist yet. The refetch advances the
+    // newest seq, yet wiping the partial would blank the text the reader is
+    // looking at until the background poll re-adopts — keep it, replacing
+    // only the optimistic user copy with its durable twin.
+    const durableUserTurn = durableUser("user-1", 1);
+
     expect(
       adopt(
         "error",
-        [userMessage("user-1"), assistantMessage("assistant-1")],
-        [userMessage("user-1")],
+        [durableUserTurn],
+        [liveUser("user-1"), liveAssistant(LIVE_RUN_ID)],
       ),
-    ).toBe(true);
+    ).toEqual([durableUserTurn, liveAssistant(LIVE_RUN_ID)]);
   });
 
-  it("adopts an equal-length history after a failed turn, where count cannot tell them apart", () => {
-    // Disconnect mid-answer: the SDK keeps the partial assistant message, so
-    // the healed history has the same COUNT but complete content. Adopting on
-    // strictly-longer alone would leave the transcript truncated.
+  it("never rewinds on a failed send the server did not persist", () => {
     expect(
       adopt(
         "error",
-        [userMessage("user-1"), assistantMessage("durable-assistant-1")],
-        [userMessage("user-1"), assistantMessage("partial-assistant-1")],
+        [durableUser("user-1", 1)],
+        [durableUser("user-1", 1), liveAssistant("partial-assistant-1")],
       ),
-    ).toBe(true);
+    ).toBe(null);
   });
 
-  it("never shortens the log, even on a failed turn", () => {
-    // A send that failed before the user turn persisted: the server has less
-    // than the log does, and adopting would delete what the user typed.
+  it("replaces an all-optimistic log once the server holds durable rows", () => {
+    // Sent-draft recovery: nothing in the log ever came from the server. The
+    // durable user turn persists under the client-supplied id, so the
+    // optimistic copy is subsumed by the id join, not by list arithmetic.
+    const server = [durableUser("user-1", 1)];
+
+    expect(adopt("ready", server, [liveUser("user-1")])).toEqual(server);
+  });
+
+  it("adopts an on-demand older page that extends coverage backwards (#187)", () => {
+    // Loading older history grows the window at the head; the newest seq is
+    // unchanged.
+    const server = [
+      durableUser("user-1", 1),
+      durableAssistant("assistant-2", 2),
+      durableUser("user-3", 3),
+      durableAssistant("assistant-4", 4),
+    ];
+
+    expect(
+      adopt("ready", server, [
+        durableUser("user-3", 3),
+        durableAssistant("assistant-4", 4),
+      ]),
+    ).toEqual(server);
+  });
+
+  it("keeps live rows older than a slid server window (#187)", () => {
+    // The reader loaded older pages, then the chat grew: the refetched
+    // window no longer spans the oldest rows the log holds. Those are
+    // durable rows adopted once — replacement must not drop them.
+    const olderThanWindow = [
+      durableUser("user-1", 1),
+      durableAssistant("assistant-2", 2),
+    ];
+    const server = [
+      durableUser("user-3", 3),
+      durableAssistant("assistant-4", 4),
+      durableUser("user-5", 5),
+      // The durable copy of the live streamed answer below — the Run-id join
+      // is what proves the live representation subsumed.
+      durableAssistant("assistant-6", 6, LIVE_RUN_ID),
+    ];
+
+    expect(
+      adopt("ready", server, [
+        ...olderThanWindow,
+        durableUser("user-3", 3),
+        durableAssistant("assistant-4", 4),
+        liveAssistant(LIVE_RUN_ID),
+      ]),
+    ).toEqual([...olderThanWindow, ...server]);
+  });
+
+  it("keeps a just-streamed live tail when only older coverage arrived (#187)", () => {
+    // An older page can land right as a turn settles, BEFORE the post-turn
+    // refetch: the stale window has no durable copy of the fresh turn yet.
+    // Adopting the older coverage must not blink that turn out of the log.
+    const olderPage = [
+      durableUser("user-1", 1),
+      durableAssistant("assistant-2", 2),
+    ];
+    const staleWindow = [
+      durableUser("user-3", 3),
+      durableAssistant("assistant-4", 4),
+    ];
+    const liveTail = [liveUser("optimistic-user"), liveAssistant(LIVE_RUN_ID)];
+
     expect(
       adopt(
-        "error",
-        [userMessage("user-1")],
-        [userMessage("user-1"), assistantMessage("partial-assistant-1")],
+        "ready",
+        [...olderPage, ...staleWindow],
+        [...staleWindow, ...liveTail],
       ),
-    ).toBe(false);
+    ).toEqual([...olderPage, ...staleWindow, ...liveTail]);
+  });
+
+  it("ignores an empty server read", () => {
+    expect(adopt("ready", [], [liveUser("optimistic-user-1")])).toBe(null);
   });
 });
 
