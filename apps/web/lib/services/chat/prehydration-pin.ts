@@ -8,6 +8,19 @@
  */
 export const CHAT_SCROLLER_SELECTOR = '[role="log"] > div';
 
+declare global {
+  interface Window {
+    /** Stops the SSR pre-hydration bottom pin (see PREHYDRATION_PIN_SCRIPT). */
+    __llameChatPinStop?: () => void;
+    /**
+     * Set when the reader escaped the pre-hydration pin via wheel / touch /
+     * key before React hydrated. ChatLoadOlder reads (and clears) this so its
+     * mount pin does not yank them back to newest.
+     */
+    __llameChatPinEscaped?: boolean;
+  }
+}
+
 /**
  * Inline <script> the chat page's SERVER component streams ahead of the
  * transcript markup (#187). React cannot scroll before it hydrates, so on a
@@ -20,8 +33,8 @@ export const CHAT_SCROLLER_SELECTOR = '[role="log"] > div';
  * Hand-off, whichever comes first:
  * - ChatLoadOlder's mount layout effect calls `window.__llameChatPinStop`
  *   once React owns scroll positioning;
- * - any user scroll intent (wheel / touch / keys) stops the pinning so a
- *   reader can scroll up even before hydration completes;
+ * - any user scroll intent (wheel / touch / keys) stops the pinning and sets
+ *   `window.__llameChatPinEscaped`, so React skips its initial bottom pin;
  * - a hard timeout, so a hydration failure can never leave a page that
  *   fights manual scrolling forever.
  */
@@ -32,9 +45,13 @@ export const PREHYDRATION_PIN_SCRIPT = `(() => {
     if (stopped) return;
     stopped = true;
     observer.disconnect();
-    removeEventListener("wheel", stop, true);
-    removeEventListener("touchstart", stop, true);
-    removeEventListener("keydown", stop, true);
+    removeEventListener("wheel", onUserEscape, true);
+    removeEventListener("touchstart", onUserEscape, true);
+    removeEventListener("keydown", onUserEscape, true);
+  }
+  function onUserEscape() {
+    window.__llameChatPinEscaped = true;
+    stop();
   }
   function pin() {
     if (stopped) return;
@@ -48,9 +65,9 @@ export const PREHYDRATION_PIN_SCRIPT = `(() => {
     }
     scroller.scrollTop = scroller.scrollHeight;
   }
-  addEventListener("wheel", stop, true);
-  addEventListener("touchstart", stop, true);
-  addEventListener("keydown", stop, true);
+  addEventListener("wheel", onUserEscape, true);
+  addEventListener("touchstart", onUserEscape, true);
+  addEventListener("keydown", onUserEscape, true);
   observer.observe(document.documentElement, { childList: true, subtree: true });
   window.__llameChatPinStop = stop;
   setTimeout(stop, 10000);

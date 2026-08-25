@@ -12,8 +12,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   now durable-seq-based, so healed answers, fork ids, and on-demand older
   pages all reach the transcript on chats of any length (previously broken
   past the walk cap), and an interrupted turn keeps its partial answer
-  visible until the durable copy lands. Chat export and the public share
-  page keep the eager full-history walk.
+  visible until the durable copy lands. A pre-hydration scroll escape
+  (wheel / touch / key before React mounts) is preserved across the React
+  handoff instead of yanking the reader back to newest. Chat export and the
+  public share page keep the eager full-history walk.
 
 - **BREAKING — effort level display labels**: `models[].reasoning.effortLevels`
   accepts bare strings or `{ value, label }` objects. Boot normalizes to

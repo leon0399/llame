@@ -6,13 +6,6 @@ import { useStickToBottomContext } from "use-stick-to-bottom";
 import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 import { CHAT_SCROLLER_SELECTOR } from "@/lib/services/chat/prehydration-pin";
 
-declare global {
-  interface Window {
-    /** Stops the SSR pre-hydration bottom pin (see prehydration-pin.ts). */
-    __llameChatPinStop?: () => void;
-  }
-}
-
 // Start fetching an older page while the reader is still this many pixels away
 // from the loaded history's top, so scrolling up feels endless instead of
 // hitting an edge and waiting.
@@ -83,6 +76,13 @@ export const ChatLoadOlder = memo(function ChatLoadOlder({
     // React owns scroll positioning from here — retire the SSR inline pin
     // (covers only the pre-hydration frames; see prehydration-pin.ts).
     window.__llameChatPinStop?.();
+    // Reader already left the bottom during the pre-hydration window —
+    // honor that escape instead of yanking them back to newest.
+    if (window.__llameChatPinEscaped) {
+      window.__llameChatPinEscaped = undefined;
+      pinnedRef.current = true;
+      return;
+    }
     // Pin on the FIRST commit that has transcript content, before it paints.
     // On a hard reload that is the hydration commit; on client-side
     // navigation the remounted transcript's first content commit — which the
