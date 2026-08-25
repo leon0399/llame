@@ -182,9 +182,9 @@ describe('createOpenAIModelClient — abort handling', () => {
 });
 
 describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () => {
-  it('opts every native Responses function tool out of strict schema normalization', async () => {
+  it('opts every function tool out of strict schema normalization', async () => {
     const model = scriptedModel([textResponse()]);
-    const client = buildClient(model, true);
+    const client = buildClient(model);
     const optionalTools = {
       knowledge_search: tool({
         inputSchema: z.object({
@@ -212,18 +212,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     );
   });
 
-  it('leaves OpenAI-compatible Chat Completions tool strictness unspecified', async () => {
-    const model = scriptedModel([textResponse()]);
-    const client = buildClient(model);
-
-    await expect(client.streamText({ messages, tools }).text).resolves.toBe(
-      'done',
-    );
-
-    expect(model.doStreamCalls[0]?.tools?.[0]).not.toHaveProperty('strict');
-  });
-
-  it('preserves provider-defined tools on native Responses', async () => {
+  it('preserves provider-defined tools', async () => {
     const model = scriptedModel([textResponse()]);
     const client = buildClient(model, true);
     const providerTools = {

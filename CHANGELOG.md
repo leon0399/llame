@@ -2,13 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-25
 
-- **Native OpenAI Responses tool schemas keep optional fields optional**: every
-  function/dynamic tool on a native Responses call is lowered with
-  `strict: false`. Omitting `strict` is not enough — Responses may normalize
-  the schema into strict mode and turn omission-style optional properties into
-  required nullable fields, which diverges from the persisted schema and
-  llame's SDK/local validators. Provider-defined tools are untouched;
-  OpenAI-compatible Chat Completions endpoints stay on the non-strict default.
+- **OpenAI tool schemas keep optional fields optional**: every function/dynamic
+  tool sent through the OpenAI model client is lowered with `strict: false`.
+  Omitting `strict` is not enough — native Responses may normalize the schema
+  into strict mode and turn omission-style optional properties into required
+  nullable fields, which diverges from the persisted schema and llame's
+  SDK/local validators. Provider-defined tools are untouched; Chat Completions
+  ignores the flag, so the same lowering covers compatible endpoints.
 
 # 2026-08-24
 

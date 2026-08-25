@@ -46,7 +46,7 @@ function parseToolCallInput(raw: string) {
   }
 }
 
-function disableResponsesStrictToolSchemas(tools: ToolSet): ToolSet {
+function disableStrictToolSchemas(tools: ToolSet): ToolSet {
   return Object.fromEntries(
     Object.entries(tools).map(([name, definition]) => [
       name,
@@ -159,9 +159,9 @@ export function createOpenAIModelClient(
       // model. Only wired when tools are present — an answer-only turn
       // keeps the single-generation path unchanged.
       if (input.tools) {
-        streamOptions.tools = config.nativeOpenAI
-          ? disableResponsesStrictToolSchemas(input.tools)
-          : input.tools;
+        // Always set strict: false — Responses may rewrite omitted strict into
+        // required-nullable optionals; Chat Completions ignores the flag.
+        streamOptions.tools = disableStrictToolSchemas(input.tools);
         if (input.toolChoice !== undefined) {
           streamOptions.toolChoice = input.toolChoice;
         }
