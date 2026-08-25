@@ -120,7 +120,15 @@ export function EffortSelector({ className }: { className?: string }) {
       />
       {/* Anchored ABOVE the trigger so the level label stays visible while the
           thumb moves — the choice is legible mid-drag, not only after closing. */}
-      <PopoverContent side="top" align="end" className="w-64 p-3">
+      <PopoverContent
+        // Base UI renders the popover with role=dialog, which needs its own
+        // accessible name (axe aria-dialog-name) — the trigger's label does
+        // not carry over to it.
+        aria-label="Reasoning effort"
+        side="top"
+        align="end"
+        className="w-64 p-3"
+      >
         <div className="flex flex-col gap-2">
           <div className="text-muted-foreground flex items-center justify-between text-xs">
             {/* The ends describe the TRADE-OFF, which is stable across
