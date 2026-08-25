@@ -302,6 +302,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
             v: 1,
             producer: 'temporal',
             form: 'snapshot',
+            runId: '11111111-2222-4333-8444-555555555555',
             text: '<system-reminder>source-time</system-reminder>',
             payload: {
               instant: '2026-08-25T04:13:39.795Z',
@@ -390,16 +391,15 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     const copied = await tenantDb.runAs(a, (tx) =>
       new MessagesRepository(tx).findByChatId(forked.id, a),
     );
+    const sourceParts = source.messages.map((message) => message.parts);
 
-    expect(copied.map((message) => message.parts)).toEqual(
-      source.messages.map((message) => message.parts),
-    );
+    expect(copied.map((message) => message.parts)).toEqual(sourceParts);
     const forkReplay = await tenantDb.runAs(a, (tx) =>
       findLiveWindow(tx, forked.id, a),
     );
     expect(forkReplay.compaction).toBeUndefined();
     expect(forkReplay.history.map((message) => message.parts)).toEqual(
-      source.messages.map((message) => message.parts),
+      sourceParts,
     );
   });
 });

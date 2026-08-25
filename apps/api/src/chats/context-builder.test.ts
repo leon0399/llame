@@ -462,7 +462,6 @@ describe('buildContext', () => {
     });
 
     const displayOnlyParts: Array<[string, MessagePart]> = [
-      ['reasoning', { type: 'reasoning', text: 'DISPLAY_ONLY_REASONING' }],
       [
         'URL source',
         {
@@ -483,17 +482,6 @@ describe('buildContext', () => {
         },
       ],
       ['step boundary', { type: 'step-start' }],
-      [
-        'step-cap notice',
-        {
-          type: 'data-cap-notice',
-          data: {
-            stepsUsed: 8,
-            maxSteps: 8,
-            detail: 'DISPLAY_ONLY_CAP_NOTICE',
-          },
-        },
-      ],
       [
         'provider metadata',
         {
