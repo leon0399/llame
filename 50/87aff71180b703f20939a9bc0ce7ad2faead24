@@ -1,0 +1,35 @@
+openspec/changes/persist-rendered-context-items/tasks.md
+  c59a40c8102d1520 1,3-30,35-74,80,83,86,90,92,96,98,101,104,109-117,119,121-127,134,136,140-143,148,152,156,159,161-170,172-184,189-191,195,197,201,203-206,209-240
+  957e9ab006df2467 31-34,78-79,88,185-188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "5087aff71180b703f20939a9bc0ce7ad2faead24",
+  "prompts": {
+    "957e9ab006df2467": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a037e4-0dd9-7631-8ff2-95924ae7afd3",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 14,
+      "total_deletions": 6,
+      "accepted_lines": 14,
+      "overriden_lines": 0
+    },
+    "c59a40c8102d1520": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a037cc-2979-7922-9307-f54edd1d4a27",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 219,
+      "total_deletions": 93,
+      "accepted_lines": 174,
+      "overriden_lines": 0
+    }
+  }
+}
