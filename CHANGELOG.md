@@ -7,7 +7,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   same typewriter as the rails. Title changes now delete only down to the
   largest common prefix before typing the rest, so a rename like
   `foobar` → `fooqux` no longer wipes the shared head. Untitled chats still
-  show `New chat`; the home route `/` leaves the bar and tab alone.
+  show `New chat`; leaving a chat route (including `/`) resets the tab title
+  to `llame`.
 
 - **OpenAI tool schemas keep optional fields optional**: every function/dynamic
   tool sent through the OpenAI model client is lowered with `strict: false`.

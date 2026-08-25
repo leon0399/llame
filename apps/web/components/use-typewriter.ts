@@ -30,11 +30,16 @@ const TYPE = { PER_CHAR_MS: 30, TOTAL_MS: 1200 };
 const step = (rate: { PER_CHAR_MS: number; TOTAL_MS: number }, chars: number) =>
   Math.min(rate.PER_CHAR_MS, rate.TOTAL_MS / Math.max(chars, 1));
 
-/** How many leading characters `a` and `b` share. */
+/** Code-point characters — never UTF-16 code units (emoji surrogates). */
+const charsOf = (value: string): string[] => Array.from(value);
+
+/** How many leading code points `a` and `b` share. */
 export function sharedPrefixLength(a: string, b: string): number {
-  const limit = Math.min(a.length, b.length);
+  const left = charsOf(a);
+  const right = charsOf(b);
+  const limit = Math.min(left.length, right.length);
   let i = 0;
-  while (i < limit && a.charAt(i) === b.charAt(i)) i += 1;
+  while (i < limit && left[i] === right[i]) i += 1;
   return i;
 }
 
@@ -97,24 +102,30 @@ export function useTypewriter(
     };
 
     const tick = () => {
-      const current = displayRef.current;
+      const currentChars = charsOf(displayRef.current);
       // Re-read the goal each tick: a title arriving mid-run redirects this
       // chain rather than starting a competing one.
-      const goal = targetRef.current;
-      const prefixLen = sharedPrefixLength(current, goal);
+      const goalChars = charsOf(targetRef.current);
+      const prefixLen = sharedPrefixLength(
+        displayRef.current,
+        targetRef.current,
+      );
 
       if (phase === "delete") {
-        if (current.length > prefixLen) {
-          write(current.slice(0, -1));
-          timer = setTimeout(tick, step(DELETE, current.length - prefixLen));
+        if (currentChars.length > prefixLen) {
+          write(currentChars.slice(0, -1).join(""));
+          timer = setTimeout(
+            tick,
+            step(DELETE, currentChars.length - prefixLen),
+          );
           return;
         }
         phase = "type";
       }
 
-      if (current.length < goal.length) {
-        write(goal.slice(0, current.length + 1));
-        timer = setTimeout(tick, step(TYPE, goal.length - prefixLen));
+      if (currentChars.length < goalChars.length) {
+        write(goalChars.slice(0, currentChars.length + 1).join(""));
+        timer = setTimeout(tick, step(TYPE, goalChars.length - prefixLen));
       }
     };
 

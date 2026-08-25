@@ -131,6 +131,20 @@ describe("useTypewriter", () => {
     expect(result.current).toBe("Acme relaunch");
   });
 
+  it("replaces emoji by whole code points, never a lone surrogate", () => {
+    const { result, rerender } = renderHook(
+      ({ title }) => useTypewriter(title),
+      { initialProps: { title: "😀" } },
+    );
+
+    rerender({ title: "😁" });
+
+    // First delete tick clears the whole emoji — not half a surrogate pair.
+    expect(result.current).toBe("");
+    settle();
+    expect(result.current).toBe("😁");
+  });
+
   it("redirects a run already in flight instead of racing a second one", () => {
     const { result, rerender } = renderHook(
       ({ title }) => useTypewriter(title),

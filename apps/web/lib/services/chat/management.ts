@@ -38,8 +38,13 @@ export function useRenameChat() {
       renameChat(id, title),
     // lists() is a prefix of infinite() (the grouped list), so this
     // invalidates the sidebar history too.
-    onSuccess: () => {
+    onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+      // exact: detail is the parent key of …/messages — do not wipe history.
+      queryClient.invalidateQueries({
+        queryKey: chatQueryKeys.detail(id),
+        exact: true,
+      });
       queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
     },
     onError: () => toast.error("Couldn't rename the chat."),

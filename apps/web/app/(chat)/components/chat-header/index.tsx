@@ -8,7 +8,7 @@ import { usePathname } from "next/navigation";
 
 import { topBarClasses } from "@/app/shell/top-bar";
 import { useTypewriter } from "@/components/use-typewriter";
-import { useChatsQuery } from "@/lib/services/chat/queries";
+import { useChatQuery, useChatsQuery } from "@/lib/services/chat/queries";
 
 export interface ChatHeaderProps {
   className?: string;
@@ -26,33 +26,61 @@ export function PureChatHeader({ className }: ChatHeaderProps) {
     ? pathname.split("/")[2]
     : undefined;
 
-  // Same two list caches the sidebar owns — title changes (generation, rename)
-  // invalidate lists(), so the header stays in lockstep with the rails.
+  // Prefer the sidebar list caches when the active chat is in them — rename /
+  // title-generation invalidate lists(), so the header stays in lockstep.
   const { data: pinnedData } = useChatsQuery({
     pinned: "only",
     archived: "with",
   });
   const { data: allData } = useChatsQuery({ pinned: "exclude" });
 
-  const settledTitle = useMemo(() => {
-    if (!chatId) return null;
+  const chatFromList = useMemo(() => {
+    if (!chatId) return undefined;
     const chats = [
       ...(pinnedData?.pages.flat() ?? []),
       ...(allData?.pages.flat() ?? []),
     ];
-    const chat = chats.find((candidate) => candidate.id === chatId);
-    // Missing from loaded pages (deep link to an unloaded older chat) reads
-    // the same as untitled until the list entry appears — no extra getChat.
-    return chat?.title ?? UNTITLED_CHAT_LABEL;
+    return chats.find((candidate) => candidate.id === chatId);
   }, [allData, chatId, pinnedData]);
 
-  const target = settledTitle ?? "";
-  const display = useTypewriter(target, { enabled: settledTitle !== null });
+  // Archived unpinned chats drop out of both list queries above; cold deep
+  // links may not be in a loaded page. GET /chats/:id covers both — only
+  // when the list has no row, so a healthy list path pays no extra request.
+  const { data: chatFromFetch } = useChatQuery(
+    chatId ?? "",
+    chatId !== undefined && chatFromList === undefined,
+  );
+
+  const chat = chatFromList ?? chatFromFetch;
+
+  // null = not on a chat route; undefined = on a chat but title not resolved
+  // yet (do not fake "New chat"); string = known display title.
+  const settledTitle: string | null | undefined = !chatId
+    ? null
+    : chat === undefined
+      ? undefined
+      : (chat.title ?? UNTITLED_CHAT_LABEL);
+
+  const target = typeof settledTitle === "string" ? settledTitle : "";
+  const display = useTypewriter(target, {
+    enabled: typeof settledTitle === "string",
+  });
 
   useEffect(() => {
-    document.title =
-      settledTitle === null ? DEFAULT_DOCUMENT_TITLE : settledTitle;
+    if (settledTitle === null) {
+      document.title = DEFAULT_DOCUMENT_TITLE;
+    } else if (typeof settledTitle === "string") {
+      document.title = settledTitle;
+    }
   }, [settledTitle]);
+
+  // Leaving the chat layout (e.g. /admin) unmounts this header; without a
+  // cleanup the previous chat title would stick on the tab.
+  useEffect(() => {
+    return () => {
+      document.title = DEFAULT_DOCUMENT_TITLE;
+    };
+  }, []);
 
   // The /projects pages render their own header (project title + trigger);
   // stacking this bar above it would double the chrome.
@@ -67,7 +95,7 @@ export function PureChatHeader({ className }: ChatHeaderProps) {
       {/* Mobile-only: opens the sidebar sheet; the desktop rail has its own toggle. */}
       <SidebarTrigger className="md:hidden" />
 
-      {settledTitle !== null ? (
+      {typeof settledTitle === "string" ? (
         <span className="max-w-[60ch] truncate pl-1 text-sm font-semibold">
           {display}
         </span>

@@ -6,9 +6,14 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { isToday, isYesterday, subMonths, subWeeks } from "date-fns";
-import { getChatMessages, listChats } from "../../api/generated/chats/chats";
+import {
+  getChat,
+  getChatMessages,
+  listChats,
+} from "../../api/generated/chats/chats";
 import type {
   ChatListItemResponse,
+  ChatResponse as ApiChatResponse,
   ListChatsParams,
 } from "../../api/generated/models";
 import { getApiErrorStatus } from "../../api/errors";
@@ -210,6 +215,23 @@ export function useChatMessagesQuery({
 
 export function isChatHistoryMissing(error: unknown): boolean {
   return getApiErrorStatus(error) === 404;
+}
+
+/**
+ * Owner chat card by id. Key is `chatQueryKeys.detail(id)` with `exact`
+ * invalidation — sibling `…/messages` must not ride along.
+ */
+export function useChatQuery(chatId: string, enabled = true) {
+  return useQuery({
+    queryKey: chatQueryKeys.detail(chatId),
+    queryFn: async ({ signal }): Promise<ApiChatResponse> =>
+      getChat(
+        chatId,
+        signal === undefined ? undefined : { signal },
+        createAuthenticatedBrowserFetch(globalThis.fetch),
+      ),
+    enabled: enabled && chatId.length > 0,
+  });
 }
 
 export function useChatsQuery(filters?: ChatListFilters) {
