@@ -23,10 +23,11 @@ prose, direct the assistant to follow current system instructions and continue
 the existing conversation, and direct it not to restart, reintroduce itself, or
 mention the model change unless the user asks.
 
-Later request assembly SHALL use `data.text` immediately before the triggering
-user text. It SHALL NOT reconstruct the reminder from model ids. Transition
-compaction and owner UI MAY use validated metadata, but a metadata/text
-disagreement SHALL NOT rewrite model replay.
+Later request assembly SHALL use `data.text` at its stored author-time position
+associated with the triggering user text, following the `context-injection`
+producer order. It SHALL NOT reconstruct the reminder from model ids.
+Transition compaction and owner UI MAY use validated metadata, but a
+metadata/text disagreement SHALL NOT rewrite model replay.
 
 #### Scenario: Switch metadata is assembled for the model
 

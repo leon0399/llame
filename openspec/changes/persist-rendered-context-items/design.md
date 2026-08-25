@@ -231,9 +231,10 @@ that parity rather than reconstructing it.
 This is an alpha hard cutover, not a compatibility rollout:
 
 1. Merge and verify the complete implementation stack without deploying an
-   intermediate layer. At cutover, stop API writers/workers, drain or terminate
-   every accepted nonterminal Run, and verify the target database contains no
-   compaction rows; stop if any precondition is false.
+   intermediate layer. At cutover, quiesce API writers, keep compatible workers
+   running while every accepted nonterminal Run drains or is explicitly
+   terminated, then stop the workers. Verify that no accepted nonterminal Runs
+   and no compaction rows remain; stop if any precondition is false.
 2. Change the compaction schema from `tool_observation_ledger` to required
    `replacement_history` and deploy the matching application revision as one
    unit. Do not add a null fallback, data-only checkpoint renderer, or ledger
@@ -244,12 +245,18 @@ This is an alpha hard cutover, not a compatibility rollout:
    stores non-empty replacement history, and no replay path invokes a reminder
    or compaction renderer for stored history.
 
-Rollback is application/schema rollback to the pre-change alpha database
-contract. It does not rewrite newly stored parts or promise cross-version
+Before rollback, stop new authoring and keep compatible new workers running
+until every Run accepted by the newer API drains; only then stop workers and
+roll the application/schema back to the pre-change alpha database contract. The
+rollback does not rewrite newly stored parts or promise cross-version
 readability. Do not run old and new writers/workers concurrently.
 
 ## Revision history
 
+- **v4 (2026-08-25):** Corrected cutover and rollback Run-drain ordering,
+  aligned every attached reminder with the shared author-time position, and
+  distinguished public request rejection from service-level defensive
+  filtering of forged context parts.
 - **v3 (2026-08-25):** Replaced bare interactive stack bootstrap with the exact
   non-interactive branch chain and moved archive execution after the completed
   checklist so OpenSpec preflight observes zero unfinished tasks.

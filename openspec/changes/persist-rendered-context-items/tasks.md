@@ -126,9 +126,11 @@ MUST NOT contain public/UI projection work or final spec archival.
 
 - [ ] 3.1.1 Add failing schema/repository tests for required JSONB
       `replacement_history` and removal of `tool_observation_ledger`. Verify the
-      cutover preconditions under stopped API/workers: no accepted nonterminal
-      Runs and no compaction rows. Stop rather than inventing a backfill or
-      compatibility path if either precondition is false.
+      cutover procedure quiesces API writers, drains or explicitly terminates
+      accepted nonterminal Runs with compatible workers still running, stops
+      workers only after that, and then finds no nonterminal Runs or compaction
+      rows. Stop rather than inventing a backfill or compatibility path if
+      either final precondition is false.
 - [ ] 3.1.2 Generate the Drizzle migration for the hard cutover, update schema
       types/snapshots, and verify a second generation produces no schema delta.
 - [ ] 3.1.3 Add failing ordinary and transition-compaction tests requiring one

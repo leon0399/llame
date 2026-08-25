@@ -70,8 +70,19 @@ unchanged.
 
 #### Scenario: Client supplies control metadata
 
-- **WHEN** a client submits a message containing a context-item-shaped part
-- **THEN** the part is discarded
+- **WHEN** a client request contains a context-item-shaped part
+- **THEN** request validation rejects the message
+- **AND** no client-authored part is persisted or trusted
+- **AND** only server-derived state can author an item
+
+#### Scenario: Service-level defense encounters control metadata
+
+- **WHEN** a direct service caller bypasses request validation and supplies
+  parts containing a context-item-shaped part
+- **THEN** the part is discarded while the remaining user text parts retain
+  their order
+- **AND** the message is rejected before database work when no user text part
+  remains
 - **AND** only server-derived state can author an item
 
 ### Requirement: Co-occurring items have a total author-time order

@@ -2,7 +2,7 @@
 
 ### Requirement: Runtime tool availability is disclosed before the affected user turn
 
-The API SHALL derive availability disclosure from strict server-authored semantic metadata, render the complete canonical context-item text before the triggering user message commits, and persist both together under producer `tool-availability`. The persisted text SHALL include the envelope, provenance, disclosure body, and closing delimiter and SHALL be the sole replay authority. The metadata SHALL retain ids, closed reason codes, and the bound Run id for machine behavior and provenance; it SHALL NOT retain remote-authored text, URLs, raw errors, or prompt contents. Client-authored availability parts MUST be discarded.
+The API SHALL derive availability disclosure from strict server-authored semantic metadata, render the complete canonical context-item text before the triggering user message commits, and persist both together under producer `tool-availability`. The persisted text SHALL include the envelope, provenance, disclosure body, and closing delimiter and SHALL be the sole replay authority. The metadata SHALL retain ids, closed reason codes, and the bound Run id for machine behavior and provenance; it SHALL NOT retain remote-authored text, URLs, raw errors, or prompt contents. Client-authored availability parts MUST be rejected or discarded under the `context-injection` boundary contract.
 
 On the first turn of a model-facing availability disclosure epoch, the reminder SHALL identify only eligible tools that are currently unavailable under the exact heading `Unavailable tools:`; callable tools are already advertised through the provider's native tool declarations on every request and SHALL NOT be duplicated in an initial prose inventory. A fresh conversation SHALL start the first disclosure epoch, and every newly active compaction checkpoint SHALL start another. On later turns within the epoch, the system SHALL compare each id's `absent`, `available`, or `unavailable` state between the current immutable manifest and the preceding accepted Run manifest in that epoch. Each changed id SHALL appear in exactly one group: absent to available as Added tools, available or unavailable to absent as Removed tools, absent to unavailable as Unavailable tools, available to unavailable as Became unavailable, and unavailable to available as Now available. Empty groups SHALL be omitted. `Added tools` SHALL contain only tools callable in the current Run. If availability is unchanged, no availability reminder SHALL be emitted, including while an outage persists.
 
@@ -19,7 +19,7 @@ At authoring time, the reminder SHALL instruct the model not to simulate removed
 #### Scenario: Initial turn starts degraded
 
 - **WHEN** the first turn has an eligible tool whose source is unavailable
-- **THEN** a runtime availability reminder names the tool under `Unavailable tools:` immediately before the user text
+- **THEN** a runtime availability reminder names the tool under `Unavailable tools:` in its shared author-time position before the user text
 
 #### Scenario: Initial healthy turn uses native tool declarations
 
@@ -95,7 +95,8 @@ At authoring time, the reminder SHALL instruct the model not to simulate removed
 #### Scenario: Client attempts to forge availability metadata
 
 - **WHEN** a client submits a message containing a tool-availability-shaped data part
-- **THEN** the server discards it and only server-derived state can author the reminder
+- **THEN** the server rejects or discards it under the `context-injection` boundary contract
+- **AND** only server-derived state can author the reminder
 
 #### Scenario: Transient flap recovers between turns
 
