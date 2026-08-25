@@ -456,6 +456,21 @@ before rolling binaries back. Note that the `20260821030000_context_item_cutover
 migration **deleted** legacy parts rather than reshaping them: rollback restores
 the code path, not the rows.
 
+**Compaction replacement-history hard cutover.** Migration
+`20260825115153_naive_the_executioner` drops `compactions.tool_observation_ledger`
+and adds required `compactions.replacement_history`; it has no legacy reader,
+fallback, dual writer, or backfill. Before applying it, quiesce API writers,
+keep compatible workers running, drain or explicitly terminate every accepted
+nonterminal Run, then use an administrative `BYPASSRLS`/superuser connection to
+verify zero nonterminal Runs and zero compaction rows. The normal `app` role
+cannot perform this global check under FORCE RLS: without `app.current_user_id`,
+its reads are denied and a false zero result is possible. Stop workers only
+after both checks pass; apply schema and application revisions together. On
+rollback, stop new authoring, drain accepted Runs with compatible workers,
+stop workers, then roll back schema and binaries. See
+[`docs/scaling.md`](../../docs/scaling.md#compaction-replacement-history-hard-cutover)
+for the operator SQL.
+
 ### Memory settings consent
 
 `shareRecentChats` defaults off and is independent of personalization. Enabling it sends

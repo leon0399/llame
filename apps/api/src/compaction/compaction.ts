@@ -13,15 +13,18 @@
 
 import {
   buildContext,
+  renderConversationCheckpoint,
   type ModelRequestContext,
   type ModelMessage,
   type StoredMessage,
 } from '../chats/context-builder';
-import { buildCompactionToolObservationLedger } from '../chats/tool-observation-part';
+import { buildCompactionToolReplacementRecords } from '../chats/tool-observation-part';
 import { isString } from '../unknown-record';
-import type { CompactionToolObservationLedgerV1 } from '../db/schema';
+import type { CompactionReplacementMessage } from '../db/schema';
 import { isCompletedAssistantTurn } from '../chats/chats-repository';
 import { type ModelToolDeclaration } from '../db/schema';
+
+type CompactionReplacementHistory = CompactionReplacementMessage[];
 
 /**
  * When the model's context window is known (MODEL_CONTEXT_WINDOW_TOKENS),
@@ -130,13 +133,12 @@ export function normalizeCompactionSummary(value: unknown): string | null {
 export function estimateContextTokens(
   history: StoredMessage[],
   previousSummary: string | undefined,
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- forwarded opaque, several calls deep, into `projectCompactionToolObservationLedger` -> `parseCompactionToolObservationLedger`'s `isRecord` guard (context-builder.ts / tool-observation-part.ts); this function only estimates a token count and never inspects the ledger's shape itself.
-  previousToolObservationLedger?: unknown,
+  previousReplacementHistory?: CompactionReplacementHistory,
 ): number {
   if (
     history.length === 0 &&
     previousSummary === undefined &&
-    previousToolObservationLedger === undefined
+    previousReplacementHistory === undefined
   ) {
     return 0;
   }
@@ -146,7 +148,7 @@ export function estimateContextTokens(
       compaction: {
         summary: previousSummary,
         uptoSeq: Number.MIN_SAFE_INTEGER,
-        toolObservationLedger: previousToolObservationLedger,
+        replacementHistory: previousReplacementHistory,
       },
     }),
   });
@@ -268,7 +270,7 @@ export function planTransitionCompaction(
 export function planCompaction(input: {
   history: StoredMessage[];
   previousSummary: string | undefined;
-  previousToolObservationLedger?: unknown;
+  previousReplacementHistory?: CompactionReplacementHistory;
   thresholdTokens: number;
   keepRecentMessages: number;
   measuredContextTokens?: number;
@@ -278,7 +280,7 @@ export function planCompaction(input: {
     : estimateContextTokens(
         input.history,
         input.previousSummary,
-        input.previousToolObservationLedger,
+        input.previousReplacementHistory,
       );
   if (contextTokens < input.thresholdTokens) {
     return null;
@@ -302,10 +304,10 @@ export function planCompaction(input: {
  *
  * - `system` is the chat's own system prompt (passed by the caller — the exact
  *   string the just-finished turn used), NOT a dedicated summarizer prompt;
- * - the previous summary and absorbed turns are rendered through the SAME
- *   buildContext path the live turn used (same summary header, same part
- *   flattening, same ordering), so the request is a byte-identical prefix of
- *   the turn that just populated the provider's prompt cache;
+ * - the previous stored replacement history and absorbed turns are replayed
+ *   through the SAME buildContext path the live turn used, so the request
+ *   preserves the byte-identical stored prefix that populated the provider's
+ *   prompt cache;
  * - the summarize instruction rides as the final user message.
  *
  * With OpenAI-style strict-prefix caching this makes the absorbed bulk (the
@@ -325,7 +327,7 @@ export function buildCompactionRequest(input: {
     | {
         summary: string;
         uptoSeq: number;
-        toolObservationLedger?: unknown;
+        replacementHistory: CompactionReplacementHistory;
       }
     | undefined;
   absorb: StoredMessage[];
@@ -347,14 +349,24 @@ export function buildCompactionRequest(input: {
   return { system, messages };
 }
 
-export function buildNextCompactionToolObservationLedger(input: {
-  previous: unknown;
+export function buildCompactionReplacementHistory(input: {
+  summary: string;
+  previous: CompactionReplacementHistory | undefined;
   absorb: StoredMessage[];
-}): CompactionToolObservationLedgerV1 {
-  return buildCompactionToolObservationLedger(
-    input.previous,
-    input.absorb
-      .filter((message) => message.role === 'assistant')
-      .map((message) => message.parts),
-  );
+}): CompactionReplacementMessage[] {
+  return [
+    {
+      role: 'user',
+      parts: [
+        {
+          type: 'text',
+          text: renderConversationCheckpoint(input.summary),
+        },
+      ],
+    },
+    ...buildCompactionToolReplacementRecords({
+      previous: input.previous,
+      absorb: input.absorb,
+    }),
+  ];
 }

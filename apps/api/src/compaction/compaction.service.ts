@@ -16,7 +16,7 @@ import {
 } from '../chats/chats-repository';
 import {
   buildCompactionRequest,
-  buildNextCompactionToolObservationLedger,
+  buildCompactionReplacementHistory,
   DEFAULT_KEEP_RECENT_MESSAGES,
   isPositiveFinite,
   normalizeCompactionSummary,
@@ -197,7 +197,7 @@ export class CompactionService {
     const plan = planCompaction({
       history: toStoredMessages(history),
       previousSummary: previous?.summary,
-      previousToolObservationLedger: previous?.toolObservationLedger,
+      previousReplacementHistory: previous?.replacementHistory,
       thresholdTokens,
       keepRecentMessages: DEFAULT_KEEP_RECENT_MESSAGES,
       measuredContextTokens: input.lastTurnTotalTokens,
@@ -213,7 +213,7 @@ export class CompactionService {
         ? {
             summary: previous.summary,
             uptoSeq: previous.uptoSeq,
-            toolObservationLedger: previous.toolObservationLedger,
+            replacementHistory: previous.replacementHistory,
           }
         : undefined,
       absorb: plan.absorb,
@@ -243,8 +243,9 @@ export class CompactionService {
       latencyMs: Date.now() - startedAt,
       price: input.client.pricing,
     });
-    const toolObservationLedger = buildNextCompactionToolObservationLedger({
-      previous: previous?.toolObservationLedger,
+    const replacementHistory = buildCompactionReplacementHistory({
+      summary,
+      previous: previous?.replacementHistory,
       absorb: plan.absorb,
     });
     let digestCandidate: RecencyDigestResolution | null = null;
@@ -293,7 +294,7 @@ export class CompactionService {
         uptoSeq: plan.uptoSeq,
         parentId: previous?.id ?? null,
         summary,
-        toolObservationLedger,
+        replacementHistory,
         usage,
       });
       if (
@@ -399,7 +400,7 @@ export class CompactionService {
         ? {
             summary: state.previous.summary,
             uptoSeq: state.previous.uptoSeq,
-            toolObservationLedger: state.previous.toolObservationLedger,
+            replacementHistory: state.previous.replacementHistory,
           }
         : undefined,
       absorb: plan.absorb,
@@ -446,8 +447,9 @@ export class CompactionService {
       );
     }
     const summary = inference.summary;
-    const toolObservationLedger = buildNextCompactionToolObservationLedger({
-      previous: state.previous?.toolObservationLedger,
+    const replacementHistory = buildCompactionReplacementHistory({
+      summary,
+      previous: state.previous?.replacementHistory,
       absorb: plan.absorb,
     });
     input.abortSignal?.throwIfAborted();
@@ -471,7 +473,7 @@ export class CompactionService {
         uptoSeq: plan.uptoSeq,
         parentId: state.previous?.id ?? null,
         summary,
-        toolObservationLedger,
+        replacementHistory,
         usage: buildTurnTelemetry({
           usage: inference.usage,
           finishReason: inference.finishReason,

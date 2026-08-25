@@ -618,7 +618,7 @@ export class RunExecutionService {
             compaction: {
               summary: compaction.summary,
               uptoSeq: compaction.uptoSeq,
-              toolObservationLedger: compaction.toolObservationLedger,
+              replacementHistory: compaction.replacementHistory,
             },
           }),
         });
@@ -696,7 +696,7 @@ export class RunExecutionService {
               compaction: {
                 summary: compaction.summary,
                 uptoSeq: compaction.uptoSeq,
-                toolObservationLedger: compaction.toolObservationLedger,
+                replacementHistory: compaction.replacementHistory,
               },
             }),
           });

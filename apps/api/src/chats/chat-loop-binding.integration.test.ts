@@ -28,6 +28,7 @@ import {
 import { type RecencyDigestResolver } from './recency-digest.service';
 import { isContextItemPart } from './context-item';
 import { isRecencyDigestItem } from './context-item-producers';
+import { renderConversationCheckpoint } from './context-builder';
 
 /** Fully typed, no cast: ChatLoopService depends on the method, not the class. */
 const personalization: PromptUserResolver = {
@@ -107,6 +108,17 @@ function fakeInstanceConfig(
       tools: { ...BUILT_IN_DEFAULTS.tools, allowed: toolsAllowed },
     },
   };
+}
+
+function compactionReplacementHistory(
+  summary: string,
+): Compaction['replacementHistory'] {
+  return [
+    {
+      role: 'user',
+      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],
+    },
+  ];
 }
 
 describe('ChatLoopService effective-context transaction binding', () => {
@@ -1039,11 +1051,9 @@ describe('ChatLoopService effective-context transaction binding', () => {
       uptoSeq: 8,
       parentId: null,
       summary: 'Retains the latest messages.',
-      toolObservationLedger: {
-        version: 1,
-        omittedCount: 0,
-        observations: [],
-      },
+      replacementHistory: compactionReplacementHistory(
+        'Retains the latest messages.',
+      ),
       usage: null,
       createdAt: new Date('2026-08-11T08:00:03.000Z'),
     };
@@ -1126,11 +1136,9 @@ describe('ChatLoopService effective-context transaction binding', () => {
       uptoSeq: 8,
       parentId: null,
       summary: 'Retains the latest messages.',
-      toolObservationLedger: {
-        version: 1,
-        omittedCount: 0,
-        observations: [],
-      },
+      replacementHistory: compactionReplacementHistory(
+        'Retains the latest messages.',
+      ),
       usage: null,
       createdAt: new Date('2026-08-11T08:00:03.000Z'),
     };
@@ -1216,11 +1224,9 @@ describe('ChatLoopService effective-context transaction binding', () => {
       uptoSeq: 8,
       parentId: null,
       summary: 'Retains the latest messages.',
-      toolObservationLedger: {
-        version: 1,
-        omittedCount: 0,
-        observations: [],
-      },
+      replacementHistory: compactionReplacementHistory(
+        'Retains the latest messages.',
+      ),
       usage: null,
       createdAt: new Date('2026-08-11T08:00:03.000Z'),
     };
@@ -1307,7 +1313,9 @@ describe('ChatLoopService effective-context transaction binding', () => {
       uptoSeq: 8,
       parentId: null,
       summary: 'Retains the latest messages.',
-      toolObservationLedger: { version: 1, omittedCount: 0, observations: [] },
+      replacementHistory: compactionReplacementHistory(
+        'Retains the latest messages.',
+      ),
       usage: null,
       createdAt: new Date('2026-08-11T08:00:03.000Z'),
     };
@@ -1371,7 +1379,9 @@ describe('ChatLoopService effective-context transaction binding', () => {
       uptoSeq: 8,
       parentId: null,
       summary: 'Retains the latest messages.',
-      toolObservationLedger: { version: 1, omittedCount: 0, observations: [] },
+      replacementHistory: compactionReplacementHistory(
+        'Retains the latest messages.',
+      ),
       usage: null,
       createdAt: new Date('2026-08-11T08:00:03.000Z'),
     };

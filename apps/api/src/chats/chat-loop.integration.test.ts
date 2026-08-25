@@ -31,7 +31,11 @@ import { ConflictException } from '@nestjs/common';
 
 import { eq } from 'drizzle-orm';
 import * as schema from '../db/schema';
-import { type ModelToolDeclaration, type Run } from '../db/schema';
+import {
+  type Compaction,
+  type ModelToolDeclaration,
+  type Run,
+} from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type ModelSelectionValidator } from '../models/models.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
@@ -69,10 +73,22 @@ import { type KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-
 import { TOOL_REGISTRY } from '../tools/registry';
 import { type ContextItemPart } from './context-item';
 import { createToolAvailabilityItem } from './context-item-producers';
+import { renderConversationCheckpoint } from './context-builder';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = any;
+
+function compactionReplacementHistory(
+  summary: string,
+): Compaction['replacementHistory'] {
+  return [
+    {
+      role: 'user',
+      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],
+    },
+  ];
+}
 
 const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
   resolve: () =>
@@ -1400,6 +1416,9 @@ describeIfDb(
           chatId: degradedChatId,
           uptoSeq: beforeCompaction.userMessage.seq,
           summary: 'A prior tool outage mattered historically.',
+          replacementHistory: compactionReplacementHistory(
+            'A prior tool outage mattered historically.',
+          ),
         }),
       );
       const degraded = availabilityContext(
@@ -1449,6 +1468,9 @@ describeIfDb(
           chatId: healthyChatId,
           uptoSeq: degradedBefore.userMessage.seq,
           summary: 'Historical outage summary.',
+          replacementHistory: compactionReplacementHistory(
+            'Historical outage summary.',
+          ),
         }),
       );
       const healthyAfterCompaction = await persistWithContext(

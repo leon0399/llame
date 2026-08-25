@@ -13,9 +13,16 @@
  *   threshold — lineage-less memory loss.
  */
 
-import type { ModelMessage } from 'ai';
+import type {
+  ModelMessage,
+  ToolCallPart as SdkToolCallPart,
+  ToolResultPart as SdkToolResultPart,
+} from 'ai';
 
-import { type RunContextItem } from '../db/schema/chats';
+import {
+  type CompactionReplacementMessage,
+  type RunContextItem,
+} from '../db/schema/chats';
 import {
   isContextItemPart,
   renderContextItem,
@@ -26,13 +33,16 @@ import {
   renderCompactionCheckpoint,
 } from './context-item-producers';
 import { resolveForm } from './context-item';
-import { type UnknownRecord } from '../unknown-record';
+import type { UnknownRecord } from '../unknown-record';
 import {
-  projectCompactionToolObservationLedger,
   projectToolObservations,
   renderToolObservationOmission,
   type ToolObservationProjection,
 } from './tool-observation-part';
+import {
+  isStoredReplacementToolPart,
+  parseCompactionReplacementHistory,
+} from './compaction-replacement-history';
 
 export { projectToolObservations };
 export type { ModelMessage };
@@ -113,8 +123,8 @@ export interface StoredMessage {
 export interface ContextCompaction {
   summary: string;
   uptoSeq: number;
-  /** Internal, versioned JSONB. Runtime-validated before model replay. */
-  toolObservationLedger?: unknown;
+  /** Required, message-shaped JSONB. Runtime-validated before model replay. */
+  replacementHistory: unknown;
 }
 
 export interface BuildContextOptions {
@@ -212,20 +222,77 @@ function userPartsToModelContent(parts: readonly MessagePart[]): TextPart[] {
   });
 }
 
-function pushCompactionToolObservations(
+function replacementRecordToModelMessages(
+  record: CompactionReplacementMessage,
+): ModelMessage[] {
+  const part = record.parts[0];
+  if (record.role === 'user') {
+    if (!isTextPart(part)) {
+      throw new TypeError('Invalid compaction replacement history');
+    }
+    return [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: part.text }],
+      },
+    ];
+  }
+
+  if (isTextPart(part)) {
+    return [
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: part.text }],
+      },
+    ];
+  }
+  if (!isStoredReplacementToolPart(part)) {
+    throw new TypeError('Invalid compaction replacement history');
+  }
+
+  const toolName = part.type.slice('tool-'.length);
+  const toolCallPart: SdkToolCallPart = {
+    type: 'tool-call',
+    toolCallId: part.toolCallId,
+    toolName,
+    input: part.input ?? {},
+  };
+  const toolResultPart: SdkToolResultPart = {
+    type: 'tool-result',
+    toolCallId: part.toolCallId,
+    toolName,
+    output: { type: 'text', value: part.output },
+  };
+  return [
+    { role: 'assistant', content: [toolCallPart] },
+    { role: 'tool', content: [toolResultPart] },
+  ];
+}
+
+function appendCompactionReplacementHistory(
   result: ModelMessage[],
-  projection: ToolObservationProjection,
+  contextItems: RunContextItem[],
+  value: ContextCompaction['replacementHistory'],
 ): void {
-  if (projection.omittedCount > 0) {
-    result.push({
-      role: 'assistant',
-      content: renderToolObservationOmission(projection.omittedCount),
-    });
+  const replacementHistory = parseCompactionReplacementHistory(value);
+  if (replacementHistory === null) {
+    throw new TypeError('Invalid compaction replacement history');
   }
-  for (const pair of projection.pairs) {
-    result.push({ role: 'assistant', content: [pair.toolCallPart] });
-    result.push({ role: 'tool', content: [pair.toolResultPart] });
+
+  for (const record of replacementHistory) {
+    result.push(...replacementRecordToModelMessages(record));
   }
+
+  const first = replacementHistory[0].parts[0];
+  if (!isTextPart(first)) {
+    throw new TypeError('Invalid compaction replacement history');
+  }
+  contextItems.push({
+    producer: 'compaction',
+    form: COMPACTION_CHECKPOINT_FORM,
+    residency: 'rail',
+    text: first.text,
+  });
 }
 
 function pushAssistantHistory(
@@ -316,24 +383,15 @@ export function buildContext(
   const result: ModelMessage[] = [];
   const contextItems: RunContextItem[] = [];
 
-  // The summary leads the history — the stand-in for everything it superseded.
+  // Stored replacement history leads the history — the complete application
+  // replay replacement for everything it superseded. The raw summary is not a
+  // replay authority and must never be rendered here.
   if (compaction !== undefined) {
-    const checkpoint = renderConversationCheckpoint(compaction.summary);
-    result.push({ role: 'user', content: checkpoint });
-    // Recorded like any other item: it is bind-time, so unlike a
-    // persisted-derived item it cannot be reconstructed from anything later.
-    contextItems.push({
-      producer: 'compaction',
-      form: COMPACTION_CHECKPOINT_FORM,
-      residency: 'rail',
-      text: checkpoint,
-    });
-    const compactedObservations = projectCompactionToolObservationLedger(
-      compaction.toolObservationLedger,
+    appendCompactionReplacementHistory(
+      result,
+      contextItems,
+      compaction.replacementHistory,
     );
-    if (compactedObservations) {
-      pushCompactionToolObservations(result, compactedObservations);
-    }
   }
 
   for (const m of ordered) {
