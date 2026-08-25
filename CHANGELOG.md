@@ -28,8 +28,30 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   casing rule and never normalizes them — subject only to being nonblank,
   unique within an entry, and containing `defaultEffort`.
   `GET /api/v1/models` returns the object in place of the boolean, so generated
-  clients must regenerate. Nothing consumes the declaration yet; accepting a
-  per-request `effort` ships separately.
+  clients must regenerate.
+
+- **Per-request reasoning effort**: a chat send may carry an optional top-level
+  `effort`, matched byte-exactly against the selected model's declared
+  `effortLevels`; omitting it resolves that model's `defaultEffort`, and a
+  model declaring no vocabulary accepts no effort at all. An unavailable
+  `modelId` is reported without the effort being evaluated, since a level's
+  legality is meaningless without a resolved model. A blank or non-string
+  `effort` is rejected as malformed with 400; a well-formed level the selected
+  model does not declare is 422 `effort_not_available`. The resolved value is stored concretely on the
+  run, so a later configuration edit cannot alter an already queued or
+  historical run, and the worker sends exactly what was stored — a level the
+  operator has since withdrawn still executes verbatim rather than being
+  silently re-resolved. Effort is recorded and returned wherever the executing
+  `modelId` is: run reads, the run context receipt, assistant message usage,
+  compaction usage, and model-attribution run events. Surfaces carrying no
+  `modelId` — the active-runs list and the public shared-chat view — carry no
+  effort either. **Compaction inherits the effort of the run whose prompt
+  prefix it reuses** (transition compaction uses the source run's), because
+  that request deliberately reproduces the finished turn's prompt to land on
+  the provider's still-warm prompt cache, and a differing effort would
+  invalidate it. Title generation runs on a separately configured model with no
+  shared prefix and sends none. No UI ships in this release, and sampling
+  parameters (`temperature`, `topP`, `topK`) remain unsupported.
 
 - Bumped the AI SDK v6 line: `ai` 6.0.217 → 6.0.256, `@ai-sdk/openai`
   3.0.79 → 3.0.97, `@ai-sdk/react` 3.0.219 → 3.0.259, `@ai-sdk/mcp`
