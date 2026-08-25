@@ -747,6 +747,8 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     incompatibleSourceSchema?: boolean;
     switchMarker?: boolean;
     toolObservation?: boolean;
+    /** Effort persisted on the SOURCE run, as its accepting API stored it. */
+    sourceEffort?: string;
   }) {
     return tenantDb.runAs(userId, async (tx) => {
       const chat = await new ChatsRepository(tx).create({
@@ -808,6 +810,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           messageId: oldUser.id,
           userId,
           modelId: 'source-model',
+          ...(options?.sourceEffort !== undefined && {
+            effort: options.sourceEffort,
+          }),
           modelContextSnapshotId: sourceSnapshot.id,
         });
         await runs.markFinished(sourceRun.id, userId, 'completed');
@@ -921,6 +926,100 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       ),
     ).resolves.toBeUndefined();
     await sql`DELETE FROM chats WHERE id = ${seeded.chat.id}`;
+  });
+
+  // Compaction inherits effort for ONE reason: it reproduces the finished
+  // turn's system prompt and message prefix so the call lands on the
+  // provider's still-warm prompt cache. Sending a different effort would
+  // invalidate the message blocks that request shape exists to reuse.
+  it('sends the triggering run effort on the compaction call and records it', async () => {
+    const chat = await seedHistory();
+    const calls: ModelStreamInput[] = [];
+    const client = compactionClient({ model: 'source-model', calls });
+
+    await createCompactionService(unexercisedModels).maybeCompact({
+      chatId: chat.id,
+      userId,
+      client,
+      system: 'EXACT SNAPSHOTTED PROMPT',
+      toolDeclarations: [],
+      effort: 'xhigh',
+      lastTurnTotalTokens: 10,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.effort).toBe('xhigh');
+
+    const persisted = await tenantDb.runAs(userId, (tx) =>
+      new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
+    );
+    expect(persisted?.usage).toMatchObject({ effort: 'xhigh' });
+  });
+
+  it('sends no effort on the compaction call when the triggering run carried none', async () => {
+    const chat = await seedHistory();
+    const calls: ModelStreamInput[] = [];
+    const client = compactionClient({ model: 'source-model', calls });
+
+    await createCompactionService(unexercisedModels).maybeCompact({
+      chatId: chat.id,
+      userId,
+      client,
+      system: 'EXACT SNAPSHOTTED PROMPT',
+      toolDeclarations: [],
+      lastTurnTotalTokens: 10,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.effort).toBeUndefined();
+  });
+
+  // A9: transition compaction reuses the SOURCE model and the SOURCE
+  // snapshot's system prompt, so the source run's effort is the one whose
+  // cache is at stake. The incoming turn's effort is not part of that prefix,
+  // and was validated against a different model's declared levels entirely.
+  it('sends the source run effort on transition compaction, not the incoming turn effort', async () => {
+    const seeded = await seedSwitch({ sourceEffort: 'high' });
+    const sourceCalls: ModelStreamInput[] = [];
+    const sourceClient = compactionClient({
+      model: 'source-model',
+      calls: sourceCalls,
+      response:
+        '## Objective\nPreserve continuity.\n\n## Current State\nReady.',
+      contextWindowTokens: 10_000,
+    });
+    const compaction = createCompactionService({
+      createClient: vi.fn(() => sourceClient),
+    });
+    const targetDelegate = createFakeModelClient(['target response'], 600);
+    const targetClient: ModelClient = {
+      ...targetDelegate,
+      model: 'target-model',
+      streamText: (input) => targetDelegate.streamText(input),
+    };
+
+    const result = await runService(compaction).executeRun({
+      runId: seeded.targetRun.id,
+      chatId: seeded.chat.id,
+      userId,
+      userMessage: {
+        id: seeded.targetUser.id,
+        seq: seeded.targetUser.seq,
+        parts: seeded.targetUserParts,
+      },
+      client: targetClient,
+    });
+    await result.consumeStream?.();
+
+    expect(sourceCalls).toHaveLength(1);
+    expect(sourceCalls[0]?.effort).toBe('high');
+
+    const persisted = await tenantDb.runAs(userId, (tx) =>
+      new CompactionsRepository(tx).findLatestByChatId(seeded.chat.id, userId),
+    );
+    // The recorded effort must match what was actually sent, or the receipt
+    // would attribute this call's cost to the wrong level.
+    expect(persisted?.usage).toMatchObject({ effort: 'high' });
   });
 
   it('uses one source-snapshot transition checkpoint before invoking the smaller target', async () => {

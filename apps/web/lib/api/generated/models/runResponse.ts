@@ -14,6 +14,8 @@ export interface RunResponse {
   /** @nullable */
   messageId: string | null;
   modelId: string;
+  /** Reasoning effort this run executed at, resolved when the run was accepted. Absent when the run carried none. An opaque provider token — a receipt of what ran, never recomputed from current configuration. */
+  effort?: string;
   status: RunResponseStatus;
   /** @nullable */
   error: RunResponseError;

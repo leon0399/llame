@@ -314,6 +314,18 @@ export class CompactionStatsResponse {
 
   @ApiProperty({ type: String, nullable: true })
   modelId!: string | null;
+
+  // Optional, not nullable — unlike the token counts beside it. The
+  // reasoning-effort contract is absent-not-null on EVERY disclosure surface,
+  // so a client reading a run, a receipt, and a compaction sees one shape for
+  // one concept rather than three.
+  @ApiPropertyOptional({
+    description:
+      'The effort this compaction call ran at — inherited from the run whose ' +
+      'prompt prefix it reuses, so its cached prefix stays valid. Absent when ' +
+      'that run carried none.',
+  })
+  effort?: string;
 }
 
 /**
@@ -362,6 +374,7 @@ export function toCompactionResponse(
       beforeTokens: isNumber(usage?.inputTokens) ? usage.inputTokens : null,
       afterTokens: isNumber(usage?.outputTokens) ? usage.outputTokens : null,
       modelId: isString(usage?.modelId) ? usage.modelId : null,
+      ...(isString(usage?.effort) && { effort: usage.effort }),
     },
   };
 }

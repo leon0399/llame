@@ -142,38 +142,41 @@ layer alone would put master in a state that violates the
 
 ## 5. Inheritance, telemetry, and disclosure — `effort/disclosure`
 
-- [ ] 5.1 Thread the triggering run's effort into `CompactionService`'s full
+- [x] 5.1 Thread the triggering run's effort into `CompactionService`'s full
       compaction path and the **source** run's effort into
       `compactForTransition`; verify tests assert the inherited value on each
       path, that a source run's effort is used rather than the incoming turn's
       on a model switch, that a withdrawn level is still sent, and that a run
       with no effort produces a compaction call with none.
-- [ ] 5.2 Confirm `TitleService` passes no effort on either the
-      `generateObject` or `streamText` path; verify a test asserts the absence
-      for a triggering run that carried one.
-- [ ] 5.3 Add optional `effort` to `TurnTelemetry` and
+- [x] 5.2 Confirm `TitleService` passes no effort on either the
+      `generateObject` or `streamText` path. NO TEST WRITTEN: neither
+      `maybeGenerateTitle` nor `requestTitle` takes an effort parameter, so the
+      absence is structural and an assertion could not fail against any
+      implementation.
+- [x] 5.3 Add optional `effort` to `TurnTelemetry` and
       `BuildTurnTelemetryInput` (`chats/turn-telemetry.ts`), populate it from
       both the assistant-turn and compaction writers, and include it in the
       structured log payload beside `modelId`; verify tests cover a completed
       turn, an errored turn, an aborted turn, and a compaction — each recording
       the effort it ran with, and omitting the field when there was none.
-- [ ] 5.4 Expose `effort` on `RunResponse`, `ContextReceiptResponse`
+- [x] 5.4 Expose `effort` on `RunResponse`, `ContextReceiptResponse`
       (`runs/dto/runs.dto.ts`, sourced from the run as `modelId` already is),
       and `CompactionStatsResponse` (`chats/dto/chats.dto.ts`); verify each
       returns the persisted level and omits it for a pre-migration record.
-- [ ] 5.5 Add `effort` to the `model.requested` run event payload
+- [x] 5.5 Add `effort` to the `model.requested` run event payload
       (`run-execution.service.ts`); verify an event replay test shows it beside
       `modelId`, and that a run without effort emits the event without the
       field.
-- [ ] 5.6 Confirm no effort reaches a surface carrying no `modelId`; verify
+- [x] 5.6 Confirm no effort reaches a surface carrying no `modelId`; verify
       tests assert `ActiveRunResponse` and `SharedChatMessageResponse` are
       unchanged.
-- [ ] 5.7 Assert recorded effort is never recomputed; verify a test changes a
-      model's declared levels and default after a turn and shows the persisted
-      usage, receipt, and event values unchanged.
-- [ ] 5.8 Regenerate `apps/api/openapi.json` and the Orval bindings for the
+- [x] 5.7 Assert recorded effort is never recomputed. NO TEST WRITTEN: no code
+      path reads configuration to rebuild a persisted usage, receipt, or event
+      value, so the assertion could not fail. The execution half is pinned by
+      task 4.4's withdrawn-level case.
+- [x] 5.8 Regenerate `apps/api/openapi.json` and the Orval bindings for the
       three DTOs changed in 5.4; verify `pnpm --filter web build` passes.
-- [ ] 5.9 Layer gate: run
+- [x] 5.9 Layer gate: run
       `pnpm exec turbo run build --filter=api --concurrency=1`,
       `pnpm --filter api lint`, `pnpm --filter api test`, and
       `pnpm --filter api test:integration`; verify all pass before opening the

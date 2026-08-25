@@ -289,6 +289,7 @@ describe('ChatsController', () => {
         outputTokens: 1280,
         totalTokens: 72680,
         modelId: 'system:openai:gpt-4o',
+        effort: 'high',
         latencyMs: 500,
         finishReason: 'stop',
         status: 'completed',
@@ -313,6 +314,7 @@ describe('ChatsController', () => {
       beforeTokens: 71400,
       afterTokens: 1280,
       modelId: 'system:openai:gpt-4o',
+      effort: 'high',
     });
   });
 
