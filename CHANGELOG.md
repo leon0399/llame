@@ -24,6 +24,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `effort` still accepts the raw `value` only. The web effort selector and
   message telemetry show `label` when present.
 
+- **Conversation history preserves authored context**: server-authored
+  reminders now persist their complete rendered text in `messages.parts`, and
+  user text is sanitized before persistence so later replay uses the stored
+  value unchanged. Compaction now materializes bounded message-shaped
+  replacement history for the superseded prefix instead of rebuilding it from
+  semantic metadata.
+
 - **Chat page title in the sticky header and browser tab**: `/chat/[id]` shows
   the chat title in the existing top bar (and as `document.title`), using the
   same typewriter as the rails. Title changes now delete only down to the

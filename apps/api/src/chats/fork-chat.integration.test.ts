@@ -18,10 +18,16 @@ import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import { ChatsRepository, MessagesRepository } from './chats-repository';
+import {
+  ChatsRepository,
+  CompactionsRepository,
+  findLiveWindow,
+  MessagesRepository,
+} from './chats-repository';
 import { ChatsService } from './chats.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { isRecord } from '../unknown-record';
+import { renderConversationCheckpoint } from './context-builder';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -281,5 +287,119 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     for (let i = 1; i < copied.length; i += 2) {
       expect(copied[i].inReplyTo).toBe(copied[i - 1].id);
     }
+  });
+
+  it('copies a compacted source wholesale and leaves the fork on uncompacted replay', async () => {
+    const source = await tenantDb.runAs(a, async (tx) => {
+      const chats = new ChatsRepository(tx);
+      const messages = new MessagesRepository(tx);
+      const compactions = new CompactionsRepository(tx);
+      const chat = await chats.create({ ownerUserId: a, title: 'Compacted' });
+      const prefixUserParts = [
+        {
+          type: 'data-context',
+          data: {
+            v: 1,
+            producer: 'temporal',
+            form: 'snapshot',
+            text: '<system-reminder>source-time</system-reminder>',
+            payload: {
+              instant: '2026-08-25T04:13:39.795Z',
+              timeZone: 'Europe/Madrid',
+            },
+          },
+        },
+        { type: 'text', text: 'before compaction' },
+        {
+          type: 'source-url',
+          sourceId: 'private-source',
+          url: 'https://private.example/source',
+        },
+      ];
+      const prefixAssistantParts = [
+        { type: 'reasoning', text: 'private reasoning' },
+        { type: 'text', text: 'prefix answer' },
+        {
+          type: 'tool-search_conversations',
+          toolCallId: 'private-call',
+          state: 'output-available',
+          input: { query: 'private' },
+          output: { results: ['private result'] },
+        },
+      ];
+      const prefixUser = await messages.create({
+        chatId: chat.id,
+        role: 'user',
+        senderUserId: a,
+        parts: prefixUserParts,
+      });
+      const prefixAssistant = await messages.create({
+        chatId: chat.id,
+        role: 'assistant',
+        senderUserId: null,
+        parts: prefixAssistantParts,
+        inReplyTo: prefixUser.id,
+      });
+      const liveUser = await messages.create({
+        chatId: chat.id,
+        role: 'user',
+        senderUserId: a,
+        parts: [{ type: 'text', text: 'after compaction' }],
+      });
+      const liveAssistant = await messages.create({
+        chatId: chat.id,
+        role: 'assistant',
+        senderUserId: null,
+        parts: [{ type: 'text', text: 'live answer' }],
+        inReplyTo: liveUser.id,
+      });
+
+      await compactions.create({
+        chatId: chat.id,
+        uptoSeq: prefixAssistant.seq,
+        summary: 'source summary',
+        replacementHistory: [
+          {
+            role: 'user',
+            parts: [
+              {
+                type: 'text',
+                text: renderConversationCheckpoint('source summary'),
+              },
+            ],
+          },
+        ],
+      });
+
+      return {
+        chat,
+        messages: [prefixUser, prefixAssistant, liveUser, liveAssistant],
+      };
+    });
+
+    const compactedSource = await tenantDb.runAs(a, (tx) =>
+      findLiveWindow(tx, source.chat.id, a),
+    );
+    expect(compactedSource.compaction?.summary).toBe('source summary');
+    expect(compactedSource.history.map((message) => message.parts)).toEqual([
+      source.messages[2].parts,
+      source.messages[3].parts,
+    ]);
+
+    const forked = await service.forkChat(source.chat.id, a);
+    const copied = await tenantDb.runAs(a, (tx) =>
+      new MessagesRepository(tx).findByChatId(forked.id, a),
+    );
+
+    expect(copied.map((message) => message.parts)).toEqual(
+      source.messages.map((message) => message.parts),
+    );
+    const forkReplay = await tenantDb.runAs(a, (tx) =>
+      findLiveWindow(tx, forked.id, a),
+    );
+    expect(forkReplay.compaction).toBeUndefined();
+    expect(forkReplay.history.map((message) => message.parts)).toEqual(
+      source.messages.map((message) => message.parts),
+    );
   });
 });

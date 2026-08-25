@@ -5,6 +5,7 @@ import {
   ChatMessagesQueryDto,
   ChatSearchQueryDto,
   ForkChatDto,
+  toChatMessageResponse,
   UpdateChatDto,
   toSharedChatResponse,
 } from './chats.dto';
@@ -347,6 +348,52 @@ describe('surfaces without model identity carry no effort', () => {
   });
 });
 
+describe('toChatMessageResponse — owner egress preserves stored parts', () => {
+  it('returns every stored part unchanged and in its persisted order', () => {
+    const parts = [
+      {
+        type: 'data-context',
+        data: {
+          v: 1,
+          producer: 'temporal',
+          form: 'snapshot',
+          text: '<system-reminder>Current time is fixed</system-reminder>',
+          payload: { instant: '2026-08-25T04:13:39.795Z' },
+        },
+      },
+      { type: 'text', text: 'the user message' },
+      {
+        type: 'reasoning',
+        text: 'PRIVATE_REASONING',
+        providerMetadata: { provider: 'PRIVATE_PROVIDER' },
+      },
+      {
+        type: 'source-url',
+        sourceId: 'PRIVATE_SOURCE',
+        url: 'https://private.example/source',
+      },
+      {
+        type: 'data-cap-notice',
+        data: { stepsUsed: 8, maxSteps: 8 },
+      },
+    ];
+    const message: Message = {
+      id: 'm-owner',
+      chatId: 'chat-owner',
+      seq: 7,
+      role: 'user',
+      senderUserId: 'owner',
+      parts,
+      attachments: [],
+      usage: { modelId: 'PRIVATE_MODEL', providerMetadata: 'PRIVATE_META' },
+      inReplyTo: null,
+      createdAt: new Date('2026-08-25T00:00:00.000Z'),
+    };
+
+    expect(toChatMessageResponse(message).parts).toEqual(parts);
+  });
+});
+
 describe('toSharedChatResponse — public-share egress allowlist (tool-calling-loop task 3.3)', () => {
   const fakeChat = { id: 'chat-1', title: 'Shared chat' };
 
@@ -398,6 +445,7 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
             v: 1,
             producer: 'temporal',
             form: 'snapshot',
+            text: '<system-reminder>PRIVATE_TIME_REMINDER</system-reminder>',
             runId: '11111111-2222-4333-8444-555555555555',
             payload: {
               instant: '2026-08-19T16:36:00.000Z',

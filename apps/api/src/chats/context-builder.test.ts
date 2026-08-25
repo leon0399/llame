@@ -461,6 +461,75 @@ describe('buildContext', () => {
       expect(partsToText(assistant.parts)).toBe('Visible answer');
     });
 
+    const displayOnlyParts: Array<[string, MessagePart]> = [
+      ['reasoning', { type: 'reasoning', text: 'DISPLAY_ONLY_REASONING' }],
+      [
+        'URL source',
+        {
+          type: 'source-url',
+          sourceId: 'source-url-1',
+          url: 'https://example.invalid/DISPLAY_ONLY_URL',
+          title: 'DISPLAY_ONLY_URL_TITLE',
+        },
+      ],
+      [
+        'document source',
+        {
+          type: 'source-document',
+          sourceId: 'source-document-1',
+          mediaType: 'text/plain',
+          title: 'DISPLAY_ONLY_DOCUMENT_TITLE',
+          filename: 'DISPLAY_ONLY_DOCUMENT_FILENAME',
+        },
+      ],
+      ['step boundary', { type: 'step-start' }],
+      [
+        'step-cap notice',
+        {
+          type: 'data-cap-notice',
+          data: {
+            stepsUsed: 8,
+            maxSteps: 8,
+            detail: 'DISPLAY_ONLY_CAP_NOTICE',
+          },
+        },
+      ],
+      [
+        'provider metadata',
+        {
+          type: 'text',
+          text: 'Visible answer',
+          providerMetadata: { provider: 'DISPLAY_ONLY_PROVIDER_METADATA' },
+        },
+      ],
+    ];
+
+    it.each(displayOnlyParts)('%s stays out of model replay', (_name, part) => {
+      const parts =
+        part.type === 'text'
+          ? [part]
+          : [part, { type: 'text' as const, text: 'Visible answer' }];
+      const assistant = msg({
+        role: 'assistant',
+        // Display-only UI parts survive for the UI but must not cross the
+        // model boundary. Ordinary assistant/tool projection remains the
+        // explicit best-effort exception pending #599.
+        parts,
+      });
+
+      const { messages: result } = buildContext([userMsg1, assistant], {
+        systemPrompt,
+      });
+
+      expect(result).toEqual([
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'Hello' }],
+        },
+        { role: 'assistant', content: 'Visible answer' },
+      ]);
+    });
+
     it('omits persisted tool-role DB rows from portable replay', () => {
       const toolRow = msg({
         role: 'tool',

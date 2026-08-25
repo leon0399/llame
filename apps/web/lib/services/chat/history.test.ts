@@ -114,6 +114,7 @@ describe("trusted model-context projection", () => {
         fromModelId: "system:openai:model-a",
         toModelId: "custom:anthropic:model-b",
       },
+      text: '<system-reminder producer="effective-context-change" form="notice">model changed</system-reminder>',
     },
   };
 

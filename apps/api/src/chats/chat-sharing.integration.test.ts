@@ -64,7 +64,23 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
         chatId: id,
         role: 'user',
         senderUserId: owner,
-        parts: [{ type: 'text', text: 'a public question' }],
+        parts: [
+          {
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'temporal',
+              form: 'snapshot',
+              runId: '11111111-2222-4333-8444-555555555555',
+              payload: {
+                instant: '2026-08-25T04:13:39.795Z',
+                timeZone: 'Europe/Madrid',
+              },
+              text: '<system-reminder>PRIVATE_TIME_REMINDER</system-reminder>',
+            },
+          },
+          { type: 'text', text: 'a public question' },
+        ],
       });
       await messages.create({
         chatId: id,
@@ -340,6 +356,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
       expect(copiedMessages.length).toBe(2);
       const serialized = JSON.stringify(copiedMessages);
       expect(serialized).not.toContain('PRIVATE_THINKING');
+      expect(serialized).not.toContain('PRIVATE_TIME_REMINDER');
       expect(serialized).not.toContain(owner);
       expect(serialized).toContain('the public answer');
 

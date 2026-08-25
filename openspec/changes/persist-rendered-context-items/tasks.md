@@ -175,35 +175,35 @@ MUST NOT implement #154 or #599 and MUST NOT sync/archive OpenSpec.
 
 ### 4.1 Privacy, fork, and UI boundaries
 
-- [ ] 4.1.1 Add failing API projection tests proving owner message responses
+- [x] 4.1.1 Add failing API projection tests proving owner message responses
       return stored parts in order, ordinary UI rendering hides context parts,
       and public shares, public/shared forks, exports, lists, and search expose
       only their existing public-safe content.
-- [ ] 4.1.2 Update mappers only where required `data.text` demands it. Keep
+- [x] 4.1.2 Update mappers only where required `data.text` demands it. Keep
       model-switch metadata owner-visible and context text non-rendered.
-- [ ] 4.1.3 Add private owner-fork coverage proving message parts are copied
+- [x] 4.1.3 Add private owner-fork coverage proving message parts are copied
       wholesale and a compacted source's full prefix remains available through
       the fork's existing uncompacted replay. Do not implement #154's
       compaction-aware fork parity; its follow-up must copy applicable
       replacement history.
-- [ ] 4.1.4 Verify reasoning, sources, cap notices, provider metadata, and other
+- [x] 4.1.4 Verify reasoning, sources, cap notices, provider metadata, and other
       declared display-only parts remain excluded from model replay.
-- [ ] 4.1.5 Add a dated `CHANGELOG.md` entry describing stored reminder text,
+- [x] 4.1.5 Add a dated `CHANGELOG.md` entry describing stored reminder text,
       author-time user sanitization, and materialized compaction replacement
       history. This is unplanned corrective work; do not add it to `ROADMAP.md`.
 
 ### 4.2 Whole-feature verification
 
-- [ ] 4.2.1 Run affected API integration projects covering message acceptance,
+- [x] 4.2.1 Run affected API integration projects covering message acceptance,
       context assembly, ordinary/transition/recursive compaction, Run receipts,
       forks, public shares, search, migrations, and RLS. Confirm no database
       suite skipped for missing Postgres.
-- [ ] 4.2.2 Run `pnpm --filter web lint`, `pnpm --filter web typecheck`, and
+- [x] 4.2.2 Run `pnpm --filter web lint`, `pnpm --filter web typecheck`, and
       `pnpm --filter web test`.
-- [ ] 4.2.3 Run `openspec validate persist-rendered-context-items --strict`,
+- [x] 4.2.3 Run `openspec validate persist-rendered-context-items --strict`,
       `pnpm --filter api lint`, `pnpm --filter api typecheck`,
       `pnpm --filter api test`, and `pnpm lint:markdown`.
-- [ ] 4.2.4 Build affected workspaces sequentially with
+- [x] 4.2.4 Build affected workspaces sequentially with
       `pnpm --filter api build` followed by `pnpm --filter web build`, then run
       `pnpm format:check`. Do not substitute the unbounded root build.
 - [ ] 4.2.5 Confirm every task in layers 1–4 is checked in its owning PR and the
