@@ -233,6 +233,8 @@ function pushAssistantHistory(
   parts: MessagePart[],
   projection: ToolObservationProjection,
 ): void {
+  // TODO(#599): Research canonical AI SDK UIMessage persistence before replacing
+  // this projector; stored assistant parts currently omit multi-step boundaries.
   const pairsByPartIndex = new Map(
     projection.pairs.map((pair) => [pair.partIndex, pair]),
   );
