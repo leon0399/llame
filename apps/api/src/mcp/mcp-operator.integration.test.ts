@@ -39,7 +39,6 @@ import {} from '../chats/context-item';
 import {
   createToolAvailabilityItem,
   deriveToolAvailabilityPayload,
-  renderContextItemPart,
 } from '../chats/context-item-producers';
 import {
   composeTurnToolCatalog,
@@ -744,9 +743,7 @@ describe('operator-configured MCP production acceptance', () => {
           runId: crypto.randomUUID(),
           payload: unavailablePayload,
         });
-      expect(
-        unavailablePart && renderContextItemPart(unavailablePart),
-      ).toContain('Became unavailable:');
+      expect(unavailablePart?.data.text).toContain('Became unavailable:');
 
       try {
         await waitFor(
@@ -770,9 +767,7 @@ describe('operator-configured MCP production acceptance', () => {
           runId: crypto.randomUUID(),
           payload: availablePayload,
         });
-      expect(availablePart && renderContextItemPart(availablePart)).toContain(
-        'Now available:',
-      );
+      expect(availablePart?.data.text).toContain('Now available:');
 
       const definitions = api.moduleRef.get<
         Readonly<Record<string, UnknownRecord>>

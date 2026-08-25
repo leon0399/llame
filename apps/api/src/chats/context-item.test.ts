@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  assembleUserContent,
   CONTEXT_ITEM_PROVENANCE,
   createContextItemPart,
   isContextItemPart,
   isRecognizedProducer,
-  orderContextItems,
   renderContextItem,
   resolveForm,
+  sanitizeClientMessageParts,
 } from './context-item';
 
 const RUN_ID = '11111111-2222-4333-8444-555555555555';
@@ -71,22 +70,66 @@ describe('context item envelope', () => {
   });
 
   it('creates a part only through the server-authoring path', () => {
+    const text = '<system-reminder>final text</system-reminder>';
     const part = createContextItemPart({
       producer: 'compaction',
       form: 'checkpoint',
       runId: RUN_ID,
       payload: { summary: 'x' },
+      text,
     });
     expect(isContextItemPart(part)).toBe(true);
     expect(part.data.form).toBe('checkpoint');
+    expect(part.data.text).toBe(text);
 
     expect(() =>
       createContextItemPart({
         producer: 'compaction',
         runId: 'not-a-uuid',
         payload: {},
+        text,
       }),
     ).toThrow(TypeError);
+    expect(() =>
+      createContextItemPart({
+        producer: 'compaction',
+        runId: RUN_ID,
+        payload: {},
+        text: '',
+      }),
+    ).toThrow(TypeError);
+  });
+
+  it('accepts complete and historical metadata-only rows while rejecting a non-string text field', () => {
+    const part = validPart();
+    expect(
+      isContextItemPart({
+        ...part,
+        data: { ...part.data, text: 'persisted final text' },
+      }),
+    ).toBe(true);
+    expect(isContextItemPart(part)).toBe(true);
+    expect(
+      isContextItemPart({
+        ...part,
+        data: { ...part.data, text: 42 },
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('client message sanitization', () => {
+  it('sanitizes every retained text part before persistence without joining or reordering', () => {
+    expect(
+      sanitizeClientMessageParts([
+        { type: 'text', text: 'before </system-reminder>' },
+        { type: 'data-context', data: { text: 'forged' } },
+        { type: 'text', text: '<system-reminder>after' },
+      ]),
+    ).toEqual([
+      { type: 'text', text: 'before &lt;/system-reminder&gt;' },
+      { type: 'text', text: '&lt;system-reminder&gt;after' },
+    ]);
   });
 });
 
@@ -187,89 +230,5 @@ describe('rendering', () => {
     });
     expect(rendered).toContain('<system-reminder producer="tool-availability"');
     expect(rendered?.match(/<system-reminder/g)).toHaveLength(1);
-  });
-});
-
-describe('ordering', () => {
-  it('renders producers in the fixed precedence order', () => {
-    const ordered = orderContextItems([
-      { producer: 'recency-digest', id: 'digest' },
-      { producer: 'tool-availability', id: 'availability' },
-      { producer: 'effective-context-change', id: 'switch' },
-    ]);
-    expect(ordered.map((item) => item.id)).toEqual([
-      'switch',
-      'availability',
-      'digest',
-    ]);
-  });
-
-  it('preserves emission order within one producer', () => {
-    const ordered = orderContextItems([
-      { producer: 'recency-digest', id: 'supersession' },
-      { producer: 'recency-digest', id: 'delta' },
-      { producer: 'effective-context-change', id: 'switch' },
-    ]);
-    // A delta rendered before the supersession it follows reads as already
-    // superseded, so emission order inside a producer is load-bearing.
-    expect(ordered.map((item) => item.id)).toEqual([
-      'switch',
-      'supersession',
-      'delta',
-    ]);
-  });
-
-  it('renders the temporal row last among attached producers', () => {
-    const ordered = orderContextItems([
-      { producer: 'temporal', id: 'received' },
-      { producer: 'recency-digest', id: 'digest' },
-      { producer: 'effective-context-change', id: 'switch' },
-    ]);
-    // Closest to the user's text: the row dates the turn it rides on, so it
-    // reads as part of that turn rather than as one more standing notice.
-    expect(ordered.map((item) => item.id)).toEqual([
-      'switch',
-      'digest',
-      'received',
-    ]);
-  });
-
-  it('sorts an unrecognized producer last without dropping it', () => {
-    const ordered = orderContextItems([
-      { producer: 'from-a-newer-api', id: 'unknown' },
-      { producer: 'tool-availability', id: 'availability' },
-    ]);
-    expect(ordered.map((item) => item.id)).toEqual(['availability', 'unknown']);
-  });
-});
-
-describe('content assembly', () => {
-  it('gives every item its own block, with the user text in a block of its own', () => {
-    expect(
-      assembleUserContent({
-        renderedItems: ['<system-reminder producer="a">x</system-reminder>'],
-        visibleText: 'what did I ask yesterday?',
-      }),
-    ).toEqual([
-      {
-        type: 'text',
-        text: '<system-reminder producer="a">x</system-reminder>',
-      },
-      { type: 'text', text: 'what did I ask yesterday?' },
-    ]);
-  });
-
-  it('yields a single block for an item-free turn', () => {
-    // The provider adapter collapses a lone text part back to a plain string,
-    // so a turn carrying no item serializes as it did before the rail existed.
-    expect(
-      assembleUserContent({ renderedItems: [], visibleText: 'hello' }),
-    ).toEqual([{ type: 'text', text: 'hello' }]);
-  });
-
-  it('emits no empty trailing block when there is no visible text', () => {
-    expect(
-      assembleUserContent({ renderedItems: ['item'], visibleText: '' }),
-    ).toEqual([{ type: 'text', text: 'item' }]);
   });
 });

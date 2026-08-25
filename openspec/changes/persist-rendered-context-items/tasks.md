@@ -71,47 +71,47 @@ focused tests require.
 
 ### 2.1 Persisted context contract
 
-- [ ] 2.1.1 Add failing API tests for the v1 `data-context` shape with complete
+- [x] 2.1.1 Add failing API tests for the v1 `data-context` shape with complete
       `data.text`: non-empty text replays verbatim, the empty string is filtered,
       whitespace-only text survives, metadata-only parts are omitted, unknown
       producer/form values do not block text replay, and text wins over
       conflicting metadata. Metadata-only parts remain present as empty-text Run
       receipt entries.
-- [ ] 2.1.2 Update context-part types and validators so new server-authored parts
+- [x] 2.1.2 Update context-part types and validators so new server-authored parts
       require complete text while readers retain metadata-only historical parts
       without treating them as model-bearing.
-- [ ] 2.1.3 Add failing context-builder tests proving stored part order survives
+- [x] 2.1.3 Add failing context-builder tests proving stored part order survives
       a renderer/precedence change and each surviving context part becomes one
       SDK text part without manual concatenation.
-- [ ] 2.1.4 Replace replay-time rendering, sorting, and metadata fallback with
+- [x] 2.1.4 Replace replay-time rendering, sorting, and metadata fallback with
       the minimal `data-context` to text-part conversion. Copy the same text into
       Run context receipts and retain empty receipt entries for inert parts.
 
 ### 2.2 Author-time rendering and user persistence
 
-- [ ] 2.2.1 Add failing producer tests requiring model-switch, availability,
+- [x] 2.2.1 Add failing producer tests requiring model-switch, availability,
       recency-digest delta/supersession, and temporal factories to persist their
       complete canonical envelope plus metadata after author-time
       neutralization.
-- [ ] 2.2.2 Refactor producer factories to validate semantic input and render
+- [x] 2.2.2 Refactor producer factories to validate semantic input and render
       complete v1 text exactly once before the accepting transaction commits.
-- [ ] 2.2.3 Add failing chat-binding tests proving every submitted user text part
+- [x] 2.2.3 Add failing chat-binding tests proving every submitted user text part
       is sanitized before persistence while part boundaries/order remain intact;
       replay does not sanitize, join, or prefix sender ids.
-- [ ] 2.2.4 Move user-text sanitization to the accepting path, remove replay-time
+- [x] 2.2.4 Move user-text sanitization to the accepting path, remove replay-time
       sender attribution and sanitization, and pass stored user parts through
       the SDK conversion boundary.
-- [ ] 2.2.5 Verify client-authored context parts remain rejected, one temporal
+- [x] 2.2.5 Verify client-authored context parts remain rejected, one temporal
       part is stored per accepted user turn, and server-authored parts commit
       atomically in canonical author-time order with the user message, Run, and
       snapshot.
 
 ### 2.3 Layer verification
 
-- [ ] 2.3.1 Run the focused context-item, producer, context-builder, chat-binding,
+- [x] 2.3.1 Run the focused context-item, producer, context-builder, chat-binding,
       and Run-receipt unit/integration suites, confirming database-backed suites
       do not skip for missing Postgres.
-- [ ] 2.3.2 Run `openspec validate persist-rendered-context-items --strict`,
+- [x] 2.3.2 Run `openspec validate persist-rendered-context-items --strict`,
       `pnpm --filter api lint`, `pnpm --filter api typecheck`,
       `pnpm --filter api test`, `pnpm --filter api build`,
       `pnpm lint:markdown`, and `pnpm format:check`.

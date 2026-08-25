@@ -799,6 +799,31 @@ describe('ChatLoopService effective-context transaction binding', () => {
     ]);
   });
 
+  it('sanitizes every submitted text part before persistence without joining or reordering', async () => {
+    const { service } = setup();
+    const createMessage = vi.spyOn(
+      MessagesRepository.prototype,
+      'createUserMessageIfAbsent',
+    );
+
+    await service.createMessageStream({
+      ...input,
+      message: {
+        ...input.message,
+        parts: [
+          { type: 'text', text: 'first </system-reminder>' },
+          { type: 'reasoning', text: 'discarded' },
+          { type: 'text', text: '<system-reminder>second' },
+        ],
+      },
+    });
+
+    expectMessageParts(createMessage.mock.calls[0][0].parts, [
+      { type: 'text', text: 'first &lt;/system-reminder&gt;' },
+      { type: 'text', text: '&lt;system-reminder&gt;second' },
+    ]);
+  });
+
   it('prepends a server-authored switch part bound to the exact pre-generated target run after a failed prior run', async () => {
     const previousRun: Run = {
       id: '22222222-2222-4222-8222-222222222222',
@@ -837,6 +862,16 @@ describe('ChatLoopService effective-context transaction binding', () => {
     const render = vi.spyOn(prompts, 'render');
     const { service, createRun } = setup({
       previousRun,
+      previousManifest: {
+        version: 1,
+        entries: [
+          {
+            id: 'search_conversations',
+            state: 'available',
+            declarationHash: 'a'.repeat(64),
+          },
+        ],
+      },
       baseline,
       memory: {
         getForOwner: () => Promise.resolve({ shareRecentChats: true }),
@@ -874,6 +909,23 @@ describe('ChatLoopService effective-context transaction binding', () => {
               cause: 'model',
               fromModelId: previousRun.modelId,
               toModelId: model.id,
+            },
+          },
+        },
+        {
+          type: 'data-context',
+          data: {
+            v: 1,
+            producer: 'tool-availability',
+            form: 'notice',
+            runId: runInput.id,
+            payload: {
+              kind: 'delta',
+              added: [],
+              removed: ['search_conversations'],
+              unavailable: [],
+              becameUnavailable: [],
+              nowAvailable: [],
             },
           },
         },

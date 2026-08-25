@@ -5,7 +5,7 @@
  * - Cache-aware: `system` is the stable prefix, delivered via the model's native system
  *   channel — not a `role: 'system'` entry in `messages`; `messages` is history oldest→newest
  * - `system` contains NO timestamps, ids, or per-request values — byte-identical across turns
- * - Sender attribution prefix applied when >1 distinct senderUserId in the chat
+ * - Stored user text/context parts replay in place without sender decoration
  * - Deterministic: identical inputs → identical output
  * - No message-count cap: context size is governed in TOKENS by the compaction
  *   threshold (#57). A count cap would silently drop old turns without any
@@ -17,19 +17,15 @@ import type { ModelMessage } from 'ai';
 
 import { type RunContextItem } from '../db/schema/chats';
 import {
-  assembleUserContent,
   isContextItemPart,
-  orderContextItems,
   renderContextItem,
   type ContextItemPart,
 } from './context-item';
 import {
   COMPACTION_CHECKPOINT_FORM,
   renderCompactionCheckpoint,
-  renderContextItemPart,
 } from './context-item-producers';
 import { resolveForm } from './context-item';
-import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { type UnknownRecord } from '../unknown-record';
 import {
   projectCompactionToolObservationLedger,
@@ -183,32 +179,36 @@ export interface BuiltContext extends ModelRequestContext {
 }
 
 /**
- * Render every context item on a message, in the rail's fixed producer
- * precedence order, preserving emission order within one producer.
- *
- * A part this reader cannot interpret — an unrecognized producer, or a payload
- * failing its producer's validation — contributes nothing rather than being
- * emitted as opaque content.
+ * Read every stored context item in place. Metadata is receipt-only here;
+ * `data.text` is the sole model replay authority.
  */
-function renderContextItems(parts: readonly MessagePart[]): RunContextItem[] {
-  const items = parts.filter((part): part is ContextItemPart =>
-    isContextItemPart(part),
-  );
-  return orderContextItems(
-    items.map((part) => ({ producer: part.data.producer, part })),
-  ).map(({ producer, part }) => {
-    const text = renderContextItemPart(part);
-    const form = resolveForm(part);
-    return {
-      producer,
-      ...(form !== undefined && { form }),
-      residency: 'rail' as const,
-      // An item this reader cannot interpret renders as nothing but is still
-      // recorded, with empty text marking what was dropped. Omitting it would
-      // turn a declared fail-closed omission into an undetectable loss — the
-      // opposite of what the record is for.
-      text: text ?? '',
-    };
+function readContextItems(parts: readonly MessagePart[]): RunContextItem[] {
+  return parts
+    .filter((part): part is ContextItemPart => isContextItemPart(part))
+    .map((part) => {
+      const producer = part.data.producer;
+      const form = resolveForm(part);
+      return {
+        producer,
+        ...(form !== undefined && { form }),
+        residency: 'rail' as const,
+        // Historical metadata-only and explicitly empty items remain visible
+        // in receipts as inert entries; metadata never manufactures text.
+        text: part.data.text ?? '',
+      };
+    });
+}
+
+function userPartsToModelContent(parts: readonly MessagePart[]): TextPart[] {
+  return parts.flatMap((part) => {
+    if (isTextPart(part)) {
+      return [{ type: 'text' as const, text: part.text }];
+    }
+    if (!isContextItemPart(part)) return [];
+    const text = part.data.text;
+    return text === undefined || text.length === 0
+      ? []
+      : [{ type: 'text' as const, text }];
   });
 }
 
@@ -296,17 +296,6 @@ export function buildContext(
 ): BuiltContext {
   const { systemPrompt, compaction } = options;
 
-  // Determine if sender attribution is needed (>1 distinct human sender)
-  const senderIds = new Set(
-    messages
-      .filter(
-        (m): m is StoredMessage & { senderUserId: string } =>
-          m.role === 'user' && m.senderUserId !== null,
-      )
-      .map((m) => m.senderUserId),
-  );
-  const multiSender = senderIds.size > 1;
-
   // Exclude any stored system-role rows: `system` (above) is the only system
   // content this function emits — a persisted system-role row (none are written
   // today, but the schema's role union permits one) must not leak into `messages`.
@@ -348,6 +337,16 @@ export function buildContext(
   }
 
   for (const m of ordered) {
+    if (m.role === 'user') {
+      const items = readContextItems(m.parts);
+      contextItems.push(...items);
+      const content = userPartsToModelContent(m.parts);
+      if (content.length > 0) {
+        result.push({ role: 'user', content });
+      }
+      continue;
+    }
+
     const visibleText = partsToText(m.parts);
     const projected =
       m.role === 'assistant' ? projectToolObservations(m.parts) : null;
@@ -356,36 +355,14 @@ export function buildContext(
       continue;
     }
 
-    // Sender attribution prefixes the USER's own text, never the injected
-    // items above it: an item is not authored by that sender, and attributing
-    // it to one would be the exact confusion the envelope exists to prevent.
-    const attributedText =
-      multiSender && m.role === 'user' && m.senderUserId !== null
-        ? `[${m.senderUserId}] ${visibleText}`
-        : visibleText;
-
-    if (m.role === 'user') {
-      const items = renderContextItems(m.parts);
-      contextItems.push(...items);
-      const renderedItems = items.flatMap((item) =>
-        item.text.length > 0 ? [item.text] : [],
-      );
-      // User-authored text is neutralized on the way into model context so it
-      // cannot emit a reserved delimiter and forge an item beside the genuine
-      // ones. The stored message is untouched.
-      const content = assembleUserContent({
-        renderedItems,
-        visibleText: sanitizeAuthoredText(attributedText),
-      });
-      result.push({ role: 'user', content });
-    } else if (projected) {
+    if (projected) {
       pushAssistantHistory(result, m.parts, projected);
     } else {
       // Assistant output is replayed byte-identically and never neutralized: a
       // model does not treat its own prior turns as authoritative, and llame's
       // users legitimately discuss llame's own envelope, which neutralization
       // would corrupt.
-      result.push({ role: 'assistant', content: attributedText });
+      result.push({ role: 'assistant', content: visibleText });
     }
   }
 

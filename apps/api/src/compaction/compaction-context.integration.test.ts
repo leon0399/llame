@@ -47,7 +47,6 @@ import {} from '../chats/context-item';
 import {
   COMPACTION_CHECKPOINT_ENVELOPE_PREFIX,
   createModelChangeItem,
-  renderContextItemPart,
 } from '../chats/context-item-producers';
 import { type MessagePart } from '../chats/context-builder';
 import {
@@ -1115,7 +1114,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     expect(targetCalls[0].messages.at(-1)).toEqual({
       role: 'user',
       content: [
-        { type: 'text', text: renderContextItemPart(seeded.switchPart) ?? '' },
+        { type: 'text', text: seeded.switchPart.data.text },
         { type: 'text', text: 'CURRENT TRIGGER' },
       ],
     });

@@ -28,6 +28,7 @@ import {
   buildContext,
   renderConversationCheckpoint,
 } from '../chats/context-builder';
+import { createToolAvailabilityItem } from '../chats/context-item-producers';
 import {
   TOOL_REPLAY_CALL_LIMIT,
   TOOL_REPLAY_TURN_LIMIT,
@@ -384,25 +385,19 @@ describe('buildCompactionRequest', () => {
   it('gives the compaction model semantically relevant availability history to preserve', () => {
     const affectedTurn = msg('Use the docs lookup once it recovers.');
     affectedTurn.parts = [
-      {
-        type: 'data-context',
-        data: {
-          v: 1,
-          producer: 'tool-availability',
-          form: 'notice',
-          runId: '11111111-1111-4111-8111-111111111111',
-          payload: {
-            kind: 'delta',
-            added: [],
-            removed: [],
-            unavailable: [],
-            becameUnavailable: [
-              { id: 'mcp__docs__lookup', reason: 'source_disconnected' },
-            ],
-            nowAvailable: [],
-          },
+      createToolAvailabilityItem({
+        runId: '11111111-1111-4111-8111-111111111111',
+        payload: {
+          kind: 'delta',
+          added: [],
+          removed: [],
+          unavailable: [],
+          becameUnavailable: [
+            { id: 'mcp__docs__lookup', reason: 'source_disconnected' },
+          ],
+          nowAvailable: [],
         },
-      },
+      }),
       { type: 'text', text: 'Use the docs lookup once it recovers.' },
     ];
 
