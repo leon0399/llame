@@ -86,6 +86,7 @@ export type ModelSwitchPart = {
       fromModelId: string;
       toModelId: string;
     };
+    text?: string;
   };
 };
 
@@ -118,8 +119,10 @@ export function isContextItemPart(
 
 export function isModelSwitchPart(value: unknown): value is ModelSwitchPart {
   if (!isContextItemPart(value)) return false;
+  const requiredKeys = ["v", "producer", "form", "runId", "payload"];
   if (
-    !isExactRecord(value.data, ["v", "producer", "form", "runId", "payload"])
+    !isExactRecord(value.data, requiredKeys) &&
+    !isExactRecord(value.data, [...requiredKeys, "text"])
   ) {
     return false;
   }
@@ -130,6 +133,7 @@ export function isModelSwitchPart(value: unknown): value is ModelSwitchPart {
     form !== "notice" ||
     typeof runId !== "string" ||
     !UUID_PATTERN.test(runId) ||
+    ("text" in value.data && typeof value.data.text !== "string") ||
     !isExactRecord(payload, ["cause", "fromModelId", "toModelId"])
   ) {
     return false;

@@ -139,6 +139,28 @@ describe("trusted model-context projection", () => {
     ).toBeNull();
   });
 
+  it("accepts rendered text without hiding metadata-only switch boundaries", () => {
+    const renderedPart = {
+      ...switchPart,
+      data: {
+        ...switchPart.data,
+        text: '<system-reminder producer="effective-context-change" form="notice">model changed</system-reminder>',
+      },
+    };
+
+    expect(modelSwitchPart({ parts: [renderedPart] })).toEqual(renderedPart);
+    expect(
+      modelSwitchPart({
+        parts: [{ ...switchPart, data: { ...switchPart.data, text: "" } }],
+      }),
+    ).toEqual({ ...switchPart, data: { ...switchPart.data, text: "" } });
+    expect(
+      modelSwitchPart({
+        parts: [{ ...switchPart, data: { ...switchPart.data, text: 42 } }],
+      }),
+    ).toBeNull();
+  });
+
   it("overlays only the server-fetched marker onto a live user message", () => {
     const messages = mergeTrustedModelContextParts(
       [
