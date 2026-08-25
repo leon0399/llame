@@ -206,7 +206,7 @@ MUST NOT implement #154 or #599 and MUST NOT sync/archive OpenSpec.
 - [x] 4.2.4 Build affected workspaces sequentially with
       `pnpm --filter api build` followed by `pnpm --filter web build`, then run
       `pnpm format:check`. Do not substitute the unbounded root build.
-- [ ] 4.2.5 Confirm every task in layers 1–4 is checked in its owning PR and the
+- [x] 4.2.5 Confirm every task in layers 1–4 is checked in its owning PR and the
       complete implementation stack is green before starting the archive layer.
 
 ## 5. Spec sync and archive layer — `rendered-context/archive`
