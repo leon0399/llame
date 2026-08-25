@@ -1,5 +1,43 @@
 ## MODIFIED Requirements
 
+### Requirement: Server-authored context is injected as discrete items on one rail
+
+Every server-authored contribution to a chat's model-visible conversation that is not part of the system prompt SHALL be injected as a **context item** on one rail. An item SHALL be rendered inside a single canonical `<system-reminder>` envelope, and SHALL NOT introduce a top-level delimiter name of its own.
+
+A materialized compaction checkpoint SHALL remain a rail context item with producer `compaction` and form `checkpoint` for envelope and Run-receipt semantics. Its durable representation SHALL be the storage exception: a user-role replacement-history UI message containing one ordinary text part with the complete final canonical envelope, not a persisted `data-context` part. `model-system-prompts` SHALL own that storage and replay contract.
+
+The wire role SHALL remain `user`. A provider-level role for injected context SHALL NOT be invented, and items SHALL NOT be emitted as additional conversation messages of their own where a message already exists to carry them: items attached to a turn SHALL be carried inside that turn's triggering user message.
+
+Each item SHALL occupy its **own text content block** within that message rather than being concatenated with another item or with the user's text. The separation between server-authored content and user-authored content SHALL therefore be structural rather than a textual convention that user input can imitate.
+
+#### Scenario: Two items are injected on one turn
+
+- **WHEN** two context items are injected before a user's message
+- **THEN** each renders in its own `<system-reminder>` envelope in its own text content block
+- **AND** the user's visible text occupies a further block in the same message
+- **AND** no additional conversation message is created
+
+#### Scenario: A turn carries no injected item
+
+- **WHEN** a turn has no context item to inject
+- **THEN** the user message carries only the user's visible text
+- **AND** its serialized form is unchanged from a turn that predates this capability
+
+#### Scenario: An item is not attached to a turn
+
+- **WHEN** an item's producer has no triggering user message to attach to
+- **THEN** the item is carried by the message its producer already owns
+- **AND** it uses the same envelope, framing, and vocabulary as an attached item
+
+#### Scenario: A compaction checkpoint replaces history
+
+- **WHEN** compaction materializes replacement history for a superseded prefix
+- **THEN** its first record is a user-role UI message containing one ordinary
+  text part with the complete final checkpoint envelope
+- **AND** the envelope and Run receipt retain producer `compaction` and form
+  `checkpoint`, while the stored record is not a `data-context` part and replays
+  without metadata reconstruction
+
 ### Requirement: Every item declares metadata and persists its final model-facing text
 
 Each context item SHALL declare the **producer** that authored it and MAY
@@ -24,6 +62,10 @@ retain `data.v: 1`, and carry its complete final model-facing text beneath
 `data.text`. The text SHALL include the canonical envelope, attributes,
 provenance, producer body, and closing delimiter. Writers SHALL require a
 non-empty string.
+
+The materialized compaction checkpoint SHALL retain the same canonical envelope
+and form while using the replacement-history storage exception above. It SHALL
+NOT be rewritten as a `data-context` part merely to preserve its semantic form.
 
 `data.text` SHALL be the sole replay authority. Producer, form, Run linkage,
 and payload SHALL remain non-rendering metadata for validated machine behavior,
@@ -165,10 +207,11 @@ exception pending #599 rather than part of this change.
 - **THEN** later model replay uses each turn's stored parts without injecting
   sender labels
 
-#### Scenario: Assistant output discusses the envelope
+#### Scenario: An assistant turn discusses the envelope
 
 - **WHEN** an assistant turn contains the reserved delimiter as subject matter
-- **THEN** its replayed visible text is not neutralized
+- **THEN** its replayed visible text is byte-identical to what the model produced
+  and is not neutralized
 - **AND** persisted reasoning remains excluded
 
 #### Scenario: A tool result contains an envelope
@@ -177,12 +220,6 @@ exception pending #599 rather than part of this change.
 - **THEN** the `tool-calling` projection neutralizes it under its existing
   contract
 - **AND** this change does not redefine ordinary tool-part persistence
-
-#### Scenario: An assistant turn discusses the envelope
-
-- **WHEN** an assistant turn legitimately contains the reserved delimiter
-- **THEN** its visible replay text is not neutralized
-- **AND** display-only reasoning is still omitted
 
 ### Requirement: An item is either persisted-literal or bind-time
 

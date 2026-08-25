@@ -189,28 +189,33 @@ The row SHALL NOT be placed in the system prompt. A per-turn value ahead of the 
 
 ### Requirement: The row is immutable once written and identical on every replay
 
-The row SHALL be **persisted with the turn it belongs to**, and its stored form SHALL carry the semantics needed to render it — the instant and the timezone it is to be rendered in — so that rendering consults neither the clock nor the process environment.
+The temporal row SHALL be **persisted with the turn it belongs to as its complete final model-facing text block**. The accepted instant and timezone SHALL be validated and formatted before that block is persisted; later replay SHALL consult neither the clock, the process environment, the stored semantic payload, nor the current formatter.
 
-A rendered row SHALL therefore be **byte-identical across every request that replays that turn**, for the life of the turn. This is the property that makes the surface free: no message's serialized form changes between requests, so provider-side prefix caching is unaffected, and history reconstruction reproduces the conversation without a special case.
+The stored row SHALL be byte-identical across every application-level request that replays that turn, for the life of the turn. A later renderer, timezone-database, formatting, or instance-timezone change SHALL affect only rows authored after that change and SHALL NOT retroactively alter an existing row.
 
-A later change to the instance's timezone SHALL NOT retroactively re-render an existing row. The row records how that turn was stated at the time, which remains true.
+#### Scenario: A conversation is replayed after a formatter change
+
+- **WHEN** a later release changes temporal formatting or reminder wording and replays an existing chat
+- **THEN** every existing row uses its persisted complete text unchanged
+- **AND** only newly accepted turns use the new rendering
 
 #### Scenario: A conversation is replayed
 
-- **WHEN** a request is assembled for a chat whose turns each carry a row
-- **THEN** every row renders exactly as it did when the turn was new
-- **AND** no row's text depends on when the replay happened
+- **WHEN** a request is assembled for a chat whose turns each carry a persisted
+  row
+- **THEN** every row replays exactly as it was authored
+- **AND** no row's text depends on when or by which release the replay happens
 
 #### Scenario: The instance timezone changes
 
 - **WHEN** the instance is reconfigured to a different timezone and an existing chat continues
-- **THEN** existing rows render unchanged
+- **THEN** existing rows replay unchanged
 - **AND** only turns received after the change carry the new timezone
 
 #### Scenario: A chat is forked
 
-- **WHEN** a chat is forked, copying its turns
-- **THEN** the copied turns carry their original rows
+- **WHEN** an owner forks a chat and its private turns are copied
+- **THEN** the copied turns carry their original persisted rows
 - **AND** the rows state when the original turns were received
 
 ### Requirement: The row states receipt, and only the anchor and the newest row approximate the present
@@ -236,23 +241,23 @@ The row SHALL be rendered entirely from values the system itself authored. It th
 
 ### Requirement: Temporal readings share one format, and the system's own readings share one timezone
 
-The row SHALL use the same rendered shape as the anchor: absolute, carrying a numeric UTC offset, and accompanied by the IANA identifier of the zone it is expressed in. Offset and identifier SHALL be produced from a single formatting operation over one instant, so the two cannot disagree.
+At authoring time, the row SHALL use the same rendered shape as the anchor: absolute, carrying a numeric UTC offset, and accompanied by the IANA identifier of the zone it is expressed in. Offset and identifier SHALL be produced from a single formatting operation over one accepted instant, so the two cannot disagree.
 
-The row and the anchor SHALL be expressed in the **instance's own local timezone**, resolved once where the turn is accepted and carried with the row thereafter. Rendering SHALL NOT re-resolve it, so a process that renders a conversation cannot disagree with the process that accepted it.
+The row and the anchor SHALL be expressed in the **instance's own local timezone** resolved where the turn is accepted. The complete row text SHALL then be persisted. Replay SHALL NOT re-resolve the timezone or reformat the instant, so a later process cannot disagree with the process that accepted the turn.
 
-A further temporal reading — a reading of the same instant in a user's stored timezone — SHALL be an additional labeled line of the same row, rendered from the same stored instant. A second temporal block SHALL NOT be introduced.
+A future temporal reading of the same instant in a user's stored timezone SHALL be an additional labeled line authored within the same persisted row. A second temporal block SHALL NOT be introduced, and the new line SHALL apply only to rows authored after that capability exists unless an explicit data transition says otherwise.
 
 #### Scenario: The instance runs in a non-UTC timezone
 
 - **WHEN** a turn is accepted on an instance whose local timezone is not UTC
-- **THEN** its row is expressed in that timezone with that zone's numeric offset for that instant and that zone's IANA identifier
-- **AND** it matches the shape the anchor renders
+- **THEN** its persisted row is expressed in that timezone with that zone's numeric offset for that instant and that zone's IANA identifier
+- **AND** later replay uses the persisted row without another timezone calculation
 
 #### Scenario: A further reading is added later
 
-- **WHEN** a further temporal reading is introduced
-- **THEN** it renders as another labeled line of the same row, from the same stored instant
-- **AND** no second temporal block appears in the conversation
+- **WHEN** a later release introduces a further temporal reading
+- **THEN** newly authored rows render it as another labeled line of the same persisted block
+- **AND** existing rows remain unchanged and no second temporal block appears
 
 ### Requirement: Rows are superseded with the turns they annotate
 
@@ -274,15 +279,23 @@ No exclusion instruction SHALL be added to compaction on the row's behalf. The r
 
 ### Requirement: Only the system may author a temporal row
 
-A temporal row SHALL be authored exclusively from server-derived state, in the same transaction that persists the turn. A client-supplied part shaped like a temporal row SHALL be discarded rather than persisted or rendered, consistent with the rail's treatment of every other item.
+A temporal row SHALL be authored exclusively from server-derived state, in the same transaction that persists the turn. Request validation SHALL reject an entire client message containing a context-item-shaped part before database work. A direct service caller that bypasses request validation SHALL have the forged part discarded while remaining user text retains its order; if no user text remains, the message SHALL be rejected before database work.
 
 A temporal row SHALL NOT be exposed through a public share, a fork read by a non-owner, an ordinary transcript export, or a search projection, consistent with the existing egress allowlist for those surfaces.
 
 #### Scenario: A client submits a temporal row
 
 - **WHEN** a client posts a message containing a part shaped like a temporal item
-- **THEN** the part is discarded
-- **AND** the persisted turn carries only the server-authored row
+- **THEN** request validation rejects the entire message
+- **AND** no client-authored part or user turn is persisted
+
+#### Scenario: A direct service caller supplies a temporal row
+
+- **WHEN** a direct service caller bypasses request validation and supplies a
+  temporal-item-shaped part alongside user text
+- **THEN** the forged part is discarded while the remaining user text retains
+  its order
+- **AND** only server-derived state can author the persisted temporal row
 
 #### Scenario: A conversation is read publicly
 
