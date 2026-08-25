@@ -93,6 +93,17 @@ Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in pr
   workspace.
 - Tests follow [docs/testing.md](docs/testing.md): `*.test.ts(x)` is Vitest everywhere (`.integration` infix = needs real Postgres; root `e2e/` is Playwright's island); component behavior belongs in Storybook stories, not jsdom render tests; DB-backed suites fail loudly, never skip silently.
 - UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).
+- **Conversation replay is lossless by default.** Before appending context for a
+  new turn, replay every prior model-visible conversation content block that the
+  model received or produced byte-for-byte and in its stored order. Persist the
+  final model-facing form; never rebuild historical blocks through current
+  renderers, schemas, formatters, sanitizers, or ordering rules. The only
+  deliberate rewrite boundaries are the current top-level system prompt, which
+  is not message history and may change with the selected model or effective
+  context, and compaction, which may replace only the prefix it explicitly
+  supersedes. Any other transformation, omission, normalization, projection, or
+  provider-portability exception is a contract change: stop, surface the
+  conflict, and specify it explicitly rather than silently mutating history.
 
 ## Storybook MCP tools
 
