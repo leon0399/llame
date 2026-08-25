@@ -33,21 +33,34 @@ declare global {
  * Hand-off, whichever comes first:
  * - ChatLoadOlder's mount layout effect calls `window.__llameChatPinStop`
  *   once React owns scroll positioning;
- * - any user scroll intent (wheel / touch / keys) stops the pinning and sets
- *   `window.__llameChatPinEscaped`, so React skips its initial bottom pin;
+ * - user scroll intent (wheel / touch / scroll keys outside a text field)
+ *   stops the pinning and sets `window.__llameChatPinEscaped`, so React
+ *   skips its initial bottom pin — typing in the autofocused composer does
+ *   not count;
  * - a hard timeout, so a hydration failure can never leave a page that
  *   fights manual scrolling forever.
  */
 export const PREHYDRATION_PIN_SCRIPT = `(() => {
   var stopped = false;
   var observer = new MutationObserver(pin);
+  var SCROLL_KEYS = {
+    PageUp: 1, PageDown: 1, Home: 1, End: 1, " ": 1,
+    ArrowUp: 1, ArrowDown: 1
+  };
   function stop() {
     if (stopped) return;
     stopped = true;
     observer.disconnect();
     removeEventListener("wheel", onUserEscape, true);
     removeEventListener("touchstart", onUserEscape, true);
-    removeEventListener("keydown", onUserEscape, true);
+    removeEventListener("keydown", onKeyEscape, true);
+  }
+  function onKeyEscape(event) {
+    var target = event.target;
+    var tag = target && target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || (target && target.isContentEditable)) return;
+    if (!SCROLL_KEYS[event.key]) return;
+    onUserEscape();
   }
   function onUserEscape() {
     window.__llameChatPinEscaped = true;
@@ -67,7 +80,7 @@ export const PREHYDRATION_PIN_SCRIPT = `(() => {
   }
   addEventListener("wheel", onUserEscape, true);
   addEventListener("touchstart", onUserEscape, true);
-  addEventListener("keydown", onUserEscape, true);
+  addEventListener("keydown", onKeyEscape, true);
   observer.observe(document.documentElement, { childList: true, subtree: true });
   window.__llameChatPinStop = stop;
   setTimeout(stop, 10000);

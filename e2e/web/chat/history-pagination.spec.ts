@@ -65,6 +65,7 @@ function topOfMessage(page: Page, key: string) {
 test.describe("chat history pagination (#187)", () => {
   test("opens on the newest window and loads older pages on upward scroll", async ({
     page,
+    account,
   }) => {
     test.setTimeout(120_000);
 
@@ -83,7 +84,7 @@ test.describe("chat history pagination (#187)", () => {
     const chatId = new URL(page.url()).pathname.split("/").at(-1);
     if (!chatId) throw new Error("chat id missing from URL");
 
-    seedMessages(chatId, SEEDED_COUNT);
+    seedMessages(chatId, SEEDED_COUNT, account.id);
 
     await page.reload();
     const log = page.getByRole("log");

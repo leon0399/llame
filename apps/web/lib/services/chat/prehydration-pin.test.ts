@@ -59,17 +59,41 @@ describe("PREHYDRATION_PIN_SCRIPT", () => {
     expect(window.__llameChatPinEscaped).toBeUndefined();
   });
 
-  it("pins the scroller matching CHAT_SCROLLER_SELECTOR until stopped", () => {
+  it("escapes on scroll keys, not composer typing", () => {
+    mountScroller();
+    runScript();
+
+    const textarea = document.createElement("textarea");
+    document.body.append(textarea);
+    textarea.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "a", bubbles: true }),
+    );
+    expect(window.__llameChatPinEscaped).toBeUndefined();
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+    );
+    expect(window.__llameChatPinEscaped).toBe(true);
+  });
+
+  it("pins the scroller matching CHAT_SCROLLER_SELECTOR until stopped", async () => {
     const scroller = mountScroller();
     runScript();
 
     expect(document.querySelector(CHAT_SCROLLER_SELECTOR)).toBe(scroller);
     expect(scroller.scrollTop).toBe(2000);
 
+    // Positive: a mutation before escape re-pins.
+    scroller.scrollTop = 50;
+    document.body.append(document.createElement("div"));
+    await Promise.resolve();
+    expect(scroller.scrollTop).toBe(2000);
+
     scroller.scrollTop = 100;
     window.dispatchEvent(new Event("wheel", { bubbles: true }));
     // A later mutation must not re-pin after user escape.
     document.body.append(document.createElement("div"));
+    await Promise.resolve();
     expect(scroller.scrollTop).toBe(100);
   });
 });
