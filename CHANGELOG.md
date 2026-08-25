@@ -50,8 +50,24 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   that request deliberately reproduces the finished turn's prompt to land on
   the provider's still-warm prompt cache, and a differing effort would
   invalidate it. Title generation runs on a separately configured model with no
-  shared prefix and sends none. No UI ships in this release, and sampling
-  parameters (`temperature`, `topP`, `topK`) remain unsupported.
+  shared prefix and sends none. Sampling parameters (`temperature`, `topP`,
+  `topK`) remain unsupported.
+
+- **Reasoning effort in the chat UI**: the composer gains an effort control
+  beside the model picker for a model that declares a vocabulary, and renders
+  nothing at all for one that does not — the absent declaration is the API
+  saying that model takes no effort, so a disabled or empty cell would misstate
+  it. Levels appear verbatim as the operator configured them, on a slider
+  rather than a dropdown, because the declared order is the only scale the
+  contract exposes and a client may derive no meaning, magnitude, or ordering
+  from a level's text; the ends of the scale are labelled by the trade-off
+  (Faster / Smarter) rather than by the extreme levels, which are per-model.
+  Switching models re-seeds the selection from the new model's own
+  `defaultEffort` instead of keeping the previous position, since position
+  carries no meaning across vocabularies. The level rides with the send and is
+  read back afterwards beside the model it ran on, in the per-turn badge, the
+  usage hover card, and the effective-context sidebar. Changing effort can cost
+  a prompt-cache re-read; no warning is surfaced for that yet (#593).
 
 - Bumped the AI SDK v6 line: `ai` 6.0.217 → 6.0.256, `@ai-sdk/openai`
   3.0.79 → 3.0.97, `@ai-sdk/react` 3.0.219 → 3.0.259, `@ai-sdk/mcp`
