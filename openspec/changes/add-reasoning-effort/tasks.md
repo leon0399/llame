@@ -32,49 +32,49 @@ layer alone would put master in a state that violates the
 
 ## 1. Model catalog declares an effort vocabulary — `effort/config`
 
-- [ ] 1.1 Add the `reasoning` object to `$defs.modelEntry` in
+- [x] 1.1 Add the `reasoning` object to `$defs.modelEntry` in
       `apps/api/src/instance-config/llame.config.schema.json` (`effortLevels`:
       non-empty string array, `uniqueItems`, items `minLength: 1` and **no
       `pattern`**; `defaultEffort`: non-empty string, required alongside
       `effortLevels`; `cacheInvalidatedByEffortChange`: boolean) and **remove**
       the `reasoning` boolean; verify a config setting `reasoning: true` fails
       `assertValidRaw` naming the model, and one setting a valid object passes.
-- [ ] 1.2 Replace `reasoning?: boolean` with the object type on `RawModelEntry`
+- [x] 1.2 Replace `reasoning?: boolean` with the object type on `RawModelEntry`
       (`instance-config/llame-config.ts`) and `PublicModelCatalogEntry`
       (`models/model-catalog.ts`); verify `pnpm --filter api build` typechecks
       and that `toPublicModel` still passes the object through without listing
       it.
-- [ ] 1.3 Add cross-field boot validation in `config-loader.ts`:
+- [x] 1.3 Add cross-field boot validation in `config-loader.ts`:
       `defaultEffort` must be a member of the same entry's `effortLevels`;
       verify unit tests cover a valid entry, a non-member default, a missing
       default with levels present, an empty level list, a duplicate level, and a
       blank level — each failure naming the model id.
-- [ ] 1.4 Confirm no level is normalized, lowercased, sorted, deduplicated, or
+- [x] 1.4 Confirm no level is normalized, lowercased, sorted, deduplicated, or
       pattern-checked on load; verify a test asserts that an operator-authored
       order, a mixed-case token, and a token containing `-` or `_` all survive
       round-trip through `InstanceConfigService` byte-identically.
 
 ## 2. Publish the contract — `effort/config`
 
-- [ ] 2.1 Update `AvailableModelResponse.reasoning` in
+- [x] 2.1 Update `AvailableModelResponse.reasoning` in
       `apps/api/src/models/dto` to the object with Swagger metadata, describing
       `effortLevels` as ordered opaque identifiers rather than display strings;
       verify `GET /api/v1/models` returns the object for a declaring model and
       omits the key entirely for a non-declaring one (no `null`, no empty
       object).
-- [ ] 2.2 Regenerate `apps/api/openapi.json` (`pnpm --filter api build`) and the
+- [x] 2.2 Regenerate `apps/api/openapi.json` (`pnpm --filter api build`) and the
       committed Orval bindings (`pnpm --filter web api:generate` or the
       equivalent script); verify
       `apps/web/lib/api/generated/models/availableModelResponse.ts` carries the
       object and `pnpm --filter web build` passes.
-- [ ] 2.3 Update `apps/api/llame.config.json.example` and the operator
+- [x] 2.3 Update `apps/api/llame.config.json.example` and the operator
       documentation that shows a `models[]` entry; verify `pnpm lint:markdown`
       passes and the example config boots.
-- [ ] 2.4 Record this layer's breaking config change in `CHANGELOG.md` — the
+- [x] 2.4 Record this layer's breaking config change in `CHANGELOG.md` — the
       repo rule is that the PR shipping the work carries the entry, and an
       operator whose config still sets `reasoning: true` cannot start; verify
       `pnpm lint:markdown` passes.
-- [ ] 2.5 Layer gate: run
+- [x] 2.5 Layer gate: run
       `pnpm exec turbo run build --filter=api --concurrency=1`,
       `pnpm --filter api lint`, `pnpm --filter api test`, and
       `pnpm --filter web build`; verify all pass before opening the
