@@ -114,6 +114,7 @@ describe("trusted model-context projection", () => {
         fromModelId: "system:openai:model-a",
         toModelId: "custom:anthropic:model-b",
       },
+      text: '<system-reminder producer="effective-context-change" form="notice">model changed</system-reminder>',
     },
   };
 
@@ -139,16 +140,16 @@ describe("trusted model-context projection", () => {
     ).toBeNull();
   });
 
-  it("accepts rendered text without hiding metadata-only switch boundaries", () => {
-    const renderedPart = {
+  it("keeps metadata-only historical switch boundaries owner-visible", () => {
+    const { v, producer, form, runId, payload } = switchPart.data;
+    const metadataOnlyPart = {
       ...switchPart,
-      data: {
-        ...switchPart.data,
-        text: '<system-reminder producer="effective-context-change" form="notice">model changed</system-reminder>',
-      },
+      data: { v, producer, form, runId, payload },
     };
 
-    expect(modelSwitchPart({ parts: [renderedPart] })).toEqual(renderedPart);
+    expect(modelSwitchPart({ parts: [metadataOnlyPart] })).toEqual(
+      metadataOnlyPart,
+    );
     expect(
       modelSwitchPart({
         parts: [{ ...switchPart, data: { ...switchPart.data, text: "" } }],

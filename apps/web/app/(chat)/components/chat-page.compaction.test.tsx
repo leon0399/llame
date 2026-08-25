@@ -402,6 +402,7 @@ describe("ChatPage — model context transparency", () => {
                 fromModelId: "model-a",
                 toModelId: "model-b",
               },
+              text: '<system-reminder producer="effective-context-change" form="notice">model changed</system-reminder>',
             },
           },
           { type: "text", text: "Triggering request" },
@@ -450,6 +451,7 @@ describe("ChatPage — model context transparency", () => {
             fromModelId: "model-a",
             toModelId: "model-b",
           },
+          text: '<system-reminder producer="effective-context-change" form="notice">model changed</system-reminder>',
         },
       },
       {
@@ -460,6 +462,7 @@ describe("ChatPage — model context transparency", () => {
           form: "notice",
           runId,
           payload: { kind: "delta", added: [], removed: [] },
+          text: '<system-reminder producer="tool-availability" form="notice">tools changed</system-reminder>',
         },
       },
       {
@@ -480,6 +483,7 @@ describe("ChatPage — model context transparency", () => {
             ],
             pinChanges: [],
           },
+          text: '<system-reminder producer="recency-digest" form="notice">another chat exists</system-reminder>',
         },
       },
       // A producer this build does not recognize. Under the old per-type
@@ -493,6 +497,7 @@ describe("ChatPage — model context transparency", () => {
           form: "notice",
           runId,
           payload: { anything: true },
+          text: '<system-reminder producer="from-a-newer-api" form="notice">future context</system-reminder>',
         },
       },
     ];
@@ -515,6 +520,10 @@ describe("ChatPage — model context transparency", () => {
     // The digest's own content is prompt-side only; it must never surface as
     // chat content the owner reads back.
     expect(screen.queryByText(/Another chat/)).toBeNull();
+    expect(
+      screen.queryByText(/tools changed|another chat exists|future context/i),
+    ).toBeNull();
+    expect(screen.queryByText(/<system-reminder/)).toBeNull();
   });
 
   it("shows a run receipt action on a same-model assistant turn without inventing a switch boundary", () => {

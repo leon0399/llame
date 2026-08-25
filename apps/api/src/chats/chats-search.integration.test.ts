@@ -158,11 +158,13 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
               v: 1,
               producer: 'effective-context-change',
               form: 'notice',
-              payload: { cause: 'model' },
-              fromModelId: 'zzprevmodelquartz',
-              toModelId: 'zzcurrentmodelvelvet',
               runId: '11111111-1111-4111-8111-111111111111',
-              generatedReminderFixture: 'zzreminderprosecobalt',
+              payload: {
+                cause: 'model',
+                fromModelId: 'zzprevmodelquartz',
+                toModelId: 'zzcurrentmodelvelvet',
+              },
+              text: '<system-reminder>zzreminderprosecobalt</system-reminder>',
             },
           },
           {
@@ -171,19 +173,21 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
               v: 1,
               producer: 'tool-availability',
               form: 'notice',
-              kind: 'delta',
               runId: '22222222-2222-4222-8222-222222222222',
-              added: [],
-              removed: ['zzremovedtoolscarlet'],
-              unavailable: [
-                {
-                  id: 'zzunavailabletoolazure',
-                  reason: 'source_disconnected',
-                },
-              ],
-              becameUnavailable: [],
-              nowAvailable: [],
-              generatedReminderFixture: 'zzavailabilityreminderbronze',
+              payload: {
+                kind: 'delta',
+                added: [],
+                removed: ['zzremovedtoolscarlet'],
+                unavailable: [
+                  {
+                    id: 'zzunavailabletoolazure',
+                    reason: 'source_disconnected',
+                  },
+                ],
+                becameUnavailable: [],
+                nowAvailable: [],
+              },
+              text: '<system-reminder>zzavailabilityreminderbronze</system-reminder>',
             },
           },
           {
