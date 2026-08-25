@@ -1,39 +1,61 @@
 ## Context
 
-See proposal.md — Why. The current `data-context` part stores `{ v, producer, form, runId, payload }`; request assembly validates that semantic payload, dispatches to the current producer renderer, wraps the result in the current shared envelope, sorts the resulting items through the current producer list, and records the resulting text separately on the Run. The Run record is already an exact historical audit artifact, but it is not message-addressable replay state and is written only after the final request is prepared.
+`messages.parts` already stores AI SDK UI-message-shaped parts. The defect is
+not the use of parts; it is replay-time authorship. A stored `data-context` part
+currently contains `{ v, producer, form, runId, payload }`, and request assembly
+uses today's renderer, sanitizer, and ordering rules to reconstruct model text.
+The same class of reconstruction exists around user text, sender attribution,
+and compacted tool observations.
 
-The message `parts` column is unconstrained JSONB, while `data-*` UI parts conventionally keep their payload beneath `data`. Compactions are separate first-class rows: `summary` is needed for lineage, UI, and subsequent compaction, but the complete checkpoint envelope is currently regenerated from it on every request.
+The target invariant is application-level and best-effort: given stored
+application/UI parts, later turns preserve prior model-bearing content and
+order before appending new context. It does not promise provider-wire byte
+identity. AI SDK/provider serialization can evolve, and the existing assistant
+tool projector remains an explicit exception pending #599 because stored tool
+parts do not currently prove multi-step boundaries.
 
-Server-authored message-part changes are coordinated API/worker revision boundaries. Client message DTOs admit text parts only, direct service callers are sanitized, public shares and search omit context parts, and the owner UI reads structured model-switch metadata while hiding all context parts from the ordinary transcript.
+Compactions are separate first-class rows. Their raw `summary` is needed for UI
+and recursive summarization. Their replay form, however, must be stored as a
+complete replacement for the superseded prefix, not reconstructed from summary
+plus a semantic tool ledger.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Make a post-cutover context item's application-level text block and its position immutable for its lifetime.
-- Keep structured metadata available without letting it become a second replay authority.
-- Preserve active legacy compaction summaries without backfilling historical data.
-- Keep client forgery, public egress, search exclusion, owner-only Run records, transition compaction, and model-switch UI behavior intact.
-- Make future producer additions generic on the read path after the versioned cutover.
+- Persist final server-authored reminder text and author-time order.
+- Make replay a content-transparent conversion from stored UI parts into the
+  AI SDK input vocabulary.
+- Sanitize user text once, before persistence.
+- Materialize every new compaction's complete replacement history, including
+  bounded compacted tool observations.
+- Preserve existing owner/private, public-egress, search, and RLS boundaries.
 
 **Non-Goals:**
 
-- Byte stability of the entire provider request. User-text neutralization, sender attribution, tool-observation projection, SDK/provider serialization, and effective system prompts retain their existing lifecycles.
-- Enforcing the repository-wide lossless-replay invariant for every existing non-context-item projection. This slice makes context items and checkpoints comply; any remaining transformation is a separate explicit contract conflict rather than an implied exception.
-- Backfilling, reshaping, or deleting existing data-only context parts.
-- Removing producer payloads or redesigning the owner model-switch boundary.
-- Introducing a generic historical-message mutation or revocation framework.
-- Making context-item text visible in ordinary transcripts, public shares, exports, or search.
+- Provider-wire or provider-cache byte guarantees.
+- A second `model_messages` transcript or any duplicate per-message history.
+- Backfilling existing metadata-only reminder parts.
+- Supporting old compaction rows or mixed application revisions.
+- Redesigning ordinary assistant/tool persistence in this change; #599 owns
+  that research.
+- Replaying reasoning, source display parts, cap notices, provider signatures,
+  or other declared display-only artifacts.
+- Closing #154. This proposal only records the replacement-history shape that
+  future private fork work must preserve.
 
 ## Decisions
 
-**Use a versioned AI-SDK data part with literal text inside `data`.** New parts use the existing `type: 'data-context'` discriminator and a new envelope revision:
+### Keep `data-context` v1 and add required final text
+
+New server-authored context parts use the existing SDK-conventional data-part
+shape:
 
 ```ts
 type PersistedContextItemPart = {
   type: "data-context";
   data: {
-    v: 2;
+    v: 1;
     producer: string;
     form?: string;
     runId: string;
@@ -43,53 +65,179 @@ type PersistedContextItemPart = {
 };
 ```
 
-`data.text` contains the complete final text block, not merely the producer body: opening tag and attributes, core provenance line, producer framing/body, and closing tag. Keeping `text` beneath `data` follows the SDK's `data-*` part shape and avoids inventing a hybrid text/data part. Alternative — a top-level `text` field — has no behavioral gain and makes web/UI typing less conventional. Alternative — replacing metadata with a text-only part — breaks model-switch UI and transition-compaction detection and forces control behavior into string parsing.
+Writers require `data.text` to be non-empty and store the complete final block,
+including the opening and closing `<system-reminder>` delimiters. Readers keep
+whitespace-only text verbatim, filter only the empty string, and do not trim or
+normalize surviving content.
 
-**Text and metadata have disjoint authority.** `data.text` alone controls model replay. `producer`, `form`, `runId`, and `payload` control classification, owner UI, transition-compaction gating, receipt labels, and diagnostics only. Replay validates the v2 core shape and uses `text` without producer dispatch. A producer-specific consumer validates its payload before acting; an invalid or unknown payload cannot make the replay path reinterpret text. A mismatch is possible only through a defect or storage corruption; the model receives `text`, while machine behavior fails closed against invalid metadata.
+There is no v2 compatibility protocol. The product is in alpha preview; the
+new v1 shape is the only supported writer contract. Historical rows lacking
+`data.text` remain valid stored UI data but are not model-bearing. They are
+omitted without regenerating text from metadata.
 
-Alternative — re-render and compare at replay — recreates the defect: the comparison changes whenever legitimate wording changes. A text hash proves storage integrity only against itself and adds no useful coherence check, so none is stored.
+Keeping text beneath `data` matches AI SDK `data-*` parts and retains metadata
+needed by owner UI and machine behavior. A hybrid top-level `text` field adds no
+value. A text-only stored part would discard model-switch and provenance data.
 
-**Render, neutralize, frame, and order exactly once in the accepting API.** Producer factories still accept typed semantic input and validate it. They immediately generate the complete block and return v2 metadata plus text. The chat binder builds the parts array in canonical producer order before the user-message/Run/snapshot transaction commits. The worker preserves array order and converts each v2 block directly to one provider text-content block. It does not sort context parts or call producer renderers.
+### Text and metadata have disjoint authority
 
-This moves the trust boundary: recency titles/excerpts and any future untrusted producer inputs must be neutralized before persistence. A later sanitizer correction does not silently rewrite history. If a security defect requires historical correction, it needs an explicit reviewed data transition whose cache and conversation-integrity consequences are visible.
+`data.text` alone controls replay. `producer`, `form`, `runId`, and `payload`
+remain available for validated machine behavior, owner UI, provenance, and
+diagnostics. If they disagree, the model receives `data.text`; the system never
+parses or regenerates text to reconcile the mismatch.
 
-Alternative — keep replay-time sanitization around already-rendered text — makes exactness conditional on the sanitizer version and risks corrupting legitimate envelope markup. Alternative — retain semantic rendering but version every renderer forever — couples replay to an unbounded renderer archive, runtime timezone data, and historical bugs.
+An unknown producer or form does not block a structurally valid non-empty text
+value from replay. Producer-specific machine behavior still validates its own
+metadata and fails closed independently.
 
-**Stored array order is historical authority.** The fixed precedence list remains the authoring rule. Replay no longer sorts. This is necessary because changing the list or teaching a worker a new producer must not reorder prior content blocks. The API already emits current producers in canonical order, so retaining a second sort in the worker buys no correctness and creates drift.
+### Author once, then preserve parts and order
 
-**Keep v1 parts stored but inert.** A v1 semantic-only `data-context` part contributes no block after cutover and is recorded as an empty contribution in later Run context records. There is no cleanup migration, backfill, current-renderer fallback, or compatibility renderer for message parts. The owner UI must accept both versions long enough to hide both safely; only v2 switch parts can power the structured boundary after cutover unless an existing v1 boundary is deliberately retained as display-only parsing.
+The accepting API validates producer inputs, neutralizes any untrusted values,
+renders the complete reminder, and persists it in the canonical producer order
+before the user-message/Run/snapshot transaction commits. Retries and workers
+receive that stored form.
 
-Alternative — rewriting v1 parts with today's text — falsely asserts that today's renderer was what prior Runs saw. Alternative — deleting v1 parts — destroys audit/provenance data without reducing read complexity, because the version discriminator already handles it.
+At the AI SDK transition, each non-empty `data-context.data.text` is mapped in
+place to:
 
-**Persist complete checkpoint text separately from raw compaction summary.** Add nullable `compactions.model_text`. Every new compaction writes non-empty `summary` and the complete rendered checkpoint to `model_text` atomically. Context assembly uses `model_text` verbatim when present. `summary` remains unchanged because it is the owner-visible and lineage/composition artifact; storing only the envelope would force later compaction to parse model-facing framing back out.
+```json
+{ "type": "text", "text": "<system-reminder>...</system-reminder>" }
+```
 
-Existing rows have `model_text = NULL` and use the current legacy checkpoint renderer until superseded. This is the one explicit legacy exception. Dropping such a checkpoint would remove all history through `upto_seq`; backfilling it would claim an invented historical projection. A later compaction consumes the legacy projection during summarization and creates a new row with literal `model_text`.
+Other model-bearing parts retain their stored order and are handed to the SDK
+as parts. The application does not concatenate them into one string or re-sort
+context items through the current producer precedence list. Empty context text
+is omitted; all surviving parts replay verbatim.
 
-Alternative — use `runs.context_items` as checkpoint storage — is rejected: the blob describes an entire request, has no stable per-message/per-compaction association, may not exist before execution, and can be replaced when transition compaction rebuilds the request.
+The SDK remains responsible for converting UI messages/parts into provider
+model messages. Therefore this contract protects application content and
+ordering, not SDK-generated role grouping or provider serialization.
 
-**Run records remain a separate exact audit artifact.** Context assembly returns `RunContextItem` entries by copying v2 `data.text`, by capturing the chosen legacy checkpoint rendering, and by recording empty text for omitted v1 message parts. After transition compaction, the rebuilt request replaces this list exactly as today. The executor writes the final list only after request preparation succeeds. This duplication is intentional: the message/compaction record is replay authority; the Run row says what a particular inference actually received.
+### Sanitize user text before persistence
 
-**Preserve current egress and ownership rules.** Owner-authenticated message responses may carry v2 metadata and text because the owner already receives private parts; the web client must swallow every `data-context` version generically and inspect only validated v2 model-switch metadata. Public-share DTOs, shared forks, ordinary exports, list excerpts, and search projections continue to select visible `type: 'text'` content only. Private owner forks copy the complete part verbatim, including original Run linkage, matching the current temporal-row behavior.
+Every submitted user text part is neutralized before it is stored. The stored
+part boundaries and order are retained. Request assembly does not sanitize,
+prefix sender ids, join parts, or otherwise rewrite them later.
 
-**The guarantee stops at application-level context blocks.** Tests freeze `ModelMessage` content-block text and order across an intentional renderer change. They do not assert provider-wire identity. Provider adapters may still change serialization, and other replay projections may still evolve. Documentation and test names must not inflate this bounded guarantee into whole-request cache stability.
+Assistant output is not sanitized. Reasoning remains persisted for display but
+is excluded from model replay. Existing accepted messages are assumed to carry
+at least one part; no new empty-message policy is added.
+
+This changes storage semantics for user text: the database contains the safe
+application form rather than the original unsanitized submission. That is
+intentional; retaining both would duplicate data and create competing replay
+authorities.
+
+### Store compaction as message-shaped replacement history
+
+Replace `tool_observation_ledger` with a required JSONB
+`replacement_history`. It uses the same application/UI part vocabulary as
+ordinary stored messages:
+
+```ts
+type CompactionReplacementMessage = {
+  role: "user" | "assistant";
+  parts: MessagePart[];
+};
+
+type PersistedCompaction = {
+  summary: string;
+  replacementHistory: CompactionReplacementMessage[];
+};
+```
+
+Every new ordinary or transition compaction atomically stores a non-empty raw
+`summary` and a non-empty `replacementHistory`. The first record is one user
+message with one text part containing the complete final compaction reminder:
+
+```json
+{
+  "role": "user",
+  "parts": [
+    {
+      "type": "text",
+      "text": "<system-reminder>...complete summary checkpoint...</system-reminder>"
+    }
+  ]
+}
+```
+
+Subsequent records contain any retained compacted tool observations. Compaction
+still correlates complete call/result pairs by `toolCallId`, applies the current
+per-pair and total budgets, clears payloads, preserves structured outcome, and
+prefers newer pairs. It then stores the final AI SDK UI `tool-*` part instead of
+storing semantic fields from which a later reader rebuilds that part. Each
+retained pair occupies its own assistant replacement record because current
+stored data does not prove which calls were parallel or where step boundaries
+occurred. A bounded omission marker, when required, is likewise stored as a
+final assistant text record rather than regenerated.
+
+Replay inserts `replacementHistory` before the retained live window and passes
+its records through the same SDK conversion boundary. It does not re-render the
+checkpoint, re-project or re-clear tool observations, recalculate budgets, or
+reorder replacement records.
+
+A later compaction consumes the previous replacement history plus newly
+absorbed live messages, then materializes a wholly new replacement history.
+The raw summary remains separate because recursive summarization and owner UI
+must not parse it back out of the `<system-reminder>` envelope.
+
+There is no legacy fallback and no empty-ledger sentinel. Existing compactions
+are outside the supported alpha contract; the schema/application cutover is a
+single revision.
+
+### Keep Run receipts and egress boundaries separate
+
+`runs.context_items` remains an owner-scoped audit record of what one inference
+received. For a persisted reminder it copies the same stored text used by the
+request. This is not a second transcript: `messages.parts` and compaction
+`replacement_history` are replay authority; the Run record is inference audit
+evidence.
+
+Owner-authenticated message responses return the stored parts array in the same
+order. Context parts remain hidden from ordinary transcript rendering. Public
+shares, shared/public forks, ordinary exports, list excerpts, and search select
+only their existing public-safe content. A private owner fork copies message
+parts wholesale. Future work on #154 must also preserve the applicable
+compaction replacement history rather than reconstructing it.
 
 ## Risks / Trade-offs
 
-- **A historical unsafe block cannot be repaired by a renderer update** → Neutralize and validate before commit; require an explicit reviewed data transition for a security correction instead of a silent replay mutation.
-- **Text and metadata can disagree after corruption or a writer bug** → Generate both in one factory and transaction; make text authoritative for the model and validate metadata independently before machine action. Do not parse one from the other.
-- **Mixed revisions drop v2 items** → Deploy compatible readers/workers before authoring v2, quiesce old API writers, and drain accepted Runs before cutover.
-- **Legacy v1 reminders disappear from future model context** → Accept the bounded loss explicitly, retain rows and prior Run records, and do not misrepresent backfilled prose as historical truth.
-- **Legacy checkpoints remain renderer-mutable** → Restrict the exception to `model_text IS NULL`; every new compaction closes it for the active history without a backfill.
-- **Literal text duplicates semantic payload and Run audit text** → Accept modest JSONB growth in exchange for clear replay and audit authorities; context-item text already consumes provider tokens on every later turn.
-- **Future producer text may be unbounded** → Keep producer-specific validation and bounding at authoring; this change does not introduce a generic truncation policy.
+- **Stored unsafe text no longer changes when a sanitizer is fixed.** Validate
+  and neutralize before persistence. A historical security correction requires
+  an explicit reviewed data transition, not a silent renderer update.
+- **Text and metadata can disagree after a defect or corruption.** Generate
+  both in one transaction; text wins for replay, while metadata consumers
+  validate and fail closed.
+- **Old metadata-only reminders disappear from future model context.** This is
+  accepted. Retaining provenance without inventing historical prose is more
+  honest than backfilling with today's renderer.
+- **The alpha cutover rejects old compactions.** Accepted because there are no
+  known testing-instance compactions and the user explicitly chose one
+  contract. This assumption must be verified before implementation.
+- **Assistant history is not yet a pure SDK conversion.** #599 records the
+  bounded follow-up. Reworking it here without persisted step boundaries would
+  replace one lossy guess with another.
+- **Final tool UI parts duplicate some information summarized in prose.** This
+  is deliberate continuity, bounded to identity/outcome observations. It is
+  not a duplicate full transcript.
 
 ## Migration Plan
 
-1. Land backward-compatible readers, v2 validators/types, nullable `compactions.model_text`, and tests while v1 writers remain active. Readers continue the existing v1 behavior during this preparation release.
-2. Deploy compatible workers everywhere. Verify they can replay v2 text, preserve stored order, and read both nullable checkpoint forms before any API authors v2.
-3. Quiesce old API writers and drain every accepted Run so no old API/new worker or new API/old worker pair crosses the writer boundary.
-4. Deploy the writer cutover: producer factories persist v2 full text, new compactions require `model_text`, and readers switch v1 message parts to inert legacy behavior.
-5. Deploy the web parser in step with the cutover so v2 model-switch metadata remains owner-visible while all context text stays hidden from ordinary transcript rendering.
-6. Verify the database contains no post-cutover v1 parts and no post-cutover compaction with `model_text IS NULL`; do not alter pre-cutover rows.
+This is an alpha hard cutover, not a compatibility rollout:
 
-Rollback: stop v2 authoring and drain accepted Runs before rolling workers or APIs back. V2 parts and `model_text` are additive JSON/column data and remain recoverable. Older workers will ignore v2 parts, so rollback restores service compatibility but may temporarily omit reminders authored during the v2 window; it MUST NOT rewrite them into v1. The nullable column remains in place. Once an older API is active, new compactions may again have `model_text IS NULL`, so reapplying the cutover requires repeating the writer drain and post-cutover invariant check.
+1. Verify the target database contains no compaction rows; stop if that
+   assumption is false.
+2. Change the compaction schema from `tool_observation_ledger` to required
+   `replacement_history` and deploy the matching application revision as one
+   unit. Do not add a null fallback, data-only checkpoint renderer, or ledger
+   compatibility reader.
+3. Cut context writers/readers over together: new v1 parts require final text;
+   existing context parts without text remain stored and replay as nothing.
+4. Verify every new context writer stores non-empty text, every new compaction
+   stores non-empty replacement history, and no replay path invokes a reminder
+   or compaction renderer for stored history.
+
+Rollback is application/schema rollback to the pre-change alpha database
+contract. It does not rewrite newly stored parts or promise cross-version
+readability. Do not run old and new writers/workers concurrently.

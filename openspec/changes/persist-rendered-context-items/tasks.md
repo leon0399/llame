@@ -1,49 +1,104 @@
-## 1. Versioned Context-Part Contract
+## 1. Persisted Context-Part Contract
 
-- [ ] 1.1 Add failing API unit tests for a v2 `data-context` part carrying complete `data.text`, strict core-shape validation, opaque unknown producer/form replay, producer-metadata validation for machine consumers, and inert v1 data-only replay; verify the focused tests fail for the intended missing behavior.
-- [ ] 1.2 Implement the v1/v2 types, validators, and generic literal replay path without changing writers; verify the focused context-item tests pass and existing v1 producer tests remain green during the preparation phase.
-- [ ] 1.3 Add failing context-builder tests proving v2 blocks replay verbatim after producer-renderer wording changes, preserve stored part order without the current producer sort, occupy one content block each, and record empty contributions for v1 parts; verify those regressions fail before the builder change.
-- [ ] 1.4 Update context assembly to copy v2 text and stored order directly into model content and `RunContextItem` records while retaining the preparation-phase v1 behavior behind an explicit cutover boundary; verify the focused context-builder and context-item suites pass.
+- [ ] 1.1 Add failing API tests for the v1 `data-context` shape with complete
+      `data.text`: non-empty text replays verbatim, the empty string is filtered,
+      whitespace-only text survives, metadata-only parts are omitted, unknown
+      producer/form values do not block text replay, and text wins over conflicting
+      metadata.
+- [ ] 1.2 Update context-part types and validators so new server-authored parts
+      require complete text while readers retain metadata-only historical parts
+      without treating them as model-bearing.
+- [ ] 1.3 Add failing context-builder tests proving stored part order survives a
+      renderer/precedence change and each surviving context part becomes one SDK
+      text part without manual concatenation.
+- [ ] 1.4 Replace replay-time rendering, sorting, and metadata fallback with the
+      minimal `data-context` to text-part conversion. Copy the same text into Run
+      context receipts.
 
-## 2. Render-Once Producer Cutover
+## 2. Author-Time Rendering and User Persistence
 
-- [ ] 2.1 Add failing producer tests that require model-switch, availability, recency-digest delta/supersession, and temporal factories to persist the complete canonical envelope plus metadata, including author-time neutralization and truthful `Message received` temporal formatting; verify every producer case fails before writer changes.
-- [ ] 2.2 Refactor producer factories to validate semantic input and render complete v2 text exactly once, retaining the existing payloads only as non-rendering metadata; verify all focused producer tests pass.
-- [ ] 2.3 Add failing chat-binding tests for atomic v2 part persistence, canonical author-time producer order, one temporal row per accepted user turn, and rejection of client-authored v2 parts; verify the tests fail before binder changes.
-- [ ] 2.4 Cut chat binding over to v2 factories and stored order, then switch v1 message parts from preparation compatibility to inert legacy behavior; verify chat-loop unit and integration tests pass for all four attached producers.
-- [ ] 2.5 Add regression coverage proving a private owner fork copies v2 parts byte-for-byte, including original temporal text and Run linkage, while v1 parts remain stored but inert; verify the focused fork integration suite passes.
+- [ ] 2.1 Add failing producer tests requiring model-switch, availability,
+      recency-digest delta/supersession, and temporal factories to persist their
+      complete canonical envelope plus metadata after author-time neutralization.
+- [ ] 2.2 Refactor producer factories to validate semantic input and render
+      complete v1 text exactly once before the accepting transaction commits.
+- [ ] 2.3 Add failing chat-binding tests proving every submitted user text part
+      is sanitized before persistence while part boundaries/order remain intact;
+      replay does not sanitize, join, or prefix sender ids.
+- [ ] 2.4 Move user-text sanitization to the accepting path, remove replay-time
+      sender attribution and sanitization, and pass stored user parts through the
+      SDK conversion boundary.
+- [ ] 2.5 Verify client-authored context parts remain rejected, one temporal part
+      is stored per accepted user turn, and server-authored parts commit atomically
+      in canonical author-time order with the user message, Run, and snapshot.
 
-## 3. Immutable Compaction Checkpoints
+## 3. Materialized Compaction Replacement History
 
-- [ ] 3.1 Add `compactions.model_text` as a nullable text column through the default Drizzle generation path, update schema snapshots/types, and verify `pnpm --filter api db:generate` produces no additional uncommitted schema delta after the migration is applied.
-- [ ] 3.2 Add failing repository and compaction tests requiring every new ordinary and transition compaction to persist non-empty raw `summary` and complete `modelText` atomically while existing rows may remain null; verify the focused tests fail before implementation.
-- [ ] 3.3 Render and persist complete checkpoint text when a compaction row is created, retain raw summary for UI/lineage/later summarization, and verify repository plus full-current and transition-compaction tests pass.
-- [ ] 3.4 Add failing context-builder tests proving non-null `modelText` replays verbatim after checkpoint-renderer changes and null legacy rows continue through the legacy renderer until superseded; verify both paths fail before the read change.
-- [ ] 3.5 Update compaction reads and context assembly to prefer persisted `modelText` with the explicit null fallback, and verify checkpoint placement, retained-history, re-compaction, and Run-record tests pass.
-- [ ] 3.6 Extend migration integration coverage to prove existing compactions remain null and readable, new compactions persist text, no backfill occurs, and tenant RLS remains enforced; verify the focused database integration suite passes.
+- [ ] 3.1 Add failing schema/repository tests for a required JSONB
+      `replacement_history` and removal of `tool_observation_ledger`. Verify the
+      implementation precondition that the target database has no compaction rows;
+      stop rather than inventing a backfill if it does.
+- [ ] 3.2 Generate the Drizzle migration for the hard cutover, update schema
+      types/snapshots, and verify a second generation produces no schema delta.
+- [ ] 3.3 Add failing ordinary and transition-compaction tests requiring one
+      atomic write of non-empty raw `summary` plus non-empty message-shaped
+      replacement history whose first record is the final user-role checkpoint
+      text part.
+- [ ] 3.4 Replace ledger creation with materialization of the final bounded
+      replacement records. Correlate complete pairs by `toolCallId`, preserve the
+      existing pair/total budgets and cleared outcome semantics, store one final
+      AI SDK UI `tool-*` part per assistant record, and store any omission marker as
+      an assistant text record.
+- [ ] 3.5 Add failing replay tests proving replacement records retain stored
+      roles, parts, and order after checkpoint/tool renderers or budgets change;
+      replay performs no rendering, projection, clearing, re-budgeting, or legacy
+      fallback.
+- [ ] 3.6 Update ordinary replay, cache-aligned compaction input, transition
+      compaction, and recursive compaction to consume stored replacement history
+      before the retained live window and to write a wholly new replacement on the
+      next compaction.
+- [ ] 3.7 Preserve RLS and internal-only boundaries for replacement history; it
+      must not enter public DTOs, search indexes, or ordinary exports.
 
-## 4. Execution, Receipts, and Privacy Boundaries
+## 4. Privacy, Fork, and UI Boundaries
 
-- [ ] 4.1 Add failing run-execution tests proving transition-compaction detection still uses validated model-switch metadata while the provider request and `runs.context_items` copy persisted v2 text exactly; verify the tests fail before execution-path changes.
-- [ ] 4.2 Update transition gating and final-request recording for v2 metadata, rebuilt requests, legacy empty contributions, and persisted checkpoint text; verify focused run-execution and context-receipt suites pass.
-- [ ] 4.3 Add failing API projection tests proving owner message responses retain v2 private parts, public shares and shared forks strip all context-item text/metadata, ordinary exports omit them, and list/search projections index only visible text; verify the intended boundary failures before mapper changes.
-- [ ] 4.4 Update API mappers and search/export/fork projections only where the v2 shape requires it, preserving the existing owner/private and datastore isolation boundaries; verify DTO, public-share, fork, search, and cross-tenant negative tests pass.
+- [ ] 4.1 Add failing API projection tests proving owner message responses return
+      stored parts in order, ordinary UI rendering hides context parts, and public
+      shares, public/shared forks, exports, lists, and search expose only their
+      existing public-safe content.
+- [ ] 4.2 Update mappers only where the new required `data.text` field demands
+      it. Keep model-switch metadata owner-visible and context text non-rendered.
+- [ ] 4.3 Add private owner-fork coverage proving message parts are copied
+      wholesale. Do not implement #154's compaction-aware fork behavior in this
+      change; its follow-up must copy applicable replacement history.
+- [ ] 4.4 Verify reasoning, sources, cap notices, provider metadata, and other
+      declared display-only parts remain excluded from model replay.
 
-## 5. Web Compatibility
+## 5. Assistant Projection Follow-up and Product Records
 
-- [ ] 5.1 Add failing web history tests for generic v1/v2 `data-context` swallowing, validated v2 model-switch metadata, original `runId` inspection, and no rendering of persisted reminder text as ordinary content; verify the focused web tests fail before parser changes.
-- [ ] 5.2 Update web types, history merging, and model-switch boundary parsing for v2 while treating every context-part version as hidden control content; verify the focused history and chat-page tests pass.
-- [ ] 5.3 Regenerate Orval bindings from the updated API contract if generation output changes, and verify generated files are clean after a second generation run and the web typecheck passes.
+- [x] 5.1 Retain the scoped TODO linking #599 beside the existing custom
+      assistant/tool projector. Do not refactor it in this implementation.
+- [x] 5.2 Update `AGENTS.md` to state the application-level best-effort replay
+      invariant, SDK/provider boundary, display-only exclusions, compaction rewrite
+      boundary, and #599 exception.
+- [x] 5.3 Comment on #154 with the concrete replacement-history example and note
+      that private fork work must preserve it; reference #154 from the proposal
+      commit/PR without closing it.
+- [ ] 5.4 Add a dated `CHANGELOG.md` entry describing stored reminder text,
+      author-time user sanitization, and materialized compaction replacement
+      history. This is unplanned corrective work; do not add it to `ROADMAP.md`.
 
-## 6. Rollout Contract and Product Records
+## 6. Verification
 
-- [ ] 6.1 Update the API deployment runbook and `docs/scaling.md` with the compatible-reader deployment, worker-first rollout, writer quiesce/drain, v2 cutover, post-cutover database invariants, and rollback behavior; verify `pnpm lint:markdown` passes.
-- [ ] 6.2 Update code comments and tests that currently claim semantic payload re-rendering or whole-message byte identity, narrowing them to persisted context-block text and stored order; verify `rg` finds no stale claim that v2 text is regenerated from payload.
-- [ ] 6.3 Add a dated `CHANGELOG.md` entry describing immutable post-cutover context-item replay, the intentional v1 reminder loss, and the legacy checkpoint fallback; verify `pnpm lint:markdown` passes. This is unplanned corrective work, so do not add it to `ROADMAP.md`.
-
-## 7. Verification
-
-- [ ] 7.1 Run `openspec validate persist-rendered-context-items --strict`, `pnpm lint:markdown`, `pnpm --filter api lint`, `pnpm --filter api typecheck`, and `pnpm --filter api test`; record and fix every failure before proceeding.
-- [ ] 7.2 Run the affected API integration projects covering context-item cutover, chat binding, compaction, run execution, receipts, forks, public shares, search, migrations, and RLS; record the exact command and confirm no suite skipped for missing Postgres.
-- [ ] 7.3 Run `pnpm --filter web lint`, `pnpm --filter web typecheck`, and `pnpm --filter web test`; record and fix every failure.
-- [ ] 7.4 Build affected workspaces sequentially with `pnpm --filter api build` followed by `pnpm --filter web build`, then run `pnpm format:check`; do not substitute the unbounded root build, and report any environment failure separately from repository failures.
+- [ ] 6.1 Run `openspec validate persist-rendered-context-items --strict`,
+      `pnpm lint:markdown`, `pnpm --filter api lint`,
+      `pnpm --filter api typecheck`, and `pnpm --filter api test`.
+- [ ] 6.2 Run affected API integration projects covering message acceptance,
+      context assembly, ordinary/transition/recursive compaction, Run receipts,
+      forks, public shares, search, migrations, and RLS. Confirm no database suite
+      skipped for missing Postgres.
+- [ ] 6.3 Run `pnpm --filter web lint`, `pnpm --filter web typecheck`, and
+      `pnpm --filter web test`.
+- [ ] 6.4 Build affected workspaces sequentially with
+      `pnpm --filter api build` followed by `pnpm --filter web build`, then run
+      `pnpm format:check`. Do not substitute the unbounded root build.

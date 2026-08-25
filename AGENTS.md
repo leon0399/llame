@@ -93,17 +93,21 @@ Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in pr
   workspace.
 - Tests follow [docs/testing.md](docs/testing.md): `*.test.ts(x)` is Vitest everywhere (`.integration` infix = needs real Postgres; root `e2e/` is Playwright's island); component behavior belongs in Storybook stories, not jsdom render tests; DB-backed suites fail loudly, never skip silently.
 - UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).
-- **Conversation replay is lossless by default.** Before appending context for a
-  new turn, replay every prior model-visible conversation content block that the
-  model received or produced byte-for-byte and in its stored order. Persist the
-  final model-facing form; never rebuild historical blocks through current
-  renderers, schemas, formatters, sanitizers, or ordering rules. The only
-  deliberate rewrite boundaries are the current top-level system prompt, which
-  is not message history and may change with the selected model or effective
-  context, and compaction, which may replace only the prefix it explicitly
-  supersedes. Any other transformation, omission, normalization, projection, or
-  provider-portability exception is a contract change: stop, surface the
-  conflict, and specify it explicitly rather than silently mutating history.
+- **Preserve stored conversation parts wholesale by default.** `messages.parts`
+  is the durable application/UI history. Before appending a new turn, retain
+  prior model-bearing parts and their stored order; sanitize, render, and order
+  application-authored content before persistence rather than during replay.
+  At the SDK boundary, use only the minimal content-transparent conversion from
+  stored UI parts to model messages. This is a best-effort application
+  invariant, not provider-wire or cache-byte identity: SDK/provider
+  serialization may evolve, and the existing assistant/tool projection remains
+  an explicit exception pending
+  [#599](https://github.com/leon0399/llame/issues/599). Reasoning, sources, cap
+  notices, and other declared display-only parts are not model history. The
+  current top-level system prompt is outside message history, and compaction may
+  replace only the prefix it explicitly supersedes. New application-owned
+  replay transforms or omissions must be specified rather than introduced
+  silently.
 
 ## Storybook MCP tools
 
@@ -134,4 +138,13 @@ llame is multi-tenant and self-hosted: tenant isolation is a core invariant. Wei
 
 - `apps/api/src/db` is the single source of truth for the schema. `apps/web` owns no database or chat backend — it is a thin API client (SPEC.md §22.0).
 - Every chat run executes via the pg-boss queue (#107; there is no inline request-thread mode): the api enqueues and answers with the run-event stream bridge, while co-located consumers or the shipped no-HTTP `apps/api/src/worker.ts` entrypoint execute (`RunsWorkerService` → transport-agnostic `RunExecutionService` — don't couple it to HTTP).
-- Changes that add server-authored message-part schemas are coordinated API/worker revision boundaries. Land backward-compatible schema preparation first; before the writer cutover, quiesce old API writers and drain accepted Runs, then apply the cutover and deploy compatible workers before any API authors the new part. Concrete rollout/rollback steps live in [apps/api/AGENTS.md](apps/api/AGENTS.md) and [docs/scaling.md](docs/scaling.md).
+- Production changes that add server-authored message-part schemas are
+  coordinated API/worker revision boundaries. Land backward-compatible schema
+  preparation first; before the writer cutover, quiesce old API writers and
+  drain accepted Runs, then apply the cutover and deploy compatible workers
+  before any API authors the new part. An accepted OpenSpec MAY instead declare
+  an alpha-only single-revision hard cutover when mixed revisions and existing
+  data are explicitly out of scope; do not silently infer that exception.
+  Concrete rollout/rollback steps live in
+  [apps/api/AGENTS.md](apps/api/AGENTS.md) and
+  [docs/scaling.md](docs/scaling.md).

@@ -14,7 +14,8 @@ The stored row SHALL be byte-identical across every application-level request th
 
 #### Scenario: A conversation is replayed
 
-- **WHEN** a request is assembled for a chat whose post-cutover turns each carry a persisted row
+- **WHEN** a request is assembled for a chat whose turns each carry a persisted
+  row
 - **THEN** every row replays exactly as it was authored
 - **AND** no row's text depends on when or by which release the replay happens
 
