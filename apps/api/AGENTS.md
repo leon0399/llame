@@ -357,41 +357,47 @@ provenance statement no operator config can remove. Producers supply the body,
 never the framing, so escaping and provenance are enforced in one place.
 
 `producer` says who authored an item; `form` says what kind of content it is
-(`notice`, `snapshot`, `checkpoint` — the forms that have a producer). An
-unrecognized `form` is treated as absent and an unrecognized `producer` parses,
-is recorded, and renders **nothing**. That tolerance is what makes adding either
-an additive change rather than a coordinated API/worker revision boundary; do not
-"tighten" it into a rejection. Anticipated forms without a producer are recorded
-in `docs/research/harness-transparency/2026-08-21-context-form-design-space.md`
+(`notice`, `snapshot`, `checkpoint` — the forms that have a producer). Every new
+persisted item stores its complete final model-facing envelope in `data.text`;
+that text is the sole replay authority. Producer, form, Run linkage, and payload
+remain non-rendering metadata for machine behavior, owner UI, provenance, and
+inspection. A structurally valid item with an unrecognized producer or form
+still replays non-empty stored text verbatim; readers do not interpret its
+payload. A metadata-only or empty-text historical item is inert and is never
+regenerated. Do not gate replay on current producer knowledge or rebuild text
+from metadata. Anticipated forms without a producer are recorded in
+`docs/research/harness-transparency/2026-08-21-context-form-design-space.md`
 rather than specified.
 
-**Producers, in the rail's fixed precedence order:**
+**Producers, in the rail's fixed author-time precedence order:**
 `effective-context-change`, `tool-availability`, `recency-digest`, `temporal`
 for items attached to a turn, plus `compaction`, whose checkpoint is ordered by
 its placement rule (it leads the history it supersedes) rather than by this
-list. A producer added later is appended.
+list. A producer added later is appended. Replay preserves stored part order;
+it never re-sorts old messages through the current precedence list.
 
 `temporal` stamps **every** user message with when its turn was received —
 `Message received: 2026-08-19 18:36+02:00 (Europe/Madrid)`, the anchor's shape.
 Three properties are load-bearing and easy to break:
 
-- The payload stores the **instant and the zone together**. Rendering therefore
-  reads neither the clock nor `TZ`, so a worker cannot disagree with the api that
-  accepted the turn, and moving the instance's timezone does not rewrite rows
-  already sent. Do not "simplify" this into re-resolving the zone at render.
+- The payload stores the **instant and the zone together**. Author-time rendering
+  therefore reads neither an eventual worker's clock nor `TZ`, so a worker cannot
+  disagree with the api that accepted the turn, and moving the instance's
+  timezone does not rewrite rows already sent. Do not "simplify" this into
+  re-resolving the zone during replay.
 - The wording says **received**, never "current", and is identical on the newest
   turn and the oldest. A row that claimed the present instant would be false on
   replay, and wording that changed once a turn stopped being newest would mutate
-  a persisted message's rendering — losing the byte-identity that keeps the
-  provider's prefix cache valid across turns. That byte-identity is the entire
-  reason this row is stored rather than computed per request.
+  persisted message — losing the stable application-level history that protects
+  citations and prompt-cache prefixes. That stability is why the final rendered
+  text is stored rather than recomputed per request.
 - The zone must be an **IANA identifier**: `Intl` also accepts a bare UTC offset
   (`+02:00`), which carries no daylight-saving rule. `resolveInstanceTimezone`
   rejects an offset at the source — a POSIX `TZ` such as `GMT+2` really does
   resolve to `+02:00`, and stamping it would both mis-render half the year and
   break the IANA identifier the anchor promises — falling back to UTC with the
-  same logged warning as a degenerate zone. The producer revalidates anyway,
-  because a persisted row is checked on every replay.
+  same logged warning as a degenerate zone. The producer revalidates at author
+  time before persisting the final text.
 
 The rows are ordinary turn content: they are superseded with the turns a
 checkpoint absorbs, and `COMPACTION_INSTRUCTION` deliberately says nothing about
@@ -419,16 +425,15 @@ stay silent on **behavioral** ones (tone, format, working style), where the only
 history conditioned on them is the model's own non-authoritative output.
 
 **Every run records what it injected**, as rendered, in `runs.context_items`,
-including the bind-time compaction checkpoint and any item this reader could not
-interpret — the latter with empty text, so a version-skew omission is auditable
-rather than invisible. The record is written once the request is final, after a
-transition compaction may have replaced it, so it states what the model actually
-received or nothing at all.
-This is written rather than derived because an item's wording is not reproducible
-from its durable part once a renderer changes, and a bind-time item is not
-reproducible at all. It is owner-only (`runs` carries `runs_owner` and no
-public-read policy) and is deliberately absent from `toRunResponse` — nothing
-reads it yet.
+including the bind-time compaction checkpoint and every stored context part.
+Persisted items copy their stored text exactly; missing or empty text remains an
+empty receipt entry, so inert historical data is auditable rather than invisible.
+The record is written once the request is final, after a transition compaction may
+have replaced it, so it states what the model actually received or nothing at
+all. Bind-time item text is recorded because it has no durable message part from
+which it could be recovered. The record is owner-only (`runs` carries
+`runs_owner` and no public-read policy) and is deliberately absent from
+`toRunResponse` — nothing reads it yet.
 
 **Disclosed limit:** an item whose content originates outside the chat it was
 injected into is **not erasable through that content's own source**. Deleting the
