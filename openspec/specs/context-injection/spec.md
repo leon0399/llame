@@ -324,10 +324,11 @@ exception pending #599 rather than part of this change.
 - **THEN** later model replay uses each turn's stored parts without injecting
   sender labels
 
-#### Scenario: Assistant output discusses the envelope
+#### Scenario: An assistant turn discusses the envelope
 
 - **WHEN** an assistant turn contains the reserved delimiter as subject matter
-- **THEN** its replayed visible text is not neutralized
+- **THEN** its replayed visible text is byte-identical to what the model produced
+  and is not neutralized
 - **AND** persisted reasoning remains excluded
 
 #### Scenario: A tool result contains an envelope
