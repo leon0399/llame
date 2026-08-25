@@ -1,0 +1,22 @@
+CHANGELOG.md
+  395214e778a9f219 5-9,12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "a172ab72f1dc3b80101de6732689c3859c7a0b0d",
+  "prompts": {
+    "395214e778a9f219": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e49aa182-f504-43e3-bcde-63aed3144f19",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1049,
+      "overriden_lines": 0
+    }
+  }
+}
