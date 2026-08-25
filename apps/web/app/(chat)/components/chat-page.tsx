@@ -325,6 +325,13 @@ function ChatSessionContent({
   );
   const refreshChatList = () => {
     void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+    // TitleService (#78) may have named this chat — refresh the card query
+    // ChatHeader falls back to when the row is not in a loaded list page.
+    // exact: detail is the parent of …/messages; do not wipe history here.
+    void queryClient.invalidateQueries({
+      queryKey: chatQueryKeys.detail(chatId),
+      exact: true,
+    });
     // A run completion may have generated this chat's title (TitleService,
     // #78). The rail's pinned card denormalizes that title, so refresh pins
     // too — design D5a: a change to a card field invalidates the pins query.

@@ -9,7 +9,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useTypewriter } from "./use-typewriter";
+import { sharedPrefixLength, useTypewriter } from "./use-typewriter";
 
 // jsdom doesn't implement matchMedia, which the hook reads for
 // prefers-reduced-motion. Mutable so a test can flip the preference.
@@ -50,6 +50,16 @@ function settle(ms = 5_000) {
   });
 }
 
+describe("sharedPrefixLength", () => {
+  it("returns the shared head length", () => {
+    expect(sharedPrefixLength("foobar", "fooqux")).toBe(3);
+    expect(sharedPrefixLength("foo", "foobar")).toBe(3);
+    expect(sharedPrefixLength("foobar", "foo")).toBe(3);
+    expect(sharedPrefixLength("abc", "xyz")).toBe(0);
+    expect(sharedPrefixLength("", "x")).toBe(0);
+  });
+});
+
 describe("useTypewriter", () => {
   it("shows the first value immediately — there is nothing to replace yet", () => {
     const { result } = renderHook(() => useTypewriter("New chat"));
@@ -57,7 +67,52 @@ describe("useTypewriter", () => {
     expect(result.current).toBe("New chat");
   });
 
-  it("deletes the old title before typing the new one", () => {
+  it("deletes only down to the common prefix before typing the rest", () => {
+    const { result, rerender } = renderHook(
+      ({ title }) => useTypewriter(title),
+      { initialProps: { title: "foobar" } },
+    );
+
+    rerender({ title: "fooqux" });
+
+    // First tick drops the trailing divergent char — the shared `foo` stays.
+    expect(result.current).toBe("fooba");
+    expect(result.current.startsWith("foo")).toBe(true);
+
+    settle(200);
+    expect(result.current.startsWith("foo")).toBe(true);
+
+    settle();
+    expect(result.current).toBe("fooqux");
+  });
+
+  it("skips delete when the new title extends the old one", () => {
+    const { result, rerender } = renderHook(
+      ({ title }) => useTypewriter(title),
+      { initialProps: { title: "foo" } },
+    );
+
+    rerender({ title: "foobar" });
+
+    expect(result.current).toBe("foob");
+    settle();
+    expect(result.current).toBe("foobar");
+  });
+
+  it("only deletes when the new title is a prefix of the old one", () => {
+    const { result, rerender } = renderHook(
+      ({ title }) => useTypewriter(title),
+      { initialProps: { title: "foobar" } },
+    );
+
+    rerender({ title: "foo" });
+
+    expect(result.current).toBe("fooba");
+    settle();
+    expect(result.current).toBe("foo");
+  });
+
+  it("still fully replaces titles with no shared prefix", () => {
     const { result, rerender } = renderHook(
       ({ title }) => useTypewriter(title),
       { initialProps: { title: "New chat" } },
@@ -65,19 +120,29 @@ describe("useTypewriter", () => {
 
     rerender({ title: "Acme relaunch" });
 
-    // The run starts inside the effect, so by the time the rerender settles a
-    // character is already gone — and the new title has not been jumped to.
     expect(result.current).toBe("New cha");
     expect("Acme relaunch".startsWith(result.current)).toBe(false);
 
-    // Mid-run the old title is gone and the new one is arriving a character
-    // at a time, so what is on screen is a prefix of the target.
     settle(200);
     expect(result.current.length).toBeGreaterThan(0);
     expect("Acme relaunch".startsWith(result.current)).toBe(true);
 
     settle();
     expect(result.current).toBe("Acme relaunch");
+  });
+
+  it("replaces emoji by whole code points, never a lone surrogate", () => {
+    const { result, rerender } = renderHook(
+      ({ title }) => useTypewriter(title),
+      { initialProps: { title: "😀" } },
+    );
+
+    rerender({ title: "😁" });
+
+    // First delete tick clears the whole emoji — not half a surrogate pair.
+    expect(result.current).toBe("");
+    settle();
+    expect(result.current).toBe("😁");
   });
 
   it("redirects a run already in flight instead of racing a second one", () => {
