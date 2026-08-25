@@ -178,12 +178,6 @@ exception pending #599 rather than part of this change.
   contract
 - **AND** this change does not redefine ordinary tool-part persistence
 
-#### Scenario: An assistant turn discusses the envelope
-
-- **WHEN** an assistant turn legitimately contains the reserved delimiter
-- **THEN** its visible replay text is not neutralized
-- **AND** display-only reasoning is still omitted
-
 ### Requirement: An item is either persisted-literal or bind-time
 
 Every item SHALL be one of two kinds:

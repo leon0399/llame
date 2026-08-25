@@ -337,12 +337,6 @@ exception pending #599 rather than part of this change.
   contract
 - **AND** this change does not redefine ordinary tool-part persistence
 
-#### Scenario: An assistant turn discusses the envelope
-
-- **WHEN** an assistant turn legitimately contains the reserved delimiter
-- **THEN** its visible replay text is not neutralized
-- **AND** display-only reasoning is still omitted
-
 ### Requirement: Compaction is the rail's re-baseline boundary
 
 Compaction SHALL be the single boundary at which rail state is re-established. A producer whose items express deltas against a baseline SHALL treat a newly active compaction checkpoint as starting a fresh baseline, rather than comparing across it. A producer whose contribution is a frozen prefix baseline SHALL re-resolve it at compaction and at no other time.
