@@ -17,20 +17,38 @@ export class ModelPricingResponse {
   output?: number;
 }
 
+export class EffortLevelResponse {
+  @ApiProperty({
+    description:
+      'Opaque provider-native effort token. Matched byte-exactly on chat send; ' +
+      'never a display string.',
+  })
+  value!: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Operator-authored display label. Absent when the config used a bare ' +
+      'string. Never invented from `value`.',
+  })
+  label?: string;
+}
+
 export class ModelReasoningResponse {
   @ApiProperty({
-    type: [String],
+    type: () => [EffortLevelResponse],
     description:
       'Effort levels this model accepts, in the order a client presents them. ' +
-      'Opaque provider-native identifiers, not display strings: derive no ' +
-      'meaning or magnitude from the text, and do not assume a token means ' +
-      'the same thing on another model. Order is the only scale.',
+      'Each item has a `value` (opaque provider-native identifier) and an ' +
+      'optional operator `label`. Derive no meaning or magnitude from either ' +
+      'string, and do not assume a value means the same thing on another ' +
+      'model. Order is the only scale.',
   })
-  effortLevels!: string[];
+  effortLevels!: EffortLevelResponse[];
 
   @ApiProperty({
     description:
-      'The level applied when a chat send omits `effort`. Always one of `effortLevels`.',
+      'The level value applied when a chat send omits `effort`. Always one of ' +
+      '`effortLevels[].value`.',
   })
   defaultEffort!: string;
 
@@ -140,7 +158,9 @@ export function toAvailableModelResponse(
   if (model.reasoning !== undefined) {
     response.reasoning = {
       ...model.reasoning,
-      effortLevels: [...model.reasoning.effortLevels],
+      effortLevels: model.reasoning.effortLevels.map((level) => ({
+        ...level,
+      })),
     };
   }
   if (model.website !== undefined) response.website = model.website;

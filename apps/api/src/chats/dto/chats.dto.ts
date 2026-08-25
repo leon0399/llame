@@ -174,7 +174,7 @@ export class CreateMessageDto {
   @ApiPropertyOptional({
     description:
       "Reasoning effort for this turn. Must be one of the selected model's " +
-      '`reasoning.effortLevels`; omit to use its `defaultEffort`. Matched ' +
+      '`reasoning.effortLevels[].value`; omit to use its `defaultEffort`. Matched ' +
       'byte-exactly — not case-folded.',
   })
   @ValidateIf((o: CreateMessageDto) => o.effort !== undefined)

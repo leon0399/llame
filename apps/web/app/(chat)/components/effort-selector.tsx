@@ -45,10 +45,8 @@ const BOLD_SLIDER_CLASS = cn(
  * absence of the `reasoning` object is the api's way of saying this model
  * takes no effort, so an empty or disabled control would misstate it.
  *
- * Levels are opaque provider tokens. They are rendered verbatim and never
- * mapped to friendlier prose: the model contract states a client must not
- * derive meaning, magnitude, or ordering from a level's text, and the array's
- * ORDER is the only scale — which is exactly what a slider expresses.
+ * Selection state is always the opaque `value`. Display prefers an
+ * operator-authored `label` when present; unlabeled values stay monospace.
  */
 export function EffortSelector({ className }: { className?: string }) {
   const [open, setOpen] = React.useState(false);
@@ -80,7 +78,7 @@ export function EffortSelector({ className }: { className?: string }) {
     }
     if (
       selectedEffort === undefined ||
-      !reasoning.effortLevels.includes(selectedEffort)
+      !reasoning.effortLevels.some((level) => level.value === selectedEffort)
     ) {
       setSelectedEffort(reasoning.defaultEffort);
     }
@@ -91,10 +89,17 @@ export function EffortSelector({ className }: { className?: string }) {
   // Render against the model's own default until the effect above commits, so
   // the label never flashes an empty or foreign level for a frame.
   const activeLevel =
-    selectedEffort !== undefined && levels.includes(selectedEffort)
+    selectedEffort !== undefined &&
+    levels.some((level) => level.value === selectedEffort)
       ? selectedEffort
       : reasoning.defaultEffort;
-  const activeIndex = Math.max(0, levels.indexOf(activeLevel));
+  const activeEntry = levels.find((level) => level.value === activeLevel);
+  const activeIndex = Math.max(
+    0,
+    levels.findIndex((level) => level.value === activeLevel),
+  );
+  const activeDisplay = activeEntry?.label ?? activeLevel;
+  const activeHasLabel = activeEntry?.label !== undefined;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -106,14 +111,20 @@ export function EffortSelector({ className }: { className?: string }) {
             // Same box as the other two cells: "default" is h-8, matching the
             // send cell's size="icon" (size-8).
             size="default"
-            aria-label={`Reasoning effort, ${activeLevel}`}
+            aria-label={`Reasoning effort, ${activeDisplay}`}
             aria-expanded={open}
             // No corner, border, or focus-lift classes: ButtonGroup owns all
             // three for every cell, so restating them here is how cells drift.
             className={cn("gap-1 font-normal", className)}
           >
-            {/* Verbatim: an opaque provider token, not a display string. */}
-            <span className="font-mono text-xs">{activeLevel}</span>
+            <span
+              className={cn(
+                "text-xs",
+                activeHasLabel ? undefined : "font-mono",
+              )}
+            >
+              {activeDisplay}
+            </span>
             <ChevronDownIcon size={14} aria-hidden className="opacity-60" />
           </Button>
         }
@@ -149,7 +160,7 @@ export function EffortSelector({ className }: { className?: string }) {
                 const level = levels[next ?? 0];
                 // Live: the trigger label re-renders from context as the thumb
                 // moves, so the choice is legible before the popup closes.
-                if (level !== undefined) setSelectedEffort(level);
+                if (level !== undefined) setSelectedEffort(level.value);
               }}
               aria-label="Reasoning effort"
               className={BOLD_SLIDER_CLASS}
@@ -165,7 +176,7 @@ export function EffortSelector({ className }: { className?: string }) {
             >
               {levels.map((level, index) => (
                 <span
-                  key={level}
+                  key={level.value}
                   className={cn(
                     "size-1 rounded-full",
                     index <= activeIndex
@@ -184,7 +195,7 @@ export function EffortSelector({ className }: { className?: string }) {
               than forking the primitive or letting the control be unreadable.
               Visually hidden because the trigger already shows it. */}
           <span aria-live="polite" className="sr-only">
-            {activeLevel}
+            {activeDisplay}
           </span>
         </div>
       </PopoverContent>

@@ -70,7 +70,14 @@
       // effort mid-conversation costs a full prompt-cache prefix re-read on
       // this model, so a client can warn first. It never affects execution.
       "reasoning": {
-        "effortLevels": ["none", "low", "medium", "high", "xhigh", "max"],
+        "effortLevels": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          { "value": "xhigh", "label": "Extra High" },
+          "max"
+        ],
         "defaultEffort": "medium",
         "cacheInvalidatedByEffortChange": true
       },

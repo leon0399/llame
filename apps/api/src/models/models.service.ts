@@ -83,7 +83,9 @@ export function resolveEffortSelection(
   if (requested === undefined) {
     return model.reasoning?.defaultEffort;
   }
-  if (!model.reasoning?.effortLevels.includes(requested)) {
+  if (
+    !model.reasoning?.effortLevels.some((level) => level.value === requested)
+  ) {
     throw new EffortNotAvailableError(model.id, requested);
   }
   return requested;

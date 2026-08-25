@@ -33,6 +33,7 @@ import { createModelPromptLoader } from './prompt-loader';
 import { getRegisteredToolIds } from '../tools/registry';
 import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
 import type {
+  EffortLevel,
   ModelReasoning,
   SystemModelCatalogEntry,
 } from '../models/model-catalog';
@@ -944,14 +945,14 @@ function resolveModels(
 }
 
 /**
- * Resolve one entry's `reasoning` block. The schema already guarantees a
- * nonblank, duplicate-free `effortLevels` and a present `defaultEffort`; the
- * only rule left is cross-field (the default must be one of the levels), which
- * JSON Schema cannot express.
+ * Resolve one entry's `reasoning` block. The schema admits bare strings and
+ * `{ value, label }` objects; this normalizes to `{ value, label? }[]` and
+ * owns uniqueness / blank / `defaultEffort` membership on `value` — rules
+ * JSON Schema cannot express across the mixed item form.
  *
- * Levels are passed through untouched — no trimming, casing, sorting, or
- * deduplication. They are opaque provider tokens, and normalizing one here
- * would silently send the provider a value the operator did not configure.
+ * Values are passed through untouched — no trimming, casing, sorting, or
+ * rewriting. They are opaque provider tokens, and normalizing one here would
+ * silently send the provider a value the operator did not configure.
  */
 function resolveModelReasoning(
   modelId: string,
@@ -961,27 +962,46 @@ function resolveModelReasoning(
     return undefined;
   }
 
-  // `minLength: 1` in the schema only rejects the empty string, so a
-  // whitespace-only level would otherwise reach the provider as a blank token.
-  // `trim()` is the TEST, never a transformation: a level that merely carries
-  // padding is a legitimate (if odd) provider token and is kept byte-for-byte.
-  const blank = raw.effortLevels.findIndex((level) => level.trim() === '');
-  if (blank !== -1) {
-    throw new InstanceConfigError(
-      `models[${modelId}].reasoning.effortLevels[${blank}]: must not be blank`,
+  const effortLevels: EffortLevel[] = [];
+  const seen = new Set<string>();
+
+  for (const [i, item] of raw.effortLevels.entries()) {
+    const value = isString(item) ? item : item.value;
+    const label = isString(item) ? undefined : item.label;
+
+    // `minLength: 1` only rejects the empty string. `trim()` is the TEST,
+    // never a transformation: padded-but-nonblank tokens stay byte-for-byte.
+    if (value.trim() === '') {
+      throw new InstanceConfigError(
+        `models[${modelId}].reasoning.effortLevels[${i}]: must not be blank`,
+      );
+    }
+    if (label !== undefined && label.trim() === '') {
+      throw new InstanceConfigError(
+        `models[${modelId}].reasoning.effortLevels[${i}].label: must not be blank`,
+      );
+    }
+    if (seen.has(value)) {
+      throw new InstanceConfigError(
+        `models[${modelId}].reasoning.effortLevels[${i}]: duplicate value "${value}"`,
+      );
+    }
+    seen.add(value);
+    effortLevels.push(
+      isString(item)
+        ? { value: item }
+        : { value: item.value, label: item.label },
     );
   }
 
-  // Membership is checked after the blank rule, so a blank default is reported
-  // as the blank level it duplicates rather than as a missing member.
-  if (!raw.effortLevels.includes(raw.defaultEffort)) {
+  if (!seen.has(raw.defaultEffort)) {
     throw new InstanceConfigError(
-      `models[${modelId}].reasoning.defaultEffort: "${raw.defaultEffort}" is not one of effortLevels [${raw.effortLevels.join(', ')}]`,
+      `models[${modelId}].reasoning.defaultEffort: "${raw.defaultEffort}" is not one of effortLevels [${[...seen].join(', ')}]`,
     );
   }
 
   return {
-    effortLevels: raw.effortLevels,
+    effortLevels,
     defaultEffort: raw.defaultEffort,
     cacheInvalidatedByEffortChange: raw.cacheInvalidatedByEffortChange ?? false,
   };

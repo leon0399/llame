@@ -213,13 +213,15 @@ Resolved `key` values SHALL never be written to logs, errors, or diagnostics; a 
 
 The config file SHALL support a top-level `models` array that is the executable model catalog, superseding any hardcoded catalog. Each entry SHALL include a required opaque `id`, a required `provider` referencing a defined `providers[].id`, a required server-only `providerModelId`, and a required positive-integer `contextWindowTokens`. Each entry MAY include `pricingUsdPer1M`, an optional per-model `compactionThresholdTokens`, an optional `reasoning` object, and the optional display fields of the public model contract. A `models[].provider` that does not reference a defined provider id SHALL fail startup naming the model id and the dangling provider reference.
 
-The optional `reasoning` object declares that the model accepts a reasoning-effort request parameter and what values it accepts. Its presence is the declaration; there SHALL be no separate availability flag. It SHALL contain a required non-empty `effortLevels` array of strings, a required `defaultEffort` string, and an optional `cacheInvalidatedByEffortChange` boolean defaulting to `false`.
+The optional `reasoning` object declares that the model accepts a reasoning-effort request parameter and what values it accepts. Its presence is the declaration; there SHALL be no separate availability flag. It SHALL contain a required non-empty `effortLevels` array, a required `defaultEffort` string, and an optional `cacheInvalidatedByEffortChange` boolean defaulting to `false`.
 
-`effortLevels` entries SHALL be opaque provider-native tokens. The system SHALL NOT constrain them to a llame-owned enumeration, and SHALL NOT impose a character pattern, casing rule, or length limit on them: provider effort vocabularies differ between providers and change between model releases, so any format constraint is a llame-owned vocabulary by another name. Exactly three constraints apply, all of them integrity rather than format — a level SHALL be nonblank, levels SHALL be unique within an entry, and `defaultEffort` SHALL be one of them.
+Each `effortLevels` item SHALL be either a bare nonblank string (the level's `value`, with no display label) or an object `{ "value": <string>, "label": <string> }` whose `value` and `label` are both required and nonblank. An object that omits `label`, supplies a blank `label`, omits `value`, or supplies a blank `value` SHALL fail startup naming the model id. The system SHALL NOT invent a label from a bare string.
 
-`effortLevels` order is operator-authored and SHALL be preserved wherever the levels are published, so a consumer can present them as an ordered scale without inferring one. A level SHALL be treated as an identifier rather than a display string; a consumer MAY render the token itself as a fallback but SHALL NOT derive meaning, magnitude, or ordering from its text.
+`value` entries SHALL be opaque provider-native tokens. The system SHALL NOT constrain them to a llame-owned enumeration, and SHALL NOT impose a character pattern, casing rule, or length limit on them: provider effort vocabularies differ between providers and change between model releases, so any format constraint is a llame-owned vocabulary by another name. Integrity constraints on values: a `value` SHALL be nonblank, `value`s SHALL be unique within an entry, and `defaultEffort` SHALL equal one of those `value`s. Duplicate `label`s across different `value`s are permitted.
 
-`defaultEffort` SHALL be required whenever `reasoning` is present; the system SHALL NOT imply a default from list position. A `defaultEffort` that is not a member of the same entry's `effortLevels` SHALL fail startup naming the model id and both values. An empty `effortLevels`, a duplicate level, or a blank level string SHALL fail startup naming the model id.
+`effortLevels` order is operator-authored and SHALL be preserved wherever the levels are published, so a consumer can present them as an ordered scale without inferring one. A level's `value` SHALL be treated as an identifier rather than a display string; a consumer MAY render an operator-authored `label` when present, otherwise the `value` itself as a fallback, but SHALL NOT derive meaning, magnitude, or ordering from either string's text.
+
+At load time the system SHALL normalize every item to `{ value, label? }` (omitting `label` when the config used a bare string) before the catalog is published or used for validation. `defaultEffort` SHALL be required whenever `reasoning` is present; the system SHALL NOT imply a default from list position. A `defaultEffort` that is not equal to any item's `value` SHALL fail startup naming the model id and both values. An empty `effortLevels`, a blank `value`, or a repeated `value` SHALL fail startup naming the model id.
 
 The system SHALL NOT verify that a declared level is accepted by the provider. A misdeclared level surfaces as a provider request error at execution time, consistent with provider credentials not being prevalidated at boot.
 
@@ -248,26 +250,37 @@ The system SHALL NOT verify that a declared level is accepted by the provider. A
 
 #### Scenario: Reasoning object declares an effort vocabulary
 
-- **WHEN** a model entry declares `reasoning` with a non-empty `effortLevels` and a `defaultEffort` drawn from it
-- **THEN** the model is loaded as accepting a reasoning-effort request parameter over exactly those levels
+- **WHEN** a model entry declares `reasoning` with a non-empty `effortLevels` and a `defaultEffort` equal to one item's `value`
+- **THEN** the model is loaded as accepting a reasoning-effort request parameter over exactly those values
 - **AND** startup succeeds
+
+#### Scenario: Mixed bare strings and labeled objects are accepted
+
+- **WHEN** `effortLevels` mixes bare strings with `{ value, label }` objects, each `value` unique and nonblank
+- **THEN** startup succeeds
+- **AND** every item is normalized to `{ value, label? }` with `label` present only for object entries
 
 #### Scenario: Provider-native levels are accepted verbatim
 
-- **WHEN** `effortLevels` contains a token that is not part of any llame-owned enumeration
-- **THEN** startup succeeds and the token is retained verbatim
-- **AND** no level is rewritten, normalized, lowercased, reordered, or coerced to a llame vocabulary
+- **WHEN** an `effortLevels` item's `value` is a token that is not part of any llame-owned enumeration
+- **THEN** startup succeeds and the `value` is retained verbatim
+- **AND** no value is rewritten, normalized, lowercased, reordered, or coerced to a llame vocabulary
 
 #### Scenario: No character pattern is imposed on a level
 
-- **WHEN** `effortLevels` contains a nonblank token of any casing, length, or character composition
+- **WHEN** an `effortLevels` item's `value` is a nonblank token of any casing, length, or character composition
 - **THEN** startup succeeds
-- **AND** the token is rejected only if it is blank or duplicates another level in the same entry
+- **AND** the value is rejected only if it is blank or duplicates another value in the same entry
+
+#### Scenario: Object form requires both value and label
+
+- **WHEN** an `effortLevels` item is an object missing `label`, with a blank `label`, missing `value`, or with a blank `value`
+- **THEN** startup fails naming the model id
 
 #### Scenario: Default effort must be one of the declared levels
 
-- **WHEN** a model entry's `reasoning.defaultEffort` is not a member of that entry's `effortLevels`
-- **THEN** startup fails naming the model id, the default, and the declared levels
+- **WHEN** a model entry's `reasoning.defaultEffort` is not equal to any item's `value` in that entry's `effortLevels`
+- **THEN** startup fails naming the model id, the default, and the declared values
 - **AND** no partial catalog is applied
 
 #### Scenario: Default effort is required when reasoning is declared
@@ -278,7 +291,7 @@ The system SHALL NOT verify that a declared level is accepted by the provider. A
 
 #### Scenario: Empty or malformed level list is rejected
 
-- **WHEN** a model entry's `reasoning.effortLevels` is empty, contains a blank string, or repeats a level
+- **WHEN** a model entry's `reasoning.effortLevels` is empty, contains a blank value, or repeats a value
 - **THEN** startup fails naming the model id
 
 #### Scenario: Model without a reasoning object accepts no effort

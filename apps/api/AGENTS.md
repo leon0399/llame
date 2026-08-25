@@ -193,18 +193,19 @@ a follow-up, not yet supported.
 cacheInvalidatedByEffortChange? }` — declares that a model accepts a
 per-request effort and which values it accepts. Its presence IS the
 declaration; there is no separate availability flag, and a model that omits it
-accepts no effort. `effortLevels` are the PROVIDER's own tokens, published and
-sent verbatim: llame imposes no enum, no character pattern, no casing rule, and
-never normalizes, sorts, or deduplicates them, because OpenAI and Anthropic
-disagree on the vocabulary and each changes it between releases — any
-constraint here would make a provider release a llame release. Only three rules
-apply, all integrity rather than format: a level is nonblank, levels are unique
-within an entry, and `defaultEffort` must be one of them (a cross-field check
-JSON Schema can't express, so `resolveModels` owns it and fails boot naming the
-model). Order is normative — it is the only scale a client gets, since a token
-carries no comparable magnitude. `cacheInvalidatedByEffortChange` (default
-`false`) records whether _changing_ effort mid-conversation costs a prompt-cache
-prefix re-read on this model; it is operator-declared because the behavior is
+accepts no effort. Each `effortLevels` item is a bare provider token string or
+`{ value, label }` (both nonblank). Boot normalizes to `{ value, label? }[]`
+and publishes that shape on `GET /api/v1/models`. Chat-send `effort` matches
+`value` only — never `label`. Values are the PROVIDER's own tokens: llame
+imposes no enum, no character pattern, no casing rule, and never normalizes,
+sorts, or rewrites them, because OpenAI and Anthropic disagree on the
+vocabulary and each changes it between releases — any constraint here would
+make a provider release a llame release. Integrity rules (value nonblank,
+values unique within an entry, `defaultEffort` equals one `value`) live in
+`resolveModels` and fail boot naming the model. Order is normative — it is the
+only scale a client gets. `cacheInvalidatedByEffortChange` (default `false`)
+records whether _changing_ effort mid-conversation costs a prompt-cache prefix
+re-read on this model; it is operator-declared because the behavior is
 model-specific and partly undocumented, and it is advisory metadata that never
 affects execution. The retired `reasoning: true` boolean is rejected outright
 rather than coerced — a boolean carries no vocabulary, so any inferred one would

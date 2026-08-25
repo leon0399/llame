@@ -21,19 +21,30 @@ export type ModelPricingUsdPer1M = {
 };
 
 /**
+ * One effort level after boot normalization. Config may author a bare string
+ * or `{ value, label }`; both become this shape. `label` is omitted when the
+ * operator did not supply one — never invented from `value`.
+ */
+export type EffortLevel = {
+  readonly value: string;
+  readonly label?: string;
+};
+
+/**
  * A model's reasoning-effort contract, as the operator declared it.
  *
- * `effortLevels` are opaque PROVIDER-native tokens, never a llame vocabulary:
- * OpenAI and Anthropic disagree on the value set and both change it between
- * releases, so constraining the strings here — by enum or by pattern — would
- * make every provider release a llame release. Nothing reads meaning out of a
- * level; the API matches it byte-exactly against this list and forwards it.
+ * `effortLevels[].value` are opaque PROVIDER-native tokens, never a llame
+ * vocabulary: OpenAI and Anthropic disagree on the value set and both change
+ * it between releases, so constraining the strings here — by enum or by
+ * pattern — would make every provider release a llame release. Nothing reads
+ * meaning out of a value; the API matches it byte-exactly against this list
+ * and forwards it. Optional `label` is display metadata only.
  *
  * Order is normative: it is the only scale a client gets, since a token carries
  * no comparable magnitude of its own.
  */
 export type ModelReasoning = {
-  readonly effortLevels: readonly string[];
+  readonly effortLevels: readonly EffortLevel[];
   readonly defaultEffort: string;
   /**
    * Whether CHANGING effort invalidates this model's provider-side prompt

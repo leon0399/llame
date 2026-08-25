@@ -44,6 +44,7 @@ import {
   modelDisplayName,
   type AvailableModel,
 } from "@/lib/services/models/queries";
+import { effortDisplayLabel } from "@/lib/services/models/effort";
 
 type TurnUsage = {
   inputTokens?: number;
@@ -157,6 +158,14 @@ export function buildUsageLine(
     usage.modelId !== undefined
       ? modelDisplayName(usage.modelId, models)
       : undefined;
+  const effortDisplay =
+    usage.effort !== undefined
+      ? effortDisplayLabel(
+          models?.find((model) => model.id === usage.modelId)?.reasoning
+            ?.effortLevels,
+          usage.effort,
+        )
+      : undefined;
 
   let text: string;
   if (usage.modelId) {
@@ -167,7 +176,7 @@ export function buildUsageLine(
     text = [
       label,
       modelName,
-      usage.effort ?? null,
+      effortDisplay ?? null,
       usage.latencyMs !== undefined ? formatLatency(usage.latencyMs) : null,
     ]
       .filter((part): part is string => Boolean(part))
@@ -228,8 +237,8 @@ export function buildUsageLine(
   }
   // Indented beneath Model the way "of which cached" sits beneath Input: it
   // qualifies the row above rather than standing as a peer fact.
-  if (usage.effort !== undefined) {
-    costRows.push({ label: "at effort", value: usage.effort });
+  if (effortDisplay !== undefined) {
+    costRows.push({ label: "at effort", value: effortDisplay });
   }
   if (hasTokens) {
     costRows.push({

@@ -1467,7 +1467,7 @@ describe('loadInstanceConfig — models[].reasoning (add-reasoning-effort)', () 
       model('{ "effortLevels": ["low", "high"], "defaultEffort": "high" }'),
     );
     expect(loadInstanceConfig().models[0]?.reasoning).toEqual({
-      effortLevels: ['low', 'high'],
+      effortLevels: [{ value: 'low' }, { value: 'high' }],
       defaultEffort: 'high',
       cacheInvalidatedByEffortChange: false,
     });
@@ -1501,11 +1501,45 @@ describe('loadInstanceConfig — models[].reasoning (add-reasoning-effort)', () 
       ),
     );
     expect(loadInstanceConfig().models[0]?.reasoning?.effortLevels).toEqual([
-      'MAX',
-      'very-high',
-      'effort_2',
-      'none',
+      { value: 'MAX' },
+      { value: 'very-high' },
+      { value: 'effort_2' },
+      { value: 'none' },
     ]);
+  });
+
+  it('normalizes a mixed bare-string and labeled array', () => {
+    writeConfig(
+      model(
+        '{ "effortLevels": ["none", { "value": "xhigh", "label": "Extra High" }, "max"], "defaultEffort": "none" }',
+      ),
+    );
+    expect(loadInstanceConfig().models[0]?.reasoning?.effortLevels).toEqual([
+      { value: 'none' },
+      { value: 'xhigh', label: 'Extra High' },
+      { value: 'max' },
+    ]);
+  });
+
+  it('rejects a labeled object missing label', () => {
+    writeConfig(
+      model('{ "effortLevels": [{ "value": "low" }], "defaultEffort": "low" }'),
+    );
+    expect(() => loadInstanceConfig()).toThrow(
+      /models\[m\]\/reasoning\/effortLevels\/0/,
+    );
+  });
+
+  it('rejects a whitespace-only label', () => {
+    writeConfig(
+      model(
+        '{ "effortLevels": [{ "value": "low", "label": "  " }], "defaultEffort": "low" }',
+      ),
+    );
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /models\[m\]\.reasoning\.effortLevels\[0\]\.label: must not be blank/,
+    );
   });
 
   it('rejects a defaultEffort absent from effortLevels, naming the model', () => {
@@ -1542,12 +1576,24 @@ describe('loadInstanceConfig — models[].reasoning (add-reasoning-effort)', () 
     );
   });
 
-  it('rejects a duplicate level', () => {
+  it('rejects a duplicate value', () => {
     writeConfig(
       model('{ "effortLevels": ["low", "low"], "defaultEffort": "low" }'),
     );
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
     expect(() => loadInstanceConfig()).toThrow(
-      /models\[m\]\/reasoning\/effortLevels: must NOT have duplicate items/,
+      /models\[m\]\.reasoning\.effortLevels\[1\]: duplicate value "low"/,
+    );
+  });
+
+  it('rejects a duplicate value across bare string and object forms', () => {
+    writeConfig(
+      model(
+        '{ "effortLevels": ["low", { "value": "low", "label": "Low" }], "defaultEffort": "low" }',
+      ),
+    );
+    expect(() => loadInstanceConfig()).toThrow(
+      /models\[m\]\.reasoning\.effortLevels\[1\]: duplicate value "low"/,
     );
   });
 
@@ -1556,7 +1602,7 @@ describe('loadInstanceConfig — models[].reasoning (add-reasoning-effort)', () 
       model('{ "effortLevels": ["low", ""], "defaultEffort": "low" }'),
     );
     expect(() => loadInstanceConfig()).toThrow(
-      /models\[m\]\/reasoning\/effortLevels\/1: must NOT have fewer than 1 characters/,
+      /models\[m\]\/reasoning\/effortLevels\/1/,
     );
   });
 
@@ -1577,7 +1623,7 @@ describe('loadInstanceConfig — models[].reasoning (add-reasoning-effort)', () 
       model('{ "effortLevels": [" low "], "defaultEffort": " low " }'),
     );
     expect(loadInstanceConfig().models[0]?.reasoning).toMatchObject({
-      effortLevels: [' low '],
+      effortLevels: [{ value: ' low ' }],
       defaultEffort: ' low ',
     });
   });

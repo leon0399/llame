@@ -280,7 +280,11 @@ describe('ModelsService', () => {
 
   describe('resolveEffortSelection', () => {
     const REASONING = {
-      effortLevels: ['none', 'low', 'high'],
+      effortLevels: [
+        { value: 'none' },
+        { value: 'low' },
+        { value: 'high', label: 'High' },
+      ],
       defaultEffort: 'low',
       cacheInvalidatedByEffortChange: true,
     } as const;
@@ -333,11 +337,17 @@ describe('ModelsService', () => {
       ).toThrow(EffortNotAvailableError);
     });
 
+    it('rejects a published label when used as the effort value', () => {
+      expect(() =>
+        service().resolveEffortSelection(reasoningModel, 'High'),
+      ).toThrow(EffortNotAvailableError);
+    });
+
     // Case-sensitivity falls out of "no normalization" rather than being a
     // rule of its own — nothing folds the request onto a declared level.
     it('rejects a level differing only by letter case', () => {
       expect(() =>
-        service().resolveEffortSelection(reasoningModel, 'High'),
+        service().resolveEffortSelection(reasoningModel, 'None'),
       ).toThrow(EffortNotAvailableError);
     });
 
