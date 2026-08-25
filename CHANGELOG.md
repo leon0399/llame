@@ -1,5 +1,15 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-25
+
+- **OpenAI tool schemas keep optional fields optional**: every function/dynamic
+  tool sent through the OpenAI model client is lowered with `strict: false`.
+  Omitting `strict` is not enough — native Responses may normalize the schema
+  into strict mode and turn omission-style optional properties into required
+  nullable fields, which diverges from the persisted schema and llame's
+  SDK/local validators. Provider-defined tools are untouched; Chat Completions
+  ignores the flag, so the same lowering covers compatible endpoints.
+
 # 2026-08-24
 
 - **Knowledge ranged reads and passage search** (#543): `knowledge_read` now

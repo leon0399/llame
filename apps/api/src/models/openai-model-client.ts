@@ -5,6 +5,7 @@ import {
   stepCountIs,
   streamText,
   tool,
+  type ToolSet,
 } from 'ai';
 
 import {
@@ -43,6 +44,17 @@ function parseToolCallInput(raw: string) {
   } catch {
     return raw;
   }
+}
+
+function disableStrictToolSchemas(tools: ToolSet): ToolSet {
+  return Object.fromEntries(
+    Object.entries(tools).map(([name, definition]) => [
+      name,
+      definition.type === 'provider'
+        ? definition
+        : { ...definition, strict: false },
+    ]),
+  );
 }
 
 /**
@@ -147,7 +159,9 @@ export function createOpenAIModelClient(
       // model. Only wired when tools are present — an answer-only turn
       // keeps the single-generation path unchanged.
       if (input.tools) {
-        streamOptions.tools = input.tools;
+        // Always set strict: false — Responses may rewrite omitted strict into
+        // required-nullable optionals; Chat Completions ignores the flag.
+        streamOptions.tools = disableStrictToolSchemas(input.tools);
         if (input.toolChoice !== undefined) {
           streamOptions.toolChoice = input.toolChoice;
         }
