@@ -15,13 +15,16 @@ import type {
 
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { canonicalize, type CanonicalJsonValue } from '../canonical-json';
-import type {
-  CompactionToolObservation,
-  CompactionToolObservationLedgerV1,
-} from '../db/schema/chats';
+import type { CompactionReplacementMessage } from '../db/schema/chats';
 import { isRecord, isString, type UnknownRecord } from '../unknown-record';
 import { type ToolResult } from '../tools/types';
-import type { MessagePart } from './context-builder';
+import type { MessagePart, StoredMessage } from './context-builder';
+import {
+  isStoredReplacementToolPart,
+  parseCompactionReplacementHistory,
+  parseToolObservationOmission,
+  renderToolObservationOmission,
+} from './compaction-replacement-history';
 
 export const TOOL_PART_PREFIX = 'tool-';
 export const TOOL_REPLAY_CALL_LIMIT = 8_000;
@@ -62,7 +65,10 @@ export interface ToolObservationProjection {
   omissionPartIndex: number | null;
 }
 
-interface ObservationPayload extends CompactionToolObservation {
+interface ObservationPayload {
+  toolCallId: string;
+  toolName: string;
+  outcome: string;
   partIndex: number;
   input: unknown;
   resultBody: string | null;
@@ -75,10 +81,6 @@ interface PairCandidate {
   clearedSize: number;
   selected: ProjectedToolObservationPair;
   selectedSize: number;
-}
-
-function emptyCompactionToolObservationLedger(): CompactionToolObservationLedgerV1 {
-  return { version: 1, omittedCount: 0, observations: [] };
 }
 
 export function normalizeToolObservationOutcome(
@@ -250,10 +252,6 @@ function makePair(
   };
 }
 
-export function renderToolObservationOmission(count: number): string {
-  return `[${count} earlier tool observations omitted to fit replay budget.]`;
-}
-
 function measureProjection(
   pairCount: number,
   pairSizeTotal: number,
@@ -422,137 +420,92 @@ export function projectToolObservations(
   );
 }
 
-function isCompactionObservation(
+function parseReplacementToolObservation(
   value: unknown,
-): value is CompactionToolObservation {
-  if (!isRecord(value)) return false;
-  const observation = value;
-  return (
-    isToolCallId(observation.toolCallId) &&
-    isToolName(observation.toolName) &&
-    normalizeToolObservationOutcome(observation.outcome, '') !== ''
-  );
-}
-
-function isNonNegativeSafeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
-}
-
-function parseCompactionToolObservationLedger(
-  value: unknown,
-): CompactionToolObservationLedgerV1 {
-  if (!isRecord(value)) {
-    return emptyCompactionToolObservationLedger();
-  }
-  const ledger = value;
-  if (
-    ledger.version !== 1 ||
-    !isNonNegativeSafeInteger(ledger.omittedCount) ||
-    !Array.isArray(ledger.observations) ||
-    !ledger.observations.every(isCompactionObservation)
-  ) {
-    return emptyCompactionToolObservationLedger();
-  }
-
-  const observations: ObservationPayload[] = ledger.observations.map(
-    (observation, partIndex) => ({
-      ...observation,
-      partIndex,
-      input: {},
-      resultBody: null,
-      clearedOutcome: observation.outcome,
-    }),
-  );
-  const bounded = boundCandidates(
-    candidatesFromObservations(observations).map((candidate) => ({
-      ...candidate,
-      selected: candidate.cleared,
-    })),
-    ledger.omittedCount,
-  );
-
+  partIndex: number,
+): ObservationPayload | null {
+  if (!isStoredReplacementToolPart(value)) return null;
+  const toolName = value.type.slice(TOOL_PART_PREFIX.length);
+  const outcome = value.outcome;
   return {
-    version: 1,
-    omittedCount: bounded.omittedCount,
-    observations: bounded.pairs.map((pair) => {
-      const observation = observations[pair.partIndex];
-      return {
-        toolCallId: observation.toolCallId,
-        toolName: observation.toolName,
-        outcome: observation.outcome,
-      };
-    }),
+    partIndex,
+    toolCallId: value.toolCallId,
+    toolName,
+    outcome,
+    input: {},
+    resultBody: null,
+    clearedOutcome: outcome,
   };
 }
 
-export function projectCompactionToolObservationLedger(
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- forwards directly to `parseCompactionToolObservationLedger` below, which validates via `isRecord(value)`; a bare-identifier `parseXxx(value)` delegation, a naming shape the structural exemption's `.parse`/`.safeParse` member-call pattern doesn't match.
-  value: unknown,
-): ToolObservationProjection | null {
-  const ledger = parseCompactionToolObservationLedger(value);
-  if (ledger.observations.length === 0 && ledger.omittedCount === 0)
-    return null;
-  const observations: ObservationPayload[] = ledger.observations.map(
-    (observation, partIndex) => ({
-      ...observation,
-      partIndex,
-      input: {},
-      resultBody: null,
-      clearedOutcome: observation.outcome,
-    }),
-  );
-  const bounded = boundCandidates(
-    candidatesFromObservations(observations).map((candidate) => ({
-      ...candidate,
-      selected: candidate.cleared,
-    })),
-    ledger.omittedCount,
-  );
-  return projectionFromBounded(bounded);
-}
-
-export function buildCompactionToolObservationLedger(
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- forwards directly to `parseCompactionToolObservationLedger` below (as `previousValue`), which validates via `isRecord(value)`; a bare-identifier `parseXxx(previousValue)` delegation, same rationale as `projectCompactionToolObservationLedger` above.
-  previousValue: unknown,
-  absorbedAssistantParts: readonly MessagePart[][],
-): CompactionToolObservationLedgerV1 {
-  const previous = parseCompactionToolObservationLedger(previousValue);
-  const observations: ObservationPayload[] = [
-    ...previous.observations.map((observation, partIndex) => ({
-      ...observation,
-      partIndex,
-      input: {},
-      resultBody: null,
-      clearedOutcome: observation.outcome,
-    })),
-    ...absorbedAssistantParts.flatMap((parts) =>
-      storedObservations(parts).map((observation) => ({
-        ...observation,
-        partIndex: 0,
+function materializedReplacementRecord(
+  observation: ObservationPayload,
+): CompactionReplacementMessage {
+  const outcome = observation.clearedOutcome;
+  return {
+    role: 'assistant',
+    parts: [
+      {
+        type: `tool-${observation.toolName}`,
+        toolCallId: observation.toolCallId,
+        state: 'output-available',
         input: {},
-        resultBody: null,
-      })),
-    ),
-  ].map((observation, partIndex) => ({ ...observation, partIndex }));
+        output: resultText(outcome, null),
+        outcome,
+      },
+    ],
+  };
+}
+
+export function buildCompactionToolReplacementRecords(input: {
+  previous: unknown;
+  absorb: StoredMessage[];
+}): CompactionReplacementMessage[] {
+  const parsedPrevious = parseCompactionReplacementHistory(input.previous);
+  const previousObservations = (parsedPrevious ?? [])
+    .slice(1)
+    .flatMap((record, partIndex) => {
+      const observation = parseReplacementToolObservation(
+        record.parts[0],
+        partIndex,
+      );
+      return observation === null ? [] : [observation];
+    });
+  const inheritedOmittedCount =
+    parseToolObservationOmission(parsedPrevious?.at(-1)?.parts[0]) ?? 0;
+  const absorbedObservations = input.absorb
+    .filter((message) => message.role === 'assistant')
+    .flatMap((message) => storedObservations(message.parts))
+    .map((observation) => ({
+      ...observation,
+      input: {},
+      resultBody: null,
+    }));
+  const observations = [...previousObservations, ...absorbedObservations].map(
+    (observation, partIndex) => ({ ...observation, partIndex }),
+  );
 
   const bounded = boundCandidates(
     candidatesFromObservations(observations).map((candidate) => ({
       ...candidate,
       selected: candidate.cleared,
     })),
-    previous.omittedCount,
+    inheritedOmittedCount,
+  );
+  const records = bounded.pairs.map((pair) =>
+    materializedReplacementRecord(observations[pair.partIndex]),
   );
 
-  return {
-    version: 1,
-    omittedCount: bounded.omittedCount,
-    observations: bounded.pairs.map((pair) => {
-      const observation = observations[pair.partIndex];
-      return {
-        toolCallId: observation.toolCallId,
-        toolName: observation.toolName,
-        outcome: observation.clearedOutcome,
-      };
-    }),
-  };
+  if (bounded.omittedCount > 0) {
+    records.push({
+      role: 'assistant',
+      parts: [
+        {
+          type: 'text',
+          text: renderToolObservationOmission(bounded.omittedCount),
+        },
+      ],
+    });
+  }
+  return records;
 }

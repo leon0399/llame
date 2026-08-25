@@ -30,7 +30,7 @@ import {
 import {
   type Chat,
   type Compaction,
-  type CompactionToolObservationLedgerV1,
+  type CompactionReplacementMessage,
   type Message,
   type MessageRole,
   chats,
@@ -42,6 +42,7 @@ import {
 
 import { type Db } from '../db/tenant-db.service';
 export { type Db } from '../db/tenant-db.service';
+import { parseCompactionReplacementHistory } from './compaction-replacement-history';
 import {
   buildHybridSearchQuery,
   normalizeForSearch,
@@ -1015,9 +1016,11 @@ export class CompactionsRepository {
     uptoSeq: number;
     parentId?: string | null;
     summary: string;
-    toolObservationLedger?: CompactionToolObservationLedgerV1;
+    replacementHistory: CompactionReplacementMessage[];
     usage?: unknown;
   }): Promise<Compaction> {
+    assertCompactionWrite(input.summary, input.replacementHistory);
+
     const [created] = await this.db
       .insert(compactions)
       .values({
@@ -1025,7 +1028,7 @@ export class CompactionsRepository {
         uptoSeq: input.uptoSeq,
         parentId: input.parentId ?? null,
         summary: input.summary,
-        toolObservationLedger: input.toolObservationLedger,
+        replacementHistory: input.replacementHistory,
         usage: input.usage,
       })
       .returning();
@@ -1043,9 +1046,11 @@ export class CompactionsRepository {
     uptoSeq: number;
     parentId?: string | null;
     summary: string;
-    toolObservationLedger?: CompactionToolObservationLedgerV1;
+    replacementHistory: CompactionReplacementMessage[];
     usage?: unknown;
   }): Promise<Compaction | undefined> {
+    assertCompactionWrite(input.summary, input.replacementHistory);
+
     const [created] = await this.db
       .insert(compactions)
       .values({
@@ -1053,7 +1058,7 @@ export class CompactionsRepository {
         uptoSeq: input.uptoSeq,
         parentId: input.parentId ?? null,
         summary: input.summary,
-        toolObservationLedger: input.toolObservationLedger,
+        replacementHistory: input.replacementHistory,
         usage: input.usage,
       })
       .onConflictDoNothing({
@@ -1062,6 +1067,21 @@ export class CompactionsRepository {
       .returning();
 
     return created;
+  }
+}
+
+function assertCompactionWrite(
+  summary: string,
+  replacementHistory: unknown,
+): asserts replacementHistory is CompactionReplacementMessage[] {
+  if (summary.trim().length === 0) {
+    throw new Error('Compaction summary must be non-empty.');
+  }
+
+  if (parseCompactionReplacementHistory(replacementHistory) === null) {
+    throw new Error(
+      'Compaction replacement history must be a valid non-empty message sequence.',
+    );
   }
 }
 

@@ -25,6 +25,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
 
 import * as schema from '../db/schema';
+import { type Compaction } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { SearchIndexService } from '../search/search-index.service';
 import {
@@ -32,12 +33,24 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from './chats-repository';
+import { renderConversationCheckpoint } from './context-builder';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = any;
 
 const text = (t: string) => [{ type: 'text', text: t }];
+
+function compactionReplacementHistory(
+  summary: string,
+): Compaction['replacementHistory'] {
+  return [
+    {
+      role: 'user',
+      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],
+    },
+  ];
+}
 
 describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
   let sqlClient: SqlClient;
@@ -190,6 +203,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
         chatId: controlProjectionChat,
         uptoSeq: 1,
         summary: 'zzcompactionlilac',
+        replacementHistory: compactionReplacementHistory('zzcompactionlilac'),
       }),
     );
 

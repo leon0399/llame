@@ -19,7 +19,6 @@ import { configureApp } from '../app.setup';
 import { TenantDbService } from '../db/tenant-db.service';
 import { CompactionsRepository } from '../chats/chats-repository';
 import { COMPACTION_INSTRUCTION } from '../compaction/compaction';
-import { renderConversationCheckpoint } from '../chats/context-builder';
 import { COMPACTION_CHECKPOINT_ENVELOPE_PREFIX } from '../chats/context-item-producers';
 import { type Compaction } from '../db/schema';
 import { ModelsService } from '../models/models.service';
@@ -29,7 +28,7 @@ import {
   cookieOf,
   expectRegisteredUserId,
 } from '../testing/support';
-import { isString } from '../unknown-record';
+import { isRecord, isString } from '../unknown-record';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
@@ -141,6 +140,31 @@ d('compaction lineage over HTTP (#57)', () => {
     return turn.messages.map((m) => contentText(m.content)).join('\n');
   }
 
+  function storedCheckpointText(
+    message: FakeTurn['messages'][number] | undefined,
+  ): string | null {
+    if (message?.role !== 'user') return null;
+    const content = message.content;
+    if (!Array.isArray(content) || content.length !== 1) return null;
+    const part = content[0];
+    return part.type === 'text' ? part.text : null;
+  }
+
+  function checkpointText(compaction: Compaction): string {
+    const first = compaction.replacementHistory[0];
+    const part = first?.parts[0];
+    if (
+      first?.role !== 'user' ||
+      first.parts.length !== 1 ||
+      !isRecord(part) ||
+      part.type !== 'text' ||
+      !isString(part.text)
+    ) {
+      throw new TypeError('Invalid persisted compaction replacement history');
+    }
+    return part.text;
+  }
+
   it('re-compaction absorbs the previous summary + only the delta, never the full history', async () => {
     // Distinct reply per model call, so summaries and replies are all unique
     // and "which text appears where" assertions cannot alias.
@@ -173,16 +197,18 @@ d('compaction lineage over HTTP (#57)', () => {
     expect(second.parentId).toBe(first.id);
     expect(second.uptoSeq).toBeGreaterThan(first.uptoSeq);
 
-    // The second compaction's model input is summary + delta, NOT full history:
-    // it leads with the first summary (rendered exactly like a live turn) and
-    // must not replay any message the first compaction already absorbed.
-    const secondCall = compactionCalls().find((t) =>
-      contentText(t.messages[0]?.content).startsWith(
-        COMPACTION_CHECKPOINT_ENVELOPE_PREFIX,
-      ),
+    // The second compaction's model input is the exact stored replacement +
+    // delta, NOT full history, and must not replay any superseded message.
+    const firstCheckpoint = checkpointText(first);
+    const secondCall = compactionCalls().find(
+      (turn) => storedCheckpointText(turn.messages[0]) === firstCheckpoint,
     );
     expect(secondCall).toBeDefined();
-    expect(texts(secondCall!)).toContain(first.summary);
+    expect(secondCall!.messages[0]).toEqual({
+      role: 'user',
+      content: [{ type: 'text', text: firstCheckpoint }],
+    });
+    expect(texts(secondCall!)).toContain('turn-2');
     expect(texts(secondCall!)).not.toContain('turn-1\n');
     expect(texts(secondCall!)).not.toContain(
       contentText(firstCall.messages[1]?.content),
@@ -195,9 +221,10 @@ d('compaction lineage over HTTP (#57)', () => {
     const lastChatTurn = models.client.turns
       .filter((t) => t.messages.at(-1)?.content !== COMPACTION_INSTRUCTION)
       .at(-1)!;
-    expect(contentText(lastChatTurn.messages[0]?.content)).toBe(
-      renderConversationCheckpoint(second.summary),
-    );
+    expect(lastChatTurn.messages[0]).toEqual({
+      role: 'user',
+      content: [{ type: 'text', text: checkpointText(second) }],
+    });
     expect(texts(lastChatTurn)).not.toContain('turn-1\n');
     expect(texts(lastChatTurn)).not.toContain('turn-2\n');
     expect(texts(lastChatTurn)).toContain('turn-7');

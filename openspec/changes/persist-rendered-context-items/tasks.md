@@ -124,45 +124,45 @@ MUST NOT contain public/UI projection work or final spec archival.
 
 ### 3.1 Schema and persistence
 
-- [ ] 3.1.1 Add failing schema/repository tests for required JSONB
+- [x] 3.1.1 Add failing schema/repository tests for required JSONB
       `replacement_history` and removal of `tool_observation_ledger`. Verify the
       cutover procedure quiesces API writers, drains or explicitly terminates
       accepted nonterminal Runs with compatible workers still running, stops
       workers only after that, and then finds no nonterminal Runs or compaction
       rows. Stop rather than inventing a backfill or compatibility path if
       either final precondition is false.
-- [ ] 3.1.2 Generate the Drizzle migration for the hard cutover, update schema
+- [x] 3.1.2 Generate the Drizzle migration for the hard cutover, update schema
       types/snapshots, and verify a second generation produces no schema delta.
-- [ ] 3.1.3 Add failing ordinary and transition-compaction tests requiring one
+- [x] 3.1.3 Add failing ordinary and transition-compaction tests requiring one
       atomic write of non-empty raw `summary` plus non-empty message-shaped
       replacement history whose first record is the final user-role checkpoint
       text part.
 
 ### 3.2 Materialization and replay
 
-- [ ] 3.2.1 Replace ledger creation with materialization of the final bounded
+- [x] 3.2.1 Replace ledger creation with materialization of the final bounded
       replacement records. Correlate complete pairs by `toolCallId`, preserve
       the existing pair/total budgets and cleared outcome semantics, store one
       final AI SDK UI `tool-*` part per assistant record, and store any omission
       marker as an assistant text record.
-- [ ] 3.2.2 Add failing replay tests proving replacement records retain stored
+- [x] 3.2.2 Add failing replay tests proving replacement records retain stored
       roles, parts, and order after checkpoint/tool renderers or budgets change;
       replay performs no rendering, projection, clearing, re-budgeting, or
       legacy fallback.
-- [ ] 3.2.3 Update ordinary replay, cache-aligned compaction input, transition
+- [x] 3.2.3 Update ordinary replay, cache-aligned compaction input, transition
       compaction, and recursive compaction to consume stored replacement history
       before the retained live window and write a wholly new replacement on the
       next compaction.
-- [ ] 3.2.4 Preserve RLS and internal-only boundaries for replacement history;
+- [x] 3.2.4 Preserve RLS and internal-only boundaries for replacement history;
       it must not enter public DTOs, search indexes, or ordinary exports.
 
 ### 3.3 Layer verification
 
-- [ ] 3.3.1 Run focused repository, migration, RLS,
+- [x] 3.3.1 Run focused repository, migration, RLS,
       ordinary/transition/recursive-compaction, cache-alignment, and replay
       suites, confirming database-backed suites do not skip for missing
       Postgres.
-- [ ] 3.3.2 Run `openspec validate persist-rendered-context-items --strict`,
+- [x] 3.3.2 Run `openspec validate persist-rendered-context-items --strict`,
       `pnpm --filter api lint`, `pnpm --filter api typecheck`,
       `pnpm --filter api test`, `pnpm --filter api build`,
       `pnpm lint:markdown`, and `pnpm format:check`.

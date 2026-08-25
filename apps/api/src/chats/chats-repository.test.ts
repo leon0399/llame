@@ -458,7 +458,7 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
     expect(queryContains(queries, 42)).toBe(true);
   });
 
-  it('create inserts carrying chatId, uptoSeq, parentId, summary, and the internal ledger', async () => {
+  it('create inserts chat lineage, raw summary, and required replacement history', async () => {
     const { db, queries } = makeMockDb();
     await new CompactionsRepository(db)
       .create({
@@ -466,11 +466,17 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
         uptoSeq: 42,
         parentId: 'compaction-parent',
         summary: 'earlier turns summarized',
-        toolObservationLedger: {
-          version: 1,
-          omittedCount: 0,
-          observations: [],
-        },
+        replacementHistory: [
+          {
+            role: 'user',
+            parts: [
+              {
+                type: 'text',
+                text: '<system-reminder>checkpoint</system-reminder>',
+              },
+            ],
+          },
+        ],
         usage: { status: 'completed' },
       })
       .catch(() => null);
@@ -482,7 +488,7 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
     expect(
       queryContains(
         queries,
-        '{"version":1,"omittedCount":0,"observations":[]}',
+        '[{"role":"user","parts":[{"type":"text","text":"<system-reminder>checkpoint</system-reminder>"}]}]',
       ),
     ).toBe(true);
   });
@@ -495,11 +501,17 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
         uptoSeq: 42,
         parentId: 'compaction-parent',
         summary: 'transition summary',
-        toolObservationLedger: {
-          version: 1,
-          omittedCount: 0,
-          observations: [],
-        },
+        replacementHistory: [
+          {
+            role: 'user',
+            parts: [
+              {
+                type: 'text',
+                text: '<system-reminder>transition</system-reminder>',
+              },
+            ],
+          },
+        ],
       })
       .catch(() => null);
 
@@ -509,11 +521,122 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
     expect(
       queryContains(
         queries,
-        '{"version":1,"omittedCount":0,"observations":[]}',
+        '[{"role":"user","parts":[{"type":"text","text":"<system-reminder>transition</system-reminder>"}]}]',
       ),
     ).toBe(true);
     expect(querySqlContains(queries, 'on conflict')).toBe(true);
   });
+
+  it('create rejects an empty replacement history before issuing an insert', async () => {
+    const { db, queries } = makeMockDb();
+
+    await expect(
+      new CompactionsRepository(db).create({
+        chatId,
+        uptoSeq: 42,
+        summary: 'summary',
+        replacementHistory: [],
+      }),
+    ).rejects.toThrow('replacement history');
+
+    expect(queries).toHaveLength(0);
+  });
+
+  it('create rejects a blank summary before issuing an insert', async () => {
+    const { db, queries } = makeMockDb();
+
+    await expect(
+      new CompactionsRepository(db).create({
+        chatId,
+        uptoSeq: 42,
+        summary: '   ',
+        replacementHistory: [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: 'checkpoint' }],
+          },
+        ],
+      }),
+    ).rejects.toThrow('summary');
+
+    expect(queries).toHaveLength(0);
+  });
+
+  it('create rejects history without a user checkpoint text part', async () => {
+    const { db, queries } = makeMockDb();
+
+    await expect(
+      new CompactionsRepository(db).create({
+        chatId,
+        uptoSeq: 42,
+        summary: 'summary',
+        replacementHistory: [
+          {
+            role: 'assistant',
+            parts: [{ type: 'text', text: 'not a checkpoint' }],
+          },
+        ],
+      }),
+    ).rejects.toThrow('replacement history');
+
+    expect(queries).toHaveLength(0);
+  });
+
+  it('create rejects a checkpoint record containing more than one part', async () => {
+    const { db, queries } = makeMockDb();
+
+    await expect(
+      new CompactionsRepository(db).create({
+        chatId,
+        uptoSeq: 42,
+        summary: 'summary',
+        replacementHistory: [
+          {
+            role: 'user',
+            parts: [
+              { type: 'text', text: 'checkpoint' },
+              { type: 'text', text: 'unexpected second part' },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toThrow('replacement history');
+
+    expect(queries).toHaveLength(0);
+  });
+
+  it.each([
+    {
+      role: 'assistant' as const,
+      parts: [{ type: 'text', text: 'arbitrary assistant text' }],
+    },
+    {
+      role: 'user' as const,
+      parts: [{ type: 'text', text: 'later user record' }],
+    },
+  ])(
+    'create rejects an invalid later replacement record: %j',
+    async (record) => {
+      const { db, queries } = makeMockDb();
+
+      await expect(
+        new CompactionsRepository(db).create({
+          chatId,
+          uptoSeq: 42,
+          summary: 'summary',
+          replacementHistory: [
+            {
+              role: 'user',
+              parts: [{ type: 'text', text: 'checkpoint' }],
+            },
+            record,
+          ],
+        }),
+      ).rejects.toThrow('replacement history');
+
+      expect(queries).toHaveLength(0);
+    },
+  );
 });
 
 describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {

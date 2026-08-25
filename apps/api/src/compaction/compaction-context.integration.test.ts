@@ -11,7 +11,10 @@ import { MockLanguageModelV3 } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
-import { type ModelToolDeclaration } from '../db/schema';
+import {
+  type CompactionReplacementMessage,
+  type ModelToolDeclaration,
+} from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import {
@@ -48,7 +51,10 @@ import {
   COMPACTION_CHECKPOINT_ENVELOPE_PREFIX,
   createModelChangeItem,
 } from '../chats/context-item-producers';
-import { type MessagePart } from '../chats/context-builder';
+import {
+  renderConversationCheckpoint,
+  type MessagePart,
+} from '../chats/context-builder';
 import {
   RUN_TIMEOUT_ABORT_REASON,
   RunExecutionService,
@@ -65,6 +71,8 @@ import {
   TransitionCompactionError,
 } from './compaction.service';
 import { type KnowledgeToolResolver } from '../tools/types';
+import { isRecord, isString, type UnknownRecord } from '../unknown-record';
+import { contentText } from '../testing/support';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -85,6 +93,32 @@ const knowledgeResolver: KnowledgeToolResolver = {
     read: () => Promise.reject(new Error('Knowledge adapter is not exercised')),
   }),
 };
+
+function replacementHistoryFor(
+  summary: string,
+): CompactionReplacementMessage[] {
+  return [
+    {
+      role: 'user',
+      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],
+    },
+  ];
+}
+
+function replacementToolParts(
+  history: CompactionReplacementMessage[],
+): UnknownRecord[] {
+  return history.slice(1).flatMap((record) => {
+    const part = record.parts[0];
+    return record.role === 'assistant' &&
+      record.parts.length === 1 &&
+      isRecord(part) &&
+      isString(part.type) &&
+      part.type.startsWith('tool-')
+      ? [part]
+      : [];
+  });
+}
 
 function compactionClient(input: {
   model: string;
@@ -615,7 +649,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     await sql`DELETE FROM chats WHERE id = ${chat.id}`;
   });
 
-  it('persists a cleared first ledger and carries it with newly absorbed observations across lineage', async () => {
+  it('persists final cleared replacement records and carries them across lineage', async () => {
     const chat = await seedHistory(5, true);
     const calls: ModelStreamInput[] = [];
     const client = compactionClient({ model: 'source-model', calls });
@@ -632,18 +666,24 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const first = await tenantDb.runAs(userId, (tx) =>
       new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
     );
-    expect(first?.toolObservationLedger).toEqual({
-      version: 1,
-      omittedCount: 0,
-      observations: [
-        {
-          toolCallId: 'history-call-0',
-          toolName: 'search_conversations',
-          outcome: 'success',
-        },
-      ],
+    expect(first?.replacementHistory[0]).toMatchObject({
+      role: 'user',
+      parts: [{ type: 'text' }],
     });
-    expect(JSON.stringify(first?.toolObservationLedger)).not.toContain(
+    expect(first?.replacementHistory[0]?.parts[0]).toMatchObject({
+      text: expect.stringContaining(first?.summary ?? ''),
+    });
+    expect(replacementToolParts(first?.replacementHistory ?? [])).toEqual([
+      {
+        type: 'tool-search_conversations',
+        toolCallId: 'history-call-0',
+        state: 'output-available',
+        input: {},
+        output: expect.stringContaining('Outcome: success'),
+        outcome: 'success',
+      },
+    ]);
+    expect(JSON.stringify(first?.replacementHistory)).not.toContain(
       'PRIVATE-PAYLOAD-0',
     );
     expect(JSON.stringify(calls[0]?.messages)).toContain('PRIVATE-PAYLOAD-0');
@@ -687,15 +727,21 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     );
 
     expect(second?.parentId).toBe(first?.id);
-    expect(second?.toolObservationLedger.observations).toEqual([
+    expect(replacementToolParts(second?.replacementHistory ?? [])).toEqual([
       {
+        type: 'tool-search_conversations',
         toolCallId: 'history-call-0',
-        toolName: 'search_conversations',
+        state: 'output-available',
+        input: {},
+        output: expect.stringContaining('Outcome: success'),
         outcome: 'success',
       },
       {
+        type: 'tool-search_conversations',
         toolCallId: 'history-call-1',
-        toolName: 'search_conversations',
+        state: 'output-available',
+        input: {},
+        output: expect.stringContaining('Outcome: success'),
         outcome: 'success',
       },
     ]);
@@ -1104,13 +1150,20 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     expect(Object.keys(targetCalls[0].tools ?? {})).toEqual([
       'search_conversations',
     ]);
-    expect(targetCalls[0].messages[0].role).toBe('user');
-    expect(targetCalls[0].messages[0].content).toMatch(
-      new RegExp(
-        `^${COMPACTION_CHECKPOINT_ENVELOPE_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
-      ),
-    );
-    expect(targetCalls[0].messages[0].content).toContain(summary);
+    expect(targetCalls[0].messages[0]).toEqual({
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: expect.stringMatching(
+            new RegExp(
+              `^${COMPACTION_CHECKPOINT_ENVELOPE_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+            ),
+          ),
+        },
+      ],
+    });
+    expect(contentText(targetCalls[0].messages[0].content)).toContain(summary);
     expect(targetCalls[0].messages.at(-1)).toEqual({
       role: 'user',
       content: [
@@ -1139,17 +1192,16 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     );
     expect(checkpoint?.uptoSeq).toBeLessThan(seeded.targetUser.seq);
     expect(checkpoint?.summary).toBe(summary);
-    expect(checkpoint?.toolObservationLedger).toEqual({
-      version: 1,
-      omittedCount: 0,
-      observations: [
-        {
-          toolCallId: 'transition-tool-call',
-          toolName: 'search_conversations',
-          outcome: 'timeout',
-        },
-      ],
-    });
+    expect(replacementToolParts(checkpoint?.replacementHistory ?? [])).toEqual([
+      {
+        type: 'tool-search_conversations',
+        toolCallId: 'transition-tool-call',
+        state: 'output-available',
+        input: {},
+        output: expect.stringContaining('Outcome: timeout'),
+        outcome: 'timeout',
+      },
+    ]);
     await sql`DELETE FROM chats WHERE id = ${seeded.chat.id}`;
   });
 
@@ -1321,6 +1373,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         chatId: seeded.chat.id,
         uptoSeq: seeded.targetUser.seq - 1,
         summary: concurrentSummary,
+        replacementHistory: replacementHistoryFor(concurrentSummary),
       }),
     );
     resolveSummary('## Objective\nDiscard this stale summary.');
@@ -1330,7 +1383,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
     expect(targetCalls).toHaveLength(1);
     expect(targetCalls[0]?.messages[0].role).toBe('user');
-    expect(targetCalls[0]?.messages[0].content).toContain(concurrentSummary);
+    expect(contentText(targetCalls[0]?.messages[0].content ?? '')).toContain(
+      concurrentSummary,
+    );
     const settled = await tenantDb.runAs(userId, async (tx: Db) => ({
       run: await new RunsRepository(tx).findById(seeded.targetRun.id, userId),
       checkpoint: await new CompactionsRepository(tx).findLatestByChatId(
@@ -1391,6 +1446,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         // Mirrors an ordinary checkpoint retaining the latest assistant turn.
         uptoSeq: seeded.targetUser.seq - 2,
         summary: '## Objective\nOrdinary checkpoint is not far enough.',
+        replacementHistory: replacementHistoryFor(
+          '## Objective\nOrdinary checkpoint is not far enough.',
+        ),
       }),
     );
     const transitionSummary =
@@ -1402,7 +1460,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
     expect(targetCalls).toHaveLength(1);
     expect(targetCalls[0]?.messages[0].role).toBe('user');
-    expect(targetCalls[0]?.messages[0].content).toContain(transitionSummary);
+    expect(contentText(targetCalls[0]?.messages[0].content ?? '')).toContain(
+      transitionSummary,
+    );
     const checkpoint = await tenantDb.runAs(userId, (tx) =>
       new CompactionsRepository(tx).findLatestByChatId(seeded.chat.id, userId),
     );

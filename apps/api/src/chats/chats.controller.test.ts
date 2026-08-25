@@ -238,11 +238,17 @@ describe('ChatsController', () => {
       uptoSeq: 5,
       parentId: null,
       summary: 'Absorbed the first five turns.',
-      toolObservationLedger: {
-        version: 1,
-        omittedCount: 0,
-        observations: [],
-      },
+      replacementHistory: [
+        {
+          role: 'user',
+          parts: [
+            {
+              type: 'text',
+              text: '<system-reminder>checkpoint</system-reminder>',
+            },
+          ],
+        },
+      ],
       usage: null,
       createdAt: new Date('2026-07-06T00:00:00.000Z'),
     };
@@ -278,11 +284,17 @@ describe('ChatsController', () => {
       uptoSeq: 5,
       parentId: null,
       summary: 'Absorbed the first five turns.',
-      toolObservationLedger: {
-        version: 1,
-        omittedCount: 0,
-        observations: [],
-      },
+      replacementHistory: [
+        {
+          role: 'user',
+          parts: [
+            {
+              type: 'text',
+              text: '<system-reminder>checkpoint</system-reminder>',
+            },
+          ],
+        },
+      ],
       usage: {
         inputTokens: 71400,
         cachedInputTokens: 0,

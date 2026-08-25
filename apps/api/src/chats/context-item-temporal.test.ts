@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildContext, type MessagePart } from './context-builder';
+import {
+  buildContext,
+  renderConversationCheckpoint,
+  type MessagePart,
+} from './context-builder';
+import type { CompactionReplacementMessage } from '../db/schema';
 import {
   createTemporalItem,
   isTemporalPayload,
@@ -11,6 +16,17 @@ import { contentBlockTexts, contentText } from '../testing/support';
 
 const RUN_ID = '11111111-2222-4333-8444-555555555555';
 const INSTANT = new Date('2026-08-19T16:36:00.000Z');
+
+function compactionReplacementHistory(
+  summary: string,
+): CompactionReplacementMessage[] {
+  return [
+    {
+      role: 'user',
+      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],
+    },
+  ];
+}
 
 type TemporalOverrides = { instant?: string; timeZone?: string };
 
@@ -269,7 +285,11 @@ describe('temporal rows in assembled context', () => {
   it('drops rows superseded by a compaction along with their turns', () => {
     const { contextItems } = buildContext(conversation, {
       systemPrompt,
-      compaction: { summary: 'earlier history', uptoSeq: 2 },
+      compaction: {
+        summary: 'earlier history',
+        uptoSeq: 2,
+        replacementHistory: compactionReplacementHistory('earlier history'),
+      },
     });
     expect(
       contextItems.filter((item) => item.producer === 'temporal'),

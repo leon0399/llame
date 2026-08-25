@@ -272,6 +272,37 @@ or temporarily provide compatible dedicated workers and move every API process
 to `web` before new authoring starts. Do not claim co-located worker-first
 compatibility.
 
+### Compaction replacement-history hard cutover
+
+The `20260825115153_naive_the_executioner` migration replaces
+`compactions.tool_observation_ledger` with required JSONB
+`compactions.replacement_history`. This is an alpha hard cutover: there is no
+legacy reader, nullable fallback, dual writer, compatibility backfill, or mixed
+old/new worker deployment. The migration is safe only when no compaction row
+needs conversion.
+
+The operator preflight must run through an administrative connection that can
+see every tenant (`BYPASSRLS` or superuser), not the request `app` role. With
+FORCE RLS, a tenant-less `app` connection returns no rows and would make a
+false zero-count claim. Quiesce API compaction writers, keep compatible workers
+running, drain or explicitly terminate every accepted nonterminal Run, then
+verify both checks are zero:
+
+```sql
+SELECT count(*) AS nonterminal_runs
+FROM runs
+WHERE status NOT IN ('completed', 'failed', 'cancelled', 'expired');
+
+SELECT count(*) AS compactions
+FROM compactions;
+```
+
+Stop and investigate if either count is non-zero. Stop compatible workers only
+after both counts are zero, then apply the migration and matching application
+revision together. Rollback reverses the order: stop new authoring, drain Runs
+accepted by the new revision while compatible workers remain available, stop
+workers, and only then roll back schema and binaries.
+
 ## Process-local MCP clients
 
 Every API, co-located consumer, and dedicated worker process eagerly owns one

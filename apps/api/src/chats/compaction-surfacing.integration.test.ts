@@ -27,6 +27,7 @@ import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 
 import * as schema from '../db/schema';
+import { type Compaction } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   ChatsRepository,
@@ -35,10 +36,22 @@ import {
 } from './chats-repository';
 import { ChatsService } from './chats.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { renderConversationCheckpoint } from './context-builder';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = any;
+
+function compactionReplacementHistory(
+  summary: string,
+): Compaction['replacementHistory'] {
+  return [
+    {
+      role: 'user',
+      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],
+    },
+  ];
+}
 
 describeIfDb('compaction surfacing — RLS + latest', () => {
   let sql: SqlClient;
@@ -83,6 +96,7 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
         chatId: chat,
         uptoSeq: 10,
         summary: 'summary up to 10',
+        replacementHistory: compactionReplacementHistory('summary up to 10'),
       }),
     );
     await tenantDb.runAs(a, (tx) =>
@@ -91,6 +105,7 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
         uptoSeq: 25,
         parentId: first.id,
         summary: 'summary up to 25',
+        replacementHistory: compactionReplacementHistory('summary up to 25'),
       }),
     );
     const latest = await tenantDb.runAs(a, (tx) =>
@@ -107,6 +122,7 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
         chatId: chat,
         uptoSeq: 5,
         summary: 'private summary',
+        replacementHistory: compactionReplacementHistory('private summary'),
       }),
     );
     const asB = await tenantDb.runAs(b, (tx) =>
@@ -162,6 +178,7 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
           chatId: chat,
           uptoSeq: 3,
           summary: 'no-usage summary',
+          replacementHistory: compactionReplacementHistory('no-usage summary'),
         }),
       );
 
@@ -181,6 +198,7 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
           chatId: chat,
           uptoSeq: 1,
           summary: 'with usage',
+          replacementHistory: compactionReplacementHistory('with usage'),
           usage: {
             inputTokens: 71400,
             cachedInputTokens: 0,
@@ -208,6 +226,7 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
           chatId: chat,
           uptoSeq: 10,
           summary: 'first',
+          replacementHistory: compactionReplacementHistory('first'),
         }),
       );
       await tenantDb.runAs(a, (tx) =>
@@ -216,6 +235,7 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
           uptoSeq: 25,
           parentId: first.id,
           summary: 'second',
+          replacementHistory: compactionReplacementHistory('second'),
         }),
       );
 
@@ -234,6 +254,8 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
           chatId: chat,
           uptoSeq: 1,
           summary: 'owner-only summary',
+          replacementHistory:
+            compactionReplacementHistory('owner-only summary'),
         }),
       );
 

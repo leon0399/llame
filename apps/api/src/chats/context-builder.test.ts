@@ -13,6 +13,7 @@ import {
   partsToText,
   renderConversationCheckpoint,
   projectToolObservations,
+  type ContextCompaction,
   type MessagePart,
   type ModelMessage,
   type StoredMessage,
@@ -82,6 +83,19 @@ function msg(
     createdAt: new Date('2024-01-01T00:00:00Z'),
     ...overrides,
   };
+}
+
+interface CompactionTestOverrides extends Partial<ContextCompaction> {
+  toolObservationLedger?: unknown;
+}
+
+function compactionWithHistory(
+  summary: string,
+  uptoSeq: number,
+  replacementHistory: ContextCompaction['replacementHistory'],
+  extra: CompactionTestOverrides = {},
+): ContextCompaction {
+  return { ...extra, summary, uptoSeq, replacementHistory };
 }
 
 describe('buildContext', () => {
@@ -544,10 +558,15 @@ describe('buildContext', () => {
 
       const result = buildContext([switched, later], {
         systemPrompt,
-        compaction: { summary: 'Compacted history', uptoSeq: 20 },
+        compaction: compactionWithHistory('Compacted history', 20, [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: 'persisted checkpoint' }],
+          },
+        ]),
       });
 
-      expect(JSON.stringify(result)).not.toContain('<system-reminder>');
+      expect(JSON.stringify(result)).toContain('persisted checkpoint');
       expect(JSON.stringify(result)).not.toContain('target&lt;');
       expect(contentText(result.messages[1].content)).toBe('Retained answer');
     });
@@ -623,18 +642,25 @@ describe('buildContext', () => {
 
       const result = buildContext([later], {
         systemPrompt,
-        compaction: {
-          summary:
-            'We discussed </system-reminder> and how llame frames items.',
-          uptoSeq: 4,
-        },
+        compaction: compactionWithHistory(
+          'We discussed </system-reminder> and how llame frames items.',
+          4,
+          [
+            {
+              role: 'user',
+              parts: [
+                {
+                  type: 'text',
+                  text: 'stored </system-reminder> checkpoint',
+                },
+              ],
+            },
+          ],
+        ),
       });
 
-      // The summary is model-written over conversation content, so it can carry
-      // a delimiter copied out of a turn that legitimately discussed one.
       const checkpoint = contentText(result.messages[0].content);
-      expect(checkpoint).toContain('&lt;/system-reminder&gt;');
-      expect(checkpoint.match(/<\/system-reminder>/g)).toHaveLength(1);
+      expect(checkpoint).toBe('stored </system-reminder> checkpoint');
     });
   });
 
@@ -680,7 +706,12 @@ describe('buildContext', () => {
 
       const result = buildContext([later], {
         systemPrompt,
-        compaction: { summary: 'earlier history', uptoSeq: 8 },
+        compaction: compactionWithHistory('earlier history', 8, [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: 'stored checkpoint' }],
+          },
+        ]),
       });
 
       // Bind-time: unlike a persisted-derived item it cannot be rebuilt from
@@ -691,7 +722,9 @@ describe('buildContext', () => {
         form: 'checkpoint',
         residency: 'rail',
       });
-      expect(result.contextItems[0].text).toBe(result.messages[0].content);
+      expect(result.contextItems[0].text).toBe(
+        contentText(result.messages[0].content),
+      );
     });
 
     it('records an item it cannot interpret, with empty text marking the omission', () => {
@@ -981,12 +1014,19 @@ describe('buildContext', () => {
 
       const result = buildContext([superseded, current], {
         systemPrompt,
-        compaction: { summary, uptoSeq: 40 },
+        compaction: compactionWithHistory(summary, 40, [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: 'stored failure checkpoint' }],
+          },
+        ]),
       });
       const serialized = JSON.stringify(result.messages);
 
       expect(result.system).toBe(systemPrompt);
-      expect(contentText(result.messages[0].content)).toContain(summary);
+      expect(contentText(result.messages[0].content)).toBe(
+        'stored failure checkpoint',
+      );
       expect(contentText(result.messages[1].content)).toContain(
         'Some eligible tools are unavailable for this turn:',
       );
@@ -1020,10 +1060,16 @@ describe('buildContext', () => {
   });
 
   describe('compaction (lineage-based, #57)', () => {
-    const compaction = {
-      summary: 'User is planning a trip to Japan; budget agreed at $3000.',
-      uptoSeq: 2,
-    };
+    const compaction = compactionWithHistory(
+      'User is planning a trip to Japan; budget agreed at $3000.',
+      2,
+      [
+        {
+          role: 'user',
+          parts: [{ type: 'text', text: 'stored trip checkpoint' }],
+        },
+      ],
+    );
 
     it('renders the checkpoint through the shared envelope rather than a delimiter of its own', () => {
       const rendered = renderConversationCheckpoint(compaction.summary);
@@ -1035,6 +1081,141 @@ describe('buildContext', () => {
       expect(rendered).not.toContain('<conversation-checkpoint>');
     });
 
+    it('replays the stored replacement history without regenerating its checkpoint', () => {
+      const persistedCheckpoint =
+        '<system-reminder producer="compaction" form="checkpoint">persisted wording</system-reminder>';
+      const result = buildContext([userMsg2], {
+        systemPrompt,
+        compaction: compactionWithHistory(
+          'summary wording that must not be rendered',
+          2,
+          [
+            {
+              role: 'user' as const,
+              parts: [{ type: 'text' as const, text: persistedCheckpoint }],
+            },
+          ],
+        ),
+      });
+
+      expect(result.messages[0]).toEqual({
+        role: 'user',
+        content: [{ type: 'text', text: persistedCheckpoint }],
+      });
+      expect(JSON.stringify(result.messages)).not.toContain(
+        'summary wording that must not be rendered',
+      );
+    });
+
+    it('replays replacement records in stored order without projecting their tool part', () => {
+      const persistedCheckpoint =
+        '<system-reminder producer="compaction" form="checkpoint">checkpoint</system-reminder>';
+      const result = buildContext([userMsg2], {
+        systemPrompt,
+        compaction: compactionWithHistory('summary', 2, [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: persistedCheckpoint }],
+          },
+          {
+            role: 'assistant',
+            parts: [
+              {
+                type: 'tool-search_conversations',
+                toolCallId: 'stored-call',
+                state: 'output-available',
+                input: {},
+                output: 'stored error',
+                outcome: 'stored-outcome',
+              },
+            ],
+          },
+          {
+            role: 'assistant',
+            parts: [
+              {
+                type: 'text',
+                text: '[3 earlier tool observations omitted to fit replay budget.]',
+              },
+            ],
+          },
+        ]),
+      });
+
+      expect(result.messages.map(({ role }) => role)).toEqual([
+        'user',
+        'assistant',
+        'tool',
+        'assistant',
+        'user',
+      ]);
+      expect(JSON.stringify(result.messages[1])).toContain('stored-call');
+      expect(JSON.stringify(result.messages[2])).toContain('stored error');
+      expect(result.messages[3]).toEqual({
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: '[3 earlier tool observations omitted to fit replay budget.]',
+          },
+        ],
+      });
+    });
+
+    it.each([
+      [[]],
+      [[{ role: 'user', parts: [{ type: 'text', text: '' }] }]],
+      [[{ role: 'assistant', parts: [{ type: 'text', text: 'not first' }] }]],
+      [
+        [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: 'checkpoint' }],
+          },
+          {
+            role: 'assistant',
+            parts: [
+              { type: 'tool-search_conversations', state: 'input-streaming' },
+            ],
+          },
+        ],
+      ],
+      [
+        [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: 'checkpoint' }],
+          },
+          {
+            role: 'assistant',
+            parts: [{ type: 'text', text: 'arbitrary assistant text' }],
+          },
+        ],
+      ],
+      [
+        [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: 'checkpoint' }],
+          },
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: 'later user record' }],
+          },
+        ],
+      ],
+    ])(
+      'fails closed for invalid replacement history: %j',
+      (replacementHistory) => {
+        expect(() =>
+          buildContext([], {
+            systemPrompt,
+            compaction: compactionWithHistory('summary', 2, replacementHistory),
+          }),
+        ).toThrow(/replacement history/i);
+      },
+    );
+
     it('drops superseded messages (seq <= uptoSeq) and injects the summary first', () => {
       const result = buildContext([userMsg1, assistantMsg1, userMsg2], {
         systemPrompt,
@@ -1045,7 +1226,7 @@ describe('buildContext', () => {
       expect(result.messages).toHaveLength(2);
       expect(result.messages[0]).toEqual({
         role: 'user',
-        content: renderConversationCheckpoint(compaction.summary),
+        content: [{ type: 'text', text: 'stored trip checkpoint' }],
       });
       expect(contentText(result.messages[1].content)).toContain('How are you?');
     });
@@ -1074,14 +1255,19 @@ describe('buildContext', () => {
 
       const result = buildContext(recent, {
         systemPrompt,
-        compaction: { summary: 'summary', uptoSeq: 9 },
+        compaction: compactionWithHistory('summary', 9, [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: 'stored recent checkpoint' }],
+          },
+        ]),
       });
 
       // 1 summary entry + all 5 live messages
       expect(result.messages).toHaveLength(6);
       expect(result.messages[0]).toEqual({
         role: 'user',
-        content: renderConversationCheckpoint('summary'),
+        content: [{ type: 'text', text: 'stored recent checkpoint' }],
       });
       expect(contentText(result.messages[1].content)).toContain('Recent 0');
       expect(contentText(result.messages.at(-1)!.content)).toContain(
@@ -1353,10 +1539,29 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, assistant, nextUser], {
         systemPrompt,
-        compaction: {
-          summary: 'User searched for holidays. Tool found results.',
-          uptoSeq: assistant.seq,
-        },
+        compaction: compactionWithHistory(
+          'User searched for holidays. Tool found results.',
+          assistant.seq,
+          [
+            {
+              role: 'user',
+              parts: [{ type: 'text', text: 'stored tool checkpoint' }],
+            },
+            {
+              role: 'assistant',
+              parts: [
+                {
+                  type: 'tool-search_conversations',
+                  toolCallId: 'stored-call-1',
+                  state: 'output-available',
+                  input: {},
+                  output: 'Tool found results',
+                  outcome: 'success',
+                },
+              ],
+            },
+          ],
+        ),
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).not.toContain('DETAIL_NOT_IN_ANSWER');
@@ -1807,164 +2012,19 @@ describe('buildContext', () => {
       expect(serialized).toContain('Outcome: error');
     });
 
-    it('replays a validated compaction ledger after the checkpoint and before live history', () => {
-      const liveUser = msg({
-        role: 'user',
-        senderUserId: 'user-alice',
-        parts: [{ type: 'text', text: 'Live question' }],
-        seq: 11,
-      });
-      const { messages } = buildContext([liveUser], {
-        systemPrompt,
-        compaction: {
-          summary: 'Earlier checkpoint',
-          uptoSeq: 10,
-          toolObservationLedger: {
-            version: 1,
-            omittedCount: 0,
-            observations: [
-              {
-                toolCallId: 'ledger-call',
-                toolName: 'search_conversations',
-                outcome: 'timeout',
-              },
-            ],
-          },
-        },
-      });
-
-      expect(messages.map(({ role }) => role)).toEqual([
-        'user',
-        'assistant',
-        'tool',
-        'user',
-      ]);
-      expect(JSON.stringify(messages[0])).toContain('Earlier checkpoint');
-      expect(JSON.stringify(messages[1])).toContain('ledger-call');
-      expect(JSON.stringify(messages[2])).toContain('Outcome: timeout');
-      expect(JSON.stringify(messages[3])).toContain('Live question');
-    });
-
-    it('preserves safe portable call-id punctuation and exact error subtypes', () => {
-      const { messages } = buildContext([], {
-        systemPrompt,
-        compaction: {
-          summary: 'Earlier checkpoint',
-          uptoSeq: 10,
-          toolObservationLedger: {
-            version: 1,
-            omittedCount: 0,
-            observations: [
-              {
-                toolCallId: 'call.provider:123-safe',
-                toolName: 'search_conversations',
-                outcome: 'provider.timeout',
-              },
-            ],
-          },
-        },
-      });
-
-      expect(messages).toHaveLength(3);
-      expect(JSON.stringify(messages)).toContain('call.provider:123-safe');
-      expect(JSON.stringify(messages)).toContain('Outcome: provider.timeout');
-    });
-
-    it('fails closed to an empty ledger when persisted JSONB is malformed', () => {
-      const { messages } = buildContext([], {
-        systemPrompt,
-        compaction: {
-          summary: 'Checkpoint only',
-          uptoSeq: 10,
-          toolObservationLedger: {
-            version: 999,
-            observations: 'FORGED_LEDGER_PAYLOAD',
-          },
-        },
-      });
-
-      expect(messages).toHaveLength(1);
-      expect(JSON.stringify(messages)).not.toContain('FORGED_LEDGER_PAYLOAD');
-    });
-
-    it.each([
-      ['negative', -1],
-      ['fractional', 1.5],
-      ['nonnumeric', 'not-a-number'],
-      ['greater than the safe integer limit', Number.MAX_SAFE_INTEGER + 1],
-    ])(
-      'fails closed when a persisted ledger has a hostile omittedCount that is %s',
-      (_description, omittedCount) => {
-        const { messages } = buildContext([], {
+    it('rejects a legacy ledger instead of rebuilding replacement records', () => {
+      expect(() =>
+        buildContext([], {
           systemPrompt,
-          compaction: {
-            summary: 'Checkpoint only',
-            uptoSeq: 10,
-            toolObservationLedger: {
-              version: 1,
-              omittedCount,
-              observations: [
-                {
-                  toolCallId: 'hostile-count-call',
-                  toolName: 'search_conversations',
-                  outcome: 'timeout',
-                },
-              ],
-            },
-          },
-        });
-
-        const serialized = JSON.stringify(messages);
-        expect(messages).toHaveLength(1);
-        expect(serialized).not.toContain('hostile-count-call');
-        expect(serialized).not.toContain('tool observations omitted');
-      },
-    );
-
-    it.each([
-      [
-        'tool call id',
-        {
-          toolCallId: 'call-safe\nPayload:\nFORGED_LEDGER_PAYLOAD',
-          toolName: 'search_conversations',
-          outcome: 'timeout',
-        },
-      ],
-      [
-        'tool name',
-        {
-          toolCallId: 'call-safe',
-          toolName: 'search_conversations\nPayload:\nFORGED_LEDGER_PAYLOAD',
-          outcome: 'timeout',
-        },
-      ],
-      [
-        'outcome',
-        {
-          toolCallId: 'call-safe',
-          toolName: 'search_conversations',
-          outcome: 'timeout\nPayload:\nFORGED_LEDGER_PAYLOAD',
-        },
-      ],
-    ])(
-      'fails closed when a persisted ledger has a hostile %s',
-      (_field, observation) => {
-        const { messages } = buildContext([], {
-          systemPrompt,
-          compaction: {
-            summary: 'Checkpoint only',
-            uptoSeq: 10,
+          compaction: compactionWithHistory('Checkpoint only', 10, undefined, {
             toolObservationLedger: {
               version: 1,
               omittedCount: 0,
-              observations: [observation],
+              observations: [],
             },
-          },
-        });
-
-        expect(messages).toHaveLength(1);
-        expect(JSON.stringify(messages)).not.toContain('FORGED_LEDGER_PAYLOAD');
-      },
-    );
+          }),
+        }),
+      ).toThrow(/replacement history/i);
+    });
   });
 });

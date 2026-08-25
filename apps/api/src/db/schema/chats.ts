@@ -219,16 +219,9 @@ export const messages = pgTable(
 
 export type Message = InferSelectModel<typeof messages>;
 
-export interface CompactionToolObservation {
-  toolCallId: string;
-  toolName: string;
-  outcome: string;
-}
-
-export interface CompactionToolObservationLedgerV1 {
-  version: 1;
-  omittedCount: number;
-  observations: CompactionToolObservation[];
+export interface CompactionReplacementMessage {
+  role: 'user' | 'assistant';
+  parts: unknown[];
 }
 
 // A context-compaction summary (#57) — a first-class row, not an opaque inline event,
@@ -253,12 +246,11 @@ export const compactions = pgTable(
     }),
     // Model-facing summary text (objective, constraints, decisions, pending items).
     summary: text('summary').notNull(),
-    // Internal structured observations cleared to identity + outcome. Versioned
-    // and runtime-validated before replay; intentionally absent from public DTOs.
-    toolObservationLedger: jsonb('tool_observation_ledger')
-      .$type<CompactionToolObservationLedgerV1>()
-      .notNull()
-      .default(sql`'{"version":1,"omittedCount":0,"observations":[]}'::jsonb`),
+    // Complete application replay replacement for the superseded prefix.
+    // Internal-only and runtime-validated before replay.
+    replacementHistory: jsonb('replacement_history')
+      .$type<CompactionReplacementMessage[]>()
+      .notNull(),
     // Telemetry of the summarization call (TurnTelemetry shape), like messages.usage.
     usage: jsonb('usage'),
     createdAt: timestamp('created_at', { withTimezone: true })

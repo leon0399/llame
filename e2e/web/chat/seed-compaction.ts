@@ -1,5 +1,7 @@
 import { escapeSqlLiteral, runSeedSql } from "../../support/seed-sql";
 
+import { renderConversationCheckpoint } from "../../../apps/api/src/chats/context-builder";
+
 export type SeedCompactionUsage = {
   inputTokens: number;
   outputTokens: number;
@@ -51,10 +53,28 @@ export function seedCompaction(
       )}'::jsonb`
     : "NULL";
 
+  // The compaction writer now requires its already-materialized replacement
+  // history. Keep the seed shape minimal: one user record containing the
+  // complete stored checkpoint text. The browser assertion exercises the
+  // owner-facing summary; this record only makes the row valid for subsequent
+  // model-context reads.
+  const replacementHistory = JSON.stringify([
+    {
+      role: "user",
+      parts: [
+        {
+          type: "text",
+          text: renderConversationCheckpoint(summary),
+        },
+      ],
+    },
+  ]);
   runSeedSql(
-    `INSERT INTO compactions (chat_id, upto_seq, summary, usage) VALUES ('${escapeSqlLiteral(
+    `INSERT INTO compactions (chat_id, upto_seq, summary, replacement_history, usage) VALUES ('${escapeSqlLiteral(
       chatId,
-    )}', ${uptoSeq}, '${escapeSqlLiteral(summary)}', ${usageColumn});`,
+    )}', ${uptoSeq}, '${escapeSqlLiteral(summary)}', '${escapeSqlLiteral(
+      replacementHistory,
+    )}'::jsonb, ${usageColumn});`,
     ownerUserId,
   );
 }
