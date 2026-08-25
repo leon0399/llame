@@ -1,0 +1,1224 @@
+apps/api/src/chats/chats-repository.ts
+  7e3b0cf76e74609d 33,45,1019,1022-1023,1031,1049,1052-1053,1061,1073-1084
+apps/api/src/chats/chats-repository.test.ts
+  7e3b0cf76e74609d 461,469,471-476,478-479,491,504,506-511,513-514,524,529-605,607-639
+apps/api/src/db/schema/chats.ts
+  7e3b0cf76e74609d 222-224,249-253
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "5486070a6f4c9ae7760ff0d41e70aa315282268f",
+  "prompts": {
+    "7e3b0cf76e74609d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a038b7-6529-7823-a5d3-071b6282aed5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "<recommended_plugins>\nHere is a list of plugins that are available but not installed.\n\n- Airtable (airtable@openai-curated-remote)\n- Alpaca (alpaca@openai-curated-remote)\n- Apollo.io (apollo@openai-curated-remote)\n- Spotify (app-68de829bf7648191acd70a907364c67c@openai-curated-remote)\n- AllTrails (app-68f1afc5a6008191a701eaaab428816c@openai-curated-remote)\n- Apple Music (app-6938a94a61d881918ef32cb999ff937c@openai-curated-remote)\n- LONA Trading Assistant (app-694336b0c0948191a4ad234f9942885b@openai-curated-remote)\n- SciSpace (app-69439d715a7c8191aed9e2f6649e105f@openai-curated-remote)\n- Tarot (app-6943a2c078b0819188de39e4fe168d9b@openai-curated-remote)\n- Todoist: To Do List & Calendar (app-6943b73823548191a9f9216c6790c453@openai-curated-remote)\n- Consensus (app-6943e6f4a928819195962de16fb9ffe4@openai-curated-remote)\n- Sider Scholar (app-6948b485f5bc8191adb4df13f369cec7@openai-curated-remote)\n- True Sky (app-69490a4a06148191a0dd78606a3dbf1f@openai-curated-remote)\n- Bigdata.com (app-69491eceef3c8191beb70788b7840429@openai-curated-remote)\n- Gamma (app-698a098735908191989f5788d7ee317e@openai-curated-remote)\n- Tredict (app-69aef5b699a0819184512d57743fc1cd@openai-curated-remote)\n- Maersk (app-69b2b5a768d4819190d3a86c5f12e6d9@openai-curated-remote)\n- Dropbox (app-69b31dc2110c8191b8b47dc98fe5a052@openai-curated-remote)\n- Parqet (app-69b68652f0308191a27d7c7096cab4f6@openai-curated-remote)\n- Interactive Brokers (IBKR) (app-69bc11db874881918718abaca20b68ce@openai-curated-remote)\n- Financial Datasets (app-69cacd9394a88191ba6564e1bb0430fa@openai-curated-remote)\n- Fathom (app-69d88b99c5c481918e8da9225737e1e9@openai-curated-remote)\n- vidIQ (app-69dd11f3e50c8191b1ca48d03cf7e2ad@openai-curated-remote)\n- TickTick:To-Do List & Calendar (app-69ddbaba3fb48191a825f22c21b0599d@openai-curated-remote)\n- Plaud (app-69f3c30d68288191bbd428a394a78407@openai-curated-remote)\n- Wolfram (app-69fe0bf66c8481919c513d799406436e@openai-curated-remote)\n- Runway (app-6a05e3b201788191be12b590b43e6ce3@openai-curated-remote)\n- Caliber (app-6a05e8f22d408191b13ba3897157f6df@openai-curated-remote)\n- COROS (app-6a0694cbb2608191bbefb74ba810ab68@openai-curated-remote)\n- TradingCursor (app-6a0d835ff1dc8191972eeabd14967446@openai-curated-remote)\n- CoinMarketCap (app-6a172fe86f5481919f73cbc3bc3ad5bb@openai-curated-remote)\n- Trello (app-6a20b18a639081918c1b438f8381b27e@openai-curated-remote)\n- Longbridge (app-6a2baf2fad748191812393c3e00308ef@openai-curated-remote)\n- freddy (app-6a322b52a82c8191b7fb653f9e9f7891@openai-curated-remote)\n- Higgsfield (app-6a3293e129088191abf0875820e839da@openai-curated-remote)\n- Stocktwits (app-6a427a19b1f481919c5db13838af00c2@openai-curated-remote)\n- CoinGecko (app-6a4f02d735388191959c8328877e0bbd@openai-curated-remote)\n- Asana (asana@openai-curated-remote)\n- Atlassian Rovo (atlassian-rovo@openai-curated-remote)\n- Base44 (base44@openai-curated-remote)\n- Binance (binance@openai-curated-remote)\n- Box (box@openai-curated-remote)\n- Canva (canva@openai-curated-remote)\n- ClickUp (clickup@openai-curated-remote)\n- Cloudflare (cloudflare@openai-curated-remote)\n- Codex Security (codex-security@openai-curated-remote)\n- Figma (figma@openai-curated-remote)\n</recommended_plugins>\n# AGENTS.md instructions for /home/leon0399/.herdr/worktrees/llame/chat-page-title\n\n<INSTRUCTIONS>\n# Agent instructions\n\n## Persona\n\nAct as Leo's brutally honest, high-level advisor and mirror — not a cheerleader, not a search engine with manners. Treat him as someone whose growth depends on hearing the truth, not being comforted. This is the default stance, not a mode to toggle.\n\n- Address the user as Leo.\n- Optimize for correctness and long-term leverage, not agreement. Do not validate, flatter, or soften uncomfortable truths.\n- Be direct, critical, and constructive — say when an idea is suboptimal and propose better options.\n- Assume staff-level technical context unless told otherwise.\n- Do not tell Leo he is right all the time. Be critical. Try to be neutral and objective.\n- Never praise questions or validate premises before answering. Banned phrases: \"great question\", \"you're absolutely right\", \"fascinating perspective\", or any variant.\n- Lead with the strongest counterargument to any position Leo appears to hold before supporting it.\n- Under pushback, do not capitulate unless new evidence or a superior argument is provided — restate the position if reasoning holds. Accuracy is the success metric, not approval.\n- Do not anchor on numbers or estimates Leo provides. Generate own estimate independently first.\n- Use explicit confidence levels when making claims: high / moderate / low / unknown.\n- Do not provide disclaimers. Do not volunteer ethics or morals commentary unless explicitly asked.\n- Do not excessively use emojis.\n- Output: terse, technical, fragments fine. Drop filler and hedging. Code blocks and technical terms unchanged. Auto-expand for security warnings, irreversible actions, or signs of user confusion. Write artifacts (code, configs, docs, PRDs) to files — return path + one-line description, never inline large content.\n- Challenge assumptions and expose blind spots. If reasoning is weak, dissect it and show *why* — not just that it is.\n- Name self-deception: if Leo is avoiding something uncomfortable, rationalizing, making excuses, playing small, or underestimating risk/effort, call it out explicitly.\n- Surface opportunity cost when time or attention is going somewhere suboptimal — say what's being traded away.\n- Zoom out before reacting. Consider goals, constraints, and second-order effects, not just the immediate ask.\n- For non-trivial decisions or advisory questions, close with a prioritized plan ranked by leverage: what to change in thought, action, or mindset to reach the next level.\n- Calibrate intensity to task weight. A one-line bug fix doesn't need strategic reframing; a project direction question does.\n\n## Quality\n\n- Inspect project config (`package.json`, `composer.json`, etc.) for available scripts.\n- Run all relevant checks (lint, format, type-check, build, tests) before submitting changes.\n- Never claim checks passed unless they were actually run.\n- If checks cannot be run, explicitly state why and what would have been executed.\n\n## Implementation discipline\n\n- State assumptions explicitly before coding. If multiple interpretations of the task exist, surface them instead of picking silently. If something is unclear, stop and name what's confusing — do not guess silently.\n- Write the minimum code that solves the problem. No speculative abstractions, no configurability that wasn't requested, no error handling for impossible scenarios. If a simpler approach exists than what was asked, push back before building the complex version.\n- Match the existing style and patterns in the file — even if you'd write them differently in a greenfield project. Raise the disagreement separately if it matters.\n- Clean up orphans *your* changes created (unused imports, variables, functions). Do not delete pre-existing dead code unless asked — flag it instead.\n- Frame work as verifiable goals before touching code: \"add validation\" → \"write tests for invalid inputs, then make them pass\"; \"fix bug\" → \"reproduce with a failing test, then make it pass\".\n- For multi-step work, write a brief plan with a per-step verification check before executing, so you can loop independently instead of asking for confirmation each step.\n- Every changed line should trace back to the task. If it doesn't, drop it.\n\n## CLI tools\n\nPrefer the Nix-managed tools below over slower or less precise defaults when they fit the task.\n\n| tool             | replaces                        | usage                                                                               |\n|------------------|---------------------------------|-------------------------------------------------------------------------------------|\n| `rg` (`ripgrep`) | `grep`                          | `rg \"pattern\"` - fast recursive text search                                         |\n| `fd`             | `find`                          | `fd -g \"*.nix\"` - fast file finder with sensible defaults                           |\n| `ast-grep`       | text-only code search           | `ast-grep run --pattern '$FUNC($$$)' --lang php src/` - AST-aware structural search |\n| `actionlint`     | ad hoc workflow review          | `actionlint` - lint GitHub Actions workflows                                        |\n| `zizmor`         | ad hoc workflow security review | `zizmor .github/workflows/` - audit GitHub Actions security posture                 |\n\nUse `ast-grep` for code patterns (avoids false positives from comments/strings). Fall back to `rg` for plain text, docs, and unsupported languages.\n\n## SCM\n\n- Never use `git reset --hard` or push without explicit permission.\n- If force-pushing is required, use `git push --force-with-lease --force-if-includes` (or just `git push --force-with-lease` if previous one is impossible, analyzing the root cause for fail first, and making sure these changes would not override remote branch updates)\n- Never merge PRs without explicit permission — always ask first, even if CI passes.\n- Prefer safe alternatives (`git revert`, new commits, temp branches).\n- If history rewrite seems necessary, explain and ask first.\n- Add `Co-Authored-By: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>` to commits by default, unless explicitly asked not to.\n\n## Using GitHub\n\nFor questions about GitHub, use the `gh` tool and `/octocat` skill.\nAlways run `gh` commands with escalated permissions; sandboxed `gh` calls fail in this environment because network access is restricted there.\nNever mention Codex in PR descriptions, PR comments, or issue comments unless asked explicitly.\nDo not include a \"Test plan\" section in PR descriptions.\n\n## Coding Standards\n\n### PHP Coding Standards\n\nWhen working with Laravel/PHP projects, always use the `php-guidelines-from-spatie` skill.\n\n## Reviewing external feedback\n\n- ALWAYS load the `superpowers:receiving-code-review` skill upon receiving review feedback (PR comments, agent reviews). The skill enforces technical rigor and verification over performative agreement.\n- When acting on PR review comments (from bots or humans), independently verify factual claims before applying fixes — especially version numbers, library existence, API behavior, and deprecation status.\n- If a claim falls outside your knowledge cutoff, use WebSearch or check local evidence (installed packages, lock files, docker images) before trusting it.\n- Use `pr-review-fetcher` agent to fetch Pull Review reviews and comments.\n\n## Production safety\n\n- Assume production impact unless stated otherwise.\n- Call out risk when touching auth, billing, data, APIs, or build systems.\n- Prefer small, reversible changes; avoid silent breaking behavior.\n\n## Self improvement\n\n- Continuously improve agent workflows.\n- When a repeated correction or better approach is found you're encouraged to codify your new found knowledge and learnings by modifying your section of `~/.c********S.md`.\n- You can modify `~/.c********S.md` without prior approval as long as your edits stay under the `Agent instructions` section.\n- If you utilize any of your codified instructions in future coding sessions call that out and let the user know that you performed the action because of that specific rule in this file.\n\n## Tool-specific memory\n\n- Actively think beyond the immediate task.\n- When using or working near a tool the user maintains:\n  - If you notice patterns, friction, missing features, risks, or improvement opportunities, jot them down.\n  - Do **not** interrupt the current task to implement speculative changes.\n- In plan mode, always use the `/ask` skill to read the code and the original transcript that generated it. Understanding intent will help you write a better plan.\n- Always start new conversation by loading `/using-superpowers` skill. Do this automatically without being asked.\n  - Ignore `superpowers:using-git-worktrees` skill.\n- Do **not** launch Bash / console commands in the background using `command &` syntax, you have options to run Bash and other tools in background explicitly.\n\n## External File Loading\n\nCRITICAL: When you encounter a file reference (e.g., @rules/general.md), use your Read tool to load it on a need-to-know basis. They're relevant to the SPECIFIC task at hand.\n\nInstructions:\n\n- Do NOT preemptively load all references - use lazy loading based on actual need\n- When loaded, treat content as mandatory instructions that override defaults\n- Follow references recursively when needed\n\n### Authoring CLAUDE.md / AGENTS.md\n\n`@file` references in CLAUDE.md / AGENTS.md are eagerly injected into agent context on every load by the Claude Code loader, regardless of whether the file is needed for the current task. The lazy-load instructions above govern in-conversation Read behavior; they do NOT override loader-level injection. Authoring choices matter:\n\n- Use `@file` ONLY for small, always-relevant docs (rule of thumb: ≤ ~50 lines and you'd want the content in every conversation in that directory).\n- Use plain markdown links `[file](file)` for everything larger or situational — agents will Read on demand.\n- Authoring heuristic: if you would not paste the file's full contents into every conversation that triggers this CLAUDE.md, do not use `@`.\n- This applies to both `CLAUDE.md` and `AGENTS.md` (and `.claude.local.md`), and to symlinks between them.\n\n--- project-doc ---\n\n# Agent instructions — llame\n\nHow to work in this repo. [SPEC.md](SPEC.md) is the current cross-cutting architecture contract and documentation index; focused capability behavior lives in OpenSpec. `CLAUDE.md` and `GEMINI.md` are symlinks to this file.\n\nThe product overview (what llame is) is short and always relevant, so it is imported in full:\n\n@README.md\n\n## Key documentation\n\n- [README.md](README.md) — current product overview, shipped baseline, and quickstart (imported above)\n- [VISION.md](VISION.md) — north-star direction, principles, horizons, and deliberate deferrals\n- [ROADMAP.md](ROADMAP.md) — forward-only sequence of unshipped work; GitHub owns live status and implementation detail\n- [SPEC.md](SPEC.md) — current cross-cutting architecture contract, enforced invariants, and authority index\n- [`openspec/specs`](openspec/specs) — normative shipped capability behavior; [`openspec/changes`](openspec/changes) owns proposed deltas and archived implementation records\n- [CHANGELOG.md](CHANGELOG.md) — shipped chronology\n- [`docs/research`](docs/research) — noncanonical evidence, alternatives, and decision provenance\n- [DESIGN.md](DESIGN.md) — design system reference (visual language, OKLCH tokens, component stylings); consult before building or restyling any UI\n- [docs/testing.md](docs/testing.md) — the test pyramid, suffix-is-runner naming contract, placement rules, and CI mapping\n- [docs/scaling.md](docs/scaling.md) — horizontal-scaling topology, invariants, and the design constraints for the durable-run worker split (#48/#50)\n\n## Monorepo layout\n\npnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 22.19 (pinned to 22.23.1 in `.node-version`); `nix develop` or direnv gives a ready shell; pnpm 10). Workspaces: `apps/*`, `packages/*`.\n\n| Path                         | Role                                                                                        | Stack (details in its own `AGENTS.md`)                                                                     |\n| ---------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |\n| `apps/web`                   | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB               | Next.js 16 (App Router), React 19, TanStack Query, generated Orval Fetch bindings, AI SDK (chat streaming) |\n| `apps/api`                   | API/services + **sole database owner**; ships co-located and dedicated worker entrypoints   | NestJS 11, Drizzle + postgres.js, pg-boss                                                                  |\n| `apps/storybook`             | Component workbench + browser interaction tests for `packages/ui` stories                   | Storybook 10 (nextjs-vite), Vitest browser mode                                                            |\n| `packages/ui`                | Shared shadcn/ui component library (`@workspace/ui`); stories co-located next to components | shadcn/ui, Tailwind, React 19                                                                              |\n| `packages/config-typescript` | Shared `tsconfig` bases                                                                     | —                                                                                                          |\n\nEach app/package has its own `AGENTS.md` (auto-loaded when you work in that directory) with concrete commands, structure, and gotchas. **Keep this file high-level — put implementation detail in the child file, not here.**\n\n## Commands (from repo root)\n\n```bash\npnpm install\npnpm dev      # turbo run dev — all apps in watch mode (web + api + storybook on :6006)\npnpm build    # turbo build\npnpm lint     # turbo lint (oxlint per workspace; type-aware via tsgolint in apps/api)\npnpm format   # prettier --write --cache . over the ignore-pruned repository (format:check to verify)\npnpm test:e2e            # playwright test; pass filters after --, e.g. pnpm test:e2e -- e2e/auth\npnpm test:e2e:ui         # playwright test --ui\npnpm test:e2e:headed     # playwright test --headed\npnpm test:e2e:debug      # playwright test --debug\npnpm test:e2e:report     # playwright show-report\n```\n\nAgent verification is resource-bounded: build affected workspaces sequentially\n(`pnpm --filter <workspace> build`). If an aggregate build is necessary, use\n`pnpm exec turbo run build --concurrency=1`; do not run the unbounded root\n`pnpm build`, which launches the API, Next, and Storybook builds concurrently.\n\nScope to one workspace with `pnpm --filter web <script>` (or `--filter api`).\nInstall Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, Playwright starts a throwaway Docker Postgres, applies migrations, owns the API/model/MCP processes, builds `apps/web` with the E2E API URL, and serves that production build with `next start`; set `POSTGRES_URL` only to use an already-migrated external database instead. Authenticated E2E tests should use the worker-scoped fixture from `e2e/support/fixtures.ts`, which writes per-worker storage state under `.auth/`; destructive session tests should request `freshAccount`. Override `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_DB_PORT`, `E2E_DB_READY_PORT`, `E2E_MODEL_PORT`, or `E2E_MCP_PORT` only when the default E2E ports (`4300`/`4301`/`55433`/`4302`/`4303`/`4304`) conflict. Stop manually started services using the E2E ports and any `pnpm dev`, `next dev`, or `next start` using `apps/web` before E2E: Playwright rejects occupied service ports, and the production build must own `.next` without racing another Next process.\n\n## Local database (docker)\n\n`compose.yaml` (repo root) runs Postgres for dev. One-time `cp apps/api/.env.example apps/api/.env.local`, then:\n\n```bash\npnpm db:up        # start Postgres        ·   pnpm db:reset  # wipe + re-init\npnpm db:migrate   # apply apps/api migrations (the authoritative schema)\npnpm db:provision-rls # assign privileged RLS helper ownership after migrations\npnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs\n```\n\nDev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and the self-provisioning `test:integration` gate are documented in [apps********S.md](apps********S.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).\n\n## Conventions\n\n- TypeScript only across web/api/worker — no second backend language (SPEC.md §23).\n- Modified cyclomatic complexity must remain `<= 35` under Oxlint's `modified` variant. Extract only along a real responsibility boundary; arbitrary helper extraction, inline disables, and other metric gaming are prohibited.\n- Drizzle ORM for all DB access. Generate migrations with `drizzle-kit` by\n  default; a security or data-transition gap may add a reviewed hand-authored\n  step only when it is recorded in the [API migration exception ledger](apps********S.md#gotchas)\n  with its regeneration and verification requirements.\n- Conventional commits (e.g. `feat(api):`, `docs(spec):`).\n- The constructor-decorator placement rule runs through the pinned native\n  `pnpm lint:ast-grep` command in Lefthook and CI. Chained type assertions,\n  including `as unknown as T`, are banned across the root E2E and four workspace\n  Oxlint scopes by the vendored anti-slop plugin; narrow the boundary, construct\n  a complete value, or validate untrusted input instead of suppressing the\n  compiler.\n- Product-owned Markdown must pass `pnpm lint:markdown` using the pinned\n  markdownlint-cli2 configuration. Fix violations in the source; do not add\n  inline disables or ignore paths unless the content is generated, maintained\n  upstream, or a symlink alias, and document that boundary in the root config.\n- Every workspace `lint` command rejects unused disable directives. Delete stale\n  suppressions; do not retain a directive for a rule that is not active in that\n  workspace.\n- Tests follow [docs/testing.md](docs/testing.md): `*.test.ts(x)` is Vitest everywhere (`.integration` infix = needs real Postgres; root `e2e/` is Playwright's island); component behavior belongs in Storybook stories, not jsdom render tests; DB-backed suites fail loudly, never skip silently.\n- UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).\n- **Preserve stored conversation parts wholesale by default.** `messages.parts`\n  is the durable application/UI history. Before appending a new turn, retain\n  prior model-bearing parts and their stored order; sanitize, render, and order\n  application-authored content before persistence rather than during replay.\n  At the SDK boundary, use only the minimal content-transparent conversion from\n  stored UI parts to model messages. This is a best-effort application\n  invariant, not provider-wire or cache-byte identity: SDK/provider\n  serialization may evolve, and the existing assistant/tool projection remains\n  an explicit exception pending\n  [#599](https://github.com/leon0399/llame/issues/599). Reasoning, sources, cap\n  notices, and other declared display-only parts are not model history. The\n  current top-level system prompt is outside message history, and compaction may\n  replace only the prefix it explicitly supersedes. New application-owned\n  replay transforms or omissions must be specified rather than introduced\n  silently.\n\n## Storybook MCP tools\n\nStories live next to what they render — component stories in `packages/ui/src`, and (planned) page/meta-component stories in `apps/web` — so this workflow applies wherever UI work happens. When the `storybook` MCP server is connected (Storybook dev on :6006), its tools are the source of truth for component APIs and story conventions — not component source or type definitions:\n\n- **Never guess component props.** Before using any prop — even common-sounding ones like `shadow` or `size` — verify it via `list-all-documentation` → `get-documentation` (or an example story). Story names don't reliably reflect prop names. An undocumented prop does not exist: don't assume it from naming conventions or other libraries; check back with the user instead.\n- Call `get-storybook-story-instructions` before creating or editing any story and follow it over remembered conventions.\n- After any change that affects rendered UI (components, stories, styles, tokens), verify with `run-story-tests` (not a package.json script) and include the `preview-stories` URLs in your response. A shared file (token, util, hook) has no stories of its own — resolve its consumers' stories with `get-stories-by-component` and test/preview those.\n\n## Security\n\nllame is multi-tenant and self-hosted: tenant isolation is a core invariant. Weigh security on every change that touches data, auth, tenancy, identity, secrets, or an externally reachable surface. These are the durable principles — concrete mechanics live in the relevant app's `AGENTS.md` and focused OpenSpec capability specs; SPEC.md indexes the cross-cutting contract:\n\n- **Authorization identity comes only from a trusted, authenticated source** — never from client-controlled input (params, body, query, headers). Never scope data access by a value the caller can set.\n- **Enforce isolation in the datastore, not just app code** (defense-in-depth), and make sure the app actually engages it. When identity or scope is absent, **fail closed** (deny), never open.\n- **Don't ship a reachable surface that can't yet be secured.** If the guard doesn't exist, gate the surface or omit it — a code comment is not a mitigation.\n- **Security is an acceptance criterion, not a follow-up.** Any change touching data/auth/tenancy states its isolation and threat considerations up front and ships a negative test (e.g. cross-tenant access is denied).\n- **Secrets stay secret** — never commit, log, print, or echo credentials, keys, or tokens; provider credentials are currently operator-managed through `llame.config.json` secret references.\n- **Surface risk, don't bury it.** If a change could weaken isolation, or you're unsure, say so explicitly and stop for a decision — don't defer silently.\n\n## Maintaining ROADMAP & CHANGELOG\n\n- `ROADMAP.md` is forward-only — it lists work that is **not yet done**.\n- `CHANGELOG.md` is the dated record of everything **shipped** — features, bug fixes, and chores alike — newest first.\n- **Update both in the same PR that ships the work, not after.** The PR's own diff adds the dated `CHANGELOG.md` entry and, if the work was on the roadmap, removes it from `ROADMAP.md` — so the changelog is correct the moment the PR merges, with no separate follow-up commit. Unplanned work (bug fixes, chores) goes straight to the changelog without ever appearing on the roadmap.\n\n## Current state / gotchas\n\n- `apps/api/src/db` is the single source of truth for the schema. `apps/web` owns no database or chat backend — it is a thin API client (SPEC.md §22.0).\n- Every chat run executes via the pg-boss queue (#107; there is no inline request-thread mode): the api enqueues and answers with the run-event stream bridge, while co-located consumers or the shipped no-HTTP `apps/api/src/worker.ts` entrypoint execute (`RunsWorkerService` → transport-agnostic `RunExecutionService` — don't couple it to HTTP).\n- Production changes that add server-authored message-part schemas are\n  coordinated API/worker revision boundaries. Land backward-compatible schema\n  preparation first; before the writer cutover, quiesce old API writers and\n  drain accepted Runs, then apply the cutover and deploy compatible workers\n  before any API authors the new part. An accepted OpenSpec MAY instead declare\n  an alpha-only single-revision hard cutover when mixed revisions and existing\n  data are explicitly out of scope; do not silently infer that exception.\n  Concrete rollout/rollback steps live in\n  [apps********S.md](apps********S.md) and\n  [docs/scaling.md](docs/scaling.md).\n\n</INSTRUCTIONS>\n<environment_context>\n  <cwd>/home/leon0399/.herdr/worktrees/llame/chat-page-title</cwd>\n  <shell>zsh</shell>\n  <current_date>2026-08-25</current_date>\n  <timezone>Europe/Madrid</timezone>\n  <filesystem><workspace_roots><root>/home/leon0399/.herdr/worktrees/llame/chat-page-title</root></workspace_roots><permission_profile type=\"managed\"><file_system type=\"restricted\"><entry access=\"read\"><special>:root</special></entry><entry access=\"write\"><path>/home/leon0399/.herdr/worktrees/llame/chat-page-title</path></entry><entry access=\"write\"><special>:slash_tmp</special></entry><entry access=\"write\"><special>:tmpdir</special></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/chat-page-title/.git</path></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/chat-page-title/.agents</path></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/chat-page-title/.codex</path></entry></file_system></permission_profile></filesystem>\n</environment_context>",
+          "timestamp": "2026-08-25T11:39:00.950Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Bounded packet restatement: map only the OpenSpec compaction schema/persistence/privacy work for tasks 3.1.1–3.1.3 and 3.2.4. Writable scope is none; I will not edit, stage, commit, switch branches, or revert. Out of scope: implementation, UI, API surface changes, worker behavior beyond persistence boundaries, and unrelated compaction tasks. Acceptance: an evidence-backed file/function/type/migration map covering hard-cutover preconditions, raw-summary plus replacement-history atomic persistence, removal of `tool_observation_ledger`, RLS/internal-only boundaries, failing tests, schema snapshots, and migration-exception rules. Validation is read-only repository/spec/history inspection plus exact command recommendations; no code checks will be run that mutate state. I’m loading the required guidance and relevant repository instructions first.",
+          "timestamp": "2026-08-25T11:39:11.143Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const hits = ALL_TOOLS.filter(x => /read.*skill|skills|exec_command/.test(x.name+\" \"+x.description));\ntext(hits);\n",
+          "timestamp": "2026-08-25T11:39:11.716Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"sed -n '1,240p' /home/leon0399/.agents/skills/superpowers/using-superpowers/SKILL.md\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 12000\n  }),\n  tools.exec_command({\n    cmd: \"sed -n '1,280p' /home/leon0399/.agents/skills/librarian/SKILL.md\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 12000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:39:19.858Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The packet is read-only and the dispatched-agent exception means the conversation bootstrap skill does not impose an implementation workflow. I’m using the repository-exploration guidance and checking prior llame memory for any compaction-specific decisions before inspecting current files.",
+          "timestamp": "2026-08-25T11:39:26.966Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n -i \\\"persist-rendered-context|rendered-context|compaction|tool_observation_ledger|replacement_history|raw summary|summary\\\" /home/leon0399/.codex/memories/MEMORY.md\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 12000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:39:28.878Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"sed -n '430,478p' /home/leon0399/.codex/memories/MEMORY.md\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 10000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:39:32.371Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"sed -n '1,260p' /home/leon0399/.agents/skills/ask/SKILL.md\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 12000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:39:37.137Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Memory contains an older llame compaction/replay note: preserve ordered activity segments and correlated call/result rows during compaction, with payload clearing rather than dropping tool messages. I’ll treat that as historical context only and verify against this checkout’s current OpenSpec/specs/code. Next I’m checking worktree ownership state and loading the root/API instructions plus the change artifacts.",
+          "timestamp": "2026-08-25T11:39:46.397Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"git status --short --branch\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 4000\n  }),\n  tools.exec_command({\n    cmd: \"sed -n '1,320p' AGENTS.md\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 16000\n  }),\n  tools.exec_command({\n    cmd: \"sed -n '1,420p' apps/api/AGENTS.md\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 20000\n  }),\n  tools.exec_command({\n    cmd: \"rg --files openspec/changes | rg 'persist-rendered-context-items|compaction'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 4000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:39:51.297Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"git status --short --branch\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 4000\n  }),\n  tools.exec_command({\n    cmd: \"wc -l apps/api/AGENTS.md AGENTS.md openspec/changes/persist-rendered-context-items/{proposal.md,design.md,tasks.md,specs/context-injection/spec.md}\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 4000\n  }),\n  tools.exec_command({\n    cmd: \"rg -n \\\"migration|RLS|rls|exception|schema|compaction|internal|worker|cutover|hard|rollout|Drizzle|db:generate|db:migrate\\\" apps/api/AGENTS.md\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 12000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:40:01.037Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"sed -n '1,260p' openspec/changes/persist-rendered-context-items/tasks.md\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 16000\n  }),\n  tools.exec_command({\n    cmd: \"sed -n '1,300p' openspec/changes/persist-rendered-context-items/design.md\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 18000\n  }),\n  tools.exec_command({\n    cmd: \"sed -n '1,220p' openspec/changes/persist-rendered-context-items/proposal.md\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 12000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:40:08.463Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n -C 4 \\\"replacement|tool_observation_ledger|compaction|RLS|export|search|DTO|internal|summary|atomic|cutover|Run\\\" openspec/changes/persist-rendered-context-items/specs\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:40:13.225Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"rg -n \\\"tool_observation_ledger|replacement_history|replacementHistory|compactions|Compaction\\\" apps/api/src apps/api/test apps/api 2>/dev/null\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 30000\n  }),\n  tools.exec_command({\n    cmd: \"rg --files apps/api/src/compaction apps/api/src/db apps/api/src/runs | sort\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 12000\n  }),\n  tools.exec_command({\n    cmd: \"find apps/api/src/db/migrations -maxdepth 2 -type f -print | sort | tail -80\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 10000\n  }),\n  tools.exec_command({\n    cmd: \"rg -n -C 4 \\\"Compaction|compaction|replacement|ledger\\\" openspec/changes/persist-rendered-context-items/specs/model-system-prompts/spec.md openspec/changes/persist-rendered-context-items/specs/tool-calling/spec.md openspec/changes/persist-rendered-context-items/specs/context-injection/spec.md\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 30000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:40:23.915Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"rg --files apps/api/src/compaction | sort\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 6000\n  }),\n  tools.exec_command({\n    cmd: \"rg --files apps/api/src/db | sort\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 8000\n  }),\n  tools.exec_command({\n    cmd: \"rg --files apps/api/src/runs | sort\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 8000\n  }),\n  tools.exec_command({\n    cmd: \"find apps/api/src/db/migrations -maxdepth 2 -type f -print | sort | tail -80\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 10000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:40:31.458Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/db/schema/chats.ts | sed -n '1,360p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:40:34.486Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/db/schema/chats.ts | sed -n '311,620p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 26000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:40:37.265Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"rg -n -C 5 \\\"class CompactionsRepository|toolObservationLedger|tool_observation_ledger|findLatestByChatId|create\\\\(\\\" apps/api/src/chats/chats-repository.ts\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 20000\n  }),\n  tools.exec_command({\n    cmd: \"nl -ba apps/api/src/chats/chats-repository.ts | sed -n '1,460p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 30000\n  }),\n  tools.exec_command({\n    cmd: \"nl -ba apps/api/src/compaction/compaction.service.ts | sed -n '1,560p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 40000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:40:45.088Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"nl -ba apps/api/src/chats/chats-repository.ts | sed -n '940,1095p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 20000\n  }),\n  tools.exec_command({\n    cmd: \"nl -ba apps/api/src/compaction/compaction.service.ts | sed -n '1,325p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 30000\n  }),\n  tools.exec_command({\n    cmd: \"nl -ba apps/api/src/compaction/compaction.service.ts | sed -n '320,500p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 22000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:40:51.024Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/compaction/compaction.ts | sed -n '1,430p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 38000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:40:54.063Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/chats/tool-observation-part.ts | sed -n '1,520p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 40000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:40:58.656Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/chats/tool-observation-part.ts | sed -n '488,720p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 24000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:41:01.280Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/chats/context-builder.ts | sed -n '1,620p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 50000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:41:04.443Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"rg -n -C 3 \\\"compaction|Compaction|summary|replacement|toolObservation\\\" apps/api/src --glob '*.ts' | rg -v 'compaction/(compaction|compaction.service|compaction-context)'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 30000\n  }),\n  tools.exec_command({\n    cmd: \"rg -n \\\"public|export|search|DTO|dto|response|parts\\\" apps/api/src/chats apps/api/src/search apps/api/src/runs apps/api/src/db/schema --glob '*.ts' | head -500\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 30000\n  }),\n  tools.exec_command({\n    cmd: \"rg -n \\\"compactions|tool_observation_ledger|summary\\\" apps/api/openapi.json apps/web packages --glob '*.{ts,tsx,json}' 2>/dev/null | head -300\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 20000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:41:12.999Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg --files apps/api/src/chats | sort\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 12000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:41:16.737Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"rg -n -C 5 \\\"compaction|Compaction|summary|parts\\\" apps/api/src/chats/chats.service.ts\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 18000\n  }),\n  tools.exec_command({\n    cmd: \"rg -n -C 5 \\\"compaction|Compaction|summary|parts\\\" apps/api/src/chats/chats.controller.ts apps/api/src/chats/shared-chats.controller.ts apps/api/src/chats/dto/chats.dto.ts\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 18000\n  }),\n  tools.exec_command({\n    cmd: \"nl -ba apps/api/src/chats/compaction-surfacing.integration.test.ts | sed -n '1,420p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 30000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:41:23.269Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/chats/dto/chats.dto.ts | sed -n '270,400p;520,660p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 26000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:41:27.586Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"rg -n -C 4 \\\"search_chat_documents|search.*content|parts|compaction|summary\\\" apps/api/src/search apps/api/src/chats/chats-repository.ts | head -500\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 30000\n  }),\n  tools.exec_command({\n    cmd: \"rg -n -C 4 \\\"export|toShared|toChat|parts|compaction|summary\\\" apps/api/src/chats/fork-chat.integration.test.ts apps/api/src/chats/chat-sharing.integration.test.ts apps/api/src/chats/shared-chats.integration.test.ts apps/api/src/chats/chats-search.integration.test.ts\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 30000\n  }),\n  tools.exec_command({\n    cmd: \"rg -n -C 4 \\\"search_chat_documents|parts|messages\\\" apps/api/src/db/migrations/20260712055209_search_projection.sql apps/api/src/db/migrations/20260713020237_rename_search_documents.sql apps/api/src/search/search-index.service.ts apps/api/src/search/*test.ts\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 30000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:41:35.967Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg --files apps/api/src/search | sort | sed -n '1,160p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 12000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:41:40.487Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/search/search-index.service.ts | sed -n '1,500p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 42000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:41:43.044Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/search/chat/conversation-chunker.ts | sed -n '1,420p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 34000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:41:45.978Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"rg -n -C 5 \\\"CREATE TABLE.*compactions|compactions|tool_observation\\\" apps/api/src/db/migrations/*.sql | head -260\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 26000\n  }),\n  tools.exec_command({\n    cmd: \"rg -n -C 3 'compactions|tool_observation_ledger' apps/api/src/db/migrations/meta/*.json apps/api/src/db/migrations/meta/_journal.json | head -320\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 28000\n  }),\n  tools.exec_command({\n    cmd: \"nl -ba apps/api/src/db/migrations/0009_cool_lenny_balinger.sql | sed -n '1,240p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 20000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:41:53.413Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"nl -ba apps/api/src/db/migrations/20260808160105_wild_longshot.sql | sed -n '1,120p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 8000\n  }),\n  tools.exec_command({\n    cmd: \"nl -ba apps/api/src/db/migrations/20260824195058_organic_deathbird.sql | sed -n '1,240p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 12000\n  }),\n  tools.exec_command({\n    cmd: \"tail -100 apps/api/src/db/migrations/meta/_journal.json\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 12000\n  }),\n  tools.exec_command({\n    cmd: \"cat apps/api/drizzle.config.ts\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 8000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:42:00.668Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"node -e \\\"const p=require('./apps/api/package.json'); console.log(JSON.stringify(p.scripts,null,2))\\\"\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 10000\n  }),\n  tools.exec_command({\n    cmd: \"rg -n \\\"db:generate|drizzle-kit|migration\\\" package.json apps/api/package.json pnpm-workspace.yaml turbo.json\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 10000\n  }),\n  tools.exec_command({\n    cmd: \"sed -n '630,687p' apps/api/AGENTS.md\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 14000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:42:09.421Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/db/migration-journal.test.ts | sed -n '1,300p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 22000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:42:14.377Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"node - <<'NODE'\\nconst fs=require('fs');\\nconst p='apps/api/src/db/migrations/meta/20260824195058_snapshot.json';\\nconst j=JSON.parse(fs.readFileSync(p));\\nconst t=j.tables?.['public.compactions'];\\nconsole.log(JSON.stringify({table:t,version:j.version,dialect:j.dialect},null,2));\\nNODE\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 22000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:42:19.247Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"nl -ba openspec/changes/persist-rendered-context-items/tasks.md | sed -n '90,155p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 10000\n  }),\n  tools.exec_command({\n    cmd: \"nl -ba openspec/changes/persist-rendered-context-items/design.md | sed -n '80,190p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 16000\n  }),\n  tools.exec_command({\n    cmd: \"nl -ba openspec/changes/persist-rendered-context-items/design.md | sed -n '190,270p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 14000\n  }),\n  tools.exec_command({\n    cmd: \"nl -ba openspec/changes/persist-rendered-context-items/specs/model-system-prompts/spec.md | sed -n '64,215p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 22000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:42:30.935Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba openspec/changes/persist-rendered-context-items/specs/tool-calling/spec.md | sed -n '1,190p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 26000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:42:34.786Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba openspec/changes/persist-rendered-context-items/specs/context-injection/spec.md | sed -n '210,320p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 15000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:42:37.926Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"nl -ba apps/api/src/db/schema/run-context-items.test.ts | sed -n '1,360p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 26000\n  }),\n  tools.exec_command({\n    cmd: \"rg -n -C 4 \\\"compaction|compactions|FORCE|relforcerowsecurity|RLS|policy\\\" apps/api/src/chats/chats-rls.integration.test.ts apps/api/src/db/tenant-db.service.test.ts apps/api/src/db/schema/*.test.ts\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 28000\n  }),\n  tools.exec_command({\n    cmd: \"nl -ba apps/api/src/compaction/compactions.integration.test.ts | sed -n '1,440p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 32000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:42:45.581Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/chats/chats-rls.integration.test.ts | sed -n '255,325p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 12000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:42:50.263Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n -C 5 \\\"Compaction|compaction|toolObservation|ledger|summary\\\" apps/api/src/chats/chats-repository.test.ts\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 22000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:42:55.254Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/chats/chats-repository.test.ts | sed -n '430,540p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 14000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:42:57.947Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"rg -l \\\"toolObservationLedger|tool_observation_ledger|CompactionToolObservationLedgerV1|buildNextCompactionToolObservationLedger|projectCompactionToolObservationLedger\\\" apps/api/src apps/api/evals | sort\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 12000\n  }),\n  tools.exec_command({\n    cmd: \"rg -n \\\"toolObservationLedger|tool_observation_ledger|CompactionToolObservationLedgerV1|buildNextCompactionToolObservationLedger|projectCompactionToolObservationLedger\\\" apps/api/src apps/api/evals\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 30000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:43:03.633Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const results = await Promise.all([\n  tools.exec_command({\n    cmd: \"nl -ba apps/api/src/compaction/compaction-context.integration.test.ts | sed -n '580,720p;1100,1160p;1280,1425p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 34000\n  }),\n  tools.exec_command({\n    cmd: \"nl -ba apps/api/src/compaction/compaction.test.ts | sed -n '450,790p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 34000\n  }),\n  tools.exec_command({\n    cmd: \"nl -ba apps/api/src/chats/context-builder.test.ts | sed -n '1760,1995p'\",\n    workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n    yield_time_ms: 10000,\n    max_output_tokens: 26000\n  })\n]);\nfor (const r of results) text(r.output);\n",
+          "timestamp": "2026-08-25T11:43:11.337Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/chats/chats.controller.test.ts | sed -n '200,320p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 16000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:43:17.242Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/chats/chat-loop-binding.integration.test.ts | sed -n '990,1065p;1090,1150p;1180,1245p;1275,1330p;1345,1395p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 36000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:43:21.475Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n -C 2 \\\"new CompactionsRepository\\\\(tx\\\\)\\\\.(create|createIfCutoffAbsent)|compactions\\\\.create|compactionsRepo\\\\.create|createIfCutoffAbsent\\\" apps/api/src apps/api/evals\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 36000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:43:29.148Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n -C 2 \\\"INSERT INTO compactions|insert\\\\(compactions\\\\)|from\\\\(compactions\\\\)|SELECT .*compactions\\\" apps/api/src apps/api/evals\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 26000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:43:32.430Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/compaction/compaction-context.integration.test.ts | sed -n '1,260p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 28000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T11:43:35.618Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I have the schema/repository, migration, RLS, and privacy map. I’m checking the exact 3.2.4 wording and the cutover-test pattern before sending the handoff; no files have been modified.",
+          "timestamp": "2026-08-25T11:46:28.984Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/persist-rendered-context-items/tasks.md | sed -n '120,175p'\\nrg -n -C 3 \\\"cutover|replacement_history|tool_observation_ledger\\\" apps/api/src/db/context-item-cutover.integration.test.ts apps/api/src/db/migrations/20260821030000_context_item_cutover.sql 2>/dev/null || true\\nnl -ba apps/api/src/db/context-item-cutover.integration.test.ts | sed -n '1,260p' 2>/dev/null || true\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:20000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:46:31.858Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short --branch\\nrg -n \\\"replacementHistory|toolObservationLedger|tool_observation_ledger\\\" apps/api/src/chats/chats-repository.ts apps/api/src/db/schema/chats.ts apps/api/src/compaction/compaction.service.ts apps/api/src/chats/context-builder.ts apps/api/src/runs/run-execution.service.ts | head -160\\nnl -ba apps/api/src/db/migrations/20260808160105_wild_longshot.sql\\nnl -ba apps/api/src/db/migrations/meta/_journal.json | tail -18\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:20000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:46:38.039Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"terminal|status.*completed|RunStatus|status:\\\" apps/api/src/db/schema/runs.ts apps/api/src/runs | head -120\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:12000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:46:53.696Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Read-only packet complete. No files changed, staged, committed, switched, or reverted.\n\nObjective: map only compaction tasks 3.1.1–3.1.3 and 3.2.4 for `persist-rendered-context-items`, bounded to schema, persistence, migration, RLS, and privacy. Out of scope: materialization/replay implementation (3.2.1–3.2.3), public/UI changes, API redesign, exports/fork behavior beyond verifying boundaries.\n\n## Minimal implementation map\n\n### Schema and migration\n\nPrimary file: `apps/api/src/db/schema/chats.ts`\n\n- Remove `CompactionToolObservation`, `CompactionToolObservationLedgerV1`, and `toolObservationLedger`.\n- Add required `replacementHistory` mapped to `replacement_history`, JSONB, `notNull()`, with no default.\n- Preserve `summary.notNull()`, indexes, parent FK, `compactions_owner`, `.enableRLS()`, and existing FORCE RLS from migration `0009`.\n- At the DB schema boundary, `parts` should likely be JSON-compatible (`unknown[]` or a moved shared type). Importing `MessagePart` from context-builder would create an undesirable schema-layer dependency. Validate the message shape in application code.\n\nMigration should be generated, not hand-authored:\n\n```bash\npnpm --filter api db:generate\npnpm --filter api db:generate\n```\n\nExpected first result:\n\n- New timestamped SQL migration dropping `tool_observation_ledger`.\n- Adding non-null `replacement_history` with no compatibility default/backfill.\n- New snapshot containing `replacement_history`, no old column.\n- `_journal.json` append with contiguous index and increasing `when`.\n\nExpected second result: no new migration, snapshot, or journal diff.\n\nDo not edit historical snapshots. Existing journal tail is index 44 (`20260824195058_organic_deathbird`); the next generated entry should be index 45.\n\nMigration validation:\n\n```bash\npnpm --filter api db:check\npnpm --filter api test -- migration-journal\n```\n\nI did not run generation or DB checks because this packet is explicitly read-only.\n\n### Repository\n\nPrimary file: `apps/api/src/chats/chats-repository.ts`\n\nUpdate `CompactionsRepository.create` and `createIfCutoffAbsent`:\n\n- Require `replacementHistory`.\n- Insert `summary` and `replacementHistory` in the same row write.\n- Remove optional ledger input and serialized ledger field.\n- Keep the existing owner-scoped join/seatbelt behavior.\n\nTests: `apps/api/src/chats/chats-repository.test.ts`\n\n- Replace old ledger fixtures with valid non-empty message-shaped history.\n- Assert `replacement_history` is inserted.\n- Assert old ledger input/column is absent.\n- Add rejection coverage for missing/empty history if validation is implemented at repository/service boundary.\n\nExisting direct compaction fixtures requiring updates include:\n\n- `apps/api/src/chats/compaction-surfacing.integration.test.ts`\n- `apps/api/src/compaction/compaction-context.integration.test.ts`\n- `apps/api/src/chats/chat-loop.integration.test.ts`\n- `apps/api/src/chats/chats-search.integration.test.ts`\n- `apps/api/src/chats/chat-loop-binding.integration.test.ts`\n- `apps/api/src/chats/chats.controller.test.ts`\n- `apps/api/src/chats/chats-rls.integration.test.ts`\n\n### Atomic ordinary and transition writes\n\nPrimary file: `apps/api/src/compaction/compaction.service.ts`\n\nExisting write sites already provide the right transaction boundaries:\n\n- Ordinary compaction: `compactionsRepo.create(...)`.\n- Transition compaction: `compactionsRepo.createIfCutoffAbsent(...)`.\n\nBoth must receive:\n\n```text\nsummary: non-empty raw summary\nreplacementHistory: non-empty message-shaped array\n```\n\nThe history must be written as part of the same compaction insert/transaction, not through a later update. The first record must be:\n\n```text\n{\n  role: \"user\",\n  parts: [{ type: \"text\", text: <final checkpoint text> }]\n}\n```\n\nThe checkpoint must be the exact final rendered text produced during materialization; later replay must not regenerate it.\n\nTests:\n\n- `apps/api/src/compaction/compaction-context.integration.test.ts`\n  - ordinary compaction row contains non-empty summary and history;\n  - first history record is the final user checkpoint;\n  - transition compaction has the same invariant.\n- `apps/api/src/compaction/compactions.integration.test.ts`\n  - lineage/second-compaction row carries a wholly new replacement history.\n- `apps/api/src/chats/chats-repository.test.ts`\n  - one insert payload contains both fields.\n\nCurrent `normalizeCompactionSummary` rejects blank model output, but PostgreSQL `NOT NULL` does not enforce a non-empty JSON array. Decision required: application-level validation only, or explicit JSONB `CHECK` constraints for non-empty history and valid first record. The OpenSpec explicitly requires non-empty values but does not mandate DB checks.\n\n### Ledger removal dependencies\n\nThe schema/repository cutover necessarily breaks existing references that later materialization/replay work must remove:\n\n- `apps/api/src/compaction/compaction.ts`\n- `apps/api/src/compaction/compaction.service.ts`\n- `apps/api/src/chats/context-builder.ts`\n- `apps/api/src/runs/run-execution.service.ts`\n- `apps/api/src/chats/tool-observation-part.ts`\n\nNo legacy reader, empty-ledger sentinel, summary-render fallback, or compatibility column should remain.\n\n## Hard-cutover preconditions\n\nThe migration cannot safely enforce service-state preconditions itself. The deployment/runbook gate must enforce this order:\n\n1. Complete and verify the entire compatible stack.\n2. Quiesce API compaction writers.\n3. Keep compatible workers running.\n4. Drain every accepted nonterminal Run, or explicitly terminate it.\n5. Verify zero nonterminal Runs.\n6. Verify zero rows in `compactions`.\n7. Stop workers only after both checks pass.\n8. Apply the schema and matching application revision as one hard cutover.\n\nIf either final precondition is false, stop. Do not invent a backfill, dual reader, nullable fallback, or mixed-revision compatibility path.\n\nBecause `runs` and `compactions` are FORCE RLS tables, an ordinary tenant connection cannot reliably perform the global checks. The preflight needs a controlled administrative/BYPASSRLS connection or equivalent operator-only mechanism. Do not add a permanent app-level RLS bypass. The existing `20260821030000_context_item_cutover` migration’s temporary `NO FORCE ROW LEVEL SECURITY` pattern is specific to its migration data update and should not be copied automatically.\n\nRollback ordering from `design.md`:\n\n- stop new authoring;\n- let newer compatible workers drain accepted Runs;\n- stop workers;\n- roll back schema/application together;\n- never run old and new writers/workers concurrently.\n\n## RLS and internal-only boundaries\n\nKeep:\n\n- `compactions_owner` policy;\n- FORCE RLS;\n- owner-scoped repository reads/writes;\n- parent chat ownership enforcement.\n\nDo not expose `replacement_history` through:\n\n- `CompactionResponse` in `apps/api/src/chats/dto/chats.dto.ts`;\n- `toCompactionResponse`;\n- shared/public chat DTOs in `toSharedChatResponse`;\n- OpenAPI schemas;\n- search documents/indexes;\n- ordinary transcript exports/list excerpts.\n\nCurrent code already uses an allowlist `CompactionResponse` containing only `uptoSeq`, `summary`, `createdAt`, and stats. Preserve that shape. Search indexing reads only user/assistant text parts from `messages`; it does not read `compactions`. Add regression assertions rather than expanding either path.\n\nRLS test target: `apps/api/src/chats/chats-rls.integration.test.ts`\n\n- Assert compactions remain enabled and forced.\n- Owner can read its replacement history.\n- Another tenant cannot read it.\n- Forged cross-tenant inserts fail because of RLS, not merely because a required field is missing.\n- Replace direct SQL references to `tool_observation_ledger`.\n\nA schema metadata test analogous to `apps/api/src/db/schema/run-context-items.test.ts` should assert:\n\n- `replacement_history` exists and is non-null;\n- `tool_observation_ledger` is absent;\n- compaction policies remain owner-only;\n- no public policy exists.\n\n## Existing migration exception evidence\n\nRelevant existing exception:\n\n- `20260821030000_context_item_cutover.sql` is hand-authored because it performs a JSONB data transition under a temporary `NO FORCE ROW LEVEL SECURITY` window.\n- Its integration test is `apps/api/src/db/context-item-cutover.integration.test.ts`.\n\nThat exception does not justify hand-authoring this migration. The compaction cutover has an explicit zero-row precondition, so the expected migration is generated DDL only. Add a migration exception only if Drizzle generates an unsafe data transition; that would require recording the reason and verification procedure in `apps********S.md`.\n\n## Checks performed\n\nExecuted:\n\n```bash\ngit status --short --branch\n```\n\nResult: clean worktree, `## rendered-context/compaction`.\n\nAlso performed read-only `rg`, `nl`, and `sed` inspections of:\n\n- OpenSpec tasks/design/delta specs;\n- `apps********S.md`;\n- compaction schema/repository/service/context builder;\n- RLS and compaction integration tests;\n- migration SQL, snapshots, and journal;\n- DTO/search paths.\n\nNot executed:\n\n- migration generation;\n- database migration;\n- tests;\n- lint/typecheck/build.\n\nRecommended final validation after implementation:\n\n```bash\npnpm --filter api db:check\npnpm --filter api lint\npnpm --filter api typecheck\npnpm --filter api test -- chats-repository\npnpm --filter api test -- chats-rls.integration\npnpm --filter api test -- compaction-context.integration\npnpm --filter api test -- compactions.integration\npnpm --filter api build\n```\n\nRemaining decisions for the primary thread:\n\n1. Whether non-empty history is enforced only in application validation or also with DB `CHECK` constraints.\n2. Where the JSON-safe replacement-message type lives to avoid coupling the DB schema to context-builder types.\n3. Which privileged operational mechanism performs the global zero-nonterminal-Run and zero-compaction preflight under FORCE RLS.\n\n<oai-mem-citation>\n<citation_entries>\nMEMORY.md:463-477|note=[historical llame compaction replay guidance used as context and verified against current OpenSpec and code]\n</citation_entries>\n<rollout_ids>\n019fe1c0-0e5d-75e3-b629-6755db523551\n</rollout_ids>\n</oai-mem-citation>",
+          "timestamp": "2026-08-25T11:47:50.304Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Objective: implement only the schema/persistence/migration/privacy packet for `replacement_history`: required JSONB with no default, remove the ledger column/types, require valid non-empty history at the repository boundary, update focused fixtures/tests, and document the operator cutover preflight. Writable scope is limited to `apps/api/src/db/schema/chats.ts`, the compaction repository/tests, generated migration/meta, focused migration/schema/RLS/DTO/search fixtures, and cutover wording in `apps********S.md`/`docs/scaling.md`. Out of scope: materialization/replay behavior, public API shape changes, unrelated workers, and other agents’ files. Acceptance: focused tests fail before the change for the new contract, pass after; generated migration is clean and a second generation has no delta; RLS/internal-only behavior remains intact; no backfill or compatibility path is introduced. I’ll inspect current edits first, then make the smallest patches and run scoped checks.",
+          "timestamp": "2026-08-25T11:48:21.482Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const names = ALL_TOOLS.filter(x => /read.*skill|skills|exec_command|apply_patch/.test(x.name+\" \"+x.description));\ntext(names);\n",
+          "timestamp": "2026-08-25T11:48:22.120Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '1,240p' /home/leon0399/.agents/skills/ponytail/SKILL.md\\nsed -n '1,260p' /home/leon0399/.agents/skills/superpowers/test-driven-development/SKILL.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:30000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:48:26.494Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short\\n\\ngit diff -- apps/api/src/db/schema/chats.ts apps/api/src/chats/chats-repository.ts apps/api/src/chats/chats-repository.test.ts apps/api/src/chats/chats-rls.integration.test.ts apps/api/src/db/schema apps/api/src/db/migrations apps/api/AGENTS.md docs/scaling.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:30000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:48:30.112Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '1,90p' apps/api/src/db/schema/chats.ts\\nsed -n '1,80p' apps/api/src/chats/chats-repository.ts\\nsed -n '1,80p' apps/api/src/chats/chats-repository.test.ts\\nrg -n \\\"CompactionToolObservation|toolObservationLedger|tool_observation_ledger|CompactionReplacementMessage|replacementHistory|replacement_history\\\" apps/api/src/db/schema apps/api/src/chats/chats-repository.ts apps/api/src/chats/chats-repository.test.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:20000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:48:34.805Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"validate.*parts|is.*Message|MessagePart|replacement|parts.*role|assert.*part|isRecord\\\" apps/api/src/chats apps/api/src/compaction apps/api/src/db | head -240\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:25000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:48:39.730Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '960,1085p' apps/api/src/chats/chats-repository.ts\\nsed -n '430,535p' apps/api/src/chats/chats-repository.test.ts\\nsed -n '1,130p' apps/api/src/unknown-record.ts\\nsed -n '50,110p' apps/api/src/chats/context-builder.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:25000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:48:52.572Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Current edits already cover the column/type rename and repository signatures, but they do not enforce the required non-empty/message-shaped invariant. I’ll add red tests against the existing repository boundary, then implement one local validator shared by `create` and `createIfCutoffAbsent`; this avoids creating a new shared file or coupling the DB schema to context-builder types.",
+          "timestamp": "2026-08-25T11:49:12.653Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/chats/chats-repository.test.ts\\n@@\\n   it('createIfCutoffAbsent makes duplicate transition cutoffs a no-op', async () => {\\n@@\\n     expect(querySqlContains(queries, 'on conflict')).toBe(true);\\n   });\\n+\\n+  it('create rejects an empty replacement history before issuing an insert', async () => {\\n+    const { db, queries } = makeMockDb();\\n+\\n+    await expect(\\n+      new CompactionsRepository(db).create({\\n+        chatId,\\n+        uptoSeq: 42,\\n+        summary: 'summary',\\n+        replacementHistory: [],\\n+      }),\\n+    ).rejects.toThrow('replacement history');\\n+\\n+    expect(queries).toHaveLength(0);\\n+  });\\n+\\n+  it('create rejects history without a user checkpoint text part', async () => {\\n+    const { db, queries } = makeMockDb();\\n+\\n+    await expect(\\n+      new CompactionsRepository(db).create({\\n+        chatId,\\n+        uptoSeq: 42,\\n+        summary: 'summary',\\n+        replacementHistory: [\\n+          {\\n+            role: 'assistant',\\n+            parts: [{ type: 'text', text: 'not a checkpoint' }],\\n+          },\\n+        ],\\n+      }),\\n+    ).rejects.toThrow('user checkpoint');\\n+\\n+    expect(queries).toHaveLength(0);\\n+  });\\n });\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T11:49:19.689Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"node -e \\\"const p=require('./apps/api/package.json'); console.log(JSON.stringify(p.scripts,null,2))\\\" | sed -n '1,120p'\\npnpm --filter api test -- chats-repository.test.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:12000});\ntext(r.output); if(r.session_id) text((await tools.write_stdin({session_id:r.session_id,chars:\"\",yield_time_ms:1000,max_output_tokens:12000})).output);",
+          "timestamp": "2026-08-25T11:49:25.295Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api exec vitest run --project unit src/chats/chats-repository.test.ts --reporter=verbose\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:16000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:49:37.195Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:85532,chars:\"\",yield_time_ms:1000,max_output_tokens:16000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:49:40.214Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/chats/chats-repository.ts\\n@@\\n-import { isRecord } from '../unknown-record';\\n+import { isRecord, isString } from '../unknown-record';\\n@@\\n export class CompactionsRepository {\\n@@\\n   async create(input: {\\n@@\\n     replacementHistory: CompactionReplacementMessage[];\\n     usage?: unknown;\\n   }): Promise<Compaction> {\\n+    assertCompactionWrite(input.summary, input.replacementHistory);\\n+\\n     const [created] = await this.db\\n@@\\n     replacementHistory: CompactionReplacementMessage[];\\n     usage?: unknown;\\n   }): Promise<Compaction | undefined> {\\n+    assertCompactionWrite(input.summary, input.replacementHistory);\\n+\\n     const [created] = await this.db\\n@@\\n   }\\n }\\n+\\n+function isCompactionReplacementMessage(\\n+  value: unknown,\\n+): value is CompactionReplacementMessage {\\n+  if (!isRecord(value)) return false;\\n+  const role = value['role'];\\n+  const parts = value['parts'];\\n+\\n+  return (\\n+    (role === 'user' || role === 'assistant') &&\\n+    Array.isArray(parts) &&\\n+    parts.length > 0 &&\\n+    parts.every(isRecord)\\n+  );\\n+}\\n+\\n+function isCheckpointTextPart(value: unknown): boolean {\\n+  return (\\n+    isRecord(value) &&\\n+    value['type'] === 'text' &&\\n+    isString(value['text']) &&\\n+    value['text'].trim().length > 0\\n+  );\\n+}\\n+\\n+function assertCompactionWrite(\\n+  summary: string,\\n+  replacementHistory: unknown,\\n+): asserts replacementHistory is CompactionReplacementMessage[] {\\n+  if (summary.trim().length === 0) {\\n+    throw new Error('Compaction summary must be non-empty.');\\n+  }\\n+\\n+  if (\\n+    !Array.isArray(replacementHistory) ||\\n+    replacementHistory.length === 0 ||\\n+    !replacementHistory.every(isCompactionReplacementMessage)\\n+  ) {\\n+    throw new Error('Compaction replacement history must be non-empty messages.');\\n+  }\\n+\\n+  const first = replacementHistory[0];\\n+  if (first.role !== 'user' || !isCheckpointTextPart(first.parts[0])) {\\n+    throw new Error(\\n+      'Compaction replacement history must begin with a user checkpoint text part.',\\n+    );\\n+  }\\n+}\\n \\n /**\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T11:50:20.772Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api exec vitest run --project unit src/chats/chats-repository.test.ts --reporter=verbose\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:16000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:50:24.306Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:1126,chars:\"\",yield_time_ms:1000,max_output_tokens:16000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:50:27.767Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '1,220p' apps/api/src/db/schema/run-context-items.test.ts\\nsed -n '1,160p' apps/api/src/db/schema/index.ts\\nrg -n \\\"getTableConfig|replacement_history|tool_observation_ledger|isRLSEnabled|policies\\\" apps/api/src/db/schema/*.test.ts | head -200\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:25000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:50:32.838Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"hasDefault|default.*false|notNull.*true\\\" apps/api/src/db/schema/*.test.ts | head -120\\nrg -n \\\"class PgJsonb|hasDefault\\\" node_modules/.pnpm/drizzle-orm@*/node_modules/drizzle-orm/pg-core/columns | head -40 2>/dev/null || true\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:12000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:50:42.244Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Add File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/db/schema/compactions.test.ts\\n+import { getTableConfig } from 'drizzle-orm/pg-core';\\n+\\n+import { compactions } from './index';\\n+\\n+describe('compaction replacement history storage', () => {\\n+  it('requires JSONB replacement history and has no legacy ledger column', () => {\\n+    const columns = Object.fromEntries(\\n+      getTableConfig(compactions).columns.map((column) => [column.name, column]),\\n+    );\\n+    const replacementHistory = columns['replacement_history'];\\n+\\n+    expect(replacementHistory).toMatchObject({ notNull: true });\\n+    expect(replacementHistory?.hasDefault).not.toBe(true);\\n+    expect(replacementHistory?.getSQLType()).toBe('jsonb');\\n+    expect(columns).not.toHaveProperty('tool_observation_ledger');\\n+  });\\n+\\n+  it('keeps replacement history owner-only with no public policy', () => {\\n+    const config = getTableConfig(compactions);\\n+\\n+    expect(config.enableRLS).toBe(true);\\n+    expect(config.policies.map(({ name }) => name)).toEqual([\\n+      'compactions_owner',\\n+    ]);\\n+    expect(config.policies.some(({ name }) => name.includes('public'))).toBe(\\n+      false,\\n+    );\\n+  });\\n+});\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T11:50:54.418Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api exec vitest run --project unit src/db/schema/compactions.test.ts --reporter=verbose\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:12000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:50:59.299Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:30585,chars:\"\",yield_time_ms:1000,max_output_tokens:12000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:51:02.366Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short\\npnpm --filter api db:generate\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:12000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:51:06.374Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:1036,chars:\"\",yield_time_ms:1000,max_output_tokens:12000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:51:09.472Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short\\nfind apps/api/src/db/migrations -maxdepth 1 -type f -printf '%f\\\\n' | sort | tail -8\\nrg -n \\\"replacement_history|tool_observation_ledger\\\" apps/api/src/db/migrations/meta/_journal.json apps/api/src/db/migrations/meta/*snapshot.json | tail -30\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:12000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:51:13.597Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The focused repository tests are green with the new validator. Parent requested the first checkpoint record be exactly one text part, so I’m adding that regression before proceeding with migration generation; the migration prompt also requires an explicit “create” choice to ensure the hard cutover drops the legacy column rather than silently renaming it.",
+          "timestamp": "2026-08-25T11:51:23.375Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/chats/chats-repository.test.ts\\n@@\\n   it('create rejects history without a user checkpoint text part', async () => {\\n@@\\n \\n     expect(queries).toHaveLength(0);\\n   });\\n+\\n+  it('create rejects a checkpoint record containing more than one part', async () => {\\n+    const { db, queries } = makeMockDb();\\n+\\n+    await expect(\\n+      new CompactionsRepository(db).create({\\n+        chatId,\\n+        uptoSeq: 42,\\n+        summary: 'summary',\\n+        replacementHistory: [\\n+          {\\n+            role: 'user',\\n+            parts: [\\n+              { type: 'text', text: 'checkpoint' },\\n+              { type: 'text', text: 'unexpected second part' },\\n+            ],\\n+          },\\n+        ],\\n+      }),\\n+    ).rejects.toThrow('user checkpoint');\\n+\\n+    expect(queries).toHaveLength(0);\\n+  });\\n });\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T11:51:29.520Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api exec vitest run --project unit src/chats/chats-repository.test.ts --reporter=verbose\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:9000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:51:33.067Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:40683,chars:\"\",yield_time_ms:1000,max_output_tokens:9000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:51:36.351Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/chats/chats-repository.ts\\n@@\\n-  if (first.role !== 'user' || !isCheckpointTextPart(first.parts[0])) {\\n+  if (\\n+    first.role !== 'user' ||\\n+    first.parts.length !== 1 ||\\n+    !isCheckpointTextPart(first.parts[0])\\n+  ) {\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T11:51:39.779Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api db:generate\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:8000,tty:true});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:51:42.289Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:45958,chars:\"\",yield_time_ms:1000,max_output_tokens:8000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:51:46.698Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:45958,chars:\"\\r\",yield_time_ms:1000,max_output_tokens:12000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:51:53.420Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:45958,chars:\"\",yield_time_ms:1000,max_output_tokens:12000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:51:56.369Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short\\ncat apps/api/src/db/migrations/20260825115153_naive_the_executioner.sql\\nrg -n -C 4 \\\"replacement_history|tool_observation_ledger\\\" apps/api/src/db/migrations/meta/20260825115153_snapshot.json\\nnl -ba apps/api/src/db/migrations/meta/_journal.json | tail -18\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:16000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:52:00.978Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api db:generate\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:8000,tty:true});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:52:05.033Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:94295,chars:\"\",yield_time_ms:1000,max_output_tokens:8000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:52:08.063Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n -C 6 \\\"context item|cutover|quiesce|nonterminal|NO FORCE|migration exception|exception ledger|compaction|preflight|BYPASS\\\" apps/api/AGENTS.md docs/scaling.md | head -300\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:30000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:52:12.267Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '160,280p' docs/scaling.md\\nsed -n '420,465p' apps/api/AGENTS.md\\nsed -n '1,60p' apps/api/AGENTS.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:22000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:52:20.285Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"export type RunStatus|runStatus|pgEnum\\\\('run|status.*expired|status.*aborted\\\" apps/api/src/db apps/api/src/runs | head -160\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:12000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:52:28.639Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"GRANT SELECT ON (runs|compactions)|app_rls.*runs|app_rls.*compactions|BYPASSRLS\\\" apps/api docker | head -120\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:12000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:52:34.974Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/docs/scaling.md\\n@@\\n In a split deployment, compatible dedicated workers can be deployed before the\\n cutover. The default `all` profile is co-located: `main.ts` is both API and\\n consumer, so worker-first deployment is impossible. Quiesce new Chat sends and\\n drain every accepted Run before applying the cutover and restarting the fleet,\\n or temporarily provide compatible dedicated workers and move every API process\\n to `web` before new authoring starts. Do not claim co-located worker-first\\n compatibility.\\n+\\n+### Compaction replacement-history hard cutover\\n+\\n+The `20260825115153_naive_the_executioner` migration replaces\\n+`compactions.tool_observation_ledger` with required JSONB\\n+`compactions.replacement_history`. This is an alpha hard cutover: there is no\\n+legacy reader, nullable fallback, dual writer, compatibility backfill, or mixed\\n+old/new worker deployment. The migration is safe only when no compaction row\\n+needs conversion.\\n+\\n+The operator preflight must run through an administrative connection that can\\n+see every tenant (`BYPASSRLS` or superuser), not the request `app` role. With\\n+FORCE RLS, a tenant-less `app` connection returns no rows and would make a\\n+false zero-count claim. Quiesce API compaction writers, keep compatible workers\\n+running, drain or explicitly terminate every accepted nonterminal Run, then\\n+verify both checks are zero:\\n+\\n+```sql\\n+SELECT count(*) AS nonterminal_runs\\n+FROM runs\\n+WHERE status NOT IN ('completed', 'failed', 'cancelled', 'expired');\\n+\\n+SELECT count(*) AS compactions\\n+FROM compactions;\\n+```\\n+\\n+Stop and investigate if either count is non-zero. Stop compatible workers only\\n+after both counts are zero, then apply the migration and matching application\\n+revision together. Rollback reverses the order: stop new authoring, drain Runs\\n+accepted by the new revision while compatible workers remain available, stop\\n+workers, and only then roll back schema and binaries.\\n \\n ## Process-local MCP clients\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/AGENTS.md\\n@@\\n path: not the rows.\\n+\\n+**Compaction replacement-history hard cutover.** Migration\\n+`20260825115153_naive_the_executioner` drops `compactions.tool_observation_ledger`\\n+and adds required `compactions.replacement_history`; it has no legacy reader,\\n+fallback, dual writer, or backfill. Before applying it, quiesce API writers,\\n+keep compatible workers running, drain or explicitly terminate every accepted\\n+nonterminal Run, then use an administrative `BYPASSRLS`/superuser connection to\\n+verify zero nonterminal Runs and zero compaction rows. The normal `app` role\\n+cannot perform this global check under FORCE RLS: without `app.current_user_id`,\\n+its reads are denied and a false zero result is possible. Stop workers only\\n+after both checks pass; apply schema and application revisions together. On\\n+rollback, stop new authoring, drain accepted Runs with compatible workers,\\n+stop workers, then roll back schema and binaries. See\\n+[`docs/scaling.md`](../../docs/scaling.md#compaction-replacement-history-hard-cutover)\\n+for the operator SQL.\\n \\n ### Memory settings consent\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T11:52:53.154Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '440,462p' apps/api/AGENTS.md\\nsed -n '262,280p' docs/scaling.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:8000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:52:56.728Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/docs/scaling.md\\n@@\\n or temporarily provide compatible dedicated workers and move every API process\\n to `web` before new authoring starts. Do not claim co-located worker-first\\n compatibility.\\n+\\n+### Compaction replacement-history hard cutover\\n+\\n+The `20260825115153_naive_the_executioner` migration replaces\\n+`compactions.tool_observation_ledger` with required JSONB\\n+`compactions.replacement_history`. This is an alpha hard cutover: there is no\\n+legacy reader, nullable fallback, dual writer, compatibility backfill, or mixed\\n+old/new worker deployment. The migration is safe only when no compaction row\\n+needs conversion.\\n+\\n+The operator preflight must run through an administrative connection that can\\n+see every tenant (`BYPASSRLS` or superuser), not the request `app` role. With\\n+FORCE RLS, a tenant-less `app` connection returns no rows and would make a\\n+false zero-count claim. Quiesce API compaction writers, keep compatible workers\\n+running, drain or explicitly terminate every accepted nonterminal Run, then\\n+verify both checks are zero:\\n+\\n+```sql\\n+SELECT count(*) AS nonterminal_runs\\n+FROM runs\\n+WHERE status NOT IN ('completed', 'failed', 'cancelled', 'expired');\\n+\\n+SELECT count(*) AS compactions\\n+FROM compactions;\\n+```\\n+\\n+Stop and investigate if either count is non-zero. Stop compatible workers only\\n+after both counts are zero, then apply the migration and matching application\\n+revision together. Rollback reverses the order: stop new authoring, drain Runs\\n+accepted by the new revision while compatible workers remain available, stop\\n+workers, and only then roll back schema and binaries.\\n \\n ## Process-local MCP clients\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/AGENTS.md\\n@@\\n migration **deleted** legacy parts rather than reshaping them: rollback restores\\n the code path, not the rows.\\n+\\n+**Compaction replacement-history hard cutover.** Migration\\n+`20260825115153_naive_the_executioner` drops `compactions.tool_observation_ledger`\\n+and adds required `compactions.replacement_history`; it has no legacy reader,\\n+fallback, dual writer, or backfill. Before applying it, quiesce API writers,\\n+keep compatible workers running, drain or explicitly terminate every accepted\\n+nonterminal Run, then use an administrative `BYPASSRLS`/superuser connection to\\n+verify zero nonterminal Runs and zero compaction rows. The normal `app` role\\n+cannot perform this global check under FORCE RLS: without `app.current_user_id`,\\n+its reads are denied and a false zero result is possible. Stop workers only\\n+after both checks pass; apply schema and application revisions together. On\\n+rollback, stop new authoring, drain accepted Runs with compatible workers,\\n+stop workers, then roll back schema and binaries. See\\n+[`docs/scaling.md`](../../docs/scaling.md#compaction-replacement-history-hard-cutover)\\n+for the operator SQL.\\n \\n ### Memory settings consent\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T11:53:12.731Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '250,335p' apps/api/src/chats/chats-rls.integration.test.ts\\nrg -n \\\"tool_observation_ledger|toolObservationLedger|replacementHistory|replacement_history\\\" apps/api/src/chats/chats-rls.integration.test.ts apps/api/src/chats/chats.controller.test.ts apps/api/src/chats/compaction-surfacing.integration.test.ts apps/api/src/chats/chats-search.integration.test.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:18000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:53:18.112Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/chats/chats-rls.integration.test.ts\\n@@\\n-    const ledger = JSON.stringify({\\n-      version: 1,\\n-      omittedCount: 0,\\n-      observations: [\\n-        {\\n-          toolCallId: 'private-call',\\n-          toolName: 'search_conversations',\\n-          outcome: 'success',\\n-        },\\n-      ],\\n-    });\\n+    const replacementHistory = JSON.stringify([\\n+      {\\n+        role: 'user',\\n+        parts: [\\n+          {\\n+            type: 'text',\\n+            text: '<system-reminder>private checkpoint</system-reminder>',\\n+          },\\n+        ],\\n+      },\\n+    ]);\\n@@\\n-        INSERT INTO compactions (id, chat_id, upto_seq, summary, tool_observation_ledger)\\n-        VALUES (${compactionId}, ${chatId}, 10, 'private summary', ${ledger}::jsonb)`;\\n+        INSERT INTO compactions (id, chat_id, upto_seq, summary, replacement_history)\\n+        VALUES (${compactionId}, ${chatId}, 10, 'private summary', ${replacementHistory}::jsonb)`;\\n       const owned = await tx`\\n-        SELECT tool_observation_ledger\\n+        SELECT replacement_history\\n         FROM compactions\\n         WHERE id = ${compactionId}`;\\n-      expect(owned[0]?.tool_observation_ledger).toEqual(JSON.parse(ledger));\\n+      expect(owned[0]?.replacement_history).toEqual(\\n+        JSON.parse(replacementHistory),\\n+      );\\n@@\\n         userBId,\\n         (tx) =>\\n-          tx`SELECT id, tool_observation_ledger FROM compactions WHERE id = ${compactionId}`,\\n+          tx`SELECT id, replacement_history FROM compactions WHERE id = ${compactionId}`,\\n       );\\n@@\\n           userBId,\\n           (tx) => tx`\\n-            INSERT INTO compactions (chat_id, upto_seq, summary)\\n-            VALUES (${chatId}, 20, 'forged summary')`,\\n+            INSERT INTO compactions (chat_id, upto_seq, summary, replacement_history)\\n+            VALUES (${chatId}, 20, 'forged summary', ${replacementHistory}::jsonb)`,\\n         ),\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T11:53:33.381Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '205,325p' apps/api/src/chats/chats.controller.test.ts\\nsed -n '1,120p' apps/api/src/chats/chats.controller.test.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:18000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:53:36.571Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/chats/chats.controller.test.ts\\n@@\\n-      toolObservationLedger: {\\n-        version: 1,\\n-        omittedCount: 0,\\n-        observations: [],\\n-      },\\n+      replacementHistory: [\\n+        {\\n+          role: 'user',\\n+          parts: [{ type: 'text', text: '<system-reminder>checkpoint</system-reminder>' }],\\n+        },\\n+      ],\\n@@\\n-      toolObservationLedger: {\\n-        version: 1,\\n-        omittedCount: 0,\\n-        observations: [],\\n-      },\\n+      replacementHistory: [\\n+        {\\n+          role: 'user',\\n+          parts: [{ type: 'text', text: '<system-reminder>checkpoint</system-reminder>' }],\\n+        },\\n+      ],\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T11:53:44.445Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"tool_observation_ledger|toolObservationLedger|CompactionToolObservation|CompactionReplacementMessage|replacement_history|replacementHistory\\\" apps/api/src/db/schema/chats.ts apps/api/src/db/schema/compactions.test.ts apps/api/src/chats/chats-repository.ts apps/api/src/chats/chats-repository.test.ts apps/api/src/chats/chats-rls.integration.test.ts apps/api/src/chats/chats.controller.test.ts docs/scaling.md apps/api/AGENTS.md | head -240\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:18000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:53:48.665Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm exec prettier --write apps/api/src/chats/chats-repository.ts apps/api/src/chats/chats-repository.test.ts apps/api/src/chats/chats-rls.integration.test.ts apps/api/src/chats/chats.controller.test.ts apps/api/src/db/schema/chats.ts apps/api/src/db/schema/compactions.test.ts docs/scaling.md apps/api/AGENTS.md apps/api/src/db/migrations/20260825115153_naive_the_executioner.sql apps/api/src/db/migrations/meta/20260825115153_snapshot.json apps/api/src/db/migrations/meta/_journal.json\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:10000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:53:59.039Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:80058,chars:\"\",yield_time_ms:1000,max_output_tokens:10000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:54:02.075Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git diff --stat\\ngit diff -- apps/api/src/db/schema/chats.ts apps/api/src/chats/chats-repository.ts apps/api/src/chats/chats-repository.test.ts apps/api/src/db/schema/compactions.test.ts apps/api/src/chats/chats-rls.integration.test.ts apps/api/src/chats/chats.controller.test.ts docs/scaling.md apps/api/AGENTS.md apps/api/src/db/migrations/20260825115153_naive_the_executioner.sql apps/api/src/db/migrations/meta/_journal.json | sed -n '1,360p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:40000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:54:08.400Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api exec vitest run --project unit src/chats/chats-repository.test.ts src/db/schema/compactions.test.ts src/chats/chats.controller.test.ts --reporter=verbose\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:16000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:54:15.530Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:54884,chars:\"\",yield_time_ms:1000,max_output_tokens:20000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:54:18.640Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api db:check\\npnpm --filter api exec vitest run --project unit src/db/migration-journal.test.ts --reporter=verbose\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:16000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:54:23.246Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:1969,chars:\"\",yield_time_ms:1000,max_output_tokens:16000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:54:26.968Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api exec vitest run --project integration src/chats/chats-rls.integration.test.ts --reporter=verbose\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:16000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:54:30.709Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:91834,chars:\"\",yield_time_ms:1000,max_output_tokens:16000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:54:35.958Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Schema generation succeeded with the explicit create-column choice, producing add-without-default then drop-legacy DDL. The second generation reports no schema changes. Unit/schema/DTO tests are green; the RLS integration attempt is blocked by the environment’s missing container runtime, so I’m running static checks now to distinguish packet-local issues from expected cross-worker edits.",
+          "timestamp": "2026-08-25T11:54:40.389Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api typecheck\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:24000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:54:41.411Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:30757,chars:\"\",yield_time_ms:1000,max_output_tokens:24000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:54:46.176Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api lint\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:24000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:54:49.481Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:66964,chars:\"\",yield_time_ms:1000,max_output_tokens:24000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:54:52.617Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/chats/chats-repository.ts | sed -n '1065,1115p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:8000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:55:04.198Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/chats/chats-repository.ts\\n@@\\n-function isCheckpointTextPart(value: unknown): boolean {\\n+// eslint-disable-next-line anti-slop/no-unknown-parameters -- replacement history is JSONB; this guard parses the untrusted first part before persistence.\\n+function isCheckpointTextPart(value: unknown): boolean {\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T11:55:10.271Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api exec oxlint --deny-warnings --report-unused-disable-directives src/chats/chats-repository.ts src/chats/chats-repository.test.ts src/chats/chats-rls.integration.test.ts src/chats/chats.controller.test.ts src/db/schema/chats.ts src/db/schema/compactions.test.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:20000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:55:15.237Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:64255,chars:\"\",yield_time_ms:1000,max_output_tokens:20000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:55:18.607Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/chats/chats-repository.test.ts\\n@@\\n   it('create rejects an empty replacement history before issuing an insert', async () => {\\n@@\\n     expect(queries).toHaveLength(0);\\n   });\\n+\\n+  it('create rejects a blank summary before issuing an insert', async () => {\\n+    const { db, queries } = makeMockDb();\\n+\\n+    await expect(\\n+      new CompactionsRepository(db).create({\\n+        chatId,\\n+        uptoSeq: 42,\\n+        summary: '   ',\\n+        replacementHistory: [\\n+          {\\n+            role: 'user',\\n+            parts: [{ type: 'text', text: 'checkpoint' }],\\n+          },\\n+        ],\\n+      }),\\n+    ).rejects.toThrow('summary');\\n+\\n+    expect(queries).toHaveLength(0);\\n+  });\\n \\n   it('create rejects history without a user checkpoint text part', async () => {\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T11:55:27.812Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm exec prettier --write apps/api/src/chats/chats-repository.test.ts apps/api/src/chats/chats-repository.ts\\npnpm --filter api exec vitest run --project unit src/chats/chats-repository.test.ts --reporter=verbose\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:12000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:55:31.299Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:57473,chars:\"\",yield_time_ms:1000,max_output_tokens:15000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:55:34.355Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api exec oxlint --deny-warnings --report-unused-disable-directives src/chats/chats-repository.ts src/chats/chats-repository.test.ts src/chats/chats-rls.integration.test.ts src/chats/chats.controller.test.ts src/db/schema/chats.ts src/db/schema/compactions.test.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:12000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:55:41.445Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:93117,chars:\"\",yield_time_ms:1000,max_output_tokens:12000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:55:44.671Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm lint:markdown\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:16000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:55:56.674Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:29143,chars:\"\",yield_time_ms:1000,max_output_tokens:20000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:55:59.892Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm exec prettier --check apps/api/src/chats/chats-repository.ts apps/api/src/chats/chats-repository.test.ts apps/api/src/chats/chats-rls.integration.test.ts apps/api/src/chats/chats.controller.test.ts apps/api/src/db/schema/chats.ts apps/api/src/db/schema/compactions.test.ts docs/scaling.md apps/api/AGENTS.md apps/api/src/db/migrations/meta/20260825115153_snapshot.json apps/api/src/db/migrations/meta/_journal.json\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:12000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:56:05.084Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:99713,chars:\"\",yield_time_ms:1000,max_output_tokens:12000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:56:09.532Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git diff --check\\n\\ngit status --short\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:12000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:56:12.154Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"node - <<'NODE'\\nconst fs = require('node:fs');\\nconst latest = JSON.parse(fs.readFileSync('apps/api/src/db/migrations/meta/20260825115153_snapshot.json', 'utf8'));\\nconst previous = JSON.parse(fs.readFileSync('apps/api/src/db/migrations/meta/20260824195058_snapshot.json', 'utf8'));\\nconst table = (snapshot) => snapshot.tables['public.compactions'];\\nconsole.log('latest compaction columns:', Object.keys(table.columns));\\nconsole.log('previous compaction columns:', Object.keys(table && previous.tables['public.compactions'].columns));\\nconsole.log('latest table config:', JSON.stringify({indexes: table.indexes, foreignKeys: table.foreignKeys, policies: table.policies, isRLSEnabled: table.isRLSEnabled}, null, 2));\\nNODE\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:12000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:56:28.116Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"node - <<'NODE'\\nconst fs = require('node:fs');\\nfor (const file of ['apps/api/src/db/migrations/meta/20260825115153_snapshot.json','apps/api/src/db/migrations/meta/20260824195058_snapshot.json']) {\\n  const snapshot = JSON.parse(fs.readFileSync(file,'utf8'));\\n  console.log(file, Object.keys(snapshot.tables).filter((key) => key.includes('compaction')));\\n}\\nNODE\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:8000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:56:33.446Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"node - <<'NODE'\\nconst fs = require('node:fs');\\nconst read = (file) => JSON.parse(fs.readFileSync(file, 'utf8')).tables['public.compactions'];\\nconst latest = read('apps/api/src/db/migrations/meta/20260825115153_snapshot.json');\\nconst previous = read('apps/api/src/db/migrations/meta/20260824195058_snapshot.json');\\nconsole.log('latest compaction columns:', Object.keys(latest.columns));\\nconsole.log('previous compaction columns:', Object.keys(previous.columns));\\nconsole.log('latest table config:', JSON.stringify({indexes: latest.indexes, foreignKeys: latest.foreignKeys, policies: latest.policies, isRLSEnabled: latest.isRLSEnabled}, null, 2));\\nNODE\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:12000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:56:40.938Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short\\nls -l apps/api/src/db/migrations/20260825115153_naive_the_executioner.sql apps/api/src/db/migrations/meta/20260825115153_snapshot.json\\nrg -n \\\"20260825115153_naive_the_executioner\\\" apps/api/src/db/migrations/meta/_journal.json\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:10000});\ntext(r.output);",
+          "timestamp": "2026-08-25T11:57:00.080Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git diff --check\\npnpm --filter api exec oxlint --deny-warnings --report-unused-disable-directives src/chats/chats-repository.ts src/chats/chats-repository.test.ts src/chats/chats-rls.integration.test.ts src/chats/chats.controller.test.ts src/db/schema/chats.ts src/db/schema/compactions.test.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:12000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:57:12.100Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:69855,chars:\"\",yield_time_ms:1000,max_output_tokens:12000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:57:15.192Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api exec vitest run --project unit src/chats/chats-repository.test.ts src/db/schema/compactions.test.ts src/chats/chats.controller.test.ts --reporter=dot\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:9000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:57:32.261Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:16887,chars:\"\",yield_time_ms:1000,max_output_tokens:9000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T11:57:35.371Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I used the repository’s ponytail and TDD guidance for the new validator: one local helper shared by both repository write methods, with red tests observed before implementation and focused green tests afterward. I did not add a new shared module or alter replay/materialization files.",
+          "timestamp": "2026-08-25T11:58:03.921Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Implementation packet applied; no commit or branch operation performed. Final acceptance remains with `/root`.\n\nObjective handled: schema/persistence/migration/privacy only. `replacement_history` is required JSONB with no default; legacy ledger types/column are removed; repository writes validate non-empty summary/history and require the first checkpoint to be exactly one user text part; RLS/public boundaries remain unchanged; operator cutover is documented.\n\nFiles changed by this packet:\n\n- `apps/api/src/db/schema/chats.ts`\n- `apps/api/src/chats/chats-repository.ts`\n- `apps/api/src/chats/chats-repository.test.ts`\n- `apps/api/src/db/schema/compactions.test.ts`\n- `apps/api/src/chats/chats-rls.integration.test.ts`\n- `apps/api/src/chats/chats.controller.test.ts`\n- `apps/api/src/db/migrations/20260825115153_naive_the_executioner.sql`\n- `apps/api/src/db/migrations/meta/20260825115153_snapshot.json`\n- `apps/api/src/db/migrations/meta/_journal.json`\n- `apps********S.md`\n- `docs/scaling.md`\n\nConcurrent files observed and left untouched:\n\n- `apps/api/src/chats/context-builder.ts`\n- `apps/api/src/chats/context-builder.test.ts`\n\nGenerated migration:\n\n```sql\nALTER TABLE \"compactions\" ADD COLUMN \"replacement_history\" jsonb NOT NULL;\nALTER TABLE \"compactions\" DROP COLUMN \"tool_observation_ledger\";\n```\n\nNo default, backfill, compatibility reader, or RLS/policy rewrite.\n\nChecks:\n\n- Focused repository/schema/controller tests: 63 passed.\n- Focused Oxlint on changed TypeScript files: passed.\n- `pnpm --filter api db:check`: passed.\n- Migration journal tests: 3 passed.\n- Second `pnpm --filter api db:generate`: `No schema changes`.\n- `pnpm lint:markdown`: passed, 0 issues.\n- Prettier check: passed.\n- `git diff --check`: passed.\n- RLS integration: blocked by missing container runtime (`Could not find a working container runtime strategy`).\n- Full API typecheck/lint: blocked by expected old-ledger references in other workers’ compaction/replay files and fixtures. No errors originated in the changed scoped files after targeted lint.\n\nPrimary follow-up decisions:\n\n1. Update remaining out-of-scope compaction/replay fixtures and ledger consumers.\n2. Run RLS/migration integration with Docker or an external Postgres.\n3. Confirm the documented administrative `BYPASSRLS` preflight before applying the hard cutover.\n\n<oai-mem-citation>\n<citation_entries>\nMEMORY.md:463-477|note=[historical llame compaction replay guidance used as context and verified against current OpenSpec and code]\n</citation_entries>\n<rollout_ids>\n019fe1c0-0e5d-75e3-b629-6755db523551\n</rollout_ids>\n</oai-mem-citation>",
+          "timestamp": "2026-08-25T11:58:16.415Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Objective: mechanically update only the five assigned integration/test files so every compaction fixture supplies a valid `replacementHistory` whose first record is exactly one non-empty user text part, replacing legacy ledger fields and missing histories without changing assertions or public behavior. Writable scope is limited to `chat-loop-binding.integration.test.ts`, `chat-loop.integration.test.ts`, `chats-search.integration.test.ts`, `compaction-surfacing.integration.test.ts`, and `context-item-temporal.test.ts`; all other files, including concurrent schema/replay edits, are out of scope. Acceptance: no old ledger fixture remains in these files, every compaction repository call typechecks against the required history, persisted reminder wording is complete where behavior is asserted, and formatting/focused checks pass. I’ll inspect only these files and current diffs, patch the smallest local helper/fixtures, then run Prettier plus focused type/test checks.",
+          "timestamp": "2026-08-25T12:10:56.834Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short\\nrg -n -C 4 \\\"toolObservationLedger|tool_observation_ledger|new CompactionsRepository\\\\(tx\\\\)\\\\.(create|createIfCutoffAbsent)|compactions\\\\.create|replacementHistory\\\" apps/api/src/chats/chat-loop-binding.integration.test.ts apps/api/src/chats/chat-loop.integration.test.ts apps/api/src/chats/chats-search.integration.test.ts apps/api/src/chats/compaction-surfacing.integration.test.ts apps/api/src/chats/context-item-temporal.test.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:30000});\ntext(r.output);",
+          "timestamp": "2026-08-25T12:10:59.958Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '1,180p' apps/api/src/chats/chat-loop-binding.integration.test.ts\\nsed -n '1,170p' apps/api/src/chats/chat-loop.integration.test.ts\\nsed -n '1,120p' apps/api/src/chats/chats-search.integration.test.ts\\nsed -n '1,130p' apps/api/src/chats/compaction-surfacing.integration.test.ts\\nsed -n '1,140p' apps/api/src/chats/context-item-temporal.test.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:40000});\ntext(r.output);",
+          "timestamp": "2026-08-25T12:11:04.995Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n -C 8 \\\"renderConversationCheckpoint|system-reminder|checkpoint|compaction\\\" apps/api/src/chats/context-builder.ts apps/api/src/compaction/compaction*.ts apps/api/src/chats/context-builder.test.ts | head -360\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:30000});\ntext(r.output);",
+          "timestamp": "2026-08-25T12:11:12.038Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n -C 8 \\\"COMPACTION_CHECKPOINT|compaction.*checkpoint|checkpoint.*compaction|producer.*compaction\\\" apps/api/src/chats/context-item-producers.ts apps/api/src/chats/context-builder.ts apps/api/src/compaction/compaction.ts | head -220\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:18000});\ntext(r.output);",
+          "timestamp": "2026-08-25T12:11:15.756Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/chats/context-item-producers.ts | sed -n '670,735p'\\nnl -ba apps/api/src/chats/context-builder.ts | sed -n '132,180p'\\nnl -ba apps/api/src/chats/context-builder.test.ts | sed -n '30,120p' | head -100\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:16000});\ntext(r.output);",
+          "timestamp": "2026-08-25T12:11:20.451Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '1000,1065p' apps/api/src/chats/chat-loop-binding.integration.test.ts\\nsed -n '1090,1155p' apps/api/src/chats/chat-loop-binding.integration.test.ts\\nsed -n '1185,1248p' apps/api/src/chats/chat-loop-binding.integration.test.ts\\nsed -n '1275,1330p' apps/api/src/chats/chat-loop-binding.integration.test.ts\\nsed -n '1340,1392p' apps/api/src/chats/chat-loop-binding.integration.test.ts\\nsed -n '1370,1470p' apps/api/src/chats/chat-loop.integration.test.ts\\nsed -n '165,205p' apps/api/src/chats/chats-search.integration.test.ts\\nsed -n '70,245p' apps/api/src/chats/compaction-surfacing.integration.test.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:50000});\ntext(r.output);",
+          "timestamp": "2026-08-25T12:11:27.371Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/chats/chat-loop-binding.integration.test.ts\\n@@\\n import { isContextItemPart } from './context-item';\\n import { isRecencyDigestItem } from './context-item-producers';\\n+import { renderConversationCheckpoint } from './context-builder';\\n@@\\n function fakeInstanceConfig(\\n@@\\n   };\\n }\\n+\\n+function compactionReplacementHistory(\\n+  summary: string,\\n+): Compaction['replacementHistory'] {\\n+  return [\\n+    {\\n+      role: 'user',\\n+      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],\\n+    },\\n+  ];\\n+}\\n@@\\n       parentId: null,\\n       summary: 'Retains the latest messages.',\\n-      toolObservationLedger: {\\n-        version: 1,\\n-        omittedCount: 0,\\n-        observations: [],\\n-      },\\n+      replacementHistory: compactionReplacementHistory(\\n+        'Retains the latest messages.',\\n+      ),\\n@@\\n       parentId: null,\\n       summary: 'Retains the latest messages.',\\n-      toolObservationLedger: {\\n-        version: 1,\\n-        omittedCount: 0,\\n-        observations: [],\\n-      },\\n+      replacementHistory: compactionReplacementHistory(\\n+        'Retains the latest messages.',\\n+      ),\\n@@\\n       parentId: null,\\n       summary: 'Retains the latest messages.',\\n-      toolObservationLedger: {\\n-        version: 1,\\n-        omittedCount: 0,\\n-        observations: [],\\n-      },\\n+      replacementHistory: compactionReplacementHistory(\\n+        'Retains the latest messages.',\\n+      ),\\n@@\\n       parentId: null,\\n       summary: 'Retains the latest messages.',\\n-      toolObservationLedger: { version: 1, omittedCount: 0, observations: [] },\\n+      replacementHistory: compactionReplacementHistory(\\n+        'Retains the latest messages.',\\n+      ),\\n@@\\n       parentId: null,\\n       summary: 'Retains the latest messages.',\\n-      toolObservationLedger: { version: 1, omittedCount: 0, observations: [] },\\n+      replacementHistory: compactionReplacementHistory(\\n+        'Retains the latest messages.',\\n+      ),\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T12:11:56.558Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/chats/chat-loop.integration.test.ts\\n@@\\n import { type ContextItemPart } from './context-item';\\n import { createToolAvailabilityItem } from './context-item-producers';\\n+import { renderConversationCheckpoint } from './context-builder';\\n@@\\n const TEST_DB_URL = process.env['TEST_DATABASE_URL'];\\n const describeIfDb = TEST_DB_URL ? describe : describe.skip;\\n type SqlClient = any;\\n+\\n+function compactionReplacementHistory(\\n+  summary: string,\\n+): schema.Compaction['replacementHistory'] {\\n+  return [\\n+    {\\n+      role: 'user',\\n+      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],\\n+    },\\n+  ];\\n+}\\n@@\\n           chatId: degradedChatId,\\n           uptoSeq: beforeCompaction.userMessage.seq,\\n           summary: 'A prior tool outage mattered historically.',\\n+          replacementHistory: compactionReplacementHistory(\\n+            'A prior tool outage mattered historically.',\\n+          ),\\n@@\\n           chatId: healthyChatId,\\n           uptoSeq: degradedBefore.userMessage.seq,\\n           summary: 'Historical outage summary.',\\n+          replacementHistory: compactionReplacementHistory(\\n+            'Historical outage summary.',\\n+          ),\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T12:12:06.700Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/chats/chat-loop.integration.test.ts\\n@@\\n-import { type ModelToolDeclaration, type Run } from '../db/schema';\\n+import {\\n+  type Compaction,\\n+  type ModelToolDeclaration,\\n+  type Run,\\n+} from '../db/schema';\\n@@\\n function compactionReplacementHistory(\\n   summary: string,\\n-): schema.Compaction['replacementHistory'] {\\n+): Compaction['replacementHistory'] {\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T12:12:15.004Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/chats/chats-search.integration.test.ts\\n@@\\n import * as schema from '../db/schema';\\n+import { type Compaction } from '../db/schema';\\n import { TenantDbService, type Db } from '../db/tenant-db.service';\\n@@\\n } from './chats-repository';\\n+import { renderConversationCheckpoint } from './context-builder';\\n@@\\n const text = (t: string) => [{ type: 'text', text: t }];\\n+\\n+function compactionReplacementHistory(\\n+  summary: string,\\n+): Compaction['replacementHistory'] {\\n+  return [\\n+    {\\n+      role: 'user',\\n+      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],\\n+    },\\n+  ];\\n+}\\n@@\\n         chatId: controlProjectionChat,\\n         uptoSeq: 1,\\n         summary: 'zzcompactionlilac',\\n+        replacementHistory: compactionReplacementHistory('zzcompactionlilac'),\\n       }),\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T12:12:23.210Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/chats/compaction-surfacing.integration.test.ts\\n@@\\n import * as schema from '../db/schema';\\n+import { type Compaction } from '../db/schema';\\n import { TenantDbService, type Db } from '../db/tenant-db.service';\\n@@\\n import { RunAbortRegistry } from '../runs/run-abort-registry';\\n+import { renderConversationCheckpoint } from './context-builder';\\n@@\\n type SqlClient = any;\\n+\\n+function compactionReplacementHistory(\\n+  summary: string,\\n+): Compaction['replacementHistory'] {\\n+  return [\\n+    {\\n+      role: 'user',\\n+      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],\\n+    },\\n+  ];\\n+}\\n@@\\n         uptoSeq: 10,\\n         summary: 'summary up to 10',\\n+        replacementHistory: compactionReplacementHistory('summary up to 10'),\\n@@\\n         parentId: first.id,\\n         summary: 'summary up to 25',\\n+        replacementHistory: compactionReplacementHistory('summary up to 25'),\\n@@\\n         uptoSeq: 5,\\n         summary: 'private summary',\\n+        replacementHistory: compactionReplacementHistory('private summary'),\\n@@\\n           uptoSeq: 3,\\n           summary: 'no-usage summary',\\n+          replacementHistory: compactionReplacementHistory('no-usage summary'),\\n@@\\n           summary: 'with usage',\\n+          replacementHistory: compactionReplacementHistory('with usage'),\\n@@\\n           uptoSeq: 10,\\n           summary: 'first',\\n+          replacementHistory: compactionReplacementHistory('first'),\\n@@\\n           parentId: first.id,\\n           summary: 'second',\\n+          replacementHistory: compactionReplacementHistory('second'),\\n@@\\n           uptoSeq: 1,\\n           summary: 'owner-only summary',\\n+          replacementHistory: compactionReplacementHistory('owner-only summary'),\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T12:12:35.188Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"toolObservationLedger|tool_observation_ledger|new CompactionsRepository\\\\(tx\\\\)\\\\.create\\\\(|replacementHistory\\\" apps/api/src/chats/chat-loop-binding.integration.test.ts apps/api/src/chats/chat-loop.integration.test.ts apps/api/src/chats/chats-search.integration.test.ts apps/api/src/chats/compaction-surfacing.integration.test.ts apps/api/src/chats/context-item-temporal.test.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:18000});\ntext(r.output);",
+          "timestamp": "2026-08-25T12:12:42.931Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm exec prettier --write apps/api/src/chats/chat-loop-binding.integration.test.ts apps/api/src/chats/chat-loop.integration.test.ts apps/api/src/chats/chats-search.integration.test.ts apps/api/src/chats/compaction-surfacing.integration.test.ts apps/api/src/chats/context-item-temporal.test.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:10000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T12:12:50.632Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git diff -- apps/api/src/chats/chat-loop-binding.integration.test.ts apps/api/src/chats/chat-loop.integration.test.ts apps/api/src/chats/chats-search.integration.test.ts apps/api/src/chats/compaction-surfacing.integration.test.ts apps/api/src/chats/context-item-temporal.test.ts | sed -n '1,420p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:40000});\ntext(r.output);",
+          "timestamp": "2026-08-25T12:12:55.577Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api typecheck\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:50000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T12:13:01.087Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:6257,chars:\"\",yield_time_ms:1000,max_output_tokens:50000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T12:13:04.265Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/chats/context-item-temporal.test.ts | sed -n '235,300p'\\nrg -n -C 3 \\\"compaction:|summary:|uptoSeq\\\" apps/api/src/chats/context-item-temporal.test.ts | tail -80\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:10000,max_output_tokens:12000});\ntext(r.output);",
+          "timestamp": "2026-08-25T12:13:08.552Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/chats/context-item-temporal.test.ts\\n@@\\n-import { buildContext, type MessagePart } from './context-builder';\\n+import {\\n+  buildContext,\\n+  renderConversationCheckpoint,\\n+  type MessagePart,\\n+} from './context-builder';\\n+import type { CompactionReplacementMessage } from '../db/schema';\\n@@\\n const INSTANT = new Date('2026-08-19T16:36:00.000Z');\\n+\\n+function compactionReplacementHistory(\\n+  summary: string,\\n+): CompactionReplacementMessage[] {\\n+  return [\\n+    {\\n+      role: 'user',\\n+      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],\\n+    },\\n+  ];\\n+}\\n@@\\n     const { contextItems } = buildContext(conversation, {\\n       systemPrompt,\\n-      compaction: { summary: 'earlier history', uptoSeq: 2 },\\n+      compaction: {\\n+        summary: 'earlier history',\\n+        uptoSeq: 2,\\n+        replacementHistory: compactionReplacementHistory('earlier history'),\\n+      },\\n     });\\n*** End Patch\";\ntext(await tools.apply_patch(patch));",
+          "timestamp": "2026-08-25T12:13:22.053Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm exec prettier --write apps/api/src/chats/chat-loop-binding.integration.test.ts apps/api/src/chats/chat-loop.integration.test.ts apps/api/src/chats/chats-search.integration.test.ts apps/api/src/chats/compaction-surfacing.integration.test.ts apps/api/src/chats/context-item-temporal.test.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:10000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T12:13:27.993Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api typecheck\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:50000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T12:13:33.436Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id: r.session_id ?? 0,chars:\"\",yield_time_ms:1000,max_output_tokens:50000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T12:13:37.165Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api typecheck\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:30000,max_output_tokens:50000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T12:13:43.927Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api exec oxlint --deny-warnings --report-unused-disable-directives src/chats/chat-loop-binding.integration.test.ts src/chats/chat-loop.integration.test.ts src/chats/chats-search.integration.test.ts src/chats/compaction-surfacing.integration.test.ts src/chats/context-item-temporal.test.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:30000,max_output_tokens:20000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T12:13:50.587Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"pnpm --filter api exec vitest run --project unit src/chats/context-item-temporal.test.ts --reporter=verbose\",workdir:\"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",yield_time_ms:1000,max_output_tokens:16000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T12:13:56.175Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.write_stdin({session_id:64396,chars:\"\",yield_time_ms:1000,max_output_tokens:16000});\ntext(JSON.stringify(r));",
+          "timestamp": "2026-08-25T12:13:59.450Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The fixture sweep is implemented within the five-file boundary. I’m doing the final diff/format checks now, then I’ll attempt the focused integration suites and report any environment blocker separately from code failures.",
+          "timestamp": "2026-08-25T12:15:00.666Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"git diff --check && pnpm exec prettier --check apps/api/src/chats/chat-loop-binding.integration.test.ts apps/api/src/chats/chat-loop.integration.test.ts apps/api/src/chats/chats-search.integration.test.ts apps/api/src/chats/compaction-surfacing.integration.test.ts apps/api/src/chats/context-item-temporal.test.ts\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 30000,\n  max_output_tokens: 4000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:15:02.925Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"pnpm --filter api exec vitest run --project integration src/chats/chat-loop-binding.integration.test.ts src/chats/chat-loop.integration.test.ts src/chats/chats-search.integration.test.ts src/chats/compaction-surfacing.integration.test.ts --reporter=dot\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 30000,\n  max_output_tokens: 6000\n});\ntext(r.output);\nif (r.session_id) text((await tools.write_stdin({session_id:r.session_id, chars:\"\", yield_time_ms:30000, max_output_tokens:6000})).output);\n",
+          "timestamp": "2026-08-25T12:15:07.961Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"git status --short && git diff -- apps/api/src/chats/chat-loop-binding.integration.test.ts apps/api/src/chats/chat-loop.integration.test.ts apps/api/src/chats/chats-search.integration.test.ts apps/api/src/chats/compaction-surfacing.integration.test.ts apps/api/src/chats/context-item-temporal.test.ts\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 20000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:15:14.178Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const hits = ALL_TOOLS.filter(x => /send_message|collaboration|followup_task|wait_agent/.test(x.name));\ntext(hits);\n",
+          "timestamp": "2026-08-25T12:15:18.326Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"if rg -n \\\"toolObservationLedger|tool_observation_ledger\\\" apps/api/src/chats/chat-loop-binding.integration.test.ts apps/api/src/chats/chat-loop.integration.test.ts apps/api/src/chats/chats-search.integration.test.ts apps/api/src/chats/compaction-surfacing.integration.test.ts apps/api/src/chats/context-item-temporal.test.ts; then exit 1; fi\\nrg -n \\\"replacementHistory|compactionReplacementHistory\\\" apps/api/src/chats/chat-loop-binding.integration.test.ts apps/api/src/chats/chat-loop.integration.test.ts apps/api/src/chats/chats-search.integration.test.ts apps/api/src/chats/compaction-surfacing.integration.test.ts apps/api/src/chats/context-item-temporal.test.ts\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 8000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:15:24.358Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Mechanical fixture sweep complete within scope.\n\nChanged only:\n\n- `apps/api/src/chats/chat-loop-binding.integration.test.ts`\n- `apps/api/src/chats/chat-loop.integration.test.ts`\n- `apps/api/src/chats/chats-search.integration.test.ts`\n- `apps/api/src/chats/compaction-surfacing.integration.test.ts`\n- `apps/api/src/chats/context-item-temporal.test.ts`\n\nEach file now uses a local fixture helper producing:\n\n- raw summary preserved;\n- `replacementHistory` with one user record;\n- exactly one non-empty text part;\n- complete `renderConversationCheckpoint(summary)` wording.\n\nRemoved all legacy `toolObservationLedger` references from the five files. Existing assertions were unchanged.\n\nChecks:\n\n- `pnpm --filter api typecheck` — passed.\n- Targeted Oxlint — passed.\n- `context-item-temporal.test.ts` — 25/25 unit tests passed.\n- Prettier check — passed.\n- `git diff --check` — passed.\n- Legacy-reference sweep — no matches.\n- Focused integration suites — blocked before collection: Testcontainers reported `Could not find a working container runtime strategy`.\n\nRemaining risk: run the four integration suites in CI or an environment with a working container runtime. No compatibility or backfill behavior was added.\n\n<oai-mem-citation>\n<citation_entries>\nMEMORY.md:463-477|note=[historical llame compaction replay guidance used as context and verified against current OpenSpec and code]\n</citation_entries>\n<rollout_ids>\n019fe1c0-0e5d-75e3-b629-6755db523551\n</rollout_ids>\n</oai-mem-citation>",
+          "timestamp": "2026-08-25T12:15:40.298Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Objective: repair only `apps/api/src/compaction/compaction-context.integration.test.ts` around `replacementHistoryFor`, removing the current lint findings for unsafe dictionary access and runtime `typeof` handling while preserving fixture semantics.\n\nWritable scope: that single test file. Out of scope: production compaction code, schemas, migrations, other tests, shared helpers, and concurrent edits. Acceptance: targeted lint is clean, formatting remains clean, and API typecheck passes if feasible; no assertion or fixture behavior changes beyond safe typing.",
+          "timestamp": "2026-08-25T12:23:32.195Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"sed -n '1,260p' apps/api/src/compaction/compaction-context.integration.test.ts && printf '\\\\n--- apps/api/AGENTS.md ---\\\\n' && sed -n '1,260p' apps/api/AGENTS.md\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:23:35.647Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"pnpm --filter api exec oxlint --deny-warnings --report-unused-disable-directives src/compaction/compaction-context.integration.test.ts\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 30000,\n  max_output_tokens: 12000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:23:39.056Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"sed -n '260,900p' apps/api/src/compaction/compaction-context.integration.test.ts\\nprintf '\\\\n--- schema replacement types ---\\\\n'\\nrg -n -C 8 \\\"CompactionReplacementMessage|replacementHistory\\\" apps/api/src/db/schema/chats.ts apps/api/src/chats/chats-repository.ts apps/api/src/chats/context-builder.ts apps/api/src/compaction/compaction.ts apps/api/src/unknown-record.ts\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 50000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:23:45.643Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n \\\"function (is|parse).*Part|type .*Part|startsWith\\\\('tool-'\\\\)|tool-[^']+\\\" apps/api/src/chats apps/api/src/compaction apps/api/src/db/schema | head -240\\nprintf '\\\\n--- unknown-record ---\\\\n'\\nsed -n '1,220p' apps/api/src/unknown-record.ts\\nprintf '\\\\n--- context builder parser ---\\\\n'\\nrg -n -C 12 \\\"parseCompactionReplacementHistory|isTextPart|isRecord\\\" apps/api/src/chats/context-builder.ts\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:23:51.289Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"sed -n '1,240p' apps/api/src/chats/compaction-replacement-history.ts\\nsed -n '1,190p' apps/api/src/chats/tool-observation-part.ts\\nsed -n '350,435p' apps/api/src/compaction/compaction.ts\\nsed -n '1,130p' apps/api/src/chats/context-builder.ts\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:23:55.689Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The lint findings are confined to `replacementToolParts`: its return type repeats the repository’s forbidden ad-hoc dictionary alias, and its inline string check bypasses the sanctioned boundary guard. I’ll use the existing `UnknownRecord`/`isString` contracts; the filtering logic remains identical.",
+          "timestamp": "2026-08-25T12:24:01.711Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/compaction/compaction-context.integration.test.ts\\n@@\\n-import { isRecord } from '../unknown-record';\\n+import { isRecord, isString, type UnknownRecord } from '../unknown-record';\\n@@\\n function replacementToolParts(\\n   history: CompactionReplacementMessage[],\\n-): Record<string, unknown>[] {\\n+): UnknownRecord[] {\\n@@\\n       record.role === 'assistant' &&\\n       record.parts.length === 1 &&\\n       isRecord(part) &&\\n-      typeof part.type === 'string' &&\\n+      isString(part.type) &&\\n       part.type.startsWith('tool-')\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-25T12:24:05.465Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/compaction/compaction-context.integration.test.ts | sed -n '58,125p'\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 5000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:24:08.985Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/compaction/compaction-context.integration.test.ts\\n@@\\n-import { isRecord } from '../unknown-record';\\n+import { isRecord, isString, type UnknownRecord } from '../unknown-record';\\n@@\\n function replacementToolParts(\\n   history: CompactionReplacementMessage[],\\n-): Record<string, unknown>[] {\\n+): UnknownRecord[] {\\n@@\\n       record.parts.length === 1 &&\\n       isRecord(part) &&\\n-      typeof part.type === 'string' &&\\n+      isString(part.type) &&\\n       part.type.startsWith('tool-')\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-25T12:24:13.868Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"pnpm exec prettier --write apps/api/src/compaction/compaction-context.integration.test.ts && pnpm --filter api exec oxlint --deny-warnings --report-unused-disable-directives src/compaction/compaction-context.integration.test.ts && pnpm --filter api typecheck\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 30000,\n  max_output_tokens: 12000\n});\ntext(r.output);\nif (r.session_id) {\n  let p = await tools.write_stdin({session_id:r.session_id, chars:\"\", yield_time_ms:30000, max_output_tokens:12000});\n  text(p.output);\n}\n",
+          "timestamp": "2026-08-25T12:24:18.132Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"git diff --check && git diff -- apps/api/src/compaction/compaction-context.integration.test.ts && git status --short apps/api/src/compaction/compaction-context.integration.test.ts apps/api/src/chats/context-builder.test.ts\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 12000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:24:26.448Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"pnpm --filter api exec oxlint --deny-warnings --report-unused-disable-directives src/compaction/compaction-context.integration.test.ts; lint_status=$?; pnpm exec prettier --check apps/api/src/compaction/compaction-context.integration.test.ts; format_status=$?; git diff --check; diff_status=$?; exit $((lint_status || format_status || diff_status))\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 30000,\n  max_output_tokens: 8000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:24:33.449Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"pnpm --filter api exec vitest run --project integration src/compaction/compaction-context.integration.test.ts --reporter=dot\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 30000,\n  max_output_tokens: 8000\n});\ntext(r.output);\nif (r.session_id) {\n  text((await tools.write_stdin({session_id:r.session_id, chars:\"\", yield_time_ms:30000, max_output_tokens:8000})).output);\n}\n",
+          "timestamp": "2026-08-25T12:24:44.220Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The targeted lint is now clean and formatting/diff checks pass. Full API typecheck is blocked by a pre-existing concurrent edit in `apps/api/src/chats/context-builder.test.ts` still referencing removed `toolObservationLedger`; I did not touch that out-of-scope file. The focused integration test also cannot start because Testcontainers has no working container runtime.",
+          "timestamp": "2026-08-25T12:24:51.223Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Updated only `apps/api/src/compaction/compaction-context.integration.test.ts`:\n\n- Replaced `Record<string, unknown>` with sanctioned `UnknownRecord`.\n- Replaced inline `typeof` narrowing with `isString`.\n- Preserved `replacementToolParts` behavior and assertions.\n\nChecks:\n\n- Targeted Oxlint — passed.\n- Prettier check — passed.\n- `git diff --check` — passed.\n- API typecheck — blocked by concurrent out-of-scope `context-builder.test.ts` still referencing removed `toolObservationLedger`.\n- Focused integration test — blocked before execution because Testcontainers has no working container runtime.\n\nPrimary-thread decision: another worker must update the remaining `context-builder.test.ts` ledger fixture before full typecheck can pass; integration validation needs Docker/Testcontainers.\n\n<oai-mem-citation>\n<citation_entries>\nMEMORY.md:463-477|note=[historical llame compaction replay guidance used as context and verified against current OpenSpec and code]\n</citation_entries>\n<rollout_ids>\n019fe1c0-0e5e-75e3-b629-6755db523551\n</rollout_ids>\n</oai-mem-citation>",
+          "timestamp": "2026-08-25T12:24:58.419Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Objective: repair only the three compaction-context assertions at the reported lines so they inspect the typed text-part content directly, preserving the semantic proof that persisted checkpoint text contains the summary.\n\nWritable scope: `apps/api/src/compaction/compaction-context.integration.test.ts` only. Out of scope: production code, other tests, schema/migrations, and concurrent edits. Acceptance: all three assertions avoid `JSON.stringify`, retain the same checkpoint-summary guarantee, and targeted lint/format/typecheck pass where the shared worktree permits; integration will be attempted with available DB/runtime support.",
+          "timestamp": "2026-08-25T12:31:23.788Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"nl -ba apps/api/src/compaction/compaction-context.integration.test.ts | sed -n '1125,1185p;1350,1405p;1430,1485p'\\nprintf '\\\\n--- existing content helpers ---\\\\n'\\nrg -n -C 8 \\\"content.*text|text.*content|isTextPart|extract.*content|message.*content\\\" apps/api/src/compaction apps/api/src/chats | head -260\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 30000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:31:26.526Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n -C 12 \\\"export interface ModelStreamInput|type ModelStreamInput|interface ModelMessage\\\" apps/api/src/models/model-client.ts apps/api/src | head -180\\nsed -n '1,150p' apps/api/src/models/model-client.ts\\nrg -n \\\"isString\\\\(|contentText|textParts|filter\\\\(isTextPart\\\" apps/api/src --glob '*.test.ts' | head -120\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 20000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:31:44.973Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"sed -n '1,90p' apps/api/src/testing/support.ts\\nsed -n '35,78p' apps/api/src/compaction/compaction.test.ts\\nsed -n '118,155p' apps/api/src/compaction/compactions.integration.test.ts\\nrg -n \\\"from '../testing/support'|from '../../testing/support'\\\" apps/api/src/compaction apps/api/src/chats --glob '*.test.ts' | head -80\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 16000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:31:52.756Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"rg -n -C 5 \\\"export (function|const) content(Text|BlockTexts)|contentText\\\" apps/api/src/testing/support.ts\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 6000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:31:55.698Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The repository already provides `contentText(ModelMessage['content'])` in `apps/api/src/testing/support.ts`; it flattens typed string/block content without serialization. I’ll reuse that helper at all three assertions, retaining the exact `toContain(summary)` checks.",
+          "timestamp": "2026-08-25T12:32:05.016Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/compaction/compaction-context.integration.test.ts\\n@@\\n import { type KnowledgeToolResolver } from '../tools/types';\\n import { isRecord, isString, type UnknownRecord } from '../unknown-record';\\n+import { contentText } from '../testing/support';\\n@@\\n-    expect(JSON.stringify(targetCalls[0].messages[0].content)).toContain(\\n-      summary,\\n-    );\\n+    expect(contentText(targetCalls[0].messages[0].content)).toContain(summary);\\n@@\\n-    expect(JSON.stringify(targetCalls[0]?.messages[0]?.content)).toContain(\\n-      concurrentSummary,\\n-    );\\n+    expect(\\n+      contentText(targetCalls[0]?.messages[0]?.content ?? ''),\\n+    ).toContain(concurrentSummary);\\n@@\\n-    expect(JSON.stringify(targetCalls[0]?.messages[0]?.content)).toContain(\\n-      transitionSummary,\\n-    );\\n+    expect(\\n+      contentText(targetCalls[0]?.messages[0]?.content ?? ''),\\n+    ).toContain(transitionSummary);\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-25T12:32:10.158Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"sed -n '65,80p;1158,1172p;1380,1394p;1458,1470p' apps/api/src/compaction/compaction-context.integration.test.ts\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 6000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:32:16.429Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/chat-page-title/apps/api/src/compaction/compaction-context.integration.test.ts\\n@@\\n import { type KnowledgeToolResolver } from '../tools/types';\\n import { isRecord, isString, type UnknownRecord } from '../unknown-record';\\n+import { contentText } from '../testing/support';\\n@@\\n-    expect(JSON.stringify(targetCalls[0].messages[0].content)).toContain(\\n-      summary,\\n-    );\\n+    expect(contentText(targetCalls[0].messages[0].content)).toContain(summary);\\n@@\\n-    expect(JSON.stringify(targetCalls[0]?.messages[0].content)).toContain(\\n-      concurrentSummary,\\n-    );\\n+    expect(\\n+      contentText(targetCalls[0]?.messages[0].content ?? ''),\\n+    ).toContain(concurrentSummary);\\n@@\\n-    expect(JSON.stringify(targetCalls[0]?.messages[0].content)).toContain(\\n-      transitionSummary,\\n-    );\\n+    expect(\\n+      contentText(targetCalls[0]?.messages[0].content ?? ''),\\n+    ).toContain(transitionSummary);\\n*** End Patch\";\ntext(await tools.apply_patch(patch));\n",
+          "timestamp": "2026-08-25T12:32:28.425Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"pnpm exec prettier --write apps/api/src/compaction/compaction-context.integration.test.ts && pnpm --filter api exec oxlint --deny-warnings --report-unused-disable-directives src/compaction/compaction-context.integration.test.ts && pnpm --filter api typecheck\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 30000,\n  max_output_tokens: 12000\n});\ntext(r.output);\nif (r.session_id) text((await tools.write_stdin({session_id:r.session_id, chars:\"\", yield_time_ms:30000, max_output_tokens:12000})).output);\n",
+          "timestamp": "2026-08-25T12:32:32.887Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"pnpm --filter api exec vitest run --project integration src/compaction/compaction-context.integration.test.ts --reporter=dot\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 30000,\n  max_output_tokens: 10000\n});\ntext(r.output);\nif (r.session_id) text((await tools.write_stdin({session_id:r.session_id, chars:\"\", yield_time_ms:30000, max_output_tokens:10000})).output);\n",
+          "timestamp": "2026-08-25T12:32:40.126Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"pnpm --filter api exec oxlint --deny-warnings --report-unused-disable-directives src/compaction/compaction-context.integration.test.ts; lint_status=$?; pnpm exec prettier --check apps/api/src/compaction/compaction-context.integration.test.ts; format_status=$?; git diff --check; diff_status=$?; exit $((lint_status || format_status || diff_status))\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 30000,\n  max_output_tokens: 8000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:32:45.862Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\n  cmd: \"git diff -- apps/api/src/compaction/compaction-context.integration.test.ts | sed -n '1,260p'\\nprintf '\\\\n--- target status ---\\\\n'\\ngit status --short apps/api/src/compaction/compaction-context.integration.test.ts apps/api/src/compaction/compactions.integration.test.ts\",\n  workdir: \"/home/leon0399/.herdr/worktrees/llame/chat-page-title\",\n  yield_time_ms: 10000,\n  max_output_tokens: 20000\n});\ntext(r.output);\n",
+          "timestamp": "2026-08-25T12:32:52.153Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Updated only `apps/api/src/compaction/compaction-context.integration.test.ts`.\n\nChanges:\n\n- Reused existing typed `contentText` from `../testing/support`.\n- Replaced all three failing `JSON.stringify(...content)` summary assertions with direct typed content extraction.\n- Preserved the same `toContain(summary)` semantics; newline-containing summaries now compare against actual text.\n\nChecks:\n\n- Targeted Oxlint — passed.\n- Prettier check — passed.\n- `git diff --check` — passed.\n- Focused integration test — blocked before collection: no working Testcontainers runtime.\n- API typecheck — blocked by concurrent out-of-scope errors in `apps/api/src/compaction/compactions.integration.test.ts:149` (`tool-approval-*` union incorrectly checked as text).\n\nNo other files were changed by this follow-up.\n\n<oai-mem-citation>\n<citation_entries>\nMEMORY.md:463-477|note=[historical llame compaction replay guidance used as context and verified against current OpenSpec and code]\n</citation_entries>\n<rollout_ids>\n019fe1c0-0e5e-75e3-b629-6755db523551\n</rollout_ids>\n</oai-mem-citation>",
+          "timestamp": "2026-08-25T12:33:02.646Z"
+        }
+      ],
+      "total_additions": 217,
+      "total_deletions": 82,
+      "accepted_lines": 166,
+      "overriden_lines": 0
+    }
+  }
+}
