@@ -216,13 +216,13 @@ OpenSpec archival/bookkeeping, and checks of those documentation changes. It
 MUST NOT contain application code, migrations, tests, UI changes, changelog
 changes, or deferred #154/#599 work.
 
-- [ ] 5.1 Verify OpenSpec reports every apply-required artifact complete and no
+- [x] 5.1 Verify OpenSpec reports every apply-required artifact complete and no
       task from a lower layer remains unchecked.
-- [ ] 5.2 Invoke `$openspec-sync-specs` for
+- [x] 5.2 Invoke `$openspec-sync-specs` for
       `persist-rendered-context-items`, review the intelligent merge into every
       affected `openspec/specs/*/spec.md`, verify no shipped scenario is lost,
       and strictly validate the active change.
-- [ ] 5.3 Verify the synchronized canonical specs, completed active-change
+- [x] 5.3 Verify the synchronized canonical specs, completed active-change
       artifacts, `pnpm lint:markdown`, `pnpm format:check`, and diff checks; then
       mark every checkbox complete so archive preflight observes no unfinished
       task.

@@ -70,72 +70,135 @@ This prompt-side description is **additive rather than sufficient**: an operator
 - **THEN** nothing in the rendered conversation implies the user raised the item's subject
 - **AND** the prompt's no-necessary-relation statement covers the case
 
-### Requirement: Every item declares a producer and a form, and unknown values render as nothing
+### Requirement: Every item declares metadata and persists its final model-facing text
 
-Each context item SHALL declare the **producer** that authored it and MAY declare a **form** describing what kind of content it is. Producer answers who authored the item; form answers what kind of thing it is. The two SHALL be independent: several producers MAY share a form, and one producer MAY emit more than one form.
+Each context item SHALL declare the **producer** that authored it and MAY
+declare a **form** describing what kind of content it is. Producer answers who
+authored the item; form answers what kind of thing it is. The two SHALL be
+independent: several producers MAY share a form, and one producer MAY emit more
+than one form.
 
-The form vocabulary SHALL be **semantic rather than visual**. It SHALL state what the content is, never how it is presented; ordering, emphasis, collapse behavior, and other presentation concerns SHALL NOT enter it. The vocabulary SHALL contain exactly the forms that have a producer:
+The form vocabulary SHALL be semantic rather than visual and SHALL contain
+exactly the forms that have a producer:
 
-- `notice` — a one-off account of something that happened; it supersedes nothing.
-- `snapshot` — current state, where a later snapshot from the same producer supersedes an earlier one.
+- `notice` — a one-off account of something that happened; it supersedes
+  nothing.
+- `snapshot` — current state, where a later snapshot from the same producer
+  supersedes an earlier one.
 - `checkpoint` — a summary that supersedes this chat's own earlier history.
 
-A form SHALL NOT be defined ahead of a producer that emits it. Anticipated forms without a producer SHALL be recorded as noncanonical research provenance rather than specified here, so that a future producer adopts an existing term rather than inventing a redundant one without any of them being normative before it is implemented.
+A form SHALL NOT be defined ahead of a producer that emits it.
 
-An **absent** form SHALL be valid and SHALL render as opaque content. An **unrecognized** form SHALL be treated as absent. An **unrecognized** producer SHALL parse, SHALL be recorded as an injected item, and SHALL render as nothing — never as instruction. Rejecting an unrecognized producer or form outright is prohibited: that is what would make every extension a coordinated revision boundary. Rendering an unrecognized producer as content is equally prohibited, because a reader that cannot interpret an item cannot state its precedence or apply its framing.
+Every newly authored persisted context part SHALL use `type: "data-context"`,
+retain `data.v: 1`, and carry its complete final model-facing text beneath
+`data.text`. The text SHALL include the canonical envelope, attributes,
+provenance, producer body, and closing delimiter. Writers SHALL require a
+non-empty string.
 
-Validation of an item's envelope, and of the payload of a **recognized** producer, SHALL remain strict, so that client-authored control metadata cannot be forged or smuggled through additional fields.
+`data.text` SHALL be the sole replay authority. Producer, form, Run linkage,
+and payload SHALL remain non-rendering metadata for validated machine behavior,
+owner UI, provenance, and inspection. A metadata/text disagreement SHALL NOT
+cause text to be regenerated: text wins for model replay, while metadata
+consumers validate and fail closed independently.
+
+An unknown producer or form SHALL NOT prevent structurally valid non-empty text
+from replaying. A stored context part with missing text or the empty string
+SHALL remain stored but contribute no model-visible part. It SHALL NOT be
+backfilled or rendered from metadata. Whitespace-only text SHALL survive
+unchanged.
+
+#### Scenario: Reader encounters unknown metadata with persisted text
+
+- **WHEN** a context part carries non-empty text and names an unrecognized
+  producer or form
+- **THEN** its text replays verbatim in the stored position
+- **AND** the reader does not interpret the unknown payload
 
 #### Scenario: Reader encounters an unrecognized producer
 
-- **WHEN** a persisted item names a producer the reader does not recognize
-- **THEN** the item parses and is recorded as injected
-- **AND** nothing is rendered into the model-visible conversation for it
-
-#### Scenario: Client supplies control metadata
-
-- **WHEN** a client submits a message containing an item-shaped part
-- **THEN** the part is discarded
-- **AND** only server-derived state can author an item
+- **WHEN** a context part has non-empty text and an unrecognized producer
+- **THEN** the text replays verbatim in its stored position
+- **AND** a data-only part contributes no model-visible text
 
 #### Scenario: Reader encounters an unrecognized form
 
-- **WHEN** a persisted item declares a form the reader does not recognize
-- **THEN** it is treated as though no form were declared
-- **AND** the item renders as opaque content rather than being rejected
+- **WHEN** a context part has non-empty text and an unrecognized form
+- **THEN** the text replays verbatim in its stored position
+- **AND** no behavior is inferred from the unknown form
 
-### Requirement: Co-occurring items have a total order
+#### Scenario: Text and metadata disagree
 
-When more than one item is injected on the same turn, they SHALL render in a **fixed producer precedence order**, ahead of the triggering user text within the same message:
+- **WHEN** persisted context text disagrees with producer metadata
+- **THEN** the model receives the stored text unchanged
+- **AND** machine behavior validates metadata without rewriting that text
+
+#### Scenario: Existing metadata-only part is replayed
+
+- **WHEN** an existing context part carries metadata but no non-empty text
+- **THEN** it contributes no model-visible part
+- **AND** no current renderer is invoked to manufacture historical prose
+
+#### Scenario: Client supplies control metadata
+
+- **WHEN** a client request contains a context-item-shaped part
+- **THEN** request validation rejects the message
+- **AND** no client-authored part is persisted or trusted
+- **AND** only server-derived state can author an item
+
+#### Scenario: Service-level defense encounters control metadata
+
+- **WHEN** a direct service caller bypasses request validation and supplies
+  parts containing a context-item-shaped part
+- **THEN** the part is discarded while the remaining user text parts retain
+  their order
+- **AND** the message is rejected before database work when no user text part
+  remains
+- **AND** only server-derived state can author an item
+
+### Requirement: Co-occurring items have a total author-time order
+
+When more than one item is injected on the same turn, the accepting path SHALL
+persist them in a fixed producer precedence order, ahead of the triggering user
+text within the same message:
 
 1. `effective-context-change`
 2. `tool-availability`
 3. `recency-digest`
 4. `temporal`
 
-This list governs items **attached to a turn**. A producer whose item is carried by a message of its own — the compaction checkpoint is the only one today — is ordered by its placement rule instead, and SHALL NOT be read as absent from the vocabulary merely because it is absent from this list. A checkpoint necessarily leads the history it supersedes, which is a stronger constraint than any precedence order could express.
+When one producer contributes more than one item, those items SHALL be stored
+in emission order. A producer added later SHALL extend this authoring list in
+the rail specification.
 
-A producer added later SHALL be appended to this list, and the list SHALL be extended in the rail's own specification rather than negotiated between producers.
-
-When one producer contributes **more than one item** on the same turn, those items SHALL render in the order that producer emitted them, ahead of the next producer's items. Emission order is load-bearing within a producer: a supersession and a subsequent delta from the same producer are only interpretable in the order they occurred, since a delta rendered before the supersession that precedes it reads as already superseded. Producers SHALL NOT order themselves relative to each other, and an item SHALL NOT be merged into, or suppressed by, another item. Identical inputs SHALL therefore produce identical model-visible output.
+Replay SHALL preserve the stored part order. It SHALL NOT re-sort historical
+items through the current precedence list or merge adjacent text parts. The
+compaction checkpoint is carried by replacement history of its own and follows
+that capability's placement rule rather than this attached-item list.
 
 #### Scenario: Several producers fire on one turn
 
-- **WHEN** a model change, an availability change, and a chat-list change all occur before one user message
-- **THEN** their items render in the fixed producer precedence order, each in its own envelope
-- **AND** none is merged, reordered relative to the specification, or suppressed
+- **WHEN** a model change, availability change, and chat-list change accompany
+  one user message
+- **THEN** their final text blocks are persisted in fixed author-time order
+- **AND** every later replay preserves the stored order and part boundaries
 
 #### Scenario: One producer contributes two items on one turn
 
-- **WHEN** a producer emits a supersession and a later delta before the same user message
-- **THEN** both render under that producer's slot in the order they were emitted
-- **AND** the delta does not precede the supersession it follows
+- **WHEN** one producer emits two items before the same user message
+- **THEN** both persist in producer emission order
+- **AND** neither item is merged or suppressed
 
 #### Scenario: A temporal item accompanies other items on one turn
 
-- **WHEN** a turn carries both an availability change and the temporal item
-- **THEN** the temporal item renders last among the attached items, immediately ahead of the user's visible text
-- **AND** it renders in its own envelope like any other item
+- **WHEN** a temporal item accompanies another context item
+- **THEN** authoring persists the temporal item last among attached items
+- **AND** replay retains that stored position
+
+#### Scenario: The precedence list changes later
+
+- **WHEN** a later release adds a producer or changes author-time precedence
+- **THEN** new items follow the new authoring order
+- **AND** existing messages remain in their original stored order
 
 ### Requirement: Residency determines whether a change re-renders the prompt or appends an item
 
@@ -226,33 +289,59 @@ The **wording** of a producer's framing SHALL be owned by that producer rather t
 - **WHEN** an operator override removes the prompt's global description of the convention
 - **THEN** an item carrying third-party content still states its own precedence
 
-### Requirement: Reserved delimiter names are neutralized on untrusted rails
+### Requirement: User-authored text is neutralized before persistence
 
-Content that llame did not author SHALL NOT be able to emit the rail's delimiter name as a tag when it is projected into model context. This SHALL apply to **visible user message text** and to **tool results**, which are respectively user-authored and remote-authored. The neutralization SHALL use the same two rules the instance-config capability defines for authored text: a value can never close a tag it did not open within that same value, and can never emit a reserved delimiter name as a tag at all.
+Every client-submitted user text part SHALL be neutralized before it is stored,
+using the reserved-delimiter rules the instance-config capability defines. The
+sanitized stored value SHALL be the sole replay form; the application SHALL NOT
+retain a second unsanitized transcript or sanitize the value again during later
+request assembly.
 
-Neutralization SHALL apply at render into model context and SHALL NOT alter stored content.
+Sanitization SHALL preserve message-part boundaries and order. Replay SHALL NOT
+join text parts manually or prefix sender identifiers. Assistant output SHALL
+NOT be neutralized and persisted reasoning SHALL remain display-only.
 
-**Assistant output SHALL NOT be neutralized.** A model does not treat its own prior turns as authoritative, so an envelope-shaped fragment there carries no authority; and assistant turns legitimately contain the delimiter name as subject matter, which neutralization would corrupt on replay. This exclusion SHALL be documented as deliberate rather than as an oversight.
-
-Because producers render prose from validated semantic values rather than persisting prose, the rail SHALL NOT depend on scanning its own rendered output.
+Tool-result neutralization and ordinary assistant/tool replay remain governed
+by `tool-calling`; their current custom projection is an explicit best-effort
+exception pending #599 rather than part of this change.
 
 #### Scenario: A user forges an envelope
 
-- **WHEN** a user's message text contains the rail's delimiter name in tag form
-- **THEN** the projected model context escapes it rather than emitting a second envelope
-- **AND** the stored message is unchanged
+- **WHEN** a submitted user text part contains a reserved delimiter in tag form
+- **THEN** the accepting path neutralizes it before persistence
+- **AND** every later replay uses that stored sanitized text unchanged
+
+#### Scenario: A message has several text parts
+
+- **WHEN** an accepted user message contains several text parts
+- **THEN** each sanitized part is stored and replayed in its original position
+- **AND** the application does not concatenate the parts into a replacement
+  string
+
+#### Scenario: Two users participate in one chat
+
+- **WHEN** stored user turns have different `senderUserId` values
+- **THEN** later model replay uses each turn's stored parts without injecting
+  sender labels
+
+#### Scenario: Assistant output discusses the envelope
+
+- **WHEN** an assistant turn contains the reserved delimiter as subject matter
+- **THEN** its replayed visible text is not neutralized
+- **AND** persisted reasoning remains excluded
 
 #### Scenario: A tool result contains an envelope
 
-- **WHEN** a tool returns content containing the rail's delimiter name in tag form
-- **THEN** the projected model context escapes it
-- **AND** the recorded tool result is unchanged
+- **WHEN** a tool result contains a reserved delimiter in tag form
+- **THEN** the `tool-calling` projection neutralizes it under its existing
+  contract
+- **AND** this change does not redefine ordinary tool-part persistence
 
 #### Scenario: An assistant turn discusses the envelope
 
-- **WHEN** an assistant turn legitimately contains the delimiter name, such as inside a code sample
-- **THEN** the replayed text is byte-identical to what the model produced
-- **AND** no neutralization is applied to it
+- **WHEN** an assistant turn legitimately contains the reserved delimiter
+- **THEN** its visible replay text is not neutralized
+- **AND** display-only reasoning is still omitted
 
 ### Requirement: Compaction is the rail's re-baseline boundary
 
@@ -274,60 +363,124 @@ Standing context that is re-supplied on every request SHALL be excluded from the
 - **THEN** the baseline is re-resolved
 - **AND** it is not re-resolved by any other event
 
-### Requirement: An item is either persisted-derived or bind-time
+### Requirement: An item is either persisted-literal or bind-time
 
-Every item SHALL be one of two kinds, and its kind SHALL be determined by whether a durable part exists for it:
+Every item SHALL be one of two kinds:
 
-- **persisted-derived** — a durable part records the item's semantics, so the item is reproduced identically whenever the conversation is replayed.
-- **bind-time** — the item is computed while assembling one request and no durable part exists. A bind-time item SHALL NOT be persisted into conversation history, because a stored statement about the present instant becomes false on replay.
+- **persisted-literal** — durable storage carries the complete final text used
+  for replay; or
+- **bind-time** — the item is computed for one request and no durable historical
+  text exists.
 
-A durable part SHALL carry **semantics rather than rendered prose**: identifiers, closed reason codes, and validated values, never literal item text, remote-authored text, raw errors, or prompt contents.
+A persisted-literal item's metadata SHALL NOT be a source from which replay
+reconstructs prose, framing, attributes, sanitization, or order. A persisted
+context part with missing or empty text is inert stored data, not a third
+rendering mode. A bind-time item SHALL NOT be persisted into message history,
+because a stored statement about the present request could become false later.
 
 #### Scenario: A persisted-derived item is replayed
 
-- **WHEN** a conversation containing a persisted-derived item is replayed
-- **THEN** the item is reproduced from its durable part
-- **AND** the reproduction is identical across replays
+- **WHEN** a conversation contains a context part with non-empty final text
+- **THEN** replay uses that text directly
+- **AND** renderer changes do not alter it
+
+#### Scenario: A data-only item is replayed
+
+- **WHEN** a stored context part lacks non-empty final text
+- **THEN** it contributes no model-visible part
+- **AND** metadata is not used to derive one
 
 #### Scenario: A bind-time item is replayed
 
-- **WHEN** a request is assembled for a turn that previously carried a bind-time item
-- **THEN** no stale copy of that item appears in the replayed history
+- **WHEN** a request is assembled for a turn that previously had a bind-time
+  item
+- **THEN** no stale copy of that item appears in history
 
 ### Requirement: Every Run records the items it injected
 
-Each Run SHALL record the context items injected into the request it executed, as they were rendered, together with each item's producer, form, and residency. The record SHALL be **owner-scoped and enforced at the datastore**, and SHALL NOT be exposed to a non-owner, to a public share, to an ordinary transcript export, or to a search projection.
+Each Run SHALL record context items injected into the request it executed, as
+they appeared in the final application request, together with each item's
+producer, form, and residency. The record SHALL be owner-scoped and enforced at
+the datastore, and SHALL NOT be exposed to a non-owner, public share, ordinary
+transcript export, or search projection.
 
-Recording SHALL NOT rely on re-rendering an item later: an item's rendered text is not reproducible from a durable part once its renderer changes, and a bind-time item is not reproducible at all. The record SHALL therefore be the authority for what a past Run injected, and SHALL include every item the Run injected — the bind-time checkpoint among them.
+For a persisted item, recording SHALL copy the same stored text used by the
+request and SHALL NOT invoke a renderer. A data-only or empty context part that
+contributed nothing SHALL still appear in the Run item record with empty text,
+so intentional omission remains distinguishable from absence; metadata SHALL
+NOT be rendered to fill it. A bind-time item SHALL record its final computed
+text.
 
-An item that rendered as nothing, because its producer was unrecognized, SHALL still appear in the record, marked as having contributed no text. Omitting it would turn a declared fail-closed omission into an undetectable loss, which is the opposite of what the record exists for.
+When request preparation rebuilds the request after transition compaction, the
+record SHALL describe the rebuilt request. A Run whose preparation fails before
+dispatch SHALL record no injected items.
 
-The record SHALL state what was **actually sent**. When a request is rebuilt before dispatch — as transition compaction does — the record SHALL reflect the rebuilt request rather than the discarded one, and a Run whose preparation fails before any request is made SHALL record nothing rather than a request the model never received.
-
-The record SHALL be kept **separately from the effective-context snapshot**, which is addressed by its content and reused across Runs whose prompt, declarations, source, and availability manifest are identical, while injected items vary per turn under exactly those conditions.
-
-An item whose content originates **outside the chat it was injected into** SHALL be documented as not erasable through that content's own source: deleting the source, or withdrawing consent for it, does not reach a record already written. This SHALL be stated once at the rail level so that every producer carrying such content inherits the disclosure.
+The record SHALL remain separate from the reusable effective-context snapshot,
+whose content address and lifecycle differ from turn-specific injected items.
+Content copied from outside the chat SHALL remain non-erasable through deletion
+of its source once it has been written into a persisted reminder or Run record;
+that limitation SHALL remain documented.
 
 #### Scenario: A Run injects items
 
-- **WHEN** a Run is executed with context items injected
-- **THEN** its record lists them as rendered, with producer, form, and residency
-- **AND** the record is readable only by the chat's owner
+- **WHEN** a Run executes with persisted context text
+- **THEN** its record copies the exact text used by the final request
+- **AND** the record is readable only by the chat owner
 
 #### Scenario: A renderer's wording changes
 
-- **WHEN** an item's rendered wording changes after a Run has executed
-- **THEN** that Run's record still states what was injected at the time
-- **AND** the recorded text is not re-derived from the current renderer
+- **WHEN** a producer renderer changes after an item and Run record were stored
+- **THEN** both retain the original persisted text
+- **AND** neither invokes the current renderer
+
+#### Scenario: An inert context part accompanies a Run
+
+- **WHEN** a stored context part has no non-empty text
+- **THEN** it contributes no model part but remains in the Run context-item
+  record with empty text
+- **AND** metadata is not rendered to fill either location
 
 #### Scenario: Two Runs share an effective-context snapshot
 
-- **WHEN** two Runs bind the same content-addressed snapshot but injected different items
-- **THEN** each Run records its own items
+- **WHEN** two Runs reuse one snapshot but inject different reminders
+- **THEN** each Run records its own reminder text
 - **AND** snapshot reuse is unaffected
 
 #### Scenario: A source of injected content is deleted
 
-- **WHEN** content injected into one chat originated in another chat that is later deleted
-- **THEN** the deletion does not remove that content from records already written
-- **AND** this limit is disclosed rather than implied
+- **WHEN** a reminder copied content from another chat that is later deleted
+- **THEN** the persisted reminder and prior Run record remain unchanged
+- **AND** the deletion limitation is not hidden
+
+### Requirement: Stored parts cross a minimal SDK conversion boundary
+
+Request assembly SHALL treat `messages.parts` as the durable application/UI
+history. It SHALL preserve model-bearing stored parts and their order, omit
+declared display-only parts, and map each surviving `data-context` part to one
+ordinary SDK text part containing `data.text`. It SHALL then pass the ordered
+parts to the AI SDK rather than manually constructing a joined transcript.
+
+This SHALL be an application-level best-effort invariant, not a promise of
+provider-wire byte identity. SDK conversion, role grouping, and provider
+serialization MAY evolve. The current ordinary assistant/tool projection SHALL
+remain a documented exception pending #599 because stored parts do not prove
+step boundaries.
+
+The current top-level system prompt is outside message history and MAY change.
+Compaction MAY replace only the prefix it explicitly supersedes, using the
+materialized replacement history required by `model-system-prompts` and
+`tool-calling`.
+
+#### Scenario: Context data crosses the SDK boundary
+
+- **WHEN** a stored user message contains non-empty `data-context.data.text`
+- **THEN** the transition supplies one `{ type: "text", text: data.text }` part
+  in the same position
+- **AND** no producer renderer, sanitizer, sorter, or manual join runs
+
+#### Scenario: SDK serialization changes
+
+- **WHEN** an SDK or provider release changes its wire representation while
+  accepting the same ordered UI parts
+- **THEN** the application-level replay contract remains satisfied
+- **AND** the system does not claim provider-wire or cache-byte identity
