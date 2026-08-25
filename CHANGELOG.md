@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-25
 
+- **BREAKING — effort level display labels**: `models[].reasoning.effortLevels`
+  accepts bare strings or `{ value, label }` objects. Boot normalizes to
+  `{ value, label? }[]` on `GET /api/v1/models` (was `string[]`). Chat-send
+  `effort` still accepts the raw `value` only. The web effort selector and
+  message telemetry show `label` when present.
+
 - **Chat page title in the sticky header and browser tab**: `/chat/[id]` shows
   the chat title in the existing top bar (and as `document.title`), using the
   same typewriter as the rails. Title changes now delete only down to the

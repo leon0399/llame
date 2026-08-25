@@ -5,11 +5,12 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
+import type { EffortLevelResponse } from "./effortLevelResponse";
 
 export interface ModelReasoningResponse {
-  /** Effort levels this model accepts, in the order a client presents them. Opaque provider-native identifiers, not display strings: derive no meaning or magnitude from the text, and do not assume a token means the same thing on another model. Order is the only scale. */
-  effortLevels: string[];
-  /** The level applied when a chat send omits `effort`. Always one of `effortLevels`. */
+  /** Effort levels this model accepts, in the order a client presents them. Each item has a `value` (opaque provider-native identifier) and an optional operator `label`. Derive no meaning or magnitude from either string, and do not assume a value means the same thing on another model. Order is the only scale. */
+  effortLevels: EffortLevelResponse[];
+  /** The level value applied when a chat send omits `effort`. Always one of `effortLevels[].value`. */
   defaultEffort: string;
   /** Whether CHANGING effort between turns invalidates this model's provider-side prompt cache — not whether effort does. Operator-declared, because the behavior is model-specific and partly undocumented. Advisory metadata for warning a user before a costly prefix re-read; it does not affect execution. */
   cacheInvalidatedByEffortChange: boolean;

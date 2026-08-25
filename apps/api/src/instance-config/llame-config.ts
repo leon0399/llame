@@ -210,13 +210,17 @@ export type RawModelEntry = {
    * The shape an operator WRITES, declared plainly rather than derived from the
    * resolved `ModelReasoning`: the two are deliberately independent, since a
    * resolved-only computed field would have no business in the config file.
-   * `defaultEffort`'s membership in `effortLevels` is a cross-field rule JSON
-   * Schema can't express, so `resolveModels` owns it, and
+   * Items may be bare strings or `{ value, label }` objects. `defaultEffort`'s
+   * membership in `effortLevels[].value` and value uniqueness are cross-field
+   * rules JSON Schema can't express, so `resolveModels` owns them, and
    * `cacheInvalidatedByEffortChange` is optional here but always resolved on
    * the catalog entry.
    */
   reasoning?: {
-    readonly effortLevels: readonly string[];
+    readonly effortLevels: readonly (
+      | string
+      | { readonly value: string; readonly label: string }
+    )[];
     readonly defaultEffort: string;
     readonly cacheInvalidatedByEffortChange?: boolean;
   };

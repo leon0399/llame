@@ -20,6 +20,14 @@ const MODELS = [
     source: "system" as const,
     name: "GPT-4o",
     contextWindowTokens: 128_000,
+    reasoning: {
+      effortLevels: [
+        { value: "none" },
+        { value: "xhigh", label: "Extra High" },
+      ],
+      defaultEffort: "none",
+      cacheInvalidatedByEffortChange: false,
+    },
   },
 ];
 
@@ -164,6 +172,37 @@ describe("buildUsageLine", () => {
         costUsd: 0.01,
       })?.text,
     ).toBe("GPT-4o · 900ms");
+  });
+
+  it("shows a catalog effort label in the badge and at-effort row", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      effort: "xhigh",
+      latencyMs: 900,
+    });
+    expect(result?.text).toBe("GPT-4o · Extra High · 900ms");
+    expect(
+      result?.sections
+        .find((s) => s.header === "Cost & model")
+        ?.rows.find((r) => r.label === "at effort"),
+    ).toEqual({ label: "at effort", value: "Extra High" });
+  });
+
+  it("falls back to the raw effort token when unlabeled or unknown", () => {
+    expect(
+      line({
+        modelId: "system:openai:gpt-4o",
+        effort: "none",
+        latencyMs: 100,
+      })?.text,
+    ).toBe("GPT-4o · none · 100ms");
+    expect(
+      line({
+        modelId: "system:openai:gpt-4o",
+        effort: "gone",
+        latencyMs: 100,
+      })?.text,
+    ).toBe("GPT-4o · gone · 100ms");
   });
 
   it("falls back to the opaque model id when no loaded model name exists", () => {

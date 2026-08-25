@@ -191,14 +191,26 @@
         "effortLevels": {
           "type": "array",
           "minItems": 1,
-          "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 },
-          "description": "Opaque provider-native effort tokens, in the operator-authored order clients present them in. Deliberately unconstrained beyond nonblank and unique: provider vocabularies differ and change between releases, so any character pattern here would be a llame-owned vocabulary that a provider release invalidates. Levels are identifiers, not display strings."
+          "items": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["value", "label"],
+                "properties": {
+                  "value": { "type": "string", "minLength": 1 },
+                  "label": { "type": "string", "minLength": 1 }
+                }
+              }
+            ]
+          },
+          "description": "Opaque provider-native effort tokens (bare string) or { value, label } objects, in the operator-authored order clients present them in. Uniqueness is on value only (enforced at boot, not via uniqueItems). Deliberately unconstrained beyond nonblank value: provider vocabularies differ and change between releases. Values are identifiers; label is optional display metadata."
         },
         "defaultEffort": {
           "type": "string",
           "minLength": 1,
-          "description": "The level used when a request omits `effort`. Required whenever this object is present — no default is implied from list position. A value absent from effortLevels fails boot naming this model."
+          "description": "The level value used when a request omits `effort`. Required whenever this object is present — no default is implied from list position. A value absent from effortLevels[].value fails boot naming this model."
         },
         "cacheInvalidatedByEffortChange": {
           "type": "boolean",

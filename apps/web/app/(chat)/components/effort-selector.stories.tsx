@@ -23,10 +23,15 @@ const REASONING_MODEL: AvailableModel = {
   name: "Reasoner",
   contextWindowTokens: 400_000,
   reasoning: {
-    // Deliberately mixed-shape tokens: levels are opaque provider strings, and
-    // the UI must render whatever the operator configured rather than a set it
-    // recognises.
-    effortLevels: ["none", "low", "medium", "high", "xhigh"],
+    // Mixed bare values and labeled objects — selection stays on `value`,
+    // display prefers `label` when present.
+    effortLevels: [
+      { value: "none" },
+      { value: "low" },
+      { value: "medium" },
+      { value: "high" },
+      { value: "xhigh", label: "Extra High" },
+    ],
     defaultEffort: "medium",
     cacheInvalidatedByEffortChange: true,
   },
@@ -72,8 +77,8 @@ type Story = StoryObj<typeof meta>;
 
 /**
  * The composer's effort control on a model that declares a vocabulary. The
- * trigger opens showing the model's own `defaultEffort`, rendered verbatim —
- * levels are opaque provider identifiers, so the UI never prettifies them.
+ * trigger opens showing the model's own `defaultEffort` — unlabeled values
+ * render as the raw token; labeled ones use the operator label.
  *
  * @summary trigger seeded from the model's declared default effort
  */
@@ -82,6 +87,33 @@ export const Basic: Story = {
   play: async ({ canvas }) => {
     await waitFor(async () => {
       await expect(canvas.getByRole("button").textContent).toContain("medium");
+    });
+  },
+};
+
+/**
+ * A labeled level drops monospace on the trigger and shows the operator
+ * string rather than the raw provider token.
+ *
+ * @summary labeled level renders without monospace
+ */
+export const LabeledLevel: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvas }) => {
+    const trigger = canvas.getByRole("button");
+    await waitFor(async () => {
+      await expect(trigger.textContent).toContain("medium");
+    });
+
+    await userEvent.click(trigger);
+    const slider = await within(document.body).findByRole("slider");
+    slider.focus();
+    // medium -> high -> xhigh
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}");
+
+    await waitFor(async () => {
+      await expect(trigger.textContent).toContain("Extra High");
+      await expect(trigger.querySelector(".font-mono")).toBeNull();
     });
   },
 };

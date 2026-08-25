@@ -2965,7 +2965,7 @@
           },
           "effort": {
             "type": "string",
-            "description": "Reasoning effort for this turn. Must be one of the selected model's `reasoning.effortLevels`; omit to use its `defaultEffort`. Matched byte-exactly — not case-folded."
+            "description": "Reasoning effort for this turn. Must be one of the selected model's `reasoning.effortLevels[].value`; omit to use its `defaultEffort`. Matched byte-exactly — not case-folded."
           },
           "message": {
             "$ref": "#/components/schemas/CreateMessageBodyDto"
@@ -3130,19 +3130,33 @@
           }
         }
       },
+      "EffortLevelResponse": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "description": "Opaque provider-native effort token. Matched byte-exactly on chat send; never a display string."
+          },
+          "label": {
+            "type": "string",
+            "description": "Operator-authored display label. Absent when the config used a bare string. Never invented from `value`."
+          }
+        },
+        "required": ["value"]
+      },
       "ModelReasoningResponse": {
         "type": "object",
         "properties": {
           "effortLevels": {
-            "description": "Effort levels this model accepts, in the order a client presents them. Opaque provider-native identifiers, not display strings: derive no meaning or magnitude from the text, and do not assume a token means the same thing on another model. Order is the only scale.",
+            "description": "Effort levels this model accepts, in the order a client presents them. Each item has a `value` (opaque provider-native identifier) and an optional operator `label`. Derive no meaning or magnitude from either string, and do not assume a value means the same thing on another model. Order is the only scale.",
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/EffortLevelResponse"
             }
           },
           "defaultEffort": {
             "type": "string",
-            "description": "The level applied when a chat send omits `effort`. Always one of `effortLevels`."
+            "description": "The level value applied when a chat send omits `effort`. Always one of `effortLevels[].value`."
           },
           "cacheInvalidatedByEffortChange": {
             "type": "boolean",
