@@ -1,5 +1,12 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-26
+
+- **Repository contribution workflow**: internal contributions now follow an
+  issue-first, OpenSpec-driven stacked-PR flow with explicit proposal approval,
+  layer-scoped verification and task history, mandatory self-review, and
+  monitored CI and automated-review gates.
+
 # 2026-08-25
 
 - **Chat history loads bottom-up with endless upward pagination** (#187): the
