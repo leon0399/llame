@@ -32,7 +32,7 @@ On insert of a net-new pin: shift existing positions `+1` (or assign `position =
 
 ### D3 — Reorder API shape
 
-**Choice:** `PUT /api/v1/pins/order` (or `PATCH /api/v1/pins` with a body listing ordered `{itemType, itemId}[]`) accepting the **full** caller pin set in the desired order. Server assigns `position = 0..n-1` for that user in one transaction. Unknown / not-owned / incomplete set → `400`. Response: same shape as `GET /pins` (or 204 + client relies on cache) — prefer returning the reordered list for a single cache write.
+**Choice:** `PUT /api/v1/pins/order` (or `PATCH /api/v1/pins` with a body listing ordered `{itemType, itemId}[]`) accepting the **full hydratable** caller pin set (same population as `GET /pins`) in the desired order. Server deletes non-hydratable leftover rows, then assigns `position = 0..n-1` for that user in one transaction. Unknown / not-owned / incomplete hydratable set → `400`. Response: same shape as `GET /pins` (or 204 + client relies on cache) — prefer returning the reordered list for a single cache write.
 
 **Why:** Full-list replace matches the UI (drop produces a complete array) and avoids before/after neighbor edge cases. Not a verb on chat/project (RESTful pins resource).
 
