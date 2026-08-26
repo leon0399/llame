@@ -63,41 +63,21 @@ function pinKey(pin: PinnedItem): string {
   return `${pin.itemType}-${pin.itemId}`;
 }
 
-/** Type icon at rest; grip on row hover/focus (no reserved empty space). */
-function PinLeadingIcon({
-  TypeIcon,
-  muted,
-  dragControls,
-}: {
-  TypeIcon: typeof MessagesSquareIcon;
-  muted: boolean;
-  dragControls: DragControls;
-}) {
+/** Trailing drag handle — same HoverReveal expand as other row actions. */
+function PinDragHandle({ dragControls }: { dragControls: DragControls }) {
   return (
-    <span className="relative size-4 shrink-0">
-      <TypeIcon
-        className={cn(
-          "size-4 group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0 group-data-[collapsible=icon]:opacity-100",
-          muted && "opacity-50",
-        )}
-      />
-      <button
-        type="button"
+    <HoverReveal>
+      <SidebarRowAction
         aria-label="Drag to reorder"
-        className={cn(
-          "absolute inset-0 flex cursor-grab items-center justify-center active:cursor-grabbing",
-          "opacity-0 group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100",
-          "group-data-[collapsible=icon]:hidden",
-          muted && "opacity-50",
-        )}
+        className="cursor-grab active:cursor-grabbing"
         onPointerDown={(event) => {
           event.preventDefault();
           dragControls.start(event);
         }}
       >
-        <GripVerticalIcon className="size-4" />
-      </button>
-    </span>
+        <GripVerticalIcon />
+      </SidebarRowAction>
+    </HoverReveal>
   );
 }
 
@@ -107,20 +87,20 @@ function PinLeadingIcon({
 // elsewhere in this codebase (chat-item.tsx, project-list-sidebar/index.tsx).
 //
 // Every rail row here is, by construction, pinned (it only exists because
-// it's in the pins list) — so the row's only action control is the "…" kebab
-// (no separate hover pin/unpin button, unlike ChatItem/ProjectItem's list
-// rows), and its toggle item is always "Unpin", never "Pin". The menu is
-// grouped by action semantics exactly like its list-row counterpart: pin
-// toggle → rename → lifecycle (archive, then delete).
-// It's necessarily a SUBSET of the list row's menu — the rail holds only the
-// lean RefCard (`{id,title|null}` / `{id,name}`), not the full chat/project,
-// so data-heavy chat actions (Move to project, Share, Export, Fork) have no
-// data to act on here and are deliberately omitted rather than faked. Run
-// status is the exception to that rule rather than a break from it: it comes
-// from the active-runs context keyed by chat id, not from the card, so a
-// pinned chat can say it is still being named without anything being faked —
-// and it is read optionally, because the admin shell mounts this rail with no
-// runs provider at all.
+// it's in the pins list) — so the row's action controls are the drag handle
+// and the "…" kebab (no separate hover pin/unpin button, unlike
+// ChatItem/ProjectItem's list rows), and its toggle item is always "Unpin",
+// never "Pin". The menu is grouped by action semantics exactly like its
+// list-row counterpart: pin toggle → rename → lifecycle (archive, then
+// delete). It's necessarily a SUBSET of the list row's menu — the rail holds
+// only the lean RefCard (`{id,title|null}` / `{id,name}`), not the full
+// chat/project, so data-heavy chat actions (Move to project, Share, Export,
+// Fork) have no data to act on here and are deliberately omitted rather than
+// faked. Run status is the exception to that rule rather than a break from
+// it: it comes from the active-runs context keyed by chat id, not from the
+// card, so a pinned chat can say it is still being named without anything
+// being faked — and it is read optionally, because the admin shell mounts
+// this rail with no runs provider at all.
 export function PinnedChatRow({
   pin,
   dragControls,
@@ -153,11 +133,7 @@ export function PinnedChatRow({
       >
         {/* Archived rows read as de-emphasized (mock's
             `.pin-item[data-archived]` icon opacity + muted title). */}
-        <PinLeadingIcon
-          TypeIcon={MessagesSquareIcon}
-          muted={isArchived}
-          dragControls={dragControls}
-        />
+        <MessagesSquareIcon className={cn(isArchived && "opacity-50")} />
         {/* Wrapper so the row's `[&>span:last-child]:truncate` rule lands here
             and not on the title, which fades rather than ellipses. */}
         <span className="flex min-w-0 flex-1 items-center gap-[.35rem]">
@@ -175,6 +151,8 @@ export function PinnedChatRow({
           {isArchived && <ArchivedBadge />}
         </span>
       </SidebarMenuButton>
+
+      <PinDragHandle dragControls={dragControls} />
 
       <DropdownMenu modal={true}>
         <HoverReveal atRest={isActive}>
@@ -266,11 +244,7 @@ export function PinnedProjectRow({
       >
         {/* Archived rows read as de-emphasized (mock's
             `.pin-item[data-archived]` icon opacity + muted title). */}
-        <PinLeadingIcon
-          TypeIcon={FolderIcon}
-          muted={isArchived}
-          dragControls={dragControls}
-        />
+        <FolderIcon className={cn(isArchived && "opacity-50")} />
         {/* See PinnedChatRow: wrapper takes the primitive's truncate rule. */}
         <span className="flex min-w-0 flex-1 items-center gap-[.35rem]">
           <SidebarRowTitle
@@ -281,6 +255,8 @@ export function PinnedProjectRow({
           {isArchived && <ArchivedBadge />}
         </span>
       </SidebarMenuButton>
+
+      <PinDragHandle dragControls={dragControls} />
 
       <DropdownMenu modal={true}>
         <HoverReveal atRest={isActive}>
