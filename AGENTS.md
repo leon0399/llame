@@ -6,9 +6,14 @@ The product overview (what llame is) is short and always relevant, so it is impo
 
 @README.md
 
+The repository-wide contribution workflow is a direct operational convention and is imported in full:
+
+@CONTRIBUTING.md
+
 ## Key documentation
 
 - [README.md](README.md) — current product overview, shipped baseline, and quickstart (imported above)
+- [CONTRIBUTING.md](CONTRIBUTING.md) — mandatory issue, OpenSpec, stacked-PR, verification, and review workflow (imported above)
 - [VISION.md](VISION.md) — north-star direction, principles, horizons, and deliberate deferrals
 - [ROADMAP.md](ROADMAP.md) — forward-only sequence of unshipped work; GitHub owns live status and implementation detail
 - [SPEC.md](SPEC.md) — current cross-cutting architecture contract, enforced invariants, and authority index
