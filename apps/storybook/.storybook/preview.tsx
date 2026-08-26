@@ -10,8 +10,8 @@ import "./preview.css";
 // - active-runs-context: the real provider fetches/polls runs and
 //   `useActiveRuns` throws outside it; the mock is a controllable spy so
 //   apps/web sidebar stories can drive the status dots without a backend.
-// - pins/mutations: keeps pin/unpin off the network and exposes assertable
-//   `mutate` spies for the interaction stories.
+// - pins/mutations: keeps pin/unpin/reorder off the network and exposes
+//   assertable `mutate` spies for the interaction stories.
 sb.mock(import("../../web/contexts/active-runs-context.tsx"));
 sb.mock(import("../../web/lib/services/pins/mutations.ts"));
 // - chat/runs: `useRunContextReceipt` fetches a run's context receipt; the
