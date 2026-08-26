@@ -2,7 +2,7 @@
 
 ### Requirement: Results are ranked by fused relevance with stable output shape
 
-Search SHALL rank candidates by Reciprocal Rank Fusion over the independent retrieval legs (never by mixing raw scores), aggregate document matches into chats with weighted top-N scoring, and produce a deterministic order with stable tie-breaking. The web response contract (`id`, `title` nullable, `snippet` nullable, `updatedAt`) SHALL be preserved. The web command palette MAY continue to receive the derived best-document snippet, including its presentation-only role attribution; a title-only match SHALL yield a `null` web snippet.
+Search SHALL rank candidates by Reciprocal Rank Fusion over the independent retrieval legs (never by mixing raw scores), aggregate document matches into chats with weighted top-N scoring, and produce a deterministic order with stable tie-breaking. The web response contract (`id`, `title` nullable, `snippet` nullable, `updatedAt`) and the current `search_conversations` input schema (`query`, `limit`) SHALL be preserved until #198 intentionally replaces the tool input with its strict discovery union. The web command palette MAY continue to receive the derived best-document snippet, including its presentation-only role attribution; a title-only match SHALL yield a `null` web snippet.
 
 Any model-facing content-discovery result, whether returned by the current `search_conversations` tool or by a later #198 content mode, SHALL use the same ranked candidate path but SHALL NOT present a projection snippet as canonical evidence. For an FTS or trigram content winner, it SHALL reauthorize and hydrate the winning projection document through `conversation-reads`, select every matching logical source line plus at most one immediately preceding and following source line, transitively merge overlapping/touching windows within each message, and return exact current visible-message text with versioned source references. Matches in different messages SHALL remain separate attributed passages and MUST NOT be concatenated into one quote. Synthetic projection labels and contextual anchors SHALL NOT appear in a canonical passage. A result selected only by chat title SHALL be marked metadata-only and carry no invented message passage.
 
@@ -53,14 +53,14 @@ A vector-only winning document SHALL resolve through the same canonical source l
 #### Scenario: Web and model content discovery retain one ranking path
 
 - **WHEN** the web palette and `search_conversations` run the same query for the same owner
-- **THEN** both receive the same ranked chats from one candidate path
-- **AND** each surface applies only its declared preview or canonical-evidence shaping
+- **THEN** both receive the same pre-hydration candidate ordering from one candidate path
+- **AND** the model may return fewer results only after canonical hydration omits stale/unresolvable candidates, without requiring the web preview surface to apply that filter
 
 #### Scenario: Both surfaces upgrade together
 
 - **WHEN** the web palette and model-facing content discovery run the same query for the same owner
-- **THEN** both are served by the same ranked repository path and return the same ranked chats
-- **AND** surface-specific shaping does not duplicate the candidate query
+- **THEN** both are served by the same ranked repository path and begin from the same candidate order
+- **AND** surface-specific shaping or model-only stale filtering does not duplicate the candidate query
 
 #### Scenario: Stale candidate never becomes evidence
 
