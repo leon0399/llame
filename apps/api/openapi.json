@@ -1787,6 +1787,67 @@
         "tags": ["pins"]
       }
     },
+    "/api/v1/pins/order": {
+      "put": {
+        "operationId": "reorderPins",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderPinsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/ChatPinnedItemResponse"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ProjectPinnedItemResponse"
+                      }
+                    ],
+                    "discriminator": {
+                      "propertyName": "itemType",
+                      "mapping": {
+                        "chat": "#/components/schemas/ChatPinnedItemResponse",
+                        "project": "#/components/schemas/ProjectPinnedItemResponse"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Body is not exactly the caller's current pin set, or fails validation"
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["pins"]
+      }
+    },
     "/api/v1/pins/{itemType}/{itemId}": {
       "put": {
         "operationId": "pinItem",
@@ -3780,6 +3841,32 @@
           }
         },
         "required": ["itemType", "itemId", "pinnedAt", "item"]
+      },
+      "ReorderPinsItemDto": {
+        "type": "object",
+        "properties": {
+          "itemType": {
+            "type": "string",
+            "enum": ["chat", "project"]
+          },
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": ["itemType", "itemId"]
+      },
+      "ReorderPinsDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReorderPinsItemDto"
+            }
+          }
+        },
+        "required": ["items"]
       },
       "CreateOrgUnitDto": {
         "type": "object",

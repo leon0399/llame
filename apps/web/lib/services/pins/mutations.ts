@@ -7,6 +7,7 @@ import {
 import { getApiErrorStatus } from "../../api/errors";
 import {
   pinItem as pinItemEndpoint,
+  reorderPins as reorderPinsEndpoint,
   unpinItem as unpinItemEndpoint,
 } from "../../api/generated/pins/pins";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
@@ -178,6 +179,48 @@ export function useUnpinItem() {
     onSettled: (_data, _error, vars) => {
       queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
       invalidateItemList(queryClient, vars.itemType);
+    },
+  });
+}
+
+export async function reorderPins(items: PinnedItem[]): Promise<PinnedItem[]> {
+  return reorderPinsEndpoint(
+    {
+      items: items.map((pin) => ({
+        itemType: pin.itemType,
+        itemId: pin.itemId,
+      })),
+    },
+    undefined,
+    createAuthenticatedBrowserFetch(globalThis.fetch),
+  );
+}
+
+/**
+ * Persist a full-list pin reorder from the main rail. Optimistically rewrites
+ * the pins cache and invalidates type-filtered pinned list queries so chat/
+ * project sidebars ripple without their own DnD.
+ */
+export function useReorderPins() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (items: PinnedItem[]) => reorderPins(items),
+    onMutate: async (items) => {
+      await queryClient.cancelQueries({ queryKey: pinQueryKeys.list() });
+      const previous = queryClient.getQueryData<PinnedItem[]>(
+        pinQueryKeys.list(),
+      );
+      queryClient.setQueryData<PinnedItem[]>(pinQueryKeys.list(), items);
+      return { previous };
+    },
+    onError: (_error, _items, context) => {
+      queryClient.setQueryData(pinQueryKeys.list(), context?.previous);
+      toast.error("Couldn't reorder pinned items.");
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
+      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() });
     },
   });
 }

@@ -1,12 +1,14 @@
 import { InferSelectModel, sql } from 'drizzle-orm';
 import {
   index,
+  integer,
   pgEnum,
   pgPolicy,
   pgTable,
   primaryKey,
   text,
   timestamp,
+  unique,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { users } from './auth';
@@ -27,6 +29,9 @@ export const pinItemType = pgEnum('pin_item_type', ['chat', 'project']);
 // dangling rows are filtered at read (a deleted/inaccessible item simply fails
 // to hydrate). text `user_id` — FK to users.id which is text (NextAuth).
 //
+// `position` is the owner's cross-type rank (0 = head after densify; new pins
+// land at MIN(position)-1 without shifting). Unique per user.
+//
 // NOTE: `.enableRLS()` only emits ENABLE. The migration ALSO issues
 // `FORCE ROW LEVEL SECURITY` (Drizzle cannot express it) — same as chats/0004,
 // runs/0011, org-units/0018. Re-add FORCE if this migration is regenerated.
@@ -41,12 +46,13 @@ export const pins = pgTable(
     pinnedAt: timestamp('pinned_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
+    position: integer('position').notNull(),
   },
   (t) => [
     primaryKey({ columns: [t.userId, t.itemType, t.itemId] }),
-    // The rail's primary read: WHERE user_id=? ORDER BY pinned_at DESC, item_id.
-    // item_id is the tiebreaker so equal pinned_at values order deterministically.
-    index('pins_user_pinned_idx').on(t.userId, t.pinnedAt.desc(), t.itemId),
+    // Rail primary read: WHERE user_id=? ORDER BY position ASC, item_id.
+    index('pins_user_position_idx').on(t.userId, t.position, t.itemId),
+    unique('pins_user_position_unique').on(t.userId, t.position),
     // A pin is private to its owner. Under runAsPublic (current_user = '') this
     // matches nothing, so pins are never exposed on the no-identity path.
     pgPolicy('pins_owner_select', {
@@ -56,6 +62,11 @@ export const pins = pgTable(
     pgPolicy('pins_owner_delete', {
       for: 'delete',
       using: sql`user_id = current_setting('app.current_user_id', true)`,
+    }),
+    pgPolicy('pins_owner_update', {
+      for: 'update',
+      using: sql`user_id = current_setting('app.current_user_id', true)`,
+      withCheck: sql`user_id = current_setting('app.current_user_id', true)`,
     }),
     // Write gate: a user may pin only an item they can currently access. The
     // per-type subqueries run under the referenced table's own RLS, so

@@ -1,18 +1,48 @@
-import { HttpException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { type PinItemType } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { pgErrorCode } from '../db/pg-error';
-import { PinsRepository, type PinnedRow } from './pins-repository';
+import {
+  PinReorderMismatchError,
+  PinsRepository,
+  type PinOrderItem,
+  type PinnedRow,
+} from './pins-repository';
 
 @Injectable()
 export class PinsService {
   constructor(private readonly tenantDb: TenantDbService) {}
 
-  /** The caller's pinned items, most-recently-pinned first, hydrated. */
+  /** The caller's pinned items in owner rank order, hydrated. */
   async listPins(userId: string): Promise<PinnedRow[]> {
     return this.tenantDb.runAs(userId, (tx) =>
       new PinsRepository(tx).listWithCards(userId),
     );
+  }
+
+  /**
+   * Replace the caller's pin order with `ordered` (exact set match). Identity
+   * is the session user only — never a client-supplied owner.
+   */
+  async reorderPins(
+    userId: string,
+    ordered: readonly PinOrderItem[],
+  ): Promise<PinnedRow[]> {
+    try {
+      return await this.tenantDb.runAs(userId, (tx) =>
+        new PinsRepository(tx).reorder(userId, ordered),
+      );
+    } catch (err) {
+      if (err instanceof PinReorderMismatchError) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
   }
 
   /**

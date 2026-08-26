@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
@@ -11,6 +12,7 @@ import {
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiBody,
   ApiCookieAuth,
   ApiExtraModels,
   ApiNoContentResponse,
@@ -30,6 +32,7 @@ import {
   PINNED_ITEM_RESPONSE_SCHEMA,
   PinnedItemResponse,
   ProjectPinnedItemResponse,
+  ReorderPinsDto,
   toPinnedItemResponse,
 } from './dto/pins.dto';
 
@@ -52,6 +55,27 @@ export class PinsController {
   @ApiUnauthorizedResponse()
   async listPins(@CurrentUser() userId: string): Promise<PinnedItemResponse[]> {
     const rows = await this.pinsService.listPins(userId);
+    return rows.map(toPinnedItemResponse);
+  }
+
+  // Full-list reorder. Declared before `:itemType/:itemId` so `order` is not
+  // parsed as an itemType.
+  @Put('order')
+  @ApiOperation({ operationId: 'reorderPins' })
+  @ApiBody({ type: ReorderPinsDto })
+  @ApiOkResponse({
+    schema: { type: 'array', items: PINNED_ITEM_RESPONSE_SCHEMA },
+  })
+  @ApiBadRequestResponse({
+    description:
+      "Body is not exactly the caller's current pin set, or fails validation",
+  })
+  @ApiUnauthorizedResponse()
+  async reorderPins(
+    @CurrentUser() userId: string,
+    @Body() body: ReorderPinsDto,
+  ): Promise<PinnedItemResponse[]> {
+    const rows = await this.pinsService.reorderPins(userId, body.items);
     return rows.map(toPinnedItemResponse);
   }
 

@@ -1,5 +1,13 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-26
+
+- **Owner-controlled pin order** (#328): pins carry a cross-type `position`
+  rank. `GET /pins`, `?pinned=only` chat/project lists, and the recency
+  digest's pinned section follow that order; new pins land at the head.
+  `PUT /api/v1/pins/order` rewrites the caller's full set through the
+  owner-scoped transaction and RLS policy.
+
 # 2026-08-25
 
 - **Chat history loads bottom-up with endless upward pagination** (#187): the

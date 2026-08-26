@@ -117,6 +117,7 @@ const EXPECTED_OPERATION_IDS = [
   'pinItem',
   'registerUser',
   'renameKnowledgeSpace',
+  'reorderPins',
   'resumeChatStream',
   'revokeOrgUnitMembership',
   'revokeSession',

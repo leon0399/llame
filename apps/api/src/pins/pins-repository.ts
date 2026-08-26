@@ -5,9 +5,12 @@
  * so hydration reads the item's card under RLS and DROPS any pin whose item no
  * longer exists or is not accessible to the caller (the only cleanup that works
  * under multi-user — see design D4).
+ *
+ * `position` is the owner's cross-type rank: list/order by ascending position;
+ * new pins land at COALESCE(MIN(position), 0)-1 without shifting siblings.
  */
 
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { chats, pins, projects, type PinItemType } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 export { type Db } from '../db/tenant-db.service';
@@ -30,20 +33,68 @@ export type PinnedRow =
       archivedAt: Date | null;
     };
 
+export type PinOrderItem = { itemType: PinItemType; itemId: string };
+type PositionedPinOrderItem = PinOrderItem & { position: number };
+
+/** Thrown when reorder body is not exactly the caller's current pin set. */
+export class PinReorderMismatchError extends Error {
+  constructor(message = "Reorder must list exactly the caller's current pins") {
+    super(message);
+    this.name = 'PinReorderMismatchError';
+  }
+}
+
+function pinKey(itemType: PinItemType, itemId: string): string {
+  return `${itemType}:${itemId}`;
+}
+
+/** Validate a full-set reorder and plan collision-free temporary/final writes. */
+export function planPinReorder(
+  existing: readonly PositionedPinOrderItem[],
+  ordered: readonly PinOrderItem[],
+): PositionedPinOrderItem[] {
+  if (ordered.length !== existing.length) {
+    throw new PinReorderMismatchError();
+  }
+
+  const existingKeys = new Set(
+    existing.map((row) => pinKey(row.itemType, row.itemId)),
+  );
+  const seen = new Set<string>();
+  for (const item of ordered) {
+    const key = pinKey(item.itemType, item.itemId);
+    if (!existingKeys.has(key) || seen.has(key)) {
+      throw new PinReorderMismatchError();
+    }
+    seen.add(key);
+  }
+
+  const temporaryStart =
+    existing.reduce((minimum, { position }) => Math.min(minimum, position), 0) -
+    ordered.length;
+  return [
+    ...ordered.map((item, index) => ({
+      ...item,
+      position: temporaryStart - index,
+    })),
+    ...ordered.map((item, position) => ({ ...item, position })),
+  ];
+}
+
 export class PinsRepository {
   constructor(private readonly db: Db) {}
 
   /**
-   * The caller's pins, most-recently-pinned first (item_id breaks ties), each
-   * hydrated with its item's card. A pin whose item does not hydrate under RLS
-   * (deleted / inaccessible) is omitted.
+   * The caller's pins in owner rank order (position ASC; item_id breaks ties),
+   * each hydrated with its item's card. A pin whose item does not hydrate under
+   * RLS (deleted / inaccessible) is omitted.
    */
   async listWithCards(userId: string): Promise<PinnedRow[]> {
     const rows = await this.db
       .select()
       .from(pins)
       .where(eq(pins.userId, userId))
-      .orderBy(desc(pins.pinnedAt), pins.itemId);
+      .orderBy(asc(pins.position), pins.itemId);
 
     if (rows.length === 0) return [];
 
@@ -121,11 +172,10 @@ export class PinsRepository {
   }
 
   /**
-   * Pin an item (idempotent). The `pins_owner_insert` WITH CHECK gates on the
-   * caller owning the referenced item: a genuine insert of an inaccessible item
-   * raises 42501, which the service maps to 404 (no existence oracle). On
-   * conflict the pin already exists; either way we return the hydrated row, or
-   * undefined if the item is no longer hydratable (→ service 404).
+   * Pin an item (idempotent). Net-new pins land at the head
+   * (`COALESCE(MIN(position), 0)-1`). Re-pin leaves position unchanged
+   * (`ON CONFLICT DO NOTHING`). The `pins_owner_insert` WITH CHECK
+   * gates accessibility; see PinsService for 42501 → 404 mapping.
    */
   async pin(
     userId: string,
@@ -134,7 +184,16 @@ export class PinsRepository {
   ): Promise<PinnedRow | undefined> {
     await this.db
       .insert(pins)
-      .values({ userId, itemType, itemId })
+      .values({
+        userId,
+        itemType,
+        itemId,
+        position: sql<number>`coalesce((
+          select min(${pins.position})
+          from ${pins}
+          where ${pins.userId} = ${userId}
+        ), 0) - 1`,
+      })
       .onConflictDoNothing();
 
     return this.findOneWithCard(userId, itemType, itemId);
@@ -155,6 +214,41 @@ export class PinsRepository {
           eq(pins.itemId, itemId),
         ),
       );
+  }
+
+  /**
+   * Rewrite the caller's pin positions to match `ordered` (0..n-1). The body
+   * MUST be exactly the caller's current pin set (same type+id multiset);
+   * otherwise throws PinReorderMismatchError.
+   */
+  async reorder(
+    userId: string,
+    ordered: readonly PinOrderItem[],
+  ): Promise<PinnedRow[]> {
+    const existing = await this.db
+      .select({
+        itemType: pins.itemType,
+        itemId: pins.itemId,
+        position: pins.position,
+      })
+      .from(pins)
+      .where(eq(pins.userId, userId));
+
+    const assignments = planPinReorder(existing, ordered);
+    for (const item of assignments) {
+      await this.db
+        .update(pins)
+        .set({ position: item.position })
+        .where(
+          and(
+            eq(pins.userId, userId),
+            eq(pins.itemType, item.itemType),
+            eq(pins.itemId, item.itemId),
+          ),
+        );
+    }
+
+    return this.listWithCards(userId);
   }
 
   private async findOneWithCard(

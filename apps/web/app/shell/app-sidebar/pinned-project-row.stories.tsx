@@ -6,6 +6,7 @@ import {
   SidebarProvider,
 } from "@workspace/ui/components/sidebar";
 import { expect, screen, userEvent, within } from "storybook/test";
+import { useDragControls } from "framer-motion";
 
 import type { PinnedItem } from "@/lib/services/pins/types";
 import { PinnedProjectRow } from "./app-sidebar-pinned";
@@ -27,8 +28,13 @@ const projectPin: PinnedProject = {
   item: { id: "p1", name: "Acme relaunch", archivedAt: null },
 };
 
+function PinnedProjectRowStory(props: { pin: PinnedProject }) {
+  const dragControls = useDragControls();
+  return <PinnedProjectRow pin={props.pin} dragControls={dragControls} />;
+}
+
 const meta = {
-  component: PinnedProjectRow,
+  component: PinnedProjectRowStory,
   tags: ["autodocs"],
   args: { pin: projectPin },
   decorators: [
@@ -49,7 +55,7 @@ const meta = {
     ),
   ],
   parameters: { layout: "centered" },
-} satisfies Meta<typeof PinnedProjectRow>;
+} satisfies Meta<typeof PinnedProjectRowStory>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;

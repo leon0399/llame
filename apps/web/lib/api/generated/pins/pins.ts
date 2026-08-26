@@ -8,6 +8,7 @@
 import type {
   ChatPinnedItemResponse,
   ProjectPinnedItemResponse,
+  ReorderPinsDto,
 } from "../models";
 
 export type listPinsError = void;
@@ -30,6 +31,45 @@ export const listPins = async (
     const err: globalThis.Error & { info?: listPinsError; status?: number } =
       new globalThis.Error(`GET ${getListPinsUrl()} failed (${res.status})`);
     const data: listPinsError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: (ChatPinnedItemResponse | ProjectPinnedItemResponse)[] = body
+    ? JSON.parse(body)
+    : {};
+  return data;
+};
+
+export type reorderPinsError = void | void;
+
+export const getReorderPinsUrl = () => {
+  return `/api/v1/pins/order`;
+};
+
+export const reorderPins = async (
+  reorderPinsDto: ReorderPinsDto,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<(ChatPinnedItemResponse | ProjectPinnedItemResponse)[]> => {
+  const res = await fetchFn(getReorderPinsUrl(), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(reorderPinsDto),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & { info?: reorderPinsError; status?: number } =
+      new globalThis.Error(`PUT ${getReorderPinsUrl()} failed (${res.status})`);
+    const data: reorderPinsError = (() => {
       try {
         return body ? JSON.parse(body) : {};
       } catch {

@@ -151,6 +151,11 @@ describe('recency digest baseline', () => {
     const pinned = Array.from({ length: 10 }, (_, index) =>
       chat(`pinned-${index}`),
     );
+    // The repository returns pinned chats in owner-rank order. Make the second
+    // chat more active so this test proves the digest preserves rank instead
+    // of silently re-sorting pinned entries by updatedAt.
+    pinned[0].updatedAt = new Date('2026-08-01T00:00:00.000Z');
+    pinned[1].updatedAt = new Date('2026-08-26T00:00:00.000Z');
     const recent = Array.from({ length: 10 }, (_, index) =>
       chat(`recent-${index}`),
     );
@@ -236,6 +241,11 @@ describe('recency digest baseline', () => {
       recentShown: 10,
       recentTotal: 247,
     });
+    expect(result.baseline.pinned.map(({ title }) => title)).toEqual(
+      pinned.map(({ title }) => title),
+    );
+    expect(result.baseline.pinned[0]?.title).toBe('pinned-0');
+    expect(result.baseline.pinned[1]?.title).toBe('pinned-1');
     expect(result.told).toEqual([
       ...pinned.map(({ id, title }) => ({ chatId: id, pinned: true, title })),
       ...recent.map(({ id, title }) => ({ chatId: id, pinned: false, title })),
