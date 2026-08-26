@@ -347,9 +347,11 @@ export function PinnedProjectRow({
 
 function SortablePinnedRow({
   pin,
+  onDragStart,
   onReorderCommit,
 }: {
   pin: PinnedItem;
+  onDragStart: () => void;
   onReorderCommit: () => void;
 }) {
   const dragControls = useDragControls();
@@ -359,6 +361,7 @@ function SortablePinnedRow({
       value={pin}
       dragListener={false}
       dragControls={dragControls}
+      onDragStart={onDragStart}
       onDragEnd={onReorderCommit}
       data-slot="sidebar-menu-item"
       data-sidebar="menu-item"
@@ -386,9 +389,12 @@ export function AppSidebarPinned() {
   const [items, setItems] = useState<PinnedItem[]>([]);
   const itemsRef = useRef(items);
   itemsRef.current = items;
+  // While a grip drag is in flight, ignore pins-query mirrors so a refetch
+  // (pin/unpin elsewhere, reorder settle) cannot reset the in-progress order.
+  const draggingRef = useRef(false);
 
   useEffect(() => {
-    if (pins) setItems(pins);
+    if (pins && !draggingRef.current) setItems(pins);
   }, [pins]);
 
   if (!pins || pins.length === 0) {
@@ -396,6 +402,7 @@ export function AppSidebarPinned() {
   }
 
   const commitOrder = () => {
+    draggingRef.current = false;
     const next = itemsRef.current;
     const same =
       next.length === (pins?.length ?? 0) &&
@@ -429,6 +436,9 @@ export function AppSidebarPinned() {
               <SortablePinnedRow
                 key={pinKey(pin)}
                 pin={pin}
+                onDragStart={() => {
+                  draggingRef.current = true;
+                }}
                 onReorderCommit={commitOrder}
               />
             ))}

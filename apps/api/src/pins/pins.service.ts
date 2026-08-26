@@ -26,8 +26,9 @@ export class PinsService {
   }
 
   /**
-   * Replace the caller's pin order with `ordered` (exact set match). Identity
-   * is the session user only — never a client-supplied owner.
+   * Replace the caller's pin order with `ordered` (exact hydratable-set match,
+   * same population as GET /pins). Identity is the session user only — never a
+   * client-supplied owner.
    */
   async reorderPins(
     userId: string,
@@ -51,6 +52,9 @@ export class PinsService {
    * genuine insert, or as a non-hydratable row on a re-pin of a now-inaccessible
    * item; both map to a clean 404, no existence oracle (mirrors the chat filing
    * gate, chats.service.ts). Never a 500.
+   *
+   * Concurrent net-new pins can race on `pins_user_position_unique` (23505);
+   * one cheap retry recomputes `MIN(position)-1` after the peer commits.
    */
   async pin(
     userId: string,
@@ -59,9 +63,7 @@ export class PinsService {
   ): Promise<PinnedRow> {
     let row: PinnedRow | undefined;
     try {
-      row = await this.tenantDb.runAs(userId, (tx) =>
-        new PinsRepository(tx).pin(userId, itemType, itemId),
-      );
+      row = await this.insertPin(userId, itemType, itemId);
     } catch (err) {
       if (err instanceof HttpException) throw err;
       const code = pgErrorCode(err);
@@ -70,10 +72,33 @@ export class PinsService {
       if (code === '42501' || code === '23503') {
         throw new NotFoundException(notFoundMessage(itemType));
       }
-      throw err;
+      if (code === '23505') {
+        try {
+          row = await this.insertPin(userId, itemType, itemId);
+        } catch (retryErr) {
+          if (retryErr instanceof HttpException) throw retryErr;
+          const retryCode = pgErrorCode(retryErr);
+          if (retryCode === '42501' || retryCode === '23503') {
+            throw new NotFoundException(notFoundMessage(itemType));
+          }
+          throw retryErr;
+        }
+      } else {
+        throw err;
+      }
     }
     if (!row) throw new NotFoundException(notFoundMessage(itemType));
     return row;
+  }
+
+  private insertPin(
+    userId: string,
+    itemType: PinItemType,
+    itemId: string,
+  ): Promise<PinnedRow | undefined> {
+    return this.tenantDb.runAs(userId, (tx) =>
+      new PinsRepository(tx).pin(userId, itemType, itemId),
+    );
   }
 
   /** Unpin (idempotent): unpinning a not-pinned item still succeeds. */

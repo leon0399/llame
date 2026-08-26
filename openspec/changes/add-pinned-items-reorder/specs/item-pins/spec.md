@@ -37,9 +37,15 @@ Item type and id SHALL appear in the request path for pin and unpin. Reorder SHA
 
 #### Scenario: Reorder updates the caller's pin ranks
 
-- **WHEN** a user submits a reorder of their pinned items
+- **WHEN** a user submits a reorder listing exactly their hydratable pinned items (the same set `GET` would return) in a new order
 - **THEN** subsequent pin list reads return those items in the submitted order
 - **AND** no other user's pins are affected
+- **AND** pin rows whose items no longer hydrate are removed during the reorder rather than blocking it
+
+#### Scenario: Reorder rejects an incomplete or unknown hydratable set
+
+- **WHEN** a user submits a reorder that omits a still-hydratable pin or includes an item they do not have pinned
+- **THEN** the system rejects the request without changing ranks
 
 #### Scenario: Reorder cannot target another user's pins
 

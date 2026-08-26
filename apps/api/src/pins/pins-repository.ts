@@ -218,8 +218,10 @@ export class PinsRepository {
 
   /**
    * Rewrite the caller's pin positions to match `ordered` (0..n-1). The body
-   * MUST be exactly the caller's current pin set (same type+id multiset);
-   * otherwise throws PinReorderMismatchError.
+   * MUST be exactly the caller's **hydratable** pin set (same multiset as
+   * `GET /pins`); otherwise throws PinReorderMismatchError. Orphan rows whose
+   * item no longer hydrates under RLS are deleted first so densified ranks
+   * cannot collide with invisible leftovers.
    */
   async reorder(
     userId: string,
@@ -234,7 +236,18 @@ export class PinsRepository {
       .from(pins)
       .where(eq(pins.userId, userId));
 
-    const assignments = planPinReorder(existing, ordered);
+    const hydratableKeys = await this.hydratablePinKeys(existing);
+    const orphans = existing.filter(
+      (row) => !hydratableKeys.has(pinKey(row.itemType, row.itemId)),
+    );
+    for (const orphan of orphans) {
+      await this.unpin(userId, orphan.itemType, orphan.itemId);
+    }
+
+    const visible = existing.filter((row) =>
+      hydratableKeys.has(pinKey(row.itemType, row.itemId)),
+    );
+    const assignments = planPinReorder(visible, ordered);
     for (const item of assignments) {
       await this.db
         .update(pins)
@@ -249,6 +262,41 @@ export class PinsRepository {
     }
 
     return this.listWithCards(userId);
+  }
+
+  /**
+   * Keys of pins whose referenced item is still readable under the current
+   * RLS session — the same drop rule as `listWithCards`.
+   */
+  private async hydratablePinKeys(
+    rows: readonly PinOrderItem[],
+  ): Promise<Set<string>> {
+    if (rows.length === 0) return new Set();
+
+    const chatIds = rows
+      .filter((r) => r.itemType === 'chat')
+      .map((r) => r.itemId);
+    const projectIds = rows
+      .filter((r) => r.itemType === 'project')
+      .map((r) => r.itemId);
+
+    const chatCards = chatIds.length
+      ? await this.db
+          .select({ id: chats.id })
+          .from(chats)
+          .where(inArray(chats.id, chatIds))
+      : [];
+    const projectCards = projectIds.length
+      ? await this.db
+          .select({ id: projects.id })
+          .from(projects)
+          .where(inArray(projects.id, projectIds))
+      : [];
+
+    const keys = new Set<string>();
+    for (const { id } of chatCards) keys.add(pinKey('chat', id));
+    for (const { id } of projectCards) keys.add(pinKey('project', id));
+    return keys;
   }
 
   private async findOneWithCard(

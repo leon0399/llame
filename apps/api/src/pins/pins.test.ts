@@ -131,6 +131,32 @@ describe('PinsService.pin — error mapping', () => {
     const svc = await makeService(() => Promise.reject(boom));
     await expect(svc.pin('u1', 'chat', 'c1')).rejects.toBe(boom);
   });
+
+  it('retries once when two pins race on position unique (23505)', async () => {
+    const row: PinnedRow = {
+      itemType: 'chat',
+      itemId: 'c1',
+      pinnedAt: new Date(),
+      title: 'ok',
+      archivedAt: null,
+    };
+    const runAs = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error('uniq'), { code: '23505' }),
+      )
+      .mockResolvedValueOnce(row);
+    const module = await Test.createTestingModule({
+      providers: [
+        PinsService,
+        { provide: TenantDbService, useValue: { runAs } },
+      ],
+    }).compile();
+    const svc = module.get(PinsService);
+
+    await expect(svc.pin('u1', 'chat', 'c1')).resolves.toEqual(row);
+    expect(runAs).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('PinsService.reorderPins — error mapping', () => {

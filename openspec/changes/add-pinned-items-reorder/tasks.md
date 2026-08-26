@@ -16,9 +16,9 @@
 
 ## 4. Web client
 
-- [ ] 4.1 Add generated/handwritten pin reorder mutation with optimistic `pins` list reorder + invalidate/optimistic update of chat/project `pinned=only` list caches and rollback on error — verify service unit/hook tests for optimistic apply and rollback
-- [ ] 4.2 Implement main-rail `framer-motion` Reorder on `AppSidebarPinned`: hover/focus replaces type icon with `GripVerticalIcon` (no reserved empty space), handle-only drag, sibling gap animation, persist via reorder mutation — verify Storybook play and/or component tests cover grip reveal and reorder callback; icon-collapsed rail does not offer reorder
-- [ ] 4.3 Confirm chat/project Pinned sections have no DnD controls and pick up new order from cache/refetch after rail reorder — verify existing list tests still pass and a targeted test shows pinned-only order follows pins cache/API order
+- [x] 4.1 Add generated/handwritten pin reorder mutation with optimistic `pins` list reorder + invalidate/optimistic update of chat/project `pinned=only` list caches and rollback on error — verify service unit/hook tests for optimistic apply and rollback
+- [x] 4.2 Implement main-rail `framer-motion` Reorder on `AppSidebarPinned`: hover/focus replaces type icon with `GripVerticalIcon` (no reserved empty space), handle-only drag, sibling gap animation, persist via reorder mutation — verify Storybook play and/or component tests cover grip reveal and reorder callback; icon-collapsed rail does not offer reorder
+- [x] 4.3 Confirm chat/project Pinned sections have no DnD controls and pick up new order from cache/refetch after rail reorder — verify existing list tests still pass and a targeted test shows pinned-only order follows pins cache/API order
 
 ## 5. Docs and changelog
 
