@@ -1,0 +1,37 @@
+CONTRIBUTING.md
+  685e5892a4f2ff42 225-226
+  e6d139fc7caa2a12 1-224,227-371
+AGENTS.md
+  e6d139fc7caa2a12 9-12,16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "6d713e1f5f7b1580e6df2693be25c0e9e64e4d70",
+  "prompts": {
+    "685e5892a4f2ff42": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03e0f-6fbc-70a3-a3ca-8a192db7bad4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 2,
+      "total_deletions": 1,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "e6d139fc7caa2a12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03e0f-51d1-7a03-a3a1-5191ce9e6c93",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 416,
+      "total_deletions": 41,
+      "accepted_lines": 374,
+      "overriden_lines": 0
+    }
+  }
+}
