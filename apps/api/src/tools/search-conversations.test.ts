@@ -10,6 +10,10 @@ import {
   buildCanonicalSearchExcerpt,
   type CanonicalSearchPreviewPassage,
 } from '../search/chat/canonical-search-excerpt';
+import {
+  matchCanonicalSearchPreview,
+  scanCanonicalLogicalLines,
+} from '../search/chat/canonical-search-matcher';
 import { searchConversationsTool } from './search-conversations';
 import { parseConversationSourceCoordinates } from './conversation-source-coordinates';
 import { isZodSchema } from './schema-utils';
@@ -225,19 +229,57 @@ describe('search_conversations', () => {
     expect(result).not.toContain('\uFFFD');
   });
 
-  it('starts fuzzy fallback excerpts at the qualifying raw code point and preserves delimiters', () => {
+  it('uses the matcher fixed fallback anchor at the first raw code point of the qualifying line', async () => {
     const raw = `${'before\r\n'.repeat(20)}😀fallback${'z'.repeat(600)}`;
-    const fallbackStart = raw.indexOf('😀fallback');
-    const result = buildCanonicalSearchExcerpt(
-      passage(raw, {
-        line: 0,
-        startOffset: fallbackStart,
-        endOffsetExclusive: fallbackStart + 2,
-        kind: 'fallback',
-      }),
+    const sourceLines = scanCanonicalLogicalLines(raw);
+    const qualifyingLine = sourceLines.find((line) =>
+      line.text.startsWith('😀fallback'),
     );
+    if (qualifyingLine === undefined) {
+      throw new Error('Expected a qualifying fallback line.');
+    }
 
-    expect(Array.from(result).length).toBe(500);
+    const selected = await matchCanonicalSearchPreview(
+      {
+        chatId: CHAT_ID,
+        messages: [
+          {
+            messageSeq: 7,
+            role: 'user',
+            timestamp: new Date('2026-08-27T10:00:00.000Z'),
+            visibleText: raw,
+            sourceStart: 0,
+            sourceEndExclusive: raw.length,
+          },
+        ],
+      },
+      'unrelated fuzzy query',
+      (_normalizedQuery, candidates) => {
+        const candidate = candidates.find(({ normalizedText }) =>
+          normalizedText.startsWith('😀fallback'),
+        );
+        return Promise.resolve(
+          new Set(candidate === undefined ? [] : [candidate.id]),
+        );
+      },
+    );
+    if (selected === null) {
+      throw new Error('Expected the fuzzy line to be selected.');
+    }
+
+    expect(selected.anchor).toEqual({
+      line: qualifyingLine.line,
+      startOffset: qualifyingLine.startOffset,
+      endOffsetExclusive: qualifyingLine.startOffset + 2,
+      kind: 'fallback',
+    });
+    expect(selected.offset).toBe(qualifyingLine.line - 1);
+    expect(selected.limit).toBe(2);
+    expect(selected.lines[0]?.delimiter).toBe('\r\n');
+
+    const result = buildCanonicalSearchExcerpt(selected);
+
+    expect(Array.from(result).length).toBeLessThanOrEqual(500);
     expect(result.startsWith('😀fallback')).toBe(true);
     expect(result).toContain('…');
     expect(result).not.toContain('\uFFFD');
