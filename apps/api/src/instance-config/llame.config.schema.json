@@ -313,6 +313,11 @@
             "embeddingModelId": {
               "$ref": "#/$defs/nullableString",
               "description": "Must reference an entry in `embeddingModels[]` when set (boot failure otherwise). Unset (default) means the chat corpus has no intended model and produces no embedding work."
+            },
+            "canonicalModelExcerpts": {
+              "type": "boolean",
+              "default": false,
+              "description": "Operator-only opt-in for canonical conversation excerpts in model-facing chat search. Remains inactive until the current locator projection passes its boot-time coverage gate; absent means false."
             }
           }
         }

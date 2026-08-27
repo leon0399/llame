@@ -50,7 +50,9 @@ function instanceConfig(embeddingModelId: string | null): InstanceConfigReader {
         { id: 'provider-a', type: 'openai', key: 'k', baseUrl: null },
       ],
       embeddingModels: [MODEL],
-      search: { chats: { embeddingModelId } },
+      search: {
+        chats: { ...BUILT_IN_DEFAULTS.search.chats, embeddingModelId },
+      },
     },
   };
 }

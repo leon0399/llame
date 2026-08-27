@@ -177,7 +177,10 @@ export type EmbeddingModelCatalogEntry = {
  * memory) adds its own key here, not a new shape.
  */
 export interface RawSearchConfig extends Record<string, unknown> {
-  chats?: { embeddingModelId?: unknown };
+  chats?: {
+    embeddingModelId?: unknown;
+    canonicalModelExcerpts?: unknown;
+  };
 }
 
 /**
@@ -190,6 +193,11 @@ export interface RawSearchConfig extends Record<string, unknown> {
  */
 export type SearchCorpusConfig = {
   embeddingModelId: string | null;
+  /**
+   * Explicit opt-in for canonical model-facing conversation excerpts. This
+   * remains false until the locator projection has passed its boot gate.
+   */
+  canonicalModelExcerpts: boolean;
 };
 
 /** The still-uninterpolated `models[]` entry shape once schema-validated. */
@@ -382,6 +390,6 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   models: [],
   embeddingModels: [],
   search: {
-    chats: { embeddingModelId: null },
+    chats: { embeddingModelId: null, canonicalModelExcerpts: false },
   },
 };
