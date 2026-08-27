@@ -37,7 +37,8 @@
     "search:backfill": "npx tsx src/search/operations/cli.ts backfill",
     "search:prune": "npx tsx src/search/operations/cli.ts prune",
     "search:retry-failed": "npx tsx src/search/operations/cli.ts retry-failed",
-    "search:coverage": "npx tsx src/search/operations/cli.ts coverage"
+    "search:coverage": "npx tsx src/search/operations/cli.ts coverage",
+    "search:projection-coverage": "npx tsx src/search/operations/cli.ts projection-coverage"
   },
   "dependencies": {
     "@ai-sdk/mcp": "catalog:",

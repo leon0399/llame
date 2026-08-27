@@ -19,7 +19,7 @@
  * `SearchModule`/`WorkerModule`) rather than standing up a second wiring
  * path.
  *
- * Usage: `npx tsx src/search/operations/cli.ts <backfill|prune|retry-failed|coverage>`
+ * Usage: `npx tsx src/search/operations/cli.ts <backfill|prune|retry-failed|coverage|projection-coverage>`
  * (wired as `pnpm --filter api search:backfill` etc. — see package.json).
  */
 import { config } from 'dotenv';
@@ -28,9 +28,11 @@ import { NestFactory } from '@nestjs/core';
 import { TenantDbService } from '../../db/tenant-db.service';
 import { InstanceConfigService } from '../../instance-config/instance-config.service';
 import { assertDiscoveryFunctionProvisioned } from '../discovery-provisioning';
+import { CHUNKER_VERSION } from '../chat/conversation-chunker';
 import { EMBED_INPUT_VERSION } from '../search-embed.worker';
 import { runBackfill } from './backfill';
 import { getEmbeddingCoverageReport } from './coverage-report';
+import { getProjectionCoverageReport } from './projection-coverage';
 import { OperationsModule } from './operations.module';
 import { type OwnerWriteFailure } from './owner-write';
 import { pruneUndeclaredModelVectors } from './prune';
@@ -182,9 +184,26 @@ async function runCommand(command: string): Promise<void> {
         }
         return;
       }
+      case 'projection-coverage': {
+        await assertDiscoveryFunctionProvisioned(
+          tenantDb,
+          'llame_search_projection_coverage',
+        );
+        const report = await getProjectionCoverageReport(
+          tenantDb,
+          CHUNKER_VERSION,
+        );
+        console.log(
+          `projection-coverage: chunker_version=${report.chunkerVersion} ` +
+            `chats=${report.chatCount} ready=${report.readyChatCount} ` +
+            `stale=${report.staleChatCount} documents=${report.documentCount} ` +
+            `complete_documents=${report.completeDocumentCount}`,
+        );
+        return;
+      }
       default:
         throw new Error(
-          `Unknown command "${command}" — expected one of: backfill, prune, retry-failed, coverage`,
+          `Unknown command "${command}" — expected one of: backfill, prune, retry-failed, coverage, projection-coverage`,
         );
     }
   } finally {
@@ -205,7 +224,7 @@ async function runCommand(command: string): Promise<void> {
 const command = process.argv[2];
 if (!command) {
   console.error(
-    'Usage: tsx src/search/operations/cli.ts <backfill|prune|retry-failed|coverage>',
+    'Usage: tsx src/search/operations/cli.ts <backfill|prune|retry-failed|coverage|projection-coverage>',
   );
   process.exit(1);
 }
