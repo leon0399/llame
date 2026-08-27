@@ -20,12 +20,16 @@ import { TenantDbService, type Db } from './tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
-const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+if (!TEST_DB_URL) {
+  throw new Error(
+    'conversation-sequence.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
+  );
+}
 type SqlClient = any;
 
 const textPart = (text: string) => [{ type: 'text', text }];
 
-describeIfDb('conversation message sequence database invariants', () => {
+describe('conversation message sequence database invariants', () => {
   let sqlClient: SqlClient;
   let tenantDb: TenantDbService;
   let ownerUserId: string;
@@ -33,8 +37,8 @@ describeIfDb('conversation message sequence database invariants', () => {
   beforeAll(async () => {
     const postgres = require('postgres');
     const connect = postgres.default ?? postgres;
-    const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-    sqlClient = connect(TEST_DB_URL!, { ssl, max: 3 });
+    const ssl = /sslmode=require/.test(TEST_DB_URL) ? 'require' : false;
+    sqlClient = connect(TEST_DB_URL, { ssl, max: 3 });
     const db: Db = drizzle(sqlClient, { schema });
     tenantDb = new TenantDbService(db);
     ownerUserId = crypto.randomUUID();
