@@ -22,7 +22,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 import * as schema from '../db/schema';
 import { type Compaction } from '../db/schema';
@@ -238,12 +238,22 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     expect(c).toBeDefined();
     expect(c?.snippet).toContain('zorptangle');
 
-    const [document] = await sqlClient`
-      SELECT id
-      FROM search_chat_documents
-      WHERE chat_id = ${c?.id}
-      ORDER BY id
-      LIMIT 1`;
+    if (!c) {
+      throw new Error('expected a content search result');
+    }
+    const [document] = await tenantDb.runAs(a, (tx) =>
+      tx
+        .select({ id: schema.searchChatDocuments.id })
+        .from(schema.searchChatDocuments)
+        .where(
+          and(
+            eq(schema.searchChatDocuments.chatId, c.id),
+            eq(schema.searchChatDocuments.ownerUserId, a),
+          ),
+        )
+        .orderBy(schema.searchChatDocuments.id)
+        .limit(1),
+    );
     expect(c).toHaveProperty('bestDocumentId', document?.id);
   });
 
