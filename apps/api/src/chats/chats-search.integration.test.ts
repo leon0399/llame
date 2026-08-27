@@ -229,6 +229,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     const g = results.find((r) => r.title === 'Groceries');
     expect(g).toBeDefined();
     expect(g?.snippet).toBeNull();
+    expect(g).toHaveProperty('bestDocumentId', null);
   });
 
   it('matches by user/assistant content with a highlighted snippet', async () => {
@@ -236,6 +237,14 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     const c = results.find((r) => r.title === 'TypeScript project');
     expect(c).toBeDefined();
     expect(c?.snippet).toContain('zorptangle');
+
+    const [document] = await sqlClient`
+      SELECT id
+      FROM search_chat_documents
+      WHERE chat_id = ${c?.id}
+      ORDER BY id
+      LIMIT 1`;
+    expect(c).toHaveProperty('bestDocumentId', document?.id);
   });
 
   it('is case-insensitive by title, lowercased (fixes #171)', async () => {

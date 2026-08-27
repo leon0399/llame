@@ -198,9 +198,20 @@ export class ChatsService {
       updatedAt: Date;
     }>
   > {
-    return this.tenantDb.runAs(userId, (tx) =>
-      new ChatsRepository(tx).searchByOwner(userId, query, limit),
-    );
+    return this.tenantDb.runAs(userId, async (tx) => {
+      const rows = await new ChatsRepository(tx).searchByOwner(
+        userId,
+        query,
+        limit,
+      );
+
+      return rows.map(({ id, title, snippet, updatedAt }) => ({
+        id,
+        title,
+        snippet,
+        updatedAt,
+      }));
+    });
   }
 
   /**

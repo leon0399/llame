@@ -25,6 +25,7 @@ type Row = {
   title: string | null;
   snippet: string | null;
   updatedAt: Date;
+  bestDocumentId: string | null;
 };
 
 type CallerIdSpy = { userId?: string };
@@ -70,6 +71,7 @@ describe('search_conversations', () => {
           title: 'TypeScript project',
           snippet: 'I love TypeScript and RLS.',
           updatedAt: new Date('2026-07-01T12:00:00Z'),
+          bestDocumentId: 'document-1',
         },
       ],
       spy,
@@ -91,6 +93,8 @@ describe('search_conversations', () => {
         updatedAt: '2026-07-01T12:00:00.000Z',
       },
     ]);
+    if (!Array.isArray(result.results)) return;
+    expect(result.results[0]).not.toHaveProperty('bestDocumentId');
   });
 
   it('returns success with an empty list when nothing matches', async () => {
@@ -109,6 +113,7 @@ describe('search_conversations', () => {
           title: null,
           snippet: 'matched by content only',
           updatedAt: new Date('2026-07-01T00:00:00Z'),
+          bestDocumentId: 'document-2',
         },
       ]),
       { query: 'x', limit: 5 },
