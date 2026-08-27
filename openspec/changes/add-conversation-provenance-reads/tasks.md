@@ -29,7 +29,7 @@ Each branch owns only its section below. Commit and verify one layer before `gh 
 
 **Ownership:** Visible-message renderer and eligibility predicate; message-sequence invariant; search schema/migration; conversation chunker; projection writer; reindex/backfill/coverage operations and focused tests.
 
-- [ ] 2.1 Add one shared `visibleMessageText` renderer and immutable-evidence eligibility predicate; first write focused tests for exact `\n\n` joining, retained whitespace, multiple/interleaved text parts, excluded non-text parts, user/completed assistant eligibility, and retryable assistant exclusion.
+- [x] 2.1 Add one shared `visibleMessageText` renderer and immutable-evidence eligibility predicate; first write focused tests for exact `\n\n` joining, retained whitespace, multiple/interleaved text parts, excluded non-text parts, user/completed assistant eligibility, and retryable assistant exclusion.
 - [ ] 2.2 Add and migrate the unique `(chat_id, seq)` invariant without changing existing sequence values; verify duplicates cannot be introduced, normal inserts remain generated/sparse, sequence is unchanged by assistant retry updates, and public safe-integer validation rejects unsafe values.
 - [ ] 2.3 Extend the Drizzle search-document schema with nullable first-message start and last-message exclusive-end UTF-16 offsets; generate the migration, record any required exception, and verify migration snapshots plus database migration/schema checks.
 - [ ] 2.4 Make the chunker emit contiguous internal endpoint offsets, keep role labels/anchors outside them, include locator semantics in the internal hash, and bump the chunker version; verify fitting, oversized, multi-message, overlap, Unicode-surrogate, and deterministic no-op cases.
