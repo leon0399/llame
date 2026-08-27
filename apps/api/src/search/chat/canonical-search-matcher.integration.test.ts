@@ -1,0 +1,62 @@
+/**
+ * Verifies that canonical line qualification uses PostgreSQL's real search
+ * predicates rather than a JavaScript approximation. Requires TEST_DATABASE_URL.
+ */
+
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
+import { drizzle } from 'drizzle-orm/postgres-js';
+
+import * as schema from '../../db/schema';
+import { TenantDbService } from '../../db/tenant-db.service';
+import {
+  evaluateCanonicalLinePredicates,
+  type CanonicalLinePredicateCandidate,
+} from './canonical-search-matcher';
+
+const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+type SqlClient = any;
+
+describeIfDb('canonical search PostgreSQL line predicates', () => {
+  let sqlClient: SqlClient;
+  let tenantDb: TenantDbService;
+
+  beforeAll(() => {
+    const postgres = require('postgres');
+    const connect = postgres.default ?? postgres;
+    const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
+    sqlClient = connect(TEST_DB_URL!, { ssl, max: 2 });
+    tenantDb = new TenantDbService(drizzle(sqlClient, { schema }));
+  });
+
+  afterAll(async () => {
+    await sqlClient?.end();
+  });
+
+  it('qualifies FTS, trigram typo, and escaped substring candidates in one batch', async () => {
+    const candidates: readonly CanonicalLinePredicateCandidate[] = [
+      { id: 1, normalizedText: 'postgres gin index tuning' },
+      { id: 2, normalizedText: 'gin_trgm_ops restores fragments' },
+      { id: 3, normalizedText: 'unrelated source' },
+    ];
+
+    const fts = await tenantDb.runAs(crypto.randomUUID(), (tx) =>
+      evaluateCanonicalLinePredicates(tx, 'postgres gin index', candidates),
+    );
+    expect(fts).toEqual(new Set([1]));
+
+    const typo = await tenantDb.runAs(crypto.randomUUID(), (tx) =>
+      evaluateCanonicalLinePredicates(tx, 'postgre gin idex', candidates),
+    );
+    expect(typo).toEqual(new Set([1]));
+
+    const substring = await tenantDb.runAs(crypto.randomUUID(), (tx) =>
+      evaluateCanonicalLinePredicates(tx, 'trgm', candidates),
+    );
+    expect(substring).toEqual(new Set([2]));
+  });
+});
