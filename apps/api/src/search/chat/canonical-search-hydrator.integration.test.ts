@@ -253,6 +253,61 @@ describeIfDb('canonical search hydration', () => {
     expect(result?.messages[0]).not.toHaveProperty('contentHash');
   });
 
+  it('returns a closed miss for zero-width first, last, and same-message ranges', async () => {
+    const multi = await seedChat(ownerA, [
+      { role: 'user', parts: [textPart('first source')] },
+      { role: 'user', parts: [textPart('last source')] },
+    ]);
+    await indexService.reindexChat(multi.chatId, ownerA);
+    const multiDocumentId = await firstDocumentId(ownerA, multi.chatId);
+
+    await updateDocument(
+      ownerA,
+      multiDocumentId,
+      sql`
+        UPDATE search_chat_documents
+        SET first_message_text_offset = ${'first source'.length}
+        WHERE id = ${multiDocumentId}
+      `,
+    );
+    await expect(
+      hydrateAs(ownerA, multi.chatId, multiDocumentId),
+    ).resolves.toBeNull();
+
+    await indexService.reindexChat(multi.chatId, ownerA);
+    await updateDocument(
+      ownerA,
+      multiDocumentId,
+      sql`
+        UPDATE search_chat_documents
+        SET last_message_text_offset_exclusive = 0
+        WHERE id = ${multiDocumentId}
+      `,
+    );
+    await expect(
+      hydrateAs(ownerA, multi.chatId, multiDocumentId),
+    ).resolves.toBeNull();
+
+    const same = await seedChat(ownerA, [
+      { role: 'user', parts: [textPart('same source')] },
+    ]);
+    await indexService.reindexChat(same.chatId, ownerA);
+    const sameDocumentId = await firstDocumentId(ownerA, same.chatId);
+    await updateDocument(
+      ownerA,
+      sameDocumentId,
+      sql`
+        UPDATE search_chat_documents
+        SET first_message_text_offset = 3,
+            last_message_text_offset_exclusive = 3
+        WHERE id = ${sameDocumentId}
+      `,
+    );
+    await expect(
+      hydrateAs(ownerA, same.chatId, sameDocumentId),
+    ).resolves.toBeNull();
+  });
+
   it('omits an eligible empty intermediate message from the hydrated interval', async () => {
     const seeded = await seedChat(ownerA, [
       { role: 'user', parts: [textPart('visible first')] },
@@ -322,6 +377,34 @@ describeIfDb('canonical search hydration', () => {
             last_message_text_offset_exclusive = 0
         WHERE id = ${documentId}
       `,
+    );
+    await expect(
+      hydrateAs(ownerA, seeded.chatId, documentId),
+    ).resolves.toBeNull();
+  });
+
+  it('returns a closed miss when a present assistant interior becomes retryable', async () => {
+    const seeded = await seedChat(ownerA, [
+      { role: 'user', parts: [textPart('stable question')] },
+      {
+        role: 'assistant',
+        parts: [textPart('stable answer')],
+        usage: { status: 'completed' },
+      },
+      { role: 'user', parts: [textPart('follow-up')] },
+    ]);
+    await indexService.reindexChat(seeded.chatId, ownerA);
+    const documentId = await firstDocumentId(ownerA, seeded.chatId);
+    await expect(
+      hydrateAs(ownerA, seeded.chatId, documentId),
+    ).resolves.not.toBeNull();
+
+    await tenantDb.runAs(ownerA, (tx) =>
+      tx.execute(sql`
+        UPDATE messages
+        SET usage = '{"status":"error"}'::jsonb
+        WHERE id = ${seeded.messageIds[1]}
+      `),
     );
     await expect(
       hydrateAs(ownerA, seeded.chatId, documentId),

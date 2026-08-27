@@ -179,6 +179,50 @@ describe('hydrateCanonicalSearchRows', () => {
     ).toBeNull();
   });
 
+  it('rejects zero-width first, last, and same-message source ranges', () => {
+    const textLength = 'before 😀 after'.length;
+    expect(
+      hydrateCanonicalSearchRows(
+        [
+          row({ first_message_text_offset: textLength }),
+          row({
+            message_id: LAST_MESSAGE_ID,
+            message_seq: '11',
+          }),
+        ],
+        { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
+      ),
+    ).toBeNull();
+    expect(
+      hydrateCanonicalSearchRows(
+        [
+          row(),
+          row({
+            message_id: LAST_MESSAGE_ID,
+            message_seq: '11',
+            last_message_text_offset_exclusive: 0,
+          }),
+        ],
+        { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
+      ),
+    ).toBeNull();
+    expect(
+      hydrateCanonicalSearchRows(
+        [
+          row({
+            last_message_id: FIRST_MESSAGE_ID,
+            first_seq: '7',
+            last_seq: '7',
+            message_seq: '7',
+            first_message_text_offset: 7,
+            last_message_text_offset_exclusive: 7,
+          }),
+        ],
+        { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
+      ),
+    ).toBeNull();
+  });
+
   it('rejects ineligible tool or system boundary rows', () => {
     expect(
       hydrateCanonicalSearchRows(
@@ -202,6 +246,29 @@ describe('hydrateCanonicalSearchRows', () => {
             message_id: LAST_MESSAGE_ID,
             message_seq: '11',
             message_role: 'system',
+          }),
+        ],
+        { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
+      ),
+    ).toBeNull();
+  });
+
+  it('rejects a retryable user or assistant interior instead of skipping it', () => {
+    expect(
+      hydrateCanonicalSearchRows(
+        [
+          row(),
+          row({
+            message_id: EMPTY_MESSAGE_ID,
+            message_seq: '9',
+            message_role: 'assistant',
+            message_usage: { status: 'error' },
+          }),
+          row({
+            message_id: LAST_MESSAGE_ID,
+            message_seq: '11',
+            message_role: 'assistant',
+            message_usage: { status: 'completed' },
           }),
         ],
         { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },

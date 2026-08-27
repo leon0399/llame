@@ -86,21 +86,9 @@ function sameDocumentBoundary(
   );
 }
 
-function isEligibleVisibleRole(
-  row: CanonicalHydrationRow,
-): row is CanonicalHydrationRow & { message_role: 'user' | 'assistant' } {
-  return (
-    (row.message_role === 'user' || row.message_role === 'assistant') &&
-    isImmutableEvidenceMessage({
-      role: row.message_role,
-      usage: row.message_usage,
-    })
-  );
-}
-
 type DecodedCanonicalMessage = {
   messageSeq: number;
-  eligible: boolean;
+  kind: 'source' | 'presentation' | 'invalid';
   role: 'user' | 'assistant' | null;
   timestamp: Date | null;
   visibleText: string | null;
@@ -139,21 +127,28 @@ function decodeCanonicalMessage(
     return null;
   }
 
-  if (!isEligibleVisibleRole(row)) {
+  if (row.message_role === 'system' || row.message_role === 'tool') {
     return {
       messageSeq,
-      eligible: false,
+      kind: 'presentation',
       role: null,
       timestamp: null,
       visibleText: null,
     };
   }
 
-  if (!Array.isArray(row.message_parts)) {
+  if (
+    (row.message_role !== 'user' && row.message_role !== 'assistant') ||
+    !isImmutableEvidenceMessage({
+      role: row.message_role,
+      usage: row.message_usage,
+    }) ||
+    !Array.isArray(row.message_parts)
+  ) {
     return {
       messageSeq,
-      eligible: true,
-      role: row.message_role,
+      kind: 'invalid',
+      role: null,
       timestamp: null,
       visibleText: null,
     };
@@ -162,11 +157,28 @@ function decodeCanonicalMessage(
   const timestamp = parseTimestamp(row.message_created_at);
   return {
     messageSeq,
-    eligible: true,
+    kind: 'source',
     role: row.message_role,
     timestamp,
     visibleText: visibleMessageText(row.message_parts),
   };
+}
+
+function hasValidSourceRange(
+  index: number,
+  lastIndex: number,
+  sameMessage: boolean,
+  textLength: number,
+  sourceStart: number,
+  sourceEndExclusive: number,
+): boolean {
+  return (
+    sourceStart <= textLength &&
+    sourceEndExclusive <= textLength &&
+    (index !== 0 || sourceStart < textLength) &&
+    (index !== lastIndex || sourceEndExclusive > 0) &&
+    (!sameMessage || sourceStart < sourceEndExclusive)
+  );
 }
 
 /**
@@ -230,10 +242,11 @@ export function hydrateCanonicalSearchRows(
 
     const isBoundary = index === 0 || index === rows.length - 1;
     previousSeq = decoded.messageSeq;
-    if (!decoded.eligible) {
+    if (decoded.kind === 'presentation') {
       if (isBoundary) return null;
       continue;
     }
+    if (decoded.kind === 'invalid') return null;
     if (
       decoded.role === null ||
       decoded.timestamp === null ||
@@ -257,9 +270,14 @@ export function hydrateCanonicalSearchRows(
         : decoded.visibleText.length;
 
     if (
-      sourceStart > decoded.visibleText.length ||
-      sourceEndExclusive > decoded.visibleText.length ||
-      (firstMessageId === lastMessageId && sourceStart > sourceEndExclusive)
+      !hasValidSourceRange(
+        index,
+        rows.length - 1,
+        firstMessageId === lastMessageId,
+        decoded.visibleText.length,
+        sourceStart,
+        sourceEndExclusive,
+      )
     ) {
       return null;
     }
