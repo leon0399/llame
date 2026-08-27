@@ -12,6 +12,7 @@ import {
   scanConversationLogicalLines,
   type ConversationLogicalLine,
 } from '../chats/conversation-logical-lines';
+import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { type Db } from '../db/tenant-db.service';
 import {
   conversationSourceChatIdSchema,
@@ -174,9 +175,7 @@ export function renderConversationRead(
       hasRemaining,
       cutReason,
     );
-    if (
-      serializedCodeUnits(result) <= CONVERSATION_READ_RESULT_MAX_CODE_UNITS
-    ) {
+    if (fitsSerializedBounds(result)) {
       return result;
     }
   }
@@ -237,7 +236,15 @@ function buildResult(
   return result;
 }
 
-function serializedCodeUnits(result: ConversationReadSuccess): number {
+function fitsSerializedBounds(result: ConversationReadSuccess): boolean {
+  return (
+    serializedCodeUnits(result) <= CONVERSATION_READ_RESULT_MAX_CODE_UNITS &&
+    serializedCodeUnits(neutralizeToolResult(result)) <=
+      CONVERSATION_READ_RESULT_MAX_CODE_UNITS
+  );
+}
+
+function serializedCodeUnits(result: ToolResult): number {
   return JSON.stringify(result).length;
 }
 

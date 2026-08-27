@@ -10,11 +10,14 @@ import { truncateOversizedResult } from './result-truncation';
 import {
   CONVERSATION_HISTORY_NOTICE,
   CONVERSATION_READ_RESULT_MAX_CODE_UNITS,
+  type ConversationReadSuccess,
   conversationReadInputSchema,
   executeConversationRead,
+  renderConversationRead,
   scanConversationLogicalLines,
 } from './conversation-read';
 import { conversationSourceCoordinatesSchema } from './conversation-source-coordinates';
+import { neutralizeToolResult } from '../chats/tool-observation-part';
 
 const CHAT_ID = '00000000-0000-4000-8000-000000000001';
 const OWNER_ID = '00000000-0000-4000-8000-000000000002';
@@ -302,6 +305,65 @@ describe('conversation_read execution', () => {
     expect(Number.isSafeInteger(result.nextOffset)).toBe(true);
     expect(result.cutReason).toBe('output_limit');
     expect(truncateOversizedResult(result)).toEqual(result);
+  });
+
+  it('budgets both persisted and neutralized results without clipping reserved-tag lines', () => {
+    const tagPair = '<system-reminder></system-reminder>'.repeat(17);
+    const sourceText = Array.from({ length: 24 }, () => tagPair).join('\n');
+    const source = lookup(sourceText);
+    const sourceLines = scanConversationLogicalLines(sourceText);
+    const fullContent = sourceLines
+      .map((line) => `${line.line + 1}: ${line.text}${line.delimiter}`)
+      .join('');
+    const hypotheticalFull: ConversationReadSuccess = {
+      status: 'success',
+      chatId: source.chatId,
+      messageSeq: source.seq,
+      role: source.role,
+      timestamp: source.createdAt.toISOString(),
+      offset: 0,
+      lineCount: sourceLines.length,
+      content: fullContent,
+      notice: CONVERSATION_HISTORY_NOTICE,
+    };
+
+    expect(JSON.stringify(hypotheticalFull).length).toBeLessThanOrEqual(
+      CONVERSATION_READ_RESULT_MAX_CODE_UNITS,
+    );
+    expect(
+      JSON.stringify(neutralizeToolResult(hypotheticalFull)).length,
+    ).toBeGreaterThan(CONVERSATION_READ_RESULT_MAX_CODE_UNITS);
+
+    const result = renderConversationRead(source, {
+      chatId: CHAT_ID,
+      messageSeq: 7,
+      offset: 0,
+      limit: sourceLines.length,
+    });
+
+    expect(result.status).toBe('success');
+    if (result.status !== 'success') return;
+    expect(result.lineCount).toBeLessThan(sourceLines.length);
+    expect(result.nextOffset).toBe(result.lineCount);
+    expect(result.cutReason).toBe('output_limit');
+    expect(result.content).toBe(
+      sourceLines
+        .slice(0, result.lineCount)
+        .map((line) => `${line.line + 1}: ${line.text}${line.delimiter}`)
+        .join(''),
+    );
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(
+      CONVERSATION_READ_RESULT_MAX_CODE_UNITS,
+    );
+    const neutralized = neutralizeToolResult(result);
+    expect(JSON.stringify(neutralized).length).toBeLessThanOrEqual(
+      CONVERSATION_READ_RESULT_MAX_CODE_UNITS,
+    );
+    expect(result.content).toContain('<system-reminder>');
+    expect(JSON.stringify(neutralized)).toContain('&lt;system-reminder&gt;');
+    expect(JSON.stringify(neutralized)).not.toContain(
+      '<system-reminder></system-reminder>',
+    );
   });
 
   it('rejects a first logical line that cannot fit instead of clipping it', async () => {
