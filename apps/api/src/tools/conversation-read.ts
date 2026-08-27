@@ -241,12 +241,6 @@ function serializedCodeUnits(result: ConversationReadSuccess): number {
   return JSON.stringify(result).length;
 }
 
-/**
- * The declaration is intentionally kept out of the registry until the
- * registration/lifecycle layer (task 4.5) lands. Keeping its executor here
- * lets that layer use the same strict core without introducing another read
- * path.
- */
 export const conversationReadTool: Tool<ConversationReadArguments> = {
   id: 'conversation_read',
   description:

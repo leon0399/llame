@@ -1,4 +1,5 @@
 import { searchConversationsTool } from './search-conversations';
+import { conversationReadTool } from './conversation-read';
 import {
   knowledgeReadTool,
   knowledgeSearchTool,
@@ -16,9 +17,11 @@ describe('tool registry', () => {
     expect(TOOL_REGISTRY.get('search_conversations')).toBe(
       searchConversationsTool,
     );
+    expect(TOOL_REGISTRY.get('conversation_read')).toBe(conversationReadTool);
     expect(TOOL_REGISTRY.get('knowledge_search')).toBe(knowledgeSearchTool);
     expect(TOOL_REGISTRY.get('knowledge_read')).toBe(knowledgeReadTool);
     expect(searchConversationsTool.classification).toBe('read_only');
+    expect(conversationReadTool.classification).toBe('read_only');
     expect(knowledgeSearchTool.classification).toBe('read_only');
     expect(knowledgeReadTool.classification).toBe('read_only');
   });
@@ -29,6 +32,21 @@ describe('tool registry', () => {
     ).toEqual([knowledgeSearchTool, knowledgeReadTool]);
     expect(TOOL_REGISTRY.get('knowledge_search')).toBe(knowledgeSearchTool);
     expect(TOOL_REGISTRY.get('knowledge_read')).toBe(knowledgeReadTool);
+  });
+
+  it('advertises conversation_read only when it is explicitly allowlisted', () => {
+    expect(resolveAdvertisedTools(new Set(['conversation_read']))).toContain(
+      conversationReadTool,
+    );
+    expect(
+      resolveAdvertisedTools(new Set(['search_conversations'])),
+    ).not.toContain(conversationReadTool);
+  });
+
+  it('does not advertise code-owned conversation_read through a wildcard rule', () => {
+    expect(resolveAdvertisedTools(['conversation_*'])).not.toContain(
+      conversationReadTool,
+    );
   });
 });
 

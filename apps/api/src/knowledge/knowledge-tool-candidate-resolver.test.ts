@@ -10,6 +10,7 @@ import {
 } from './knowledge-tool-candidate-resolver';
 import { KnowledgeSpaceRepository } from './knowledge-space.repository';
 import { searchConversationsTool } from '../tools/search-conversations';
+import { conversationReadTool } from '../tools/conversation-read';
 import { TOOL_REGISTRY } from '../tools/registry';
 
 const OWNER_ID = 'owner-a';
@@ -57,6 +58,11 @@ describe('KnowledgeToolCandidateResolver', () => {
         source: { type: 'code_owned' },
         state: 'available',
         tool: searchConversationsTool,
+      },
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: conversationReadTool,
       },
       {
         source: { type: 'code_owned' },

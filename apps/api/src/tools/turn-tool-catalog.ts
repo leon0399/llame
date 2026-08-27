@@ -279,6 +279,18 @@ const candidateClassification = (
     ? candidate.tool.classification
     : candidate.classification;
 
+function candidateIsAllowlisted(
+  candidate: TurnToolCandidate,
+  id: string,
+  allowedRules: readonly string[],
+): boolean {
+  // Namespace wildcards are an MCP-only permission form; code-owned ids
+  // require their own exact operator allowlist entry.
+  return candidate.source.type === 'code_owned'
+    ? allowedRules.includes(id)
+    : matchesAllowedToolId(id, allowedRules);
+}
+
 export async function composeTurnToolCatalog(input: {
   readonly allowedToolRules: readonly string[];
   readonly callTimeoutSeconds: number;
@@ -289,7 +301,7 @@ export async function composeTurnToolCatalog(input: {
     const id = candidateId(candidate);
     return (
       isToolId(id) &&
-      matchesAllowedToolId(id, input.allowedToolRules) &&
+      candidateIsAllowlisted(candidate, id, input.allowedToolRules) &&
       candidateClassification(candidate) === 'read_only'
     );
   });
