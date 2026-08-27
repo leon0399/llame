@@ -253,6 +253,74 @@ describeIfDb('canonical search hydration', () => {
     expect(result?.messages[0]).not.toHaveProperty('contentHash');
   });
 
+  it('omits an eligible empty intermediate message from the hydrated interval', async () => {
+    const seeded = await seedChat(ownerA, [
+      { role: 'user', parts: [textPart('visible first')] },
+      {
+        role: 'assistant',
+        parts: [{ type: 'reasoning', text: 'hidden only' }],
+        usage: { status: 'completed' },
+      },
+      { role: 'user', parts: [textPart('visible last')] },
+    ]);
+    await indexService.reindexChat(seeded.chatId, ownerA);
+    const documentId = await firstDocumentId(ownerA, seeded.chatId);
+
+    const result = await hydrateAs(ownerA, seeded.chatId, documentId);
+    expect(result?.messages).toHaveLength(2);
+    expect(result?.messages.map((message) => message.visibleText)).toEqual([
+      'visible first',
+      'visible last',
+    ]);
+    expect(result?.messages.map((message) => message.messageSeq)).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+    ]);
+  });
+
+  it('returns a closed miss when a zero-visible message is a projection boundary', async () => {
+    const seeded = await seedChat(ownerA, [
+      { role: 'user', parts: [textPart('visible first')] },
+      {
+        role: 'assistant',
+        parts: [{ type: 'reasoning', text: 'hidden only' }],
+        usage: { status: 'completed' },
+      },
+      { role: 'user', parts: [textPart('visible last')] },
+    ]);
+    await indexService.reindexChat(seeded.chatId, ownerA);
+    const documentId = await firstDocumentId(ownerA, seeded.chatId);
+
+    await updateDocument(
+      ownerA,
+      documentId,
+      sql`
+        UPDATE search_chat_documents
+        SET first_message_id = ${seeded.messageIds[1]},
+            first_message_text_offset = 0
+        WHERE id = ${documentId}
+      `,
+    );
+    await expect(
+      hydrateAs(ownerA, seeded.chatId, documentId),
+    ).resolves.toBeNull();
+
+    await indexService.reindexChat(seeded.chatId, ownerA);
+    await updateDocument(
+      ownerA,
+      documentId,
+      sql`
+        UPDATE search_chat_documents
+        SET last_message_id = ${seeded.messageIds[1]},
+            last_message_text_offset_exclusive = 0
+        WHERE id = ${documentId}
+      `,
+    );
+    await expect(
+      hydrateAs(ownerA, seeded.chatId, documentId),
+    ).resolves.toBeNull();
+  });
+
   it('hydrates every overlapping oversized document from raw source text', async () => {
     const userText = `${'user '.repeat(900)}tail`;
     const assistantText = `${'assistant '.repeat(900)}tail`;

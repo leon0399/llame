@@ -98,6 +98,62 @@ function isEligibleVisibleRole(
   );
 }
 
+type DecodedCanonicalMessage = {
+  messageSeq: number;
+  role: 'user' | 'assistant';
+  timestamp: Date;
+  visibleText: string;
+};
+
+/** Decode and validate one canonical source row before range mapping. */
+function decodeCanonicalMessage(
+  row: CanonicalHydrationRow,
+  candidate: CanonicalSearchCandidate,
+  firstMessageId: string,
+  lastMessageId: string,
+  firstProjectionSeq: string,
+  lastProjectionSeq: string,
+  firstOffset: number,
+  lastOffset: number,
+  firstSeq: number,
+  lastSeq: number,
+): DecodedCanonicalMessage | null {
+  if (
+    row.message_chat_id !== candidate.chatId ||
+    !sameDocumentBoundary(
+      row,
+      firstMessageId,
+      lastMessageId,
+      firstProjectionSeq,
+      lastProjectionSeq,
+      firstOffset,
+      lastOffset,
+    ) ||
+    !isEligibleVisibleRole(row) ||
+    !Array.isArray(row.message_parts)
+  ) {
+    return null;
+  }
+
+  const messageSeq = parseSafePositiveInteger(row.message_seq);
+  const timestamp = parseTimestamp(row.message_created_at);
+  if (
+    messageSeq === null ||
+    messageSeq < firstSeq ||
+    messageSeq > lastSeq ||
+    timestamp === null
+  ) {
+    return null;
+  }
+
+  return {
+    messageSeq,
+    role: row.message_role,
+    timestamp,
+    visibleText: visibleMessageText(row.message_parts),
+  };
+}
+
 /**
  * Convert one database snapshot's rows into canonical source records.
  * Returning null is intentional: any stale, malformed, or unauthorized
@@ -141,60 +197,54 @@ export function hydrateCanonicalSearchRows(
   let previousSeq = 0;
 
   for (const [index, row] of rows.entries()) {
-    if (
-      row.message_chat_id !== candidate.chatId ||
-      !sameDocumentBoundary(
-        row,
-        firstMessageId,
-        lastMessageId,
-        firstRow.first_seq,
-        firstRow.last_seq,
-        firstOffset,
-        lastOffset,
-      ) ||
-      !isEligibleVisibleRole(row) ||
-      !Array.isArray(row.message_parts)
-    ) {
+    const decoded = decodeCanonicalMessage(
+      row,
+      candidate,
+      firstMessageId,
+      lastMessageId,
+      firstRow.first_seq,
+      firstRow.last_seq,
+      firstOffset,
+      lastOffset,
+      firstSeq,
+      lastSeq,
+    );
+    if (decoded === null || decoded.messageSeq <= previousSeq) {
       return null;
     }
 
-    const messageSeq = parseSafePositiveInteger(row.message_seq);
-    const timestamp = parseTimestamp(row.message_created_at);
-    if (
-      messageSeq === null ||
-      messageSeq <= previousSeq ||
-      messageSeq < firstSeq ||
-      messageSeq > lastSeq ||
-      timestamp === null
-    ) {
-      return null;
+    if (decoded.visibleText.length === 0) {
+      // The chunker skips empty eligible messages, so an empty boundary means
+      // the projection no longer identifies the source it was built from.
+      if (index === 0 || index === rows.length - 1) return null;
+      previousSeq = decoded.messageSeq;
+      continue;
     }
 
-    const visibleText = visibleMessageText(row.message_parts);
     const sourceStart =
       index === 0 || firstMessageId === lastMessageId ? firstOffset : 0;
     const sourceEndExclusive =
       index === rows.length - 1 || firstMessageId === lastMessageId
         ? lastOffset
-        : visibleText.length;
+        : decoded.visibleText.length;
 
     if (
-      sourceStart > visibleText.length ||
-      sourceEndExclusive > visibleText.length ||
+      sourceStart > decoded.visibleText.length ||
+      sourceEndExclusive > decoded.visibleText.length ||
       (firstMessageId === lastMessageId && sourceStart > sourceEndExclusive)
     ) {
       return null;
     }
 
     messages.push({
-      messageSeq,
-      role: row.message_role,
-      timestamp,
-      visibleText,
+      messageSeq: decoded.messageSeq,
+      role: decoded.role,
+      timestamp: decoded.timestamp,
+      visibleText: decoded.visibleText,
       sourceStart,
       sourceEndExclusive,
     });
-    previousSeq = messageSeq;
+    previousSeq = decoded.messageSeq;
   }
 
   return { chatId: candidate.chatId, messages };

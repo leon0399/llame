@@ -5,6 +5,7 @@ import {
 
 const CHAT_ID = '11111111-1111-4111-8111-111111111111';
 const FIRST_MESSAGE_ID = '22222222-2222-4222-8222-222222222222';
+const EMPTY_MESSAGE_ID = '55555555-5555-4555-8555-555555555555';
 const LAST_MESSAGE_ID = '33333333-3333-4333-8333-333333333333';
 const DOCUMENT_ID = '44444444-4444-4444-8444-444444444444';
 
@@ -79,6 +80,72 @@ describe('hydrateCanonicalSearchRows', () => {
         chatId: CHAT_ID,
         bestDocumentId: DOCUMENT_ID,
       }),
+    ).toBeNull();
+  });
+
+  it('omits eligible empty intermediate messages while preserving source boundaries', () => {
+    const result = hydrateCanonicalSearchRows(
+      [
+        row(),
+        row({
+          message_id: EMPTY_MESSAGE_ID,
+          message_seq: '9',
+          message_parts: [{ type: 'reasoning', text: 'hidden only' }],
+        }),
+        row({
+          message_id: LAST_MESSAGE_ID,
+          message_seq: '11',
+          message_parts: [{ type: 'text', text: 'last source' }],
+        }),
+      ],
+      { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
+    );
+
+    expect(result?.messages).toEqual([
+      expect.objectContaining({
+        messageSeq: 7,
+        sourceStart: 7,
+        sourceEndExclusive: 'before 😀 after'.length,
+      }),
+      expect.objectContaining({
+        messageSeq: 11,
+        visibleText: 'last source',
+        sourceStart: 0,
+        sourceEndExclusive: 8,
+      }),
+    ]);
+  });
+
+  it('rejects a zero-visible first or last boundary', () => {
+    const empty = {
+      message_parts: [{ type: 'reasoning', text: 'hidden only' }],
+    };
+    expect(
+      hydrateCanonicalSearchRows(
+        [
+          row({
+            last_message_id: FIRST_MESSAGE_ID,
+            first_seq: '7',
+            last_seq: '7',
+            message_seq: '7',
+            ...empty,
+          }),
+        ],
+        { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
+      ),
+    ).toBeNull();
+    expect(
+      hydrateCanonicalSearchRows(
+        [
+          row(),
+          row({
+            message_id: LAST_MESSAGE_ID,
+            message_seq: '11',
+            ...empty,
+          }),
+        ],
+        { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
+      ),
     ).toBeNull();
   });
 
