@@ -11,6 +11,7 @@ import {
 } from '../search/chat/canonical-search-matcher';
 import { buildCanonicalSearchExcerpt } from '../search/chat/canonical-search-excerpt';
 import { type HybridSearchResult } from '../search/core';
+import { conversationSourceCoordinatesSchema } from './conversation-source-coordinates';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 
 const logger = new Logger('SearchConversationsTool');
@@ -173,7 +174,8 @@ async function canonicalSuccess(
     );
     if (passage === null) continue;
 
-    results.push(contentResult(row, passage));
+    const result = contentResult(row, passage);
+    if (result !== null) results.push(result);
   }
 
   return {
@@ -186,17 +188,22 @@ async function canonicalSuccess(
 function contentResult(
   row: HybridSearchResult,
   passage: CanonicalSearchPreviewPassage,
-): SearchConversationsContentResult {
+): SearchConversationsContentResult | null {
+  const coordinates = conversationSourceCoordinatesSchema.safeParse({
+    chatId: row.id,
+    messageSeq: passage.message.messageSeq,
+    offset: passage.offset,
+    limit: passage.limit,
+  });
+  if (!coordinates.success) return null;
+
   return {
     kind: 'content',
-    chatId: row.id,
+    ...coordinates.data,
     title: row.title,
     updatedAt: toIsoString(row.updatedAt),
     role: passage.message.role,
     timestamp: passage.message.timestamp.toISOString(),
-    messageSeq: passage.message.messageSeq,
-    offset: passage.offset,
-    limit: passage.limit,
     excerpt: buildCanonicalSearchExcerpt(passage),
   };
 }

@@ -11,9 +11,10 @@ import {
   type CanonicalSearchPreviewPassage,
 } from '../search/chat/canonical-search-excerpt';
 import { searchConversationsTool } from './search-conversations';
+import { parseConversationSourceCoordinates } from './conversation-source-coordinates';
 import { isZodSchema } from './schema-utils';
 import { type ToolContext } from './types';
-import { isString } from '../unknown-record';
+import { isRecord, isString } from '../unknown-record';
 
 /**
  * Unit tests with a FAKE ToolContext (no real DB; the repository read is
@@ -296,11 +297,25 @@ describe('search_conversations', () => {
     if (!isString(result.notice)) return;
     expect(result.notice).toMatch(/untrusted|stale/iu);
     if (!Array.isArray(result.results)) return;
-    expect(result.results[0]).not.toHaveProperty('snippet');
-    expect(result.results[0]).not.toHaveProperty('bestDocumentId');
-    expect(result.results[1]).not.toHaveProperty('role');
-    expect(result.results[1]).not.toHaveProperty('offset');
-    expect(result.results[1]).not.toHaveProperty('excerpt');
+    const content: unknown = result.results[0];
+    const metadata: unknown = result.results[1];
+    if (!isRecord(content) || !isRecord(metadata)) return;
+    const coordinates = {
+      chatId: content['chatId'],
+      messageSeq: content['messageSeq'],
+      offset: content['offset'],
+      limit: content['limit'],
+    };
+    expect(parseConversationSourceCoordinates(coordinates)).toEqual(
+      coordinates,
+    );
+    expect(content).not.toHaveProperty('snippet');
+    expect(content).not.toHaveProperty('bestDocumentId');
+    expect(metadata).not.toHaveProperty('role');
+    expect(metadata).not.toHaveProperty('messageSeq');
+    expect(metadata).not.toHaveProperty('offset');
+    expect(metadata).not.toHaveProperty('limit');
+    expect(metadata).not.toHaveProperty('excerpt');
   });
 
   it('omits canonical candidates that cannot hydrate or match instead of falling back to projection text', async () => {
