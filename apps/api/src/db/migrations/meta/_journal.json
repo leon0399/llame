@@ -365,6 +365,13 @@
       "when": 1787848661189,
       "tag": "20260827163741_projection_owner_repair_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1787849171724,
+      "tag": "20260827164611_projection_state_owner_repair_rls",
+      "breakpoints": true
     }
   ]
 }

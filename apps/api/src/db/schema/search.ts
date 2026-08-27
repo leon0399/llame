@@ -231,10 +231,15 @@ export const searchChatState = pgTable(
   },
   (t) => [
     index('search_chat_state_owner_idx').on(t.ownerUserId),
+    // The Chat owner is the authorization boundary. Using the parent Chat
+    // lets an owner-scoped rebuild repair duplicated state ownership metadata;
+    // the WITH CHECK still requires that metadata to be rewritten to the
+    // authenticated owner. The non-empty identity gate keeps public Chat
+    // sharing from making state rows visible through runAsPublic.
     pgPolicy('search_chat_state_owner', {
       for: 'all',
-      using: sql`owner_user_id = current_setting('app.current_user_id', true)`,
-      withCheck: sql`owner_user_id = current_setting('app.current_user_id', true)`,
+      using: sql`current_setting('app.current_user_id', true) <> '' AND chat_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true))`,
+      withCheck: sql`current_setting('app.current_user_id', true) <> '' AND owner_user_id = current_setting('app.current_user_id', true) AND chat_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true))`,
     }),
   ],
 ).enableRLS();

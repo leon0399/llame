@@ -414,6 +414,57 @@ describeIfDb('search projection locator coverage and RLS', () => {
     expect([...owner][0].owner_user_id).toBe(ownerA);
   });
 
+  it('flags state owned by another tenant and repairs it on owner-scoped reindex', async () => {
+    const chatId = await seedChat(
+      ownerA,
+      [textPart('state ownership corruption must not make a projection ready')],
+      'State owner mismatch repair',
+    );
+    await indexService.reindexChat(chatId, ownerA);
+    const before = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
+
+    // Corrupt only derived state while FORCE is temporarily disabled. Restore
+    // FORCE in all cases; ordinary tenant-scoped callers cannot forge this.
+    await sqlClient`ALTER TABLE search_chat_state NO FORCE ROW LEVEL SECURITY`;
+    try {
+      await sqlClient`
+        UPDATE search_chat_state
+        SET owner_user_id = ${ownerB}
+        WHERE chat_id = ${chatId}
+      `;
+    } finally {
+      await sqlClient`ALTER TABLE search_chat_state FORCE ROW LEVEL SECURITY`;
+    }
+
+    expect(await staleIds()).toContain(chatId);
+    const stale = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
+    expect(stale.readyChatCount).toBe(before.readyChatCount - 1);
+    expect(stale.staleChatCount).toBe(before.staleChatCount + 1);
+
+    await indexService.reindexChat(chatId, ownerA);
+
+    expect(await staleIds()).not.toContain(chatId);
+    await expect(
+      getProjectionCoverageReport(tenantDb, CHUNKER_VERSION),
+    ).resolves.toEqual(before);
+    const repaired = await tenantDb.runAs(ownerA, (tx) =>
+      tx.execute<{ owner_user_id: string }>(sql`
+        SELECT owner_user_id
+        FROM search_chat_state
+        WHERE chat_id = ${chatId}
+      `),
+    );
+    expect([...repaired][0].owner_user_id).toBe(ownerA);
+    const hiddenFromOtherOwner = await tenantDb.runAs(ownerB, (tx) =>
+      tx.execute<{ count: number }>(sql`
+        SELECT count(*)::int AS count
+        FROM search_chat_state
+        WHERE chat_id = ${chatId}
+      `),
+    );
+    expect([...hiddenFromOtherOwner][0].count).toBe(0);
+  });
+
   it('denies direct projection reads and writes in both cross-tenant directions', async () => {
     const chatA = await seedChat(ownerA, [textPart('owner A source')], 'A');
     const chatB = await seedChat(ownerB, [textPart('owner B source')], 'B');
