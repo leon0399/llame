@@ -4,7 +4,11 @@ import {
 } from '../knowledge/knowledge-tools';
 import { conversationReadTool } from './conversation-read';
 import { searchConversationsTool } from './search-conversations';
-import { isToolId, matchesAllowedToolId } from './tool-id';
+import {
+  isToolId,
+  matchesAllowedToolId,
+  matchesCodeOwnedToolId,
+} from './tool-id';
 import { type Tool } from './types';
 import { isString } from '../unknown-record';
 
@@ -120,10 +124,8 @@ export function resolveAdvertisedTools(
   return [...candidates].filter(
     (tool) =>
       tool.classification === 'read_only' &&
-      // Namespace wildcards are an MCP-only permission form; code-owned ids
-      // require their own exact operator allowlist entry.
       (tool.id.startsWith('mcp__')
         ? matchesAllowedToolId(tool.id, allowedRules)
-        : allowedRules.includes(tool.id)),
+        : matchesCodeOwnedToolId(tool.id, allowedRules)),
   );
 }

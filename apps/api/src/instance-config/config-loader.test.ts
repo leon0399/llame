@@ -403,6 +403,18 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
     expect(() => loadInstanceConfig()).toThrow(/not_a_real_tool/);
   });
 
+  it('rejects wildcard rules for code-owned tools', () => {
+    writeConfig('{ "tools": { "allowed": ["conversation_*"] } }');
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/tools\.allowed/);
+    expect(() => loadInstanceConfig()).toThrow(/conversation_\*/);
+  });
+
+  it('accepts the exact conversation_read code-owned id', () => {
+    writeConfig('{ "tools": { "allowed": ["conversation_read"] } }');
+    expect(loadInstanceConfig().tools.allowed).toEqual(['conversation_read']);
+  });
+
   it('resolves maxStepsPerRun / callTimeoutSeconds overrides from the file', () => {
     writeConfig(
       '{ "tools": { "maxStepsPerRun": 3, "callTimeoutSeconds": 5 } }',

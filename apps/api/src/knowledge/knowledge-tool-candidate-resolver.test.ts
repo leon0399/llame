@@ -128,6 +128,23 @@ describe('KnowledgeToolCandidateResolver', () => {
     ]);
   });
 
+  it('does not treat a code-owned wildcard as a Knowledge allowlist entry', async () => {
+    const resolver = new KnowledgeToolCandidateResolver(makeConfig(undefined));
+
+    const candidates = await makeInput(resolver, {
+      allowedToolRules: ['knowledge_*'],
+    });
+
+    expect(
+      candidates.filter(
+        (candidate) =>
+          candidate.state === 'unavailable' &&
+          (candidate.id === 'knowledge_search' ||
+            candidate.id === 'knowledge_read'),
+      ),
+    ).toEqual([]);
+  });
+
   it('uses no owner transaction or filesystem probe when root is configured', async () => {
     const findForOwnerForBinding = vi.spyOn(
       KnowledgeSpaceRepository.prototype,

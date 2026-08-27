@@ -9,7 +9,12 @@ import {
 import { type ModelToolDeclaration } from '../db/schema';
 import { isRecord, isString, type UnknownRecord } from '../unknown-record';
 import { admitToolInputSchema } from './schema-utils';
-import { asciiCaseFoldToolId, isToolId, matchesAllowedToolId } from './tool-id';
+import {
+  asciiCaseFoldToolId,
+  isToolId,
+  matchesAllowedToolId,
+  matchesCodeOwnedToolId,
+} from './tool-id';
 import { type Tool, type ToolClassification } from './types';
 
 const logger = new Logger('TurnToolCatalog');
@@ -284,10 +289,8 @@ function candidateIsAllowlisted(
   id: string,
   allowedRules: readonly string[],
 ): boolean {
-  // Namespace wildcards are an MCP-only permission form; code-owned ids
-  // require their own exact operator allowlist entry.
   return candidate.source.type === 'code_owned'
-    ? allowedRules.includes(id)
+    ? matchesCodeOwnedToolId(id, allowedRules)
     : matchesAllowedToolId(id, allowedRules);
 }
 
