@@ -152,13 +152,13 @@ export class SearchIndexService {
             contentHash: sql`excluded.content_hash`,
             updatedAt: sql`now()`,
             // chat-search-embeddings design D7's "upsert trap" (trap 1): this
-            // upsert only runs for `changed` chunks — those whose content_hash
-            // actually differs (see the filter above) — so nulling here clears
-            // a stale vector PRECISELY when the content it described changed,
-            // never on a no-op rebuild. Omitting these five is the single way
-            // this design can silently serve a WRONG embedding: the row's
-            // content is rewritten while its vector still describes the old
-            // text, with no error and no symptom until ranking degrades.
+            // upsert only runs for `changed` chunks — those whose content hash
+            // or canonical locator differs (see the filter above) — so nulling
+            // here clears a stale vector PRECISELY when its content or source
+            // changed, never on a no-op rebuild. Omitting these five is the
+            // single way this design can silently serve a WRONG embedding: the
+            // row's content is rewritten while its vector still describes the
+            // old text, with no error and no symptom until ranking degrades.
             embedding: sql`NULL`,
             embeddingModelKey: sql`NULL`,
             embeddedContentHash: sql`NULL`,
