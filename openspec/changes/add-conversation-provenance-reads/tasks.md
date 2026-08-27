@@ -64,7 +64,7 @@ Each branch owns only its section below. Commit and verify one layer before `gh 
 - [x] 4.4 Preflight the complete structured result under 2,000-line and 15,000-code-unit bounds; return `nextOffset` and Knowledge-compatible `cutReason`, never generic truncation, and return `conversation_limit_exceeded` when the first selected line cannot fit.
 - [x] 4.5 Register `conversation_read` as exact-allowlisted/read-only with timeout/cancellation, persistence, settlement, replay, compaction, neutralization, and generic rendering; verify disabled, advertised, snapshotted, executable, timeout/cancelled, invalid-range, not-found, continuation, payload-clearing, and output-limit paths.
 - [x] 4.6 Verify source deletion never rewrites another Chat's persisted observation while destination-Chat deletion cascades it away.
-- [ ] 4.7 Run reader/tool/Run unit and integration tests, API typecheck/lint, and sequential API build before creating the links branch.
+- [x] 4.7 Run reader/tool/Run unit and integration tests, API typecheck/lint, and sequential API build before creating the links branch.
 
 ## 5. `conversation-reads/links` — Owner Message Targets
 
