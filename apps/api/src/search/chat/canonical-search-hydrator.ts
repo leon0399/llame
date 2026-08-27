@@ -100,9 +100,10 @@ function isEligibleVisibleRole(
 
 type DecodedCanonicalMessage = {
   messageSeq: number;
-  role: 'user' | 'assistant';
-  timestamp: Date;
-  visibleText: string;
+  eligible: boolean;
+  role: 'user' | 'assistant' | null;
+  timestamp: Date | null;
+  visibleText: string | null;
 };
 
 /** Decode and validate one canonical source row before range mapping. */
@@ -128,26 +129,40 @@ function decodeCanonicalMessage(
       lastProjectionSeq,
       firstOffset,
       lastOffset,
-    ) ||
-    !isEligibleVisibleRole(row) ||
-    !Array.isArray(row.message_parts)
+    )
   ) {
     return null;
   }
 
   const messageSeq = parseSafePositiveInteger(row.message_seq);
-  const timestamp = parseTimestamp(row.message_created_at);
-  if (
-    messageSeq === null ||
-    messageSeq < firstSeq ||
-    messageSeq > lastSeq ||
-    timestamp === null
-  ) {
+  if (messageSeq === null || messageSeq < firstSeq || messageSeq > lastSeq) {
     return null;
   }
 
+  if (!isEligibleVisibleRole(row)) {
+    return {
+      messageSeq,
+      eligible: false,
+      role: null,
+      timestamp: null,
+      visibleText: null,
+    };
+  }
+
+  if (!Array.isArray(row.message_parts)) {
+    return {
+      messageSeq,
+      eligible: true,
+      role: row.message_role,
+      timestamp: null,
+      visibleText: null,
+    };
+  }
+
+  const timestamp = parseTimestamp(row.message_created_at);
   return {
     messageSeq,
+    eligible: true,
     role: row.message_role,
     timestamp,
     visibleText: visibleMessageText(row.message_parts),
@@ -213,11 +228,24 @@ export function hydrateCanonicalSearchRows(
       return null;
     }
 
+    const isBoundary = index === 0 || index === rows.length - 1;
+    previousSeq = decoded.messageSeq;
+    if (!decoded.eligible) {
+      if (isBoundary) return null;
+      continue;
+    }
+    if (
+      decoded.role === null ||
+      decoded.timestamp === null ||
+      decoded.visibleText === null
+    ) {
+      return null;
+    }
+
     if (decoded.visibleText.length === 0) {
       // The chunker skips empty eligible messages, so an empty boundary means
       // the projection no longer identifies the source it was built from.
-      if (index === 0 || index === rows.length - 1) return null;
-      previousSeq = decoded.messageSeq;
+      if (isBoundary) return null;
       continue;
     }
 
@@ -244,7 +272,6 @@ export function hydrateCanonicalSearchRows(
       sourceStart,
       sourceEndExclusive,
     });
-    previousSeq = decoded.messageSeq;
   }
 
   return { chatId: candidate.chatId, messages };

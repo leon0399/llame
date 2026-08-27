@@ -33,7 +33,7 @@ const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = any;
 
 type SeedMessage = {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system' | 'tool';
   parts: unknown[];
   usage?: unknown;
 };
@@ -276,6 +276,56 @@ describeIfDb('canonical search hydration', () => {
       expect.any(Number),
       expect.any(Number),
     ]);
+  });
+
+  it('omits persisted tool and system rows in the interior but rejects them as boundaries', async () => {
+    const seeded = await seedChat(ownerA, [
+      { role: 'user', parts: [textPart('visible user')] },
+      { role: 'tool', parts: [textPart('hidden tool payload')] },
+      { role: 'system', parts: [textPart('hidden system prompt')] },
+      {
+        role: 'assistant',
+        parts: [textPart('visible assistant')],
+        usage: { status: 'completed' },
+      },
+    ]);
+    await indexService.reindexChat(seeded.chatId, ownerA);
+    const documentId = await firstDocumentId(ownerA, seeded.chatId);
+
+    const result = await hydrateAs(ownerA, seeded.chatId, documentId);
+    expect(result?.messages.map((message) => message.visibleText)).toEqual([
+      'visible user',
+      'visible assistant',
+    ]);
+
+    await updateDocument(
+      ownerA,
+      documentId,
+      sql`
+        UPDATE search_chat_documents
+        SET first_message_id = ${seeded.messageIds[1]},
+            first_message_text_offset = 0
+        WHERE id = ${documentId}
+      `,
+    );
+    await expect(
+      hydrateAs(ownerA, seeded.chatId, documentId),
+    ).resolves.toBeNull();
+
+    await indexService.reindexChat(seeded.chatId, ownerA);
+    await updateDocument(
+      ownerA,
+      documentId,
+      sql`
+        UPDATE search_chat_documents
+        SET last_message_id = ${seeded.messageIds[2]},
+            last_message_text_offset_exclusive = 0
+        WHERE id = ${documentId}
+      `,
+    );
+    await expect(
+      hydrateAs(ownerA, seeded.chatId, documentId),
+    ).resolves.toBeNull();
   });
 
   it('returns a closed miss when a zero-visible message is a projection boundary', async () => {

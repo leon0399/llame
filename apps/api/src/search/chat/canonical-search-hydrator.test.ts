@@ -116,6 +116,36 @@ describe('hydrateCanonicalSearchRows', () => {
     ]);
   });
 
+  it('omits ineligible interior tool and system rows while preserving sequence order', () => {
+    const result = hydrateCanonicalSearchRows(
+      [
+        row(),
+        row({
+          message_id: EMPTY_MESSAGE_ID,
+          message_seq: '9',
+          message_role: 'tool',
+        }),
+        row({
+          message_id: '66666666-6666-4666-8666-666666666666',
+          message_seq: '10',
+          message_role: 'system',
+        }),
+        row({
+          message_id: LAST_MESSAGE_ID,
+          message_seq: '11',
+          message_role: 'assistant',
+          message_usage: { status: 'completed' },
+        }),
+      ],
+      { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
+    );
+
+    expect(result?.messages).toEqual([
+      expect.objectContaining({ messageSeq: 7 }),
+      expect.objectContaining({ messageSeq: 11 }),
+    ]);
+  });
+
   it('rejects a zero-visible first or last boundary', () => {
     const empty = {
       message_parts: [{ type: 'reasoning', text: 'hidden only' }],
@@ -142,6 +172,36 @@ describe('hydrateCanonicalSearchRows', () => {
             message_id: LAST_MESSAGE_ID,
             message_seq: '11',
             ...empty,
+          }),
+        ],
+        { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
+      ),
+    ).toBeNull();
+  });
+
+  it('rejects ineligible tool or system boundary rows', () => {
+    expect(
+      hydrateCanonicalSearchRows(
+        [
+          row({ message_role: 'tool' }),
+          row({
+            message_id: LAST_MESSAGE_ID,
+            message_seq: '11',
+            message_role: 'assistant',
+            message_usage: { status: 'completed' },
+          }),
+        ],
+        { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
+      ),
+    ).toBeNull();
+    expect(
+      hydrateCanonicalSearchRows(
+        [
+          row(),
+          row({
+            message_id: LAST_MESSAGE_ID,
+            message_seq: '11',
+            message_role: 'system',
           }),
         ],
         { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
