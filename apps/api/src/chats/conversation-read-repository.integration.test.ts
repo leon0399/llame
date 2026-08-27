@@ -1,6 +1,8 @@
 /**
  * Owner-scoped canonical conversation-source lookup (conversation reads, task 4.1).
  *
+ * TEST_DATABASE_URL is required; the integration global setup supplies a
+ * throwaway FORCE-RLS Postgres database when no external URL is configured.
  * The repository method is deliberately exercised against FORCE-RLS Postgres:
  * an owner predicate in application SQL is not enough because the public-share
  * policy can otherwise make a public row visible from a no-identity transaction.
@@ -19,10 +21,14 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
-const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+if (!TEST_DB_URL) {
+  throw new Error(
+    'conversation-read-repository.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
+  );
+}
 type SqlClient = any;
 
-describeIfDb('conversation source repository lookup', () => {
+describe('conversation source repository lookup', () => {
   let sqlClient: SqlClient;
   let tenantDb: TenantDbService;
   let ownerA: string;
@@ -31,8 +37,8 @@ describeIfDb('conversation source repository lookup', () => {
   beforeAll(async () => {
     const postgres = require('postgres');
     const connect = postgres.default ?? postgres;
-    const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-    sqlClient = connect(TEST_DB_URL!, { ssl, max: 5 });
+    const ssl = /sslmode=require/.test(TEST_DB_URL) ? 'require' : false;
+    sqlClient = connect(TEST_DB_URL, { ssl, max: 5 });
     const db: Db = drizzle(sqlClient, { schema });
     tenantDb = new TenantDbService(db);
     ownerA = crypto.randomUUID();
@@ -300,16 +306,6 @@ describeIfDb('conversation source repository lookup', () => {
           ),
         ),
       ).resolves.toBeUndefined();
-
-      await expect(
-        tenantDb.runAs('', (tx) =>
-          new MessagesRepository(tx).findConversationMessage(
-            ownerChat.id,
-            '',
-            ownerMessage.seq,
-          ),
-        ),
-      ).rejects.toThrow('requires a non-empty userId');
     } finally {
       await tenantDb.runAs(ownerA, (tx) =>
         new ChatsRepository(tx).deleteById(ownerChat.id, ownerA),

@@ -429,6 +429,25 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
     expect(queryContains(queries, 'msg-1')).toBe(true);
   });
 
+  it.each(['', '   '])(
+    'findConversationMessage rejects an empty owner before executing SQL: %j',
+    async (emptyOwnerUserId) => {
+      const { db } = makeMockDb();
+      const executeSpy = vi.spyOn(db, 'execute');
+
+      await expect(
+        new MessagesRepository(db).findConversationMessage(
+          chatId,
+          emptyOwnerUserId,
+          7,
+        ),
+      ).rejects.toThrow(
+        'MessagesRepository.findConversationMessage requires a non-empty userId',
+      );
+      expect(executeSpy).not.toHaveBeenCalled();
+    },
+  );
+
   it('createMany issues one INSERT for a batch under the chunk size', async () => {
     const { db, queries } = makeMockDb();
     const rows = Array.from({ length: 3 }, (_, i) => ({
