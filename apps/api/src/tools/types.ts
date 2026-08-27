@@ -59,6 +59,8 @@ export interface ToolContext {
   readonly toolCallId?: string;
   /** Trusted worker-bound Knowledge capability; never model supplied. */
   readonly knowledgeResolver?: KnowledgeToolResolver;
+  /** Trusted worker-bound canonical search gate; never model supplied. */
+  readonly canonicalModelExcerptsEnabled?: boolean;
 }
 
 /**

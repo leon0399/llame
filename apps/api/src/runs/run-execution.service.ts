@@ -32,6 +32,10 @@ import {
   type ChatReindexDispatcher,
 } from '../search/search-reindex-dispatch.service';
 import {
+  CanonicalSearchActivationService,
+  type CanonicalSearchActivation,
+} from '../search/canonical-search-activation.service';
+import {
   buildContext,
   partsToText,
   type MessagePart,
@@ -468,6 +472,9 @@ export class RunExecutionService {
     @Optional()
     @Inject(DYNAMIC_TOOL_EXECUTOR_RESOLVER)
     private readonly dynamicToolResolver?: DynamicToolExecutorResolver,
+    @Optional()
+    @Inject(CanonicalSearchActivationService)
+    private readonly canonicalSearchActivation?: CanonicalSearchActivation,
   ) {}
 
   /**
@@ -841,6 +848,8 @@ export class RunExecutionService {
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
+      canonicalModelExcerptsEnabled:
+        this.canonicalSearchActivation?.canonicalModelExcerptsEnabled === true,
     };
 
     const { maxStepsPerRun, callTimeoutSeconds } =
