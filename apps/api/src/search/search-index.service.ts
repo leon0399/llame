@@ -84,23 +84,31 @@ export class SearchIndexService {
         ordinal: searchChatDocuments.chunkOrdinal,
         version: searchChatDocuments.chunkerVersion,
         hash: searchChatDocuments.contentHash,
+        firstMessageTextOffset: searchChatDocuments.firstMessageTextOffset,
+        lastMessageTextOffsetExclusive:
+          searchChatDocuments.lastMessageTextOffsetExclusive,
       })
       .from(searchChatDocuments)
       .where(eq(searchChatDocuments.chatId, chatId));
 
-    const currentHashByOrdinal = new Map(
+    const currentByOrdinal = new Map(
       existing
         .filter((e) => e.version === CHUNKER_VERSION)
-        .map((e) => [e.ordinal, e.hash]),
+        .map((e) => [e.ordinal, e]),
     );
 
-    // Hash-diff: an unchanged chunk is left exactly as-is (no write). Changed/new
-    // chunks upsert in ONE multi-row statement (one round-trip regardless of N —
-    // matters for a version-bump rebuild / cold backfill).
-    const changed = chunks.filter(
-      (chunk) =>
-        currentHashByOrdinal.get(chunk.chunkOrdinal) !== chunk.contentHash,
-    );
+    // Hash/locator diff: an unchanged chunk is left exactly as-is (no write).
+    // Changed/new chunks upsert in ONE multi-row statement (one round-trip
+    // regardless of N — matters for a version-bump rebuild / cold backfill).
+    const changed = chunks.filter((chunk) => {
+      const current = currentByOrdinal.get(chunk.chunkOrdinal);
+      return (
+        current?.hash !== chunk.contentHash ||
+        current?.firstMessageTextOffset !== chunk.firstMessageTextOffset ||
+        current?.lastMessageTextOffsetExclusive !==
+          chunk.lastMessageTextOffsetExclusive
+      );
+    });
     if (changed.length > 0) {
       await tx
         .insert(searchChatDocuments)
@@ -114,6 +122,9 @@ export class SearchIndexService {
             lastMessageId: chunk.lastMessageId,
             firstMessageAt: chunk.firstMessageAt,
             lastMessageAt: chunk.lastMessageAt,
+            firstMessageTextOffset: chunk.firstMessageTextOffset,
+            lastMessageTextOffsetExclusive:
+              chunk.lastMessageTextOffsetExclusive,
             content: chunk.content,
             normalizedContent: chunk.normalizedContent,
             contentHash: chunk.contentHash,
@@ -130,6 +141,8 @@ export class SearchIndexService {
             lastMessageId: sql`excluded.last_message_id`,
             firstMessageAt: sql`excluded.first_message_at`,
             lastMessageAt: sql`excluded.last_message_at`,
+            firstMessageTextOffset: sql`excluded.first_message_text_offset`,
+            lastMessageTextOffsetExclusive: sql`excluded.last_message_text_offset_exclusive`,
             content: sql`excluded.content`,
             normalizedContent: sql`excluded.normalized_content`,
             contentHash: sql`excluded.content_hash`,

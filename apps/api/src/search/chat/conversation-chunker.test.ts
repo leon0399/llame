@@ -16,6 +16,29 @@ function assistantMsg(id: string, t: string, n: number): ChunkerMessage {
 }
 
 describe('chunkConversation', () => {
+  it('derives message text from visible text parts with exact double-newline joins and no trim', () => {
+    const chunks = chunkConversation([
+      {
+        id: 'm1',
+        role: 'user',
+        parts: [
+          { type: 'text', text: '  alpha\n' },
+          { type: 'reasoning', text: 'hidden' },
+          { type: 'text', text: '\n beta \t' },
+        ],
+        createdAt: at(0),
+      },
+    ]);
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toMatchObject({
+      content: '[user]   alpha\n\n\n\n beta \t',
+      normalizedContent: 'alpha beta',
+      firstMessageTextOffset: 0,
+      lastMessageTextOffsetExclusive: '  alpha\n\n\n\n beta \t'.length,
+    });
+  });
+
   it('serializes user/assistant text with role markers into one chunk', () => {
     const chunks = chunkConversation([
       userMsg('m1', 'How does search work?', 0),
@@ -32,6 +55,10 @@ describe('chunkConversation', () => {
     expect(chunks[0].normalizedContent).not.toContain('assistant');
     expect(chunks[0].firstMessageId).toBe('m1');
     expect(chunks[0].lastMessageId).toBe('m2');
+    expect(chunks[0]).toMatchObject({
+      firstMessageTextOffset: 0,
+      lastMessageTextOffsetExclusive: 'Full-text plus trigram.'.length,
+    });
     expect(chunks[0].chunkOrdinal).toBe(0);
   });
 
@@ -144,13 +171,34 @@ describe('chunkConversation', () => {
     expect(chunks[0].firstMessageId).toBe('u');
   });
 
+  it('excludes retryable assistant rows from the projection input', () => {
+    const chunks = chunkConversation([
+      userMsg('u', 'stable prompt', 0),
+      {
+        id: 'a',
+        role: 'assistant',
+        parts: text('unstable answer'),
+        usage: { status: 'error' },
+        createdAt: at(1),
+      },
+    ]);
+    expect(chunks).toEqual([
+      expect.objectContaining({
+        firstMessageId: 'u',
+        lastMessageId: 'u',
+        content: '[user] stable prompt',
+        normalizedContent: 'stable prompt',
+      }),
+    ]);
+  });
+
   it('is deterministic (identical input → byte-identical chunks + hashes)', () => {
     const convo = [userMsg('m1', 'alpha', 0), assistantMsg('m2', 'beta', 1)];
     expect(chunkConversation(convo)).toEqual(chunkConversation(convo));
   });
 
   it('splits across chunks on the char budget with 1-message overlap', () => {
-    const big = 'x'.repeat(CHUNK_MAX_CHARS - 10);
+    const big = 'x'.repeat(CHUNK_MAX_CHARS - '[assistant] '.length);
     const chunks = chunkConversation([
       userMsg('m1', big, 0),
       assistantMsg('m2', big, 1),
@@ -159,6 +207,37 @@ describe('chunkConversation', () => {
     expect(chunks.length).toBeGreaterThan(1);
     // Overlap: chunk N's last message is chunk N+1's first.
     expect(chunks[0].lastMessageId).toBe(chunks[1].firstMessageId);
+    expect(chunks[1]).toMatchObject({
+      firstMessageTextOffset: 0,
+      lastMessageTextOffsetExclusive: big.length,
+    });
+  });
+
+  it('uses the first and last block endpoints for an overlapped multi-message chunk', () => {
+    const firstText = 'u'.repeat(CHUNK_MAX_CHARS - '[user] '.length - 10);
+    const lastText = 'answer';
+    const chunks = chunkConversation([
+      userMsg('u1', firstText, 0),
+      assistantMsg('a1', lastText, 1),
+    ]);
+
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0]).toMatchObject({
+      firstMessageId: 'u1',
+      lastMessageId: 'u1',
+      firstMessageTextOffset: 0,
+      lastMessageTextOffsetExclusive: firstText.length,
+    });
+    expect(chunks[1]).toMatchObject({
+      firstMessageId: 'u1',
+      lastMessageId: 'a1',
+      firstMessageTextOffset: 0,
+      lastMessageTextOffsetExclusive: lastText.length,
+    });
+    // The first message is presentation overlap, not a source gap: the second
+    // chunk's locator still starts at the first block's source offset and ends
+    // at the final block's source endpoint.
+    expect(chunks[1].content.length).toBeGreaterThan(CHUNK_MAX_CHARS);
   });
 
   it('normalizes non-ASCII case (Cyrillic) while preserving accents', () => {
@@ -282,6 +361,20 @@ describe('chunkConversation — oversized messages (#517)', () => {
     );
     expect(anchored).toBeDefined();
     expect(anchored!.content).toContain(`[context: ${question}] `);
+    expect(
+      assistantChunks.map((chunk) => chunk.firstMessageTextOffset),
+    ).toEqual(
+      assistantChunks
+        .map((chunk) => chunk.firstMessageTextOffset)
+        .toSorted((left, right) => left - right),
+    );
+    expect(assistantChunks[0]).toMatchObject({
+      firstMessageTextOffset: 0,
+    });
+    const finalAssistantChunk = assistantChunks[assistantChunks.length - 1];
+    expect(finalAssistantChunk).toMatchObject({
+      lastMessageTextOffsetExclusive: answer.length,
+    });
 
     // The anchor is content-only: normalizedContent (built from lexicalContent)
     // must never carry it, or it would become trigram/FTS-matchable.

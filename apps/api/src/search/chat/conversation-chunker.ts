@@ -1,4 +1,7 @@
-import { isTextPart } from '../../chats/context-builder';
+import {
+  isImmutableEvidenceMessage,
+  visibleMessageText,
+} from '../../chats/conversation-evidence';
 import {
   chunkByCharBudget,
   chunkContentHash,
@@ -16,10 +19,11 @@ import {
  * tool call/result parts, reasoning parts, model/availability semantic controls,
  * and attachments are excluded entirely —
  * they never enter the search index (attachments belong to the future knowledge/RAG
- * corpus, not episodic search). `isTextPart` is reused from the context builder so
- * the text-part shape check can't drift between the two.
+ * corpus, not episodic search). Visible source text is shared with the
+ * conversation-read path so search and reads cannot drift on part selection or
+ * inserted separators.
  */
-export const CHUNKER_VERSION = 3;
+export const CHUNKER_VERSION = 4;
 
 // Tunable v1 constants (grill-locked). All chunk shape lives behind CHUNKER_VERSION;
 // a change here is a version bump, and the discovery sweep rebuilds every chat.
@@ -37,6 +41,7 @@ export interface ChunkerMessage {
   id: string;
   role: string;
   parts: unknown[];
+  usage?: unknown;
   createdAt: Date;
 }
 
@@ -46,6 +51,8 @@ export interface ConversationChunk {
   lastMessageId: string;
   firstMessageAt: Date;
   lastMessageAt: Date;
+  firstMessageTextOffset: number;
+  lastMessageTextOffsetExclusive: number;
   content: string;
   normalizedContent: string;
   contentHash: string;
@@ -54,16 +61,14 @@ export interface ConversationChunk {
 interface MessageBlock {
   messageId: string;
   createdAt: Date;
+  startOffset: number;
+  endOffsetExclusive: number;
   content: string;
   lexicalContent: string;
 }
 
 function extractMessageText(message: ChunkerMessage): string {
-  return message.parts
-    .filter(isTextPart)
-    .map((p) => p.text)
-    .join('\n')
-    .trim();
+  return visibleMessageText(message.parts);
 }
 
 /** Bounded, word-boundary-truncated excerpt with an elision marker when cut. */
@@ -104,6 +109,8 @@ function messageToBlocks(
       {
         messageId: message.id,
         createdAt: message.createdAt,
+        startOffset: 0,
+        endOffsetExclusive: text.length,
         content: `${prefix}${text}`,
         lexicalContent: text,
       },
@@ -132,6 +139,8 @@ function messageToBlocks(
     blocks.push({
       messageId: message.id,
       createdAt: message.createdAt,
+      startOffset: cursor,
+      endOffsetExclusive: cut,
       content: `${prefix}${isFirst ? '' : anchor}${slice}`,
       lexicalContent: slice,
     });
@@ -153,7 +162,7 @@ function buildBlocks(messages: readonly ChunkerMessage[]): MessageBlock[] {
   let precedingUserText: string | null = null;
 
   for (const message of messages) {
-    if (message.role !== 'user' && message.role !== 'assistant') continue;
+    if (!isImmutableEvidenceMessage(message)) continue;
     const text = extractMessageText(message);
     if (text.length === 0) continue;
 
@@ -194,6 +203,8 @@ export function chunkConversation(
       lastMessageId: last.messageId,
       firstMessageAt: first.createdAt,
       lastMessageAt: last.createdAt,
+      firstMessageTextOffset: first.startOffset,
+      lastMessageTextOffsetExclusive: last.endOffsetExclusive,
       content,
       normalizedContent,
       contentHash: chunkContentHash({
@@ -202,6 +213,8 @@ export function chunkConversation(
         normalizedContent,
         firstMessageId: first.messageId,
         lastMessageId: last.messageId,
+        firstMessageTextOffset: first.startOffset,
+        lastMessageTextOffsetExclusive: last.endOffsetExclusive,
       }),
     };
   });
