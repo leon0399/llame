@@ -14,6 +14,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const pinItemEndpoint = vi.hoisted(() => vi.fn());
 const unpinItemEndpoint = vi.hoisted(() => vi.fn());
+const reorderPinsEndpoint = vi.hoisted(() => vi.fn());
 const authenticatedFetch = vi.hoisted(() => vi.fn());
 const createAuthenticatedBrowserFetch = vi.hoisted(() => vi.fn());
 const toastError = vi.hoisted(() => vi.fn());
@@ -21,6 +22,7 @@ const toastError = vi.hoisted(() => vi.fn());
 vi.mock("../../api/generated/pins/pins", () => ({
   pinItem: pinItemEndpoint,
   unpinItem: unpinItemEndpoint,
+  reorderPins: reorderPinsEndpoint,
 }));
 vi.mock("../../api/fetch", () => ({
   createAuthenticatedBrowserFetch,
@@ -29,7 +31,13 @@ vi.mock("@workspace/ui/components/sonner", () => ({
   toast: { error: toastError },
 }));
 
-import { pinItem, unpinItem, usePinItem, useUnpinItem } from "./mutations";
+import {
+  pinItem,
+  unpinItem,
+  usePinItem,
+  useReorderPins,
+  useUnpinItem,
+} from "./mutations";
 import { pinQueryKeys } from "./queries";
 import type { PinnedItem } from "./types";
 
@@ -188,5 +196,78 @@ describe("useUnpinItem", () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(toastError).toHaveBeenCalledWith("Couldn't unpin the chat.");
+  });
+});
+
+describe("useReorderPins", () => {
+  const pinA: PinnedItem = {
+    itemType: "chat",
+    itemId: "c1",
+    pinnedAt: "2026-01-01T00:00:00.000Z",
+    item: { id: "c1", title: "A", archivedAt: null },
+  };
+  const pinB: PinnedItem = {
+    itemType: "project",
+    itemId: "p1",
+    pinnedAt: "2026-01-02T00:00:00.000Z",
+    item: { id: "p1", name: "B", archivedAt: null },
+  };
+
+  it("optimistically rewrites the pins cache to the submitted order", async () => {
+    reorderPinsEndpoint.mockReturnValue(new Promise(() => {}));
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    queryClient.setQueryData<PinnedItem[]>(pinQueryKeys.list(), [pinA, pinB]);
+
+    const { result } = renderHook(() => useReorderPins(), {
+      wrapper: wrapper(queryClient),
+    });
+
+    result.current.mutate([pinB, pinA]);
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<PinnedItem[]>(pinQueryKeys.list()),
+      ).toEqual([pinB, pinA]),
+    );
+  });
+
+  it("serializes overlapping reorders so the later submission wins", async () => {
+    let resolveFirst: (value: PinnedItem[]) => void = () => {};
+    const firstCall = new Promise<PinnedItem[]>((resolve) => {
+      resolveFirst = resolve;
+    });
+    reorderPinsEndpoint
+      .mockImplementationOnce(() => firstCall)
+      .mockResolvedValueOnce([pinB, pinA]);
+
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    queryClient.setQueryData<PinnedItem[]>(pinQueryKeys.list(), [pinA, pinB]);
+
+    const { result } = renderHook(() => useReorderPins(), {
+      wrapper: wrapper(queryClient),
+    });
+
+    result.current.mutate([pinA, pinB]);
+    result.current.mutate([pinB, pinA]);
+
+    // Scope keeps the second request queued until the first settles.
+    await waitFor(() => expect(reorderPinsEndpoint).toHaveBeenCalledTimes(1));
+    resolveFirst([pinA, pinB]);
+    await waitFor(() => expect(reorderPinsEndpoint).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<PinnedItem[]>(pinQueryKeys.list()),
+      ).toEqual([pinB, pinA]),
+    );
+    expect(reorderPinsEndpoint.mock.calls[1]?.[0]).toEqual({
+      items: [
+        { itemType: "project", itemId: "p1" },
+        { itemType: "chat", itemId: "c1" },
+      ],
+    });
   });
 });

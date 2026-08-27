@@ -194,7 +194,13 @@ export class PinsRepository {
           where ${pins.userId} = ${userId}
         ), 0) - 1`,
       })
-      .onConflictDoNothing();
+      .onConflictDoNothing({
+        // Only suppress idempotent re-pins on the primary key. Untargeted
+        // DO NOTHING also swallows `pins_user_position_unique` races, which
+        // would turn a concurrent head-position collision into a silent miss
+        // (hydrate → undefined → 404) and skip the service's 23505 retry.
+        target: [pins.userId, pins.itemType, pins.itemId],
+      });
 
     return this.findOneWithCard(userId, itemType, itemId);
   }

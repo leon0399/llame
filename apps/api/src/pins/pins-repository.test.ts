@@ -43,7 +43,9 @@ describe('PinsRepository ordering', () => {
     const insert = queries.find(({ sql }) => sql.startsWith('insert into'));
     expect(insert?.sql).toContain('coalesce');
     expect(insert?.sql).toContain('min("pins"."position")');
-    expect(insert?.sql).toContain('on conflict do nothing');
+    expect(insert?.sql).toContain(
+      'on conflict ("user_id","item_type","item_id") do nothing',
+    );
     expect(queries.some(({ sql }) => sql.startsWith('update "pins"'))).toBe(
       false,
     );

@@ -10,7 +10,7 @@ const normalized = migration.replace(/\s+/g, ' ');
 describe('pins position migration', () => {
   it('backfills each owner from the prior pinned-at order before setting NOT NULL', () => {
     expect(normalized).toContain(
-      'ROW_NUMBER() OVER ( PARTITION BY user_id ORDER BY pinned_at DESC, item_id ) - 1',
+      'ROW_NUMBER() OVER ( PARTITION BY user_id ORDER BY pinned_at DESC, item_type, item_id ) - 1',
     );
 
     const noForce = migration.indexOf(

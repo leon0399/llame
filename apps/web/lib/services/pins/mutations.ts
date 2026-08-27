@@ -196,14 +196,25 @@ export async function reorderPins(items: PinnedItem[]): Promise<PinnedItem[]> {
   );
 }
 
+export const pinMutationKeys = {
+  all: ["pins", "mutations"] as const,
+  reorder: () => [...pinMutationKeys.all, "reorder"] as const,
+};
+
 /**
  * Persist a full-list pin reorder from the main rail. Optimistically rewrites
  * the pins cache and invalidates type-filtered pinned list queries so chat/
  * project sidebars ripple without their own DnD.
+ *
+ * Scoped so rapid successive drags run in series — full-list replace makes
+ * last-write-wins only hold when earlier requests finish before later ones
+ * start (same discipline as personalization / org-units tree mutations).
  */
 export function useReorderPins() {
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: pinMutationKeys.reorder(),
+    scope: { id: "pins-reorder" },
     mutationFn: (items: PinnedItem[]) => reorderPins(items),
     onMutate: async (items) => {
       await queryClient.cancelQueries({ queryKey: pinQueryKeys.list() });

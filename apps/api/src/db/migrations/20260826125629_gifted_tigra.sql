@@ -14,7 +14,7 @@ WITH ranked AS (
     item_id,
     (ROW_NUMBER() OVER (
       PARTITION BY user_id
-      ORDER BY pinned_at DESC, item_id
+      ORDER BY pinned_at DESC, item_type, item_id
     ) - 1)::integer AS position
   FROM pins
 )

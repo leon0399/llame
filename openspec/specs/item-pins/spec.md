@@ -114,7 +114,7 @@ The set of pinnable item types SHALL be a strongly-typed, closed enumeration enf
 
 The system SHALL provide the caller's pinned items as a single list mixing all item types, ordered by the caller's owner-controlled rank (head first). Each entry SHALL carry its item type, id, pin timestamp, and a **type-appropriate reference** bearing the display metadata needed to render and open the item (at least a title or name). The reference SHALL be shaped per item type, so that a future item type may contribute its own presentation without changing the pin contract. A pinned reference whose item no longer exists or is no longer accessible to the caller SHALL be omitted from this list rather than surfaced as a broken entry; omitted entries SHALL NOT leave gaps that reorder remaining ranks on read.
 
-#### Scenario: The pinned list mixes types in pin-recency order
+#### Scenario: The pinned list mixes types in owner pin-rank order
 
 - **WHEN** a user has pinned a project and a chat and assigned them an explicit owner rank order
 - **THEN** the pinned list returns both in that owner rank order (not pin-recency), each carrying its type-appropriate reference with the metadata needed to display and open it
