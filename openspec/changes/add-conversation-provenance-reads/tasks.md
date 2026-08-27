@@ -21,7 +21,7 @@ Each branch owns only its section below. Commit and verify one layer before `gh 
 
 **Ownership:** `openspec/changes/add-conversation-provenance-reads/**` only.
 
-- [ ] 1.1 Commit the refined proposal, design, delta specs, follow-up links, and stacked implementation plan as one planning-only layer; verify strict OpenSpec validation, Markdown lint, format check, and `git diff --check` without application-code changes.
+- [x] 1.1 Commit the refined proposal, design, delta specs, follow-up links, and stacked implementation plan as one planning-only layer; verify strict OpenSpec validation, Markdown lint, format check, and `git diff --check` without application-code changes.
 
 ## 2. `conversation-reads/projection` — Stable Sequence and Source-Addressable Projection
 
