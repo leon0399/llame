@@ -82,6 +82,13 @@ export const searchChatDocuments = pgTable(
     lastMessageAt: timestamp('last_message_at', {
       withTimezone: true,
     }).notNull(),
+    // Zero-based UTF-16 offsets in the first/last message's canonical visible
+    // text. Nullable during the projection backfill; writers populate them in
+    // the later locator-aware chunker layer.
+    firstMessageTextOffset: integer('first_message_text_offset'),
+    lastMessageTextOffsetExclusive: integer(
+      'last_message_text_offset_exclusive',
+    ),
     // Original-cased role-labelled chunk text — the snippet source.
     content: text('content').notNull(),
     // Deterministic role-free normalization (NFKC, whitespace-collapsed, lowercased;
