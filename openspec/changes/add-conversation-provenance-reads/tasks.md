@@ -1,16 +1,14 @@
 ## Stack Plan
 
-Create the stack before implementation and keep it linear, bottom to top:
+Create the implementation stack before runtime work and keep it linear, bottom to top:
 
 ```text
 master
   <- conversation-reads/proposal
   <- conversation-reads/projection
-  <- conversation-reads/resolver
+  <- conversation-reads/search
   <- conversation-reads/reader
-  <- conversation-reads/activity
-  <- conversation-reads/replay
-  <- conversation-reads/ui
+  <- conversation-reads/links
   <- conversation-reads/acceptance
   <- conversation-reads/finalize
 ```
@@ -23,98 +21,81 @@ Each branch owns only its section below. Commit and verify one layer before `gh 
 
 **Ownership:** `openspec/changes/add-conversation-provenance-reads/**` only.
 
-- [ ] 1.1 Commit the proposal, design, delta specs, and stacked implementation plan as one planning-only layer; verify `openspec validate add-conversation-provenance-reads --strict`, Markdown lint, format check, and `git diff --check` without application-code changes.
+- [ ] 1.1 Commit the refined proposal, design, delta specs, follow-up links, and stacked implementation plan as one planning-only layer; verify strict OpenSpec validation, Markdown lint, format check, and `git diff --check` without application-code changes.
 
-## 2. `conversation-reads/projection` — Source-Addressable Search Projection
+## 2. `conversation-reads/projection` — Stable Sequence and Source-Addressable Projection
 
 **Base:** `conversation-reads/proposal`
 
-**Ownership:** V1 visible-message renderer and eligibility predicate; search schema/migration; conversation chunker; projection writer; reindex/backfill/coverage operations and their focused tests.
+**Ownership:** Visible-message renderer and eligibility predicate; message-sequence invariant; search schema/migration; conversation chunker; projection writer; reindex/backfill/coverage operations and focused tests.
 
-- [ ] 2.1 Add one shared `visibleMessageTextV1` renderer and immutable-evidence eligibility predicate; verify focused unit tests cover exact `\n\n` joining, retained whitespace, multiple/interleaved text parts, excluded non-text parts, user/completed assistant eligibility, and retryable assistant exclusion.
-- [ ] 2.2 Extend the Drizzle search-document schema with nullable first-message start and last-message exclusive-end UTF-16 offsets, generate the migration, record any required migration exception, and verify migration snapshots plus database migration/schema checks.
-- [ ] 2.3 Make the chunker emit contiguous canonical endpoint offsets, keep role labels/anchors outside them, include locator/version inputs in the internal hash, and bump the chunker version; verify fitting, oversized, multi-message, overlap, Unicode-surrogate, and deterministic no-op cases.
-- [ ] 2.4 Persist locator offsets while preserving embedding invalidation and excluding retryable assistant rows; verify integration tests prove retryable bytes are absent, completed bytes become searchable, unchanged reindex is a no-op, and changed locator/hash state clears stale embeddings.
-- [ ] 2.5 Extend backfill and coverage reporting for current-version locator completeness; verify a giant multi-part fixture converges with no null current-version locators and RLS denies projection access in both cross-tenant directions.
-- [ ] 2.6 Run the projection layer's API unit/integration tests, typecheck, lint, migration check, and sequential API build before creating the resolver branch.
+- [ ] 2.1 Add one shared `visibleMessageText` renderer and immutable-evidence eligibility predicate; first write focused tests for exact `\n\n` joining, retained whitespace, multiple/interleaved text parts, excluded non-text parts, user/completed assistant eligibility, and retryable assistant exclusion.
+- [ ] 2.2 Add and migrate the unique `(chat_id, seq)` invariant without changing existing sequence values; verify duplicates cannot be introduced, normal inserts remain generated/sparse, sequence is unchanged by assistant retry updates, and public safe-integer validation rejects unsafe values.
+- [ ] 2.3 Extend the Drizzle search-document schema with nullable first-message start and last-message exclusive-end UTF-16 offsets; generate the migration, record any required exception, and verify migration snapshots plus database migration/schema checks.
+- [ ] 2.4 Make the chunker emit contiguous internal endpoint offsets, keep role labels/anchors outside them, include locator semantics in the internal hash, and bump the chunker version; verify fitting, oversized, multi-message, overlap, Unicode-surrogate, and deterministic no-op cases.
+- [ ] 2.5 Persist current locators while preserving embedding invalidation and excluding retryable assistant rows; verify unchanged reindex is a no-op, changed locator/hash state clears stale embeddings, and retryable bytes never enter live documents.
+- [ ] 2.6 Extend backfill/coverage reporting for current-version locator completeness; verify a giant multi-part fixture converges with no null current-version locators and RLS denies projection access in both cross-tenant directions.
+- [ ] 2.7 Run projection unit/integration tests, migration checks, API typecheck/lint, and sequential API build before creating the search branch.
 
-## 3. `conversation-reads/resolver` — Canonical Search Result Hydration
+## 3. `conversation-reads/search` — One Canonical Excerpt per Chat
 
 **Base:** `conversation-reads/projection`
 
-**Ownership:** V1 source-reference types/validation; bounded canonical projection hydration; shared ranked candidate result; model-facing content-result shaping; existing web search adapter and focused tests.
+**Ownership:** Shared ranked candidate result; bounded canonical locator hydration; model-facing lexical/trigram result shaping; unchanged web adapter; focused tests. No vector querying or result shaping.
 
-- [ ] 3.1 Define strict V1 message/line/text source-reference discriminators without owner/hash/part/projection fields, while direct selectors remain whole-message or complete line-pair only; verify unsupported versions, partial/mixed coordinate forms, unknown properties, malformed UUIDs, reversed ranges, and unsafe bounds fail before data access.
-- [ ] 3.2 Hydrate one winning document from its two projection offsets and only its first-through-last current eligible messages; verify partial mid-line and boundary messages, complete intermediates, multiple text parts, overlap, synthetic anchors, CRLF/LF, oversized containing lines, and Unicode offsets reconstruct exact source.
-- [ ] 3.3 Refactor the shared ranked-search result to retain internal best-document identity and retrieval-basis diagnostics while keeping the web `id/title/snippet/updatedAt` DTO and ordering compatible; verify existing web/API search tests remain green.
-- [ ] 3.4 Normalize bounded canonical lines with `normalizeForSearch`, resolve FTS/trigram matches with equivalent PostgreSQL predicates, return original raw lines, merge adjacent windows only within each message, keep cross-message passages separately attributed, and fall back to exact text-offset `retrieval_context` for cross-line/mid-line chunks; verify NFKC, collapsed-whitespace, case-only, exact, typo, same-message multi-match, cross-message, cross-line, and synthetic-label fixtures.
-- [ ] 3.5 Add basis-neutral vector-only and title-only shaping without enabling vector querying; verify a synthetic vector winner returns original-language `retrieval_context`, a title-only winner returns metadata only, and neither exposes raw scores or evidence confidence.
-- [ ] 3.6 Skip unauthorized, mutable, deleted, old-version, or otherwise unhydratable winning documents instead of using projection bytes; verify integration tests return fewer safe results and never leak a stale snippet.
-- [ ] 3.7 Run resolver/search unit and integration tests, API typecheck/lint, and sequential API build before creating the reader branch.
+- [ ] 3.1 Refactor the shared ranked result to retain internal best-document identity/retrieval basis while keeping web `id/title/snippet/updatedAt` output and ordering compatible; verify existing web/API search tests remain green.
+- [ ] 3.2 Hydrate the winning current-version document through owner-scoped UUID endpoints, recompute visible text, and map source messages to public `messageSeq`; verify partial boundary messages, complete intermediates, multiple text parts, overlap, synthetic anchors, CRLF/LF, oversized messages, and Unicode offsets.
+- [ ] 3.3 Reapply `normalizeForSearch` and the equivalent winning lexical/trigram predicate to canonical logical lines; form match-plus-one-line windows, merge touching windows per message, and choose the earliest `(messageSeq, offset)` passage; verify NFKC, whitespace collapse, case-only, exact, typo, repeated-match, and cross-line/cross-message-only omission fixtures.
+- [ ] 3.4 Return one excerpt per Chat with role/timestamp, flat `{ chatId, messageSeq, offset, limit }`, at most 500 Unicode code points visibly cropped around a match, and no hash/part/version/line-prefix fields; verify its complete coordinates are accepted directly by `conversation_read` fixtures.
+- [ ] 3.5 Keep title-only winners metadata-only and omit unauthorized, mutable, deleted, old-version, cross-message-only, or otherwise unhydratable winners rather than substituting projection content; verify model results may safely contain fewer Chats than the unchanged web preview.
+- [ ] 3.6 Preserve the current `search_conversations` `{ query, limit }` input and add no vector-only public shape; verify declaration snapshots and model results expose no vector scores, arbitrary source choice, or future #198 fields.
+- [ ] 3.7 Run search/resolver unit and integration tests, API typecheck/lint, and sequential API build before creating the reader branch.
 
-## 4. `conversation-reads/reader` — Bounded Canonical Read Tool
+## 4. `conversation-reads/reader` — Knowledge-Style Message Read Tool
 
-**Base:** `conversation-reads/resolver`
+**Base:** `conversation-reads/search`
 
-**Ownership:** Owner-scoped message-range repository reads; direct/source selector schema; logical-line slicing; bounds/continuation; oversized-message outline; tool declaration/registry; focused tests.
+**Ownership:** Owner-scoped sequence repository reads; strict input/result schema; logical-line extraction/prefixing; bounds/continuation; tool declaration/registry; durable execution compatibility and focused tests.
 
-- [ ] 4.1 Implement owner-scoped boundary ordering and bounded surrounding-message reads in one database snapshot; verify direct lookup, multi-message ranges, missing/deleted IDs, retryable assistant exclusion, empty identity, public/shared paths, and both directions of cross-owner denial.
-- [ ] 4.2 Implement exact logical-line scanning plus server-issued UTF-16 text-offset source slices with LF/CRLF/lone-CR/terminal-delimiter semantics and directly reusable selectors; verify blank/empty messages, complete line pairs, exact mid-line offset ranges, range errors, original delimiters, and the absence of line-number prefixes.
-- [ ] 4.3 Enforce source-first selection with the 20-message, 2,000-line, 15,000-code-unit, and five-message-per-side bounds; verify selected evidence survives before context, continuation is deterministic, generic truncation never clips source, and one non-fitting line returns `conversation_limit_exceeded`.
-- [ ] 4.4 Add the on-demand ATX/backtick-or-tilde-fence outline for oversized direct whole-message reads; verify heading text/depth/line coordinates, fenced false headings, no-outline plain Markdown, and no outline on fitting/search reads.
-- [ ] 4.5 Register `read_conversation_range` as exact-allowlisted and read-only with cancellation and safe observations; verify disabled, advertised, snapshotted, executable, timeout/cancelled, invalid-range, unsupported-version, not-found, continuation, and output-limit paths.
-- [ ] 4.6 Run reader repository/tool unit and integration tests, API typecheck/lint, and sequential API build before creating the activity branch.
+- [ ] 4.1 Implement owner-scoped lookup by `(chatId, messageSeq)` plus nearest eligible previous/next sequences in one database snapshot; verify sparse gaps, first/last message, deleted rows, retryable assistant exclusion, empty identity, public/shared paths, and both directions of cross-owner denial.
+- [ ] 4.2 Define strict `conversation_read` input `{ chatId, messageSeq, offset?, limit? }` with positive safe sequence, zero-based safe offset, and limit 1–2,000; verify malformed UUIDs, unknown properties, negative/fractional/unsafe coordinates, zero/oversized limits, and missing sources fail through their correct validation/resolution path.
+- [ ] 4.3 Implement exact visible-message logical-line scanning and one-based `<line>: <text>` rendering with LF/CRLF/lone-CR/terminal-delimiter semantics; verify blank/empty messages, `\n\n` part boundaries, stored whitespace, direct search coordinates, and generated prefixes that never enter source/hash inputs.
+- [ ] 4.4 Preflight the complete structured result under 2,000-line and 15,000-code-unit bounds; return `nextOffset` and Knowledge-compatible `cutReason`, never generic truncation, and return `conversation_limit_exceeded` when the first selected line cannot fit.
+- [ ] 4.5 Register `conversation_read` as exact-allowlisted/read-only with timeout/cancellation, persistence, settlement, replay, compaction, neutralization, and generic rendering; verify disabled, advertised, snapshotted, executable, timeout/cancelled, invalid-range, not-found, continuation, payload-clearing, and output-limit paths.
+- [ ] 4.6 Verify source deletion never rewrites another Chat's persisted observation while destination-Chat deletion cascades it away.
+- [ ] 4.7 Run reader/tool/Run unit and integration tests, API typecheck/lint, and sequential API build before creating the links branch.
 
-## 5. `conversation-reads/activity` — Safe Historical Tool Activity
+## 5. `conversation-reads/links` — Owner Message Targets
 
 **Base:** `conversation-reads/reader`
 
-**Ownership:** Ordered text/tool activity projector; narrow conversation/Knowledge attribution extractors; reader activity option and focused security/bound tests.
+**Ownership:** Owner-scoped target loading by sequence; `/chat/<chatId>#msg-<messageSeq>` anchors; copy-link affordance; focused API/web/UI tests. Tool-call output continues through the generic renderer.
 
-- [ ] 5.1 Project visible text line regions and settled tool entries in stored order, using `toolId` exclusively for the canonical callable ID from the immutable Run declaration and admitting only declared conversation/Knowledge attribution; verify reasoning, raw arguments/results, provider metadata, per-invocation call IDs, prompts, credentials, arbitrary MCP payloads, and causal claims remain absent.
-- [ ] 5.2 Integrate optional activity into read preflight as an all-or-error addition; verify text/tool order remains correct and a non-fitting activity request returns `conversation_limit_exceeded` rather than a partial or generically truncated sequence.
-- [ ] 5.3 Run activity/reader unit and integration tests, API typecheck/lint, and sequential API build before creating the replay branch.
+- [ ] 5.1 Add the smallest owner-scoped API/query path needed to load a target message sequence and enough existing history pagination state to render it; verify missing, deleted, public/shared, and other-owner targets reveal no foreign existence.
+- [ ] 5.2 Anchor rendered owner messages as `msg-<messageSeq>`, load/scroll deterministically on direct navigation, and preserve normal newest-message landing when no target exists; verify sparse/global sequences are treated as opaque values rather than dense indexes.
+- [ ] 5.3 Add a copyable message link using the canonical singular `/chat/<chatId>#msg-<messageSeq>` route without exposing internal message UUIDs.
+- [ ] 5.4 Verify current and reloaded history use the same anchor, forked Chats produce their own sequence links, and generic `conversation_read` tool rendering remains unchanged.
+- [ ] 5.5 Run affected API/web/UI tests, Storybook story tests for any changed message action, typechecks/lints, and sequential builds before creating the acceptance branch.
 
-## 6. `conversation-reads/replay` — Durable Settlement and Replay
+## 6. `conversation-reads/acceptance` — Product Proof, Rollout, and Documentation
 
-**Base:** `conversation-reads/activity`
+**Base:** `conversation-reads/links`
 
-**Ownership:** Run/tool observation persistence, payload-cleared outcome projection, compaction/replay compatibility, queued-Run acceptance tests, and no UI styling.
+**Ownership:** Cross-layer E2E, prompts/tool descriptions, config/operator docs, rollout/rollback docs, ROADMAP, and CHANGELOG. Runtime feature code belongs below.
 
-- [ ] 6.1 Preserve complete and continuing conversation-read results through Run events, assistant settlement, browser history responses, ordinary replay, and compaction; verify full payloads remain verbatim, source deletion does not rewrite another Chat's historical observation, destination-Chat deletion cascades it away, and payload-cleared `complete: false` observations retain `incomplete` rather than success.
-- [ ] 6.2 Add queued-Run integration coverage for model search followed by canonical expansion, giant-message continuation, cross-language vector fixture, deleted source, retryable assistant exclusion, activity metadata, cancellation, and cross-tenant denial; verify persisted call/result pairs reconstruct after reload.
-- [ ] 6.3 Run affected Run/chat unit and integration suites, API typecheck/lint, and sequential API build before creating the UI branch.
+- [ ] 6.1 Add queued-Run and product E2E for lexical search to canonical excerpt to `conversation_read`, continuation/reload, pasted owner message links, giant multi-part messages, retryable/deleted sources, cancellation, and cross-tenant denial; verify persisted call/result pairs reconstruct after reload without vector, outline, activity, or custom tool UI behavior.
+- [ ] 6.2 Update packaged prompt/tool descriptions to distinguish bounded discovery excerpts from exact numbered reads and frame recalled conversation text as untrusted historical data; verify declaration snapshots expose no implementation-only UUID, hash, version, or projection fields.
+- [ ] 6.3 Update example allowlists and operator/tool documentation for explicit `conversation_read` enablement, sequence/line selectors, bounds, continuation, links, and closed errors; verify configuration tests and Markdown lint.
+- [ ] 6.4 Document message-sequence uniqueness, nullable locator preparation, per-Chat live-version replacement, current candidate predicates, coverage, quiesce/drain declaration cutover, and reverse rollback routing; verify cross-links to #197, #198, #609, #611, #615, #616, #617, and #618 remain accurate.
+- [ ] 6.5 Update `ROADMAP.md` and the dated `CHANGELOG.md` entry without claiming vector recall, activity, outlines, branching, or performance work shipped.
+- [ ] 6.6 Run affected API/web/UI tests, root E2E, typechecks, lints, AST/Markdown/format checks, and affected workspace builds sequentially; record environment failures without converting partial output into a passing claim.
 
-## 7. `conversation-reads/ui` — Structured Conversation Evidence UI
-
-**Base:** `conversation-reads/replay`
-
-**Ownership:** Shared UI renderer/components/stories and web mapping for conversation references, message/line links, outlines, continuation, and activity; generic structured fallback remains intact.
-
-- [ ] 7.1 Add structured rendering for conversation source references, exact slices, heading outlines, continuation state, and historical tool activity while retaining the generic JSON fallback; verify component stories cover complete/incomplete/error, giant-message, multi-message, and activity variants.
-- [ ] 7.2 Wire browser history reconstruction and message links to the renderer without changing public-share text-only egress; verify affected web/UI tests and public-share negative fixtures.
-- [ ] 7.3 Run affected Storybook story tests through the Storybook workflow, record preview URLs, then run UI/web typechecks, lints, tests, and sequential builds before creating the acceptance branch.
-
-## 8. `conversation-reads/acceptance` — Product Proof, Rollout, and Documentation
-
-**Base:** `conversation-reads/ui`
-
-**Ownership:** Product E2E, performance evidence, packaged prompts/tool descriptions, config/operator docs, rollout/rollback docs, ROADMAP, and CHANGELOG. Runtime feature code belongs below.
-
-- [ ] 8.1 Add bounded product E2E for search-to-read, reload, direct giant-message navigation, message-bounded source-reference fixtures compatible with future #198 timeline mode, and another-owner denial; verify the production-build Playwright harness passes without implementing timeline discovery or exposing reasoning/raw tool payloads.
-- [ ] 8.2 Update packaged prompt/tool descriptions to distinguish canonical quotes, vector retrieval context, metadata-only title hits, historical activity, and untrusted prior content; verify prompt/declaration snapshots expose no implementation-only fields.
-- [ ] 8.3 Update example allowlists and operator/tool documentation for explicit enablement, V1 references, bounds, continuations, and closed errors; verify configuration tests and Markdown lint.
-- [ ] 8.4 Document nullable schema preparation, per-chat live-version replacement, explicit legacy/current candidate predicates, locator coverage, quiesce/drain declaration cutover, and reverse rollback routing in API/scaling guidance; verify offsetless rows cannot hydrate and cross-links to #197, #198, #609, and #611 remain accurate.
-- [ ] 8.5 Record before/after lexical model-search p50/p95 on representative small and giant chats; verify hydration stays inside the accepted interactive budget and add no optimization unless measurements fail it.
-- [ ] 8.6 Update `ROADMAP.md` and the dated `CHANGELOG.md` entry without claiming hybrid/vector or retry/edit semantics shipped; verify both remain forward/shipped-only respectively.
-- [ ] 8.7 Run affected API/web/UI tests, root E2E, typechecks, lints, AST/Markdown/format checks, and affected workspace builds sequentially; record environment failures without converting partial output into a passing claim.
-
-## 9. `conversation-reads/finalize` — Canonical Spec Sync and Archive
+## 7. `conversation-reads/finalize` — Canonical Spec Sync and Archive
 
 **Base:** `conversation-reads/acceptance`
 
 **Ownership:** Canonical OpenSpec synchronization and archival only; no runtime, migration, UI, or product-behavior changes.
 
-- [ ] 9.1 Sync the verified `conversation-reads`, `chat-search`, `search-projection`, and `tool-calling` deltas into canonical specs; verify the canonical diff matches shipped behavior and introduces no unrelated spec edits.
-- [ ] 9.2 Archive `add-conversation-provenance-reads` after every implementation task is complete; verify strict OpenSpec validation passes for canonical specs and the archived change.
-- [ ] 9.3 Confirm the finalization layer contains only spec/archive movement and no runtime diff, then run Markdown/format checks and `git diff --check` before submitting the top PR.
+- [ ] 7.1 Sync the verified `conversation-reads`, `chat-search`, `search-projection`, and `tool-calling` deltas into canonical specs; verify the canonical diff matches shipped behavior and introduces no unrelated edits.
+- [ ] 7.2 Archive `add-conversation-provenance-reads` after every implementation task is complete; verify strict OpenSpec validation passes for canonical specs and the archived change.
+- [ ] 7.3 Confirm the finalization layer contains only spec/archive movement and no runtime diff, then run Markdown/format checks and `git diff --check` before submitting the top PR.

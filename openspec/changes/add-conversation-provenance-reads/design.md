@@ -1,188 +1,145 @@
 ## Context
 
-See [proposal.md](proposal.md) for motivation. The current model-facing `search_conversations` result is the web search shape: one chat-level result with a `ts_headline` snippet rendered from `search_chat_documents.content`. That projection content deliberately contains role labels and may contain a synthetic preceding-user anchor; its hash also covers normalized text, chunker version, and message range. None is canonical quotation material.
+The current model-facing `search_conversations` result is the web search shape: one Chat result with a `ts_headline` snippet rendered from `search_chat_documents.content`. Projection content deliberately carries presentation role labels and may carry a synthetic preceding-user anchor. Its hash covers normalized text and chunking inputs. None of those bytes is canonical quotation material.
 
-Canonical message content remains `messages.parts`. Parts have stored array order but no stable part IDs, and ordinary assistant messages may contain several visible text parts interleaved with reasoning and tool parts. A real local conversation contains a 31,011-character assistant text part with 981 logical lines and 69 headings, so loading every selected message wholesale cannot stay beneath the 16,000-code-unit common tool-result cap.
+Canonical message content remains `messages.parts`. Parts have stored array order but no stable part IDs, and assistant messages may contain several visible text parts interleaved with reasoning and tool parts. A real local conversation contains a 31,011-character assistant text part with 981 logical lines, so direct message reads require the same bounded line workflow already proven by `knowledge_read`.
 
-Messages already have stable UUID identity and monotonic `seq` order. User messages and completed/legacy assistant messages are application-immutable. The current failed/cancelled/expired retry path is the exception: it may replace an assistant row's parts under the same ID. Issue #611 owns the unified retry/edit/branching redesign; this change must not present those retryable rows as immutable evidence in the meantime.
+Messages have stable UUID identity and a generated, sparse, immutable `seq` ordering key. The UUID is necessary internally for FKs and reply edges; `(chatId, seq)` is materially cheaper and more legible for model-facing references. User messages and completed/legacy assistant messages are application-immutable. The current failed/cancelled/expired retry path may replace an assistant row's parts under the same ID and sequence; #611 owns the redesign, so those rows are not evidence sources here.
 
-This design deliberately corrects two older issue-body premises. First, it keeps `#609` scoped to provenance hydration and bounded reads rather than absorbing `#198`'s final discovery union and timeline input shape. Second, it rejects model-facing part IDs and source hashes: direct links and search follow-ups need stable message identity plus canonical bounded reads, not another token-heavy locator layer that still depends on mutable-history semantics.
+This design deliberately narrows the older issue body and the first proposal draft. It rejects public part identity, source hashes, multi-message/text-range unions, surrounding-context completeness, historical activity, Markdown outlines, vector-only shaping, and a performance gate. The file-reader precedent is stronger: search returns a bounded excerpt and line coordinates; read accepts one stable source plus `offset`/`limit` and returns numbered content plus `nextOffset`.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Derive exact, message-attributed conversation evidence from current canonical parts.
-- Make direct message links and search hits readable without exposing part indexes.
-- Keep giant Markdown-shaped messages navigable under existing tool budgets.
-- Preserve one ranking path for web and model surfaces while giving them different output projections.
-- Provide one source-reference and bounded-read contract that current content search and #198's later content/timeline discovery shapes can share.
-- Add only the minimum derived locator state needed to avoid re-chunking whole winning chats.
-- Preserve current RLS, immutable Run declaration, settlement, replay, and coordinated deployment boundaries.
+- Derive current canonical visible text from one owner-authorized message.
+- Make lexical/trigram search hits and owner-facing message links reusable through one compact sequence-and-line selector.
+- Keep long messages readable under existing tool budgets without generic truncation.
+- Preserve one ranking path for web and model surfaces while giving them different result projections.
+- Add only the minimum derived locator state needed to hydrate a winning document.
+- Preserve RLS, immutable Run declarations, settlement, replay, and coordinated deployment boundaries.
 
 **Non-Goals:**
 
 - Retry, regeneration, user-message edit, fork, or message-DAG semantics (#611).
-- Timeline discovery, temporal ranking, or the final strict search union (#198).
-- Vector candidate generation or RRF tuning (#197); this design only defines how any winning document resolves.
-- Full Markdown parsing, persisted message outlines, generated summaries, semantic span selection, translation, reranking, or answer-support scoring.
-- Raw reasoning replay, unrestricted historical tool-result replay, or a claim that tool execution caused a later answer.
+- Timeline discovery, temporal ranking, or the final strict discovery union (#198).
+- Vector candidate generation, vector-result shaping, or RRF tuning (#197/#198).
+- Multi-region-per-Chat results, cross-message citation objects, generated summaries, or answer-support scoring.
+- Historical execution activity, reasoning replay, or unrestricted tool-result replay.
+- Markdown outlines, indexed heading paths, document overviews, or generated synopses (#541/#544/#572/#616).
+- Latency targets, benchmark infrastructure, or speculative optimization (#617).
 
 ## Decisions
 
-### D1. Recompute one versioned visible-message view; persist no duplicate message text
+### D1. Derive one stable message-scoped visible-text view
 
-`visibleMessageTextV1(parts)` filters exact `type: "text"` parts, keeps stored order, and joins their stored strings with exactly `\n\n`. It performs no trim or normalization. One message produces one independent line-number space; messages are never concatenated into a transcript string.
+`visibleMessageText(parts)` filters exact `type: "text"` parts, keeps stored order, and joins their stored strings with exactly `\n\n`. It performs no trim, normalization, or cross-message concatenation. Reasoning, tool parts, context items, attachments, and other display-only parts contribute no bytes.
 
-This function is shared by the chat-search chunker and canonical reader. The read path recomputes it for only the bounded messages it returns. `search_chat_documents` keeps its existing chunk `content` and normalized lexical content but gains no whole-message visible-text column.
+The function is shared by the search chunker and reader. The read path recomputes it only for the selected message. `search_chat_documents` keeps its existing presentation and normalized lexical columns but gains no whole-message visible-text copy.
 
-The public source reference carries `version: 1`. The projection's existing `chunker_version` invalidates rows when visible-text semantics change. A future source-reference version may keep the tiny V1 serializer for historical locators; if it does not, it must reject V1 explicitly rather than reinterpret lines. A dedicated `visible_text_version` database column was rejected: every stored locator is already authored by a particular chunker version, and no independent concurrent view versions exist.
+The public contract carries no visible-text version. This serializer is a stable compatibility boundary rather than a replaceable presentation helper. A future corpus view with different inclusion or joining rules must use a new declaration/field contract or retain these semantics; it cannot reinterpret persisted line coordinates silently. The internal chunker version still changes whenever locator or representation semantics change.
 
-Storing visible text beside `messages.parts` was rejected because it creates a second canonical-looking copy, write-order drift, migration work, and deletion/retention duplication for text that is cheap to derive.
+Persisting visible text beside `messages.parts` was rejected because it creates a second canonical-looking copy, write-order drift, migration work, and duplicated deletion/retention behavior for text that is cheap to derive.
 
-### D2. Use immutable message identity instead of a model-facing hash or part identity
+### D2. Use sparse message sequence publicly and UUID identity internally
 
-Source references use chat/message identity plus visible-text lines. They contain no `partId`, `partIndex`, projection ID, or source hash. A direct user link needs only `chatId` and `messageId`; the server returns every eligible visible text part through the joined view.
+Public selectors use `chatId` plus positive safe-integer `messageSeq`. The database adds a unique constraint over `(chat_id, seq)` and the application treats sequence as immutable authored order. PostgreSQL allocates sequence globally, so values are sparse within one Chat and never imply `previous = seq - 1`.
 
-Hash-free locators depend on immutable evidence eligibility. The shared eligibility predicate includes user messages and assistant messages for which the existing completion classifier says content is immutable. Retryable assistant rows are excluded from projection authoring and conversation reads until #611 removes the in-place mutation path. Deletion becomes `conversation_source_not_found`; owner RLS and explicit owner predicates make foreign, absent, and deleted identities indistinguishable.
+Search and read results return the closest currently eligible `previousMessageSeq` and `nextMessageSeq` where navigation is relevant. Those values are resolved under current owner scope and skip deleted, mutable, and otherwise ineligible messages. UUID message IDs remain internal to persistence, projection endpoints, Runs, `inReplyTo`, and branch/fork implementation.
 
-This is a conscious issue-body change, not an omission. Adding SHA-256 to every result was rejected because it duplicates UUID token cost while detecting no permitted mutation. Adding a message revision column was rejected because #611, not this read capability, owns revision semantics. The existing projection `content_hash` remains internal and load-bearing for no-op rebuilds and embedding invalidation.
+Owner-facing links use `/chat/<chatId>#msg-<messageSeq>`. The hash is navigation, not authority; the web and model reader independently reauthorize the Chat/message. Forked Chats receive new Chat identity and newly allocated sequences. If #611 later adds within-Chat branches, `messageSeq` remains the stable authored-message locator while branch membership and branch-relative adjacency become separate semantics.
 
-### D3. Use structured versioned source references with complete discriminated boundaries
+Part IDs/indexes were rejected because stored interleaving makes them an application representation detail. Public message UUIDs were rejected because they duplicate the already-required Chat UUID token cost without improving authority or source stability. Source hashes were rejected because no eligible content mutation is permitted; the projection's internal hash remains load-bearing for rebuild and embedding validity.
 
-The V1 reference is an ordinary object, not a signed/opaque capability:
+### D3. Make model search return one bounded discovery excerpt per Chat
 
-```ts
-type ConversationSourceRefV1 = {
-  version: 1;
-  chatId: string;
-  range:
-    | { kind: "messages"; startMessageId: string; endMessageId: string }
-    | {
-        kind: "lines";
-        start: { messageId: string; line: number };
-        end: { messageId: string; lineExclusive: number };
-      }
-    | {
-        kind: "text";
-        start: { messageId: string; offset: number };
-        end: { messageId: string; offsetExclusive: number };
-      };
-};
-```
-
-`messages` addresses complete boundary messages; `lines` is the normal model-facing navigation form; `text` exists only for server-issued chunk boundaries that fall inside a logical line. Every form contains complete start/end fields, and direct selectors similarly require both `startLine` and `lineCount` or neither. Multi-message line/text ranges apply the start coordinate to the first message, the exclusive end coordinate to the last, and include complete intermediate messages. Every read re-resolves message `seq` ordering and authority; client ordering is never trusted.
-
-Signing/encryption was rejected because authorization is always current and server-side. A stateful hit table was rejected because it creates cleanup, retention, replay, and accidental-capability semantics. Flat `firstMessageId`/`lastMessageId` fields were rejected for the public object because nested start/end points make half-open boundary meaning explicit without adding part coordinates.
-
-### D4. Add only two boundary offsets to each derived search document
-
-The chunker already records first/last message IDs and timestamps. Each chunk additionally records:
-
-```text
-first_message_text_offset
-last_message_text_offset_exclusive
-```
-
-Both are UTF-16 code-unit offsets into the corresponding V1 visible-message string, matching TypeScript string slicing. The chunk's canonical source is the first message from its start offset, every complete eligible message between the boundaries, and the last message through its exclusive end offset. A single-message chunk uses both offsets in that one view.
-
-Chunk groups are contiguous in eligible source order even when they overlap the previous group. Synthetic role labels and continuation anchors exist only in presentation `content` and have no source interval. The internal content hash adds visible-text version and both boundary offsets to its input, so a coordinate change cannot survive a hash no-op.
-
-A JSON source-map array was rejected because the public contract no longer addresses parts and a contiguous interval needs only endpoints. Persisted line numbers were rejected because line boundaries derive cheaply from the bounded canonical text and character-boundary splitting may start or end within a line. Re-chunking the entire winning chat at query time was retained only as a possible migration fallback; the referenced 813 KB chat makes it the wrong steady-state hot path.
-
-### D5. Keep ranking shared; split preview shaping from canonical hydration
-
-The shared candidate query returns the existing chat data plus internal best-document identity and retrieval-basis ranks. The web service maps it to the unchanged `id/title/snippet/updatedAt` DTO. The model tool passes content winners through a canonical resolver:
+The shared candidate query retains the existing Chat rank order and internal best-document identity. The web adapter continues to return the current `id/title/snippet/updatedAt` DTO from projection presentation content. The model adapter handles current lexical/trigram content winners as follows:
 
 1. Load the winning current-version projection locator under owner scope.
-2. Load only its first-through-last messages under the same owner.
-3. Recompute V1 visible text and slice the exact document source interval.
-4. For each lexical/trigram basis, apply `normalizeForSearch` (NFKC, whitespace collapse, lowercasing) to each bounded canonical logical line, rerun the equivalent PostgreSQL predicate against that normalized value, and retain the original raw source line for output.
-5. Expand each matched line by one adjacent source line on either side, group by message, and transitively merge touching windows only within that message.
-6. If no individual line independently matches—such as a cross-line FTS match—return the exact chunk-aligned interval as `retrieval_context` rather than manufacture a quote.
+2. Load only its bounded first-through-last eligible messages under the same owner.
+3. Recompute visible text and slice the exact internal source interval.
+4. Apply `normalizeForSearch` and the equivalent winning lexical/trigram predicate to message-local logical lines.
+5. Form each matched line's window with at most one adjacent line per side, merge touching windows within that message, and select the earliest resulting passage in canonical `(messageSeq, offset)` order.
+6. Return at most 500 Unicode code points cropped visibly around a match, while `offset` and `limit` identify the complete message-local line window accepted by `conversation_read`.
 
-Matches in different messages become separate ordered passages with independent attribution and source references. The resolver never concatenates them into one quote.
+The excerpt is current canonical-derived discovery text, not a promise that the complete line window is present or citation-ready. The packaged tool description directs the model to call `conversation_read` before quoting or relying on omitted context. The excerpt carries no generated line-number prefix; the reader owns that navigation presentation.
 
-A future vector-only winner follows steps 1–3 and returns bounded original-language `retrieval_context`; a vector has no line-selection semantics. A title-only winner is metadata-only. A document that cannot hydrate is skipped and never falls back to projection bytes.
+If a winning projection document cannot produce an individually matching current message-local line, or cannot be authorized/hydrated, the model result is omitted rather than replaced by projection bytes or a cross-message source object. A title-only winner remains metadata-only. The model may therefore return fewer results than the web surface after canonical shaping; `limit` remains a maximum, not a completeness claim.
 
-When a chunk begins or ends inside a logical line, its vector/cross-line retrieval context carries the exact server-issued `text` range. The public passage MAY also report containing line metadata for navigation, but the text offsets—not line expansion—round-trip the exact chunk bytes and remain bounded even when the containing line is larger than the read-result cap.
+Only one passage is returned per Chat in this iteration. Returning several contributing documents is an eval-gated follow-up (#618). Vector-only winner shaping is deferred until #197/#198 provides a real candidate path; the current change retains enough internal source coordinates for that later decision without inventing a public result now.
 
-The strict discriminated union for content versus timeline discovery remains `#198` work. This design only constrains what happens after some search surface chooses a winning content document or emits a message-bounded timeline pointer.
+### D4. Persist only two internal boundary offsets per search document
 
-Duplicating the ranking query for the model was rejected because web and model relevance would drift. Returning the web snippet to the model was rejected because labels, anchors, normalization, and `ts_headline` fragment selection are not source provenance.
+The chunker already records first/last message UUIDs and timestamps. Each document additionally records a zero-based UTF-16 start offset in the first message's visible-text view and a zero-based exclusive UTF-16 end offset in the last message's view. Intermediate covered messages are complete. A single-message document uses both offsets in one view.
 
-### D6. Make reads line-addressable, source-first, and preflighted
+Chunk groups remain contiguous in eligible source order even when they overlap. Synthetic role labels and continuation anchors exist only in presentation `content` and lie outside the canonical source interval. The internal content hash covers visible-text semantics, both representations, chunker version, covered UUID identities, and both offsets.
 
-`read_conversation_range` accepts a strict union of a server-issued `sourceRef` or a direct `chatId`/`messageId` selector with optional line range. Either form may request up to five eligible surrounding messages in each direction. The repository resolves source boundaries by `seq` in one owner-scoped database snapshot.
+Persisted line numbers were rejected because line windows derive cheaply from bounded canonical text. A generic source-map array was rejected because the public reader addresses one message at a time and the internal contiguous interval needs only endpoints. Rechunking an entire winning Chat at query time remains a migration fallback, not the steady-state hot path.
 
-Direct selectors accept only a complete line pair (`startLine` plus `lineCount`) or a whole message. Server-issued refs may carry message, line, or text-offset ranges. Line slices are preferred for navigation and surrounding context; a text-offset source returns its exact bounded substring before any whole-line context, so a mid-line chunk remains readable without exposing text offsets as a user-authored selector.
+### D5. Make `conversation_read` the conversation equivalent of `knowledge_read`
 
-The reader selects the requested source before optional context. It trims the farthest requested context first if the 20-message, 2,000-line, or 15,000-code-unit result bound would otherwise displace source evidence. It returns messages chronologically, reports `complete: false` for omitted requested source/context, and supplies direct next/previous selectors. Direct selectors intentionally allow a model to continue within the owner's history; continuation is not authorization.
+`conversation_read` accepts a strict object containing `chatId`, positive safe-integer `messageSeq`, optional zero-based safe-integer `offset`, and optional `limit` from 1 through 2,000. Omitted `offset` means zero. Omitted `limit` requests through the current end of the message, still subject to server bounds.
 
-Line parsing reuses the Knowledge contract: LF terminates a line, CRLF is one delimiter, lone CR is content, and a terminal delimiter creates no phantom line. Returned `text` retains original delimiters and receives no `N:` line prefix. That preserves Markdown, keeps quotation bytes exact relative to V1, and avoids one numeric prefix per line. A single line that cannot fit returns `conversation_limit_exceeded`; character-range continuation is deferred until a real case requires it.
+Logical lines reuse the Knowledge contract: LF terminates a line, CRLF is one delimiter, lone CR is content, blank lines count, and a terminal delimiter creates no phantom line. Every returned line is rendered as `<one-based line number>: <exact source line>`. The numeric prefix is navigation metadata, not message content. All visible text parts participate in one message-relative line space through D1's exact `\n\n` joining rule.
 
-Letting generic tool truncation shrink a source string was rejected because it can turn a partial quote or activity list into an apparently complete observation. The reader measures the exact JSON projection before returning success.
+Success returns Chat/message sequence, role, timestamp, effective `offset`, returned `lineCount`, line-numbered `content`, and the closest eligible previous/next message sequences. When current logical lines remain, it returns `nextOffset = offset + lineCount`. It returns `cutReason: "line_limit"` or `"output_limit"` only when the corresponding server bound, rather than an explicit caller limit, stopped the requested range.
 
-### D7. Derive a small on-demand outline only for oversized direct-message reads
+One result contains at most 2,000 logical lines and at most 15,000 JavaScript UTF-16 code units. The reader measures the complete structured result before success and omits the first whole line that cannot fit. If the first selected line cannot fit, it returns `conversation_limit_exceeded` rather than clipping an unrecoverable character range. Generic tool truncation never clips successful source content.
 
-When a direct whole-message read cannot fit, an on-demand V1 outline scanner returns bounded ATX headings (`#` through `######`) outside backtick/tilde fenced code. Entries carry depth, zero-based source line, and exact heading text. The result also returns the initial exact slice and continuation. No headings yields an empty outline; malformed Markdown cannot block plain line reads.
+Character offsets, multi-message ranges, surrounding-message embedding, opaque cursors, source/context completeness flags, outlines (#616), and activity (#615) are rejected for this iteration. The model continues a long message with `nextOffset` and navigates chronology through explicit previous/next sequences.
 
-The scanner is deliberately not a general Markdown AST. Setext headings, semantic sections, generated summaries, and stored tables of contents are excluded. #541/#544 may later provide a shared full Markdown parser, but this change must not depend on an indexed Knowledge roadmap. Returning outlines on every search hit was rejected because the referenced real message has 69 headings and most reads do not need them.
+### D6. Treat authorization and failure as current owner-scoped resolution
 
-### D8. Project safe tool activity separately from conversation evidence
+Owner identity comes only from trusted authenticated Run context. Every call resolves the Chat, sequence, eligibility, and neighboring eligible sequences under current owner RLS plus explicit owner predicates. A source selector is a locator, never a capability.
 
-`includeActivity` walks the returned assistant message's stored parts and emits an ordered sequence of visible text line regions and settled tool entries. Text regions reference the V1 line space; each tool entry's `toolId` is the canonical callable ID from the immutable Run declaration (`search_conversations`, `knowledge_read`, or `mcp__server__tool`), never the per-invocation call ID. Entries otherwise contain only the closed outcome and narrow code-owned source attribution extractors for conversation references and Knowledge identity/path/range fields.
+Malformed input fails strict validation before data access. A well-formed missing, deleted, retryable, public/shared-without-owner, or other-owner source returns the same `conversation_source_not_found` observation. Empty trusted identity fails closed. An offset beyond the current line range returns `conversation_range_invalid`; an empty visible message read at offset zero succeeds with empty content.
 
-Reasoning parts produce no text or pseudo-explanation. Raw tool arguments, unrestricted result bodies, provider metadata, prompts, secrets, call IDs, and arbitrary MCP attribution are excluded. The response labels activity as historical execution metadata, not evidence or causation. Activity plus text must fully preflight; if it cannot fit, the caller receives `conversation_limit_exceeded` and can retry with a narrower source or without activity.
+Search uses the same eligibility predicate. User messages and assistant messages classified as completed or legacy-immutable are readable. Retryable assistant rows remain visible in the owner's ordinary Chat UI but do not enter evidence search or `conversation_read` until #611 replaces their in-place mutation semantics.
 
-Raw historical replay was rejected because stored results may be stale, payload-cleared, sensitive, or much larger than the read. Tool-name-only unordered counts were rejected because they cannot answer whether a search occurred before or after an assistant text region.
+### D7. Keep links and tool rendering simple
 
-### D9. Reuse durable tool persistence while preserving authored observations
+The owner Chat surface assigns each rendered message the stable `msg-<messageSeq>` anchor, supports direct loading/scrolling to `/chat/<chatId>#msg-<messageSeq>`, and offers a copyable owner link. Target loading resolves by owner-scoped sequence rather than exposing UUID identity. Missing or unauthorized targets reveal no foreign existence.
 
-The new tool uses the existing code-owned declaration registry, exact allowlist, immutable Run snapshot, execution rebinding, cancellation, settlement, neutralization, and generic structured UI. Full results persist in Run events and assistant tool-result parts exactly as authored. Replay never rereads messages or reparses outlines.
+`conversation_read` uses the existing generic structured tool renderer. No specialized source card, outline, activity timeline, or range widget ships here. The result shape is intentionally parallel to `knowledge_read`, so model and human readers see familiar sequence/line metadata even through the generic tool panel.
 
-A successful page with `complete: false` retains `incomplete` when any replay projection clears its payload, matching Knowledge's honesty rule. Complete pages remain success. A specialized UI may render chat/message links, line ranges, outlines, and activity, but generic structured rendering remains the compatibility floor.
+### D8. Reuse durable persistence without rehydrating history
 
-Historical read text follows the destination Chat, not the later source. If the source message is deleted or access is lost, new calls return `conversation_source_not_found`, while an already persisted owner-visible observation remains verbatim like any other historical tool result. There is no cross-Chat redaction link. Deleting the destination Chat cascades through its messages and `runs.chat_id` to Runs and append-only Run events; `runs.message_id ON DELETE SET NULL` only preserves a Run when an individual triggering message is removed while its Chat remains.
+The tool uses the existing code-owned declaration registry, exact allowlist, immutable Run snapshot, execution rebinding, timeout/cancellation, settlement, neutralization, persistence, replay, compaction, and generic browser rendering. Full bounded results persist exactly as authored; replay never rereads messages or renumbers historical content.
 
-### D10. Stage the projection and declaration cutovers with explicit version gates
+A persisted read observation follows the destination Chat. If its source is later deleted or unavailable, a fresh call returns `conversation_source_not_found`, while the already recorded owner-visible observation remains verbatim like other historical tool results. Deleting the destination Chat removes its messages, Runs, and Run events through the existing cascade lifecycle.
 
-The derived projection migration adds nullable offset columns first so existing binaries remain compatible. New chunker writers populate them under one named bumped `SOURCE_LOCATOR_CHUNKER_VERSION`. The per-chat invariant remains: one Chat's live rows carry one chunker version, while different Chats may temporarily be on legacy or bumped versions during backfill.
+### D9. Stage projection and declaration cutovers explicitly
 
-Routing is phase-specific:
+The schema preparation adds the message sequence uniqueness constraint and nullable projection offset columns while existing binaries remain compatible. New chunker writers populate offsets under one named bumped `SOURCE_LOCATOR_CHUNKER_VERSION`. One Chat's live projection rows carry one chunker version; different Chats may temporarily differ during backfill.
 
-1. **Preparation/backfill:** existing web and legacy model shaping may rank either live version because both retain presentation `content`; canonical hydration remains disabled. The writer atomically replaces one Chat's legacy rows with bumped rows, never mixes both in that Chat.
-2. **Canonical cutover/steady state:** coverage must show every eligible Chat on `SOURCE_LOCATOR_CHUNKER_VERSION`. Model-facing canonical candidate CTEs require that exact version and non-null start/end offsets; rows failing either predicate cannot hydrate. Web preview may use those same current rows without reading offsets.
-3. **Rollback:** disable the canonical model declaration/shaping first while compatible binaries still run. Legacy derived-preview shaping may read either presentation-compatible live version during rollback, but canonical hydration stays gated off. Older writers then reindex each Chat back to their declared legacy version; only after that convergence may the nullable locator columns be ignored. Current-version rows are never interpreted with legacy locator semantics.
+During preparation/backfill, existing web/model preview shaping may rank presentation-compatible rows while canonical model excerpts remain disabled. The writer atomically replaces one Chat's legacy rows with current rows. Canonical cutover requires coverage proving every eligible Chat uses the named version with non-null offsets; only those rows can hydrate. Web preview may use current presentation columns without reading locators.
 
-This intentionally does not require current-version rows to disappear from legacy preview shaping before rollback completes: their presentation columns are compatible and excluding them would create search gaps. The hard gate is that legacy/offsetless rows never enter canonical hydration and locator offsets are interpreted only under the named current version.
+Rollback disables canonical model shaping and `conversation_read` first. Presentation-compatible preview may temporarily read either live version while older writers rebuild Chats to their legacy version; canonical hydration never interprets legacy/offsetless rows. Nullable locator columns remain in place.
 
-The new/changed code-owned tool declarations remain a coordinated API/worker boundary. Quiesce new Run acceptance, drain Runs bound to the prior declarations, deploy matching API and worker binaries after projection coverage, then resume. Configuration must explicitly allowlist `read_conversation_range`; adding the binary does not silently enable it.
+Changing the code-owned search/read declarations remains a coordinated API/worker boundary. Quiesce new Run acceptance, drain Runs bound to prior declarations, deploy matching API/workers after projection coverage, then resume. Configuration must explicitly allowlist `conversation_read`.
 
 ## Risks / Trade-offs
 
-- [Retryable assistant messages disappear from episodic evidence until #611] → Keep them visible in ordinary owner chat history; exclude only the citation/search projection whose identity premise they violate.
-- [Canonical line hydration adds post-ranking work] → Persist two compact source endpoints and hydrate only bounded winning documents; record search p50/p95 before and after.
-- [A query matches only across line boundaries] → Return honest exact retrieval context instead of inventing a matching line.
-- [A chunk boundary falls inside one huge logical line] → Carry a server-issued complete UTF-16 text-offset range; keep direct/model-authored navigation line-based.
-- [V1 `\n\n` separators are application-authored structure] → Define V1 as the canonical visible transcript rendering and never claim it is a contiguous raw-part substring.
-- [The lightweight outline scanner differs from full CommonMark] → Specify the intentionally recognized ATX/fence subset and keep outlines navigation-only.
-- [Tool activity is mistaken for causal explanation] → Label it historical execution metadata and omit any support/causation field.
-- [Mixed projection versions leave some candidates temporarily unhydratable] → Backfill before cutover and skip rather than substitute old projection content.
-- [Historical source references outlive V1 support] → Keep the small V1 serializer or reject the version explicitly; never reinterpret coordinates.
+- [A projection match exists only across lines/messages] -> Omit it from the model's one-message excerpt rather than manufacture attribution; web preview remains available and multi-region semantics stay deferred.
+- [One giant logical line cannot be continued] -> Match the existing Knowledge failure contract and track character ranges only after a real case proves the need.
+- [Sequence is sparse and future branches may change adjacency] -> Return server-resolved previous/next values and require #611 to define branch-relative navigation separately.
+- [A 500-code-point excerpt omits part of its line window] -> Mark elision visibly and require `conversation_read` for exact source use.
+- [Canonical hydration adds query work] -> Keep work bounded by winning locators; measurement and optimization are explicitly deferred to #617 rather than hidden behind an invented target.
+- [Mixed projection versions temporarily cannot hydrate] -> Backfill before cutover and skip rather than substitute projection bytes.
 
 ## Migration Plan
 
-1. Generate a migration adding nullable first-start/last-end visible-text offset columns to `search_chat_documents`; retain existing columns and internal hashes.
-2. Land V1 visible-text rendering, immutable-evidence filtering, locator-aware chunking, and the chunker-version bump in API/worker-compatible code while the old model result shape remains active.
-3. Reindex/backfill all chats, verify current-version locator coverage, RLS, embedding invalidation, and representative oversized-message locators.
-4. Land the canonical resolver and bounded reader behind exact operator allowlisting; verify lexical, vector-fixture, title-only, cross-owner, deletion, continuation, outline, activity, persistence, replay, and browser paths.
-5. Before changing accepted Run declarations/results, quiesce new Run admission and drain every Run bound to the previous tool set. Deploy matching API and worker binaries, enable the new model-facing search/read declarations, then resume.
-6. Update ROADMAP/CHANGELOG and operator/tool documentation in the same shipping change.
-7. Rollback quiesces and drains Runs bound to the new declarations, restores older API/worker binaries and model-facing search shaping, and leaves nullable derived columns in place. No canonical message migration or historical observation rewrite is required.
+1. Generate compatible migrations for `(chat_id, seq)` uniqueness and nullable first-start/last-end projection offsets.
+2. Land stable visible-text rendering, immutable-evidence filtering, locator-aware chunking, and the chunker-version bump while legacy model shaping remains active.
+3. Reindex/backfill all Chats and verify current-version locator coverage, sequence uniqueness, RLS, embedding invalidation, and representative oversized-message locators.
+4. Land canonical lexical/trigram excerpt shaping, `conversation_read`, and owner message-link targeting behind explicit allowlisting.
+5. Quiesce new Run admission, drain prior declarations, deploy matching API/workers, enable canonical model shaping/read declarations, and resume.
+6. Update operator/tool documentation, ROADMAP, and CHANGELOG in the same shipping stack.
+7. Rollback quiesces/drains new declarations, restores older binaries/model shaping, and leaves compatible nullable columns and canonical messages unchanged.
 
 ## Revision History
 
+- **v5 (2026-08-27):** Replaced generalized source ranges with Knowledge-style one-message sequence/line reads; bounded search to one canonical excerpt per Chat; deferred activity (#615), outlines (#616), multi-region eval (#618), and performance work (#617); added message-sequence links and follow-up issue boundaries.
 - **v4 (2026-08-26):** Added exact mid-line source ranges, preserved the current search input, clarified normalization/ranking/deletion/activity/bounds contracts, and defined migration/rollback version gates from PR review.
 - **v3 (2026-08-26):** Clarified surrounding-context slice shaping and removed timeline-implementation ambiguity from the stacked acceptance layer after convergence review.
 - **v2 (2026-08-26):** Narrowed the change against #198, recorded the deliberate rejection of older hash/part-ID premises, preserved canonical delta scenarios, and made cross-message search matches separate attributed passages.

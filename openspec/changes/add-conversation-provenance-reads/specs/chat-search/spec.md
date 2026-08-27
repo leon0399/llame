@@ -2,68 +2,66 @@
 
 ### Requirement: Results are ranked by fused relevance with stable output shape
 
-Search SHALL rank candidates by Reciprocal Rank Fusion over the independent retrieval legs (never by mixing raw scores), aggregate document matches into chats with weighted top-N scoring, and produce a deterministic order with stable tie-breaking. The web response contract (`id`, `title` nullable, `snippet` nullable, `updatedAt`) and the current `search_conversations` input schema (`query`, `limit`) SHALL be preserved until #198 intentionally replaces the tool input with its strict discovery union. The web command palette MAY continue to receive the derived best-document snippet, including its presentation-only role attribution; a title-only match SHALL yield a `null` web snippet.
+Search SHALL rank candidates by Reciprocal Rank Fusion over independent retrieval legs (never by mixing raw scores), aggregate document matches into Chats with weighted top-N scoring, and produce a deterministic order with stable tie-breaking. The web response contract (`id`, nullable `title`, nullable `snippet`, `updatedAt`) and current `search_conversations` input schema (`query`, `limit`) SHALL be preserved until #198 intentionally replaces the model tool input. A web content match SHALL continue to receive the derived best-region snippet with presentation role attribution; a title-only web match SHALL yield a `null` snippet.
 
-Any model-facing content-discovery result, whether returned by the current `search_conversations` tool or by a later #198 content mode, SHALL use the same ranked candidate path but SHALL NOT present a projection snippet as canonical evidence. For an FTS or trigram content winner, it SHALL reauthorize and hydrate the winning projection document through `conversation-reads`, select every matching logical source line plus at most one immediately preceding and following source line, transitively merge overlapping/touching windows within each message, and return exact current visible-message text with versioned source references. Matches in different messages SHALL remain separate attributed passages and MUST NOT be concatenated into one quote. Synthetic projection labels and contextual anchors SHALL NOT appear in a canonical passage. A result selected only by chat title SHALL be marked metadata-only and carry no invented message passage.
+Model-facing lexical/trigram content results SHALL use the same pre-hydration candidate ordering but SHALL NOT present projection snippets as canonical evidence. For each returned Chat, model shaping SHALL reauthorize and hydrate the winning current-version document, recompute current eligible visible-message text, apply the equivalent normalized lexical/trigram predicate to message-local logical lines, and select one deterministic canonical passage: the earliest merged matching-line-plus-adjacent-line window in `(messageSeq, offset)` order.
 
-A vector-only winning document SHALL resolve through the same canonical source locator but SHALL return a bounded exact `retrieval_context` aligned to that document's source interval, not a `quote`, `matchedLine`, translated text, or semantic support claim. Retrieval-basis diagnostics SHALL remain distinct from source provenance, and no raw lexical, cosine, or fused score SHALL be exposed as evidence confidence. A winning document that cannot be currently authorized or hydrated SHALL be omitted rather than replaced by stored projection bytes.
+The model result SHALL carry Chat/title/date metadata, message role/timestamp, flat `{ chatId, messageSeq, offset, limit }` source coordinates, and an `excerpt` of at most 500 Unicode code points. `offset` and `limit` SHALL identify the complete message-local logical-line window directly accepted by `conversation_read`. When that window exceeds the excerpt cap, the excerpt SHALL crop visibly around a match without changing the complete coordinates. The excerpt SHALL contain no generated line-number prefix, part/message UUID, source hash, public version, projection identity, or retrieval score, and SHALL be framed as bounded discovery text that requires `conversation_read` before exact quotation or reliance on omitted context.
 
-#### Scenario: Web content match retains derived preview
+Only one passage SHALL be returned per Chat in this iteration. A title-only model winner SHALL be metadata-only. A winning document that cannot be currently authorized/hydrated, belongs to an ineligible mutable message, or matches only across line/message boundaries without an individually matching message-local line SHALL be omitted rather than replaced by projection bytes or a generalized cross-message source. Model shaping MAY therefore return fewer Chats than the unchanged web surface; `limit` remains a maximum rather than a completeness claim.
 
-- **WHEN** the web command palette receives a content match
-- **THEN** its stable result shape carries the derived best-region snippet used for navigation
-- **AND** the client does not treat that snippet as the model's canonical quote contract
+Vector-only candidate generation and model-result shaping remain #197/#198 work and SHALL NOT acquire an invented public response in this change. Internal source offsets MAY be retained for that future decision.
 
 #### Scenario: Content match returns a highlighted snippet
 
-- **WHEN** a query matches message content in a chat
-- **THEN** the web result carries a snippet excerpting the best-matching derived region with contributing user/assistant role labels retained
-- **AND** the model result uses separately hydrated canonical source text instead of that snippet
-
-#### Scenario: Lexical model result carries exact source lines
-
-- **WHEN** `search_conversations` selects a lexical/trigram document whose match occupies one source line
-- **THEN** the model-facing result contains that exact current source line plus at most its immediately adjacent source lines and a versioned source reference
-- **AND** it contains no synthetic role label, source hash, part identity, or line-number prefix
-
-#### Scenario: Overlapping source windows merge
-
-- **WHEN** one winning document contains several lexical matches in one message whose adjacent-line windows overlap or touch
-- **THEN** the tool returns their deterministic transitive union once
-- **AND** the passage coordinates identify the complete returned source window
-
-#### Scenario: Matches in separate messages remain separate
-
-- **WHEN** one winning document contains matching source lines in two messages
-- **THEN** the model result returns two ordered passages with independent message attribution and source references
-- **AND** it does not serialize them as one cross-message quote or line range
-
-#### Scenario: Vector-only result is context rather than quote
-
-- **WHEN** a future vector leg selects a document that no lexical/trigram leg matched
-- **THEN** the result returns exact original-language canonical retrieval context labeled `retrieval_context`
-- **AND** it does not identify an arbitrary matching line or claim quotation support
-
-#### Scenario: Title-only result has no fabricated source
-
-- **WHEN** a candidate matches only the chat title
-- **THEN** the model-facing result identifies the chat and title as metadata-only
-- **AND** it carries no message quote or arbitrary source excerpt
-
-#### Scenario: Web and model content discovery retain one ranking path
-
-- **WHEN** the web palette and `search_conversations` run the same query for the same owner
-- **THEN** both receive the same pre-hydration candidate ordering from one candidate path
-- **AND** the model may return fewer results only after canonical hydration omits stale/unresolvable candidates, without requiring the web preview surface to apply that filter
+- **WHEN** a query matches message content in a Chat
+- **THEN** the web result carries the existing projection-derived snippet with contributing user/assistant role labels retained
+- **AND** the model result uses separately hydrated current canonical-derived excerpt text
 
 #### Scenario: Both surfaces upgrade together
 
-- **WHEN** the web palette and model-facing content discovery run the same query for the same owner
-- **THEN** both are served by the same ranked repository path and begin from the same candidate order
-- **AND** surface-specific shaping or model-only stale filtering does not duplicate the candidate query
+- **WHEN** the web palette and `search_conversations` run the same query for the same owner
+- **THEN** both begin from the same shared pre-hydration ranked Chat ordering
+- **AND** surface-specific shaping does not duplicate the candidate query
 
-#### Scenario: Stale candidate never becomes evidence
+#### Scenario: Lexical model result carries reusable line coordinates
+
+- **WHEN** a winning current document contains an individually matching canonical message line
+- **THEN** the model result identifies that message by `messageSeq` and the merged match-plus-adjacent line window by zero-based `offset` and positive `limit`
+- **AND** those fields can be passed directly to `conversation_read`
+
+#### Scenario: Oversized passage becomes a bounded excerpt
+
+- **WHEN** the selected complete line window contains more than 500 Unicode code points
+- **THEN** search crops the excerpt visibly around a match to at most 500 code points
+- **AND** preserves the uncropped window's `offset` and `limit` for exact follow-up reading
+
+#### Scenario: Multiple matching windows choose one deterministic passage
+
+- **WHEN** the winning document contains several non-touching message-local matching windows
+- **THEN** the model result returns only the earliest window in canonical sequence/offset order
+- **AND** the result does not imply that every matching region in the Chat was returned
+
+#### Scenario: Title-only result has no fabricated source
+
+- **WHEN** a candidate matches only the Chat title
+- **THEN** the model result identifies the Chat/title as metadata-only
+- **AND** it carries no arbitrary message excerpt or source coordinates
+
+#### Scenario: Stale candidate never becomes model evidence
 
 - **WHEN** a winning derived document cannot resolve to a currently authorized immutable source
-- **THEN** the model-facing search omits that candidate or returns fewer results
-- **AND** it never substitutes projection content as canonical evidence
+- **THEN** model shaping omits that Chat or returns fewer results
+- **AND** it never substitutes projection content as canonical-derived excerpt text
+
+#### Scenario: Cross-message-only match is not forced into one source
+
+- **WHEN** a projection document matches only through terms distributed across lines/messages and no individual canonical message line satisfies the winning predicate
+- **THEN** model shaping omits that content result rather than choosing an arbitrary message
+- **AND** the unchanged web preview may still return the ranked Chat for navigation
+
+#### Scenario: Vector response is not pre-shaped
+
+- **WHEN** this change runs without #197's future vector candidate path
+- **THEN** `search_conversations` exposes no vector-only excerpt, score, or arbitrary source message
+- **AND** later vector shaping remains an explicit #197/#198 decision

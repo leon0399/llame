@@ -1,38 +1,46 @@
 ## Why
 
-Conversation search currently returns snippets rendered from a rebuildable projection, so the model cannot distinguish retrieval context from exact canonical conversation evidence or safely expand a hit around giant messages. llame needs a bounded owner-authorized read path whose public coordinates remain message-oriented and usable without exposing JSON part indexes, projection hashes, or line-number prefixes.
+Conversation search currently returns snippets rendered from a rebuildable projection, so the model cannot safely treat them as current canonical conversation evidence or expand a hit through the same simple line-range workflow used for Knowledge files. llame needs an owner-authorized message reader whose public locator is compact, stable, understandable to models and humans, and free of JSON part indexes, source hashes, and generalized range machinery.
 
-This proposal is intentionally narrower than the combined `#198` + `#609` issue text. `#609` owns canonical provenance, source references, and bounded reads. `#198` still owns the final `search_conversations` discovery union and timeline-mode input contract. The older `#609` body also suggested part identity and model-facing source hashes; this change rejects both in favor of immutable message identity plus complete message/line ranges and a server-issued text-offset fallback for mid-line chunk boundaries, with `#611` carrying the remaining retry/edit premise work.
+This proposal is intentionally narrower than the combined `#197`, `#198`, and older `#609` issue text. It defines canonical lexical/trigram excerpts and one-message line reads. `#197` and `#198` retain vector-result and final content/timeline discovery semantics. `#611` retains retry/edit/branching semantics.
 
 ## What Changes
 
-- Define a versioned visible-message text view that preserves eligible text parts in stored order, joins them with `\n\n`, never merges messages, and is recomputed from canonical `messages.parts` rather than persisted as another source copy.
-- Add versioned structured conversation source references and a read-only `read_conversation_range` tool for direct message links, search-result expansion, and bounded multi-message reads.
-- Return raw canonical visible-message slices with message identity, role, timestamp, and zero-based line coordinates, using server-issued UTF-16 text-offset coordinates only where a projection boundary falls inside a logical line; do not expose part identity, model-facing content hashes, or generated line-number prefixes.
-- Resolve lexical/trigram search hits to the exact matching source line plus one adjacent source line on each side. Resolve vector-only candidates to explicitly labeled exact retrieval context without pretending that vector similarity selected a quote.
-- Preflight oversized messages below the common tool-result cap and return bounded Markdown heading outlines, exact initial slices, and deterministic continuation coordinates rather than generic truncation or whole-message loading.
-- Optionally return bounded historical activity metadata that preserves the order of visible text regions and settled tool names/outcomes with already-safe source attribution. Reasoning text and unrestricted tool arguments/results remain excluded.
-- Extend the derived chat-search projection with only the message-relative source boundary offsets needed to hydrate a winning chunk efficiently. Keep its existing internal content hash for rebuild and embedding validity; do not expose it as conversation provenance.
-- Treat immutable message identity as the source-version premise. Until #611 replaces in-place retry mutation, retryable assistant rows are not eligible citation sources; missing, deleted, malformed, or unauthorized references fail closed.
-- Preserve the web command palette's existing derived preview contract while the current content-search tool and the future #198 content/timeline modes reuse the same canonical source-reference and bounded-read layer.
+- Define one stable visible-message text view from eligible stored text parts in stored order, joined with exactly `\n\n` and never persisted as another source copy.
+- Use owner-scoped `{ chatId, messageSeq }` as the public message locator, add datastore uniqueness for `(chat_id, seq)`, and keep UUID message identity internal.
+- Preserve the current `search_conversations` `{ query, limit }` input and web preview DTO while model-facing lexical/trigram results hydrate one current canonical passage from the winning document.
+- Return one bounded discovery excerpt per Chat: at most 500 Unicode code points, visibly elided when cropped, with directly reusable zero-based `{ offset, limit }` logical-line coordinates for `conversation_read`.
+- Add the read-only `conversation_read` tool with the same mental model as `knowledge_read`: one message, optional zero-based `offset`/`limit`, one-based line prefixes in returned content, `nextOffset`, and a closed cut reason.
+- Return the closest currently readable `previousMessageSeq` and `nextMessageSeq` instead of embedding surrounding-message content or asking the model to calculate sparse sequence values.
+- Add only internal first/last visible-text offsets to the derived search projection so winning chunks can be hydrated without rechunking a whole Chat; keep projection hashes and versions internal.
+- Treat immutable message identity as the source premise. Until #611 replaces in-place retry mutation, retryable assistant rows remain ineligible for search evidence and conversation reads.
+- Fail closed for malformed, missing, deleted, mutable, public/shared-without-owner, and other-owner sources. A source locator never grants authority.
+- Preserve the existing durable read-only tool lifecycle and generic tool-call UI; add owner-facing `/chat/<chatId>#msg-<messageSeq>` targeting without a specialized conversation-read renderer.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `conversation-reads`: Canonical visible-message serialization, versioned source references, bounded line/message reads, oversized-message navigation, safe activity metadata, authorization, and failure semantics.
+- `conversation-reads`: Canonical visible-message serialization, stable sequence locators, bounded one-message line reads, owner-facing message links, authorization, and failure semantics.
 
 ### Modified Capabilities
 
-- `chat-search`: Separate web preview shaping from model-facing canonical passages while preserving one ranked search path and define exact versus vector-only result semantics.
-- `search-projection`: Retain minimal canonical source boundary offsets and exclude mutable/non-evidence message content while remaining fully rebuildable and owner-isolated.
-- `tool-calling`: Register, execute, persist, replay, compact, truncate, and render `read_conversation_range` under the existing read-only tool lifecycle.
+- `chat-search`: Keep one ranked candidate path while separating the web projection preview from one bounded canonical model excerpt.
+- `search-projection`: Retain minimal internal canonical source offsets and exclude mutable/non-evidence message content while remaining fully rebuildable and owner-isolated.
+- `tool-calling`: Register, execute, persist, replay, compact, truncate, and generically render `conversation_read` under the existing read-only lifecycle.
 
 ## Impact
 
-- `apps/api/src/chats`: owner-scoped bounded message-range reads, visible-message rendering, immutable evidence eligibility, and activity projection.
-- `apps/api/src/search` and `apps/api/src/db/schema/search.ts`: source-locator generation, projection columns/migration, canonical hydration of winning candidates, and chunker-version rebuild.
-- `apps/api/src/tools`: `search_conversations` result shaping and the new `read_conversation_range` declaration/executor.
-- `apps/web` and shared UI: structured conversation-source and activity rendering while preserving existing command-palette previews.
-- Run/tool persistence and replay: new source-reference and read-result shapes remain durable and safely degradable under existing budgets.
-- Coordinated API/worker deployment is required because tool declarations and derived projection rows change together; no canonical message-content migration is introduced.
+- `apps/api/src/chats` and `apps/api/src/db/schema/chats.ts`: stable sequence lookup/uniqueness, visible-message rendering, immutable evidence eligibility, owner-scoped line reads, and message-target navigation.
+- `apps/api/src/search` and `apps/api/src/db/schema/search.ts`: internal source-locator generation, projection columns/migration, canonical hydration of winning lexical/trigram candidates, and chunker-version rebuild.
+- `apps/api/src/tools`: model-facing `search_conversations` result shaping and the new `conversation_read` declaration/executor.
+- `apps/web`: owner-only message-sequence anchors, targeted history loading, and copyable links; ordinary tool rendering remains unchanged.
+- Run/tool persistence and replay: bounded results remain durable and safely degradable under existing budgets.
+- Coordinated API/worker deployment remains required because code-owned declarations and derived projection rows change together; no canonical message-content migration is introduced.
+
+## Deferred Follow-ups
+
+- Historical execution activity around prior messages: #615, related to #599/#611.
+- Multi-region-per-Chat retrieval evaluation: #618, related to #197/#198.
+- Shared Knowledge/conversation Markdown outline navigation: #616, related to #541/#544/#572.
+- Canonical hydration latency measurement and optimization: #617, related to #197/#198.
