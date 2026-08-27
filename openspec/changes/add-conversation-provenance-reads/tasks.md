@@ -35,7 +35,7 @@ Each branch owns only its section below. Commit and verify one layer before `gh 
 - [x] 2.4 Make the chunker emit contiguous internal endpoint offsets, keep role labels/anchors outside them, include locator semantics in the internal hash, and bump the chunker version; verify fitting, oversized, multi-message, overlap, Unicode-surrogate, and deterministic no-op cases.
 - [x] 2.5 Persist current locators while preserving embedding invalidation and excluding retryable assistant rows; verify unchanged reindex is a no-op, changed locator/hash state clears stale embeddings, and retryable bytes never enter live documents.
 - [x] 2.6 Extend backfill/coverage reporting for current-version locator completeness; verify a giant multi-part fixture converges with no null current-version locators and RLS denies projection access in both cross-tenant directions.
-- [ ] 2.7 Run projection unit/integration tests, migration checks, API typecheck/lint, and sequential API build before creating the search branch.
+- [x] 2.7 Run projection unit/integration tests, migration checks, API typecheck/lint, and sequential API build before creating the search branch.
 
 ## 3. `conversation-reads/search` — One Canonical Excerpt per Chat
 
