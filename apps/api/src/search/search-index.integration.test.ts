@@ -360,6 +360,105 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     expect(after.embedding_fail_reason).toBeNull();
   });
 
+  it('repairs either corrupted boundary UUID and invalidates stale embeddings', async () => {
+    const id = await seed('Boundary UUID repair', [
+      { role: 'user', text: 'first source message' },
+      {
+        role: 'assistant',
+        text: 'last source message',
+        usage: { status: 'completed' },
+      },
+    ]);
+    await indexService.reindexChat(id, u);
+
+    const rowSchema = z.object({
+      first_message_id: z.string(),
+      last_message_id: z.string(),
+      content_hash: z.string(),
+      first_message_text_offset: z.number(),
+      last_message_text_offset_exclusive: z.number(),
+      embedding: z.string().nullable(),
+      embedding_model_key: z.string().nullable(),
+      embedded_content_hash: z.string().nullable(),
+      embed_input_version: z.number().nullable(),
+      embedding_fail_reason: z.string().nullable(),
+    });
+    const readRow = async () => {
+      const [row] = await ownedRows(
+        sql`
+        SELECT first_message_id, last_message_id, content_hash,
+               first_message_text_offset, last_message_text_offset_exclusive,
+               embedding::text AS embedding, embedding_model_key,
+               embedded_content_hash, embed_input_version, embedding_fail_reason
+        FROM search_chat_documents
+        WHERE chat_id = ${id}`,
+        rowSchema,
+      );
+      return row;
+    };
+    const messageRows = await ownedRows(
+      sql`
+      SELECT id
+      FROM messages
+      WHERE chat_id = ${id}
+      ORDER BY seq`,
+      z.object({ id: z.string() }),
+    );
+    const before = await readRow();
+    expect(messageRows).toHaveLength(2);
+    expect(before.first_message_id).toBe(messageRows[0].id);
+    expect(before.last_message_id).toBe(messageRows[1].id);
+
+    const embedFixture = async () =>
+      tenantDb.runAs(u, (tx) =>
+        tx.execute(sql`
+          UPDATE search_chat_documents
+          SET embedding = '[0.11,0.22,0.33]'::vector,
+              embedding_model_key = 'model-a',
+              embedded_content_hash = ${before.content_hash},
+              embed_input_version = 1,
+              embedding_fail_reason = 'stale boundary fixture'
+          WHERE chat_id = ${id}`),
+      );
+    const expectRepairedAndCleared = async () => {
+      const after = await readRow();
+      expect(after.first_message_id).toBe(before.first_message_id);
+      expect(after.last_message_id).toBe(before.last_message_id);
+      expect(after.content_hash).toBe(before.content_hash);
+      expect(after.first_message_text_offset).toBe(
+        before.first_message_text_offset,
+      );
+      expect(after.last_message_text_offset_exclusive).toBe(
+        before.last_message_text_offset_exclusive,
+      );
+      expect(after.embedding).toBeNull();
+      expect(after.embedding_model_key).toBeNull();
+      expect(after.embedded_content_hash).toBeNull();
+      expect(after.embed_input_version).toBeNull();
+      expect(after.embedding_fail_reason).toBeNull();
+    };
+
+    await embedFixture();
+    await tenantDb.runAs(u, (tx) =>
+      tx.execute(sql`
+        UPDATE search_chat_documents
+        SET first_message_id = ${crypto.randomUUID()}
+        WHERE chat_id = ${id}`),
+    );
+    await indexService.reindexChat(id, u);
+    await expectRepairedAndCleared();
+
+    await embedFixture();
+    await tenantDb.runAs(u, (tx) =>
+      tx.execute(sql`
+        UPDATE search_chat_documents
+        SET last_message_id = ${crypto.randomUUID()}
+        WHERE chat_id = ${id}`),
+    );
+    await indexService.reindexChat(id, u);
+    await expectRepairedAndCleared();
+  });
+
   it('two sequential reindexes converge to the same projection (idempotent rebuild)', async () => {
     const id = await seed('Converge', [
       { role: 'user', text: 'alpha bravo charlie' },

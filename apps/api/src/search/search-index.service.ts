@@ -84,6 +84,8 @@ export class SearchIndexService {
         ordinal: searchChatDocuments.chunkOrdinal,
         version: searchChatDocuments.chunkerVersion,
         hash: searchChatDocuments.contentHash,
+        firstMessageId: searchChatDocuments.firstMessageId,
+        lastMessageId: searchChatDocuments.lastMessageId,
         firstMessageTextOffset: searchChatDocuments.firstMessageTextOffset,
         lastMessageTextOffsetExclusive:
           searchChatDocuments.lastMessageTextOffsetExclusive,
@@ -104,6 +106,8 @@ export class SearchIndexService {
       const current = currentByOrdinal.get(chunk.chunkOrdinal);
       return (
         current?.hash !== chunk.contentHash ||
+        current?.firstMessageId !== chunk.firstMessageId ||
+        current?.lastMessageId !== chunk.lastMessageId ||
         current?.firstMessageTextOffset !== chunk.firstMessageTextOffset ||
         current?.lastMessageTextOffsetExclusive !==
           chunk.lastMessageTextOffsetExclusive
