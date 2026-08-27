@@ -59,4 +59,28 @@ describeIfDb('canonical search PostgreSQL line predicates', () => {
     );
     expect(substring).toEqual(new Set([2]));
   });
+
+  it('matches literal percent, underscore, and backslash without treating decoys as wildcards', async () => {
+    const candidates: readonly CanonicalLinePredicateCandidate[] = [
+      { id: 1, normalizedText: 'literal percent %' },
+      { id: 2, normalizedText: 'literal underscore _' },
+      { id: 3, normalizedText: 'literal backslash \\' },
+      { id: 4, normalizedText: 'wildcard decoy x' },
+    ];
+
+    const percent = await tenantDb.runAs(crypto.randomUUID(), (tx) =>
+      evaluateCanonicalLinePredicates(tx, '%', candidates),
+    );
+    expect(percent).toEqual(new Set([1]));
+
+    const underscore = await tenantDb.runAs(crypto.randomUUID(), (tx) =>
+      evaluateCanonicalLinePredicates(tx, '_', candidates),
+    );
+    expect(underscore).toEqual(new Set([2]));
+
+    const backslash = await tenantDb.runAs(crypto.randomUUID(), (tx) =>
+      evaluateCanonicalLinePredicates(tx, '\\', candidates),
+    );
+    expect(backslash).toEqual(new Set([3]));
+  });
 });

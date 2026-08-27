@@ -283,6 +283,21 @@ describe('matchCanonicalSearchPreview', () => {
     ).resolves.toBeNull();
   });
 
+  it('omits query terms split across separate messages', async () => {
+    await expect(
+      matchCanonicalSearchPreview(
+        {
+          chatId: 'chat-1',
+          messages: [message(10, 'alpha'), message(20, 'beta')],
+        },
+        'alpha beta',
+        matchingLines((line, normalizedQuery) =>
+          line.includes(normalizedQuery),
+        ),
+      ),
+    ).resolves.toBeNull();
+  });
+
   it('merges touching one-line windows and chooses the earliest message/offset independent of ranking order', async () => {
     const result = await matchCanonicalSearchPreview(
       {
