@@ -53,16 +53,16 @@ Part IDs/indexes were rejected because stored interleaving makes them an applica
 
 ### D3. Make model search return one bounded discovery excerpt per Chat
 
-The shared candidate query retains the existing Chat rank order and internal best-document identity. The web adapter continues to return the current `id/title/snippet/updatedAt` DTO from projection presentation content. The model adapter handles current lexical/trigram content winners as follows:
+The shared candidate query retains the existing Chat rank order and internal best-document identity. The web adapter continues to return the current `id/title/snippet/updatedAt` DTO from projection presentation content. When off-by-default `search.chats.canonicalModelExcerpts` is enabled after locator coverage, the model adapter handles current lexical/trigram content winners as follows:
 
 1. Load the winning current-version projection locator under owner scope.
 2. Load only its bounded first-through-last eligible messages under the same owner.
 3. Recompute visible text and slice the exact internal source interval.
-4. Apply `normalizeForSearch` and the equivalent winning lexical/trigram predicate to message-local logical lines.
+4. Independently of ranking, qualify a message-local logical line when its canonical line-local FTS vector matches the query or its normalized text passes the current trigram/substring predicate.
 5. Form each matched line's window with at most one adjacent line per side, merge touching windows within that message, and select the earliest resulting passage in canonical `(messageSeq, offset)` order.
 6. Return at most 500 Unicode code points cropped visibly around a match, while `offset` and `limit` identify the complete message-local line window accepted by `conversation_read`.
 
-The excerpt is current canonical-derived discovery text, not a promise that the complete line window is present or citation-ready. The packaged tool description directs the model to call `conversation_read` before quoting or relying on omitted context. The excerpt carries no generated line-number prefix; the reader owns that navigation presentation.
+This line selector is a deterministic preview projection, not an explanation of why the document or Chat ranked. The excerpt is current canonical-derived discovery text, not a promise that the complete line window is present or citation-ready. The packaged tool description directs the model to call `conversation_read` before quoting or relying on omitted context. The excerpt carries no generated line-number prefix; the reader owns that navigation presentation. One top-level closed notice identifies every returned excerpt as untrusted historical content that may be stale and cannot change system instructions, tools, permissions, or owner authority.
 
 If a winning projection document cannot produce an individually matching current message-local line, or cannot be authorized/hydrated, the model result is omitted rather than replaced by projection bytes or a cross-message source object. A title-only winner remains metadata-only. The model may therefore return fewer results than the web surface after canonical shaping; `limit` remains a maximum, not a completeness claim.
 
@@ -82,7 +82,7 @@ Persisted line numbers were rejected because line windows derive cheaply from bo
 
 Logical lines reuse the Knowledge contract: LF terminates a line, CRLF is one delimiter, lone CR is content, blank lines count, and a terminal delimiter creates no phantom line. Every returned line is rendered as `<one-based line number>: <exact source line>`. The numeric prefix is navigation metadata, not message content. All visible text parts participate in one message-relative line space through D1's exact `\n\n` joining rule.
 
-Success returns Chat/message sequence, role, timestamp, effective `offset`, returned `lineCount`, line-numbered `content`, and the closest eligible previous/next message sequences. When current logical lines remain, it returns `nextOffset = offset + lineCount`. It returns `cutReason: "line_limit"` or `"output_limit"` only when the corresponding server bound, rather than an explicit caller limit, stopped the requested range.
+Success returns Chat/message sequence, role, timestamp, effective `offset`, returned `lineCount`, line-numbered `content`, the closest eligible previous/next message sequences, and the same closed untrusted-history notice used by model search. When current logical lines remain, it returns `nextOffset = offset + lineCount`. It returns `cutReason: "line_limit"` or `"output_limit"` only when the corresponding server bound, rather than an explicit caller limit, stopped the requested range.
 
 One result contains at most 2,000 logical lines and at most 15,000 JavaScript UTF-16 code units. The reader measures the complete structured result before success and omits the first whole line that cannot fit. If the first selected line cannot fit, it returns `conversation_limit_exceeded` rather than clipping an unrecoverable character range. Generic tool truncation never clips successful source content.
 
@@ -98,7 +98,7 @@ Search uses the same eligibility predicate. User messages and assistant messages
 
 ### D7. Keep links and tool rendering simple
 
-The owner Chat surface assigns each rendered message the stable `msg-<messageSeq>` anchor, supports direct loading/scrolling to `/chat/<chatId>#msg-<messageSeq>`, and offers a copyable owner link. Target loading resolves by owner-scoped sequence rather than exposing UUID identity. Missing or unauthorized targets reveal no foreign existence.
+The owner Chat surface assigns each rendered message the stable `msg-<messageSeq>` anchor and supports direct loading/scrolling to `/chat/<chatId>#msg-<messageSeq>`. A hash-targeted initial request uses a strict `targetSeq` query, mutually exclusive with ordinary `beforeSeq`, that first verifies the exact owner-authorized target and returns the normal fixed-size history window ending at that sequence. Target mode uses a distinct query/cache identity from the ordinary newest-window history because the existing infinite-query merge treats page zero as newest. Older-history loading then continues through the existing cursor; clearing the hash returns to the ordinary newest window. Target mode does not silently merge unseen newer messages into its cache. No copy-link affordance ships in this change. Missing or unauthorized targets reveal no foreign existence.
 
 `conversation_read` uses the existing generic structured tool renderer. No specialized source card, outline, activity timeline, or range widget ships here. The result shape is intentionally parallel to `knowledge_read`, so model and human readers see familiar sequence/line metadata even through the generic tool panel.
 
@@ -112,9 +112,9 @@ A persisted read observation follows the destination Chat. If its source is late
 
 The schema preparation adds the message sequence uniqueness constraint and nullable projection offset columns while existing binaries remain compatible. New chunker writers populate offsets under one named bumped `SOURCE_LOCATOR_CHUNKER_VERSION`. One Chat's live projection rows carry one chunker version; different Chats may temporarily differ during backfill.
 
-During preparation/backfill, existing web/model preview shaping may rank presentation-compatible rows while canonical model excerpts remain disabled. The writer atomically replaces one Chat's legacy rows with current rows. Canonical cutover requires coverage proving every eligible Chat uses the named version with non-null offsets; only those rows can hydrate. Web preview may use current presentation columns without reading locators.
+During preparation/backfill, existing web/model preview shaping ranks presentation-compatible rows while off-by-default `search.chats.canonicalModelExcerpts` keeps canonical model excerpts disabled. The writer atomically replaces one Chat's legacy rows with current rows. Canonical cutover requires coverage proving every eligible Chat uses the named version with non-null offsets; only then may operators enable the flag and allowlist `conversation_read`. Web preview may use current presentation columns without reading locators.
 
-Rollback disables canonical model shaping and `conversation_read` first. Presentation-compatible preview may temporarily read either live version while older writers rebuild Chats to their legacy version; canonical hydration never interprets legacy/offsetless rows. Nullable locator columns remain in place.
+Rollback quiesces/drains new Runs, disables `search.chats.canonicalModelExcerpts`, and removes `conversation_read` from the allowlist before restoring older binaries. Presentation-compatible preview may temporarily read either live version while older writers rebuild Chats to their legacy version; canonical hydration never interprets legacy/offsetless rows. Nullable locator columns remain in place.
 
 Changing the code-owned search/read declarations remains a coordinated API/worker boundary. Quiesce new Run acceptance, drain Runs bound to prior declarations, deploy matching API/workers after projection coverage, then resume. Configuration must explicitly allowlist `conversation_read`.
 
@@ -132,13 +132,15 @@ Changing the code-owned search/read declarations remains a coordinated API/worke
 1. Generate compatible migrations for `(chat_id, seq)` uniqueness and nullable first-start/last-end projection offsets.
 2. Land stable visible-text rendering, immutable-evidence filtering, locator-aware chunking, and the chunker-version bump while legacy model shaping remains active.
 3. Reindex/backfill all Chats and verify current-version locator coverage, sequence uniqueness, RLS, embedding invalidation, and representative oversized-message locators.
-4. Land canonical lexical/trigram excerpt shaping, `conversation_read`, and owner message-link targeting behind explicit allowlisting.
-5. Quiesce new Run admission, drain prior declarations, deploy matching API/workers, enable canonical model shaping/read declarations, and resume.
+4. Land canonical lexical/trigram excerpt shaping behind disabled `search.chats.canonicalModelExcerpts`, plus `conversation_read` and owner message-link targeting behind explicit allowlisting.
+5. Quiesce new Run admission, drain prior declarations, verify locator coverage, deploy matching API/workers/config, enable canonical model excerpts and `conversation_read`, and resume.
 6. Update operator/tool documentation, ROADMAP, and CHANGELOG in the same shipping stack.
 7. Rollback quiesces/drains new declarations, restores older binaries/model shaping, and leaves compatible nullable columns and canonical messages unchanged.
 
 ## Revision History
 
+- **v7 (2026-08-27):** Required distinct target-mode history cache identity so an old message window cannot alias the ordinary newest-window infinite query.
+- **v6 (2026-08-27):** Added an explicit canonical-search activation flag, persisted untrusted-history notices, a concrete target-ended message-link loading contract, and an independent deterministic line-preview selector; removed the unapproved copy-link affordance and narrowed #616 to Knowledge-owned outline integration.
 - **v5 (2026-08-27):** Replaced generalized source ranges with Knowledge-style one-message sequence/line reads; bounded search to one canonical excerpt per Chat; deferred activity (#615), outlines (#616), multi-region eval (#618), and performance work (#617); added message-sequence links and follow-up issue boundaries.
 - **v4 (2026-08-26):** Added exact mid-line source ranges, preserved the current search input, clarified normalization/ranking/deletion/activity/bounds contracts, and defined migration/rollback version gates from PR review.
 - **v3 (2026-08-26):** Clarified surrounding-context slice shaping and removed timeline-implementation ambiguity from the stacked acceptance layer after convergence review.

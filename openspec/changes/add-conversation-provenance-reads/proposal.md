@@ -11,11 +11,13 @@ This proposal is intentionally narrower than the combined `#197`, `#198`, and ol
 - Preserve the current `search_conversations` `{ query, limit }` input and web preview DTO while model-facing lexical/trigram results hydrate one current canonical passage from the winning document.
 - Return one bounded discovery excerpt per Chat: at most 500 Unicode code points, visibly elided when cropped, with directly reusable zero-based `{ offset, limit }` logical-line coordinates for `conversation_read`.
 - Add the read-only `conversation_read` tool with the same mental model as `knowledge_read`: one message, optional zero-based `offset`/`limit`, one-based line prefixes in returned content, `nextOffset`, and a closed cut reason.
+- Carry one closed untrusted-history notice in model search results and every successful read so persisted observations retain their safety framing.
 - Return the closest currently readable `previousMessageSeq` and `nextMessageSeq` instead of embedding surrounding-message content or asking the model to calculate sparse sequence values.
 - Add only internal first/last visible-text offsets to the derived search projection so winning chunks can be hydrated without rechunking a whole Chat; keep projection hashes and versions internal.
 - Treat immutable message identity as the source premise. Until #611 replaces in-place retry mutation, retryable assistant rows remain ineligible for search evidence and conversation reads.
 - Fail closed for malformed, missing, deleted, mutable, public/shared-without-owner, and other-owner sources. A source locator never grants authority.
-- Preserve the existing durable read-only tool lifecycle and generic tool-call UI; add owner-facing `/chat/<chatId>#msg-<messageSeq>` targeting without a specialized conversation-read renderer.
+- Preserve the existing durable read-only tool lifecycle and generic tool-call UI; add owner-facing `/chat/<chatId>#msg-<messageSeq>` targeting without a specialized conversation-read renderer or copy-link affordance.
+- Gate canonical model excerpt shaping behind off-by-default `search.chats.canonicalModelExcerpts` until current locator coverage is complete; web and legacy model previews remain available during backfill.
 
 ## Capabilities
 
@@ -33,8 +35,8 @@ This proposal is intentionally narrower than the combined `#197`, `#198`, and ol
 
 - `apps/api/src/chats` and `apps/api/src/db/schema/chats.ts`: stable sequence lookup/uniqueness, visible-message rendering, immutable evidence eligibility, owner-scoped line reads, and message-target navigation.
 - `apps/api/src/search` and `apps/api/src/db/schema/search.ts`: internal source-locator generation, projection columns/migration, canonical hydration of winning lexical/trigram candidates, and chunker-version rebuild.
-- `apps/api/src/tools`: model-facing `search_conversations` result shaping and the new `conversation_read` declaration/executor.
-- `apps/web`: owner-only message-sequence anchors, targeted history loading, and copyable links; ordinary tool rendering remains unchanged.
+- `apps/api/src/tools` and instance config: gated model-facing `search_conversations` result shaping and the new `conversation_read` declaration/executor.
+- `apps/web`: owner-only message-sequence anchors and targeted history loading; ordinary tool rendering remains unchanged.
 - Run/tool persistence and replay: bounded results remain durable and safely degradable under existing budgets.
 - Coordinated API/worker deployment remains required because code-owned declarations and derived projection rows change together; no canonical message-content migration is introduced.
 
@@ -42,5 +44,5 @@ This proposal is intentionally narrower than the combined `#197`, `#198`, and ol
 
 - Historical execution activity around prior messages: #615, related to #599/#611.
 - Multi-region-per-Chat retrieval evaluation: #618, related to #197/#198.
-- Shared Knowledge/conversation Markdown outline navigation: #616, related to #541/#544/#572.
+- Conversation outline navigation over Knowledge-owned Markdown primitives: #616, related to #541/#544/#572.
 - Canonical hydration latency measurement and optimization: #617, related to #197/#198.

@@ -41,15 +41,16 @@ Each branch owns only its section below. Commit and verify one layer before `gh 
 
 **Base:** `conversation-reads/projection`
 
-**Ownership:** Shared ranked candidate result; bounded canonical locator hydration; model-facing lexical/trigram result shaping; unchanged web adapter; focused tests. No vector querying or result shaping.
+**Ownership:** Shared ranked candidate result; explicit canonical-model-shaping activation config; bounded canonical locator hydration; model-facing lexical/trigram result shaping; unchanged web adapter; focused tests. No vector querying or result shaping.
 
-- [ ] 3.1 Refactor the shared ranked result to retain internal best-document identity/retrieval basis while keeping web `id/title/snippet/updatedAt` output and ordering compatible; verify existing web/API search tests remain green.
+- [ ] 3.1 Refactor the shared ranked result to retain internal best-document identity while keeping web `id/title/snippet/updatedAt` output and ordering compatible; verify existing web/API search tests remain green.
 - [ ] 3.2 Hydrate the winning current-version document through owner-scoped UUID endpoints, recompute visible text, and map source messages to public `messageSeq`; verify partial boundary messages, complete intermediates, multiple text parts, overlap, synthetic anchors, CRLF/LF, oversized messages, and Unicode offsets.
-- [ ] 3.3 Reapply `normalizeForSearch` and the equivalent winning lexical/trigram predicate to canonical logical lines; form match-plus-one-line windows, merge touching windows per message, and choose the earliest `(messageSeq, offset)` passage; verify NFKC, whitespace collapse, case-only, exact, typo, repeated-match, and cross-line/cross-message-only omission fixtures.
-- [ ] 3.4 Return one excerpt per Chat with role/timestamp, flat `{ chatId, messageSeq, offset, limit }`, at most 500 Unicode code points visibly cropped around a match, and no hash/part/version/line-prefix fields; verify its complete coordinates are accepted directly by `conversation_read` fixtures.
-- [ ] 3.5 Keep title-only winners metadata-only and omit unauthorized, mutable, deleted, old-version, cross-message-only, or otherwise unhydratable winners rather than substituting projection content; verify model results may safely contain fewer Chats than the unchanged web preview.
-- [ ] 3.6 Preserve the current `search_conversations` `{ query, limit }` input and add no vector-only public shape; verify declaration snapshots and model results expose no vector scores, arbitrary source choice, or future #198 fields.
-- [ ] 3.7 Run search/resolver unit and integration tests, API typecheck/lint, and sequential API build before creating the reader branch.
+- [ ] 3.3 Add off-by-default `search.chats.canonicalModelExcerpts`; keep legacy model preview shaping while false, require current locator coverage before enablement, and verify legacy/offsetless rows never enter canonical hydration during preparation or rollback.
+- [ ] 3.4 Run an explicitly separate deterministic line-preview selector over hydrated canonical lines: qualify either line-local FTS or current trigram/substring matches, form match-plus-one-line windows, merge touching windows per message, and choose the earliest `(messageSeq, offset)` passage; verify NFKC, whitespace collapse, case-only, exact, typo, repeated-match, ranking-vs-preview independence, and cross-line/cross-message-only omission fixtures.
+- [ ] 3.5 Return one excerpt per Chat with role/timestamp, flat `{ chatId, messageSeq, offset, limit }`, one top-level untrusted-history notice, at most 500 Unicode code points visibly cropped around a match, and no hash/part/version/line-prefix fields; verify its complete coordinates are accepted directly by `conversation_read` fixtures and framing persists through replay.
+- [ ] 3.6 Keep title-only winners metadata-only and omit unauthorized, mutable, deleted, old-version, cross-message-only, or otherwise unhydratable winners rather than substituting projection content; verify model results may safely contain fewer Chats than the unchanged web preview.
+- [ ] 3.7 Preserve the current `search_conversations` `{ query, limit }` input and add no vector-only public shape; verify declaration snapshots and model results expose no vector scores, arbitrary source choice, or future #198 fields.
+- [ ] 3.8 Run search/resolver/config unit and integration tests, API typecheck/lint, and sequential API build before creating the reader branch.
 
 ## 4. `conversation-reads/reader` — Knowledge-Style Message Read Tool
 
@@ -59,7 +60,7 @@ Each branch owns only its section below. Commit and verify one layer before `gh 
 
 - [ ] 4.1 Implement owner-scoped lookup by `(chatId, messageSeq)` plus nearest eligible previous/next sequences in one database snapshot; verify sparse gaps, first/last message, deleted rows, retryable assistant exclusion, empty identity, public/shared paths, and both directions of cross-owner denial.
 - [ ] 4.2 Define strict `conversation_read` input `{ chatId, messageSeq, offset?, limit? }` with positive safe sequence, zero-based safe offset, and limit 1–2,000; verify malformed UUIDs, unknown properties, negative/fractional/unsafe coordinates, zero/oversized limits, and missing sources fail through their correct validation/resolution path.
-- [ ] 4.3 Implement exact visible-message logical-line scanning and one-based `<line>: <text>` rendering with LF/CRLF/lone-CR/terminal-delimiter semantics; verify blank/empty messages, `\n\n` part boundaries, stored whitespace, direct search coordinates, and generated prefixes that never enter source/hash inputs.
+- [ ] 4.3 Implement exact visible-message logical-line scanning, one-based `<line>: <text>` rendering, and the closed untrusted-history notice with LF/CRLF/lone-CR/terminal-delimiter semantics; verify blank/empty messages, `\n\n` part boundaries, stored whitespace, direct search coordinates, persisted framing, and generated prefixes that never enter source/hash inputs.
 - [ ] 4.4 Preflight the complete structured result under 2,000-line and 15,000-code-unit bounds; return `nextOffset` and Knowledge-compatible `cutReason`, never generic truncation, and return `conversation_limit_exceeded` when the first selected line cannot fit.
 - [ ] 4.5 Register `conversation_read` as exact-allowlisted/read-only with timeout/cancellation, persistence, settlement, replay, compaction, neutralization, and generic rendering; verify disabled, advertised, snapshotted, executable, timeout/cancelled, invalid-range, not-found, continuation, payload-clearing, and output-limit paths.
 - [ ] 4.6 Verify source deletion never rewrites another Chat's persisted observation while destination-Chat deletion cascades it away.
@@ -69,13 +70,12 @@ Each branch owns only its section below. Commit and verify one layer before `gh 
 
 **Base:** `conversation-reads/reader`
 
-**Ownership:** Owner-scoped target loading by sequence; `/chat/<chatId>#msg-<messageSeq>` anchors; copy-link affordance; focused API/web/UI tests. Tool-call output continues through the generic renderer.
+**Ownership:** Owner-scoped target-ended history loading by sequence; `/chat/<chatId>#msg-<messageSeq>` anchors; focused API/web tests. Tool-call output continues through the generic renderer.
 
-- [ ] 5.1 Add the smallest owner-scoped API/query path needed to load a target message sequence and enough existing history pagination state to render it; verify missing, deleted, public/shared, and other-owner targets reveal no foreign existence.
-- [ ] 5.2 Anchor rendered owner messages as `msg-<messageSeq>`, load/scroll deterministically on direct navigation, and preserve normal newest-message landing when no target exists; verify sparse/global sequences are treated as opaque values rather than dense indexes.
-- [ ] 5.3 Add a copyable message link using the canonical singular `/chat/<chatId>#msg-<messageSeq>` route without exposing internal message UUIDs.
-- [ ] 5.4 Verify current and reloaded history use the same anchor, forked Chats produce their own sequence links, and generic `conversation_read` tool rendering remains unchanged.
-- [ ] 5.5 Run affected API/web/UI tests, Storybook story tests for any changed message action, typechecks/lints, and sequential builds before creating the acceptance branch.
+- [ ] 5.1 Extend the existing owner messages query with strict `targetSeq`, mutually exclusive with `beforeSeq`; verify the exact owned target first, then return the normal fixed-size chronological window ending at that sequence, while missing/deleted/public/shared/other-owner targets reveal no foreign existence.
+- [ ] 5.2 Give hash-targeted history a distinct target-mode query/cache identity, use `targetSeq`, anchor rendered messages as `msg-<messageSeq>`, and scroll deterministically; verify older pagination and compaction projection start from the targeted window, clearing the hash reinitializes the ordinary newest-window cache, and unseen newer messages are not silently merged or misordered.
+- [ ] 5.3 Verify sparse/global sequences are treated as opaque values rather than dense indexes, current/reloaded history uses the same anchor, forked Chats produce independent sequence links, and no copy-link or custom tool-result UI is introduced.
+- [ ] 5.4 Run affected API/web tests, typechecks/lints, and sequential builds before creating the acceptance branch.
 
 ## 6. `conversation-reads/acceptance` — Product Proof, Rollout, and Documentation
 
@@ -86,7 +86,7 @@ Each branch owns only its section below. Commit and verify one layer before `gh 
 - [ ] 6.1 Add queued-Run and product E2E for lexical search to canonical excerpt to `conversation_read`, continuation/reload, pasted owner message links, giant multi-part messages, retryable/deleted sources, cancellation, and cross-tenant denial; verify persisted call/result pairs reconstruct after reload without vector, outline, activity, or custom tool UI behavior.
 - [ ] 6.2 Update packaged prompt/tool descriptions to distinguish bounded discovery excerpts from exact numbered reads and frame recalled conversation text as untrusted historical data; verify declaration snapshots expose no implementation-only UUID, hash, version, or projection fields.
 - [ ] 6.3 Update example allowlists and operator/tool documentation for explicit `conversation_read` enablement, sequence/line selectors, bounds, continuation, links, and closed errors; verify configuration tests and Markdown lint.
-- [ ] 6.4 Document message-sequence uniqueness, nullable locator preparation, per-Chat live-version replacement, current candidate predicates, coverage, quiesce/drain declaration cutover, and reverse rollback routing; verify cross-links to #197, #198, #609, #611, #615, #616, #617, and #618 remain accurate.
+- [ ] 6.4 Document message-sequence uniqueness, nullable locator preparation, `search.chats.canonicalModelExcerpts`, per-Chat live-version replacement, coverage-gated activation, quiesce/drain declaration cutover, and reverse rollback routing; verify cross-links to #197, #198, #609, #611, #615, #616, #617, and #618 remain accurate.
 - [ ] 6.5 Update `ROADMAP.md` and the dated `CHANGELOG.md` entry without claiming vector recall, activity, outlines, branching, or performance work shipped.
 - [ ] 6.6 Run affected API/web/UI tests, root E2E, typechecks, lints, AST/Markdown/format checks, and affected workspace builds sequentially; record environment failures without converting partial output into a passing claim.
 

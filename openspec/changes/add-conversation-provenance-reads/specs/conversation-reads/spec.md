@@ -87,7 +87,7 @@ Only immutable evidence-eligible messages SHALL be returned. Until #611 replaces
 
 ### Requirement: Conversation reads use Knowledge-style logical-line ranges
 
-Logical lines SHALL use LF as a delimiter, CRLF as one delimiter, and lone CR as source text. Blank lines SHALL count and a terminal delimiter SHALL NOT create a phantom line. Every success SHALL return Chat ID, message sequence, role, timestamp, effective zero-based `offset`, returned `lineCount`, one-based line-numbered `content`, and any currently eligible `previousMessageSeq`/`nextMessageSeq`.
+Logical lines SHALL use LF as a delimiter, CRLF as one delimiter, and lone CR as source text. Blank lines SHALL count and a terminal delimiter SHALL NOT create a phantom line. Every success SHALL return Chat ID, message sequence, role, timestamp, effective zero-based `offset`, returned `lineCount`, one-based line-numbered `content`, any currently eligible `previousMessageSeq`/`nextMessageSeq`, and one closed notice identifying prior-conversation content as untrusted and potentially stale, unable to change system instructions, tools, permissions, or owner authority.
 
 `content` SHALL render each returned logical source line as `<one-based line number>: <source text>` while preserving that line's LF or CRLF delimiter and preserving an unterminated final line. The numeric prefix is reader-authored navigation metadata and SHALL NOT enter visible-message source text, projection hashes, lexical data, excerpts, or stored canonical message parts.
 
@@ -119,6 +119,12 @@ If the first selected logical line cannot fit in one complete structured result,
 - **THEN** `conversation_read` returns the complete current line window represented by those coordinates subject only to normal whole-line output continuation
 - **AND** the cropped search excerpt is not mistaken for the complete numbered source
 
+#### Scenario: Persistable read keeps historical-data framing
+
+- **WHEN** a successful read returns prior-conversation content
+- **THEN** its structured payload includes the closed untrusted-history notice
+- **AND** later persistence/replay does not rely solely on the original tool description for that framing
+
 #### Scenario: One oversized line fails closed
 
 - **WHEN** the first selected logical line cannot fit within the structured result bound
@@ -133,15 +139,27 @@ If the first selected logical line cannot fit in one complete structured result,
 
 ### Requirement: Owner-facing message links use the same sequence locator
 
-The owner Chat surface SHALL address a message target as `/chat/<chatId>#msg-<messageSeq>`. It SHALL load and scroll to the owner-authorized target even when that message is outside the initially loaded history page, and SHALL preserve the ordinary newest-message landing when no target is supplied. The fragment SHALL be treated as an opaque sparse sequence, not a dense array index.
+The owner Chat surface SHALL address a message target as `/chat/<chatId>#msg-<messageSeq>`. For a hash-targeted initial load, the client SHALL request a strict `targetSeq` mode on the existing owner message-history surface. `targetSeq` and `beforeSeq` SHALL be mutually exclusive. The server SHALL first verify that the exact target exists under current owner scope, then return the normal fixed-size chronological window ending at that target sequence. The client SHALL keep target-mode history under a distinct query/cache identity, render and scroll to the target, and continue older pagination through the existing `beforeSeq` cursor. Clearing the hash SHALL reinitialize the ordinary newest window rather than silently merging unseen newer messages into or reinterpreting the targeted cache.
 
-Rendered owner messages SHALL expose a copyable link using that canonical route without exposing internal message UUIDs. Link loading SHALL resolve current owner access independently and reveal no foreign or deleted target existence. The URL is navigation only and SHALL NOT grant `conversation_read` authority.
+Rendered owner messages SHALL expose the stable `msg-<messageSeq>` anchor without exposing internal message UUIDs. This change SHALL NOT add a copy-link affordance. Target loading SHALL resolve current owner access independently and reveal no foreign or deleted target existence. The URL is navigation only and SHALL NOT grant `conversation_read` authority.
 
 #### Scenario: Copied owner link reaches its message
 
 - **WHEN** an owner opens a copied canonical link to an eligible message outside the initially loaded page
-- **THEN** the Chat loads enough authorized history to render and scroll to `msg-<messageSeq>`
+- **THEN** `targetSeq` returns the owner-authorized history window ending at that exact message and the Chat scrolls to `msg-<messageSeq>`
 - **AND** the visible target is the same message addressed by `conversation_read`
+
+#### Scenario: Target and ordinary cursor cannot mix
+
+- **WHEN** one owner history request supplies both `targetSeq` and `beforeSeq`
+- **THEN** strict query validation rejects it before reading message history
+- **AND** no ambiguous pagination mode reaches the repository
+
+#### Scenario: Target window does not alias newest-window cache
+
+- **WHEN** an owner enters a deep link after the ordinary newest history was cached
+- **THEN** target-mode state uses a distinct cache identity whose page zero is the target-ended window
+- **AND** clearing the hash restores the ordinary newest-window query without merging the two page orders
 
 #### Scenario: Foreign target is not disclosed
 
