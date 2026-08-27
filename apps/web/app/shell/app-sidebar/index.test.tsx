@@ -27,13 +27,40 @@ vi.mock("@/lib/services/auth/queries", () => ({
   logout: vi.fn(),
 }));
 
-// The shared rail now mounts AppSidebarPinned, which calls usePins(). This
-// test renders AppSidebar without a QueryClientProvider (it exercises the
-// shell's structure, not pins), so stub the query to empty — the Pinned
-// section then renders nothing (hidden when empty), leaving the Administration
-// placement assertions below unchanged.
+// AppSidebar statically imports AppSidebarPinned, which pulls framer-motion.
+// Vitest still transforms the real module under `vi.mock`, and that package
+// plus the full shell graph OOMs this worker (~4–8GB). Stub the section out —
+// this suite only asserts Administration placement in the chrome.
+vi.mock("./app-sidebar-pinned", () => ({
+  AppSidebarPinned: () => null,
+}));
+
+// Defense in depth: if anything else in the shell graph grows a framer-motion
+// import, keep the heavy package out of this worker.
+vi.mock("framer-motion", () => {
+  function Passthrough({
+    children,
+    ...props
+  }: {
+    children?: React.ReactNode;
+    [key: string]: unknown;
+  }) {
+    return <div {...props}>{children}</div>;
+  }
+  return {
+    Reorder: { Group: Passthrough, Item: Passthrough },
+    useDragControls: () => ({ start: () => undefined }),
+  };
+});
+
 vi.mock("@/lib/services/pins/queries", () => ({
   usePins: () => ({ data: [] }),
+}));
+
+vi.mock("@/lib/services/pins/mutations", () => ({
+  usePinItem: () => ({ mutate: vi.fn(), isPending: false }),
+  useUnpinItem: () => ({ mutate: vi.fn(), isPending: false }),
+  useReorderPins: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 import { AppSidebar, SidebarProvider } from "./index";

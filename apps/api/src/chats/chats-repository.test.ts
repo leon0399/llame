@@ -93,6 +93,25 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     expect(queryContains(queries, 'chat')).toBe(true);
     expect(querySqlContains(queries, 'limit $')).toBe(true);
     expect(lastQuery(queries).params).toContain(10);
+    expect(lastQuery(queries).sql).toContain('inner join "pins"');
+    expect(lastQuery(queries).sql).toContain(
+      'order by "pins"."position" asc, "pins"."item_id"',
+    );
+    expect(lastQuery(queries).sql).not.toContain(
+      'order by "chats"."updated_at"',
+    );
+  });
+
+  it('findByOwner keeps non-pinned-only modes on updatedAt descending', async () => {
+    const { db, queries } = makeMockDb();
+    await new ChatsRepository(db)
+      .findByOwner(ownerUserId, { pinned: 'exclude' })
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain(
+      'order by "chats"."updated_at" desc',
+    );
+    expect(lastQuery(queries).sql).not.toContain('inner join "pins"');
   });
 
   it('countByOwner returns an uncapped exact population query', async () => {

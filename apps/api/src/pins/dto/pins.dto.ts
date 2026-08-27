@@ -1,4 +1,12 @@
 import { ApiProperty, getSchemaPath } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import {
+  ArrayUnique,
+  IsArray,
+  IsEnum,
+  IsUUID,
+  ValidateNested,
+} from 'class-validator';
 import type { PinnedRow } from '../pins-repository';
 
 // The two pinnable item types. The value validated for the `:itemType` path
@@ -68,6 +76,27 @@ export class ProjectPinnedItemResponse {
 export type PinnedItemResponse =
   | ChatPinnedItemResponse
   | ProjectPinnedItemResponse;
+
+/** One entry in a full-list pin reorder body. */
+export class ReorderPinsItemDto {
+  @ApiProperty({ enum: Object.values(PIN_ITEM_TYPES) })
+  @IsEnum(PIN_ITEM_TYPES)
+  itemType!: 'chat' | 'project';
+
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  itemId!: string;
+}
+
+/** Full replacement of the caller's pin order (exact set of current pins). */
+export class ReorderPinsDto {
+  @ApiProperty({ type: [ReorderPinsItemDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ReorderPinsItemDto)
+  @ArrayUnique((item: ReorderPinsItemDto) => `${item.itemType}:${item.itemId}`)
+  items!: ReorderPinsItemDto[];
+}
 
 export const PINNED_ITEM_RESPONSE_SCHEMA = {
   oneOf: [

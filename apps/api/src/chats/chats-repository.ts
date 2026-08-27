@@ -18,6 +18,7 @@ import {
   desc,
   eq,
   exists,
+  getTableColumns,
   gt,
   inArray,
   isNotNull,
@@ -108,9 +109,32 @@ export class ChatsRepository {
       conditions.push(isNull(chats.archivedAt));
     }
 
-    const pinCondition = this.pinCondition(ownerUserId, filter.pinned);
+    const pinCondition =
+      filter.pinned === 'only'
+        ? undefined
+        : this.pinCondition(ownerUserId, filter.pinned);
     if (pinCondition !== undefined) {
       conditions.push(pinCondition);
+    }
+
+    // Pinned-only lists follow owner pin rank; every other filter stays
+    // updatedAt DESC (item-archive / add-pinned-items-reorder).
+    if (filter.pinned === 'only') {
+      const query = this.db
+        .select(getTableColumns(chats))
+        .from(chats)
+        .innerJoin(
+          pins,
+          and(
+            eq(pins.userId, ownerUserId),
+            // SAFETY: 'chat' is a member of PinItemType.
+            eq(pins.itemType, 'chat' as PinItemType),
+            eq(pins.itemId, chats.id),
+          ),
+        )
+        .where(and(...conditions))
+        .orderBy(asc(pins.position), pins.itemId);
+      return filter.limit === undefined ? query : query.limit(filter.limit);
     }
 
     const query = this.db
@@ -126,10 +150,8 @@ export class ChatsRepository {
    * Returns `undefined` — no filtering at all — for `'with'` and for an absent
    * mode, which the list treats identically.
    *
-   * A subquery rather than a JOIN so the `Chat[]` row shape is preserved and
-   * last-message hydration is untouched. Shared by the list and the count so
-   * the two cannot disagree about what "pinned" means — they answer the same
-   * question over the same population, one capped and one not.
+   * A subquery preserves the `Chat[]` row shape for counts and exclusion reads.
+   * The pinned-only list instead joins pins because it also orders by position.
    */
   private pinCondition(
     ownerUserId: string,

@@ -23,6 +23,13 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
+import { BadRequestException } from '@nestjs/common';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import * as schema from '../db/schema';
+import { type Db, TenantDbService } from '../db/tenant-db.service';
+import { PinsService } from './pins.service';
 
 // Make this file a module so its top-level `TEST_DB_URL`/`describeIfDb`/
 // `SqlClient` are module-scoped, not globals that collide with the sibling
@@ -36,6 +43,7 @@ type SqlClient = any;
 
 describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
   let sql: SqlClient;
+  let pinsService: PinsService;
   let userAId: string;
   let userBId: string;
   let chatAId: string; // owned by A
@@ -61,6 +69,8 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 2 });
+    const db: Db = drizzle(sql, { schema });
+    pinsService = new PinsService(new TenantDbService(db));
 
     userAId = crypto.randomUUID();
     userBId = crypto.randomUUID();
@@ -87,6 +97,10 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
       (tx) =>
         tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatBId}, ${userBId}, 'B chat')`,
     );
+    await asUser(userAId, async (tx) => {
+      await tx`INSERT INTO pins (user_id, item_type, item_id, position) VALUES (${userAId}, 'chat', ${chatAId}, 0)`;
+      await tx`INSERT INTO pins (user_id, item_type, item_id, position) VALUES (${userAId}, 'project', ${projectAId}, 1)`;
+    });
   });
 
   afterAll(async () => {
@@ -111,11 +125,6 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
   });
 
   it('per-user isolation: A pins their chat and project; A sees both, B sees none', async () => {
-    await asUser(userAId, async (tx) => {
-      await tx`INSERT INTO pins (user_id, item_type, item_id) VALUES (${userAId}, 'chat', ${chatAId})`;
-      await tx`INSERT INTO pins (user_id, item_type, item_id) VALUES (${userAId}, 'project', ${projectAId})`;
-    });
-
     const aRows = await asUser(
       userAId,
       (tx) =>
@@ -161,7 +170,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
       asUser(
         userAId,
         (tx) =>
-          tx`INSERT INTO pins (user_id, item_type, item_id) VALUES (${userAId}, 'chat', ${chatBId})`,
+          tx`INSERT INTO pins (user_id, item_type, item_id, position) VALUES (${userAId}, 'chat', ${chatBId}, 99)`,
       ),
     ).rejects.toThrow(/row-level security|violates/i);
   });
@@ -172,36 +181,43 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
       asUser(
         userAId,
         (tx) =>
-          tx`INSERT INTO pins (user_id, item_type, item_id) VALUES (${userAId}, 'chat', ${ghost})`,
+          tx`INSERT INTO pins (user_id, item_type, item_id, position) VALUES (${userAId}, 'chat', ${ghost}, 99)`,
       ),
     ).rejects.toThrow(/row-level security|violates/i);
   });
 
   it('write gate: A CAN pin their own chat, and re-pinning is idempotent (ON CONFLICT DO NOTHING)', async () => {
     const chat2 = crypto.randomUUID();
-    await asUser(
-      userAId,
-      (tx) =>
-        tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chat2}, ${userAId}, 'A chat 2')`,
-    );
+    try {
+      await asUser(
+        userAId,
+        (tx) =>
+          tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chat2}, ${userAId}, 'A chat 2')`,
+      );
 
-    await asUser(
-      userAId,
-      (tx) =>
-        tx`INSERT INTO pins (user_id, item_type, item_id) VALUES (${userAId}, 'chat', ${chat2}) ON CONFLICT DO NOTHING`,
-    );
-    // Re-pin: no error, still exactly one row.
-    await asUser(
-      userAId,
-      (tx) =>
-        tx`INSERT INTO pins (user_id, item_type, item_id) VALUES (${userAId}, 'chat', ${chat2}) ON CONFLICT DO NOTHING`,
-    );
-    const rows = await asUser(
-      userAId,
-      (tx) =>
-        tx`SELECT item_id FROM pins WHERE user_id = ${userAId} AND item_id = ${chat2}`,
-    );
-    expect(rows.length).toBe(1);
+      await asUser(
+        userAId,
+        (tx) =>
+          tx`INSERT INTO pins (user_id, item_type, item_id, position) VALUES (${userAId}, 'chat', ${chat2}, 2) ON CONFLICT DO NOTHING`,
+      );
+      // Re-pin: no error, still exactly one row at its original position.
+      await asUser(
+        userAId,
+        (tx) =>
+          tx`INSERT INTO pins (user_id, item_type, item_id, position) VALUES (${userAId}, 'chat', ${chat2}, -100) ON CONFLICT DO NOTHING`,
+      );
+      const rows = await asUser(
+        userAId,
+        (tx) =>
+          tx`SELECT item_id, position FROM pins WHERE user_id = ${userAId} AND item_id = ${chat2}`,
+      );
+      expect(rows).toEqual([{ item_id: chat2, position: 2 }]);
+    } finally {
+      await asUser(userAId, async (tx) => {
+        await tx`DELETE FROM pins WHERE item_id = ${chat2}`;
+        await tx`DELETE FROM chats WHERE id = ${chat2}`;
+      });
+    }
   });
 
   it('B cannot forge a pin row owned by A (insert WITH CHECK)', async () => {
@@ -209,8 +225,85 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
       asUser(
         userBId,
         (tx) =>
-          tx`INSERT INTO pins (user_id, item_type, item_id) VALUES (${userAId}, 'chat', ${chatBId})`,
+          tx`INSERT INTO pins (user_id, item_type, item_id, position) VALUES (${userAId}, 'chat', ${chatBId}, 99)`,
       ),
     ).rejects.toThrow(/row-level security|violates/i);
+  });
+
+  it('owner reorder sticks and densifies a mixed set with a negative head position', async () => {
+    const newChatId = crypto.randomUUID();
+    try {
+      await asUser(userAId, async (tx) => {
+        await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${newChatId}, ${userAId}, 'Reorder head')`;
+        await tx`INSERT INTO pins (user_id, item_type, item_id, position) VALUES (${userAId}, 'chat', ${newChatId}, -1)`;
+      });
+
+      const reordered = await pinsService.reorderPins(userAId, [
+        { itemType: 'project', itemId: projectAId },
+        { itemType: 'chat', itemId: chatAId },
+        { itemType: 'chat', itemId: newChatId },
+      ]);
+      expect(reordered.map(({ itemId }) => itemId)).toEqual([
+        projectAId,
+        chatAId,
+        newChatId,
+      ]);
+
+      const listed = await pinsService.listPins(userAId);
+      expect(listed.map(({ itemId }) => itemId)).toEqual([
+        projectAId,
+        chatAId,
+        newChatId,
+      ]);
+      const positions = await asUser(
+        userAId,
+        (tx) =>
+          tx`SELECT item_id, position FROM pins WHERE user_id = ${userAId} ORDER BY position`,
+      );
+      expect(positions).toEqual([
+        { item_id: projectAId, position: 0 },
+        { item_id: chatAId, position: 1 },
+        { item_id: newChatId, position: 2 },
+      ]);
+    } finally {
+      await asUser(userAId, async (tx) => {
+        await tx`DELETE FROM pins WHERE item_id = ${newChatId}`;
+        await tx`DELETE FROM chats WHERE id = ${newChatId}`;
+      });
+    }
+  });
+
+  it("another tenant cannot reorder or update the owner's pins", async () => {
+    const before = await asUser(
+      userAId,
+      (tx) =>
+        tx`SELECT item_type, item_id, position FROM pins WHERE user_id = ${userAId} ORDER BY position`,
+    );
+
+    await expect(
+      pinsService.reorderPins(
+        userBId,
+        before.map(
+          (row: { item_type: 'chat' | 'project'; item_id: string }) => ({
+            itemType: row.item_type,
+            itemId: row.item_id,
+          }),
+        ),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    const updated = await asUser(
+      userBId,
+      (tx) =>
+        tx`UPDATE pins SET position = 999 WHERE user_id = ${userAId} RETURNING item_id`,
+    );
+    expect(updated).toHaveLength(0);
+
+    const after = await asUser(
+      userAId,
+      (tx) =>
+        tx`SELECT item_type, item_id, position FROM pins WHERE user_id = ${userAId} ORDER BY position`,
+    );
+    expect(after).toEqual(before);
   });
 });

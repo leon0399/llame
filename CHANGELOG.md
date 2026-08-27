@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-26
 
+- **Owner-controlled pin order** (#328): pins carry a cross-type `position`
+  rank. `GET /pins`, `?pinned=only` chat/project lists, and the recency
+  digest's pinned section follow that order; new pins land at the head.
+  `PUT /api/v1/pins/order` rewrites the caller's full set through the
+  owner-scoped transaction and RLS policy.
 - **Repository contribution workflow**: internal contributions now follow an
   issue-first, OpenSpec-driven stacked-PR flow with explicit proposal approval,
   layer-scoped verification and task history, mandatory self-review, and

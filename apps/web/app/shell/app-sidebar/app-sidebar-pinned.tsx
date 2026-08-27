@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   DropdownMenu,
@@ -14,15 +14,15 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
-  SidebarMenu,
   SidebarMenuButton,
-  SidebarMenuItem,
   SidebarSeparator,
 } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
+import { Reorder, useDragControls, type DragControls } from "framer-motion";
 import {
   ArchiveIcon,
   FolderIcon,
+  GripVerticalIcon,
   MessagesSquareIcon,
   MoreHorizontalIcon,
   PenLineIcon,
@@ -40,7 +40,7 @@ import {
   DeleteProjectDialog,
   RenameProjectDialog,
 } from "@/app/(chat)/components/chat-list-sidebar/project-dialogs";
-import { useUnpinItem } from "@/lib/services/pins/mutations";
+import { useReorderPins, useUnpinItem } from "@/lib/services/pins/mutations";
 import { useSetChatArchive } from "@/lib/services/chat/management";
 import { useSetProjectArchive } from "@/lib/services/project/mutations";
 import type { PinnedItem } from "@/lib/services/pins/types";
@@ -59,27 +59,55 @@ const UNTITLED_CHAT_LABEL = "New chat";
 type PinnedChat = Extract<PinnedItem, { itemType: "chat" }>;
 type PinnedProject = Extract<PinnedItem, { itemType: "project" }>;
 
+function pinKey(pin: PinnedItem): string {
+  return `${pin.itemType}-${pin.itemId}`;
+}
+
+/** Trailing drag handle — same HoverReveal expand as other row actions. */
+function PinDragHandle({ dragControls }: { dragControls: DragControls }) {
+  return (
+    <HoverReveal>
+      <SidebarRowAction
+        aria-label="Drag to reorder"
+        className="cursor-grab active:cursor-grabbing"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          dragControls.start(event);
+        }}
+      >
+        <GripVerticalIcon />
+      </SidebarRowAction>
+    </HoverReveal>
+  );
+}
+
 // Split into two small per-type row components (rather than a single row
 // computing a shared `string` href) so each Link's href stays an inline
 // template literal — matching the pattern next/link's typed routes accept
 // elsewhere in this codebase (chat-item.tsx, project-list-sidebar/index.tsx).
 //
 // Every rail row here is, by construction, pinned (it only exists because
-// it's in the pins list) — so the row's only action control is the "…" kebab
-// (no separate hover pin/unpin button, unlike ChatItem/ProjectItem's list
-// rows), and its toggle item is always "Unpin", never "Pin". The menu is
-// grouped by action semantics exactly like its list-row counterpart: pin
-// toggle → rename → lifecycle (archive, then delete).
-// It's necessarily a SUBSET of the list row's menu — the rail holds only the
-// lean RefCard (`{id,title|null}` / `{id,name}`), not the full chat/project,
-// so data-heavy chat actions (Move to project, Share, Export, Fork) have no
-// data to act on here and are deliberately omitted rather than faked. Run
-// status is the exception to that rule rather than a break from it: it comes
-// from the active-runs context keyed by chat id, not from the card, so a
-// pinned chat can say it is still being named without anything being faked —
-// and it is read optionally, because the admin shell mounts this rail with no
-// runs provider at all.
-export function PinnedChatRow({ pin }: { pin: PinnedChat }) {
+// it's in the pins list) — so the row's action controls are the drag handle
+// and the "…" kebab (no separate hover pin/unpin button, unlike
+// ChatItem/ProjectItem's list rows), and its toggle item is always "Unpin",
+// never "Pin". The menu is grouped by action semantics exactly like its
+// list-row counterpart: pin toggle → rename → lifecycle (archive, then
+// delete). It's necessarily a SUBSET of the list row's menu — the rail holds
+// only the lean RefCard (`{id,title|null}` / `{id,name}`), not the full
+// chat/project, so data-heavy chat actions (Move to project, Share, Export,
+// Fork) have no data to act on here and are deliberately omitted rather than
+// faked. Run status is the exception to that rule rather than a break from
+// it: it comes from the active-runs context keyed by chat id, not from the
+// card, so a pinned chat can say it is still being named without anything
+// being faked — and it is read optionally, because the admin shell mounts
+// this rail with no runs provider at all.
+export function PinnedChatRow({
+  pin,
+  dragControls,
+}: {
+  pin: PinnedChat;
+  dragControls: DragControls;
+}) {
   const pathname = usePathname();
   const label = pin.item.title ?? UNTITLED_CHAT_LABEL;
   const isArchived = pin.item.archivedAt !== null;
@@ -123,6 +151,8 @@ export function PinnedChatRow({ pin }: { pin: PinnedChat }) {
           {isArchived && <ArchivedBadge />}
         </span>
       </SidebarMenuButton>
+
+      <PinDragHandle dragControls={dragControls} />
 
       <DropdownMenu modal={true}>
         <HoverReveal atRest={isActive}>
@@ -186,7 +216,13 @@ export function PinnedChatRow({ pin }: { pin: PinnedChat }) {
   );
 }
 
-export function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
+export function PinnedProjectRow({
+  pin,
+  dragControls,
+}: {
+  pin: PinnedProject;
+  dragControls: DragControls;
+}) {
   const pathname = usePathname();
   const isActive = pathname === `/projects/${pin.itemId}`;
   const isArchived = pin.item.archivedAt !== null;
@@ -219,6 +255,8 @@ export function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
           {isArchived && <ArchivedBadge />}
         </span>
       </SidebarMenuButton>
+
+      <PinDragHandle dragControls={dragControls} />
 
       <DropdownMenu modal={true}>
         <HoverReveal atRest={isActive}>
@@ -283,18 +321,74 @@ export function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
   );
 }
 
+function SortablePinnedRow({
+  pin,
+  onDragStart,
+  onReorderCommit,
+}: {
+  pin: PinnedItem;
+  onDragStart: () => void;
+  onReorderCommit: () => void;
+}) {
+  const dragControls = useDragControls();
+  return (
+    <Reorder.Item
+      as="li"
+      value={pin}
+      dragListener={false}
+      dragControls={dragControls}
+      onDragStart={onDragStart}
+      onDragEnd={onReorderCommit}
+      data-slot="sidebar-menu-item"
+      data-sidebar="menu-item"
+      className="group/menu-item relative flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-data-active:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring"
+    >
+      {pin.itemType === "chat" ? (
+        <PinnedChatRow pin={pin} dragControls={dragControls} />
+      ) : (
+        <PinnedProjectRow pin={pin} dragControls={dragControls} />
+      )}
+    </Reorder.Item>
+  );
+}
+
 /**
  * The rail's mixed chats+projects "Pinned" section (AppShell.dc.html) — one
  * unified list sourced straight from GET /pins (pins is the sole source of
- * pin state, design D5), rendered in server order (pinned_at DESC). Hidden
- * entirely when the caller has no pins — never an empty labelled group.
+ * pin state, design D5), rendered in owner rank order. Drag-to-reorder is
+ * authoring-only here; chat/project sidebars ripple via cache invalidation.
+ * Hidden entirely when the caller has no pins — never an empty labelled group.
  */
 export function AppSidebarPinned() {
   const { data: pins } = usePins();
+  const reorderMutation = useReorderPins();
+  const [items, setItems] = useState<PinnedItem[]>([]);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  // While a grip drag is in flight, ignore pins-query mirrors so a refetch
+  // (pin/unpin elsewhere, reorder settle) cannot reset the in-progress order.
+  const draggingRef = useRef(false);
+
+  useEffect(() => {
+    if (pins && !draggingRef.current) setItems(pins);
+  }, [pins]);
 
   if (!pins || pins.length === 0) {
     return null;
   }
+
+  const commitOrder = () => {
+    draggingRef.current = false;
+    const next = itemsRef.current;
+    const same =
+      next.length === (pins?.length ?? 0) &&
+      next.every(
+        (pin, i) =>
+          pin.itemType === pins[i]?.itemType && pin.itemId === pins[i]?.itemId,
+      );
+    if (same) return;
+    reorderMutation.mutate(next);
+  };
 
   return (
     <>
@@ -305,24 +399,26 @@ export function AppSidebarPinned() {
       <SidebarGroup>
         <SidebarGroupLabel>Pinned</SidebarGroupLabel>
         <SidebarGroupContent>
-          <SidebarMenu>
-            {pins.map((pin) => (
-              <SidebarMenuItem
-                key={`${pin.itemType}-${pin.itemId}`}
-                // A flex line with in-flow actions (see HoverReveal), so the
-                // hover/active fill belongs to the row rather than to a button
-                // that no longer spans it. `has-data-active` because which row
-                // is open is known inside the row, not here.
-                className="flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-data-active:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring"
-              >
-                {pin.itemType === "chat" ? (
-                  <PinnedChatRow pin={pin} />
-                ) : (
-                  <PinnedProjectRow pin={pin} />
-                )}
-              </SidebarMenuItem>
+          <Reorder.Group
+            as="ul"
+            axis="y"
+            values={items}
+            onReorder={setItems}
+            data-slot="sidebar-menu"
+            data-sidebar="menu"
+            className="flex w-full min-w-0 flex-col gap-1"
+          >
+            {items.map((pin) => (
+              <SortablePinnedRow
+                key={pinKey(pin)}
+                pin={pin}
+                onDragStart={() => {
+                  draggingRef.current = true;
+                }}
+                onReorderCommit={commitOrder}
+              />
             ))}
-          </SidebarMenu>
+          </Reorder.Group>
         </SidebarGroupContent>
       </SidebarGroup>
     </>

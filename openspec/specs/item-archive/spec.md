@@ -56,7 +56,7 @@ Archiving and unarchiving SHALL be performed as a partial `PATCH /resource/:id` 
 
 ### Requirement: List filtering by archive and pin state
 
-The chat and project list endpoints (`GET /chats`, `GET /projects`) SHALL accept an `?archived` parameter with values `only` (archived only) and `with` (archived and non-archived); when the parameter is absent, archived items SHALL be excluded. They SHALL accept a `?pinned` parameter with values `only` (pinned only), `with` (both pinned and non-pinned), and `exclude` (non-pinned only); when absent, `?pinned` SHALL default to `with`. The `pinned` filter SHALL be enforced by checking membership in the caller's pins (`WHERE EXISTS` / `WHERE NOT EXISTS` on the `pins` table scoped to the caller and item type); all filtered result sets SHALL be ordered by `updatedAt` descending (no pin-recency ordering). The `?projectId` filter on `GET /chats` SHALL compose with both `?archived` and `?pinned`.
+The chat and project list endpoints (`GET /chats`, `GET /projects`) SHALL accept an `?archived` parameter with values `only` (archived only) and `with` (archived and non-archived); when the parameter is absent, archived items SHALL be excluded. They SHALL accept a `?pinned` parameter with values `only` (pinned only), `with` (both pinned and non-pinned), and `exclude` (non-pinned only); when absent, `?pinned` SHALL default to `with`. The `pinned` filter SHALL be enforced by checking membership in the caller's pins (`WHERE EXISTS` / `WHERE NOT EXISTS` on the `pins` table scoped to the caller and item type). When `?pinned=only`, the result SHALL be ordered by the caller's pin rank for that item type (the type-filtered projection of the mixed pin order defined by `item-pins`). For every other `?pinned` value (`with`, `exclude`, or the default), the result SHALL be ordered by `updatedAt` descending. The `?projectId` filter on `GET /chats` SHALL compose with both `?archived` and `?pinned`.
 
 #### Scenario: Default list excludes archived
 
@@ -80,8 +80,13 @@ The chat and project list endpoints (`GET /chats`, `GET /projects`) SHALL accept
 
 #### Scenario: Lists ordered by updatedAt
 
-- **WHEN** any filtered list is returned
-- **THEN** items are ordered by `updatedAt` descending (pin-recency ordering is deferred)
+- **WHEN** a user lists with `?pinned=exclude`, `?pinned=with`, or the default `?pinned` behavior
+- **THEN** items are ordered by `updatedAt` descending
+
+#### Scenario: Pinned-only lists follow pin rank
+
+- **WHEN** a user lists with `?pinned=only` after assigning an explicit pin order
+- **THEN** items appear in that owner's pin-rank order for the listed type (not by `updatedAt`)
 
 ### Requirement: Web list splits into Pinned and All categories (retires #204)
 

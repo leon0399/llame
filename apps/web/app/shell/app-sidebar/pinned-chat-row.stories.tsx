@@ -6,6 +6,7 @@ import {
   SidebarProvider,
 } from "@workspace/ui/components/sidebar";
 import { expect, screen, userEvent, within } from "storybook/test";
+import { useDragControls } from "framer-motion";
 
 import type { PinnedItem } from "@/lib/services/pins/types";
 import { PinnedChatRow } from "./app-sidebar-pinned";
@@ -27,8 +28,13 @@ const menuPortalA11y = {
   },
 };
 
+function PinnedChatRowStory(props: { pin: PinnedChat }) {
+  const dragControls = useDragControls();
+  return <PinnedChatRow pin={props.pin} dragControls={dragControls} />;
+}
+
 const meta = {
-  component: PinnedChatRow,
+  component: PinnedChatRowStory,
   tags: ["autodocs"],
   args: { pin: chatPin },
   decorators: [
@@ -49,7 +55,7 @@ const meta = {
     ),
   ],
   parameters: { layout: "centered" },
-} satisfies Meta<typeof PinnedChatRow>;
+} satisfies Meta<typeof PinnedChatRowStory>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;

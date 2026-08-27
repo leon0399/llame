@@ -1,13 +1,15 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { TenantDbService } from '../db/tenant-db.service';
 import { PinsController } from './pins.controller';
 import { PinsService } from './pins.service';
-import { type PinnedRow } from './pins-repository';
-import { toPinnedItemResponse } from './dto/pins.dto';
+import { PinReorderMismatchError, type PinnedRow } from './pins-repository';
+import { ReorderPinsDto, toPinnedItemResponse } from './dto/pins.dto';
 
 type PinsControllerServiceDouble = Partial<
-  Pick<PinsService, 'listPins' | 'pin' | 'unpin'>
+  Pick<PinsService, 'listPins' | 'reorderPins' | 'pin' | 'unpin'>
 >;
 
 describe('toPinnedItemResponse', () => {
@@ -55,6 +57,14 @@ describe('toPinnedItemResponse', () => {
       name: 'Acme',
       archivedAt: null,
     });
+  });
+});
+
+describe('ReorderPinsDto', () => {
+  it('rejects malformed array entries without throwing from validation', async () => {
+    const dto = plainToInstance(ReorderPinsDto, { items: [null] });
+
+    await expect(validate(dto)).resolves.not.toEqual([]);
   });
 });
 
@@ -121,6 +131,54 @@ describe('PinsService.pin — error mapping', () => {
     const svc = await makeService(() => Promise.reject(boom));
     await expect(svc.pin('u1', 'chat', 'c1')).rejects.toBe(boom);
   });
+
+  it('retries once when two pins race on position unique (23505)', async () => {
+    const row: PinnedRow = {
+      itemType: 'chat',
+      itemId: 'c1',
+      pinnedAt: new Date(),
+      title: 'ok',
+      archivedAt: null,
+    };
+    const runAs = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error('uniq'), { code: '23505' }),
+      )
+      .mockResolvedValueOnce(row);
+    const module = await Test.createTestingModule({
+      providers: [
+        PinsService,
+        { provide: TenantDbService, useValue: { runAs } },
+      ],
+    }).compile();
+    const svc = module.get(PinsService);
+
+    await expect(svc.pin('u1', 'chat', 'c1')).resolves.toEqual(row);
+    expect(runAs).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('PinsService.reorderPins — error mapping', () => {
+  it('maps an exact-set mismatch to 400', async () => {
+    const module = await Test.createTestingModule({
+      providers: [
+        PinsService,
+        {
+          provide: TenantDbService,
+          useValue: {
+            runAs: vi.fn(() => Promise.reject(new PinReorderMismatchError())),
+          },
+        },
+      ],
+    }).compile();
+
+    await expect(
+      module
+        .get(PinsService)
+        .reorderPins('u1', [{ itemType: 'chat', itemId: 'c1' }]),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
 });
 
 describe('PinsController', () => {
@@ -177,6 +235,38 @@ describe('PinsController', () => {
     const out = await controller.pin('u1', 'chat', 'c1');
     expect(out.item).toEqual({ id: 'c1', title: 'C', archivedAt: null });
     expect(pin).toHaveBeenCalledWith('u1', 'chat', 'c1');
+  });
+
+  it('PUT /pins/order delegates the complete order and maps the returned list', async () => {
+    const rows: PinnedRow[] = [
+      {
+        itemType: 'project',
+        itemId: 'p1',
+        pinnedAt: new Date(),
+        name: 'Project',
+        archivedAt: null,
+      },
+      {
+        itemType: 'chat',
+        itemId: 'c1',
+        pinnedAt: new Date(),
+        title: 'Chat',
+        archivedAt: null,
+      },
+    ];
+    const reorderPins = vi.fn().mockResolvedValue(rows);
+    const controller = await makeController({ reorderPins });
+    const body = {
+      items: [
+        { itemType: 'project' as const, itemId: 'p1' },
+        { itemType: 'chat' as const, itemId: 'c1' },
+      ],
+    };
+
+    const out = await controller.reorderPins('u1', body);
+
+    expect(out.map(({ itemId }) => itemId)).toEqual(['p1', 'c1']);
+    expect(reorderPins).toHaveBeenCalledWith('u1', body.items);
   });
 
   it('DELETE delegates to the service and returns void', async () => {

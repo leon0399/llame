@@ -31,6 +31,7 @@ const unpinMutateMock = vi.fn();
 vi.mock("@/lib/services/pins/mutations", () => ({
   usePinItem: () => ({ mutate: vi.fn(), isPending: false }),
   useUnpinItem: () => ({ mutate: unpinMutateMock, isPending: false }),
+  useReorderPins: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 const archiveChatMutateMock = vi.fn();

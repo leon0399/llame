@@ -6,7 +6,17 @@
  * mirrors ChatsRepository's own documented rationale (chats-repository.ts).
  */
 
-import { and, desc, eq, exists, isNotNull, isNull, not } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  getTableColumns,
+  isNotNull,
+  isNull,
+  not,
+} from 'drizzle-orm';
 import { assertNotArchived } from '../db/assert-not-archived';
 import { type Project, pins, projects, type PinItemType } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
@@ -15,7 +25,10 @@ export { type Db } from '../db/tenant-db.service';
 export class ProjectsRepository {
   constructor(private readonly db: Db) {}
 
-  /** List a user's projects, honoring the archive/pin filters; updatedAt desc. */
+  /**
+   * List a user's projects, honoring the archive/pin filters.
+   * `pinned=only` orders by pin position; other modes by updatedAt desc.
+   */
   async listForUser(
     ownerUserId: string,
     filter: {
@@ -31,7 +44,7 @@ export class ProjectsRepository {
       conditions.push(isNull(projects.archivedAt));
     }
 
-    if (filter.pinned === 'only' || filter.pinned === 'exclude') {
+    if (filter.pinned === 'exclude') {
       const pinSubquery = this.db
         .select({ itemId: pins.itemId })
         .from(pins)
@@ -46,11 +59,24 @@ export class ProjectsRepository {
             eq(pins.itemId, projects.id),
           ),
         );
-      conditions.push(
-        filter.pinned === 'only'
-          ? exists(pinSubquery)
-          : not(exists(pinSubquery)),
-      );
+      conditions.push(not(exists(pinSubquery)));
+    }
+
+    if (filter.pinned === 'only') {
+      return this.db
+        .select(getTableColumns(projects))
+        .from(projects)
+        .innerJoin(
+          pins,
+          and(
+            eq(pins.userId, ownerUserId),
+            // SAFETY: 'project' is a member of PinItemType.
+            eq(pins.itemType, 'project' as PinItemType),
+            eq(pins.itemId, projects.id),
+          ),
+        )
+        .where(and(...conditions))
+        .orderBy(asc(pins.position), pins.itemId);
     }
 
     return this.db

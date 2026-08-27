@@ -1,10 +1,4 @@
-# item-pins
-
-## Purpose
-
-A **pin** is a per-user, cross-type reference to a pinnable item (a chat or a project today), letting each user keep their own quick-access set. Pin state is a property of the (user, item) pair — owned by the pinning user, not an attribute of the item — so two users hold independent pins for the same item, and this is the substrate that de-risks true multi-user chats (only the per-type write-time accessibility check widens). This capability covers the pin entity and its datastore-enforced per-user isolation, a single unified pin/unpin/list API keyed by item type and id, the mixed "Pinned" list that surfaces in the rail and in each item list's grouping, and a strongly-typed, additively-extensible item-type enumeration. Pins are the sole source of pin state — pinnable resources carry no pin field of their own.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Per-user pin entity
 
@@ -24,39 +18,6 @@ A **pin** SHALL be a reference from a **user** to a pinnable **item**, identifie
 
 - **WHEN** a user unpins an item that is not currently pinned by them
 - **THEN** the request succeeds and the item is not pinned for that user
-
-### Requirement: Pins are isolated per user in the datastore
-
-Pins SHALL be visible and mutable only to their owning user, enforced in the datastore (defense-in-depth), and SHALL fail closed when the caller's identity is absent. The acting identity SHALL be derived only from the authenticated session, never from client-supplied input. An unauthenticated (no-identity) read path SHALL return no pins.
-
-#### Scenario: Listing pins returns only the caller's pins
-
-- **WHEN** a user lists their pins
-- **THEN** the response contains exactly the pins they own, and none belonging to any other user
-
-#### Scenario: A user cannot read or remove another user's pin
-
-- **WHEN** a user attempts to observe or unpin a pin owned by a different user
-- **THEN** access is denied and no change is made
-
-#### Scenario: Absent identity yields no pins
-
-- **WHEN** a pin read runs without an authenticated identity (e.g. an unauthenticated/public path)
-- **THEN** no pins are returned
-
-### Requirement: A user may only pin an item they can access
-
-Creating a pin SHALL be permitted only when the caller can currently access the referenced item under that item's own access rules, verified at write time in the datastore. A request to pin an item the caller cannot access SHALL be denied. This accessibility check is per item type and is the single place that later access models (e.g. multi-user chats) extend.
-
-#### Scenario: Pinning an accessible item succeeds
-
-- **WHEN** a user pins a chat or project they own
-- **THEN** the pin is created
-
-#### Scenario: Pinning an inaccessible item is denied
-
-- **WHEN** a user attempts to pin an item they do not own and have no access to
-- **THEN** the pin is not created and the request is denied
 
 ### Requirement: Unified pin API
 
@@ -96,20 +57,6 @@ Item type and id SHALL appear in the request path for pin and unpin. Reorder SHA
 - **WHEN** a client attempts to pin a chat through the former chat-update path
 - **THEN** that path no longer accepts a pin instruction; pinning is available only through the unified pin resource
 
-### Requirement: Strongly-typed, extensible item type
-
-The set of pinnable item types SHALL be a strongly-typed, closed enumeration enforced at the datastore boundary and mirrored in the application type system. The initial members SHALL be **chat** and **project**. Adding a future pinnable type SHALL be an additive extension of the enumeration and its accessibility check, requiring no change to the pin entity's shape or the pin API's contract.
-
-#### Scenario: An unknown item type is rejected
-
-- **WHEN** a pin request names an item type outside the defined enumeration
-- **THEN** the request is rejected as invalid
-
-#### Scenario: Chats and projects are pinnable
-
-- **WHEN** a user pins a chat and pins a project
-- **THEN** both pins are accepted and coexist for that user
-
 ### Requirement: Unified pinned list
 
 The system SHALL provide the caller's pinned items as a single list mixing all item types, ordered by the caller's owner-controlled rank (head first). Each entry SHALL carry its item type, id, pin timestamp, and a **type-appropriate reference** bearing the display metadata needed to render and open the item (at least a title or name). The reference SHALL be shaped per item type, so that a future item type may contribute its own presentation without changing the pin contract. A pinned reference whose item no longer exists or is no longer accessible to the caller SHALL be omitted from this list rather than surfaced as a broken entry; omitted entries SHALL NOT leave gaps that reorder remaining ranks on read.
@@ -137,6 +84,8 @@ Pin state SHALL live only in the pinning subsystem. A pinnable resource's own re
 
 - **WHEN** a user views the chat list or the project list
 - **THEN** the resources whose id is in the caller's pinned set appear in a "Pinned" group above the rest of that list, ordered by the caller's pin rank among that type
+
+## ADDED Requirements
 
 ### Requirement: Newly pinned items land at the head of the owner's rank
 
