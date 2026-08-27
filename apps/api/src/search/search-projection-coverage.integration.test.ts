@@ -238,6 +238,74 @@ describeIfDb('search projection locator coverage and RLS', () => {
     expect(await staleIds()).not.toContain(chatId);
   });
 
+  it('marks boundary IDs from another Chat or a missing message stale and repairs them on reindex', async () => {
+    const chatId = await seedChat(
+      ownerA,
+      [textPart('boundary identities must remain inside this Chat')],
+      'Boundary identity repair',
+    );
+    const foreignChatId = await seedChat(
+      ownerB,
+      [textPart('foreign boundary source')],
+      'Foreign boundary source',
+    );
+    await indexService.reindexChat(chatId, ownerA);
+    await indexService.reindexChat(foreignChatId, ownerB);
+    const original = (await documentRowsAs(ownerA, chatId))[0];
+    const foreignMessage = await tenantDb.runAs(ownerB, (tx) =>
+      tx.execute<{ id: string }>(sql`
+        SELECT id
+        FROM messages
+        WHERE chat_id = ${foreignChatId}
+        ORDER BY seq
+        LIMIT 1
+      `),
+    );
+    const foreignMessageId = [...foreignMessage][0].id;
+
+    await sqlClient`ALTER TABLE search_chat_documents NO FORCE ROW LEVEL SECURITY`;
+    try {
+      await sqlClient`
+        UPDATE search_chat_documents
+        SET first_message_id = ${foreignMessageId}
+        WHERE chat_id = ${chatId}
+      `;
+    } finally {
+      await sqlClient`ALTER TABLE search_chat_documents FORCE ROW LEVEL SECURITY`;
+    }
+
+    expect(await staleIds()).toContain(chatId);
+    const crossChatStale = await getProjectionCoverageReport(
+      tenantDb,
+      CHUNKER_VERSION,
+    );
+    expect(crossChatStale.staleChatCount).toBeGreaterThan(0);
+    await indexService.reindexChat(chatId, ownerA);
+    expect(await staleIds()).not.toContain(chatId);
+    expect((await documentRowsAs(ownerA, chatId))[0].first_message_id).toBe(
+      original.first_message_id,
+    );
+
+    const missingMessageId = crypto.randomUUID();
+    await sqlClient`ALTER TABLE search_chat_documents NO FORCE ROW LEVEL SECURITY`;
+    try {
+      await sqlClient`
+        UPDATE search_chat_documents
+        SET last_message_id = ${missingMessageId}
+        WHERE chat_id = ${chatId}
+      `;
+    } finally {
+      await sqlClient`ALTER TABLE search_chat_documents FORCE ROW LEVEL SECURITY`;
+    }
+
+    expect(await staleIds()).toContain(chatId);
+    await indexService.reindexChat(chatId, ownerA);
+    expect(await staleIds()).not.toContain(chatId);
+    expect((await documentRowsAs(ownerA, chatId))[0].last_message_id).toBe(
+      original.last_message_id,
+    );
+  });
+
   it('marks a deleted current document stale and repairs it on reindex', async () => {
     const chatId = await seedChat(
       ownerA,
@@ -343,6 +411,49 @@ describeIfDb('search projection locator coverage and RLS', () => {
         'complete_document_count',
       ].sort(),
     );
+  });
+
+  it('keeps the retained v1 coverage report in freshness parity with v1 stale discovery', async () => {
+    const chatId = await seedChat(
+      ownerA,
+      [textPart('v1 freshness parity remains valid during rollback')],
+      'v1 freshness parity',
+    );
+    await indexService.reindexChat(chatId, ownerA);
+
+    const observeV1 = () =>
+      tenantDb.runAsPublic(async (tx) => {
+        const coverageRows = await tx.execute(
+          sql`SELECT stale_chat_count
+              FROM llame_search_projection_coverage(${CHUNKER_VERSION})`,
+        );
+        const staleRows = await tx.execute(
+          sql`SELECT chat_id
+              FROM llame_search_projection_stale_chats(${CHUNKER_VERSION}, ${STALE_DISCOVERY_LIMIT})`,
+        );
+        const [coverage] = z
+          .object({ stale_chat_count: z.number() })
+          .array()
+          .parse([...coverageRows]);
+        return {
+          staleChatCount: coverage.stale_chat_count,
+          discoveredCount: [...staleRows].length,
+        };
+      });
+
+    const before = await observeV1();
+    expect(before.discoveredCount).toBe(before.staleChatCount);
+    await tenantDb.runAs(ownerA, (tx) =>
+      tx.execute(sql`
+        UPDATE chats
+        SET updated_at = updated_at + interval '1 second'
+        WHERE id = ${chatId}
+      `),
+    );
+
+    const after = await observeV1();
+    expect(after.staleChatCount).toBe(before.staleChatCount + 1);
+    expect(after.discoveredCount).toBe(after.staleChatCount);
   });
 
   it('keeps aggregate stale counts equal to bounded stale discovery for the same snapshot/version', async () => {

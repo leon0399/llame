@@ -41,6 +41,27 @@ AS $$
            OR d.last_message_text_offset_exclusive IS NULL
          )
      )
+     OR EXISTS (
+       SELECT 1
+       FROM search_chat_documents d
+       WHERE d.chat_id = c.id
+         AND d.owner_user_id = c.owner_user_id
+         AND d.chunker_version = current_chunker_version
+         AND (
+           NOT EXISTS (
+             SELECT 1
+             FROM messages m
+             WHERE m.id = d.first_message_id
+               AND m.chat_id = c.id
+           )
+           OR NOT EXISTS (
+             SELECT 1
+             FROM messages m
+             WHERE m.id = d.last_message_id
+               AND m.chat_id = c.id
+           )
+         )
+     )
   ORDER BY c.updated_at DESC
   LIMIT CASE
     WHEN max_rows < 0 THEN 0
@@ -72,6 +93,11 @@ AS $$
         AND s.owner_user_id = c.owner_user_id
         AND s.indexed_at IS NOT NULL
         AND s.chunker_version = current_chunker_version
+        AND s.indexed_at >= coalesce(
+          (SELECT max(m.created_at) FROM messages m WHERE m.chat_id = c.id),
+          s.indexed_at
+        )
+        AND s.indexed_at >= c.updated_at
         AND NOT EXISTS (
           SELECT 1
           FROM search_chat_documents d
@@ -88,6 +114,27 @@ AS $$
           FROM search_chat_documents d
           WHERE d.chat_id = c.id
             AND d.owner_user_id IS DISTINCT FROM c.owner_user_id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM search_chat_documents d
+          WHERE d.chat_id = c.id
+            AND d.owner_user_id = c.owner_user_id
+            AND d.chunker_version = current_chunker_version
+            AND (
+              NOT EXISTS (
+                SELECT 1
+                FROM messages m
+                WHERE m.id = d.first_message_id
+                  AND m.chat_id = c.id
+              )
+              OR NOT EXISTS (
+                SELECT 1
+                FROM messages m
+                WHERE m.id = d.last_message_id
+                  AND m.chat_id = c.id
+              )
+            )
         )
       ) AS ready
     FROM chats c

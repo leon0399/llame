@@ -58,6 +58,27 @@ AS $$
           WHERE d.chat_id = c.id
             AND d.owner_user_id IS DISTINCT FROM c.owner_user_id
         )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM search_chat_documents d
+          WHERE d.chat_id = c.id
+            AND d.owner_user_id = c.owner_user_id
+            AND d.chunker_version = current_chunker_version
+            AND (
+              NOT EXISTS (
+                SELECT 1
+                FROM messages m
+                WHERE m.id = d.first_message_id
+                  AND m.chat_id = c.id
+              )
+              OR NOT EXISTS (
+                SELECT 1
+                FROM messages m
+                WHERE m.id = d.last_message_id
+                  AND m.chat_id = c.id
+              )
+            )
+        )
       ) AS ready
     FROM chats c
     LEFT JOIN search_chat_state s ON s.chat_id = c.id
@@ -125,6 +146,27 @@ AS $$
           FROM search_chat_documents d
           WHERE d.chat_id = c.id
             AND d.owner_user_id IS DISTINCT FROM c.owner_user_id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM search_chat_documents d
+          WHERE d.chat_id = c.id
+            AND d.owner_user_id = c.owner_user_id
+            AND d.chunker_version = current_chunker_version
+            AND (
+              NOT EXISTS (
+                SELECT 1
+                FROM messages m
+                WHERE m.id = d.first_message_id
+                  AND m.chat_id = c.id
+              )
+              OR NOT EXISTS (
+                SELECT 1
+                FROM messages m
+                WHERE m.id = d.last_message_id
+                  AND m.chat_id = c.id
+              )
+            )
         )
       ) AS ready
     FROM chats c
