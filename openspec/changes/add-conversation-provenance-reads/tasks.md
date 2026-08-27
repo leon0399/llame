@@ -50,7 +50,7 @@ Each branch owns only its section below. Commit and verify one layer before `gh 
 - [x] 3.5 Return a strict `kind: "content" | "metadata"` result union with one top-level untrusted-history notice; require role/timestamp, flat `{ chatId, messageSeq, offset, limit }`, and at most 500 raw-source Unicode code points only for content results, omit those fields from title-only metadata results, and expose no hash/part/version/line-prefix fields; verify content coordinates are accepted directly by `conversation_read` and framing persists through replay.
 - [x] 3.6 Keep title-only winners metadata-only and omit unauthorized, mutable, deleted, old-version, cross-message-only, or otherwise unhydratable content winners rather than substituting projection content; verify model results may safely contain fewer Chats than the unchanged web preview.
 - [x] 3.7 Preserve the current `search_conversations` `{ query, limit }` input and add no vector-only public shape; verify declaration snapshots and model results expose no vector scores, arbitrary source choice, or future #198 fields.
-- [ ] 3.8 Run search/config unit and integration tests, API typecheck/lint, and sequential API build before creating the reader branch.
+- [x] 3.8 Run search/config unit and integration tests, API typecheck/lint, and sequential API build before creating the reader branch.
 
 ## 4. `conversation-reads/reader` — Knowledge-Style Message Read Tool
 
