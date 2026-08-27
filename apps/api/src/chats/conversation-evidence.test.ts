@@ -62,6 +62,12 @@ describe('conversation evidence', () => {
           usage: { status: 'error' },
         }),
       ).toBe(false);
+      expect(
+        isImmutableEvidenceMessage({
+          role: 'assistant',
+          usage: { status: null },
+        }),
+      ).toBe(false);
     });
 
     it('excludes irrelevant roles', () => {

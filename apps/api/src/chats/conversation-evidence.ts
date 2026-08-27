@@ -1,4 +1,4 @@
-import { isCompletedAssistantTurn } from './chats-repository';
+import { isCompletedAssistantTurn } from './assistant-completion';
 import { isTextPart } from './context-builder';
 
 /**
