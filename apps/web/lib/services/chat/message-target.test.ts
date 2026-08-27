@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  renderHook,
+  waitFor,
+} from "@testing-library/react";
+import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseMessageTargetHash, useMessageTarget } from "./message-target";
@@ -39,9 +46,14 @@ describe("useMessageTarget", () => {
   it("reads the hash after hydration and reacts to one hashchange listener", async () => {
     const addEventListener = vi.spyOn(window, "addEventListener");
     const removeEventListener = vi.spyOn(window, "removeEventListener");
-    const { result, unmount } = renderHook(() => useMessageTarget("chat-1"));
+    const values: Array<number | null | undefined> = [];
+    function Probe() {
+      values.push(useMessageTarget("chat-1"));
+      return null;
+    }
+    const { unmount } = render(createElement(Probe));
 
-    expect(result.current).toBeNull();
+    expect(values[0]).toBeUndefined();
     expect(
       addEventListener.mock.calls.filter(([type]) => type === "hashchange"),
     ).toHaveLength(1);
@@ -55,18 +67,31 @@ describe("useMessageTarget", () => {
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     });
 
-    await waitFor(() => expect(result.current).toBe(42));
+    await waitFor(() => expect(values.at(-1)).toBe(42));
 
     window.history.replaceState(window.history.state, "", "/chat/chat-1");
     act(() => {
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     });
 
-    await waitFor(() => expect(result.current).toBeNull());
+    await waitFor(() => expect(values.at(-1)).toBeNull());
     unmount();
     expect(
       removeEventListener.mock.calls.filter(([type]) => type === "hashchange"),
     ).toHaveLength(1);
+  });
+
+  it("resolves no hash to ordinary history after hydration", async () => {
+    const values: Array<number | null | undefined> = [];
+    function Probe() {
+      values.push(useMessageTarget("chat-1"));
+      return null;
+    }
+
+    render(createElement(Probe));
+
+    expect(values[0]).toBeUndefined();
+    await waitFor(() => expect(values.at(-1)).toBeNull());
   });
 
   it("does not carry a prior chat target into a different chat", async () => {

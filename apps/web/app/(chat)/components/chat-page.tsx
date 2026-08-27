@@ -163,6 +163,10 @@ export function ChatPage({
   // from being misclassified as a background run completion.
   useEffect(() => registerViewedChat(chatId), [chatId, registerViewedChat]);
 
+  // The server cannot see URL fragments. Keep the first client render equal to
+  // the SSR shell, then mount exactly one history mode after the hash resolves.
+  if (targetSeq === undefined) return null;
+
   return (
     <ChatSession
       key={`${chatId}:${targetSeq === null ? "latest" : targetSeq}`}

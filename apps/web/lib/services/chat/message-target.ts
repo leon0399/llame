@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 
 const MESSAGE_TARGET_HASH = /^#msg-([1-9]\d*)$/;
 
+type MessageTargetState =
+  | { chatId: string; resolved: false }
+  | { chatId: string; resolved: true; targetSeq: number | null };
+
 export function parseMessageTargetHash(hash: string): number | null {
   const match = MESSAGE_TARGET_HASH.exec(hash);
   if (match === null) return null;
@@ -14,16 +18,17 @@ export function parseMessageTargetHash(hash: string): number | null {
  * Hash fragments are browser-only navigation state. Keep the server/client
  * first render identical, then resolve the current hash after hydration.
  */
-export function useMessageTarget(chatId: string): number | null {
-  const [state, setState] = useState<{
-    chatId: string;
-    targetSeq: number | null;
-  }>({ chatId, targetSeq: null });
+export function useMessageTarget(chatId: string): number | null | undefined {
+  const [state, setState] = useState<MessageTargetState>({
+    chatId,
+    resolved: false,
+  });
 
   useEffect(() => {
     const syncHash = () => {
       setState({
         chatId,
+        resolved: true,
         targetSeq: parseMessageTargetHash(window.location.hash),
       });
     };
@@ -33,5 +38,7 @@ export function useMessageTarget(chatId: string): number | null {
     return () => window.removeEventListener("hashchange", syncHash);
   }, [chatId]);
 
-  return state.chatId === chatId ? state.targetSeq : null;
+  return state.chatId === chatId && state.resolved
+    ? state.targetSeq
+    : undefined;
 }
