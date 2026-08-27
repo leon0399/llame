@@ -16,8 +16,12 @@ import {
   MaxLength,
   Min,
   MinLength,
+  Validate,
   ValidateIf,
   ValidateNested,
+  ValidatorConstraint,
+  type ValidationArguments,
+  type ValidatorConstraintInterface,
 } from 'class-validator';
 import type { Chat, Compaction, Message, MessageRole } from '../../db/schema';
 import {
@@ -51,6 +55,27 @@ function parseSafeIntegerQueryValue(value: unknown): number | null | undefined {
 
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
+}
+
+type HistoryCursorValue = number | null | undefined;
+
+@ValidatorConstraint({ name: 'historyCursorsExclusive', async: false })
+class HistoryCursorsExclusiveConstraint
+  implements ValidatorConstraintInterface
+{
+  validate(_value: HistoryCursorValue, args: ValidationArguments): boolean {
+    const query = args.object;
+    return (
+      !('beforeSeq' in query) ||
+      !('targetSeq' in query) ||
+      query.beforeSeq === undefined ||
+      query.targetSeq === undefined
+    );
+  }
+
+  defaultMessage(): string {
+    return 'beforeSeq and targetSeq cannot be used together';
+  }
 }
 
 // PATCH /api/v1/chats/:id — partial update. Every field optional; only provided fields
@@ -480,12 +505,31 @@ export class ChatMessagesQueryDto {
     format: 'int64',
     description: 'Return messages strictly before this sequence number.',
   })
-  @IsOptional()
+  @ValidateIf((o: ChatMessagesQueryDto) => o.beforeSeq !== undefined)
   @Transform(({ value }) => parseSafeIntegerQueryValue(value))
   @IsInt()
   @Min(1)
   @Max(CHAT_MESSAGES_MAX_SAFE_SEQ)
   beforeSeq?: number;
+}
+
+export class OwnerChatMessagesQueryDto extends ChatMessagesQueryDto {
+  @ApiPropertyOptional({
+    type: 'integer',
+    minimum: 1,
+    maximum: CHAT_MESSAGES_MAX_SAFE_SEQ,
+    format: 'int64',
+    description:
+      'Return a fixed-size history window ending at this sequence number; ' +
+      'mutually exclusive with beforeSeq.',
+  })
+  @ValidateIf((o: OwnerChatMessagesQueryDto) => o.targetSeq !== undefined)
+  @Validate(HistoryCursorsExclusiveConstraint)
+  @Transform(({ value }) => parseSafeIntegerQueryValue(value))
+  @IsInt()
+  @Min(1)
+  @Max(CHAT_MESSAGES_MAX_SAFE_SEQ)
+  targetSeq?: number;
 }
 
 export class ChatMessageResponse {

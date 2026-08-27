@@ -198,7 +198,7 @@ describe('ChatsController', () => {
     expect(chatsService.getChatMessages).toHaveBeenCalledWith(
       chat.id,
       'verified-user',
-      { limit: 100, beforeSeq: undefined },
+      { limit: 100, beforeSeq: undefined, targetSeq: undefined },
     );
     expect(result).toEqual({
       messages: [
@@ -365,7 +365,22 @@ describe('ChatsController', () => {
     expect(chatsService.getChatMessages).toHaveBeenCalledWith(
       chat.id,
       'verified-user',
-      { limit: 25, beforeSeq: 42 },
+      { limit: 25, beforeSeq: 42, targetSeq: undefined },
+    );
+  });
+
+  it('passes a target-ended history request to the service', async () => {
+    const { controller, chatsService } = makeController();
+
+    await controller.getChatMessages('verified-user', chat.id, {
+      limit: 25,
+      targetSeq: 42,
+    });
+
+    expect(chatsService.getChatMessages).toHaveBeenCalledWith(
+      chat.id,
+      'verified-user',
+      { limit: 25, beforeSeq: undefined, targetSeq: 42 },
     );
   });
 

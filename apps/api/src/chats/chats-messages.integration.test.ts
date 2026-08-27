@@ -11,6 +11,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { z } from 'zod';
+import { sql as dsql } from 'drizzle-orm';
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
 import { type Message } from '../db/schema';
@@ -320,6 +321,117 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       `/api/v1/chats/${historyChatId}/messages`,
     );
     expect(anonymousRead.status).toBe(401);
+  });
+
+  it('loads target-ended windows, rejects missing targets, and hides foreign targets', async () => {
+    const targetChatId = await createChat(userAId, 'Target API Chat');
+    const targetMessages: Message[] = [];
+
+    await tenantDb.runAs(userAId, async (tx) => {
+      const messagesRepo = new MessagesRepository(tx);
+      for (const text of ['first', 'middle', 'latest']) {
+        targetMessages.push(
+          await messagesRepo.create({
+            chatId: targetChatId,
+            role: 'user',
+            senderUserId: userAId,
+            parts: [{ type: 'text', text }],
+            attachments: [],
+          }),
+        );
+      }
+    });
+
+    for (const [index, target] of targetMessages.entries()) {
+      const response = await request(http)
+        .get(`/api/v1/chats/${targetChatId}/messages`)
+        .query({ limit: 2, targetSeq: target.seq })
+        .set('Cookie', cookieA);
+      const body = z
+        .object({ messages: z.array(z.object({ seq: z.number() })) })
+        .parse(response.body);
+
+      expect(response.status).toBe(200);
+      expect(body.messages.map((message) => message.seq)).toEqual(
+        targetMessages
+          .slice(Math.max(0, index - 1), index + 1)
+          .map((message) => message.seq),
+      );
+      expect(body.messages.at(-1)?.seq).toBe(target.seq);
+    }
+
+    const missingTarget = await request(http)
+      .get(`/api/v1/chats/${targetChatId}/messages`)
+      .query({ targetSeq: targetMessages.at(-1)!.seq + 1 })
+      .set('Cookie', cookieA);
+    expect(missingTarget.status).toBe(404);
+
+    const deletedTarget = targetMessages[1];
+    await tenantDb.runAs(userAId, (tx) =>
+      tx.execute(dsql`delete from messages where id = ${deletedTarget.id}`),
+    );
+    const deletedResponse = await request(http)
+      .get(`/api/v1/chats/${targetChatId}/messages`)
+      .query({ targetSeq: deletedTarget.seq })
+      .set('Cookie', cookieA);
+    expect(deletedResponse.status).toBe(404);
+
+    const otherChatId = await createChat(userBId, 'Foreign Target API Chat');
+    const [otherMessage] = await tenantDb.runAs(userBId, async (tx) => {
+      const created = await new MessagesRepository(tx).create({
+        chatId: otherChatId,
+        role: 'user',
+        senderUserId: userBId,
+        parts: [{ type: 'text', text: 'foreign' }],
+        attachments: [],
+      });
+      return [created];
+    });
+    await tenantDb.runAs(userBId, (tx) =>
+      new ChatsRepository(tx).update(otherChatId, userBId, {
+        visibility: 'public',
+      }),
+    );
+
+    const ownerToForeign = await request(http)
+      .get(`/api/v1/chats/${otherChatId}/messages`)
+      .query({ targetSeq: otherMessage.seq })
+      .set('Cookie', cookieA);
+    expect(ownerToForeign.status).toBe(404);
+
+    const foreignToOwner = await request(http)
+      .get(`/api/v1/chats/${targetChatId}/messages`)
+      .query({ targetSeq: targetMessages[0].seq })
+      .set('Cookie', cookieB);
+    expect(foreignToOwner.status).toBe(404);
+  });
+
+  it('rejects invalid target history queries before repository access', async () => {
+    const invalidQueryChatId = await createChat(
+      userAId,
+      'Invalid Target API Chat',
+    );
+    const findChat = vi.spyOn(ChatsRepository.prototype, 'findById');
+    const findMessages = vi.spyOn(MessagesRepository.prototype, 'findByChatId');
+
+    for (const query of [
+      { targetSeq: '0' },
+      { targetSeq: '-1' },
+      { targetSeq: '1.5' },
+      { targetSeq: '9007199254740992' },
+      { beforeSeq: '1.5' },
+      { targetSeq: '7', beforeSeq: '6' },
+      { targetSeq: '7', unknown: 'value' },
+    ]) {
+      const response = await request(http)
+        .get(`/api/v1/chats/${invalidQueryChatId}/messages`)
+        .query(query)
+        .set('Cookie', cookieA);
+      expect(response.status).toBe(400);
+    }
+
+    expect(findChat).not.toHaveBeenCalled();
+    expect(findMessages).not.toHaveBeenCalled();
   });
 
   it('caps default HTTP message history reads at the latest 100 messages', async () => {
