@@ -4,6 +4,7 @@ import {
   adoptServerHistory,
   messageRenderKey,
   mergeTrustedModelContextParts,
+  messageSeqFromMetadata,
   modelSwitchPart,
   runIdFromMessageMetadata,
   toChatUiMessages,
@@ -99,6 +100,21 @@ describe("toChatUiMessages", () => {
       }),
     ).toEqual([]);
   });
+});
+
+describe("messageSeqFromMetadata", () => {
+  it("keeps sparse positive sequences as opaque durable identity", () => {
+    expect(messageSeqFromMetadata({ seq: 9007199254740991 })).toBe(
+      9007199254740991,
+    );
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, undefined, "42"])(
+    "does not create an anchor for invalid sequence metadata %j",
+    (seq) => {
+      expect(messageSeqFromMetadata({ seq })).toBeNull();
+    },
+  );
 });
 
 describe("trusted model-context projection", () => {

@@ -19,4 +19,10 @@ export type GetChatMessagesParams = {
    * @maximum 9007199254740991
    */
   beforeSeq?: number;
+  /**
+   * Return a fixed-size history window ending at this sequence number; mutually exclusive with beforeSeq.
+   * @minimum 1
+   * @maximum 9007199254740991
+   */
+  targetSeq?: number;
 };
