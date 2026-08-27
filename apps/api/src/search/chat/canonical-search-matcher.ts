@@ -1,5 +1,9 @@
 import { sql } from 'drizzle-orm';
 
+import {
+  scanConversationLogicalLines,
+  type ConversationLogicalLine,
+} from '../../chats/conversation-logical-lines';
 import type { Db } from '../../db/tenant-db.service';
 import { normalizeForSearch } from '../core/text';
 import type {
@@ -11,13 +15,7 @@ export type { CanonicalSearchMessage } from './canonical-search-hydrator';
 
 export const CANONICAL_SEARCH_MAX_PASSAGE_LINES = 2_000;
 
-export type CanonicalLogicalLine = {
-  line: number;
-  text: string;
-  delimiter: string;
-  startOffset: number;
-  endOffsetExclusive: number;
-};
+export type CanonicalLogicalLine = ConversationLogicalLine;
 
 export type CanonicalLinePredicateCandidate = {
   id: number;
@@ -89,40 +87,7 @@ type NormalizedMapping = {
  * LF terminates a line, CRLF is one delimiter, lone CR is text, blanks count,
  * and a terminal delimiter does not create a phantom line.
  */
-export function scanCanonicalLogicalLines(
-  text: string,
-): CanonicalLogicalLine[] {
-  const lines: CanonicalLogicalLine[] = [];
-  let lineStart = 0;
-  let line = 0;
-
-  for (let index = 0; index < text.length; index += 1) {
-    if (text.charCodeAt(index) !== 10) continue;
-    const hasCr = index > lineStart && text.charCodeAt(index - 1) === 13;
-    const endOffsetExclusive = hasCr ? index - 1 : index;
-    lines.push({
-      line,
-      text: text.slice(lineStart, endOffsetExclusive),
-      delimiter: hasCr ? '\r\n' : '\n',
-      startOffset: lineStart,
-      endOffsetExclusive,
-    });
-    line += 1;
-    lineStart = index + 1;
-  }
-
-  if (lineStart < text.length) {
-    lines.push({
-      line,
-      text: text.slice(lineStart),
-      delimiter: '',
-      startOffset: lineStart,
-      endOffsetExclusive: text.length,
-    });
-  }
-
-  return lines;
-}
+export const scanCanonicalLogicalLines = scanConversationLogicalLines;
 
 /**
  * Evaluate line-local FTS, trigram, and escaped-substring predicates using the
@@ -212,7 +177,7 @@ export async function matchCanonicalSearchPreview(
 
   const firstMatch = selected.matches[0];
   if (firstMatch === undefined) return null;
-  const selectedLines = scanCanonicalLogicalLines(
+  const selectedLines = scanConversationLogicalLines(
     firstMatch.line.message.visibleText,
   ).slice(selected.start, selected.end + 1);
 
@@ -253,7 +218,7 @@ function buildInternalLines(
       continue;
     }
 
-    for (const logical of scanCanonicalLogicalLines(message.visibleText)) {
+    for (const logical of scanConversationLogicalLines(message.visibleText)) {
       const sourceStart = Math.max(logical.startOffset, message.sourceStart);
       const sourceEndExclusive = Math.min(
         logical.endOffsetExclusive,
@@ -353,7 +318,7 @@ function buildPassages(matchedLines: readonly MatchedLine[]): LineInterval[] {
     group.sort(
       (left, right) => left.line.logical.line - right.line.logical.line,
     );
-    const totalLines = scanCanonicalLogicalLines(
+    const totalLines = scanConversationLogicalLines(
       group[0]?.line.message.visibleText ?? '',
     ).length;
     if (totalLines === 0) continue;
