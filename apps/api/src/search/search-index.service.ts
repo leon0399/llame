@@ -83,6 +83,7 @@ export class SearchIndexService {
       .select({
         ordinal: searchChatDocuments.chunkOrdinal,
         version: searchChatDocuments.chunkerVersion,
+        ownerUserId: searchChatDocuments.ownerUserId,
         hash: searchChatDocuments.contentHash,
         firstMessageId: searchChatDocuments.firstMessageId,
         lastMessageId: searchChatDocuments.lastMessageId,
@@ -105,6 +106,7 @@ export class SearchIndexService {
     const changed = chunks.filter((chunk) => {
       const current = currentByOrdinal.get(chunk.chunkOrdinal);
       return (
+        current?.ownerUserId !== ownerUserId ||
         current?.hash !== chunk.contentHash ||
         current?.firstMessageId !== chunk.firstMessageId ||
         current?.lastMessageId !== chunk.lastMessageId ||
@@ -141,6 +143,7 @@ export class SearchIndexService {
             searchChatDocuments.chunkerVersion,
           ],
           set: {
+            ownerUserId: sql`excluded.owner_user_id`,
             firstMessageId: sql`excluded.first_message_id`,
             lastMessageId: sql`excluded.last_message_id`,
             firstMessageAt: sql`excluded.first_message_at`,

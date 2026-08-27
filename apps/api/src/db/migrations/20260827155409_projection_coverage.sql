@@ -28,6 +28,13 @@ AS $$
        SELECT 1
        FROM search_chat_documents d
        WHERE d.chat_id = c.id
+         AND d.owner_user_id IS DISTINCT FROM c.owner_user_id
+     )
+     OR EXISTS (
+       SELECT 1
+       FROM search_chat_documents d
+       WHERE d.chat_id = c.id
+         AND d.owner_user_id = c.owner_user_id
          AND (
            d.chunker_version <> current_chunker_version
            OR d.first_message_text_offset IS NULL
@@ -69,11 +76,18 @@ AS $$
           SELECT 1
           FROM search_chat_documents d
           WHERE d.chat_id = c.id
+            AND d.owner_user_id = c.owner_user_id
             AND (
               d.chunker_version <> current_chunker_version
               OR d.first_message_text_offset IS NULL
               OR d.last_message_text_offset_exclusive IS NULL
             )
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM search_chat_documents d
+          WHERE d.chat_id = c.id
+            AND d.owner_user_id IS DISTINCT FROM c.owner_user_id
         )
       ) AS ready
     FROM chats c

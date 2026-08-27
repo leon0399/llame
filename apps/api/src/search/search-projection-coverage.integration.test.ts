@@ -27,6 +27,7 @@ const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const TEST_UNPRIVILEGED_DB_URL = process.env['TEST_UNPRIVILEGED_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = any;
+const STALE_DISCOVERY_LIMIT = 1_000_000;
 
 describeIfDb('search projection locator coverage and RLS', () => {
   let sqlClient: SqlClient;
@@ -100,7 +101,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
       .runAsPublic((tx) =>
         tx.execute<{ chat_id: string }>(sql`
           SELECT chat_id
-          FROM llame_search_projection_stale_chats_v2(${CHUNKER_VERSION}, 1000)
+          FROM llame_search_projection_stale_chats_v2(${CHUNKER_VERSION}, ${STALE_DISCOVERY_LIMIT})
         `),
       )
       .then((rows) => [...rows].map((row) => row.chat_id));
@@ -140,10 +141,12 @@ describeIfDb('search projection locator coverage and RLS', () => {
       );
       parts.push({ type: 'reasoning', text: `hidden reasoning ${index}` });
       parts.push({
-        type: 'tool-call',
+        type: 'tool-knowledge_search',
         toolCallId: `tool-${index}`,
-        toolName: 'hidden_tool',
-        args: { index },
+        state: 'output-available',
+        input: { query: `hidden query ${index}` },
+        output: { status: 'success', results: [] },
+        outcome: 'success',
       });
     }
     const chatId = await seedChat(ownerA, parts, 'Giant multi-part source');
@@ -271,7 +274,16 @@ describeIfDb('search projection locator coverage and RLS', () => {
   it('treats a zero-document chat with expected count zero as ready', async () => {
     const chatId = await seedChat(
       ownerA,
-      [{ type: 'tool-call', toolCallId: 'not-searchable' }],
+      [
+        {
+          type: 'tool-knowledge_search',
+          toolCallId: 'not-searchable',
+          state: 'output-available',
+          input: { query: 'not searchable' },
+          output: { status: 'success', results: [] },
+          outcome: 'success',
+        },
+      ],
       'Zero-document chat',
     );
     const before = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
@@ -333,6 +345,75 @@ describeIfDb('search projection locator coverage and RLS', () => {
     );
   });
 
+  it('keeps aggregate stale counts equal to bounded stale discovery for the same snapshot/version', async () => {
+    const observed = await tenantDb.runAsPublic(async (tx) => {
+      const coverageRows = await tx.execute(
+        sql`SELECT stale_chat_count
+            FROM llame_search_projection_coverage_v2(${CHUNKER_VERSION})`,
+      );
+      const staleRows = await tx.execute(
+        sql`SELECT chat_id
+            FROM llame_search_projection_stale_chats_v2(${CHUNKER_VERSION}, ${STALE_DISCOVERY_LIMIT})`,
+      );
+      const [coverage] = z
+        .object({ stale_chat_count: z.number() })
+        .array()
+        .parse([...coverageRows]);
+      return {
+        staleChatCount: coverage.stale_chat_count,
+        discoveredCount: [...staleRows].length,
+      };
+    });
+
+    expect(observed.discoveredCount).toBe(observed.staleChatCount);
+  });
+
+  it('flags a projection row owned by another tenant and repairs it on owner-scoped reindex', async () => {
+    const chatId = await seedChat(
+      ownerA,
+      [textPart('owner corruption must not make a projection look ready')],
+      'Owner mismatch repair',
+    );
+    await indexService.reindexChat(chatId, ownerA);
+    const before = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
+
+    // Deliberately corrupt only the derived row under the table-owning app
+    // connection with FORCE temporarily disabled, then restore FORCE even if
+    // the mutation fails. Normal tenant-scoped callers cannot forge this field.
+    await sqlClient`ALTER TABLE search_chat_documents NO FORCE ROW LEVEL SECURITY`;
+    try {
+      await sqlClient`
+        UPDATE search_chat_documents
+        SET owner_user_id = ${ownerB}
+        WHERE chat_id = ${chatId}
+      `;
+    } finally {
+      await sqlClient`ALTER TABLE search_chat_documents FORCE ROW LEVEL SECURITY`;
+    }
+
+    expect(await staleIds()).toContain(chatId);
+    const stale = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
+    expect(stale.readyChatCount).toBe(before.readyChatCount - 1);
+    expect(stale.staleChatCount).toBe(before.staleChatCount + 1);
+
+    await indexService.reindexChat(chatId, ownerA);
+
+    expect(await staleIds()).not.toContain(chatId);
+    await expect(
+      getProjectionCoverageReport(tenantDb, CHUNKER_VERSION),
+    ).resolves.toEqual(before);
+    const repaired = await documentRowsAs(ownerA, chatId);
+    expect(repaired).toHaveLength(1);
+    const owner = await tenantDb.runAs(ownerA, (tx) =>
+      tx.execute<{ owner_user_id: string }>(sql`
+        SELECT owner_user_id
+        FROM search_chat_documents
+        WHERE chat_id = ${chatId}
+      `),
+    );
+    expect([...owner][0].owner_user_id).toBe(ownerA);
+  });
+
   it('denies direct projection reads and writes in both cross-tenant directions', async () => {
     const chatA = await seedChat(ownerA, [textPart('owner A source')], 'A');
     const chatB = await seedChat(ownerB, [textPart('owner B source')], 'B');
@@ -358,6 +439,31 @@ describeIfDb('search projection locator coverage and RLS', () => {
           tx.execute<{ count: number }>(sql`
             SELECT count(*)::int AS count
             FROM search_chat_documents
+            WHERE chat_id IN (${chatA}, ${chatB})
+          `),
+        )
+        .then((rows) => [...rows][0].count),
+    ).toBe(0);
+
+    const stateCountAs = (caller: string, chatId: string) =>
+      tenantDb
+        .runAs(caller, (tx) =>
+          tx.execute<{ count: number }>(sql`
+            SELECT count(*)::int AS count
+            FROM search_chat_state
+            WHERE chat_id = ${chatId}
+          `),
+        )
+        .then((rows) => [...rows][0].count);
+
+    expect(await stateCountAs(ownerA, chatB)).toBe(0);
+    expect(await stateCountAs(ownerB, chatA)).toBe(0);
+    expect(
+      await tenantDb
+        .runAsPublic((tx) =>
+          tx.execute<{ count: number }>(sql`
+            SELECT count(*)::int AS count
+            FROM search_chat_state
             WHERE chat_id IN (${chatA}, ${chatB})
           `),
         )

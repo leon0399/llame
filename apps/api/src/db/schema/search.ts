@@ -180,13 +180,16 @@ export const searchChatDocuments = pgTable(
     index('search_chat_documents_embedding_backlog_idx')
       .on(t.chatId, t.ownerUserId)
       .where(sql`embedding IS NULL AND embedding_fail_reason IS NULL`),
-    // Owner is the whole boundary: SELECT (search) and write (reindex worker under
-    // runAs(owner)) are both owner-scoped. FOR ALL covers both; empty identity
-    // (runAsPublic) matches nothing, so public reads never reach this table.
+    // The Chat owner is the authorization boundary. Using the parent Chat here
+    // lets an owner-scoped reindex repair a derived row whose duplicated owner
+    // metadata was corrupted, while the WITH CHECK restores that metadata to
+    // the authenticated owner. The explicit non-empty identity gate prevents
+    // chats_public_read from making public projection rows visible through
+    // runAsPublic.
     pgPolicy('search_chat_documents_owner', {
       for: 'all',
-      using: sql`owner_user_id = current_setting('app.current_user_id', true)`,
-      withCheck: sql`owner_user_id = current_setting('app.current_user_id', true)`,
+      using: sql`current_setting('app.current_user_id', true) <> '' AND chat_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true))`,
+      withCheck: sql`current_setting('app.current_user_id', true) <> '' AND owner_user_id = current_setting('app.current_user_id', true) AND chat_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true))`,
     }),
   ],
 ).enableRLS();
