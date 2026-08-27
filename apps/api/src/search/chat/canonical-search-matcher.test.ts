@@ -231,6 +231,40 @@ describe('matchCanonicalSearchPreview', () => {
     });
   });
 
+  it('tries later normalized occurrences when an earlier raw span cannot verify', async () => {
+    const text = 'start\nİ i\nend';
+    const laterOccurrence = text.indexOf('i', text.indexOf('İ') + 1);
+    const result = await matchCanonicalSearchPreview(
+      { chatId: 'chat-1', messages: [message(10, text)] },
+      'i',
+      matchingLines((line, normalizedQuery) => line.includes(normalizedQuery)),
+    );
+
+    expect(result?.anchor).toEqual({
+      line: 1,
+      startOffset: laterOccurrence,
+      endOffsetExclusive: laterOccurrence + 1,
+      kind: 'exact',
+    });
+  });
+
+  it('maps context-sensitive Greek final sigma using whole-string lowercasing', async () => {
+    const text = 'start\nΟΣ\nend';
+    const start = text.indexOf('ΟΣ');
+    const result = await matchCanonicalSearchPreview(
+      { chatId: 'chat-1', messages: [message(10, text)] },
+      'ος',
+      matchingLines((line, normalizedQuery) => line.includes(normalizedQuery)),
+    );
+
+    expect(result?.anchor).toEqual({
+      line: 1,
+      startOffset: start,
+      endOffsetExclusive: start + 'ΟΣ'.length,
+      kind: 'exact',
+    });
+  });
+
   it('keeps source boundaries line-local while retaining whole context lines', async () => {
     const text = 'before needle after\nother';
     const sourceStart = text.indexOf('needle');

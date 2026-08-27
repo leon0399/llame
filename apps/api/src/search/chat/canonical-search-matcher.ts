@@ -286,21 +286,31 @@ function makeAnchor(
   line: InternalLine,
   normalizedQuery: string,
 ): CanonicalSearchPreviewAnchor {
-  const occurrence = line.normalizedText.indexOf(normalizedQuery);
-  if (occurrence >= 0) {
-    const mapped = mapNormalizedOccurrence(
-      line.message.visibleText.slice(line.sourceStart, line.sourceEndExclusive),
-      line.normalizedText,
-      normalizedQuery,
-      occurrence,
-    );
-    if (mapped !== undefined) {
-      return {
-        line: line.logical.line,
-        startOffset: line.sourceStart + mapped.startOffset,
-        endOffsetExclusive: line.sourceStart + mapped.endOffsetExclusive,
-        kind: 'exact',
-      };
+  const raw = line.message.visibleText.slice(
+    line.sourceStart,
+    line.sourceEndExclusive,
+  );
+  const mapping = buildNormalizedMapping(raw, line.normalizedText);
+  if (mapping !== undefined) {
+    for (
+      let occurrence = line.normalizedText.indexOf(normalizedQuery);
+      occurrence >= 0;
+      occurrence = line.normalizedText.indexOf(normalizedQuery, occurrence + 1)
+    ) {
+      const mapped = mapNormalizedOccurrence(
+        raw,
+        mapping,
+        normalizedQuery,
+        occurrence,
+      );
+      if (mapped !== undefined) {
+        return {
+          line: line.logical.line,
+          startOffset: line.sourceStart + mapped.startOffset,
+          endOffsetExclusive: line.sourceStart + mapped.endOffsetExclusive,
+          kind: 'exact',
+        };
+      }
     }
   }
 
@@ -403,13 +413,10 @@ function partitionInterval(interval: LineInterval): LineInterval[] {
 
 function mapNormalizedOccurrence(
   raw: string,
-  normalized: string,
+  mapping: NormalizedMapping,
   query: string,
   occurrence: number,
 ): { startOffset: number; endOffsetExclusive: number } | undefined {
-  const mapping = buildNormalizedMapping(raw, normalized);
-  if (mapping === undefined) return undefined;
-
   const occurrenceEnd = occurrence + query.length;
   const segments = mapping.segments.filter(
     (segment) =>
@@ -458,10 +465,7 @@ function buildNormalizedMapping(
     }
     const rawEndExclusive = offset;
     fragments.push({
-      text: raw
-        .slice(rawStart, rawEndExclusive)
-        .normalize('NFKC')
-        .toLowerCase(),
+      text: raw.slice(rawStart, rawEndExclusive).normalize('NFKC'),
       rawStart,
       rawEndExclusive,
     });
@@ -498,13 +502,30 @@ function buildNormalizedMapping(
   while (tokens[0]?.text === ' ') tokens.shift();
   while (tokens.at(-1)?.text === ' ') tokens.pop();
 
-  const normalized = tokens.map((token) => token.text).join('');
+  const preLowerNormalized = tokens.map((token) => token.text).join('');
+  const normalized = preLowerNormalized.toLowerCase();
   if (normalized !== expectedNormalized) return undefined;
+
+  const foldedFragments = tokens.map((token) => token.text.toLowerCase());
+  if (
+    foldedFragments.reduce((total, fragment) => total + fragment.length, 0) !==
+    normalized.length
+  ) {
+    return undefined;
+  }
 
   const segments: NormalizedSegment[] = [];
   let normalizedOffset = 0;
-  for (const token of tokens) {
-    const normalizedEndExclusive = normalizedOffset + token.text.length;
+  for (const [index, token] of tokens.entries()) {
+    const foldedFragment = foldedFragments[index];
+    if (foldedFragment === undefined) return undefined;
+    const normalizedEndExclusive = normalizedOffset + foldedFragment.length;
+    if (
+      normalizedEndExclusive <= normalizedOffset ||
+      normalizedEndExclusive > normalized.length
+    ) {
+      return undefined;
+    }
     segments.push({
       normalizedStart: normalizedOffset,
       normalizedEndExclusive,
@@ -513,6 +534,7 @@ function buildNormalizedMapping(
     });
     normalizedOffset = normalizedEndExclusive;
   }
+  if (normalizedOffset !== normalized.length) return undefined;
   return { normalized, segments };
 }
 
