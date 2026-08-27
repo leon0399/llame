@@ -387,7 +387,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
     );
   });
 
-  it('does not leave the aggregate discovery function executable by PUBLIC', async () => {
+  it('provisions both discovery-function generations for rollback and denies PUBLIC execution', async () => {
     const aclRows = await sqlClient`
       SELECT p.proname,
              has_function_privilege('public', p.oid, 'EXECUTE') AS can_execute,
@@ -395,6 +395,8 @@ describeIfDb('search projection locator coverage and RLS', () => {
       FROM pg_proc p
       JOIN pg_roles r ON r.oid = p.proowner
       WHERE p.proname IN (
+        'llame_search_projection_stale_chats',
+        'llame_search_projection_coverage',
         'llame_search_projection_stale_chats_v2',
         'llame_search_projection_coverage_v2'
       )
@@ -402,7 +404,17 @@ describeIfDb('search projection locator coverage and RLS', () => {
     `;
     expect(aclRows).toEqual([
       {
+        proname: 'llame_search_projection_coverage',
+        can_execute: false,
+        bypass: true,
+      },
+      {
         proname: 'llame_search_projection_coverage_v2',
+        can_execute: false,
+        bypass: true,
+      },
+      {
+        proname: 'llame_search_projection_stale_chats',
         can_execute: false,
         bypass: true,
       },
