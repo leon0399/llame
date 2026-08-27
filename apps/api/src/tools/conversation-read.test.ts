@@ -4,6 +4,7 @@ import {
   MessagesRepository,
   type ConversationMessageLookup,
 } from '../chats/chats-repository';
+import { visibleMessageText } from '../chats/conversation-evidence';
 import * as schema from '../db/schema';
 import { truncateOversizedResult } from './result-truncation';
 import {
@@ -162,19 +163,18 @@ describe('conversation_read execution', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('returns exact eligible visible text with navigation metadata and closed framing', async () => {
-    const { db, find } = mockDb(
-      lookup('unused', {
-        role: 'user',
-        parts: [
-          { type: 'text', text: 'alpha' },
-          { type: 'reasoning', text: 'excluded' },
-          { type: 'text', text: 'beta' },
-          { type: 'tool-result', output: 'excluded' },
-        ],
-        previousMessageSeq: 3,
-        nextMessageSeq: 11,
-      }),
-    );
+    const source = lookup('unused', {
+      role: 'user',
+      parts: [
+        { type: 'text', text: 'alpha' },
+        { type: 'reasoning', text: 'excluded' },
+        { type: 'text', text: 'beta' },
+        { type: 'tool-result', output: 'excluded' },
+      ],
+      previousMessageSeq: 3,
+      nextMessageSeq: 11,
+    });
+    const { db, find } = mockDb(source);
 
     const result = await executeConversationRead(db, OWNER_ID, {
       chatId: CHAT_ID,
@@ -183,6 +183,8 @@ describe('conversation_read execution', () => {
 
     expect(find).toHaveBeenCalledTimes(1);
     expect(find).toHaveBeenCalledWith(CHAT_ID, OWNER_ID, 7);
+    expect(visibleMessageText(source.parts)).toBe('alpha\n\nbeta');
+    expect(visibleMessageText(source.parts)).not.toContain('1: alpha');
     expect(result).toEqual({
       status: 'success',
       chatId: CHAT_ID,
@@ -316,23 +318,52 @@ describe('conversation_read execution', () => {
     });
   });
 
-  it.each([
-    ['empty at zero', '', 0],
-    ['CRLF and lone CR', 'first\r\nsecond\rthird\nlast', 0],
-    ['stored whitespace', '  first  \n\nlast  ', 0],
-  ])('reads %s with source delimiters intact', async (_name, text, offset) => {
+  it('renders stored whitespace and blank lines exactly', async () => {
+    const text = '  first  \n\nlast  ';
     const { db } = mockDb(lookup(text));
     const result = await executeConversationRead(db, OWNER_ID, {
       chatId: CHAT_ID,
       messageSeq: 7,
-      offset,
+      offset: 0,
     });
     expect(result.status).toBe('success');
-    if (text === 'first\r\nsecond\rthird\nlast') {
-      expect(result).toMatchObject({
-        content: '1: first\r\n2: second\rthird\n3: last',
-      });
-    }
+    if (result.status !== 'success') return;
+    expect(result.content).toBe('1:   first  \n2: \n3: last  ');
+    expect(result.lineCount).toBe(3);
+  });
+
+  it('renders CRLF, lone CR text, and LF delimiters exactly', async () => {
+    const { db } = mockDb(lookup('first\r\nsecond\rthird\nlast'));
+    const result = await executeConversationRead(db, OWNER_ID, {
+      chatId: CHAT_ID,
+      messageSeq: 7,
+    });
+    expect(result.status).toBe('success');
+    if (result.status !== 'success') return;
+    expect(result.content).toBe('1: first\r\n2: second\rthird\n3: last');
+    expect(result.lineCount).toBe(3);
+  });
+
+  it('renders empty visible text at offset zero without continuation metadata', async () => {
+    const { db } = mockDb(lookup('', { parts: [] }));
+    const result = await executeConversationRead(db, OWNER_ID, {
+      chatId: CHAT_ID,
+      messageSeq: 7,
+      offset: 0,
+    });
+    expect(result).toEqual({
+      status: 'success',
+      chatId: CHAT_ID,
+      messageSeq: 7,
+      role: 'assistant',
+      timestamp: CREATED_AT.toISOString(),
+      offset: 0,
+      lineCount: 0,
+      content: '',
+      notice: CONVERSATION_HISTORY_NOTICE,
+    });
+    expect(result).not.toHaveProperty('nextOffset');
+    expect(result).not.toHaveProperty('cutReason');
   });
 
   it.each([0, 1, 2, 3])(
@@ -362,14 +393,8 @@ describe('conversation_read execution', () => {
     },
   );
 
-  it('rejects offsets beyond an empty message while allowing its zero-line read', async () => {
+  it('rejects offsets beyond an empty message', async () => {
     const { db } = mockDb(lookup('', { parts: [] }));
-    await expect(
-      executeConversationRead(db, OWNER_ID, {
-        chatId: CHAT_ID,
-        messageSeq: 7,
-      }),
-    ).resolves.toMatchObject({ status: 'success', lineCount: 0, content: '' });
     await expect(
       executeConversationRead(db, OWNER_ID, {
         chatId: CHAT_ID,
