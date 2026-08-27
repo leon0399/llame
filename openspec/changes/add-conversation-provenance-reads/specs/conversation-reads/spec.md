@@ -139,7 +139,7 @@ If the first selected logical line cannot fit in one complete structured result,
 
 ### Requirement: Owner-facing message links use the same sequence locator
 
-The owner Chat surface SHALL address a message target as `/chat/<chatId>#msg-<messageSeq>`. For a hash-targeted initial load, the client SHALL request a strict `targetSeq` mode on the existing owner message-history surface. `targetSeq` and `beforeSeq` SHALL be mutually exclusive. The server SHALL first verify that the exact target exists under current owner scope, then return the normal fixed-size chronological window ending at that target sequence. The client SHALL keep target-mode history under a distinct query/cache identity, render and scroll to the target, and continue older pagination through the existing `beforeSeq` cursor. Clearing the hash SHALL reinitialize the ordinary newest window rather than silently merging unseen newer messages into or reinterpreting the targeted cache.
+The owner Chat surface SHALL address a message target as `/chat/<chatId>#msg-<messageSeq>`. For a hash-targeted initial load, the client SHALL request a strict positive-safe-integer `targetSeq` mode on the existing owner message-history surface. `targetSeq` and `beforeSeq` SHALL be mutually exclusive. Fractional, zero, negative, unsafe, malformed, or unknown query values SHALL fail strict validation before repository access. A valid positive safe integer whose target is missing, deleted, public/shared-only, or owned by another user SHALL follow the same closed not-found path. The server SHALL first verify that the exact target exists under current owner scope, then return the normal fixed-size chronological window ending at that target sequence. The client SHALL keep target-mode history under a distinct query/cache identity, render and scroll to the target, and continue older pagination through the existing `beforeSeq` cursor. Clearing the hash SHALL reinitialize the ordinary newest window rather than silently merging unseen newer messages into or reinterpreting the targeted cache.
 
 Rendered owner messages SHALL expose the stable `msg-<messageSeq>` anchor without exposing internal message UUIDs. This change SHALL NOT add a copy-link affordance. Target loading SHALL resolve current owner access independently and reveal no foreign or deleted target existence. The URL is navigation only and SHALL NOT grant `conversation_read` authority.
 
@@ -154,6 +154,12 @@ Rendered owner messages SHALL expose the stable `msg-<messageSeq>` anchor withou
 - **WHEN** one owner history request supplies both `targetSeq` and `beforeSeq`
 - **THEN** strict query validation rejects it before reading message history
 - **AND** no ambiguous pagination mode reaches the repository
+
+#### Scenario: Invalid target sequence fails before lookup
+
+- **WHEN** `targetSeq` is fractional, zero, negative, unsafe, malformed, or accompanied by an unknown query property
+- **THEN** strict query validation rejects the request before repository access
+- **AND** the failure is distinct from the closed not-found response for a valid inaccessible target
 
 #### Scenario: Target window does not alias newest-window cache
 

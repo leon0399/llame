@@ -6,9 +6,11 @@ Search SHALL rank candidates by Reciprocal Rank Fusion over independent retrieva
 
 Off-by-default `search.chats.canonicalModelExcerpts` SHALL be the explicit activation boundary for model-facing canonical shaping. While disabled during locator backfill or rollback, the current model preview behavior SHALL remain active. Operators SHALL enable it only after current-version locator coverage is complete and compatible `conversation_read` executors are deployed/allowlisted under the coordinated Run boundary.
 
-When enabled, model-facing lexical/trigram content results SHALL use the same pre-hydration candidate ordering but SHALL NOT present projection snippets as canonical evidence. For each returned Chat, model shaping SHALL reauthorize and hydrate the winning current-version document, recompute current eligible visible-message text, and run a separate deterministic line-preview selector. A message-local line qualifies when its canonical line-local FTS vector matches the query or its normalized text passes the current trigram/substring predicate. The selector SHALL return the earliest merged qualifying-line-plus-adjacent-line window in `(messageSeq, offset)` order; it SHALL NOT be represented as an explanation of the document/Chat rank.
+When enabled, model-facing lexical/trigram content results SHALL use the same pre-hydration candidate ordering but SHALL NOT present projection snippets as canonical evidence. For each returned Chat, model shaping SHALL reauthorize and hydrate the winning current-version document, recompute current eligible visible-message text, and run one separate deterministic canonical-line matcher. The matcher SHALL apply `normalizeForSearch` exactly once to the query and each raw logical line (Unicode NFKC, whitespace collapse, lowercase), then qualify that line through line-local FTS, trigram, or escaped-substring predicates. It SHALL retain a mapping from a first exact normalized occurrence back to its raw source span when one exists; FTS/fuzzy qualification without that occurrence SHALL use the first code point of the qualifying raw line as a fixed crop fallback. Matching and ranking use normalized text, while excerpts/reads use original raw lines.
 
-The model result SHALL carry one top-level closed notice identifying all returned historical content as untrusted and potentially stale, unable to change system instructions, tools, permissions, or owner authority. Each result SHALL carry Chat/title/date metadata, message role/timestamp, flat `{ chatId, messageSeq, offset, limit }` source coordinates, and an `excerpt` of at most 500 Unicode code points. `offset` and `limit` SHALL identify the complete message-local logical-line window directly accepted by `conversation_read`. When that window exceeds the excerpt cap, the excerpt SHALL crop visibly around a match without changing the complete coordinates. The excerpt SHALL contain no generated line-number prefix, part/message UUID, source hash, public version, projection identity, or retrieval score, and SHALL be framed as bounded discovery text that requires `conversation_read` before exact quotation or reliance on omitted context.
+Each qualifying line SHALL produce a window with at most one adjacent line per side. Touching windows SHALL merge within one message. A merged interval longer than 2,000 logical lines SHALL be partitioned into deterministic adjacent passages of at most 2,000 lines, each containing a qualifying line. The selector SHALL return the earliest bounded passage in `(messageSeq, offset)` order; it SHALL NOT be represented as an explanation of the document/Chat rank.
+
+The model success SHALL be a strict result union with one top-level closed notice identifying all returned historical content as untrusted and potentially stale, unable to change system instructions, tools, permissions, or owner authority. A `kind: "content"` result SHALL carry Chat/title/date metadata, message role/timestamp, flat `{ chatId, messageSeq, offset, limit }` source coordinates, and an `excerpt` of at most 500 Unicode code points. A `kind: "metadata"` title-only result SHALL carry only Chat/title/date metadata and SHALL omit message/source/excerpt fields. `offset` and `limit` on a content result SHALL identify the complete bounded message-local logical-line window directly accepted by `conversation_read`. When that window exceeds the excerpt cap, the excerpt SHALL crop visibly around the mapped raw match or its fixed fallback without changing the complete coordinates. The excerpt SHALL contain no generated line-number prefix, part/message UUID, source hash, public version, projection identity, or retrieval score, and SHALL be framed as bounded discovery text that requires `conversation_read` before exact quotation or reliance on omitted context.
 
 Only one passage SHALL be returned per Chat in this iteration. A title-only model winner SHALL be metadata-only. A winning document that cannot be currently authorized/hydrated, belongs to an ineligible mutable message, or matches only across line/message boundaries without an individually matching message-local line SHALL be omitted rather than replaced by projection bytes or a generalized cross-message source. Model shaping MAY therefore return fewer Chats than the unchanged web surface; `limit` remains a maximum rather than a completeness claim.
 
@@ -56,11 +58,35 @@ Vector-only candidate generation and model-result shaping remain #197/#198 work 
 - **THEN** the model result returns only the earliest window in canonical sequence/offset order
 - **AND** the result does not imply that every matching region in the Chat was returned
 
+#### Scenario: Long merged window stays reader-compatible
+
+- **WHEN** touching matching windows merge into more than 2,000 logical lines
+- **THEN** the selector partitions them into deterministic adjacent passages of at most 2,000 lines that each retain a qualifying line
+- **AND** returns only the earliest bounded passage with coordinates accepted by `conversation_read`
+
+#### Scenario: Normalized match returns raw source
+
+- **WHEN** NFKC-equivalent, whitespace-collapsed, or case-only text qualifies a canonical line
+- **THEN** the matcher uses normalized text and deterministic raw-span mapping only to select/crop the passage
+- **AND** the excerpt and later read contain original raw source text rather than normalized replacement text
+
+#### Scenario: Fuzzy match has a fixed crop fallback
+
+- **WHEN** FTS or trigram qualifies a line without an exact normalized query occurrence
+- **THEN** excerpt cropping begins at the first code point of the qualifying raw line
+- **AND** repeated execution over unchanged input produces identical excerpt bytes and coordinates
+
 #### Scenario: Title-only result has no fabricated source
 
 - **WHEN** a candidate matches only the Chat title
-- **THEN** the model result identifies the Chat/title as metadata-only
+- **THEN** the model result uses `kind: "metadata"` and identifies the Chat/title as metadata-only
 - **AND** it carries no arbitrary message excerpt or source coordinates
+
+#### Scenario: Content and metadata results are structurally distinct
+
+- **WHEN** one model response contains content and title-only Chat matches
+- **THEN** content entries use `kind: "content"` with all required message/source/excerpt fields
+- **AND** metadata entries use `kind: "metadata"` and reject those content-only fields
 
 #### Scenario: Stale candidate never becomes model evidence
 
