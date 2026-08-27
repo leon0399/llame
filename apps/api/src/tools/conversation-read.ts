@@ -158,7 +158,7 @@ export function renderConversationRead(
   );
   const selected = lines.slice(offset, offset + requestedLineCount);
 
-  for (let lineCount = selected.length; lineCount >= 1; lineCount -= 1) {
+  const buildCandidate = (lineCount: number) => {
     const hasRemaining = availableLines > lineCount;
     const cutReason = resolveCutReason(
       input.limit,
@@ -175,12 +175,51 @@ export function renderConversationRead(
       hasRemaining,
       cutReason,
     );
-    if (fitsSerializedBounds(result)) {
-      return result;
-    }
+    return { result, fits: fitsSerializedBounds(result) };
+  };
+
+  const fullCandidate = buildCandidate(requestedLineCount);
+  if (fullCandidate.fits) return fullCandidate.result;
+
+  const selectedCandidate = selectLargestConversationReadPrefix(
+    requestedLineCount,
+    buildCandidate,
+  );
+  if (selectedCandidate !== undefined) {
+    return selectedCandidate;
   }
 
   return limitExceededResult();
+}
+
+/**
+ * Select the largest fitting whole-line prefix after the complete request
+ * failed the raw and neutralized result bounds. Candidate fit is monotonic:
+ * every smaller candidate has the same metadata and less source content.
+ */
+export function selectLargestConversationReadPrefix(
+  requestedLineCount: number,
+  buildCandidate: (lineCount: number) => {
+    result: ConversationReadSuccess;
+    fits: boolean;
+  },
+): ConversationReadSuccess | undefined {
+  let lower = 1;
+  let upper = requestedLineCount - 1;
+  let selected: ConversationReadSuccess | undefined;
+
+  while (lower <= upper) {
+    const lineCount = Math.floor((lower + upper) / 2);
+    const candidate = buildCandidate(lineCount);
+    if (candidate.fits) {
+      selected = candidate.result;
+      lower = lineCount + 1;
+    } else {
+      upper = lineCount - 1;
+    }
+  }
+
+  return selected;
 }
 
 function resolveCutReason(

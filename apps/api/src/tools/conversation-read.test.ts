@@ -14,6 +14,7 @@ import {
   conversationReadInputSchema,
   executeConversationRead,
   renderConversationRead,
+  selectLargestConversationReadPrefix,
   scanConversationLogicalLines,
 } from './conversation-read';
 import { conversationSourceCoordinatesSchema } from './conversation-source-coordinates';
@@ -305,6 +306,39 @@ describe('conversation_read execution', () => {
     expect(Number.isSafeInteger(result.nextOffset)).toBe(true);
     expect(result.cutReason).toBe('output_limit');
     expect(truncateOversizedResult(result)).toEqual(result);
+  });
+
+  it('selects an output-limited prefix with logarithmic candidate measurements', () => {
+    const renderedLines = Array.from(
+      { length: 2_000 },
+      (_, index) => `${index + 1}: ${'x'.repeat(50)}\n`,
+    );
+    const measurements: number[] = [];
+    const selected = selectLargestConversationReadPrefix(2_000, (lineCount) => {
+      measurements.push(lineCount);
+      const result: ConversationReadSuccess = {
+        status: 'success',
+        chatId: CHAT_ID,
+        messageSeq: 7,
+        role: 'assistant',
+        timestamp: CREATED_AT.toISOString(),
+        offset: 0,
+        lineCount,
+        content: renderedLines.slice(0, lineCount).join(''),
+        notice: CONVERSATION_HISTORY_NOTICE,
+      };
+      return {
+        result,
+        fits:
+          JSON.stringify(result).length <=
+            CONVERSATION_READ_RESULT_MAX_CODE_UNITS &&
+          JSON.stringify(neutralizeToolResult(result)).length <=
+            CONVERSATION_READ_RESULT_MAX_CODE_UNITS,
+      };
+    });
+
+    expect(selected?.lineCount).toBe(258);
+    expect(measurements.length).toBeLessThan(32);
   });
 
   it('budgets both persisted and neutralized results without clipping reserved-tag lines', () => {
