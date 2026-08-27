@@ -12,7 +12,7 @@
  * this is the lighter, DB-free alternative the task called for.
  *
  * `assertDiscoveryProvisioned` now checks THREE functions in sequence
- * (`llame_search_projection_stale_chats`, `llame_search_embedding_coverage`, then
+ * (`llame_search_projection_stale_chats_v2`, `llame_search_embedding_coverage`, then
  * `llame_search_embedding_backlog`), each via its own `runAsPublic` call — so
  * the mock below drives an ORDERED SEQUENCE of responses, one per call,
  * repeating the last entry once exhausted. Most tests pass a single-entry

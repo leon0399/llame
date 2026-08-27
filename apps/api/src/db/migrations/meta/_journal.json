@@ -344,6 +344,20 @@
       "when": 1787846049137,
       "tag": "20260827155409_projection_coverage",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1787847160558,
+      "tag": "20260827161240_projection_expected_document_count",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1787847171981,
+      "tag": "20260827161251_projection_readiness_v2",
+      "breakpoints": true
     }
   ]
 }

@@ -45,7 +45,7 @@ export async function getProjectionCoverageReport(
     tx.execute(sql`
       SELECT chunker_version, chat_count, ready_chat_count, stale_chat_count,
              document_count, complete_document_count
-      FROM llame_search_projection_coverage(${chunkerVersion})
+      FROM llame_search_projection_coverage_v2(${chunkerVersion})
     `),
   );
   const row = [...rows][0];

@@ -84,12 +84,23 @@ describeIfDb('search projection locator coverage and RLS', () => {
           .parse([...rows]),
       );
 
+  const expectedDocumentCountAs = (ownerUserId: string, chatId: string) =>
+    tenantDb
+      .runAs(ownerUserId, (tx) =>
+        tx.execute<{ expected_document_count: number | null }>(sql`
+          SELECT expected_document_count
+          FROM search_chat_state
+          WHERE chat_id = ${chatId}
+        `),
+      )
+      .then((rows) => [...rows][0]?.expected_document_count ?? null);
+
   const staleIds = () =>
     tenantDb
       .runAsPublic((tx) =>
         tx.execute<{ chat_id: string }>(sql`
           SELECT chat_id
-          FROM llame_search_projection_stale_chats(${CHUNKER_VERSION}, 1000)
+          FROM llame_search_projection_stale_chats_v2(${CHUNKER_VERSION}, 1000)
         `),
       )
       .then((rows) => [...rows].map((row) => row.chat_id));
@@ -151,6 +162,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
           row.last_message_text_offset_exclusive !== null,
       ),
     ).toBe(true);
+    expect(await expectedDocumentCountAs(ownerA, chatId)).toBe(rows.length);
     expect(rows.some((row) => row.content.includes('hidden reasoning'))).toBe(
       false,
     );
@@ -196,10 +208,117 @@ describeIfDb('search projection locator coverage and RLS', () => {
     expect(row.last_message_text_offset_exclusive).not.toBeNull();
   });
 
+  it('marks a ready chat stale when source freshness advances without a reindex', async () => {
+    const chatId = await seedChat(
+      ownerA,
+      [textPart('freshness must be reflected in the readiness gate')],
+      'Freshness gate',
+    );
+    await indexService.reindexChat(chatId, ownerA);
+    const before = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
+    expect(await staleIds()).not.toContain(chatId);
+
+    await tenantDb.runAs(ownerA, (tx) =>
+      tx.execute(sql`
+        UPDATE chats
+        SET updated_at = updated_at + interval '1 second'
+        WHERE id = ${chatId}
+      `),
+    );
+
+    expect(await staleIds()).toContain(chatId);
+    const stale = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
+    expect(stale.readyChatCount).toBe(before.readyChatCount - 1);
+    expect(stale.staleChatCount).toBe(before.staleChatCount + 1);
+
+    await indexService.reindexChat(chatId, ownerA);
+    expect(await staleIds()).not.toContain(chatId);
+  });
+
+  it('marks a deleted current document stale and repairs it on reindex', async () => {
+    const chatId = await seedChat(
+      ownerA,
+      [textPart('deleting the only current document must not look ready')],
+      'Deleted projection row',
+    );
+    await indexService.reindexChat(chatId, ownerA);
+    const before = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
+    const readyRows = await documentRowsAs(ownerA, chatId);
+    expect(readyRows).toHaveLength(1);
+    expect(await expectedDocumentCountAs(ownerA, chatId)).toBe(1);
+
+    await tenantDb.runAs(ownerA, (tx) =>
+      tx.execute(sql`
+        DELETE FROM search_chat_documents
+        WHERE chat_id = ${chatId}
+      `),
+    );
+
+    expect(await staleIds()).toContain(chatId);
+    const stale = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
+    expect(stale.readyChatCount).toBe(before.readyChatCount - 1);
+    expect(stale.staleChatCount).toBe(before.staleChatCount + 1);
+    expect(stale.documentCount).toBe(before.documentCount - 1);
+
+    await indexService.reindexChat(chatId, ownerA);
+    expect(await staleIds()).not.toContain(chatId);
+    await expect(
+      getProjectionCoverageReport(tenantDb, CHUNKER_VERSION),
+    ).resolves.toEqual(before);
+    await expect(documentRowsAs(ownerA, chatId)).resolves.toHaveLength(1);
+  });
+
+  it('treats a zero-document chat with expected count zero as ready', async () => {
+    const chatId = await seedChat(
+      ownerA,
+      [{ type: 'tool-call', toolCallId: 'not-searchable' }],
+      'Zero-document chat',
+    );
+    const before = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
+    await indexService.reindexChat(chatId, ownerA);
+
+    expect(await documentRowsAs(ownerA, chatId)).toEqual([]);
+    const state = await tenantDb.runAs(ownerA, (tx) =>
+      tx.execute<{ expected_document_count: number }>(sql`
+        SELECT expected_document_count
+        FROM search_chat_state
+        WHERE chat_id = ${chatId}
+      `),
+    );
+    expect([...state][0].expected_document_count).toBe(0);
+    expect(await staleIds()).not.toContain(chatId);
+    const after = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
+    expect(after.readyChatCount).toBe(before.readyChatCount + 1);
+    expect(after.staleChatCount).toBe(before.staleChatCount - 1);
+  });
+
+  it('treats a current-version state row with a null legacy expected count as stale', async () => {
+    const chatId = await seedChat(
+      ownerA,
+      [textPart('legacy state has no expected document count')],
+      'Legacy expected count',
+    );
+    await indexService.reindexChat(chatId, ownerA);
+    const before = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
+
+    await tenantDb.runAs(ownerA, (tx) =>
+      tx.execute(sql`
+        UPDATE search_chat_state
+        SET expected_document_count = NULL
+        WHERE chat_id = ${chatId}
+      `),
+    );
+
+    expect(await staleIds()).toContain(chatId);
+    const stale = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
+    expect(stale.readyChatCount).toBe(before.readyChatCount - 1);
+    expect(stale.staleChatCount).toBe(before.staleChatCount + 1);
+  });
+
   it('returns only aggregate fields from the coverage report', async () => {
     const rows = await tenantDb.runAsPublic((tx) =>
       tx.execute(
-        sql`SELECT * FROM llame_search_projection_coverage(${CHUNKER_VERSION})`,
+        sql`SELECT * FROM llame_search_projection_coverage_v2(${CHUNKER_VERSION})`,
       ),
     );
     expect(Object.keys([...rows][0] ?? {}).sort()).toEqual(
@@ -269,6 +388,31 @@ describeIfDb('search projection locator coverage and RLS', () => {
   });
 
   it('does not leave the aggregate discovery function executable by PUBLIC', async () => {
+    const aclRows = await sqlClient`
+      SELECT p.proname,
+             has_function_privilege('public', p.oid, 'EXECUTE') AS can_execute,
+             r.rolbypassrls AS bypass
+      FROM pg_proc p
+      JOIN pg_roles r ON r.oid = p.proowner
+      WHERE p.proname IN (
+        'llame_search_projection_stale_chats_v2',
+        'llame_search_projection_coverage_v2'
+      )
+      ORDER BY p.proname
+    `;
+    expect(aclRows).toEqual([
+      {
+        proname: 'llame_search_projection_coverage_v2',
+        can_execute: false,
+        bypass: true,
+      },
+      {
+        proname: 'llame_search_projection_stale_chats_v2',
+        can_execute: false,
+        bypass: true,
+      },
+    ]);
+
     if (!TEST_UNPRIVILEGED_DB_URL) return;
     const postgres = require('postgres');
     const connect = postgres.default ?? postgres;
@@ -279,7 +423,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
     try {
       await expect(
         unprivileged.unsafe(
-          `SELECT * FROM llame_search_projection_coverage(${CHUNKER_VERSION})`,
+          `SELECT * FROM llame_search_projection_coverage_v2(${CHUNKER_VERSION})`,
         ),
       ).rejects.toMatchObject({ code: '42501' });
     } finally {

@@ -59,7 +59,7 @@ async function enqueueRowsBounded(
  * consumers above do the actual processing. This worker's own sweep is a
  * DISCOVERY PRODUCER, not the freshness path (write hooks carry freshness):
  * it enumerates stale chats across all tenants via the locator-aware
- * `llame_search_projection_stale_chats` SECURITY DEFINER function (BYPASSRLS —
+ * `llame_search_projection_stale_chats_v2` SECURITY DEFINER function (BYPASSRLS —
  * the only way to see all tenants under FORCE RLS), which returns ONLY
  * identifiers, and enqueues a reindex job per chat — backfill for never-indexed
  * chats, locator repair, and chunker-version bump. Catching a lost fallback
@@ -170,7 +170,7 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
   /**
    * Boot-time provisioning self-check (NON-FATAL) for BOTH cross-tenant
    * discovery functions this worker's sweep(s) depend on: the locator-aware
-   * lexical staleness function `llame_search_projection_stale_chats` (#609)
+   * lexical staleness function `llame_search_projection_stale_chats_v2` (#609)
    * and the embedding
    * coverage function `llame_search_embedding_coverage` (chat-search-
    * embeddings, design D10 — schema-only in this layer; no embed worker
@@ -193,8 +193,8 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
    */
   private async assertDiscoveryProvisioned(): Promise<void> {
     await this.assertFunctionOwnedByBypassRlsRole(
-      'llame_search_projection_stale_chats',
-      "Search discovery function 'llame_search_projection_stale_chats' is not owned by a BYPASSRLS role — cross-tenant backfill and locator repairs are DISABLED until 'pnpm db:provision-rls' runs. New activity still indexes synchronously (Tier 1); only dormant-chat backfill is deferred.",
+      'llame_search_projection_stale_chats_v2',
+      "Search discovery function 'llame_search_projection_stale_chats_v2' is not owned by a BYPASSRLS role — cross-tenant backfill and locator repairs are DISABLED until 'pnpm db:provision-rls' runs. New activity still indexes synchronously (Tier 1); only dormant-chat backfill is deferred.",
     );
     await this.assertFunctionOwnedByBypassRlsRole(
       'llame_search_embedding_coverage',
@@ -235,7 +235,7 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
     const stale = await this.tenantDb.runAsPublic((tx) =>
       tx.execute<SweepRow>(sql`
         SELECT chat_id, owner_user_id
-        FROM llame_search_projection_stale_chats(${CHUNKER_VERSION}, ${SEARCH_SWEEP_BATCH})
+        FROM llame_search_projection_stale_chats_v2(${CHUNKER_VERSION}, ${SEARCH_SWEEP_BATCH})
       `),
     );
     const rows = [...stale];

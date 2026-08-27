@@ -217,6 +217,11 @@ export const searchChatState = pgTable(
     indexedAt: timestamp('indexed_at', { withTimezone: true }),
     // Chunker version the current projection was built with.
     chunkerVersion: integer('chunker_version').notNull(),
+    // Number of current-version documents produced by the same rebuild. NULL
+    // means this state row predates locator-aware projection preparation and is
+    // therefore not ready for canonical reads; zero is a valid covered state
+    // for a Chat with no eligible visible text.
+    expectedDocumentCount: integer('expected_document_count'),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

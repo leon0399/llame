@@ -187,7 +187,7 @@ async function runCommand(command: string): Promise<void> {
       case 'projection-coverage': {
         await assertDiscoveryFunctionProvisioned(
           tenantDb,
-          'llame_search_projection_coverage',
+          'llame_search_projection_coverage_v2',
         );
         const report = await getProjectionCoverageReport(
           tenantDb,

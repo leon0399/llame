@@ -2,7 +2,9 @@
  * Shared BYPASSRLS-provisioning check for the cross-tenant SECURITY DEFINER
  * discovery functions in this domain (`llame_search_stale_chats`,
  * `llame_search_projection_stale_chats`,
+ * `llame_search_projection_stale_chats_v2`,
  * `llame_search_projection_coverage`,
+ * `llame_search_projection_coverage_v2`,
  * `llame_search_embedding_coverage`, `llame_search_embedding_backlog`,
  * `llame_search_embedding_report`). Each must be owned by a BYPASSRLS role
  * (`app_rls`) to see rows across tenants under FORCE RLS; until

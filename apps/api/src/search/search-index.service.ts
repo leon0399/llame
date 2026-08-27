@@ -192,7 +192,13 @@ export class SearchIndexService {
     // The message-max falls back to the chat's own creation time for a message-less
     // chat (never flagged by the message-time branch).
     await tx.execute(sql`
-      INSERT INTO search_chat_state (chat_id, owner_user_id, indexed_at, chunker_version)
+      INSERT INTO search_chat_state (
+        chat_id,
+        owner_user_id,
+        indexed_at,
+        chunker_version,
+        expected_document_count
+      )
       VALUES (
         ${chatId}, ${ownerUserId},
         greatest(
@@ -202,13 +208,15 @@ export class SearchIndexService {
           ),
           (SELECT updated_at FROM chats WHERE id = ${chatId})
         ),
-        ${CHUNKER_VERSION}
+        ${CHUNKER_VERSION},
+        ${chunks.length}
       )
       ON CONFLICT (chat_id) DO UPDATE SET
         owner_user_id = EXCLUDED.owner_user_id,
         -- monotonic: a reordered/stale rebuild commit can never walk the watermark backward
         indexed_at = GREATEST(search_chat_state.indexed_at, EXCLUDED.indexed_at),
         chunker_version = EXCLUDED.chunker_version,
+        expected_document_count = EXCLUDED.expected_document_count,
         updated_at = now()
     `);
   }
