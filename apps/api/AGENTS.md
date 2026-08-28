@@ -655,14 +655,19 @@ convention. Query-time retrieval is a later change (#197).
 
 ## Canonical conversation recall
 
-`search.chats.canonicalModelExcerpts` defaults off. Before enabling it, deploy
-locator-aware projection writers, reindex existing Chats, and require
-`search:projection-coverage` to report complete current-version locator coverage.
-Then quiesce Run acceptance, drain prior code-owned declarations, deploy matching
-API/workers, enable the flag, and explicitly add `conversation_read` to
-`tools.allowed`. Rollback quiesces and drains first, disables the flag and read
-tool, then restores older binaries; nullable locators remain. The complete
-contract and operator sequence are in [docs/conversation-recall.md](../../docs/conversation-recall.md).
+`search_conversations` has one canonical model result contract and no activation
+flag or legacy preview. Its exact allowlist entry gates HTTP Run admission; every
+process consuming `runs` applies the same current projection-coverage gate even
+when its local allowlist omits search, while non-Run processes skip it. Before the
+Chat-local sequence cutover, back up, reindex to complete coverage, quiesce new Run
+acceptance, drain accepted/queued Runs, stop old writers, and remove the retired
+`search.chats.canonicalModelExcerpts` key from every config. The migration aborts
+on experimental global-coordinate observations, rewrites retained message and
+compaction order, and restores FORCE RLS. After it commits, rollback requires the
+pre-cutover database snapshot plus prior binaries or a forward fix; mixed writers,
+global aliases, and historical JSON rewrites are unsupported. `conversation_read`
+remains independently exact-allowlisted. See
+[docs/conversation-recall.md](../../docs/conversation-recall.md).
 
 ## Conventions
 

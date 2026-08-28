@@ -366,6 +366,7 @@ function classify(raw: string): {
   hasConversationTools: boolean;
   hasConversationSearchResult: boolean;
   hasConversationReadResult: boolean;
+  conversationNextOffset: number | undefined;
   knowledgeOperation: "search" | "read" | "error";
   knowledgeSpaceId: string | undefined;
   knowledgeReadPath: string;
@@ -462,6 +463,10 @@ function classify(raw: string): {
         findSearchResult(currentTurnMessages) !== undefined,
       hasConversationReadResult:
         findConversationReadResult(currentTurnMessages),
+      conversationNextOffset: findNumberProperty(
+        latestToolContent,
+        "nextOffset",
+      ),
       knowledgeOperation,
       knowledgeSpaceId,
       knowledgeReadPath,
@@ -489,6 +494,7 @@ function classify(raw: string): {
       hasConversationTools: false,
       hasConversationSearchResult: false,
       hasConversationReadResult: false,
+      conversationNextOffset: undefined,
       knowledgeOperation: "search",
       knowledgeSpaceId: undefined,
       knowledgeReadPath: "notes/worker-note.md",
@@ -544,6 +550,7 @@ const server = http.createServer((req, res) => {
           hasConversationTools,
           hasConversationSearchResult,
           hasConversationReadResult,
+          conversationNextOffset,
           hasCurrentTurnToolResult,
           currentTurnToolResultCount,
           knowledgeOperation,
@@ -611,6 +618,28 @@ const server = http.createServer((req, res) => {
           hasConversationTools &&
           hasConversationReadResult
         ) {
+          if (
+            conversationNextOffset !== undefined &&
+            currentTurnToolResultCount === 2
+          ) {
+            const coordinates = findCanonicalCoordinates(raw);
+            if (coordinates !== undefined) {
+              res.write(
+                toolCallChunk({
+                  id: "call_conversation_read_continue_e2e",
+                  name: "conversation_read",
+                  arguments: {
+                    ...coordinates,
+                    offset: conversationNextOffset,
+                  },
+                }),
+              );
+              res.write(toolFinishChunk());
+              res.write("data: [DONE]\n\n");
+              res.end();
+              return;
+            }
+          }
           for (const token of CONVERSATION_ANSWER_TOKENS) {
             res.write(chunk(token, false));
           }

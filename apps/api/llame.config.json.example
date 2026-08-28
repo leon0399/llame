@@ -253,8 +253,9 @@
   "tools": {
     // Built-in or discovered MCP tool ids to allow. To enable Knowledge after
     // mounting the root above, add "knowledge_search" and "knowledge_read".
-    // After canonical projection coverage is complete, explicitly add
-    // "conversation_read"; see docs/conversation-recall.md.
+    // Allowlisting search_conversations makes complete canonical projection
+    // coverage a startup gate. Add conversation_read independently for exact
+    // line reads; see docs/conversation-recall.md.
     "allowed": ["search_conversations"],
     // Maximum tool-requesting steps per run.
     "maxStepsPerRun": 8,
