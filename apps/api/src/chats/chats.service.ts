@@ -132,6 +132,7 @@ export class ChatsService {
         compaction = await compactionsRepository.findLatestByChatId(
           chatId,
           ownerUserId,
+          { maxSeq: options.targetSeq },
         );
       } else {
         [messages, compaction] = await Promise.all([

@@ -1136,15 +1136,17 @@ export class CompactionsRepository {
   constructor(private readonly db: Db) {}
 
   /**
-   * Latest compaction for a chat (highest uptoSeq), or undefined when the chat has
-   * never compacted. Owner-scoped as defense-in-depth, mirroring MessagesRepository:
-   * the join requires the chat to be owned by `ownerUserId`; RLS remains the primary
-   * guarantee.
+   * Latest compaction for a chat (highest uptoSeq), optionally bounded by an
+   * inclusive maximum, or undefined when the chat has never compacted. The
+   * existing `beforeSeq` option remains an exclusive bound for callers walking
+   * to a compaction's parent. Owner-scoped as defense-in-depth, mirroring
+   * MessagesRepository: the join requires the chat to be owned by
+   * `ownerUserId`; RLS remains the primary guarantee.
    */
   async findLatestByChatId(
     chatId: string,
     ownerUserId: string,
-    options?: { beforeSeq?: number },
+    options?: { beforeSeq?: number; maxSeq?: number },
   ): Promise<Compaction | undefined> {
     const predicates = [
       eq(compactions.chatId, chatId),
@@ -1153,6 +1155,9 @@ export class CompactionsRepository {
 
     if (options?.beforeSeq !== undefined) {
       predicates.push(lt(compactions.uptoSeq, options.beforeSeq));
+    }
+    if (options?.maxSeq !== undefined) {
+      predicates.push(lte(compactions.uptoSeq, options.maxSeq));
     }
 
     const rows = await this.db

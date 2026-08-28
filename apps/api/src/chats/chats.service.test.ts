@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
-import type { Chat, Message } from '../db/schema';
+import type { Chat, Compaction, Message } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
@@ -160,5 +160,60 @@ describe('ChatsService.getChatMessages targetSeq', () => {
       maxSeq: 30,
     });
     expect(findLatestCompaction).not.toHaveBeenCalled();
+  });
+
+  it('bounds target compaction selection and derives the delta from that selected chain', async () => {
+    const db: Db = drizzle.mock({ schema });
+    const first: Compaction = {
+      id: 'compaction-1',
+      chatId: chat.id,
+      uptoSeq: 20,
+      parentId: null,
+      summary: 'first summary',
+      replacementHistory: [
+        { role: 'user', parts: [{ type: 'text', text: 'first' }] },
+      ],
+      usage: null,
+      createdAt: new Date('2026-08-28T00:00:00.000Z'),
+    };
+    const second: Compaction = {
+      ...first,
+      id: 'compaction-2',
+      uptoSeq: 25,
+      parentId: first.id,
+      summary: 'second summary',
+    };
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      message(20),
+      message(30),
+    ]);
+    const findLatestCompaction = vi
+      .spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
+      .mockResolvedValueOnce(second)
+      .mockResolvedValueOnce(first);
+
+    await expect(
+      makeService(db).getChatMessages(chat.id, ownerUserId, {
+        limit: 2,
+        targetSeq: 30,
+      }),
+    ).resolves.toMatchObject({
+      compaction: second,
+      absorbedMessageCount: 5,
+    });
+
+    expect(findLatestCompaction).toHaveBeenNthCalledWith(
+      1,
+      chat.id,
+      ownerUserId,
+      { maxSeq: 30 },
+    );
+    expect(findLatestCompaction).toHaveBeenNthCalledWith(
+      2,
+      chat.id,
+      ownerUserId,
+      { beforeSeq: 25 },
+    );
   });
 });
