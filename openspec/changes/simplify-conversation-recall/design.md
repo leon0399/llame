@@ -61,11 +61,11 @@ The generated migration cannot express this data transition safely by itself, so
 
 After Run admission is quiesced and accepted/queued Runs are drained, the migration:
 
-1. Preflights `messages.parts` and `run_events.payload` and aborts if any experimental canonical search/read observation carries the unmerged global locator interpretation.
+1. Preflights `messages.parts`, `run_events.payload`, and `compactions.replacement_history` and aborts if any experimental canonical search/read observation carries the unmerged global locator interpretation.
 2. Records `(message_id, chat_id, old_seq, new_seq)` in a transaction-local mapping ordered by old sequence.
 3. Verifies every `compactions.upto_seq` resolves to an exact mapped message in the same Chat.
-4. Temporarily sets `messages` and `run_events` to `NO FORCE ROW LEVEL SECURITY` for the global observation preflight, then restores FORCE on `run_events`; it keeps `messages` open and sets `compactions` to `NO FORCE ROW LEVEL SECURITY` for the sequence rewrite. Migrations run as these tables' owning role without `app.current_user_id`, so omitting any required window can silently inspect or update no rows.
-5. Drops the identity property and temporarily removes the `(chat_id, seq)` unique index while rewriting to avoid transient old/new value collisions.
+4. Temporarily sets `messages`, `run_events`, and `compactions` to `NO FORCE ROW LEVEL SECURITY` for the global observation preflight, then restores FORCE on `run_events`; it keeps `messages` and `compactions` open for the sequence rewrite. Migrations run as these tables' owning role without `app.current_user_id`, so omitting any required window can silently inspect or update no rows.
+5. Drops the identity property and temporarily removes both `(chat_id, seq)` and `(chat_id, upto_seq)` unique indexes while rewriting to avoid transient old/new value collisions.
 6. Rewrites compaction boundaries through the mapping and rewrites message sequence values.
 7. Recreates the unique index, adds the positive constraint, and verifies under the open window that per Chat `MIN(seq) = 1`, `MAX(seq) = COUNT(*)`, `COUNT(DISTINCT seq) = COUNT(*)`, message order is unchanged, and every compaction still ends at the same message UUID.
 8. Restores `FORCE ROW LEVEL SECURITY` on `messages` and `compactions` and asserts `relforcerowsecurity` is true for all three touched tables before the migration commits.
@@ -114,7 +114,8 @@ The sequence layer owns schema/data/repository and every directly affected curso
 - [Sequence rewrite invalidates experimental global locators] -> Treat this as an explicit pre-merge alpha hard cutover; preserve historical result bytes but do not add an ambiguous dual-namespace reader.
 - [Concurrent inserts select the same next value] -> Let the unique index serialize the conflict, retry only its named sequence violation in a savepoint, cover every current finalization/salvage/user writer, and fail after the fixed internal budget is exhausted.
 - [A succeeding user allocates while the prior assistant finalizes] -> Resolve live/stale active-Run admission after the Chat lock but before user-message allocation, preserving 409/unwedge behavior without making the finalizer lock the Chat row.
-- [A migration preflight/rewrite silently sees no rows under FORCE RLS] -> Open only the required windows on `messages`, `run_events`, and `compactions`, restore `run_events` immediately after preflight, and verify mapping, boundaries, and restored FORCE state on all three tables.
+- [A migration preflight/rewrite silently sees no rows under FORCE RLS] -> Open only the required windows on `messages`, `run_events`, and `compactions`, scan live and compacted replay history, restore `run_events` immediately after preflight, and verify mapping, boundaries, and restored FORCE state on all three tables.
+- [A dense compaction boundary collides with another row's old boundary] -> Drop/recreate `compactions_chat_upto_seq_idx` around the same transactional mapping used for messages and execute a seeded old `8 -> 4` versus old `4` collision test.
 - [Old binaries cannot safely write after identity removal] -> Quiesce/drain before migration, deploy matching API/workers as one revision, and require data snapshot restoration or a forward fix for rollback; do not run mixed writers.
 - [Privileged manual deletion creates a gap] -> Keep the product contract append-only and verification loud; do not add trigger complexity for out-of-band operator mutation.
 - [Boot coverage makes a Run-capable process unavailable] -> Fail before accepting/consuming Runs with aggregate counts and no tenant/content identifiers; operators reindex/repair coverage or remove the tool from the allowlist, while non-Run worker profiles skip the gate.
@@ -131,6 +132,7 @@ The sequence layer owns schema/data/repository and every directly affected curso
 
 ## Revision History
 
+- **v6 (2026-08-28):** Added compaction replacement-history preflight and collision-free compaction-index remapping after PR/security review.
 - **v5 (2026-08-28):** Required live/stale active-Run admission before user-message allocation after full integration exposed a send/finalizer sequence deadlock.
 - **v4 (2026-08-28):** Added the missing FORCE-RLS window and restoration assertion for global `run_events` preflight discovered during implementation.
 - **v3 (2026-08-28):** Required every runs-consuming worker to gate coverage independently of its current allowlist and tightened durable queue sequence parsing to positive safe integers after split-deployment review.

@@ -10,7 +10,7 @@ Structured Chat/message sequence attribution, role/timestamp, numbered content, 
 
 A persisted conversation-read observation SHALL follow the destination Chat's existing retention and deletion lifecycle. Product behavior SHALL NOT delete an individual source message. Deleting or later losing access to the source Chat SHALL make a fresh read return `conversation_source_not_found` but SHALL NOT redact or rewrite text already recorded in another owner-visible Chat. Deleting the destination Chat SHALL remove its messages, Runs, and Run events through the existing cascade lifecycle.
 
-Because the global-to-Chat-local sequence rewrite is a pre-merge alpha hard cutover, deployment SHALL preflight persisted assistant parts and Run events before changing sequence values. If it finds an experimental canonical `search_conversations` result or `conversation_read` input/result authored under the prior global interpretation, the cutover SHALL abort before mutation. It SHALL NOT rewrite the historical observation, accept its global value as an alias, or guess between colliding locator namespaces. The unsupported experimental Chat or database must be removed/reset as a whole before retrying the cutover.
+Because the global-to-Chat-local sequence rewrite is a pre-merge alpha hard cutover, deployment SHALL preflight persisted assistant parts, compaction replacement history, and Run events before changing sequence values. If it finds an experimental canonical `search_conversations` result or `conversation_read` input/result authored under the prior global interpretation, the cutover SHALL abort before mutation. It SHALL NOT rewrite the historical observation, accept its global value as an alias, or guess between colliding locator namespaces. The unsupported experimental Chat or database must be removed/reset as a whole before retrying the cutover.
 
 #### Scenario: Conversation reader is not allowlisted
 
@@ -37,7 +37,7 @@ Because the global-to-Chat-local sequence rewrite is a pre-merge alpha hard cuto
 
 #### Scenario: Experimental global locator blocks the alpha cutover
 
-- **WHEN** migration preflight finds a persisted canonical search/read observation authored with the unmerged global sequence interpretation
+- **WHEN** migration preflight finds a persisted canonical search/read observation in live message parts, compaction replacement history, or Run events authored with the unmerged global sequence interpretation
 - **THEN** the cutover fails before rewriting any message or compaction sequence
 - **AND** it neither mutates that observation nor installs a global-sequence alias path
 
