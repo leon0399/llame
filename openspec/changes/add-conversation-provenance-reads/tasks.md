@@ -83,12 +83,12 @@ Each branch owns only its section below. Commit and verify one layer before `gh 
 
 **Ownership:** Cross-layer E2E, prompts/tool descriptions, config/operator docs, rollout/rollback docs, ROADMAP, and CHANGELOG. Runtime feature code belongs below.
 
-- [ ] 6.1 Add queued-Run and product E2E for lexical search to canonical excerpt to `conversation_read`, continuation/reload, pasted owner message links, giant multi-part messages, retryable/deleted sources, cancellation, and cross-tenant denial; verify persisted call/result pairs reconstruct after reload without vector, outline, activity, or custom tool UI behavior.
+- [x] 6.1 Add queued-Run and product E2E for lexical search to canonical excerpt to `conversation_read`, continuation/reload, pasted owner message links, giant multi-part messages, retryable/deleted sources, cancellation, and cross-tenant denial; verify persisted call/result pairs reconstruct after reload without vector, outline, activity, or custom tool UI behavior.
 - [x] 6.2 Update packaged prompt/tool descriptions to distinguish bounded discovery excerpts from exact numbered reads and frame recalled conversation text as untrusted historical data; verify declaration snapshots expose no implementation-only UUID, hash, version, or projection fields.
 - [x] 6.3 Update example allowlists and operator/tool documentation for explicit `conversation_read` enablement, sequence/line selectors, bounds, continuation, links, and closed errors; verify configuration tests and Markdown lint.
 - [x] 6.4 Document message-sequence uniqueness, nullable locator preparation, `search.chats.canonicalModelExcerpts`, per-Chat live-version replacement, coverage-gated activation, quiesce/drain declaration cutover, and reverse rollback routing; verify cross-links to #197, #198, #609, #611, #615, #616, #617, and #618 remain accurate.
 - [x] 6.5 Update `ROADMAP.md` and the dated `CHANGELOG.md` entry without claiming vector recall, activity, outlines, branching, or performance work shipped.
-- [ ] 6.6 Run affected API/web/UI tests, root E2E, typechecks, lints, AST/Markdown/format checks, and affected workspace builds sequentially; record environment failures without converting partial output into a passing claim.
+- [x] 6.6 Run affected API/web/UI tests, root E2E, typechecks, lints, AST/Markdown/format checks, and affected workspace builds sequentially; record environment failures without converting partial output into a passing claim.
 
 ## 7. `conversation-reads/finalize` — Canonical Spec Sync and Archive
 
