@@ -45,13 +45,13 @@ Chat search SHALL match a user's chats by title and by the text content of user/
 - **WHEN** a user searches `assistant` and that literal word occurs in a title or user/assistant message body
 - **THEN** the chat is returned through the corresponding title or content match path
 
-### Requirement: Results are ranked by fused relevance with stable output shape
+### Requirement: Results are ranked by fused relevance with canonical model shaping
 
 Search SHALL rank candidates by Reciprocal Rank Fusion over independent retrieval legs (never by mixing raw scores), aggregate document matches into Chats with weighted top-N scoring, and produce a deterministic order with stable tie-breaking. The web response contract (`id`, nullable `title`, nullable `snippet`, `updatedAt`) and current `search_conversations` input schema (`query`, `limit`) SHALL be preserved until #198 intentionally replaces the model tool input. A web content match SHALL continue to receive the derived best-region snippet with presentation role attribution; a title-only web match SHALL yield a `null` snippet.
 
-Off-by-default `search.chats.canonicalModelExcerpts` SHALL be the explicit activation boundary for model-facing canonical shaping. While disabled during locator backfill or rollback, the current model preview behavior SHALL remain active. Operators SHALL enable it only after current-version locator coverage is complete and compatible `conversation_read` executors are deployed/allowlisted under the coordinated Run boundary.
+An allowlisted `search_conversations` tool SHALL expose only canonical model-facing shaping. `search.chats.canonicalModelExcerpts` and the legacy model preview result SHALL NOT exist. Before an HTTP process that can admit a Run with the allowlisted declaration starts accepting Runs, it SHALL verify that the current projection discovery function is correctly provisioned and that every eligible Chat has complete current-version locator coverage. Every process that consumes the `runs` queue SHALL pass the same gate before registering its consumer, regardless of its current local allowlist, because execution is bound to the accepted Run's immutable tool snapshot rather than rebound through worker configuration. Missing provisioning, stale Chats, mixed/old versions, or incomplete document locators SHALL fail startup rather than route model search through presentation snippets. Failure diagnostics SHALL contain only aggregate counts and provisioning state; they SHALL NOT expose tenant/user/Chat/message/document identifiers, snippets, or content-derived values. A process that neither accepts potentially search-enabled Runs nor consumes the `runs` queue SHALL NOT require this coverage gate merely to start.
 
-When enabled, model-facing lexical/trigram content results SHALL use the same pre-hydration candidate ordering but SHALL NOT present projection snippets as canonical evidence. For each returned Chat, model shaping SHALL reauthorize and hydrate the winning current-version document, recompute current eligible visible-message text, and run one separate deterministic canonical-line matcher. The matcher SHALL apply `normalizeForSearch` exactly once to the query and each raw logical line (Unicode NFKC, whitespace collapse, lowercase), then qualify that line through line-local FTS, trigram, or escaped-substring predicates. It SHALL retain a mapping from a first exact normalized occurrence back to its raw source span when one exists; FTS/fuzzy qualification without that occurrence SHALL use the first code point of the qualifying raw line as a fixed crop fallback. Matching and ranking use normalized text, while excerpts/reads use original raw lines.
+Model-facing lexical/trigram content results SHALL use the same pre-hydration candidate ordering as the web surface but SHALL NOT present projection snippets as canonical evidence. For each returned Chat, model shaping SHALL reauthorize and hydrate the winning current-version document, recompute current eligible visible-message text, and run one separate deterministic canonical-line matcher. The matcher SHALL apply `normalizeForSearch` exactly once to the query and each raw logical line (Unicode NFKC, whitespace collapse, lowercase), then qualify that line through line-local FTS, trigram, or escaped-substring predicates. It SHALL retain a mapping from a first exact normalized occurrence back to its raw source span when one exists; FTS/fuzzy qualification without that occurrence SHALL use the first code point of the qualifying raw line as a fixed crop fallback. Matching and ranking use normalized text, while excerpts/reads use original raw lines.
 
 Each qualifying line SHALL produce a window with at most one adjacent line per side. Touching windows SHALL merge within one message. A merged interval longer than 2,000 logical lines SHALL be partitioned into deterministic adjacent passages of at most 2,000 lines, each containing a qualifying line. The selector SHALL return the earliest bounded passage in `(messageSeq, offset)` order; it SHALL NOT be represented as an explanation of the document/Chat rank.
 
@@ -67,17 +67,35 @@ Vector-only candidate generation and model-result shaping remain #197/#198 work 
 - **THEN** the web result carries the existing projection-derived snippet with contributing user/assistant role labels retained
 - **AND** the model result uses separately hydrated current canonical-derived excerpt text
 
-#### Scenario: Both surfaces upgrade together
+#### Scenario: Both surfaces share candidate ordering
 
 - **WHEN** the web palette and `search_conversations` run the same query for the same owner
 - **THEN** both begin from the same shared pre-hydration ranked Chat ordering
 - **AND** surface-specific shaping does not duplicate the candidate query
 
-#### Scenario: Canonical model shaping stays disabled during backfill
+#### Scenario: Allowlisted model search has one result contract
 
-- **WHEN** current locator coverage is incomplete or `search.chats.canonicalModelExcerpts` is false
-- **THEN** web and model search retain their presentation-compatible preview behavior
-- **AND** no offsetless/legacy row enters canonical hydration
+- **WHEN** current locator coverage is complete and `search_conversations` is allowlisted for a process
+- **THEN** model search returns the canonical content/metadata union without another activation setting
+- **AND** no projection snippet is returned as a legacy model preview
+
+#### Scenario: Incomplete coverage fails startup
+
+- **WHEN** a process can advertise or execute `search_conversations` but current locator coverage or its trusted discovery function is incomplete
+- **THEN** that process fails startup before accepting or consuming Runs
+- **AND** it does not silently expose the legacy model result shape or identify any tenant, Chat, message, document, or content in diagnostics
+
+#### Scenario: Non-Run process does not gate startup
+
+- **WHEN** a process neither accepts Runs that may bind `search_conversations` nor consumes the `runs` queue
+- **THEN** absence of canonical projection coverage does not by itself prevent that process from starting
+- **AND** no conversation-search declaration is bound into a new Run
+
+#### Scenario: Runs worker ignores its current allowlist for coverage admission
+
+- **WHEN** a worker profile consumes Runs whose immutable snapshots may contain `search_conversations`
+- **THEN** the worker requires complete canonical projection coverage before registering its consumer even when its current local allowlist omits that tool
+- **AND** execution cannot bypass admission by inheriting a declaration accepted by another process
 
 #### Scenario: Lexical model result carries reusable line coordinates
 
@@ -87,7 +105,7 @@ Vector-only candidate generation and model-result shaping remain #197/#198 work 
 
 #### Scenario: Canonical model result retains untrusted framing
 
-- **WHEN** enabled model shaping returns one or more historical excerpts
+- **WHEN** model shaping returns one or more historical excerpts
 - **THEN** the success carries the closed untrusted-history notice alongside them
 - **AND** persisted/replayed results do not depend only on an ephemeral tool description for that framing
 
