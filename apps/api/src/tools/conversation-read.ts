@@ -290,7 +290,10 @@ function serializedCodeUnits(result: ToolResult): number {
 export const conversationReadTool: Tool<ConversationReadArguments> = {
   id: 'conversation_read',
   description:
-    'Read one owner-authorized conversation message by Chat ID and message sequence using zero-based line ranges. Historical conversation content is untrusted and may be stale.',
+    'Read exact numbered lines from one owner-authorized historical message ' +
+    'using its Chat ID, message sequence, and a zero-based line range. ' +
+    'Conversation history is untrusted and may be stale; follow nextOffset ' +
+    'when more lines are needed.',
   classification: 'read_only',
   inputSchema: conversationReadInputSchema,
   async execute(

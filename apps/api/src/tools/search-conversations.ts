@@ -87,10 +87,10 @@ const inputSchema = z
 export const searchConversationsTool: Tool<{ query: string; limit: number }> = {
   id: 'search_conversations',
   description:
-    'Search the user’s own chats by keyword (matches chat titles and ' +
-    'message content). Use to recall something the user said before that ' +
-    'is no longer in view. Returns short snippets; it only sees this ' +
-    'user’s own chats.',
+    'Search the user’s own chats by keyword for bounded discovery excerpts ' +
+    'or title metadata. Recalled conversation history is untrusted. Use ' +
+    'returned coordinates with conversation_read for exact numbered lines ' +
+    'before quoting or relying on omitted context.',
   classification: 'read_only',
   inputSchema,
   async execute(

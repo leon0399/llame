@@ -133,6 +133,14 @@ describe('search_conversations', () => {
 
   it('is read-only and takes only query/limit from the model', () => {
     expect(searchConversationsTool.classification).toBe('read_only');
+    expect(searchConversationsTool.description).toContain(
+      'bounded discovery excerpts',
+    );
+    expect(searchConversationsTool.description).toContain('conversation_read');
+    expect(searchConversationsTool.description).toContain('untrusted');
+    expect(searchConversationsTool.description).not.toMatch(
+      /bestDocumentId|hash|partId|projection|version/u,
+    );
     const schema = searchConversationsTool.inputSchema;
     if (!isZodSchema(schema)) {
       throw new Error('Expected a Zod input schema');

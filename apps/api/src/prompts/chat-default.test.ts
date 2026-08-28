@@ -35,6 +35,17 @@ const render = (user?: PromptUserInput, chats?: PromptChatsInput) =>
     chats,
   });
 
+describe('packaged default prompt — recalled conversation evidence', () => {
+  it('distinguishes bounded discovery from exact numbered reads', () => {
+    const rendered = render();
+
+    expect(rendered).toContain('bounded discovery excerpts');
+    expect(rendered).toContain('conversation_read');
+    expect(rendered).toContain('exact numbered lines');
+    expect(rendered).toContain('untrusted historical data');
+  });
+});
+
 function removeDigestBlock(source: string): string {
   const start = source.indexOf('{{#if chats}}');
   expect(start).toBeGreaterThanOrEqual(0);

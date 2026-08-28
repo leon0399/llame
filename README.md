@@ -13,8 +13,9 @@ multi-user isolation needed for a household, team, or organization.
 - Operator-managed provider, model, and per-model system-prompt configuration in
   `llame.config.json`, with support for OpenAI-compatible endpoints.
 - Owner-only Projects for organizing chats, plus pinning and reversible archival.
-- A bounded read-only tool loop with native `search_conversations` plus
-  operator-configured Streamable HTTP MCP tools.
+- A bounded read-only tool loop with native `search_conversations` and optional
+  exact, line-ranged `conversation_read`, plus operator-configured Streamable
+  HTTP MCP tools.
 - Owner-scoped personal Markdown Knowledge Spaces with bounded
   `knowledge_search` and `knowledge_read` tools over live files, including
   uncommitted changes, when the operator configures and allowlists the
@@ -25,8 +26,10 @@ multi-user isolation needed for a household, team, or organization.
 
 Agent-authored knowledge writes, Git-backed recovery, user BYOK, fine-grained
 tool permissions, and subagents are not shipped yet. The next release slices
-are tracked in [ROADMAP.md](ROADMAP.md). See [docs/knowledge.md](docs/knowledge.md)
-for the operator setup and deployment boundary.
+are tracked in [ROADMAP.md](ROADMAP.md). See
+[docs/conversation-recall.md](docs/conversation-recall.md) and
+[docs/knowledge.md](docs/knowledge.md) for operator setup and deployment
+boundaries.
 
 ## Direction
 
