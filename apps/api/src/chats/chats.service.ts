@@ -329,11 +329,12 @@ export class ChatsService {
       );
 
       await messagesRepo.createMany(
-        dto.messages.map((message) => {
+        dto.messages.map((message, index) => {
           const originalInReplyTo = inReplyToById.get(message.id) ?? null;
           return {
             id: idMap.get(message.id)!,
             chatId: created.id,
+            seq: index + 1,
             role: message.role,
             senderUserId: message.role === 'user' ? callerId : null,
             parts: message.parts,
@@ -465,9 +466,10 @@ export class ChatsService {
       const idMap = new Map(toCopy.map((m) => [m.id, crypto.randomUUID()]));
 
       await messagesRepo.createMany(
-        toCopy.map((message) => ({
+        toCopy.map((message, index) => ({
           id: idMap.get(message.id)!,
           chatId: created.id,
+          seq: index + 1,
           role: message.role,
           senderUserId: message.senderUserId,
           parts: message.parts,

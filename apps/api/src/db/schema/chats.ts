@@ -2,6 +2,7 @@ import { InferSelectModel } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   bigint,
+  check,
   foreignKey,
   index,
   jsonb,
@@ -167,12 +168,13 @@ export const messages = pgTable(
     chatId: uuid('chat_id')
       .notNull()
       .references(() => chats.id, { onDelete: 'cascade' }),
-    // Monotonic insertion-order key. `created_at` defaults to now() = the TRANSACTION
+    // Immutable one-based insertion order within this Chat. `created_at`
+    // defaults to now() = the TRANSACTION
     // timestamp, so messages written in one transaction (e.g. a user turn + its
     // assistant reply) share an identical created_at and cannot be ordered by it
-    // deterministically. `seq` gives a stable conversation order; queries and the
-    // ContextBuilder order by it, not by created_at.
-    seq: bigint('seq', { mode: 'number' }).generatedAlwaysAsIdentity(),
+    // deterministically. Allocation is explicit and Chat-local; queries and
+    // the ContextBuilder order by it, not by created_at.
+    seq: bigint('seq', { mode: 'number' }).notNull(),
     role: messageRole('role').notNull(),
     // nullable: set for human turns; null for assistant/system/tool.
     // onDelete: set null — deleting a user anonymizes their past messages rather
@@ -195,6 +197,7 @@ export const messages = pgTable(
   },
   (t) => [
     index('messages_chat_created_idx').on(t.chatId, t.createdAt),
+    check('messages_seq_positive', sql`${t.seq} > 0`),
     // Ordering index: history is read with ORDER BY (chat_id, seq).
     uniqueIndex('messages_chat_seq_unique_idx').on(t.chatId, t.seq),
     uniqueIndex('messages_in_reply_to_unique_idx').on(t.inReplyTo),

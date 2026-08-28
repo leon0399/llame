@@ -262,6 +262,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
         (_, i) => ({
           id: crypto.randomUUID(),
           chatId: chat,
+          seq: i + 3,
           role: i % 2 === 0 ? 'user' : 'assistant',
           senderUserId: i % 2 === 0 ? owner : null,
           parts: [{ type: 'text', text: `turn-${i}` }],
@@ -409,6 +410,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
           Array.from({ length: total }, (_, i) => ({
             id: crypto.randomUUID(),
             chatId: chat,
+            seq: i + 3,
             role: i % 2 === 0 ? 'user' : 'assistant',
             senderUserId: i % 2 === 0 ? owner : null,
             parts: [{ type: 'text', text: `turn-${i}` }],

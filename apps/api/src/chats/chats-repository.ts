@@ -24,6 +24,7 @@ import {
   isNull,
   lt,
   lte,
+  max,
   not,
   sql,
 } from 'drizzle-orm';
@@ -42,6 +43,7 @@ import {
 
 import { type Db } from '../db/tenant-db.service';
 export { type Db } from '../db/tenant-db.service';
+import { isString, type UnknownRecord } from '../unknown-record';
 import { parseCompactionReplacementHistory } from './compaction-replacement-history';
 import { isCompletedAssistantTurn } from './assistant-completion';
 export { isCompletedAssistantTurn };
@@ -55,6 +57,16 @@ import {
 const DEFAULT_CHAT_VISIBILITY = 'private';
 
 const SNIPPET_MAX = 160;
+
+// Fixed application budget, not operator configuration. Current writers are
+// bounded to assistant finalization/salvage after accepted-turn admission has
+// rejected or expired an active Run; eight attempts leaves a defensive retry
+// wave without permitting an unbounded transaction loop.
+const MESSAGE_SEQUENCE_INSERT_ATTEMPTS = 8;
+const MESSAGE_SEQUENCE_UNIQUE_INDEX = 'messages_chat_seq_unique_idx';
+
+type MessageInsert = typeof messages.$inferInsert;
+type MessageInsertWithoutSequence = Omit<MessageInsert, 'seq'>;
 
 export type ConversationMessageLookup = {
   chatId: string;
@@ -82,6 +94,28 @@ function parseSafePositiveSequence(value: string | null): number | undefined {
   if (value === null) return undefined;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function isCauseChainLink(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null;
+}
+
+function isMessageSequenceUniqueViolation(error: unknown): boolean {
+  for (
+    let current = error;
+    isCauseChainLink(current);
+    current = current['cause']
+  ) {
+    const namesSequenceIndex =
+      (isString(current['constraint_name']) &&
+        current['constraint_name'] === MESSAGE_SEQUENCE_UNIQUE_INDEX) ||
+      (isString(current['message']) &&
+        current['message'].includes(MESSAGE_SEQUENCE_UNIQUE_INDEX));
+    if (current['code'] === '23505' && namesSequenceIndex) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Collapse whitespace and clip a matching message to a short search snippet. */
@@ -807,8 +841,8 @@ export class MessagesRepository {
    * needed to learn a new id before the next row references it).
    *
    * Chunked into multi-row INSERTs (not one row per statement, not one
-   * INSERT for the whole batch): a single statement keeps `seq` identity
-   * assignment in input order (needed for conversation order), while
+   * INSERT for the whole batch): callers provide the new Chat's explicit
+   * one-based `seq` values in input order, while
    * chunking keeps any one statement's parameter count well under Postgres's
    * limit for arbitrarily large batches (a fork copies a conversation of any
    * length, #143 — no upper bound). Chunks are awaited in order, not via
@@ -818,6 +852,7 @@ export class MessagesRepository {
     rows: {
       id: string;
       chatId: string;
+      seq: number;
       role: MessageRole;
       senderUserId: string | null;
       parts: unknown[];
@@ -1030,7 +1065,7 @@ export class MessagesRepository {
     usage?: unknown;
     inReplyTo?: string | null;
   }): Promise<Message> {
-    const values: typeof messages.$inferInsert = {
+    const values: MessageInsertWithoutSequence = {
       chatId: input.chatId,
       role: input.role,
       senderUserId: input.senderUserId ?? null,
@@ -1041,8 +1076,16 @@ export class MessagesRepository {
     };
     if (input.id !== undefined) values.id = input.id;
 
-    const [created] = await this.db.insert(messages).values(values).returning();
-
+    const created = await this.insertWithChatSequence(
+      values,
+      async (tx, row) => {
+        const [inserted] = await tx.insert(messages).values(row).returning();
+        return inserted;
+      },
+    );
+    if (!created) {
+      throw new Error('Message insert returned no row');
+    }
     return created;
   }
 
@@ -1053,20 +1096,24 @@ export class MessagesRepository {
     parts: unknown[];
     attachments?: unknown[];
   }): Promise<Message | undefined> {
-    const [created] = await this.db
-      .insert(messages)
-      .values({
+    return this.insertWithChatSequence(
+      {
         id: input.id,
         chatId: input.chatId,
         role: 'user',
         senderUserId: input.senderUserId,
         parts: input.parts,
         attachments: input.attachments ?? [],
-      })
-      .onConflictDoNothing({ target: messages.id })
-      .returning();
-
-    return created;
+      },
+      async (tx, row) => {
+        const [created] = await tx
+          .insert(messages)
+          .values(row)
+          .onConflictDoNothing({ target: messages.id })
+          .returning();
+        return created;
+      },
+    );
   }
 
   async createAssistantReplyIfAbsent(input: {
@@ -1075,9 +1122,8 @@ export class MessagesRepository {
     usage?: unknown;
     inReplyTo: string;
   }): Promise<Message | undefined> {
-    const [created] = await this.db
-      .insert(messages)
-      .values({
+    return this.insertWithChatSequence(
+      {
         chatId: input.chatId,
         role: 'assistant',
         senderUserId: null,
@@ -1085,11 +1131,50 @@ export class MessagesRepository {
         attachments: [],
         usage: input.usage,
         inReplyTo: input.inReplyTo,
-      })
-      .onConflictDoNothing({ target: messages.inReplyTo })
-      .returning();
+      },
+      async (tx, row) => {
+        const [created] = await tx
+          .insert(messages)
+          .values(row)
+          .onConflictDoNothing({ target: messages.inReplyTo })
+          .returning();
+        return created;
+      },
+    );
+  }
 
-    return created;
+  private async insertWithChatSequence(
+    values: MessageInsertWithoutSequence,
+    insert: (tx: Db, row: MessageInsert) => Promise<Message | undefined>,
+  ): Promise<Message | undefined> {
+    let sequenceConflict: unknown;
+    for (
+      let attempt = 0;
+      attempt < MESSAGE_SEQUENCE_INSERT_ATTEMPTS;
+      attempt++
+    ) {
+      try {
+        return await this.db.transaction(async (tx) => {
+          const [current] = await tx
+            .select({ value: max(messages.seq) })
+            .from(messages)
+            .where(eq(messages.chatId, values.chatId));
+          const seq = (current?.value ?? 0) + 1;
+          if (!Number.isSafeInteger(seq) || seq <= 0) {
+            throw new Error(
+              `Chat ${values.chatId} exhausted safe message sequence values`,
+            );
+          }
+          return insert(tx, { ...values, seq });
+        });
+      } catch (error) {
+        if (!isMessageSequenceUniqueViolation(error)) {
+          throw error;
+        }
+        sequenceConflict = error;
+      }
+    }
+    throw sequenceConflict;
   }
 
   async updateAssistantReply(input: {

@@ -276,7 +276,7 @@ describe('hydrateCanonicalSearchRows', () => {
     ).toBeNull();
   });
 
-  it('keeps a same-message UTF-16 range and accepts sparse sequence values', () => {
+  it('keeps a same-message UTF-16 range and accepts a large safe local sequence', () => {
     const result = hydrateCanonicalSearchRows(
       [
         row({
