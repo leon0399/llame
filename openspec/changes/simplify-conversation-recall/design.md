@@ -28,7 +28,7 @@ This proposal is layered above the still-unmerged #609 stack. It therefore decla
 
 ### D1. Change the existing sequence instead of adding a public ordinal
 
-Drop the database-wide generated-identity behavior from `messages.seq`. Keep the column, positive safe-integer application boundary, `(chat_id, seq)` unique index, and every existing within-Chat comparison. Add a datastore check that committed sequence values are positive.
+Drop the database-wide generated-identity behavior from `messages.seq`. Keep the column, positive safe-integer application boundary, `(chat_id, seq)` unique index, and every existing within-Chat comparison. Add a datastore check that committed sequence values are positive, and tighten the durable `RunJob.userMessage.seq` parser to the same positive safe-integer contract before execution uses it as a history/compaction bound.
 
 The migration assigns `row_number() over (partition by chat_id order by old_seq)` so each retained Chat becomes `1..N` without changing relative order. Because all downstream relationships already pair a sequence with Chat identity, changing the allocator fixes the public locator and existing cursor/compaction arithmetic at the same boundary.
 
@@ -82,7 +82,7 @@ Do not add a delete trigger. It would complicate legitimate parent-Chat cascade 
 
 Delete `canonicalModelExcerpts` from raw/resolved config types, defaults, JSON schema, examples, tests, Run tool context, worker harness overrides, and search execution. Strict configuration therefore rejects the removed property rather than accepting a no-op.
 
-Canonical coverage becomes an admission invariant at the two process boundaries that can create mixed behavior: an HTTP API that can accept a Run containing the exact allowlisted `search_conversations` declaration, and a worker profile with non-null `runs` concurrency that can execute it. A search-reindex/search-embed/session-cleanup-only worker that neither accepts nor consumes Runs skips the gate even though its module graph imports search services. When required, admission checks the provisioned coverage function plus complete current-version Chat/document locators and throws before Run acceptance or consumer registration on any failure.
+Canonical coverage becomes an admission invariant at the two process boundaries that can create mixed behavior: an HTTP API that can accept a Run containing the exact allowlisted `search_conversations` declaration, and every worker profile with non-null `runs` concurrency. The worker gate does not consult that process's current allowlist: execution rebinds the accepted Run's immutable declaration snapshot against the code-owned registry, so a worker can execute `search_conversations` accepted elsewhere even when its local config now omits the tool. A search-reindex/search-embed/session-cleanup-only worker that neither accepts nor consumes Runs skips the gate even though its module graph imports search services. When required, admission checks the provisioned coverage function plus complete current-version Chat/document locators and throws before Run acceptance or consumer registration on any failure.
 
 `search_conversations` always executes canonical hydration and returns the strict content/metadata union. It never calls a legacy success adapter. `conversation_read` remains independently exact-allowlisted; canonical search is still useful as bounded discovery when the reader is unavailable, and the tool description continues to say to read exact lines when available.
 
@@ -128,5 +128,6 @@ The sequence layer owns schema/data/repository and every directly affected curso
 
 ## Revision History
 
+- **v3 (2026-08-28):** Required every runs-consuming worker to gate coverage independently of its current allowlist and tightened durable queue sequence parsing to positive safe integers after split-deployment review.
 - **v2 (2026-08-28):** Added shared-history sequence coverage, fail-closed experimental-locator preflight, explicit FORCE-RLS migration windows, process-role-aware search admission, and implementation-owned collision retry sizing after adversarial review.
 - **v1 (2026-08-28):** Initial proposal design for canonical-only model search and immutable Chat-local message sequencing.

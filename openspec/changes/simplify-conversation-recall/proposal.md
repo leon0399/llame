@@ -5,7 +5,7 @@ Acceptance testing of #609 exposed two avoidable sources of model and operator c
 ## What Changes
 
 - **BREAKING** Remove `search.chats.canonicalModelExcerpts`; `search_conversations` always returns the canonical content/metadata union when allowlisted and never falls back to the legacy model preview shape.
-- Fail startup when `search_conversations` is allowlisted without complete current projection locator coverage; retain the web presentation response independently.
+- Fail HTTP startup when it can admit allowlisted `search_conversations` Runs without complete current projection locator coverage, and fail every runs-consuming worker on incomplete coverage regardless of that worker's current allowlist; retain the web presentation response independently.
 - **BREAKING** Change `messages.seq` from a database-wide generated identity to an immutable, positive, one-based insertion sequence allocated independently within each Chat.
 - Deterministically backfill existing messages in their prior sequence order and translate persisted compaction boundaries under a quiesce/drain cutover.
 - Use the same Chat-local sequence for owner/shared history cursors and message DTOs, search locators, `conversation_read`, neighboring-message navigation, Run boundaries, compactions, forks, and message links.
@@ -28,7 +28,7 @@ None.
 
 - Issue: #630, follow-up to #609 and related to #194/#611.
 - Database: `messages.seq` identity semantics, `(chat_id, seq)` allocation/backfill, compaction `upto_seq`, migration verification, RLS-backed concurrency tests, and coordinated Run drain requirements.
-- API/worker: message repositories, owner/shared history and Run/compaction cursors, search hydration, conversation reads, target loading, queue fixtures, declaration snapshots, and startup coverage admission.
+- API/worker: message repositories, owner/shared history and Run/compaction cursors, positive-safe Run queue parsing, search hydration, conversation reads, target loading, queue fixtures, immutable declaration snapshots, and role-aware startup coverage admission.
 - Configuration: loader types/defaults/schema/tests and operator examples remove `canonicalModelExcerpts`; stale configurations fail strict validation.
 - Web: message anchors and targeted-history calls retain their public shape but receive small Chat-local values; ordinary web search presentation remains unchanged.
 - Documentation/specs: conversation recall rollout/rollback, API operational guidance, CHANGELOG/ROADMAP, and canonical `chat-search`, `conversation-reads`, and `tool-calling` requirements.

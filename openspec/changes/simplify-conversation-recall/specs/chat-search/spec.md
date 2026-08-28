@@ -4,7 +4,7 @@
 
 Search SHALL rank candidates by Reciprocal Rank Fusion over independent retrieval legs (never by mixing raw scores), aggregate document matches into Chats with weighted top-N scoring, and produce a deterministic order with stable tie-breaking. The web response contract (`id`, nullable `title`, nullable `snippet`, `updatedAt`) and current `search_conversations` input schema (`query`, `limit`) SHALL be preserved until #198 intentionally replaces the model tool input. A web content match SHALL continue to receive the derived best-region snippet with presentation role attribution; a title-only web match SHALL yield a `null` snippet.
 
-An allowlisted `search_conversations` tool SHALL expose only canonical model-facing shaping. `search.chats.canonicalModelExcerpts` and the legacy model preview result SHALL NOT exist. Before a process that advertises or executes `search_conversations` starts accepting Runs, it SHALL verify that the current projection discovery function is correctly provisioned and that every eligible Chat has complete current-version locator coverage. Missing provisioning, stale Chats, mixed/old versions, or incomplete document locators SHALL fail startup rather than route model search through presentation snippets. Failure diagnostics SHALL contain only aggregate counts and provisioning state; they SHALL NOT expose tenant/user/Chat/message/document identifiers, snippets, or content-derived values. A process that cannot advertise or execute `search_conversations` under its allowlist SHALL NOT require this coverage gate merely to start.
+An allowlisted `search_conversations` tool SHALL expose only canonical model-facing shaping. `search.chats.canonicalModelExcerpts` and the legacy model preview result SHALL NOT exist. Before an HTTP process that can admit a Run with the allowlisted declaration starts accepting Runs, it SHALL verify that the current projection discovery function is correctly provisioned and that every eligible Chat has complete current-version locator coverage. Every process that consumes the `runs` queue SHALL pass the same gate before registering its consumer, regardless of its current local allowlist, because execution is bound to the accepted Run's immutable tool snapshot rather than rebound through worker configuration. Missing provisioning, stale Chats, mixed/old versions, or incomplete document locators SHALL fail startup rather than route model search through presentation snippets. Failure diagnostics SHALL contain only aggregate counts and provisioning state; they SHALL NOT expose tenant/user/Chat/message/document identifiers, snippets, or content-derived values. A process that neither accepts potentially search-enabled Runs nor consumes the `runs` queue SHALL NOT require this coverage gate merely to start.
 
 Model-facing lexical/trigram content results SHALL use the same pre-hydration candidate ordering as the web surface but SHALL NOT present projection snippets as canonical evidence. For each returned Chat, model shaping SHALL reauthorize and hydrate the winning current-version document, recompute current eligible visible-message text, and run one separate deterministic canonical-line matcher. The matcher SHALL apply `normalizeForSearch` exactly once to the query and each raw logical line (Unicode NFKC, whitespace collapse, lowercase), then qualify that line through line-local FTS, trigram, or escaped-substring predicates. It SHALL retain a mapping from a first exact normalized occurrence back to its raw source span when one exists; FTS/fuzzy qualification without that occurrence SHALL use the first code point of the qualifying raw line as a fixed crop fallback. Matching and ranking use normalized text, while excerpts/reads use original raw lines.
 
@@ -40,11 +40,17 @@ Vector-only candidate generation and model-result shaping remain #197/#198 work 
 - **THEN** that process fails startup before accepting or consuming Runs
 - **AND** it does not silently expose the legacy model result shape or identify any tenant, Chat, message, document, or content in diagnostics
 
-#### Scenario: Disabled conversation search does not gate startup
+#### Scenario: Non-Run process does not gate startup
 
-- **WHEN** a process cannot advertise or execute `search_conversations` under its configured allowlist
+- **WHEN** a process neither accepts Runs that may bind `search_conversations` nor consumes the `runs` queue
 - **THEN** absence of canonical projection coverage does not by itself prevent that process from starting
 - **AND** no conversation-search declaration is bound into a new Run
+
+#### Scenario: Runs worker ignores its current allowlist for coverage admission
+
+- **WHEN** a worker profile consumes Runs whose immutable snapshots may contain `search_conversations`
+- **THEN** the worker requires complete canonical projection coverage before registering its consumer even when its current local allowlist omits that tool
+- **AND** execution cannot bypass admission by inheriting a declaration accepted by another process
 
 #### Scenario: Lexical model result carries reusable line coordinates
 

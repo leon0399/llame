@@ -10,6 +10,8 @@ An owner-facing conversation source SHALL use `chatId` plus this sequence as pos
 
 Owner history and public shared-Chat message DTOs SHALL expose this same Chat-local sequence, and their `beforeSeq` cursors SHALL interpret it only inside the named Chat. Public shared pagination SHALL retain its existing text-only egress allowlist, public-visibility check, no-store behavior, and empty-identity RLS path; changing sequence allocation SHALL NOT grant target-mode access, owner metadata, reasoning, tool parts, or private-Chat existence.
 
+Every durable Run queue payload carrying a triggering message sequence SHALL validate it as a positive safe integer before execution. Zero, negative, fractional, non-finite, or unsafe values SHALL fail queue parsing before they can bound history, select a compaction, or enter a tool locator.
+
 Where chronology navigation is returned, `previousMessageSeq` and `nextMessageSeq` SHALL identify the closest currently readable eligible messages under current owner scope. The caller SHALL NOT infer eligibility from arithmetic: an intervening system/tool row or retryable assistant row MAY occupy an adjacent committed sequence while remaining unavailable to evidence reads.
 
 #### Scenario: Two Chats start independent namespaces
@@ -35,6 +37,12 @@ Where chronology navigation is returned, `previousMessageSeq` and `nextMessageSe
 - **WHEN** an anonymous reader paginates a public Chat with `beforeSeq`
 - **THEN** message DTOs and cursors use that Chat's one-based local sequence
 - **AND** the public path exposes no private Chat, owner-only target mode, reasoning, tool part, or owner identity
+
+#### Scenario: Invalid queued sequence fails before history access
+
+- **WHEN** a durable Run job carries zero, negative, fractional, non-finite, or unsafe `userMessage.seq`
+- **THEN** queue parsing rejects the job before Run execution reads Chat history or compaction state
+- **AND** the invalid value is not coerced into a local message locator
 
 #### Scenario: Ineligible adjacent rows do not redefine evidence navigation
 
