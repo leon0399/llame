@@ -42,6 +42,8 @@ Alternatives rejected:
 
 Centralize ordinary message insertion in one repository helper that calculates `COALESCE(MAX(seq), 0) + 1` for the target Chat and inserts that explicit value. The `(chat_id, seq)` unique index is the serialization boundary: if another committed/concurrent insert wins the same value, retry only the named same-Chat sequence conflict inside a savepoint so the caller's transaction remains usable. The implementation SHALL inventory normal finalization, expiry-loss salvage, standalone salvage, and succeeding user acceptance before choosing one fixed internal retry budget, cover exhaustion, and fail rather than loop or silently use a non-local value. The budget is code-owned, not operator configuration or public contract.
 
+The accepted-turn transaction already serializes on the Chat row. After taking that lock and before composing context or allocating the next user message, it SHALL resolve the current active Run: reject a live blocker with the existing 409, or expire a blocker past the existing liveness threshold and record its terminal event. This ordering prevents a succeeding user insert from racing the prior assistant finalizer for the same local sequence and then deadlocking at the active-Run unique index. The finalizer continues to avoid a Chat-row update/lock; it retains the existing Run-row-first and FK `FOR KEY SHARE` lock premise.
+
 Message-ID and one-reply-per-user conflicts retain their current meanings. Collision handling MUST distinguish the sequence constraint from `messages.id` and `messages.in_reply_to`; it MUST NOT convert a duplicate request/reply into a sequence retry.
 
 Fork insertion already owns a new, uncontended Chat. It supplies explicit `1..N` values in copied order to the existing chunked bulk insert. Assistant retries update the existing row and never allocate.
@@ -111,6 +113,7 @@ The sequence layer owns schema/data/repository and every directly affected curso
 
 - [Sequence rewrite invalidates experimental global locators] -> Treat this as an explicit pre-merge alpha hard cutover; preserve historical result bytes but do not add an ambiguous dual-namespace reader.
 - [Concurrent inserts select the same next value] -> Let the unique index serialize the conflict, retry only its named sequence violation in a savepoint, cover every current finalization/salvage/user writer, and fail after the fixed internal budget is exhausted.
+- [A succeeding user allocates while the prior assistant finalizes] -> Resolve live/stale active-Run admission after the Chat lock but before user-message allocation, preserving 409/unwedge behavior without making the finalizer lock the Chat row.
 - [A migration preflight/rewrite silently sees no rows under FORCE RLS] -> Open only the required windows on `messages`, `run_events`, and `compactions`, restore `run_events` immediately after preflight, and verify mapping, boundaries, and restored FORCE state on all three tables.
 - [Old binaries cannot safely write after identity removal] -> Quiesce/drain before migration, deploy matching API/workers as one revision, and require data snapshot restoration or a forward fix for rollback; do not run mixed writers.
 - [Privileged manual deletion creates a gap] -> Keep the product contract append-only and verification loud; do not add trigger complexity for out-of-band operator mutation.
@@ -128,6 +131,7 @@ The sequence layer owns schema/data/repository and every directly affected curso
 
 ## Revision History
 
+- **v5 (2026-08-28):** Required live/stale active-Run admission before user-message allocation after full integration exposed a send/finalizer sequence deadlock.
 - **v4 (2026-08-28):** Added the missing FORCE-RLS window and restoration assertion for global `run_events` preflight discovered during implementation.
 - **v3 (2026-08-28):** Required every runs-consuming worker to gate coverage independently of its current allowlist and tightened durable queue sequence parsing to positive safe integers after split-deployment review.
 - **v2 (2026-08-28):** Added shared-history sequence coverage, fail-closed experimental-locator preflight, explicit FORCE-RLS migration windows, process-role-aware search admission, and implementation-owned collision retry sizing after adversarial review.
