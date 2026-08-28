@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const MESSAGE_TARGET_HASH = /^#msg-([1-9]\d*)$/;
 
@@ -18,7 +18,12 @@ export function parseMessageTargetHash(hash: string): number | null {
  * Hash fragments are browser-only navigation state. Keep the server/client
  * first render identical, then resolve the current hash after hydration.
  */
-export function useMessageTarget(chatId: string): number | null | undefined {
+export type MessageTargetControl = {
+  targetSeq: number | null | undefined;
+  resolveLatest: () => void;
+};
+
+export function useMessageTarget(chatId: string): MessageTargetControl {
   const [state, setState] = useState<MessageTargetState>({
     chatId,
     resolved: false,
@@ -38,7 +43,13 @@ export function useMessageTarget(chatId: string): number | null | undefined {
     return () => window.removeEventListener("hashchange", syncHash);
   }, [chatId]);
 
-  return state.chatId === chatId && state.resolved
-    ? state.targetSeq
-    : undefined;
+  const resolveLatest = useCallback(() => {
+    setState({ chatId, resolved: true, targetSeq: null });
+  }, [chatId]);
+
+  return {
+    resolveLatest,
+    targetSeq:
+      state.chatId === chatId && state.resolved ? state.targetSeq : undefined,
+  };
 }

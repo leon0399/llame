@@ -48,7 +48,7 @@ describe("useMessageTarget", () => {
     const removeEventListener = vi.spyOn(window, "removeEventListener");
     const values: Array<number | null | undefined> = [];
     function Probe() {
-      values.push(useMessageTarget("chat-1"));
+      values.push(useMessageTarget("chat-1").targetSeq);
       return null;
     }
     const { unmount } = render(createElement(Probe));
@@ -84,7 +84,7 @@ describe("useMessageTarget", () => {
   it("resolves no hash to ordinary history after hydration", async () => {
     const values: Array<number | null | undefined> = [];
     function Probe() {
-      values.push(useMessageTarget("chat-1"));
+      values.push(useMessageTarget("chat-1").targetSeq);
       return null;
     }
 
@@ -102,7 +102,7 @@ describe("useMessageTarget", () => {
     );
 
     const { result, rerender } = renderHook(
-      ({ chatId }) => useMessageTarget(chatId),
+      ({ chatId }) => useMessageTarget(chatId).targetSeq,
       { initialProps: { chatId: "chat-1" } },
     );
     await waitFor(() => expect(result.current).toBe(42));
@@ -110,5 +110,18 @@ describe("useMessageTarget", () => {
     window.history.replaceState(window.history.state, "", "/chat/chat-2");
     rerender({ chatId: "chat-2" });
     expect(result.current).toBeNull();
+  });
+
+  it("can resolve an active target to latest without a hashchange", async () => {
+    window.history.replaceState(
+      window.history.state,
+      "",
+      "/chat/chat-1#msg-42",
+    );
+    const { result } = renderHook(() => useMessageTarget("chat-1"));
+
+    await waitFor(() => expect(result.current.targetSeq).toBe(42));
+    act(() => result.current.resolveLatest());
+    await waitFor(() => expect(result.current.targetSeq).toBeNull());
   });
 });

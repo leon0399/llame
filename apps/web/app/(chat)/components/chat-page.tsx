@@ -155,7 +155,7 @@ export function ChatPage({
   initialDraftPhase,
 }: ChatPageProps) {
   const { registerViewedChat } = useActiveRuns();
-  const targetSeq = useMessageTarget(chatId);
+  const { resolveLatest, targetSeq } = useMessageTarget(chatId);
 
   // This page boundary owns foreground presence before any session data loads.
   // In particular, a rehydrated draft can wait with no ChatSessionContent while
@@ -173,6 +173,7 @@ export function ChatPage({
       chatId={chatId}
       initialChatExists={initialChatExists}
       initialDraftPhase={initialDraftPhase}
+      onTargetSendFinished={resolveLatest}
       targetSeq={targetSeq}
     />
   );
@@ -182,11 +183,13 @@ function ChatSession({
   chatId,
   initialChatExists,
   initialDraftPhase,
+  onTargetSendFinished,
   targetSeq,
 }: {
   chatId: string;
   initialChatExists: boolean;
   initialDraftPhase: DraftPhase | null;
+  onTargetSendFinished: () => void;
   targetSeq: number | null;
 }) {
   const [session, dispatch] = useReducer(
@@ -203,6 +206,7 @@ function ChatSession({
     recoverSentDraft: session.kind === "recovering",
     targetSeq: targetSeq ?? undefined,
   });
+  const targetSendHashRef = useRef<string | null>(null);
 
   const draftPhase = draftPhaseForSession(session);
   useEffect(() => {
@@ -230,6 +234,16 @@ function ChatSession({
   }, [historyQuery.error, historyQuery.isError, session.kind]);
 
   const onSendStarted = useCallback(() => {
+    if (targetSeq !== null) {
+      targetSendHashRef.current = window.location.hash;
+      window.history.replaceState(
+        window.history.state,
+        "",
+        draftChatPathWithHash(chatId, "sent", ""),
+      );
+      if (session.kind === "fresh") dispatch({ type: "send-started" });
+      return;
+    }
     if (session.kind !== "fresh") return;
     window.history.replaceState(
       window.history.state,
@@ -237,20 +251,40 @@ function ChatSession({
       draftChatPathWithHash(chatId, "sent", window.location.hash),
     );
     dispatch({ type: "send-started" });
-  }, [chatId, session.kind]);
+  }, [chatId, session.kind, targetSeq]);
 
   const onSendFailed = useCallback(() => {
+    const targetHash = targetSendHashRef.current;
+    if (targetHash !== null) {
+      targetSendHashRef.current = null;
+      window.history.replaceState(
+        window.history.state,
+        "",
+        draftChatPathWithHash(chatId, null, targetHash),
+      );
+    }
     dispatch({ type: "send-failed" });
-  }, []);
+  }, [chatId]);
 
   const onFinished = useCallback(() => {
+    if (targetSendHashRef.current !== null) {
+      targetSendHashRef.current = null;
+      window.history.replaceState(
+        window.history.state,
+        "",
+        draftChatPathWithHash(chatId, null, ""),
+      );
+      dispatch({ type: "finished" });
+      onTargetSendFinished();
+      return;
+    }
     window.history.replaceState(
       window.history.state,
       "",
       draftChatPathWithHash(chatId, null, window.location.hash),
     );
     dispatch({ type: "finished" });
-  }, [chatId]);
+  }, [chatId, onTargetSendFinished]);
 
   if (!shouldRenderChatOwner(session)) {
     return null;
