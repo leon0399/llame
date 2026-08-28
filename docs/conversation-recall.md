@@ -157,8 +157,9 @@ Before resuming, record these deployment acceptance results:
   drained under the process in [scaling.md](scaling.md);
 - the experimental-observation preflight passed without mutating stored JSON,
   or failed before any sequence/compaction mutation as designed;
-- retained messages are dense `1..N` in prior UUID order, compaction boundaries
-  still resolve to the same terminal message UUIDs, and `messages`,
+- retained messages are dense `1..N` while retaining their UUIDs and prior
+  within-Chat sequence order, compaction boundaries still resolve to the same
+  terminal message UUIDs, and `messages`,
   `run_events`, and `compactions` all report FORCE RLS restored;
 - `search:projection-coverage` reports zero stale/incomplete Chats or documents;
 - an HTTP process allowlisting search and every runs-enabled worker start only
