@@ -41,6 +41,7 @@ describe('packaged default prompt — recalled conversation evidence', () => {
 
     expect(rendered).toContain('bounded discovery excerpts');
     expect(rendered).toContain('conversation_read');
+    expect(rendered).toContain('when it is available');
     expect(rendered).toContain('exact numbered lines');
     expect(rendered).toContain('untrusted historical data');
   });

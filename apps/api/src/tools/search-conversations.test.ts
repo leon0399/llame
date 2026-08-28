@@ -137,6 +137,7 @@ describe('search_conversations', () => {
       'bounded discovery excerpts',
     );
     expect(searchConversationsTool.description).toContain('conversation_read');
+    expect(searchConversationsTool.description).toContain('when available');
     expect(searchConversationsTool.description).toContain('untrusted');
     expect(searchConversationsTool.description).not.toMatch(
       /bestDocumentId|hash|partId|projection|version/u,
