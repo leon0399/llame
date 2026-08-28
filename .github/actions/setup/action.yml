@@ -1,6 +1,6 @@
 name: Setup workspace
 description: >-
-  pnpm + Node (pinned by .node-version) + a frozen-lockfile install, and
+  pnpm 11 + Node (pinned by .node-version) + a frozen-lockfile install, and
   optionally the Turborepo local cache for a task.
 
 # Every CI job repeats the same setup after checkout. It lives here so a
@@ -25,13 +25,18 @@ runs:
     - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       shell: bash
 
-    - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      # version comes from package.json "packageManager"
+    # pnpm/setup@v2 replaces pnpm/action-setup + actions/setup-node (v11+
+    # only). install:false because the action's default `pnpm install` is not
+    # --frozen-lockfile. runtime comes from .node-version, not a second pin.
+    - id: node-version
+      run: echo "version=$(tr -d '[:space:]' < .node-version)" >> "$GITHUB_OUTPUT"
+      shell: bash
 
-    - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+    - uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
       with:
-        node-version-file: ".node-version"
-        cache: pnpm
+        cache: true
+        install: false
+        runtime: node@${{ steps.node-version.outputs.version }}
 
     - run: pnpm install --frozen-lockfile
       shell: bash

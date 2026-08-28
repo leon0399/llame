@@ -1,6 +1,6 @@
 # Runtime & package manager: Node + pnpm (decision, 2026-07)
 
-llame runs on **Node ≥ 22.19 with pnpm 10.x**. A structured evaluation of
+llame runs on **Node ≥ 22.19 with pnpm 11.x**. A structured evaluation of
 switching to Bun (as package manager, runtime, and/or test runner) concluded:
 **stay**, and revisit only when the trigger conditions below flip. This
 records the reasoning so the question isn't relitigated from scratch.
@@ -69,7 +69,10 @@ of `apps/api`.
   global-store realpaths and `@types` identities split, failing the web
   typecheck on identical dependency versions. Revisit when tsgo/TS support
   the layout.
-- Keep pnpm current on the 10.x line — security patches (lockfile
-  path-traversal hardening, env-var-expansion restriction) land there, which
-  matters for a BYOK-secrets repo. pnpm 11 migration is deliberately
-  deferred; `allowBuilds` already matches its config surface.
+- Keep pnpm current on the 11.x line. pnpm 11's Security & build defaults
+  (`minimumReleaseAgeStrict`, `blockExoticSubdeps`, `strictDepBuilds`,
+  `optimisticRepeatInstall`, `verifyDepsBeforeRun`) are pinned in
+  `pnpm-workspace.yaml` so a later major cannot silently flip them.
+  `minimumReleaseAge` stays 10080 (7 days), stricter than 11's 1440 default.
+  `engineStrict` lives in `pnpm-workspace.yaml` (`.npmrc` is auth/registry-only
+  in 11). The 12.x step is #634.
