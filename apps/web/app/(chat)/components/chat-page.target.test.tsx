@@ -155,7 +155,13 @@ function page(
   };
 }
 
-function renderChat(ordinaryPage: ChatMessagesResponse) {
+function renderChat(
+  ordinaryPage: ChatMessagesResponse,
+  options: {
+    initialChatExists?: boolean;
+    initialDraftPhase?: "fresh" | "sent" | null;
+  } = {},
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
@@ -168,8 +174,8 @@ function renderChat(ordinaryPage: ChatMessagesResponse) {
         <ChatProvider>
           <ChatPage
             chatId={CHAT_ID}
-            initialChatExists
-            initialDraftPhase={null}
+            initialChatExists={options.initialChatExists ?? true}
+            initialDraftPhase={options.initialDraftPhase ?? null}
           />
         </ChatProvider>
       </QueryClientProvider>,
@@ -258,6 +264,84 @@ describe("ChatPage target hydration", () => {
     ).toBe(false);
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" });
+  });
+
+  it.each([404, 500])(
+    "shows a closed target state and no composer for terminal HTTP %s errors",
+    async (status) => {
+      const error = Object.assign(new Error(`HTTP ${status}`), { status });
+      mocks.getChatMessages.mockRejectedValue(error);
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `/chat/${CHAT_ID}#msg-900`,
+      );
+
+      renderChat(page([{ id: "newest", seq: 990, text: "newest" }]));
+
+      await waitFor(() =>
+        expect(screen.getByRole("alert").textContent).toContain(
+          "Message unavailable",
+        ),
+      );
+      expect(mocks.getChatMessages).toHaveBeenCalledWith(
+        CHAT_ID,
+        { limit: 100, targetSeq: 900 },
+        expect.anything(),
+        expect.any(Function),
+      );
+      expect(
+        screen.queryByPlaceholderText("What would you like to know?"),
+      ).toBe(null);
+      expect(mocks.useChatCalls).toHaveLength(0);
+      expect(screen.queryByText("newest")).toBeNull();
+    },
+  );
+
+  it("keeps a valid target route closed for a nonexistent chat instead of opening a fresh draft", async () => {
+    const error = Object.assign(new Error("HTTP 404"), { status: 404 });
+    mocks.getChatMessages.mockRejectedValue(error);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `/chat/${CHAT_ID}#msg-900`,
+    );
+
+    renderChat(page([{ id: "newest", seq: 990, text: "newest" }]), {
+      initialChatExists: false,
+      initialDraftPhase: "fresh",
+    });
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Message unavailable",
+      ),
+    );
+    expect(screen.queryByPlaceholderText("What would you like to know?")).toBe(
+      null,
+    );
+    expect(mocks.useChatCalls).toHaveLength(0);
+  });
+
+  it("returns to ordinary history when the target hash is cleared after an error", async () => {
+    const error = Object.assign(new Error("HTTP 404"), { status: 404 });
+    mocks.getChatMessages.mockRejectedValue(error);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `/chat/${CHAT_ID}#msg-900`,
+    );
+
+    renderChat(page([{ id: "newest", seq: 990, text: "newest" }]));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+
+    window.history.replaceState(window.history.state, "", `/chat/${CHAT_ID}`);
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+
+    await waitFor(() => expect(screen.getByText("newest")).toBeTruthy());
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("resolves no hash to ordinary history instead of staying blank", async () => {

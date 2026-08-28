@@ -196,9 +196,7 @@ function ChatSession({
     reduceDraftSession,
     targetSeq === null
       ? initialDraftSession(initialDraftPhase, initialChatExists)
-      : initialChatExists
-        ? { kind: "persisted", resumeRequested: false }
-        : initialDraftSession(initialDraftPhase, initialChatExists),
+      : { kind: "persisted", resumeRequested: false },
   );
   const historyQuery = useChatMessagesQuery({
     chatId,
@@ -329,6 +327,10 @@ function ChatSession({
     return null;
   }
 
+  if (targetSeq !== null && historyQuery.data === undefined) {
+    return historyQuery.isError ? <TargetUnavailable /> : null;
+  }
+
   const history = historyQuery.data;
   return (
     <ChatSessionContent
@@ -349,6 +351,19 @@ function ChatSession({
       resume={shouldResumeChat(session)}
       targetSeq={targetSeq}
     />
+  );
+}
+
+function TargetUnavailable() {
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-1 items-center px-5 py-12">
+      <Alert variant="destructive">
+        <AlertTitle>Message unavailable</AlertTitle>
+        <AlertDescription>
+          This message is no longer available in this chat.
+        </AlertDescription>
+      </Alert>
+    </div>
   );
 }
 
