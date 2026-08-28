@@ -206,14 +206,54 @@ function ChatSession({
     recoverSentDraft: session.kind === "recovering",
     targetSeq: targetSeq ?? undefined,
   });
-  const targetSendHashRef = useRef<string | null>(null);
+  const targetSendStateRef = useRef<
+    | { status: "active"; hash: string }
+    | { status: "failed" | "interrupted" | "finished" }
+    | null
+  >(null);
+
+  const consumeTargetSend = useCallback(
+    (status: "interrupted" | "finished") => {
+      if (
+        targetSeq === null ||
+        targetSendStateRef.current?.status !== "active"
+      ) {
+        return false;
+      }
+      targetSendStateRef.current = { status };
+      window.history.replaceState(
+        window.history.state,
+        "",
+        draftChatPathWithHash(
+          chatId,
+          status === "interrupted" ? "sent" : null,
+          "",
+        ),
+      );
+      onTargetSendFinished();
+      return true;
+    },
+    [chatId, onTargetSendFinished, targetSeq],
+  );
+  const onTargetSendInterrupted = useCallback(
+    () => consumeTargetSend("interrupted"),
+    [consumeTargetSend],
+  );
 
   const draftPhase = draftPhaseForSession(session);
   useEffect(() => {
+    // An uncertain stream interruption has already moved the URL to the
+    // hashless sent-draft route before remounting this ordinary session. Keep
+    // that recovery marker until a later successful finish clears it.
+    const recoveryDraft =
+      draftPhase === null &&
+      new URLSearchParams(window.location.search).get("draft") === "sent"
+        ? "sent"
+        : draftPhase;
     window.history.replaceState(
       window.history.state,
       "",
-      draftChatPathWithHash(chatId, draftPhase, window.location.hash),
+      draftChatPathWithHash(chatId, recoveryDraft, window.location.hash),
     );
   }, [chatId, draftPhase]);
 
@@ -235,7 +275,10 @@ function ChatSession({
 
   const onSendStarted = useCallback(() => {
     if (targetSeq !== null) {
-      targetSendHashRef.current = window.location.hash;
+      targetSendStateRef.current = {
+        status: "active",
+        hash: window.location.hash,
+      };
       window.history.replaceState(
         window.history.state,
         "",
@@ -254,29 +297,24 @@ function ChatSession({
   }, [chatId, session.kind, targetSeq]);
 
   const onSendFailed = useCallback(() => {
-    const targetHash = targetSendHashRef.current;
-    if (targetHash !== null) {
-      targetSendHashRef.current = null;
+    const targetSendState = targetSendStateRef.current;
+    if (targetSeq !== null) {
+      if (targetSendState?.status !== "active") return;
+      targetSendStateRef.current = { status: "failed" };
       window.history.replaceState(
         window.history.state,
         "",
-        draftChatPathWithHash(chatId, null, targetHash),
+        draftChatPathWithHash(chatId, null, targetSendState.hash),
       );
     }
     dispatch({ type: "send-failed" });
-  }, [chatId]);
+  }, [chatId, targetSeq]);
 
   const onFinished = useCallback(() => {
-    if (targetSendHashRef.current !== null) {
-      targetSendHashRef.current = null;
-      window.history.replaceState(
-        window.history.state,
-        "",
-        draftChatPathWithHash(chatId, null, ""),
-      );
+    if (targetSeq !== null) {
+      if (!consumeTargetSend("finished")) return false;
       dispatch({ type: "finished" });
-      onTargetSendFinished();
-      return;
+      return true;
     }
     window.history.replaceState(
       window.history.state,
@@ -284,7 +322,8 @@ function ChatSession({
       draftChatPathWithHash(chatId, null, window.location.hash),
     );
     dispatch({ type: "finished" });
-  }, [chatId, onTargetSendFinished]);
+    return true;
+  }, [chatId, consumeTargetSend, targetSeq]);
 
   if (!shouldRenderChatOwner(session)) {
     return null;
@@ -304,6 +343,7 @@ function ChatSession({
         void historyQuery.fetchNextPage({ cancelRefetch: false })
       }
       onFinished={onFinished}
+      onTargetSendInterrupted={onTargetSendInterrupted}
       onSendFailed={onSendFailed}
       onSendStarted={onSendStarted}
       resume={shouldResumeChat(session)}
@@ -320,6 +360,7 @@ function ChatSessionContent({
   isLoadingOlderMessages,
   onLoadOlderMessages,
   onFinished,
+  onTargetSendInterrupted,
   onSendFailed,
   onSendStarted,
   resume,
@@ -331,7 +372,8 @@ function ChatSessionContent({
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
   onLoadOlderMessages: () => void;
-  onFinished: () => void;
+  onFinished: () => boolean;
+  onTargetSendInterrupted: () => boolean;
   onSendFailed: () => void;
   onSendStarted: () => void;
   resume: boolean;
@@ -464,15 +506,20 @@ function ChatSessionContent({
       // diagnostics). The run itself survives server-side; the reloaded page
       // recovers the canonical sent route and resumes it.
       if (isAbort || isDisconnect || isError) {
+        if (onTargetSendInterrupted()) {
+          refreshChatData();
+          return;
+        }
         onSendFailed();
         refreshChatData();
         return;
       }
       // The user watched this finish → drop it from the active-run registry so
       // the background poll can't fire a stale "reply ready" if they navigate
-      // away right after.
+      // away right after. A target callback that was already consumed by an
+      // interruption is a late duplicate and must remain tracked.
+      if (!onFinished()) return;
       untrackChat(chatId);
-      onFinished();
       refreshChatData();
     },
     // Do NOT untrack here: onError fires for a client-visible fetch/stream
@@ -483,6 +530,10 @@ function ChatSessionContent({
     // (completed/failed/expired) instead of silently forgetting a run that
     // might still complete.
     onError: () => {
+      if (onTargetSendInterrupted()) {
+        refreshChatData();
+        return;
+      }
       onSendFailed();
       refreshChatData();
     },

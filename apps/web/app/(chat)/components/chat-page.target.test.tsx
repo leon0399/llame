@@ -35,11 +35,14 @@ const mocks = vi.hoisted(() => ({
   getChatMessages: vi.fn(),
   listChats: vi.fn(),
   sendMessage: vi.fn(),
+  resumeStream: vi.fn(),
   capturedOnError: undefined as (() => void) | undefined,
   capturedOnFinish: undefined as ((args: FinishArgs) => void) | undefined,
   useChatCalls: [] as Array<{ messages?: UIMessage[]; resume?: boolean }>,
   chatInstanceIds: [] as number[],
   nextChatInstanceId: 0,
+  trackRun: vi.fn(),
+  untrackChat: vi.fn(),
   modelsState: {
     data: {
       defaultModelId: "system:openai:gpt-5.4-mini",
@@ -94,8 +97,8 @@ vi.mock("@/contexts/active-runs-context", () => ({
     completedChats: new Set<string>(),
     markChatSeen: vi.fn(),
     registerViewedChat: vi.fn(() => () => {}),
-    trackRun: vi.fn(),
-    untrackChat: vi.fn(),
+    trackRun: mocks.trackRun,
+    untrackChat: mocks.untrackChat,
   }),
 }));
 
@@ -117,7 +120,7 @@ vi.mock("@ai-sdk/react", () => ({
     return {
       error: undefined,
       messages: options.messages ?? [],
-      resumeStream: vi.fn(),
+      resumeStream: mocks.resumeStream,
       sendMessage: mocks.sendMessage,
       setMessages: vi.fn(),
       status: "ready",
@@ -194,11 +197,14 @@ beforeAll(() => {
 beforeEach(() => {
   mocks.getChatMessages.mockReset();
   mocks.sendMessage.mockReset();
+  mocks.resumeStream.mockReset();
   mocks.capturedOnError = undefined;
   mocks.capturedOnFinish = undefined;
   mocks.useChatCalls.length = 0;
   mocks.chatInstanceIds.length = 0;
   mocks.nextChatInstanceId = 0;
+  mocks.trackRun.mockReset();
+  mocks.untrackChat.mockReset();
   window.history.replaceState(window.history.state, "", `/chat/${CHAT_ID}`);
 });
 
@@ -380,4 +386,99 @@ describe("ChatPage target hydration", () => {
     expect(window.location.hash).toBe("#msg-900");
     expect(mocks.chatInstanceIds).toHaveLength(targetSessionCount);
   });
+
+  it("keeps a hashless sent recovery route when the SDK reports an interruption", async () => {
+    const user = userEvent.setup();
+    const targetPage = page([
+      { id: "older", seq: 701, text: "older target context" },
+      { id: "target", seq: 900, text: "target answer" },
+    ]);
+    const latestPage = page([
+      { id: "target", seq: 900, text: "target answer" },
+      { id: "latest", seq: 1000, text: "latest after interruption" },
+    ]);
+    mocks.getChatMessages.mockImplementation(
+      async (_chatId: string, params: { targetSeq?: number }) =>
+        params.targetSeq === 900 ? targetPage : latestPage,
+    );
+    mocks.sendMessage.mockReturnValue(new Promise<void>(() => {}));
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `/chat/${CHAT_ID}#msg-900`,
+    );
+
+    renderChat(page([{ id: "newest", seq: 990, text: "newest" }]));
+    await waitFor(() => expect(screen.getByText("target answer")).toBeTruthy());
+    const targetSessionCount = mocks.chatInstanceIds.length;
+    const input = screen.getByPlaceholderText("What would you like to know?");
+    await user.type(input, "follow-up");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(window.location.hash).toBe(""));
+    expect(window.location.search).toBe("?draft=sent");
+
+    act(() => {
+      mocks.capturedOnError?.();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("latest after interruption")).toBeTruthy(),
+    );
+    expect(window.location.pathname).toBe(`/chat/${CHAT_ID}`);
+    expect(window.location.search).toBe("?draft=sent");
+    expect(window.location.hash).toBe("");
+    expect(mocks.chatInstanceIds.length).toBeGreaterThan(targetSessionCount);
+    expect(mocks.resumeStream).toHaveBeenCalled();
+    expect(mocks.untrackChat).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["abort", { isAbort: true }],
+    ["disconnect", { isDisconnect: true }],
+  ] as const)(
+    "keeps hashless sent recovery after an SDK %s finish",
+    async (_label, finishArgs) => {
+      const user = userEvent.setup();
+      const targetPage = page([
+        { id: "older", seq: 701, text: "older target context" },
+        { id: "target", seq: 900, text: "target answer" },
+      ]);
+      const latestPage = page([
+        { id: "target", seq: 900, text: "target answer" },
+        { id: "latest", seq: 1000, text: "latest after finish" },
+      ]);
+      mocks.getChatMessages.mockImplementation(
+        async (_chatId: string, params: { targetSeq?: number }) =>
+          params.targetSeq === 900 ? targetPage : latestPage,
+      );
+      mocks.sendMessage.mockReturnValue(new Promise<void>(() => {}));
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `/chat/${CHAT_ID}#msg-900`,
+      );
+
+      renderChat(page([{ id: "newest", seq: 990, text: "newest" }]));
+      await waitFor(() =>
+        expect(screen.getByText("target answer")).toBeTruthy(),
+      );
+      const targetSessionCount = mocks.chatInstanceIds.length;
+      const input = screen.getByPlaceholderText("What would you like to know?");
+      await user.type(input, "follow-up");
+      await user.click(screen.getByRole("button", { name: "Send message" }));
+      await waitFor(() => expect(window.location.hash).toBe(""));
+
+      act(() => {
+        mocks.capturedOnFinish?.(finishArgs);
+      });
+
+      await waitFor(() =>
+        expect(screen.getByText("latest after finish")).toBeTruthy(),
+      );
+      expect(window.location.search).toBe("?draft=sent");
+      expect(window.location.hash).toBe("");
+      expect(mocks.chatInstanceIds.length).toBeGreaterThan(targetSessionCount);
+      expect(mocks.untrackChat).not.toHaveBeenCalled();
+    },
+  );
 });
