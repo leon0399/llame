@@ -62,11 +62,11 @@ After Run admission is quiesced and accepted/queued Runs are drained, the migrat
 1. Preflights `messages.parts` and `run_events.payload` and aborts if any experimental canonical search/read observation carries the unmerged global locator interpretation.
 2. Records `(message_id, chat_id, old_seq, new_seq)` in a transaction-local mapping ordered by old sequence.
 3. Verifies every `compactions.upto_seq` resolves to an exact mapped message in the same Chat.
-4. Temporarily sets both FORCE-RLS tables to `NO FORCE ROW LEVEL SECURITY`; migrations run as their owning role without `app.current_user_id`, so omitting either window can silently update no rows.
+4. Temporarily sets `messages` and `run_events` to `NO FORCE ROW LEVEL SECURITY` for the global observation preflight, then restores FORCE on `run_events`; it keeps `messages` open and sets `compactions` to `NO FORCE ROW LEVEL SECURITY` for the sequence rewrite. Migrations run as these tables' owning role without `app.current_user_id`, so omitting any required window can silently inspect or update no rows.
 5. Drops the identity property and temporarily removes the `(chat_id, seq)` unique index while rewriting to avoid transient old/new value collisions.
 6. Rewrites compaction boundaries through the mapping and rewrites message sequence values.
 7. Recreates the unique index, adds the positive constraint, and verifies under the open window that per Chat `MIN(seq) = 1`, `MAX(seq) = COUNT(*)`, `COUNT(DISTINCT seq) = COUNT(*)`, message order is unchanged, and every compaction still ends at the same message UUID.
-8. Restores `FORCE ROW LEVEL SECURITY` on both tables and asserts `relforcerowsecurity` is true for each before the migration commits.
+8. Restores `FORCE ROW LEVEL SECURITY` on `messages` and `compactions` and asserts `relforcerowsecurity` is true for all three touched tables before the migration commits.
 
 Queue payloads are the only durable execution state that carries a live message sequence outside canonical rows; draining removes mixed interpretation. Runs themselves retain message UUID FKs. Search documents retain message UUID boundaries rather than public sequence. Browser pagination cursors are restart-scoped and refresh after deployment.
 
@@ -111,7 +111,7 @@ The sequence layer owns schema/data/repository and every directly affected curso
 
 - [Sequence rewrite invalidates experimental global locators] -> Treat this as an explicit pre-merge alpha hard cutover; preserve historical result bytes but do not add an ambiguous dual-namespace reader.
 - [Concurrent inserts select the same next value] -> Let the unique index serialize the conflict, retry only its named sequence violation in a savepoint, cover every current finalization/salvage/user writer, and fail after the fixed internal budget is exhausted.
-- [A migration rewrites compaction meaning incorrectly or silently no-ops under FORCE RLS] -> Materialize an exact UUID-based mapping, reject an unmapped boundary before mutation, open/restore explicit NO FORCE windows for both tables, and verify every boundary plus restored FORCE state.
+- [A migration preflight/rewrite silently sees no rows under FORCE RLS] -> Open only the required windows on `messages`, `run_events`, and `compactions`, restore `run_events` immediately after preflight, and verify mapping, boundaries, and restored FORCE state on all three tables.
 - [Old binaries cannot safely write after identity removal] -> Quiesce/drain before migration, deploy matching API/workers as one revision, and require data snapshot restoration or a forward fix for rollback; do not run mixed writers.
 - [Privileged manual deletion creates a gap] -> Keep the product contract append-only and verification loud; do not add trigger complexity for out-of-band operator mutation.
 - [Boot coverage makes a Run-capable process unavailable] -> Fail before accepting/consuming Runs with aggregate counts and no tenant/content identifiers; operators reindex/repair coverage or remove the tool from the allowlist, while non-Run worker profiles skip the gate.
@@ -120,7 +120,7 @@ The sequence layer owns schema/data/repository and every directly affected curso
 
 1. Back up the database and confirm the current #609 projection coverage report is complete.
 2. Quiesce new Run admission across API instances and drain accepted/queued Runs on every worker revision.
-3. Stop old writers, verify the experimental-locator preflight and both NO FORCE/FORCE transitions, apply the reviewed sequence rewrite, and run its order/density/compaction verification queries.
+3. Stop old writers, verify the experimental-locator preflight plus all three tables' scoped NO FORCE/FORCE transitions, apply the reviewed sequence rewrite, and run its order/density/compaction verification queries.
 4. Remove `canonicalModelExcerpts` from every instance config and deploy matching API/worker binaries with canonical-only search behavior.
 5. Start processes; enabled conversation search must pass the boot coverage invariant before Run consumers register.
 6. Run focused search/read/link acceptance against retained Chats, then resume Run admission.
@@ -128,6 +128,7 @@ The sequence layer owns schema/data/repository and every directly affected curso
 
 ## Revision History
 
+- **v4 (2026-08-28):** Added the missing FORCE-RLS window and restoration assertion for global `run_events` preflight discovered during implementation.
 - **v3 (2026-08-28):** Required every runs-consuming worker to gate coverage independently of its current allowlist and tightened durable queue sequence parsing to positive safe integers after split-deployment review.
 - **v2 (2026-08-28):** Added shared-history sequence coverage, fail-closed experimental-locator preflight, explicit FORCE-RLS migration windows, process-role-aware search admission, and implementation-owned collision retry sizing after adversarial review.
 - **v1 (2026-08-28):** Initial proposal design for canonical-only model search and immutable Chat-local message sequencing.
