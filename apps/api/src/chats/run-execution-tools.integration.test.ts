@@ -91,7 +91,6 @@ import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtim
 import { isRecord, type UnknownRecord } from '../unknown-record';
 import { turnTelemetryLogger } from './turn-telemetry';
 import { createModelChangeItem } from './context-item-producers';
-import type { CanonicalSearchActivation } from '../search/canonical-search-activation.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -419,7 +418,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     embedDispatch?: ChatEmbedDispatcher;
     dynamicToolResolver?: DynamicToolExecutorResolver;
-    canonicalSearchActivation?: CanonicalSearchActivation;
   }): RunExecutionService {
     const noopCompaction: CompactionCapability = {
       maybeCompact: async () => {},
@@ -455,7 +453,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
       overrides?.embedDispatch ?? noopEmbedDispatch(),
       overrides?.dynamicToolResolver,
-      overrides?.canonicalSearchActivation,
     );
   }
 
@@ -965,9 +962,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const seeded = await seedBoundRun(
       `canonical-search-${crypto.randomUUID()}`,
     );
-    const service = serviceWithTools({
-      canonicalSearchActivation: { canonicalModelExcerptsEnabled: true },
-    });
+    const service = serviceWithTools();
     let turn = 0;
     const model = new MockLanguageModelV3({
       doStream: () => {

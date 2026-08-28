@@ -215,9 +215,7 @@
   // embedding work is scheduled for that corpus.
   // "search": {
   //   "chats": {
-  //     "embeddingModelId": "openai:text-embedding-3-large",
-  //     // Canonical model excerpts stay off until locator coverage is ready.
-  //     "canonicalModelExcerpts": false
+  //     "embeddingModelId": "openai:text-embedding-3-large"
   //   }
   // },
 

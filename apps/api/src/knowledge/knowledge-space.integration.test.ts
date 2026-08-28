@@ -9,6 +9,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 
 import { AppModule } from '../app.module';
+import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { configureApp } from '../app.setup';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
@@ -82,6 +83,8 @@ d('Knowledge Spaces REST API', () => {
     const module = await Test.createTestingModule({
       imports: [AppModule],
     })
+      .overrideProvider(CanonicalSearchCoverageService)
+      .useValue({ assertReady: () => Promise.resolve() })
       .overrideProvider(InstanceConfigService)
       .useValue({
         config: {

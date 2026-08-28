@@ -43,14 +43,6 @@
       "contextWindowTokens": 400000
     }
   ],
-  // The throwaway e2e database is empty at API boot, so the projection gate's
-  // zero-row coverage report is complete. The episodic browser proof then
-  // creates and indexes its source Chat before invoking canonical search.
-  "search": {
-    "chats": {
-      "canonicalModelExcerpts": true
-    }
-  },
   // Deterministic local Streamable HTTP source for the browser MCP acceptance
   // case. The endpoint is supplied by Playwright so port overrides remain
   // isolated from this checked-in fixture configuration.

@@ -38,7 +38,6 @@ import type {
   SystemModelCatalogEntry,
 } from '../models/model-catalog';
 import {
-  isBoolean,
   isNumber,
   isRecord,
   isString,
@@ -1072,29 +1071,9 @@ function resolveSearchConfig(
     embeddingModelIds,
     'embeddingModels[].id',
   );
-  const canonicalModelExcerpts = resolveBoolean({
-    configPath: 'search.chats.canonicalModelExcerpts',
-    ...readLeaf(raw?.search, 'chats', 'canonicalModelExcerpts'),
-    builtInDefault: BUILT_IN_DEFAULTS.search.chats.canonicalModelExcerpts,
-  });
   return {
-    chats: { embeddingModelId: chatsEmbeddingModelId, canonicalModelExcerpts },
+    chats: { embeddingModelId: chatsEmbeddingModelId },
   };
-}
-
-function resolveBoolean(opts: {
-  configPath: string;
-  present: boolean;
-  raw: unknown;
-  builtInDefault: boolean;
-}): boolean {
-  if (!opts.present) {
-    return opts.builtInDefault;
-  }
-  if (!isBoolean(opts.raw)) {
-    throw new InstanceConfigError(`${opts.configPath}: must be a boolean`);
-  }
-  return opts.raw;
 }
 
 /**

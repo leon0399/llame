@@ -18,6 +18,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from './app.module';
+import { CanonicalSearchCoverageService } from './search/canonical-search-activation.service';
 import { configureApp } from './app.setup';
 import { TenantDbService } from './db/tenant-db.service';
 import { MessagesRepository } from './chats/chats-repository';
@@ -151,6 +152,8 @@ d('queue-executed runs behind the stream bridge', () => {
 
     models = new FakeModelsService();
     const mod = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(CanonicalSearchCoverageService)
+      .useValue({ assertReady: () => Promise.resolve() })
       .overrideProvider(ModelsService)
       .useValue(models)
       .compile();

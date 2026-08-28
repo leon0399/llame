@@ -43,6 +43,7 @@ import { type Sql } from 'postgres';
 import { McpRuntimeService } from './mcp/mcp-runtime.service';
 import { PgBossQueueService } from './queue/pgboss-queue.service';
 import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './runs/snapshot-tool-execution';
+import { CanonicalSearchCoverageService } from './search/canonical-search-activation.service';
 import { WorkerModule } from './worker.module';
 
 /** The `drizzle()` factory's `$client` escape hatch (see drizzle-orm/postgres-js's driver.d.ts) is an intersection on its return value, not a member of PostgresJsDatabase itself. */
@@ -102,7 +103,10 @@ describeIfDb(
 
       const moduleRef = await Test.createTestingModule({
         imports: [WorkerModule],
-      }).compile();
+      })
+        .overrideProvider(CanonicalSearchCoverageService)
+        .useValue({ assertReady: () => Promise.resolve() })
+        .compile();
       // .init() runs onApplicationBootstrap (registers consumers) with NO
       // HTTP adapter ever created — createNestApplication()/listen() are
       // never called, matching NestFactory.createApplicationContext.
@@ -150,7 +154,10 @@ describeIfDb(
 
       const moduleRef = await Test.createTestingModule({
         imports: [WorkerModule],
-      }).compile();
+      })
+        .overrideProvider(CanonicalSearchCoverageService)
+        .useValue({ assertReady: () => Promise.resolve() })
+        .compile();
       await moduleRef.init();
       const db = getDbClient(moduleRef);
       try {

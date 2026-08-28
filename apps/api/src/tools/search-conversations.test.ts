@@ -44,7 +44,6 @@ type CallerIdSpy = { userId?: string };
 function fakeContext(
   rows: Row[],
   spy?: CallerIdSpy,
-  canonicalModelExcerptsEnabled = false,
   executeRows: readonly (readonly (
     | CanonicalHydrationRow
     | { line_id: number }
@@ -77,7 +76,6 @@ function fakeContext(
     userId: 'user-A',
     chatId: 'chat-1',
     tenantDb,
-    canonicalModelExcerptsEnabled,
   };
 }
 
@@ -153,16 +151,16 @@ describe('search_conversations', () => {
     expect(() => schema.parse({ query: 'hi', userId: 'x' })).toThrow();
   });
 
-  it('scopes the read to the context userId (not a model arg) and maps rows', async () => {
+  it('scopes canonical metadata results to the context userId without an activation flag', async () => {
     const spy: CallerIdSpy = {};
     const context = fakeContext(
       [
         {
           id: 'chat-9',
           title: 'TypeScript project',
-          snippet: 'I love TypeScript and RLS.',
+          snippet: null,
           updatedAt: new Date('2026-07-01T12:00:00Z'),
-          bestDocumentId: 'document-1',
+          bestDocumentId: null,
         },
       ],
       spy,
@@ -176,16 +174,17 @@ describe('search_conversations', () => {
     expect(spy.userId).toBe('user-A'); // scope came from context
     expect(result.status).toBe('success');
     if (result.status !== 'success') return;
+    expect(isString(result.notice)).toBe(true);
+    if (!isString(result.notice)) return;
+    expect(result.notice).toMatch(/untrusted|stale/iu);
     expect(result.results).toEqual([
       {
+        kind: 'metadata',
         chatId: 'chat-9',
         title: 'TypeScript project',
-        snippet: 'I love TypeScript and RLS.',
         updatedAt: '2026-07-01T12:00:00.000Z',
       },
     ]);
-    if (!Array.isArray(result.results)) return;
-    expect(result.results[0]).not.toHaveProperty('bestDocumentId');
   });
 
   it('returns success with an empty list when nothing matches', async () => {
@@ -193,32 +192,12 @@ describe('search_conversations', () => {
       query: 'nothing',
       limit: 5,
     });
-    expect(result).toEqual({ status: 'success', results: [] });
-  });
-
-  it('carries a null title/snippet through for a title-only or untitled match', async () => {
-    const result = await searchConversationsTool.execute(
-      fakeContext([
-        {
-          id: 'c',
-          title: null,
-          snippet: 'matched by content only',
-          updatedAt: new Date('2026-07-01T00:00:00Z'),
-          bestDocumentId: 'document-2',
-        },
-      ]),
-      { query: 'x', limit: 5 },
-    );
     expect(result.status).toBe('success');
     if (result.status !== 'success') return;
-    expect(result.results).toEqual([
-      {
-        chatId: 'c',
-        title: null,
-        snippet: 'matched by content only',
-        updatedAt: '2026-07-01T00:00:00.000Z',
-      },
-    ]);
+    expect(isString(result.notice)).toBe(true);
+    if (!isString(result.notice)) return;
+    expect(result.notice).toMatch(/untrusted|stale/iu);
+    expect(result.results).toEqual([]);
   });
 
   it('caps canonical excerpts around an exact raw anchor without splitting Unicode', () => {
@@ -315,7 +294,6 @@ describe('search_conversations', () => {
           },
         ],
         undefined,
-        true,
         [[hydrationRow(text)], [{ line_id: 0 }]],
       ),
       { query: 'decided', limit: 5 },
@@ -400,7 +378,6 @@ describe('search_conversations', () => {
           omittedByMatcher,
         ],
         undefined,
-        true,
         [
           [hydrationRow(text)],
           [{ line_id: 0 }],
@@ -420,38 +397,6 @@ describe('search_conversations', () => {
     expect(result.results).toHaveLength(1);
     expect(JSON.stringify(result)).not.toContain('must never be returned');
     expect(JSON.stringify(result)).not.toContain('projection text');
-  });
-
-  it('keeps the disabled path byte-compatible and does not add the canonical notice', async () => {
-    const result = await searchConversationsTool.execute(
-      fakeContext(
-        [
-          {
-            id: CHAT_ID,
-            title: 'Legacy result',
-            snippet: 'legacy snippet',
-            updatedAt: new Date('2026-08-27T15:00:00.000Z'),
-            bestDocumentId: DOCUMENT_ID,
-          },
-        ],
-        undefined,
-        false,
-      ),
-      { query: 'legacy', limit: 5 },
-    );
-
-    expect(result).toEqual({
-      status: 'success',
-      results: [
-        {
-          chatId: CHAT_ID,
-          title: 'Legacy result',
-          snippet: 'legacy snippet',
-          updatedAt: '2026-08-27T15:00:00.000Z',
-        },
-      ],
-    });
-    expect(result).not.toHaveProperty('notice');
   });
 
   it('keeps search_conversations input and declaration surface strict and vector-free', () => {

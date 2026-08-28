@@ -100,7 +100,6 @@ describe('conversation provenance acceptance — queued lexical search and canon
   beforeAll(async () => {
     harness = await bootWorkerHarness({
       allowedTools: ['search_conversations', 'conversation_read'],
-      canonicalModelExcerptsEnabled: true,
       runsConcurrency: 2,
     });
     ownerA = await createUser(harness.db, 'conversation-acceptance-a');

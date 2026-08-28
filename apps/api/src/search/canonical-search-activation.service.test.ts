@@ -3,7 +3,10 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { TenantDbService } from '../db/tenant-db.service';
-import { CanonicalSearchActivationService } from './canonical-search-activation.service';
+import {
+  CanonicalSearchActivationService,
+  CanonicalSearchCoverageService,
+} from './canonical-search-activation.service';
 
 const COVERAGE_ROW = {
   chunker_version: 4,
@@ -17,20 +20,18 @@ const COVERAGE_ROW = {
 type CoverageRow = typeof COVERAGE_ROW;
 type FakeRow = CoverageRow | { bypass: boolean };
 
-function config(canonicalModelExcerpts: boolean) {
+function config(searchAllowed: boolean) {
   return {
     ...BUILT_IN_DEFAULTS,
-    search: {
-      chats: {
-        ...BUILT_IN_DEFAULTS.search.chats,
-        canonicalModelExcerpts,
-      },
+    tools: {
+      ...BUILT_IN_DEFAULTS.tools,
+      allowed: searchAllowed ? ['search_conversations'] : [],
     },
   };
 }
 
 async function buildService(
-  canonicalModelExcerpts: boolean,
+  searchAllowed: boolean,
   provisioned: boolean,
   coverage: CoverageRow[] = [COVERAGE_ROW],
 ) {
@@ -51,9 +52,10 @@ async function buildService(
   const moduleRef: TestingModule = await Test.createTestingModule({
     providers: [
       CanonicalSearchActivationService,
+      CanonicalSearchCoverageService,
       {
         provide: InstanceConfigService,
-        useValue: { config: config(canonicalModelExcerpts) },
+        useValue: { config: config(searchAllowed) },
       },
       { provide: TenantDbService, useValue: { runAsPublic } },
     ],
@@ -62,27 +64,39 @@ async function buildService(
     moduleRef,
     runAsPublic,
     service: moduleRef.get(CanonicalSearchActivationService),
+    coverage: moduleRef.get(CanonicalSearchCoverageService),
   };
 }
 
 describe('CanonicalSearchActivationService', () => {
-  it('keeps canonical shaping disabled and does not query readiness when the flag is false', async () => {
+  it('skips readiness when the HTTP process cannot bind search_conversations', async () => {
     const { moduleRef, runAsPublic, service } = await buildService(
       false,
       false,
     );
 
     await expect(service.onModuleInit()).resolves.toBeUndefined();
-    expect(service.canonicalModelExcerptsEnabled).toBe(false);
     expect(runAsPublic).not.toHaveBeenCalled();
     await moduleRef.close();
   });
 
-  it('activates only after the provisioned current projection is fully ready', async () => {
+  it('admits allowlisted search without a separate opt-in after current projection is fully ready', async () => {
     const { moduleRef, runAsPublic, service } = await buildService(true, true);
 
     await expect(service.onModuleInit()).resolves.toBeUndefined();
-    expect(service.canonicalModelExcerptsEnabled).toBe(true);
+    expect(runAsPublic).toHaveBeenCalledTimes(2);
+    await moduleRef.close();
+  });
+
+  it('shares one readiness check across HTTP admission and a co-located runs consumer', async () => {
+    const { coverage, moduleRef, runAsPublic, service } = await buildService(
+      true,
+      true,
+    );
+
+    await service.onModuleInit();
+    await coverage.assertReady();
+
     expect(runAsPublic).toHaveBeenCalledTimes(2);
     await moduleRef.close();
   });
@@ -96,9 +110,24 @@ describe('CanonicalSearchActivationService', () => {
     ]);
 
     await expect(service.onModuleInit()).rejects.toThrow(
-      /canonical model excerpts cannot activate until projection coverage is complete/,
+      /canonical conversation search cannot start until projection coverage is complete/,
     );
-    expect(service.canonicalModelExcerptsEnabled).toBe(false);
+    await moduleRef.close();
+  });
+
+  it('reports only aggregate readiness counts for incomplete coverage', async () => {
+    const { moduleRef, service } = await buildService(true, true, [
+      {
+        ...COVERAGE_ROW,
+        ready_chat_count: 10,
+        stale_chat_count: 2,
+        complete_document_count: 54,
+      },
+    ]);
+
+    await expect(service.onModuleInit()).rejects.toThrow(
+      'chats=12, ready=10, stale=2, documents=57, complete=54',
+    );
     await moduleRef.close();
   });
 
@@ -108,17 +137,6 @@ describe('CanonicalSearchActivationService', () => {
     await expect(service.onModuleInit()).rejects.toThrow(
       /llame_search_projection_coverage_v2.*BYPASSRLS/,
     );
-    expect(service.canonicalModelExcerptsEnabled).toBe(false);
-    await moduleRef.close();
-  });
-
-  it('keeps the capability off after a rollback configuration', async () => {
-    const { moduleRef, runAsPublic, service } = await buildService(false, true);
-
-    await service.onModuleInit();
-
-    expect(service.canonicalModelExcerptsEnabled).toBe(false);
-    expect(runAsPublic).not.toHaveBeenCalled();
     await moduleRef.close();
   });
 });

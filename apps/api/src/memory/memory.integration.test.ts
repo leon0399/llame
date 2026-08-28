@@ -5,6 +5,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 
 import { AppModule } from '../app.module';
+import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { configureApp, createOpenApiDocument } from '../app.setup';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
 import { isRecord } from '../unknown-record';
@@ -42,7 +43,10 @@ describe('/api/v1/me/memory (HTTP)', () => {
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(CanonicalSearchCoverageService)
+      .useValue({ assertReady: () => Promise.resolve() })
+      .compile();
 
     app = module.createNestApplication();
     configureApp(app);

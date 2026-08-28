@@ -29,6 +29,7 @@ import { type RunExecutor, type RunUserMessage } from './run-execution.service';
 import { RunsRepository } from './runs-repository';
 import { RunsWorkerService } from './runs-worker.service';
 import { RUNS_QUEUE, type RunJob } from './run-queues';
+import { type CanonicalSearchCoverageGate } from '../search/canonical-search-activation.service';
 
 import type { Mock } from 'vitest';
 
@@ -63,6 +64,9 @@ function makeService(
     models?: ModelClientFactory;
     runExecution?: RunExecutor;
     aborts?: RunAbortRegistrar;
+    canonicalSearchCoverage?: CanonicalSearchCoverageGate;
+    allowedTools?: string[];
+    runsConcurrency?: number | null;
   } = {},
 ) {
   // Named consts (not accessed later as `queue.consume`/`tenantDb.runAs`) so
@@ -83,6 +87,10 @@ function makeService(
         heartbeatSeconds: 15,
         timeoutSeconds: 300,
       },
+      tools: {
+        ...BUILT_IN_DEFAULTS.tools,
+        allowed: overrides.allowedTools ?? [],
+      },
     },
   };
 
@@ -91,7 +99,11 @@ function makeService(
   // the not-gated-off path; profile-gating itself is covered in
   // worker-profile.service.test.ts (design D2/D3, task 7.5).
   const workerProfile: WorkerConcurrencyResolver = {
-    concurrencyFor: vi.fn().mockReturnValue(1),
+    concurrencyFor: vi
+      .fn()
+      .mockReturnValue(
+        overrides.runsConcurrency === undefined ? 1 : overrides.runsConcurrency,
+      ),
   };
 
   // Records calls for assertions only — `runAs` below performs the actual
@@ -114,6 +126,9 @@ function makeService(
     queue,
     instanceConfig,
     workerProfile,
+    overrides.canonicalSearchCoverage ?? {
+      assertReady: () => Promise.resolve(),
+    },
     overrides.models ?? { createClient: unstubbed('createClient') },
     overrides.runExecution ?? {
       executeRun: unstubbed('executeRun'),
@@ -126,7 +141,7 @@ function makeService(
     },
   );
 
-  return { service, consumeSpy, runAsSpy };
+  return { service, consumeSpy, ensureQueueSpy, runAsSpy };
 }
 
 /** Capture the handler RunsWorkerService registered on the main runs queue. */
@@ -242,6 +257,64 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
 
     expect(settleTerminalRun).toHaveBeenCalledTimes(1);
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('RunsWorkerService — canonical search coverage admission', () => {
+  const localToolCases: [string, string[]][] = [
+    ['without a local search tool', []],
+    ['with a local search tool', ['search_conversations']],
+  ];
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each(localToolCases)(
+    'gates a runs-consuming worker before queue registration %s',
+    async (_name, allowedTools) => {
+      const assertReady = vi.fn().mockResolvedValue(undefined);
+      const { service, consumeSpy } = makeService(makeFakeTx(), {
+        allowedTools,
+        canonicalSearchCoverage: { assertReady },
+      });
+
+      await service.onApplicationBootstrap();
+
+      expect(assertReady).toHaveBeenCalledTimes(1);
+      expect(assertReady.mock.invocationCallOrder[0]).toBeLessThan(
+        consumeSpy.mock.invocationCallOrder[0],
+      );
+    },
+  );
+
+  it('fails before registering a runs consumer when coverage is incomplete', async () => {
+    const assertReady = vi
+      .fn()
+      .mockRejectedValue(new Error('aggregate coverage incomplete'));
+    const { service, consumeSpy, ensureQueueSpy } = makeService(makeFakeTx(), {
+      canonicalSearchCoverage: { assertReady },
+    });
+
+    await expect(service.onApplicationBootstrap()).rejects.toThrow(
+      'aggregate coverage incomplete',
+    );
+    expect(ensureQueueSpy).not.toHaveBeenCalled();
+    expect(consumeSpy).not.toHaveBeenCalled();
+  });
+
+  it('skips coverage and queue registration for a non-Run worker profile', async () => {
+    const assertReady = vi.fn().mockResolvedValue(undefined);
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      allowedTools: ['search_conversations'],
+      runsConcurrency: null,
+      canonicalSearchCoverage: { assertReady },
+    });
+
+    await service.onApplicationBootstrap();
+
+    expect(assertReady).not.toHaveBeenCalled();
+    expect(consumeSpy).not.toHaveBeenCalled();
   });
 });
 

@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { QueueModule } from '../queue/queue.module';
-import { CanonicalSearchActivationService } from './canonical-search-activation.service';
+import { CanonicalSearchCoverageService } from './canonical-search-activation.service';
 import { EmbeddingBindingBootCheckService } from './embedding-binding-boot-check.service';
 import { SearchEmbedDispatchService } from './search-embed-dispatch.service';
 import { SearchEmbedWorker } from './search-embed.worker';
@@ -37,7 +37,7 @@ import { SearchReindexWorker } from './search-reindex.worker';
     SearchIndexService,
     SearchReindexDispatchService,
     SearchReindexWorker,
-    CanonicalSearchActivationService,
+    CanonicalSearchCoverageService,
     EmbeddingBindingBootCheckService,
     SearchEmbedDispatchService,
     SearchEmbedWorker,
@@ -46,7 +46,7 @@ import { SearchReindexWorker } from './search-reindex.worker';
     SearchIndexService,
     SearchReindexDispatchService,
     SearchEmbedDispatchService,
-    CanonicalSearchActivationService,
+    CanonicalSearchCoverageService,
   ],
 })
 export class SearchModule {}
