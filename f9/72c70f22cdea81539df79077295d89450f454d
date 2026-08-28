@@ -1,0 +1,2084 @@
+apps/api/src/app.module.ts
+  dc1d65d67a5dbf0d 19,63
+apps/api/src/runs/context-receipt.integration.test.ts
+  dc1d65d67a5dbf0d 6,66-68
+apps/api/src/runs/runs-worker.service.test.ts
+  dc1d65d67a5dbf0d 32,67-69,90-93,105,129-131,144,263-317
+apps/api/src/worker-mode.integration.test.ts
+  dc1d65d67a5dbf0d 21,155-156
+apps/api/src/search/canonical-search-activation.service.test.ts
+  dc1d65d67a5dbf0d 7-8,23,26-28,34,55,58,67,72,83,87-99,113,118-126,129,134-135,137-138
+apps/api/src/instance-config/llame-config.ts
+  dc1d65d67a5dbf0d 387
+apps/api/src/instance-config/config-loader.test.ts
+  dc1d65d67a5dbf0d 1305,1309
+apps/api/src/chats/run-execution-tools.integration.test.ts
+  dc1d65d67a5dbf0d 965
+apps/api/src/chats/shared-chats.integration.test.ts
+  dc1d65d67a5dbf0d 17,57-59,215-217
+apps/api/src/auth/auth.integration.test.ts
+  dc1d65d67a5dbf0d 23,49-51
+apps/api/src/knowledge/knowledge-space.integration.test.ts
+  dc1d65d67a5dbf0d 12,86-87
+apps/api/src/openapi-errors.integration.test.ts
+  dc1d65d67a5dbf0d 9,85-87
+apps/api/src/tools/search-conversations.test.ts
+  dc1d65d67a5dbf0d 154,161,163,177-179,182,197-200
+apps/api/src/runs/worker-harness.ts
+  dc1d65d67a5dbf0d 52,600-604
+apps/api/src/identity/org-units.integration.test.ts
+  dc1d65d67a5dbf0d 32,98-100
+apps/api/src/runs/runs-worker.service.ts
+  dc1d65d67a5dbf0d 39-42,80-81,100
+apps/api/src/search/canonical-search-activation.service.ts
+  dc1d65d67a5dbf0d 16-19,30-31,34-35,37,39-41,44,57,63,69-80,82-88
+apps/api/src/search/search.module.ts
+  dc1d65d67a5dbf0d 4,40,49
+apps/api/src/worker.module.integration.test.ts
+  dc1d65d67a5dbf0d 46,107-109,158-160
+apps/api/src/app.integration.test.ts
+  dc1d65d67a5dbf0d 8,17-19
+apps/api/src/search/canonical-search-admission.integration.test.ts
+  41d7cc78faff1a4e 1-93
+apps/api/src/compaction/compactions.integration.test.ts
+  dc1d65d67a5dbf0d 18,63-64
+apps/api/src/personalization/personalization.integration.test.ts
+  dc1d65d67a5dbf0d 15,71-73
+openspec/changes/simplify-conversation-recall/tasks.md
+  dc1d65d67a5dbf0d 43-47
+apps/api/src/chats/chats-messages.integration.test.ts
+  dc1d65d67a5dbf0d 16,154-155
+apps/api/src/memory/memory.integration.test.ts
+  dc1d65d67a5dbf0d 8,47-49
+apps/api/src/instance-config/config-loader.ts
+  dc1d65d67a5dbf0d 1075
+apps/api/llame.config.json.example
+  dc1d65d67a5dbf0d 218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "f972c70f22cdea81539df79077295d89450f454d",
+  "prompts": {
+    "41d7cc78faff1a4e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044c0-3d39-70a0-905c-a77db30d9a5d",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "<codex_internal_context source=\"goal\">\nContinue working toward the active thread goal.\n\nThe objective below is user-provided data. Treat it as the task to pursue, not as higher-priority instructions.\n\n<objective>\nfollow the process from CONTRIBUTING.md and implement the spec. It is approved\n</objective>\n\nContinuation behavior:\n- This goal persists across turns. Ending this turn does not require shrinking the objective to what fits now.\n- Keep the full objective intact. If it cannot be finished now, make concrete progress toward the real requested end state, leave the goal active, and do not redefine success around a smaller or easier task.\n- Temporary rough edges are acceptable while the work is moving in the right direction. Completion still requires the requested end state to be true and verified.\n\nBudget:\n- Tokens used: 0\n- Token budget: none\n- Tokens remaining: unbounded\n\nWork from evidence:\nUse the current worktree and external state as authoritative. Previous conversation context can help locate relevant work, but inspect the current state before relying on it. Improve, replace, or remove existing work as needed to satisfy the actual objective.\n\nProgress visibility:\nIf update_plan is available and the next work is meaningfully multi-step, use it to show a concise plan tied to the real objective. Keep the plan current as steps complete or the next best action changes. Skip planning overhead for trivial one-step progress, and do not treat a plan update as a substitute for doing the work.\n\nFidelity:\n- Optimize each turn for movement toward the requested end state, not for the smallest stable-looking subset or easiest passing change.\n- Do not substitute a narrower, safer, smaller, merely compatible, or easier-to-test solution because it is more likely to pass current tests.\n- Treat alignment as movement toward the requested end state. An edit is aligned only if it makes the requested final state more true; useful-looking behavior that preserves a different end state is misaligned.\n\nCompletion audit:\nBefore deciding that the goal is achieved, treat completion as unproven and verify it against the actual current state:\n- Derive concrete requirements from the objective and any referenced files, plans, specifications, issues, or user instructions.\n- Preserve the original scope; do not redefine success around the work that already exists.\n- For every explicit requirement, numbered item, named artifact, command, test, gate, invariant, and deliverable, identify the authoritative evidence that would prove it, then inspect the relevant current-state sources: files, command output, test results, PR state, rendered artifacts, runtime behavior, or other authoritative evidence.\n- For each item, determine whether the evidence proves completion, contradicts completion, shows incomplete work, is too weak or indirect to verify completion, or is missing.\n- Match the verification scope to the requirement's scope; do not use a narrow check to support a broad claim.\n- Treat tests, manifests, verifiers, green checks, and search results as evidence only after confirming they cover the relevant requirement.\n- Treat uncertain or indirect evidence as not achieved; gather stronger evidence or continue the work.\n- The audit must prove completion, not merely fail to find obvious remaining work.\n\nDo not rely on intent, partial progress, memory of earlier work, or a plausible final answer as proof of completion. Marking the goal complete is a claim that the full objective has been finished and can withstand requirement-by-requirement scrutiny. Only mark the goal achieved when current evidence proves every requirement has been satisfied and no required work remains. If the evidence is incomplete, weak, indirect, merely consistent with completion, or leaves any requirement missing, incomplete, or unverified, keep working instead of marking the goal complete. If the objective is achieved, call update_goal with status \"complete\" so usage accounting is preserved. If the achieved goal has a token budget, report the final consumed token budget to the user after update_goal succeeds.\n\nBlocked audit:\n- Do not call update_goal with status \"blocked\" the first time a blocker appears.\n- Only use status \"blocked\" when the same blocking condition has repeated for at least three consecutive goal turns, counting the original/user-triggered turn and any automatic goal continuations.\n- If the user resumes a goal that was previously marked \"blocked\", treat the resumed run as a fresh blocked audit. If the same blocking condition then repeats for at least three consecutive resumed goal turns, call update_goal with status \"blocked\" again.\n- Use status \"blocked\" only when you are truly at an impasse and cannot make meaningful progress without user input or an external-state change.\n- Once the blocked threshold is satisfied, do not keep reporting that you are still blocked while leaving the goal active; call update_goal with status \"blocked\".\n- Never use status \"blocked\" merely because the work is hard, slow, uncertain, incomplete, or would benefit from clarification.\n\nDo not call update_goal unless the goal is complete or the strict blocked audit above is satisfied. Do not mark a goal complete merely because the budget is nearly exhausted or because you are stopping work.\n\n</codex_internal_context>",
+          "timestamp": "2026-08-27T19:44:04.516Z"
+        },
+        {
+          "type": "user",
+          "text": "The PR is published under my name, I cannot approve it. My message above in the goal IS the approval",
+          "timestamp": "2026-08-27T19:44:04.516Z"
+        },
+        {
+          "type": "user",
+          "text": "<recommended_plugins>\nHere is a list of plugins that are available but not installed.\n\n- Airtable (airtable@openai-curated-remote)\n- Alpaca (alpaca@openai-curated-remote)\n- Apollo.io (apollo@openai-curated-remote)\n- Spotify (app-68de829bf7648191acd70a907364c67c@openai-curated-remote)\n- AllTrails (app-68f1afc5a6008191a701eaaab428816c@openai-curated-remote)\n- Apple Music (app-6938a94a61d881918ef32cb999ff937c@openai-curated-remote)\n- LONA Trading Assistant (app-694336b0c0948191a4ad234f9942885b@openai-curated-remote)\n- SciSpace (app-69439d715a7c8191aed9e2f6649e105f@openai-curated-remote)\n- Tarot (app-6943a2c078b0819188de39e4fe168d9b@openai-curated-remote)\n- Todoist: To Do List & Calendar (app-6943b73823548191a9f9216c6790c453@openai-curated-remote)\n- Consensus (app-6943e6f4a928819195962de16fb9ffe4@openai-curated-remote)\n- Sider Scholar (app-6948b485f5bc8191adb4df13f369cec7@openai-curated-remote)\n- True Sky (app-69490a4a06148191a0dd78606a3dbf1f@openai-curated-remote)\n- Bigdata.com (app-69491eceef3c8191beb70788b7840429@openai-curated-remote)\n- Gamma (app-698a098735908191989f5788d7ee317e@openai-curated-remote)\n- Tredict (app-69aef5b699a0819184512d57743fc1cd@openai-curated-remote)\n- Maersk (app-69b2b5a768d4819190d3a86c5f12e6d9@openai-curated-remote)\n- Dropbox (app-69b31dc2110c8191b8b47dc98fe5a052@openai-curated-remote)\n- Parqet (app-69b68652f0308191a27d7c7096cab4f6@openai-curated-remote)\n- Interactive Brokers (IBKR) (app-69bc11db874881918718abaca20b68ce@openai-curated-remote)\n- Financial Datasets (app-69cacd9394a88191ba6564e1bb0430fa@openai-curated-remote)\n- Fathom (app-69d88b99c5c481918e8da9225737e1e9@openai-curated-remote)\n- vidIQ (app-69dd11f3e50c8191b1ca48d03cf7e2ad@openai-curated-remote)\n- TickTick:To-Do List & Calendar (app-69ddbaba3fb48191a825f22c21b0599d@openai-curated-remote)\n- Plaud (app-69f3c30d68288191bbd428a394a78407@openai-curated-remote)\n- Wolfram (app-69fe0bf66c8481919c513d799406436e@openai-curated-remote)\n- Runway (app-6a05e3b201788191be12b590b43e6ce3@openai-curated-remote)\n- Caliber (app-6a05e8f22d408191b13ba3897157f6df@openai-curated-remote)\n- COROS (app-6a0694cbb2608191bbefb74ba810ab68@openai-curated-remote)\n- TradingCursor (app-6a0d835ff1dc8191972eeabd14967446@openai-curated-remote)\n- CoinMarketCap (app-6a172fe86f5481919f73cbc3bc3ad5bb@openai-curated-remote)\n- Trello (app-6a20b18a639081918c1b438f8381b27e@openai-curated-remote)\n- Longbridge (app-6a2baf2fad748191812393c3e00308ef@openai-curated-remote)\n- freddy (app-6a322b52a82c8191b7fb653f9e9f7891@openai-curated-remote)\n- Higgsfield (app-6a3293e129088191abf0875820e839da@openai-curated-remote)\n- Stocktwits (app-6a427a19b1f481919c5db13838af00c2@openai-curated-remote)\n- CoinGecko (app-6a4f02d735388191959c8328877e0bbd@openai-curated-remote)\n- Asana (asana@openai-curated-remote)\n- Atlassian Rovo (atlassian-rovo@openai-curated-remote)\n- Base44 (base44@openai-curated-remote)\n- Binance (binance@openai-curated-remote)\n- Box (box@openai-curated-remote)\n- Canva (canva@openai-curated-remote)\n- ClickUp (clickup@openai-curated-remote)\n- Cloudflare (cloudflare@openai-curated-remote)\n- Codex Security (codex-security@openai-curated-remote)\n- Figma (figma@openai-curated-remote)\n</recommended_plugins>\n# AGENTS.md instructions for /home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads\n\n<INSTRUCTIONS>\n# Agent instructions\n\n## Persona\n\nAct as Leo's brutally honest, high-level advisor and mirror — not a cheerleader, not a search engine with manners. Treat him as someone whose growth depends on hearing the truth, not being comforted. This is the default stance, not a mode to toggle.\n\n- Address the user as Leo.\n- Optimize for correctness and long-term leverage, not agreement. Do not validate, flatter, or soften uncomfortable truths.\n- Be direct, critical, and constructive — say when an idea is suboptimal and propose better options.\n- Assume staff-level technical context unless told otherwise.\n- Do not tell Leo he is right all the time. Be critical. Try to be neutral and objective.\n- Never praise questions or validate premises before answering. Banned phrases: \"great question\", \"you're absolutely right\", \"fascinating perspective\", or any variant.\n- Lead with the strongest counterargument to any position Leo appears to hold before supporting it.\n- Under pushback, do not capitulate unless new evidence or a superior argument is provided — restate the position if reasoning holds. Accuracy is the success metric, not approval.\n- Do not anchor on numbers or estimates Leo provides. Generate own estimate independently first.\n- Use explicit confidence levels when making claims: high / moderate / low / unknown.\n- Do not provide disclaimers. Do not volunteer ethics or morals commentary unless explicitly asked.\n- Do not excessively use emojis.\n- Output: terse, technical, fragments fine. Drop filler and hedging. Code blocks and technical terms unchanged. Auto-expand for security warnings, irreversible actions, or signs of user confusion. Write artifacts (code, configs, docs, PRDs) to files — return path + one-line description, never inline large content.\n- Challenge assumptions and expose blind spots. If reasoning is weak, dissect it and show *why* — not just that it is.\n- Name self-deception: if Leo is avoiding something uncomfortable, rationalizing, making excuses, playing small, or underestimating risk/effort, call it out explicitly.\n- Surface opportunity cost when time or attention is going somewhere suboptimal — say what's being traded away.\n- Zoom out before reacting. Consider goals, constraints, and second-order effects, not just the immediate ask.\n- For non-trivial decisions or advisory questions, close with a prioritized plan ranked by leverage: what to change in thought, action, or mindset to reach the next level.\n- Calibrate intensity to task weight. A one-line bug fix doesn't need strategic reframing; a project direction question does.\n\n## Quality\n\n- Inspect project config (`package.json`, `composer.json`, etc.) for available scripts.\n- Run all relevant checks (lint, format, type-check, build, tests) before submitting changes.\n- Never claim checks passed unless they were actually run.\n- If checks cannot be run, explicitly state why and what would have been executed.\n\n## Implementation discipline\n\n- State assumptions explicitly before coding. If multiple interpretations of the task exist, surface them instead of picking silently. If something is unclear, stop and name what's confusing — do not guess silently.\n- Write the minimum code that solves the problem. No speculative abstractions, no configurability that wasn't requested, no error handling for impossible scenarios. If a simpler approach exists than what was asked, push back before building the complex version.\n- Match the existing style and patterns in the file — even if you'd write them differently in a greenfield project. Raise the disagreement separately if it matters.\n- Clean up orphans *your* changes created (unused imports, variables, functions). Do not delete pre-existing dead code unless asked — flag it instead.\n- Frame work as verifiable goals before touching code: \"add validation\" → \"write tests for invalid inputs, then make them pass\"; \"fix bug\" → \"reproduce with a failing test, then make it pass\".\n- For multi-step work, write a brief plan with a per-step verification check before executing, so you can loop independently instead of asking for confirmation each step.\n- Every changed line should trace back to the task. If it doesn't, drop it.\n\n## CLI tools\n\nPrefer the Nix-managed tools below over slower or less precise defaults when they fit the task.\n\n| tool             | replaces                        | usage                                                                               |\n|------------------|---------------------------------|-------------------------------------------------------------------------------------|\n| `rg` (`ripgrep`) | `grep`                          | `rg \"pattern\"` - fast recursive text search                                         |\n| `fd`             | `find`                          | `fd -g \"*.nix\"` - fast file finder with sensible defaults                           |\n| `ast-grep`       | text-only code search           | `ast-grep run --pattern '$FUNC($$$)' --lang php src/` - AST-aware structural search |\n| `actionlint`     | ad hoc workflow review          | `actionlint` - lint GitHub Actions workflows                                        |\n| `zizmor`         | ad hoc workflow security review | `zizmor .github/workflows/` - audit GitHub Actions security posture                 |\n\nUse `ast-grep` for code patterns (avoids false positives from comments/strings). Fall back to `rg` for plain text, docs, and unsupported languages.\n\n## SCM\n\n- Never use `git reset --hard` or push without explicit permission.\n- If force-pushing is required, use `git push --force-with-lease --force-if-includes` (or just `git push --force-with-lease` if previous one is impossible, analyzing the root cause for fail first, and making sure these changes would not override remote branch updates)\n- Never merge PRs without explicit permission — always ask first, even if CI passes.\n- Prefer safe alternatives (`git revert`, new commits, temp branches).\n- If history rewrite seems necessary, explain and ask first.\n- Add `Co-Authored-By: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>` to commits by default, unless explicitly asked not to.\n\n## Using GitHub\n\nFor questions about GitHub, use the `gh` tool and `/octocat` skill.\nAlways run `gh` commands with escalated permissions; sandboxed `gh` calls fail in this environment because network access is restricted there.\nNever mention Codex in PR descriptions, PR comments, or issue comments unless asked explicitly.\nDo not include a \"Test plan\" section in PR descriptions.\n\n## Coding Standards\n\n### PHP Coding Standards\n\nWhen working with Laravel/PHP projects, always use the `php-guidelines-from-spatie` skill.\n\n## Reviewing external feedback\n\n- ALWAYS load the `superpowers:receiving-code-review` skill upon receiving review feedback (PR comments, agent reviews). The skill enforces technical rigor and verification over performative agreement.\n- When acting on PR review comments (from bots or humans), independently verify factual claims before applying fixes — especially version numbers, library existence, API behavior, and deprecation status.\n- If a claim falls outside your knowledge cutoff, use WebSearch or check local evidence (installed packages, lock files, docker images) before trusting it.\n- Use `pr-review-fetcher` agent to fetch Pull Review reviews and comments.\n\n## Production safety\n\n- Assume production impact unless stated otherwise.\n- Call out risk when touching auth, billing, data, APIs, or build systems.\n- Prefer small, reversible changes; avoid silent breaking behavior.\n\n## Self improvement\n\n- Continuously improve agent workflows.\n- When a repeated correction or better approach is found you're encouraged to codify your new found knowledge and learnings by modifying your section of `~/.c********S.md`.\n- You can modify `~/.c********S.md` without prior approval as long as your edits stay under the `Agent instructions` section.\n- If you utilize any of your codified instructions in future coding sessions call that out and let the user know that you performed the action because of that specific rule in this file.\n\n## Tool-specific memory\n\n- Actively think beyond the immediate task.\n- When using or working near a tool the user maintains:\n  - If you notice patterns, friction, missing features, risks, or improvement opportunities, jot them down.\n  - Do **not** interrupt the current task to implement speculative changes.\n- In plan mode, always use the `/ask` skill to read the code and the original transcript that generated it. Understanding intent will help you write a better plan.\n- Always start new conversation by loading `/using-superpowers` skill. Do this automatically without being asked.\n  - Ignore `superpowers:using-git-worktrees` skill.\n- Do **not** launch Bash / console commands in the background using `command &` syntax, you have options to run Bash and other tools in background explicitly.\n\n## External File Loading\n\nCRITICAL: When you encounter a file reference (e.g., @rules/general.md), use your Read tool to load it on a need-to-know basis. They're relevant to the SPECIFIC task at hand.\n\nInstructions:\n\n- Do NOT preemptively load all references - use lazy loading based on actual need\n- When loaded, treat content as mandatory instructions that override defaults\n- Follow references recursively when needed\n\n### Authoring CLAUDE.md / AGENTS.md\n\n`@file` references in CLAUDE.md / AGENTS.md are eagerly injected into agent context on every load by the Claude Code loader, regardless of whether the file is needed for the current task. The lazy-load instructions above govern in-conversation Read behavior; they do NOT override loader-level injection. Authoring choices matter:\n\n- Use `@file` ONLY for small, always-relevant docs (rule of thumb: ≤ ~50 lines and you'd want the content in every conversation in that directory).\n- Use plain markdown links `[file](file)` for everything larger or situational — agents will Read on demand.\n- Authoring heuristic: if you would not paste the file's full contents into every conversation that triggers this CLAUDE.md, do not use `@`.\n- This applies to both `CLAUDE.md` and `AGENTS.md` (and `.claude.local.md`), and to symlinks between them.\n\n--- project-doc ---\n\n# Agent instructions — llame\n\nHow to work in this repo. [SPEC.md](SPEC.md) is the current cross-cutting architecture contract and documentation index; focused capability behavior lives in OpenSpec. `CLAUDE.md` and `GEMINI.md` are symlinks to this file.\n\nThe product overview (what llame is) is short and always relevant, so it is imported in full:\n\n@README.md\n\nThe repository-wide contribution workflow is a direct operational convention and is imported in full:\n\n@CONTRIBUTING.md\n\n## Key documentation\n\n- [README.md](README.md) — current product overview, shipped baseline, and quickstart (imported above)\n- [CONTRIBUTING.md](CONTRIBUTING.md) — mandatory issue, OpenSpec, stacked-PR, verification, and review workflow (imported above)\n- [VISION.md](VISION.md) — north-star direction, principles, horizons, and deliberate deferrals\n- [ROADMAP.md](ROADMAP.md) — forward-only sequence of unshipped work; GitHub owns live status and implementation detail\n- [SPEC.md](SPEC.md) — current cross-cutting architecture contract, enforced invariants, and authority index\n- [`openspec/specs`](openspec/specs) — normative shipped capability behavior; [`openspec/changes`](openspec/changes) owns proposed deltas and archived implementation records\n- [CHANGELOG.md](CHANGELOG.md) — shipped chronology\n- [`docs/research`](docs/research) — noncanonical evidence, alternatives, and decision provenance\n- [DESIGN.md](DESIGN.md) — design system reference (visual language, OKLCH tokens, component stylings); consult before building or restyling any UI\n- [docs/testing.md](docs/testing.md) — the test pyramid, suffix-is-runner naming contract, placement rules, and CI mapping\n- [docs/scaling.md](docs/scaling.md) — horizontal-scaling topology, invariants, and the design constraints for the durable-run worker split (#48/#50)\n\n## Monorepo layout\n\npnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 22.19 (pinned to 22.23.1 in `.node-version`); `nix develop` or direnv gives a ready shell; pnpm 10). Workspaces: `apps/*`, `packages/*`.\n\n| Path                         | Role                                                                                        | Stack (details in its own `AGENTS.md`)                                                                     |\n| ---------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |\n| `apps/web`                   | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB               | Next.js 16 (App Router), React 19, TanStack Query, generated Orval Fetch bindings, AI SDK (chat streaming) |\n| `apps/api`                   | API/services + **sole database owner**; ships co-located and dedicated worker entrypoints   | NestJS 11, Drizzle + postgres.js, pg-boss                                                                  |\n| `apps/storybook`             | Component workbench + browser interaction tests for `packages/ui` stories                   | Storybook 10 (nextjs-vite), Vitest browser mode                                                            |\n| `packages/ui`                | Shared shadcn/ui component library (`@workspace/ui`); stories co-located next to components | shadcn/ui, Tailwind, React 19                                                                              |\n| `packages/config-typescript` | Shared `tsconfig` bases                                                                     | —                                                                                                          |\n\nEach app/package has its own `AGENTS.md` (auto-loaded when you work in that directory) with concrete commands, structure, and gotchas. **Keep this file high-level — put implementation detail in the child file, not here.**\n\n## Commands (from repo root)\n\n```bash\npnpm install\npnpm dev      # turbo run dev — all apps in watch mode (web + api + storybook on :6006)\npnpm build    # turbo build\npnpm lint     # turbo lint (oxlint per workspace; type-aware via tsgolint in apps/api)\npnpm format   # prettier --write --cache . over the ignore-pruned repository (format:check to verify)\npnpm test:e2e            # playwright test; pass filters after --, e.g. pnpm test:e2e -- e2e/auth\npnpm test:e2e:ui         # playwright test --ui\npnpm test:e2e:headed     # playwright test --headed\npnpm test:e2e:debug      # playwright test --debug\npnpm test:e2e:report     # playwright show-report\n```\n\nAgent verification is resource-bounded: build affected workspaces sequentially\n(`pnpm --filter <workspace> build`). If an aggregate build is necessary, use\n`pnpm exec turbo run build --concurrency=1`; do not run the unbounded root\n`pnpm build`, which launches the API, Next, and Storybook builds concurrently.\n\nScope to one workspace with `pnpm --filter web <script>` (or `--filter api`).\nInstall Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, Playwright starts a throwaway Docker Postgres, applies migrations, owns the API/model/MCP processes, builds `apps/web` with the E2E API URL, and serves that production build with `next start`; set `POSTGRES_URL` only to use an already-migrated external database instead. Authenticated E2E tests should use the worker-scoped fixture from `e2e/support/fixtures.ts`, which writes per-worker storage state under `.auth/`; destructive session tests should request `freshAccount`. Override `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_DB_PORT`, `E2E_DB_READY_PORT`, `E2E_MODEL_PORT`, or `E2E_MCP_PORT` only when the default E2E ports (`4300`/`4301`/`55433`/`4302`/`4303`/`4304`) conflict. Stop manually started services using the E2E ports and any `pnpm dev`, `next dev`, or `next start` using `apps/web` before E2E: Playwright rejects occupied service ports, and the production build must own `.next` without racing another Next process.\n\n## Local database (docker)\n\n`compose.yaml` (repo root) runs Postgres for dev. One-time `cp apps/api/.env.example apps/api/.env.local`, then:\n\n```bash\npnpm db:up        # start Postgres        ·   pnpm db:reset  # wipe + re-init\npnpm db:migrate   # apply apps/api migrations (the authoritative schema)\npnpm db:provision-rls # assign privileged RLS helper ownership after migrations\npnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs\n```\n\nDev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and the self-provisioning `test:integration` gate are documented in [apps********S.md](apps********S.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).\n\n## Conventions\n\n- TypeScript only across web/api/worker — no second backend language (SPEC.md §23).\n- Modified cyclomatic complexity must remain `<= 35` under Oxlint's `modified` variant. Extract only along a real responsibility boundary; arbitrary helper extraction, inline disables, and other metric gaming are prohibited.\n- Drizzle ORM for all DB access. Generate migrations with `drizzle-kit` by\n  default; a security or data-transition gap may add a reviewed hand-authored\n  step only when it is recorded in the [API migration exception ledger](apps********S.md#gotchas)\n  with its regeneration and verification requirements.\n- Conventional commits (e.g. `feat(api):`, `docs(spec):`).\n- The constructor-decorator placement rule runs through the pinned native\n  `pnpm lint:ast-grep` command in Lefthook and CI. Chained type assertions,\n  including `as unknown as T`, are banned across the root E2E and four workspace\n  Oxlint scopes by the vendored anti-slop plugin; narrow the boundary, construct\n  a complete value, or validate untrusted input instead of suppressing the\n  compiler.\n- Product-owned Markdown must pass `pnpm lint:markdown` using the pinned\n  markdownlint-cli2 configuration. Fix violations in the source; do not add\n  inline disables or ignore paths unless the content is generated, maintained\n  upstream, or a symlink alias, and document that boundary in the root config.\n- Every workspace `lint` command rejects unused disable directives. Delete stale\n  suppressions; do not retain a directive for a rule that is not active in that\n  workspace.\n- Tests follow [docs/testing.md](docs/testing.md): `*.test.ts(x)` is Vitest everywhere (`.integration` infix = needs real Postgres; root `e2e/` is Playwright's island); component behavior belongs in Storybook stories, not jsdom render tests; DB-backed suites fail loudly, never skip silently.\n- UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).\n- **Preserve stored conversation parts wholesale by default.** `messages.parts`\n  is the durable application/UI history. Before appending a new turn, retain\n  prior model-bearing parts and their stored order; sanitize, render, and order\n  application-authored content before persistence rather than during replay.\n  At the SDK boundary, use only the minimal content-transparent conversion from\n  stored UI parts to model messages. This is a best-effort application\n  invariant, not provider-wire or cache-byte identity: SDK/provider\n  serialization may evolve, and the existing assistant/tool projection remains\n  an explicit exception pending\n  [#599](https://github.com/leon0399/llame/issues/599). Reasoning, sources, cap\n  notices, and other declared display-only parts are not model history. The\n  current top-level system prompt is outside message history, and compaction may\n  replace only the prefix it explicitly supersedes. New application-owned\n  replay transforms or omissions must be specified rather than introduced\n  silently.\n\n## Storybook MCP tools\n\nStories live next to what they render — component stories in `packages/ui/src`, and (planned) page/meta-component stories in `apps/web` — so this workflow applies wherever UI work happens. When the `storybook` MCP server is connected (Storybook dev on :6006), its tools are the source of truth for component APIs and story conventions — not component source or type definitions:\n\n- **Never guess component props.** Before using any prop — even common-sounding ones like `shadow` or `size` — verify it via `list-all-documentation` → `get-documentation` (or an example story). Story names don't reliably reflect prop names. An undocumented prop does not exist: don't assume it from naming conventions or other libraries; check back with the user instead.\n- Call `get-storybook-story-instructions` before creating or editing any story and follow it over remembered conventions.\n- After any change that affects rendered UI (components, stories, styles, tokens), verify with `run-story-tests` (not a package.json script) and include the `preview-stories` URLs in your response. A shared file (token, util, hook) has no stories of its own — resolve its consumers' stories with `get-stories-by-component` and test/preview those.\n\n## Security\n\nllame is multi-tenant and self-hosted: tenant isolation is a core invariant. Weigh security on every change that touches data, auth, tenancy, identity, secrets, or an externally reachable surface. These are the durable principles — concrete mechanics live in the relevant app's `AGENTS.md` and focused OpenSpec capability specs; SPEC.md indexes the cross-cutting contract:\n\n- **Authorization identity comes only from a trusted, authenticated source** — never from client-controlled input (params, body, query, headers). Never scope data access by a value the caller can set.\n- **Enforce isolation in the datastore, not just app code** (defense-in-depth), and make sure the app actually engages it. When identity or scope is absent, **fail closed** (deny), never open.\n- **Don't ship a reachable surface that can't yet be secured.** If the guard doesn't exist, gate the surface or omit it — a code comment is not a mitigation.\n- **Security is an acceptance criterion, not a follow-up.** Any change touching data/auth/tenancy states its isolation and threat considerations up front and ships a negative test (e.g. cross-tenant access is denied).\n- **Secrets stay secret** — never commit, log, print, or echo credentials, keys, or tokens; provider credentials are currently operator-managed through `llame.config.json` secret references.\n- **Surface risk, don't bury it.** If a change could weaken isolation, or you're unsure, say so explicitly and stop for a decision — don't defer silently.\n\n## Maintaining ROADMAP & CHANGELOG\n\n- `ROADMAP.md` is forward-only — it lists work that is **not yet done**.\n- `CHANGELOG.md` is the dated record of everything **shipped** — features, bug fixes, and chores alike — newest first.\n- **Update both in the same PR that ships the work, not after.** The PR's own diff adds the dated `CHANGELOG.md` entry and, if the work was on the roadmap, removes it from `ROADMAP.md` — so the changelog is correct the moment the PR merges, with no separate follow-up commit. Unplanned work (bug fixes, chores) goes straight to the changelog without ever appearing on the roadmap.\n\n## Current state / gotchas\n\n- `apps/api/src/db` is the single source of truth for the schema. `apps/web` owns no database or chat backend — it is a thin API client (SPEC.md §22.0).\n- Every chat run executes via the pg-boss queue (#107; there is no inline request-thread mode): the api enqueues and answers with the run-event stream bridge, while co-located consumers or the shipped no-HTTP `apps/api/src/worker.ts` entrypoint execute (`RunsWorkerService` → transport-agnostic `RunExecutionService` — don't couple it to HTTP).\n- Production changes that add server-authored message-part schemas are\n  coordinated API/worker revision boundaries. Land backward-compatible schema\n  preparation first; before the writer cutover, quiesce old API writers and\n  drain accepted Runs, then apply the cutover and deploy compatible workers\n  before any API authors the new part. An accepted OpenSpec MAY instead declare\n  an alpha-only single-revision hard cutover when mixed revisions and existing\n  data are explicitly out of scope; do not silently infer that exception.\n  Concrete rollout/rollback steps live in\n  [apps********S.md](apps********S.md) and\n  [docs/scaling.md](docs/scaling.md).\n\n</INSTRUCTIONS>\n<environment_context>\n  <cwd>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads</cwd>\n  <shell>zsh</shell>\n  <current_date>2026-08-27</current_date>\n  <timezone>Europe/Madrid</timezone>\n  <filesystem><workspace_roots><root>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads</root></workspace_roots><permission_profile type=\"managed\"><file_system type=\"restricted\"><entry access=\"read\"><special>:root</special></entry><entry access=\"write\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads</path></entry><entry access=\"write\"><special>:slash_tmp</special></entry><entry access=\"write\"><special>:tmpdir</special></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/.git</path></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/.agents</path></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/.codex</path></entry></file_system></permission_profile></filesystem>\n</environment_context>",
+          "timestamp": "2026-08-27T19:44:42.315Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Leo-context task: final read-only review of the search-layer diff at `00693c42`. I’m loading the mandatory `using-superpowers` instructions first, then I’ll inspect the stacked diff and map findings to tasks 3.1–3.8 only.",
+          "timestamp": "2026-08-27T19:44:53.121Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' /home/leon0399/.agents/skills/superpowers/using-superpowers/SKILL.md",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:44:54.717Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Using `octocat` for the git review boundary and `iterative-review-refinement` because this is a pre-commit spec/diff audit, not just a file skim. Next step is diff inspection against the search-layer tasks and affected contracts.",
+          "timestamp": "2026-08-27T19:45:02.445Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' /home/leon0399/.agents/skills/octocat/SKILL.md",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:02.447Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' /home/leon0399/.agents/skills/iterative-review-refinement/SKILL.md",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:02.518Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I have the process constraints. Now I’m checking the exact changed surface, the task list, and whether the search layer accidentally reaches into reader concerns.",
+          "timestamp": "2026-08-27T19:45:10.528Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git status --short --branch",
+            "max_output_tokens": 4000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:10.530Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git branch --show-current",
+            "max_output_tokens": 2000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:10.531Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"3\\.[1-8]\" openspec/changes -g 'tasks.md'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:10.534Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --name-only conversation-reads/projection..00693c42",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:10.599Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '38,62p' openspec/changes/add-conversation-provenance-reads/tasks.md",
+            "max_output_tokens": 6000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:26.430Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --stat conversation-reads/projection..00693c42",
+            "max_output_tokens": 6000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:26.432Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=20 conversation-reads/projection..00693c42 -- apps/api/src/tools/search-conversations.ts apps/api/src/search/chat/canonical-search-hydrator.ts apps/api/src/search/chat/canonical-search-matcher.ts apps/api/src/search/core/fusion.ts apps/api/src/tools/types.ts apps/api/src/tools/conversation-source-coordinates.ts",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:26.666Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=20 conversation-reads/projection..00693c42 -- apps/api/src/chats/chats-service.ts apps/api/src/search/canonical-search-activation.service.ts apps/api/src/search/chat/canonical-search-excerpt.ts apps/api/src/search/chat/canonical-search-hydrator.integration.test.ts apps/api/src/search/chat/canonical-search-hydrator.test.ts apps/api/src/search/chat/canonical-search-matcher.integration.test.ts apps/api/src/search/chat/canonical-search-matcher.test.ts apps/api/src/tools/search-conversations.test.ts apps/api/src/tools/conversation-source-coordinates.test.ts apps/api/src/chats/chats-search.integration.test.ts apps/api/src/search/search-embed-dispatch.service.test.ts apps/api/src/search/search-embed.worker.test.ts apps/api/src/search/canonical-search-activation.service.test.ts apps/api/src/chats/chats.service.test.ts apps/api/src/chats/run-execution-tools.integration.test.ts apps/api/src/search/search.module.ts apps/api/src/chats/chats.service.ts apps/api/src/tools/types.ts",
+            "max_output_tokens": 28000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:26.669Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The diff is broad but the contract surface is small: shared result identity, gated canonical hydration, preview matcher, and the tool response union. I’m drilling into those files for concrete regressions rather than trusting the task checkboxes.",
+          "timestamp": "2026-08-27T19:45:40.878Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/canonical-search-activation.service.ts | sed -n '1,240p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:40.879Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/canonical-search-activation.service.test.ts | sed -n '1,260p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:40.881Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-excerpt.ts | sed -n '1,240p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:40.883Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-hydrator.ts | sed -n '1,260p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:40.956Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-hydrator.ts | sed -n '261,420p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:41.026Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-matcher.ts | sed -n '1,320p'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:41.096Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-matcher.ts | sed -n '321,620p'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:41.107Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/tools/search-conversations.ts | sed -n '1,260p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:41.257Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/chats/chats-repository.ts | sed -n '560,760p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:52.317Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/runs/run-execution.service.ts | sed -n '1,260p'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:52.319Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"canonicalModelExcerptsEnabled|canonicalModelExcerpts\" apps/api/src/runs/run-execution.service.ts apps/api/src/search/search.module.ts apps/api/src/search/canonical-search-activation.service.ts apps/api/src/instance-config apps/api/llame.config.json.example",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:52.321Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/chats/run-execution-tools.integration.test.ts | sed -n '1040,1165p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:52.396Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-hydrator.integration.test.ts | sed -n '1,320p'",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:52.404Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-hydrator.test.ts | sed -n '1,340p'",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:52.539Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/runs/run-execution.service.ts | sed -n '820,880p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:07.144Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/instance-config/llame-config.ts | sed -n '170,215p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:07.146Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/instance-config/config-loader.ts | sed -n '1065,1090p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:07.292Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-matcher.integration.test.ts | sed -n '1,260p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:07.297Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-matcher.test.ts | sed -n '1,380p'",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:07.303Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/tools/search-conversations.test.ts | sed -n '1,260p'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:07.379Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/tools/search-conversations.test.ts | sed -n '260,520p'",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:07.450Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I found one concrete edge already: malformed zero-length boundary ranges can still hydrate and then silently shift the excerpt source to a later message instead of failing closed. I’m checking whether there’s a second contract break or if the rest is noise.",
+          "timestamp": "2026-08-27T19:47:13.901Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"constructor\\(|canonicalSearchActivation\" apps/api/src/runs/run-execution.service.ts",
+            "max_output_tokens": 8000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:47:13.902Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/core/index.ts | sed -n '1,220p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:47:13.904Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/core/fusion.ts | sed -n '1,280p'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:47:13.907Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"title-only|metadata-only|bestDocumentId|snippet null|canonicalModelExcerpts\" apps/api/src -g '*.test.ts'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:47:13.974Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/chats/chats-search.integration.test.ts | sed -n '220,320p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:47:14.053Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"searchByOwner\\(\" apps/api/src/chats/chats-repository.ts apps/api/src/chats/chats.service.ts apps/api/src/tools/search-conversations.ts",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:47:14.123Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/chats/chats-repository.ts | sed -n '300,380p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:47:17.105Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Second check: whether the activation gate actually prevents an old-version `bestDocumentId` from winning the shared search query. If not, the tool will drop good chats even after “ready” boot because the query itself is still version-agnostic.",
+          "timestamp": "2026-08-27T19:48:04.774Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/operations/projection-coverage.ts | sed -n '1,260p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:48:04.776Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"staleChatCount|readyChatCount|completeDocumentCount|chunker_version|search_chat_documents\" apps/api/src/search -g '*.ts'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:48:04.777Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/search-embed-dispatch.service.test.ts | sed -n '1,220p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:48:04.780Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/search-embed.worker.test.ts | sed -n '1,220p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:48:05.070Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"llame_search_projection_coverage_v2|complete_document_count|ready_chat_count|stale_chat_count\" apps/api/src apps/api/drizzle -g '*.sql' -g '*.ts'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:48:17.113Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/search-projection-coverage.integration.test.ts | sed -n '150,260p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:48:17.115Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/search-projection-coverage.integration.test.ts | sed -n '320,420p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:48:17.119Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/search-projection-coverage.integration.test.ts | sed -n '520,620p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:48:17.256Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/db/migrations/20260827161251_projection_readiness_v2.sql | sed -n '98,220p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:48:20.396Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"isImmutableEvidenceMessage|visibleMessageText\" apps/api/src/chats/conversation-evidence.ts apps/api/src/search/chat/conversation-chunker.ts apps/api/src/chats -g '*.ts'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:48:31.768Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/chats/conversation-evidence.ts | sed -n '1,120p'",
+            "max_output_tokens": 8000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:48:34.795Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Scope reviewed: `conversation-reads/projection..00693c42`, limited to search-layer ownership in `apps/api/src/search/*`, `apps/api/src/tools/search-conversations.ts`, shared fusion result wiring, activation config, and affected tests.\n\nFinding 1 — medium, high confidence  \n`apps/api/src/search/chat/canonical-search-hydrator.ts:252-263` and `apps/api/src/search/chat/canonical-search-matcher.ts:256-262`\n\nA malformed zero-width boundary range is accepted instead of failing closed. `hydrateCanonicalSearchRows()` rejects empty boundary messages only when `visibleText.length === 0`, but it still accepts:\n\n- first boundary with `first_message_text_offset === visibleText.length`\n- last boundary with `last_message_text_offset_exclusive === 0`\n- same-message range with `first_message_text_offset === last_message_text_offset_exclusive`\n\nThose produce `sourceStart === sourceEndExclusive`. The matcher then silently drops that boundary line intersection in `buildInternalLines()` (`sourceStart >= sourceEndExclusive`), and can still return a passage from a different message in the hydrated interval. That violates the layer’s own “closed internal miss” contract: an invalid locator should omit the result, not reinterpret the source interval.\n\nSmallest fix:\n- In `hydrateCanonicalSearchRows()`, reject zero-width first/last boundary intersections, not just reversed same-message ranges.\n- Add unit/integration coverage for:\n  - first offset at end-of-message\n  - last offset at zero\n  - same-message equal offsets\n\nWhat I validated:\n- 3.1 shared `bestDocumentId` plumbing preserves web shape via `ChatsService.searchChats()`.\n- 3.3 activation gate is real and blocks legacy/offsetless/global stale coverage before enablement.\n- 3.4 matcher semantics are coherent with the task: one normalization pass, line-local qualification, raw-span mapping, fallback anchors, 2000-line partitioning.\n- 3.5/3.6 tool result union and replay path are wired correctly; no obvious reader spill beyond the intentional shared coordinate schema.\n\nResidual risk:\n- No second blocking defect found in the reviewed scope.\n- Main remaining concern is the zero-width boundary hole above; after that, the layer looks internally consistent.",
+          "timestamp": "2026-08-27T19:49:35.012Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Re-checking the search layer at `c3171a9a`. I’m verifying the prior zero-width boundary hole, the new retryable-interior behavior, and whether the changes introduced any new spec drift.",
+          "timestamp": "2026-08-27T19:53:59.132Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=40 00693c42..c3171a9a -- apps/api/src/search/chat/canonical-search-hydrator.ts apps/api/src/search/chat/canonical-search-hydrator.test.ts apps/api/src/search/chat/canonical-search-hydrator.integration.test.ts apps/api/src/tools/search-conversations.test.ts apps/api/src/search/chat/canonical-search-matcher.ts",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:53:59.134Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-hydrator.ts | sed -n '180,300p'",
+            "max_output_tokens": 14000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:53:59.135Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"zero-width|retryable|ineligible interior|boundary|sourceStart >= sourceEndExclusive|output-error|cancelled|completed\" apps/api/src/search/chat/canonical-search-hydrator.test.ts apps/api/src/search/chat/canonical-search-hydrator.integration.test.ts apps/api/src/search/chat/canonical-search-hydrator.ts",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:53:59.277Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The prior hole is patched in the right place: the hydrator now rejects zero-width boundary intersections before the matcher can drop them. I’m checking the new invalid-interior classification against the layer contract to make sure it didn’t overcorrect.",
+          "timestamp": "2026-08-27T19:54:08.697Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-hydrator.integration.test.ts | sed -n '520,590p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:54:08.699Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"kind: 'presentation'|kind: 'invalid'|message_role === 'system'|message_role === 'tool'|isImmutableEvidenceMessage\" apps/api/src/search/chat/canonical-search-hydrator.ts apps/api/src/search/chat/canonical-search-hydrator.test.ts apps/api/src/search/chat/canonical-search-hydrator.integration.test.ts",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:54:08.701Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"search_conversations\" apps/api/src/chats/run-execution-tools.integration.test.ts apps/api/src/tools/search-conversations.test.ts | head -n 40",
+            "max_output_tokens": 8000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:54:08.839Z"
+        },
+        {
+          "type": "assistant",
+          "text": "No findings.\n\nScope re-checked: `00693c42..c3171a9a`, limited to search-layer canonical hydration/matcher/tool shaping.\n\nValidated:\n- Prior zero-width boundary hole is fixed in [apps/api/src/search/chat/canonical-search-hydrator.ts:159-181](#/absent) and [apps/api/src/search/chat/canonical-search-hydrator.ts:265-283](#/absent): first-boundary `start == len`, last-boundary `end == 0`, and same-message `start == end` now fail closed before matcher line filtering can reinterpret the source.\n- Coverage was added for that exact regression in [apps/api/src/search/chat/canonical-search-hydrator.test.ts:182-223](#/absent) and [apps/api/src/search/chat/canonical-search-hydrator.integration.test.ts:256-304](#/absent).\n- The interior retryable fix is compliant: `system`/`tool` remain skippable presentation rows, but any non-immutable `user`/`assistant` row now becomes `kind: 'invalid'` and kills hydration, which matches the search-layer contract to omit mutable winners rather than substitute projection bytes. Evidence: [apps/api/src/search/chat/canonical-search-hydrator.ts:130-158](#/absent), tests at [apps/api/src/search/chat/canonical-search-hydrator.test.ts:256-275](#/absent) and [apps/api/src/search/chat/canonical-search-hydrator.integration.test.ts:386-410](#/absent).\n- I did not find a new search-layer compliance issue in the patched diff.\n\nResidual risk:\n- Read-only review only; I did not rerun tests here.\n- The odd unit-test title “retryable user or assistant interior” covers assistant only, but that is naming noise, not a contract defect.",
+          "timestamp": "2026-08-27T19:54:22.593Z"
+        },
+        {
+          "type": "user",
+          "text": "<environment_context>\n  <current_date>2026-08-28</current_date>\n  <timezone>Europe/Madrid</timezone>\n  <filesystem><workspace_roots><root>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads</root></workspace_roots><permission_profile type=\"managed\"><file_system type=\"restricted\"><entry access=\"read\"><special>:root</special></entry><entry access=\"write\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads</path></entry><entry access=\"write\"><special>:slash_tmp</special></entry><entry access=\"write\"><special>:tmpdir</special></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/.git</path></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/.agents</path></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/.codex</path></entry></file_system></permission_profile></filesystem>\n</environment_context>",
+          "timestamp": "2026-08-28T15:06:27.972Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Reviewing the current uncommitted layer against `4b33481d` for search-layer compliance only. I’m loading the review/process skills, then I’ll map the exact changed surface to tasks `3.1`–`3.5` and the D5/spec scenarios before looking for regressions.",
+          "timestamp": "2026-08-28T15:06:44.867Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' /home/leon0399/.agents/skills/iterative-review-refinement/SKILL.md",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:44.869Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' /home/leon0399/.agents/skills/octocat/SKILL.md",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:44.962Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Using `iterative-review-refinement` for the spec/task audit and `octocat` for the git diff boundary. Next I’m pinning the exact uncommitted file set against `4b33481d` and reading the task/spec text so findings map to the contract, not to guesses.",
+          "timestamp": "2026-08-28T15:06:53.658Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git status --short",
+            "max_output_tokens": 6000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:53.662Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --name-only 4b33481d",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:53.666Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"3\\.[1-5]\" openspec/changes -g 'tasks.md' | rg 'simplify-conversation-recall'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:53.674Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"D5|search_conversations|canonicalModelExcerpts|simplify-conversation-recall|conversation recall|untrusted-history|historical conversation\" openspec apps/api/src -g '*.md' -g '*.ts'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:53.679Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The change surface is bigger than it should be for a search layer, but most of it may be startup-fixture fallout. I’m isolating the load-bearing runtime changes first: config removal, unconditional canonical search, and the new HTTP/worker gates.",
+          "timestamp": "2026-08-28T15:07:11.321Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=30 4b33481d -- apps/api/src/search/canonical-search-activation.service.ts apps/api/src/search/canonical-search-activation.service.test.ts apps/api/src/tools/search-conversations.ts apps/api/src/tools/search-conversations.test.ts apps/api/src/runs/run-execution.service.ts apps/api/src/tools/types.ts apps/api/src/runs/runs-worker.service.ts apps/api/src/runs/runs-worker.service.test.ts apps/api/src/app.module.ts apps/api/src/search/search.module.ts apps/api/src/instance-config/llame-config.ts apps/api/src/instance-config/config-loader.ts apps/api/src/instance-config/config-loader.test.ts apps/api/src/instance-config/llame.config.schema.json apps/api/llame.config.json.example e2e/support/fixtures/llame.config.e2e.json openspec/changes/simplify-conversation-recall/tasks.md",
+            "max_output_tokens": 32000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:11.327Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba openspec/specs/chat-search/spec.md | sed -n '45,115p'",
+            "max_output_tokens": 14000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:11.332Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba openspec/changes/simplify-conversation-recall/design.md | sed -n '80,115p'",
+            "max_output_tokens": 14000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:11.336Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba openspec/changes/simplify-conversation-recall/tasks.md | sed -n '38,56p'",
+            "max_output_tokens": 10000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:11.539Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Potential boundary problem: `AppModule` now wires the gate directly, which risks a second provider instance instead of using the one exported from `SearchModule`. I’m checking whether that’s just redundant noise or a real behavior bug.",
+          "timestamp": "2026-08-28T15:07:28.912Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/canonical-search-activation.service.ts | sed -n '1,260p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:28.915Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/search.module.ts | sed -n '1,220p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:28.920Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/app.module.ts | sed -n '1,180p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:28.923Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/runs/runs-worker.service.ts | sed -n '1,220p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:29.063Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/runs/runs-worker.service.test.ts | sed -n '1,420p'",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:29.190Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/worker.module.integration.test.ts | sed -n '1,340p'",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:29.207Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/worker-mode.integration.test.ts | sed -n '1,320p'",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:29.484Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"CanonicalSearchActivationService|CanonicalSearchCoverageService|search_conversations returns only the canonical union|removed key|skips readiness|aggregate\" apps/api/src/app.integration.test.ts apps/api/src/auth/auth.integration.test.ts apps/api/src/chats/chats-messages.integration.test.ts apps/api/src/chats/conversation-provenance-acceptance.integration.test.ts apps/api/src/chats/run-execution-tools.integration.test.ts apps/api/src/chats/shared-chats.integration.test.ts apps/api/src/compaction/compactions.integration.test.ts apps/api/src/identity/org-units.integration.test.ts apps/api/src/knowledge/knowledge-space.integration.test.ts apps/api/src/memory/memory.integration.test.ts apps/api/src/openapi-errors.integration.test.ts apps/api/src/personalization/personalization.integration.test.ts apps/api/src/runs/context-receipt.integration.test.ts apps/api/src/worker-mode.integration.test.ts apps/api/src/worker.module.integration.test.ts",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:45.492Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/tools/search-conversations.ts | sed -n '1,240p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:45.498Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/run-execution.service.ts | sed -n '840,865p'",
+            "max_output_tokens": 8000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:45.500Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/run-execution.service.ts | sed -n '460,520p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:45.668Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"canonical union|metadata'|kind: 'content'|kind: 'metadata'|notice\" apps/api/src/tools/search-conversations.test.ts apps/api/src/chats/run-execution-tools.integration.test.ts",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:45.821Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The duplicated-provider suspicion was false: `SearchModule` now exports only the shared coverage gate, and `AppModule` is the sole HTTP activation host. I’m checking for real leftovers now: stale config keys, stale tool-context/snapshot plumbing, and gate placement relative to run admission.",
+          "timestamp": "2026-08-28T15:08:00.687Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"canonicalModelExcerpts\" apps/api/src apps/api/llame.config.json.example e2e/support/fixtures/llame.config.e2e.json openspec/changes/simplify-conversation-recall -g '*.ts' -g '*.json' -g '*.md'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:00.689Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/canonical-search-activation.service.test.ts | sed -n '1,260p'",
+            "max_output_tokens": 18000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:00.691Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/runs/run-execution.service.ts | sed -n '840,860p'",
+            "max_output_tokens": 10000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:00.693Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/runs/worker-harness.ts | sed -n '120,230p'",
+            "max_output_tokens": 14000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:00.798Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=20 4b33481d -- apps/api/src/app.integration.test.ts apps/api/src/auth/auth.integration.test.ts apps/api/src/chats/chats-messages.integration.test.ts apps/api/src/chats/shared-chats.integration.test.ts apps/api/src/compaction/compactions.integration.test.ts apps/api/src/knowledge/knowledge-space.integration.test.ts apps/api/src/memory/memory.integration.test.ts apps/api/src/openapi-errors.integration.test.ts apps/api/src/personalization/personalization.integration.test.ts apps/api/src/runs/context-receipt.integration.test.ts apps/api/src/worker-mode.integration.test.ts",
+            "max_output_tokens": 26000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:00.901Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’ve confirmed the config key is removed from code. Now I’m checking whether the new gate actually covers the right process matrix and whether the search tool/web split still matches the spec after the legacy branch deletion.",
+          "timestamp": "2026-08-28T15:08:12.749Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/tools/search-conversations.test.ts | sed -n '1,460p'",
+            "max_output_tokens": 24000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:12.751Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"searchChats\\(|bestDocumentId|snippet\" apps/api/src/chats/chats.service.ts apps/api/src/chats/chats.service.test.ts apps/api/src/chats/chats-search.integration.test.ts",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:12.753Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=20 4b33481d -- apps/api/src/chats/conversation-provenance-acceptance.integration.test.ts apps/api/src/runs/worker-harness.ts apps/api/src/app.module.ts apps/api/src/runs/runs-worker.service.ts apps/api/src/search/canonical-search-activation.service.test.ts apps/api/src/search/canonical-search-activation.service.ts",
+            "max_output_tokens": 26000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:12.756Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba openspec/changes/simplify-conversation-recall/specs/chat-search/spec.md | sed -n '1,170p'",
+            "max_output_tokens": 18000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:12.850Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"canonicalModelExcerptsEnabled|canonicalModelExcerpts\" apps/api/src e2e/support/fixtures -g '*.ts' -g '*.json'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:29.092Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/chats/chats.service.ts | sed -n '214,242p'",
+            "max_output_tokens": 8000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:29.093Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=20 4b33481d -- apps/api/src/chats/chats.service.ts apps/api/src/chats/chats.service.test.ts apps/api/src/chats/chats-search.integration.test.ts",
+            "max_output_tokens": 18000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:29.406Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"overrideProvider\\(CanonicalSearchCoverageService\\)|search_conversations\" apps/api/src/conversation-provenance-acceptance.integration.test.ts apps/api/src/chats/conversation-provenance-acceptance.integration.test.ts apps/api/src/runs/worker-harness.ts",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:29.409Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I have enough to judge the main runtime path. One remaining question is whether the “API/co-located/dedicated/non-Run” matrix is actually proven here or only implied by the unit tests, because the tasks are checked as done.",
+          "timestamp": "2026-08-28T15:08:38.634Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"cannot start until projection coverage is complete|fails startup|before accepting|before queue registration|without a local search tool|non-Run worker|allowlisted search|skips readiness\" apps/api/src -g '*.test.ts' -g '*.integration.test.ts'",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:38.636Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=20 4b33481d -- apps/api/src/app.integration.test.ts apps/api/src/worker.module.integration.test.ts apps/api/src/worker-mode.integration.test.ts apps/api/src/runs/runs-worker.service.test.ts apps/api/src/search/canonical-search-activation.service.test.ts apps/api/src/chats/conversation-provenance-acceptance.integration.test.ts",
+            "max_output_tokens": 26000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:38.638Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/chats/conversation-provenance-acceptance.integration.test.ts | sed -n '90,160p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:38.831Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The likely weak spot is task `3.4`: I see unit coverage for the gate logic, but not yet proof that the actual HTTP app graph fails at startup when it would accept search-bound runs. I’m verifying whether that proof exists anywhere in the changed tests.",
+          "timestamp": "2026-08-28T15:08:52.820Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"AppModule|WorkerModule|rejects toThrow|cannot start|assertReady|overrideProvider\\(CanonicalSearchCoverageService\\)|search_conversations\" apps/api/src -g '*.test.ts' -g '*.integration.test.ts' | rg 'compile|init|cannot start|assertReady|search_conversations'",
+            "max_output_tokens": 24000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:52.821Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"canonical conversation search cannot start|aggregate coverage incomplete|BYPASSRLS|projection coverage is complete\" apps/api/src -g '*.test.ts' -g '*.integration.test.ts'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:52.823Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --stat 4b33481d -- apps/api/src/app.integration.test.ts apps/api/src/worker.module.integration.test.ts apps/api/src/worker-mode.integration.test.ts apps/api/src/runs/runs-worker.service.test.ts apps/api/src/search/canonical-search-activation.service.test.ts",
+            "max_output_tokens": 8000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:08:53.008Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Scope analyzed: current uncommitted diff against `4b33481d`, limited to `simplify-conversation-recall` search-layer tasks `3.1`–`3.5`, chat-search D5/spec delta, and ownership boundaries.\n\n- P2: `3.4` is checked as done, but the actual HTTP/co-located/dedicated boot matrix is only unit-tested, not integration-proven. Evidence: the real app/worker integration suites all stub the gate to success in [apps/api/src/app.integration.test:13](#/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/app.integration.test:13), [apps/api/src/worker-mode.integration.test:154](#/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/worker-mode.integration.test:154), and [apps/api/src/worker.module.integration.test:104](#/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/worker.module.integration.test:104), while the new gate assertions live only in [apps/api/src/search/canonical-search-activation.service.test:71](#/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/search/canonical-search-activation.service.test:71) and [apps/api/src/runs/runs-worker.service.test:263](#/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/runs/runs-worker.service.test:263). Consequence: a real `AppModule`/`WorkerModule` lifecycle wiring regression would slip through while [openspec/changes/simplify-conversation-recall/tasks.md:46](#/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/openspec/changes/simplify-conversation-recall/tasks.md:46) claims the API, co-located worker, dedicated runs worker with/without local tool, and non-Run worker configurations are verified. Smallest fix: add one failing/then-passing integration boot test for `AppModule.init()` with allowlisted search + rejected coverage, and one for `WorkerModule.init()` under a runs-enabled profile with rejected coverage and no local search allowlist.\n\n- P2: the search layer spills into acceptance-layer ownership by editing [apps/api/src/chats/conversation-provenance-acceptance.integration.test.ts:100](#/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/chats/conversation-provenance-acceptance.integration.test.ts:100) even though search-layer ownership is limited to config/startup/search/runtime/worker-harness concerns in [openspec/changes/simplify-conversation-recall/tasks.md:41](#/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/openspec/changes/simplify-conversation-recall/tasks.md:41), while acceptance owns cross-layer queued-Run/product proof in [openspec/changes/simplify-conversation-recall/tasks.md:51](#/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/openspec/changes/simplify-conversation-recall/tasks.md:51). This is not a runtime defect, but it breaks the stacked-PR boundary the task list is supposed to preserve. Smallest fix: either move that acceptance-test adjustment to the acceptance layer, or keep the harness API backward-compatible in this layer so the acceptance file stays untouched until layer 4.\n\nNo concrete P0/P1 runtime defect found in the searched code path beyond those compliance/test-boundary issues.",
+          "timestamp": "2026-08-28T15:09:51.229Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Re-reviewing the two prior P2s against the new admission integration test and the retained harness argument removal. I’m checking whether the new test actually closes the process-matrix gap and whether the acceptance-file edit is now justified as search-layer fallout rather than layer-4 scope creep.",
+          "timestamp": "2026-08-28T15:12:26.113Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --name-only 4b33481d",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:12:26.116Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/canonical-search-admission.integration.test.ts | sed -n '1,320p'",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:12:26.119Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=20 4b33481d -- apps/api/src/search/canonical-search-admission.integration.test.ts apps/api/src/chats/conversation-provenance-acceptance.integration.test.ts apps/api/src/runs/worker-harness.ts openspec/changes/simplify-conversation-recall/tasks.md",
+            "max_output_tokens": 26000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:12:26.377Z"
+        },
+        {
+          "type": "assistant",
+          "text": "One last sanity check: whether the new admission test is actually part of the working diff or just sitting untracked. If it’s untracked, the “fixed” P2 is still real because the stack won’t carry it.",
+          "timestamp": "2026-08-28T15:12:38.235Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git status --short --untracked-files=all | rg 'canonical-search-admission|conversation-provenance-acceptance|worker-harness'",
+            "max_output_tokens": 8000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:12:38.237Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git ls-files --others --exclude-standard apps/api/src/search/canonical-search-admission.integration.test.ts",
+            "max_output_tokens": 4000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:12:38.238Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --cached --name-only | rg 'canonical-search-admission|conversation-provenance-acceptance|worker-harness'",
+            "max_output_tokens": 4000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:12:38.411Z"
+        },
+        {
+          "type": "assistant",
+          "text": "One P2 remains.\n\n- P2: the new admission integration proof is not yet part of the layer diff because `apps/api/src/search/canonical-search-admission.integration.test.ts` is still untracked. Evidence: `git status --short --untracked-files=all` shows `?? apps/api/src/search/canonical-search-admission.integration.test.ts`, while the tracked search-layer edits are only the modified files. So the prior matrix-gap is logically addressed in the workspace, but not in the branch content that would actually ship or satisfy [openspec/changes/simplify-conversation-recall/tasks.md:46](#/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/openspec/changes/simplify-conversation-recall/tasks.md:46). Smallest fix: add the new file to git before treating the P2 as closed.\n\nNo other P0/P1/P2 remains from my prior review once that file is included.\n\nThe second prior P2 is cleared: the retained edit in [apps/api/src/chats/conversation-provenance-acceptance.integration.test.ts:100](#/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/chats/conversation-provenance-acceptance.integration.test.ts:100) is a direct consequence of task `3.2` removing the worker-harness activation override/API in [apps/api/src/runs/worker-harness.ts:552](#/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/runs/worker-harness.ts:552), not an added layer-4 behavior.",
+          "timestamp": "2026-08-28T15:12:51.938Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Verifying the staged state and whether any review finding remains in the actual layer content. Then I’ll close it cleanly if the diff now matches the prior recommendation.",
+          "timestamp": "2026-08-28T15:13:30.221Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git status --short --untracked-files=all | rg 'canonical-search-admission|conversation-provenance-acceptance|worker-harness|tasks.md'",
+            "max_output_tokens": 8000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:13:30.223Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --cached --name-status | rg 'canonical-search-admission|conversation-provenance-acceptance|worker-harness|tasks.md'",
+            "max_output_tokens": 8000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:13:30.225Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/canonical-search-admission.integration.test.ts | sed -n '1,160p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:13:30.419Z"
+        },
+        {
+          "type": "assistant",
+          "text": "No P0/P1/P2 findings remain.\n\nValidated:\n- `apps/api/src/search/canonical-search-admission.integration.test.ts` is now staged and therefore part of the layer content.\n- The new test closes the prior `3.4` proof gap with real lifecycle coverage for:\n  - `AppModule.init()` failing when HTTP could admit allowlisted `search_conversations` and coverage rejects: [apps/api/src/search/canonical-search-admission.integration.test.ts:31](#/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/search/canonical-search-admission.integration.test.ts:31)\n  - `WorkerModule.init()` failing before consumer registration for a runs-enabled worker with no local search allowlist: [apps/api/src/search/canonical-search-admission.integration.test.ts:55](#/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/search/canonical-search-admission.integration.test.ts:55)\n- The retained acceptance-file edit is still justified by task `3.2` API removal in the worker harness, not by added layer-4 behavior.\n\nSearch-layer review status: approved.",
+          "timestamp": "2026-08-28T15:13:36.754Z"
+        }
+      ],
+      "total_additions": 93,
+      "total_deletions": 0,
+      "accepted_lines": 93,
+      "overriden_lines": 0
+    },
+    "dc1d65d67a5dbf0d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044c0-5aef-7412-b439-352c48b094b5",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "<codex_internal_context source=\"goal\">\nContinue working toward the active thread goal.\n\nThe objective below is user-provided data. Treat it as the task to pursue, not as higher-priority instructions.\n\n<objective>\nfollow the process from CONTRIBUTING.md and implement the spec. It is approved\n</objective>\n\nContinuation behavior:\n- This goal persists across turns. Ending this turn does not require shrinking the objective to what fits now.\n- Keep the full objective intact. If it cannot be finished now, make concrete progress toward the real requested end state, leave the goal active, and do not redefine success around a smaller or easier task.\n- Temporary rough edges are acceptable while the work is moving in the right direction. Completion still requires the requested end state to be true and verified.\n\nBudget:\n- Tokens used: 0\n- Token budget: none\n- Tokens remaining: unbounded\n\nWork from evidence:\nUse the current worktree and external state as authoritative. Previous conversation context can help locate relevant work, but inspect the current state before relying on it. Improve, replace, or remove existing work as needed to satisfy the actual objective.\n\nProgress visibility:\nIf update_plan is available and the next work is meaningfully multi-step, use it to show a concise plan tied to the real objective. Keep the plan current as steps complete or the next best action changes. Skip planning overhead for trivial one-step progress, and do not treat a plan update as a substitute for doing the work.\n\nFidelity:\n- Optimize each turn for movement toward the requested end state, not for the smallest stable-looking subset or easiest passing change.\n- Do not substitute a narrower, safer, smaller, merely compatible, or easier-to-test solution because it is more likely to pass current tests.\n- Treat alignment as movement toward the requested end state. An edit is aligned only if it makes the requested final state more true; useful-looking behavior that preserves a different end state is misaligned.\n\nCompletion audit:\nBefore deciding that the goal is achieved, treat completion as unproven and verify it against the actual current state:\n- Derive concrete requirements from the objective and any referenced files, plans, specifications, issues, or user instructions.\n- Preserve the original scope; do not redefine success around the work that already exists.\n- For every explicit requirement, numbered item, named artifact, command, test, gate, invariant, and deliverable, identify the authoritative evidence that would prove it, then inspect the relevant current-state sources: files, command output, test results, PR state, rendered artifacts, runtime behavior, or other authoritative evidence.\n- For each item, determine whether the evidence proves completion, contradicts completion, shows incomplete work, is too weak or indirect to verify completion, or is missing.\n- Match the verification scope to the requirement's scope; do not use a narrow check to support a broad claim.\n- Treat tests, manifests, verifiers, green checks, and search results as evidence only after confirming they cover the relevant requirement.\n- Treat uncertain or indirect evidence as not achieved; gather stronger evidence or continue the work.\n- The audit must prove completion, not merely fail to find obvious remaining work.\n\nDo not rely on intent, partial progress, memory of earlier work, or a plausible final answer as proof of completion. Marking the goal complete is a claim that the full objective has been finished and can withstand requirement-by-requirement scrutiny. Only mark the goal achieved when current evidence proves every requirement has been satisfied and no required work remains. If the evidence is incomplete, weak, indirect, merely consistent with completion, or leaves any requirement missing, incomplete, or unverified, keep working instead of marking the goal complete. If the objective is achieved, call update_goal with status \"complete\" so usage accounting is preserved. If the achieved goal has a token budget, report the final consumed token budget to the user after update_goal succeeds.\n\nBlocked audit:\n- Do not call update_goal with status \"blocked\" the first time a blocker appears.\n- Only use status \"blocked\" when the same blocking condition has repeated for at least three consecutive goal turns, counting the original/user-triggered turn and any automatic goal continuations.\n- If the user resumes a goal that was previously marked \"blocked\", treat the resumed run as a fresh blocked audit. If the same blocking condition then repeats for at least three consecutive resumed goal turns, call update_goal with status \"blocked\" again.\n- Use status \"blocked\" only when you are truly at an impasse and cannot make meaningful progress without user input or an external-state change.\n- Once the blocked threshold is satisfied, do not keep reporting that you are still blocked while leaving the goal active; call update_goal with status \"blocked\".\n- Never use status \"blocked\" merely because the work is hard, slow, uncertain, incomplete, or would benefit from clarification.\n\nDo not call update_goal unless the goal is complete or the strict blocked audit above is satisfied. Do not mark a goal complete merely because the budget is nearly exhausted or because you are stopping work.\n\n</codex_internal_context>",
+          "timestamp": "2026-08-27T19:44:12.121Z"
+        },
+        {
+          "type": "user",
+          "text": "The PR is published under my name, I cannot approve it. My message above in the goal IS the approval",
+          "timestamp": "2026-08-27T19:44:12.121Z"
+        },
+        {
+          "type": "user",
+          "text": "<recommended_plugins>\nHere is a list of plugins that are available but not installed.\n\n- Airtable (airtable@openai-curated-remote)\n- Alpaca (alpaca@openai-curated-remote)\n- Apollo.io (apollo@openai-curated-remote)\n- Spotify (app-68de829bf7648191acd70a907364c67c@openai-curated-remote)\n- AllTrails (app-68f1afc5a6008191a701eaaab428816c@openai-curated-remote)\n- Apple Music (app-6938a94a61d881918ef32cb999ff937c@openai-curated-remote)\n- LONA Trading Assistant (app-694336b0c0948191a4ad234f9942885b@openai-curated-remote)\n- SciSpace (app-69439d715a7c8191aed9e2f6649e105f@openai-curated-remote)\n- Tarot (app-6943a2c078b0819188de39e4fe168d9b@openai-curated-remote)\n- Todoist: To Do List & Calendar (app-6943b73823548191a9f9216c6790c453@openai-curated-remote)\n- Consensus (app-6943e6f4a928819195962de16fb9ffe4@openai-curated-remote)\n- Sider Scholar (app-6948b485f5bc8191adb4df13f369cec7@openai-curated-remote)\n- True Sky (app-69490a4a06148191a0dd78606a3dbf1f@openai-curated-remote)\n- Bigdata.com (app-69491eceef3c8191beb70788b7840429@openai-curated-remote)\n- Gamma (app-698a098735908191989f5788d7ee317e@openai-curated-remote)\n- Tredict (app-69aef5b699a0819184512d57743fc1cd@openai-curated-remote)\n- Maersk (app-69b2b5a768d4819190d3a86c5f12e6d9@openai-curated-remote)\n- Dropbox (app-69b31dc2110c8191b8b47dc98fe5a052@openai-curated-remote)\n- Parqet (app-69b68652f0308191a27d7c7096cab4f6@openai-curated-remote)\n- Interactive Brokers (IBKR) (app-69bc11db874881918718abaca20b68ce@openai-curated-remote)\n- Financial Datasets (app-69cacd9394a88191ba6564e1bb0430fa@openai-curated-remote)\n- Fathom (app-69d88b99c5c481918e8da9225737e1e9@openai-curated-remote)\n- vidIQ (app-69dd11f3e50c8191b1ca48d03cf7e2ad@openai-curated-remote)\n- TickTick:To-Do List & Calendar (app-69ddbaba3fb48191a825f22c21b0599d@openai-curated-remote)\n- Plaud (app-69f3c30d68288191bbd428a394a78407@openai-curated-remote)\n- Wolfram (app-69fe0bf66c8481919c513d799406436e@openai-curated-remote)\n- Runway (app-6a05e3b201788191be12b590b43e6ce3@openai-curated-remote)\n- Caliber (app-6a05e8f22d408191b13ba3897157f6df@openai-curated-remote)\n- COROS (app-6a0694cbb2608191bbefb74ba810ab68@openai-curated-remote)\n- TradingCursor (app-6a0d835ff1dc8191972eeabd14967446@openai-curated-remote)\n- CoinMarketCap (app-6a172fe86f5481919f73cbc3bc3ad5bb@openai-curated-remote)\n- Trello (app-6a20b18a639081918c1b438f8381b27e@openai-curated-remote)\n- Longbridge (app-6a2baf2fad748191812393c3e00308ef@openai-curated-remote)\n- freddy (app-6a322b52a82c8191b7fb653f9e9f7891@openai-curated-remote)\n- Higgsfield (app-6a3293e129088191abf0875820e839da@openai-curated-remote)\n- Stocktwits (app-6a427a19b1f481919c5db13838af00c2@openai-curated-remote)\n- CoinGecko (app-6a4f02d735388191959c8328877e0bbd@openai-curated-remote)\n- Asana (asana@openai-curated-remote)\n- Atlassian Rovo (atlassian-rovo@openai-curated-remote)\n- Base44 (base44@openai-curated-remote)\n- Binance (binance@openai-curated-remote)\n- Box (box@openai-curated-remote)\n- Canva (canva@openai-curated-remote)\n- ClickUp (clickup@openai-curated-remote)\n- Cloudflare (cloudflare@openai-curated-remote)\n- Codex Security (codex-security@openai-curated-remote)\n- Figma (figma@openai-curated-remote)\n</recommended_plugins>\n# AGENTS.md instructions for /home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads\n\n<INSTRUCTIONS>\n# Agent instructions\n\n## Persona\n\nAct as Leo's brutally honest, high-level advisor and mirror — not a cheerleader, not a search engine with manners. Treat him as someone whose growth depends on hearing the truth, not being comforted. This is the default stance, not a mode to toggle.\n\n- Address the user as Leo.\n- Optimize for correctness and long-term leverage, not agreement. Do not validate, flatter, or soften uncomfortable truths.\n- Be direct, critical, and constructive — say when an idea is suboptimal and propose better options.\n- Assume staff-level technical context unless told otherwise.\n- Do not tell Leo he is right all the time. Be critical. Try to be neutral and objective.\n- Never praise questions or validate premises before answering. Banned phrases: \"great question\", \"you're absolutely right\", \"fascinating perspective\", or any variant.\n- Lead with the strongest counterargument to any position Leo appears to hold before supporting it.\n- Under pushback, do not capitulate unless new evidence or a superior argument is provided — restate the position if reasoning holds. Accuracy is the success metric, not approval.\n- Do not anchor on numbers or estimates Leo provides. Generate own estimate independently first.\n- Use explicit confidence levels when making claims: high / moderate / low / unknown.\n- Do not provide disclaimers. Do not volunteer ethics or morals commentary unless explicitly asked.\n- Do not excessively use emojis.\n- Output: terse, technical, fragments fine. Drop filler and hedging. Code blocks and technical terms unchanged. Auto-expand for security warnings, irreversible actions, or signs of user confusion. Write artifacts (code, configs, docs, PRDs) to files — return path + one-line description, never inline large content.\n- Challenge assumptions and expose blind spots. If reasoning is weak, dissect it and show *why* — not just that it is.\n- Name self-deception: if Leo is avoiding something uncomfortable, rationalizing, making excuses, playing small, or underestimating risk/effort, call it out explicitly.\n- Surface opportunity cost when time or attention is going somewhere suboptimal — say what's being traded away.\n- Zoom out before reacting. Consider goals, constraints, and second-order effects, not just the immediate ask.\n- For non-trivial decisions or advisory questions, close with a prioritized plan ranked by leverage: what to change in thought, action, or mindset to reach the next level.\n- Calibrate intensity to task weight. A one-line bug fix doesn't need strategic reframing; a project direction question does.\n\n## Quality\n\n- Inspect project config (`package.json`, `composer.json`, etc.) for available scripts.\n- Run all relevant checks (lint, format, type-check, build, tests) before submitting changes.\n- Never claim checks passed unless they were actually run.\n- If checks cannot be run, explicitly state why and what would have been executed.\n\n## Implementation discipline\n\n- State assumptions explicitly before coding. If multiple interpretations of the task exist, surface them instead of picking silently. If something is unclear, stop and name what's confusing — do not guess silently.\n- Write the minimum code that solves the problem. No speculative abstractions, no configurability that wasn't requested, no error handling for impossible scenarios. If a simpler approach exists than what was asked, push back before building the complex version.\n- Match the existing style and patterns in the file — even if you'd write them differently in a greenfield project. Raise the disagreement separately if it matters.\n- Clean up orphans *your* changes created (unused imports, variables, functions). Do not delete pre-existing dead code unless asked — flag it instead.\n- Frame work as verifiable goals before touching code: \"add validation\" → \"write tests for invalid inputs, then make them pass\"; \"fix bug\" → \"reproduce with a failing test, then make it pass\".\n- For multi-step work, write a brief plan with a per-step verification check before executing, so you can loop independently instead of asking for confirmation each step.\n- Every changed line should trace back to the task. If it doesn't, drop it.\n\n## CLI tools\n\nPrefer the Nix-managed tools below over slower or less precise defaults when they fit the task.\n\n| tool             | replaces                        | usage                                                                               |\n|------------------|---------------------------------|-------------------------------------------------------------------------------------|\n| `rg` (`ripgrep`) | `grep`                          | `rg \"pattern\"` - fast recursive text search                                         |\n| `fd`             | `find`                          | `fd -g \"*.nix\"` - fast file finder with sensible defaults                           |\n| `ast-grep`       | text-only code search           | `ast-grep run --pattern '$FUNC($$$)' --lang php src/` - AST-aware structural search |\n| `actionlint`     | ad hoc workflow review          | `actionlint` - lint GitHub Actions workflows                                        |\n| `zizmor`         | ad hoc workflow security review | `zizmor .github/workflows/` - audit GitHub Actions security posture                 |\n\nUse `ast-grep` for code patterns (avoids false positives from comments/strings). Fall back to `rg` for plain text, docs, and unsupported languages.\n\n## SCM\n\n- Never use `git reset --hard` or push without explicit permission.\n- If force-pushing is required, use `git push --force-with-lease --force-if-includes` (or just `git push --force-with-lease` if previous one is impossible, analyzing the root cause for fail first, and making sure these changes would not override remote branch updates)\n- Never merge PRs without explicit permission — always ask first, even if CI passes.\n- Prefer safe alternatives (`git revert`, new commits, temp branches).\n- If history rewrite seems necessary, explain and ask first.\n- Add `Co-Authored-By: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>` to commits by default, unless explicitly asked not to.\n\n## Using GitHub\n\nFor questions about GitHub, use the `gh` tool and `/octocat` skill.\nAlways run `gh` commands with escalated permissions; sandboxed `gh` calls fail in this environment because network access is restricted there.\nNever mention Codex in PR descriptions, PR comments, or issue comments unless asked explicitly.\nDo not include a \"Test plan\" section in PR descriptions.\n\n## Coding Standards\n\n### PHP Coding Standards\n\nWhen working with Laravel/PHP projects, always use the `php-guidelines-from-spatie` skill.\n\n## Reviewing external feedback\n\n- ALWAYS load the `superpowers:receiving-code-review` skill upon receiving review feedback (PR comments, agent reviews). The skill enforces technical rigor and verification over performative agreement.\n- When acting on PR review comments (from bots or humans), independently verify factual claims before applying fixes — especially version numbers, library existence, API behavior, and deprecation status.\n- If a claim falls outside your knowledge cutoff, use WebSearch or check local evidence (installed packages, lock files, docker images) before trusting it.\n- Use `pr-review-fetcher` agent to fetch Pull Review reviews and comments.\n\n## Production safety\n\n- Assume production impact unless stated otherwise.\n- Call out risk when touching auth, billing, data, APIs, or build systems.\n- Prefer small, reversible changes; avoid silent breaking behavior.\n\n## Self improvement\n\n- Continuously improve agent workflows.\n- When a repeated correction or better approach is found you're encouraged to codify your new found knowledge and learnings by modifying your section of `~/.c********S.md`.\n- You can modify `~/.c********S.md` without prior approval as long as your edits stay under the `Agent instructions` section.\n- If you utilize any of your codified instructions in future coding sessions call that out and let the user know that you performed the action because of that specific rule in this file.\n\n## Tool-specific memory\n\n- Actively think beyond the immediate task.\n- When using or working near a tool the user maintains:\n  - If you notice patterns, friction, missing features, risks, or improvement opportunities, jot them down.\n  - Do **not** interrupt the current task to implement speculative changes.\n- In plan mode, always use the `/ask` skill to read the code and the original transcript that generated it. Understanding intent will help you write a better plan.\n- Always start new conversation by loading `/using-superpowers` skill. Do this automatically without being asked.\n  - Ignore `superpowers:using-git-worktrees` skill.\n- Do **not** launch Bash / console commands in the background using `command &` syntax, you have options to run Bash and other tools in background explicitly.\n\n## External File Loading\n\nCRITICAL: When you encounter a file reference (e.g., @rules/general.md), use your Read tool to load it on a need-to-know basis. They're relevant to the SPECIFIC task at hand.\n\nInstructions:\n\n- Do NOT preemptively load all references - use lazy loading based on actual need\n- When loaded, treat content as mandatory instructions that override defaults\n- Follow references recursively when needed\n\n### Authoring CLAUDE.md / AGENTS.md\n\n`@file` references in CLAUDE.md / AGENTS.md are eagerly injected into agent context on every load by the Claude Code loader, regardless of whether the file is needed for the current task. The lazy-load instructions above govern in-conversation Read behavior; they do NOT override loader-level injection. Authoring choices matter:\n\n- Use `@file` ONLY for small, always-relevant docs (rule of thumb: ≤ ~50 lines and you'd want the content in every conversation in that directory).\n- Use plain markdown links `[file](file)` for everything larger or situational — agents will Read on demand.\n- Authoring heuristic: if you would not paste the file's full contents into every conversation that triggers this CLAUDE.md, do not use `@`.\n- This applies to both `CLAUDE.md` and `AGENTS.md` (and `.claude.local.md`), and to symlinks between them.\n\n--- project-doc ---\n\n# Agent instructions — llame\n\nHow to work in this repo. [SPEC.md](SPEC.md) is the current cross-cutting architecture contract and documentation index; focused capability behavior lives in OpenSpec. `CLAUDE.md` and `GEMINI.md` are symlinks to this file.\n\nThe product overview (what llame is) is short and always relevant, so it is imported in full:\n\n@README.md\n\nThe repository-wide contribution workflow is a direct operational convention and is imported in full:\n\n@CONTRIBUTING.md\n\n## Key documentation\n\n- [README.md](README.md) — current product overview, shipped baseline, and quickstart (imported above)\n- [CONTRIBUTING.md](CONTRIBUTING.md) — mandatory issue, OpenSpec, stacked-PR, verification, and review workflow (imported above)\n- [VISION.md](VISION.md) — north-star direction, principles, horizons, and deliberate deferrals\n- [ROADMAP.md](ROADMAP.md) — forward-only sequence of unshipped work; GitHub owns live status and implementation detail\n- [SPEC.md](SPEC.md) — current cross-cutting architecture contract, enforced invariants, and authority index\n- [`openspec/specs`](openspec/specs) — normative shipped capability behavior; [`openspec/changes`](openspec/changes) owns proposed deltas and archived implementation records\n- [CHANGELOG.md](CHANGELOG.md) — shipped chronology\n- [`docs/research`](docs/research) — noncanonical evidence, alternatives, and decision provenance\n- [DESIGN.md](DESIGN.md) — design system reference (visual language, OKLCH tokens, component stylings); consult before building or restyling any UI\n- [docs/testing.md](docs/testing.md) — the test pyramid, suffix-is-runner naming contract, placement rules, and CI mapping\n- [docs/scaling.md](docs/scaling.md) — horizontal-scaling topology, invariants, and the design constraints for the durable-run worker split (#48/#50)\n\n## Monorepo layout\n\npnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 22.19 (pinned to 22.23.1 in `.node-version`); `nix develop` or direnv gives a ready shell; pnpm 10). Workspaces: `apps/*`, `packages/*`.\n\n| Path                         | Role                                                                                        | Stack (details in its own `AGENTS.md`)                                                                     |\n| ---------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |\n| `apps/web`                   | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB               | Next.js 16 (App Router), React 19, TanStack Query, generated Orval Fetch bindings, AI SDK (chat streaming) |\n| `apps/api`                   | API/services + **sole database owner**; ships co-located and dedicated worker entrypoints   | NestJS 11, Drizzle + postgres.js, pg-boss                                                                  |\n| `apps/storybook`             | Component workbench + browser interaction tests for `packages/ui` stories                   | Storybook 10 (nextjs-vite), Vitest browser mode                                                            |\n| `packages/ui`                | Shared shadcn/ui component library (`@workspace/ui`); stories co-located next to components | shadcn/ui, Tailwind, React 19                                                                              |\n| `packages/config-typescript` | Shared `tsconfig` bases                                                                     | —                                                                                                          |\n\nEach app/package has its own `AGENTS.md` (auto-loaded when you work in that directory) with concrete commands, structure, and gotchas. **Keep this file high-level — put implementation detail in the child file, not here.**\n\n## Commands (from repo root)\n\n```bash\npnpm install\npnpm dev      # turbo run dev — all apps in watch mode (web + api + storybook on :6006)\npnpm build    # turbo build\npnpm lint     # turbo lint (oxlint per workspace; type-aware via tsgolint in apps/api)\npnpm format   # prettier --write --cache . over the ignore-pruned repository (format:check to verify)\npnpm test:e2e            # playwright test; pass filters after --, e.g. pnpm test:e2e -- e2e/auth\npnpm test:e2e:ui         # playwright test --ui\npnpm test:e2e:headed     # playwright test --headed\npnpm test:e2e:debug      # playwright test --debug\npnpm test:e2e:report     # playwright show-report\n```\n\nAgent verification is resource-bounded: build affected workspaces sequentially\n(`pnpm --filter <workspace> build`). If an aggregate build is necessary, use\n`pnpm exec turbo run build --concurrency=1`; do not run the unbounded root\n`pnpm build`, which launches the API, Next, and Storybook builds concurrently.\n\nScope to one workspace with `pnpm --filter web <script>` (or `--filter api`).\nInstall Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, Playwright starts a throwaway Docker Postgres, applies migrations, owns the API/model/MCP processes, builds `apps/web` with the E2E API URL, and serves that production build with `next start`; set `POSTGRES_URL` only to use an already-migrated external database instead. Authenticated E2E tests should use the worker-scoped fixture from `e2e/support/fixtures.ts`, which writes per-worker storage state under `.auth/`; destructive session tests should request `freshAccount`. Override `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_DB_PORT`, `E2E_DB_READY_PORT`, `E2E_MODEL_PORT`, or `E2E_MCP_PORT` only when the default E2E ports (`4300`/`4301`/`55433`/`4302`/`4303`/`4304`) conflict. Stop manually started services using the E2E ports and any `pnpm dev`, `next dev`, or `next start` using `apps/web` before E2E: Playwright rejects occupied service ports, and the production build must own `.next` without racing another Next process.\n\n## Local database (docker)\n\n`compose.yaml` (repo root) runs Postgres for dev. One-time `cp apps/api/.env.example apps/api/.env.local`, then:\n\n```bash\npnpm db:up        # start Postgres        ·   pnpm db:reset  # wipe + re-init\npnpm db:migrate   # apply apps/api migrations (the authoritative schema)\npnpm db:provision-rls # assign privileged RLS helper ownership after migrations\npnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs\n```\n\nDev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and the self-provisioning `test:integration` gate are documented in [apps********S.md](apps********S.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).\n\n## Conventions\n\n- TypeScript only across web/api/worker — no second backend language (SPEC.md §23).\n- Modified cyclomatic complexity must remain `<= 35` under Oxlint's `modified` variant. Extract only along a real responsibility boundary; arbitrary helper extraction, inline disables, and other metric gaming are prohibited.\n- Drizzle ORM for all DB access. Generate migrations with `drizzle-kit` by\n  default; a security or data-transition gap may add a reviewed hand-authored\n  step only when it is recorded in the [API migration exception ledger](apps********S.md#gotchas)\n  with its regeneration and verification requirements.\n- Conventional commits (e.g. `feat(api):`, `docs(spec):`).\n- The constructor-decorator placement rule runs through the pinned native\n  `pnpm lint:ast-grep` command in Lefthook and CI. Chained type assertions,\n  including `as unknown as T`, are banned across the root E2E and four workspace\n  Oxlint scopes by the vendored anti-slop plugin; narrow the boundary, construct\n  a complete value, or validate untrusted input instead of suppressing the\n  compiler.\n- Product-owned Markdown must pass `pnpm lint:markdown` using the pinned\n  markdownlint-cli2 configuration. Fix violations in the source; do not add\n  inline disables or ignore paths unless the content is generated, maintained\n  upstream, or a symlink alias, and document that boundary in the root config.\n- Every workspace `lint` command rejects unused disable directives. Delete stale\n  suppressions; do not retain a directive for a rule that is not active in that\n  workspace.\n- Tests follow [docs/testing.md](docs/testing.md): `*.test.ts(x)` is Vitest everywhere (`.integration` infix = needs real Postgres; root `e2e/` is Playwright's island); component behavior belongs in Storybook stories, not jsdom render tests; DB-backed suites fail loudly, never skip silently.\n- UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).\n- **Preserve stored conversation parts wholesale by default.** `messages.parts`\n  is the durable application/UI history. Before appending a new turn, retain\n  prior model-bearing parts and their stored order; sanitize, render, and order\n  application-authored content before persistence rather than during replay.\n  At the SDK boundary, use only the minimal content-transparent conversion from\n  stored UI parts to model messages. This is a best-effort application\n  invariant, not provider-wire or cache-byte identity: SDK/provider\n  serialization may evolve, and the existing assistant/tool projection remains\n  an explicit exception pending\n  [#599](https://github.com/leon0399/llame/issues/599). Reasoning, sources, cap\n  notices, and other declared display-only parts are not model history. The\n  current top-level system prompt is outside message history, and compaction may\n  replace only the prefix it explicitly supersedes. New application-owned\n  replay transforms or omissions must be specified rather than introduced\n  silently.\n\n## Storybook MCP tools\n\nStories live next to what they render — component stories in `packages/ui/src`, and (planned) page/meta-component stories in `apps/web` — so this workflow applies wherever UI work happens. When the `storybook` MCP server is connected (Storybook dev on :6006), its tools are the source of truth for component APIs and story conventions — not component source or type definitions:\n\n- **Never guess component props.** Before using any prop — even common-sounding ones like `shadow` or `size` — verify it via `list-all-documentation` → `get-documentation` (or an example story). Story names don't reliably reflect prop names. An undocumented prop does not exist: don't assume it from naming conventions or other libraries; check back with the user instead.\n- Call `get-storybook-story-instructions` before creating or editing any story and follow it over remembered conventions.\n- After any change that affects rendered UI (components, stories, styles, tokens), verify with `run-story-tests` (not a package.json script) and include the `preview-stories` URLs in your response. A shared file (token, util, hook) has no stories of its own — resolve its consumers' stories with `get-stories-by-component` and test/preview those.\n\n## Security\n\nllame is multi-tenant and self-hosted: tenant isolation is a core invariant. Weigh security on every change that touches data, auth, tenancy, identity, secrets, or an externally reachable surface. These are the durable principles — concrete mechanics live in the relevant app's `AGENTS.md` and focused OpenSpec capability specs; SPEC.md indexes the cross-cutting contract:\n\n- **Authorization identity comes only from a trusted, authenticated source** — never from client-controlled input (params, body, query, headers). Never scope data access by a value the caller can set.\n- **Enforce isolation in the datastore, not just app code** (defense-in-depth), and make sure the app actually engages it. When identity or scope is absent, **fail closed** (deny), never open.\n- **Don't ship a reachable surface that can't yet be secured.** If the guard doesn't exist, gate the surface or omit it — a code comment is not a mitigation.\n- **Security is an acceptance criterion, not a follow-up.** Any change touching data/auth/tenancy states its isolation and threat considerations up front and ships a negative test (e.g. cross-tenant access is denied).\n- **Secrets stay secret** — never commit, log, print, or echo credentials, keys, or tokens; provider credentials are currently operator-managed through `llame.config.json` secret references.\n- **Surface risk, don't bury it.** If a change could weaken isolation, or you're unsure, say so explicitly and stop for a decision — don't defer silently.\n\n## Maintaining ROADMAP & CHANGELOG\n\n- `ROADMAP.md` is forward-only — it lists work that is **not yet done**.\n- `CHANGELOG.md` is the dated record of everything **shipped** — features, bug fixes, and chores alike — newest first.\n- **Update both in the same PR that ships the work, not after.** The PR's own diff adds the dated `CHANGELOG.md` entry and, if the work was on the roadmap, removes it from `ROADMAP.md` — so the changelog is correct the moment the PR merges, with no separate follow-up commit. Unplanned work (bug fixes, chores) goes straight to the changelog without ever appearing on the roadmap.\n\n## Current state / gotchas\n\n- `apps/api/src/db` is the single source of truth for the schema. `apps/web` owns no database or chat backend — it is a thin API client (SPEC.md §22.0).\n- Every chat run executes via the pg-boss queue (#107; there is no inline request-thread mode): the api enqueues and answers with the run-event stream bridge, while co-located consumers or the shipped no-HTTP `apps/api/src/worker.ts` entrypoint execute (`RunsWorkerService` → transport-agnostic `RunExecutionService` — don't couple it to HTTP).\n- Production changes that add server-authored message-part schemas are\n  coordinated API/worker revision boundaries. Land backward-compatible schema\n  preparation first; before the writer cutover, quiesce old API writers and\n  drain accepted Runs, then apply the cutover and deploy compatible workers\n  before any API authors the new part. An accepted OpenSpec MAY instead declare\n  an alpha-only single-revision hard cutover when mixed revisions and existing\n  data are explicitly out of scope; do not silently infer that exception.\n  Concrete rollout/rollback steps live in\n  [apps********S.md](apps********S.md) and\n  [docs/scaling.md](docs/scaling.md).\n\n</INSTRUCTIONS>\n<environment_context>\n  <cwd>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads</cwd>\n  <shell>zsh</shell>\n  <current_date>2026-08-27</current_date>\n  <timezone>Europe/Madrid</timezone>\n  <filesystem><workspace_roots><root>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads</root></workspace_roots><permission_profile type=\"managed\"><file_system type=\"restricted\"><entry access=\"read\"><special>:root</special></entry><entry access=\"write\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads</path></entry><entry access=\"write\"><special>:slash_tmp</special></entry><entry access=\"write\"><special>:tmpdir</special></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/.git</path></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/.agents</path></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/.codex</path></entry></file_system></permission_profile></filesystem>\n</environment_context>",
+          "timestamp": "2026-08-27T19:45:08.319Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Reviewing the cumulative projection/search diff at `00693c42` with emphasis on correctness, SQL/RLS boundaries, excerpt math, and avoidable complexity. I’ll read the changed files directly and return only concrete findings.",
+          "timestamp": "2026-08-27T19:45:12.663Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git show --stat --oneline 00693c42",
+            "max_output_tokens": 6000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:13.652Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The tip commit itself is only the task checkbox. I’m switching to the cumulative branch diff against `origin/master`, since that is the actual review surface.",
+          "timestamp": "2026-08-27T19:45:16.420Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --stat origin/master...00693c42",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:17.414Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=80 origin/master...00693c42 -- apps/api/src/search/chat/canonical-search-hydrator.ts apps/api/src/search/chat/canonical-search-matcher.ts apps/api/src/tools/search-conversations.ts apps/api/src/search/search-index.service.ts apps/api/src/search/chat/conversation-chunker.ts apps/api/src/chats/conversation-evidence.ts apps/api/src/chats/chats.service.ts apps/api/src/db/schema/search.ts apps/api/src/search/operations/projection-coverage.ts apps/api/src/search/search-reindex.worker.ts",
+            "max_output_tokens": 24000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:29.660Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=40 origin/master...00693c42 -- apps/api/src/db/migrations/20260827155409_projection_coverage.sql apps/api/src/db/migrations/20260827161251_projection_readiness_v2.sql docker/postgres/rls-function-owner.sql",
+            "max_output_tokens": 18000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:29.661Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=60 origin/master...00693c42 -- apps/api/src/chats/chats-repository.ts apps/api/src/chats/assistant-completion.ts apps/api/src/db/schema/chats.ts apps/api/src/tools/conversation-source-coordinates.ts apps/api/src/search/core/fusion.ts apps/api/src/search/core/text.ts apps/api/src/instance-config/config-loader.ts apps/api/src/instance-config/llame-config.ts",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:29.734Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-hydrator.ts | sed -n '1,260p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:35.967Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-matcher.ts | sed -n '1,340p'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:35.969Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-excerpt.ts | sed -n '1,220p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:36.111Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-hydrator.ts | sed -n '260,420p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:39.209Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m checking whether the canonical path is internally coherent, not just locally unit-tested: activation gating, search result shaping, and the SQL functions that define “ready” are the likely regression points.",
+          "timestamp": "2026-08-27T19:45:47.032Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/canonical-search-activation.service.ts | sed -n '1,240p'",
+            "max_output_tokens": 14000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:47.034Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/tools/types.ts | sed -n '1,220p'",
+            "max_output_tokens": 8000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:47.036Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/runs/run-execution.service.ts | sed -n '1,260p'",
+            "max_output_tokens": 18000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:47.039Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/search-index.service.ts | sed -n '1,320p'",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:47.111Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/operations/projection-coverage.ts | sed -n '1,260p'",
+            "max_output_tokens": 14000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:54.507Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/search.module.ts | sed -n '1,220p'",
+            "max_output_tokens": 10000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:54.580Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/search-reindex.worker.ts | sed -n '1,260p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:54.583Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/instance-config/llame.config.schema.json | sed -n '1,260p'",
+            "max_output_tokens": 14000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:45:54.593Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n 'canonicalModelExcerpts|embeddingModelId' apps/api/src/instance-config/llame.config.schema.json apps/api/llame.config.json.example apps/api/src/instance-config/config-loader.test.ts apps/api/src/search/canonical-search-activation.service.test.ts apps/api/src/tools/search-conversations.test.ts apps/api/src/search/chat/canonical-search-hydrator.integration.test.ts apps/api/src/search/chat/canonical-search-matcher.integration.test.ts",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:02.025Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/instance-config/llame.config.schema.json | sed -n '300,332p'",
+            "max_output_tokens": 6000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:04.677Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-matcher.ts | sed -n '340,520p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:07.530Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-matcher.ts | sed -n '520,620p'",
+            "max_output_tokens": 8000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:10.406Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m checking one more boundary: whether the function-provisioning checks and readiness SQL actually target the same objects the runtime calls. That’s the kind of mismatch that slips past unit tests and only fails on deploy.",
+          "timestamp": "2026-08-27T19:46:27.842Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/discovery-provisioning.ts | sed -n '1,220p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:27.843Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"llame_search_projection_coverage_v2|llame_search_projection_stale_chats_v2|llame_search_embedding_coverage\\(\" apps/api/src -g '!**/meta/**'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:27.845Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"CREATE FUNCTION llame_search_embedding_coverage|ALTER FUNCTION llame_search_embedding_coverage\" apps/api/src/db/migrations docker/postgres/rls-function-owner.sql",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:27.995Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/conversation-chunker.ts | sed -n '1,280p'",
+            "max_output_tokens": 18000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:39.272Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/tools/search-conversations.test.ts | sed -n '1,260p'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:39.274Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-hydrator.integration.test.ts | sed -n '1,260p'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:39.418Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/canonical-search-activation.service.test.ts | sed -n '1,220p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:45.685Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/operations/cli.ts | sed -n '150,240p'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:48.695Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n 'canonicalModelExcerptsEnabled|CanonicalSearchActivationService|searchConversationsTool' apps/api/src/runs/run-execution.service.ts apps/api/src/tools -g '!**/*.test.ts'",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:53.058Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/runs/run-execution.service.ts | sed -n '460,870p'",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:46:55.832Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"metadata|omit|hydrat|bestDocumentId|canonical model excerpts\" apps/api/src/tools/search-conversations.test.ts apps/api/src/search/chat/canonical-search-matcher.test.ts apps/api/src/search/chat/canonical-search-hydrator.test.ts",
+            "max_output_tokens": 14000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:47:42.196Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/tools/search-conversations.test.ts | sed -n '280,450p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:47:45.205Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/core/index.ts | sed -n '1,220p'",
+            "max_output_tokens": 8000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:47:54.534Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/db/migrations/20260827161240_projection_expected_document_count.sql | sed -n '1,120p'",
+            "max_output_tokens": 4000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:48:03.450Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"expectedDocumentCount|searchChatState|owner_user_id\" apps/api/src/db/schema/search.ts apps/api/src/search/search-index.service.ts apps/api/src/search/search-projection-coverage.integration.test.ts",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:48:12.404Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/db/schema/search.ts | sed -n '200,255p'",
+            "max_output_tokens": 8000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:48:15.419Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/db/migrations/20260827145400_lowly_spirit.sql | sed -n '1,120p'",
+            "max_output_tokens": 4000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:49:14.831Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Scope analyzed: cumulative `origin/master...00693c42` diff for projection/search, especially `canonical-search-*`, `search-conversations`, `search-index`, config gating, and the new SQL/RLS discovery/readiness functions.\n\nFindings:\n\n1. Moderate confidence: [apps/api/src/search/chat/canonical-search-matcher.ts](/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/search/chat/canonical-search-matcher.ts:215) collapses chunk-local UTF-16 source bounds into whole-message line coordinates.\n\nThe matcher does the hard part correctly in [buildInternalLines](/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/search/chat/canonical-search-matcher.ts:256): it intersects each logical line with `sourceStart`/`sourceEndExclusive`, so matching is against the clipped chunk slice. But when it returns the selected passage, it throws that precision away and emits:\n\n- whole logical lines from `scanCanonicalLogicalLines(firstMatch.line.message.visibleText).slice(...)`\n- only `offset`/`limit` line coordinates\n\nFor a giant one-line message split into multiple chunks, every winning chunk from that message collapses to `offset: 0, limit: 1`. The future `conversation_read` cannot tell which slice matched and will have to load the whole line/message. That defeats the stated bloat-control premise exactly on the oversized-message path this layer introduced locators for.\n\nSmallest fix: either keep char-range coordinates alongside line-range coordinates for search hits, or redefine the returned read target so it can represent clipped sub-line spans. At minimum add a regression test for a single-line oversized message split into multiple chunks.\n\n2. Low-to-moderate confidence: [apps/api/src/tools/search-conversations.ts](/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/tools/search-conversations.ts:86) changes the model-facing result contract without updating the model-facing tool contract enough.\n\nCanonical mode now returns a discriminated union with `kind`, `messageSeq`, `offset`, `limit`, `excerpt`, and metadata-only rows with no snippet. The tool description still says “Returns short snippets”, and nothing model-visible explains that `offset`/`limit` are message-local line coordinates rather than byte offsets or pagination fields.\n\nThat is not a type-system bug, but it is a downstream-caller bug waiting to happen because the model is the caller here.\n\nSmallest fix: tighten the tool description to describe the two result kinds and the meaning of `messageSeq`/`offset`/`limit`, or rename those fields to something unambiguous before `conversation_read` depends on them.\n\nWhat I validated:\n\n- The omission rule for unhydratable/unmatchable content winners is implemented, not metadata-downgraded.\n- The new RLS policy shape for projection/state repair is internally coherent with the owner-scoped reindex path.\n- The excerpt crop logic is careful about Unicode code points and does not obviously split surrogate pairs.\n- The projection readiness / provisioning path is internally consistent at the static-code level.\n\nResidual risk:\n\n- Real migrated-DB behavior for the SECURITY DEFINER ownership flow still needs runtime confirmation; that is deployment-sensitive rather than something static review can settle.",
+          "timestamp": "2026-08-27T19:49:56.837Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Re-checking the delta at `c3171a9a` against the previously raised concerns only. I’m looking for any new correctness regressions outside the intentionally deferred giant-line char-range case.",
+          "timestamp": "2026-08-27T19:54:08.853Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git show --stat --oneline c3171a9a",
+            "max_output_tokens": 8000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:54:08.856Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=80 c3171a9a^ c3171a9a -- apps/api/src/tools/search-conversations.ts apps/api/src/search/chat/canonical-search-matcher.ts apps/api/src/search/chat/canonical-search-hydrator.ts apps/api/src/tools/search-conversations.test.ts openspec/changes/add-conversation-provenance-reads/tasks.md openspec/changes/add-conversation-provenance-reads/design.md",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:54:08.927Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-hydrator.test.ts | sed -n '1,260p'",
+            "max_output_tokens": 18000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:54:19.389Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/chat/canonical-search-hydrator.integration.test.ts | sed -n '260,460p'",
+            "max_output_tokens": 18000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-27T19:54:19.460Z"
+        },
+        {
+          "type": "assistant",
+          "text": "No new issues in `c3171a9a`.\n\nWhat changed is narrowly correct:\n\n- [apps/api/src/search/chat/canonical-search-hydrator.ts](/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/search/chat/canonical-search-hydrator.ts:85) now distinguishes `presentation` vs `invalid` interior rows, so `system`/`tool` rows are still omittable in the middle but retryable / malformed / non-evidence `user` or `assistant` rows hard-fail the hydrate path. That matches the approved omission rule.\n- [apps/api/src/search/chat/canonical-search-hydrator.ts](/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/search/chat/canonical-search-hydrator.ts:172) now rejects zero-width boundary ranges and same-message empty spans via `hasValidSourceRange`. That closes the false-positive “valid canonical hit with no readable source” hole.\n- The new unit + integration coverage exercises the exact failure modes that were missing: zero-width first/last/same-message ranges, boundary `tool`/`system`, retryable interior assistant, and empty boundary messages.\n\nValidation performed:\n\n- Static review of the delta only.\n- Cross-checked new tests in [canonical-search-hydrator.test.ts](/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/search/chat/canonical-search-hydrator.test.ts:149) and [canonical-search-hydrator.integration.test.ts](/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/search/chat/canonical-search-hydrator.integration.test.ts:264) against the implementation branch conditions.\n\nResidual risk:\n\n- The previously noted giant single-line / sub-line range precision concern still exists, but per your direction that is intentionally deferred and should not block this layer.\n- The tool-description/result-shape clarity concern is not a new issue in this delta and belongs to the later task you already scoped.",
+          "timestamp": "2026-08-27T19:54:29.444Z"
+        },
+        {
+          "type": "user",
+          "text": "<environment_context>\n  <current_date>2026-08-28</current_date>\n  <timezone>Europe/Madrid</timezone>\n  <filesystem><workspace_roots><root>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads</root></workspace_roots><permission_profile type=\"managed\"><file_system type=\"restricted\"><entry access=\"read\"><special>:root</special></entry><entry access=\"write\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads</path></entry><entry access=\"write\"><special>:slash_tmp</special></entry><entry access=\"write\"><special>:tmpdir</special></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/.git</path></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/.agents</path></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/.codex</path></entry></file_system></permission_profile></filesystem>\n</environment_context>",
+          "timestamp": "2026-08-28T15:06:17.760Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Reviewing the current uncommitted layer diff against `4b33481d`, limited to the search simplification tasks and their gating semantics. I’m checking the changed runtime paths, the worker registration boundary, and the OpenSpec deltas for mismatches.",
+          "timestamp": "2026-08-28T15:06:29.957Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git status --short",
+            "max_output_tokens": 6000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:29.959Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --stat 4b33481d -- apps/api openspec/changes/add-conversation-provenance-reads",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:29.962Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --name-only 4b33481d -- apps/api openspec/changes/add-conversation-provenance-reads",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:30.052Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=80 4b33481d -- apps/api/src/search/canonical-search-activation.service.ts apps/api/src/search/canonical-search-activation.service.test.ts apps/api/src/runs/runs-worker.service.ts apps/api/src/runs/runs-worker.service.test.ts apps/api/src/runs/worker-harness.ts apps/api/src/app.module.ts apps/api/src/search/search.module.ts",
+            "max_output_tokens": 24000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:43.254Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=80 4b33481d -- apps/api/src/tools/search-conversations.ts apps/api/src/tools/search-conversations.test.ts apps/api/src/tools/types.ts apps/api/src/runs/run-execution.service.ts",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:43.255Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --unified=80 4b33481d -- apps/api/src/instance-config/config-loader.ts apps/api/src/instance-config/config-loader.test.ts apps/api/src/instance-config/llame-config.ts apps/api/src/instance-config/llame.config.schema.json apps/api/llame.config.json.example e2e/support/fixtures/llame.config.e2e.json openspec/changes/simplify-conversation-recall/tasks.md",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:43.347Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m checking the only subtle surface left: whether the new coverage gate is wired into the actual app and worker bootstrap paths in the same way the spec claims, including “exact allowlist” and non-Run worker skips.",
+          "timestamp": "2026-08-28T15:06:53.369Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/runs/runs-worker.service.ts | sed -n '1,220p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:53.370Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/runs/worker-harness.ts | sed -n '1,220p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:53.372Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/worker.module.integration.test.ts | sed -n '1,260p'",
+            "max_output_tokens": 18000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:53.374Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/worker-mode.integration.test.ts | sed -n '1,260p'",
+            "max_output_tokens": 18000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:06:53.778Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/tools/search-conversations.test.ts | sed -n '1,260p'",
+            "max_output_tokens": 18000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:12.911Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/search/canonical-search-activation.service.test.ts | sed -n '1,220p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:13.008Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "nl -ba apps/api/src/app.integration.test.ts | sed -n '1,220p'",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:13.142Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"CanonicalSearchCoverageService|search_conversations|assertReady|runs-enabled|dedicated\" apps/api/src/worker.module.integration.test.ts apps/api/src/worker-mode.integration.test.ts apps/api/src/runs/runs-worker.service.test.ts apps/api/src/chats/conversation-provenance-acceptance.integration.test.ts apps/api/src/chats/run-execution-tools.integration.test.ts",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads",
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-08-28T15:07:17.669Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Approved. No concrete P0/P1/P2 findings in the current uncommitted diff against `4b33481d` for tasks `3.1` to `3.5`.\n\nScope checked:\n\n- `apps/api/src/search/canonical-search-activation.service.ts`\n- `apps/api/src/runs/runs-worker.service.ts`\n- `apps/api/src/tools/search-conversations.ts`\n- `apps/api/src/tools/types.ts`\n- `apps/api/src/instance-config/{config-loader.ts,config-loader.test.ts,llame-config.ts,llame.config.schema.json}`\n- `apps/api/src/{app.module.ts,worker-harness.ts}`\n- targeted boot/tool tests including `runs-worker.service.test.ts`, `canonical-search-activation.service.test.ts`, `worker.module.integration.test.ts`, `worker-mode.integration.test.ts`, `app.integration.test.ts`\n- `openspec/changes/simplify-conversation-recall/tasks.md`\n\nWhat I validated:\n\n- `canonicalModelExcerpts` is removed end-to-end from raw/resolved config, schema, defaults, examples, worker harness overrides, run tool context, and tool execution path.\n- `search_conversations` is canonical-only now; the legacy model-facing adapter path is gone, while the web adapter path is untouched because it still goes through `ChatsRepository.searchByOwner` independently.\n- HTTP admission is gated only when `search_conversations` is exactly present in `tools.allowed`, via [canonical-search-activation.service.ts:75](/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/search/canonical-search-activation.service.ts:75).\n- Every runs-consuming worker profile gates before queue registration regardless of its local allowlist, via [runs-worker.service.ts:92](/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/runs/runs-worker.service.ts:92).\n- Non-Run worker profiles skip the gate entirely because they return before registration at [runs-worker.service.ts:96](/home/leon0399/.herdr/worktrees/llame/episodic-provenance-and-reads/apps/api/src/runs/runs-worker.service.ts:96).\n- Failure messages stay aggregate-only and non-tenant, with no identifier leakage.\n\nNo additional correctness issues surfaced within this scope.",
+          "timestamp": "2026-08-28T15:07:47.718Z"
+        }
+      ],
+      "total_additions": 257,
+      "total_deletions": 259,
+      "accepted_lines": 239,
+      "overriden_lines": 0
+    }
+  }
+}
