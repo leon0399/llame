@@ -1,0 +1,1 @@
+ALTER TABLE "search_chat_state" ADD COLUMN "expected_document_count" integer;

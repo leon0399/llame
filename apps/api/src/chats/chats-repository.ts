@@ -9,7 +9,6 @@
  */
 
 import { assertNotArchived } from '../db/assert-not-archived';
-import { isRecord } from '../unknown-record';
 
 import {
   and,
@@ -44,6 +43,8 @@ import {
 import { type Db } from '../db/tenant-db.service';
 export { type Db } from '../db/tenant-db.service';
 import { parseCompactionReplacementHistory } from './compaction-replacement-history';
+import { isCompletedAssistantTurn } from './assistant-completion';
+export { isCompletedAssistantTurn };
 import {
   buildHybridSearchQuery,
   normalizeForSearch,
@@ -1138,24 +1139,4 @@ export async function findLiveWindow(
   );
 
   return { compaction, history };
-}
-
-/**
- * A turn is complete iff its assistant message carries completed usage —
- * malformed/legacy usage counts as complete (never retryable by accident).
- * Parameter is structural (`usage` only) so pure callers holding a
- * ContextBuilder StoredMessage share the exact same semantics as Message.
- */
-export function isCompletedAssistantTurn(message: {
-  usage?: unknown;
-}): boolean {
-  const usage = message.usage;
-  // Not `isRecord`'s own array exclusion changing anything here: an array
-  // `usage` has no `status` property either way, so both branches already
-  // agreed on "complete" before this swap.
-  if (!isRecord(usage) || !('status' in usage)) {
-    return true;
-  }
-
-  return usage['status'] === 'completed';
 }

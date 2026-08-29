@@ -57,3 +57,24 @@ GRANT EXECUTE ON FUNCTION llame_search_embedding_backlog(integer) TO app;
 -- re-run on every migrate.
 ALTER FUNCTION llame_search_embedding_report(text, integer, integer) OWNER TO app_rls;
 GRANT EXECUTE ON FUNCTION llame_search_embedding_report(text, integer, integer) TO app;
+-- conversation provenance reads (#609, projection layer): retain the v1
+-- locator-discovery ownership and execute grant for the a4c92de6 rollback
+-- floor. The active worker/report callers use v2 below, but fresh database
+-- provisioning must keep both generations callable during the rollback window.
+ALTER FUNCTION llame_search_projection_stale_chats(integer, integer) OWNER TO app_rls;
+GRANT EXECUTE ON FUNCTION llame_search_projection_stale_chats(integer, integer) TO app;
+ALTER FUNCTION llame_search_projection_coverage(integer) OWNER TO app_rls;
+GRANT EXECUTE ON FUNCTION llame_search_projection_coverage(integer) TO app;
+-- conversation provenance reads (#609, projection layer): the v2 locator-aware
+-- stale-chat discovery function must also run AS app_rls (BYPASSRLS) so the
+-- reindex sweep can find incomplete current-version rows across all tenants.
+-- It returns only chat identifiers + timestamps; message content stays inside
+-- the owner's reindex transaction. Idempotent; safe to re-run on every migrate.
+ALTER FUNCTION llame_search_projection_stale_chats_v2(integer, integer) OWNER TO app_rls;
+GRANT EXECUTE ON FUNCTION llame_search_projection_stale_chats_v2(integer, integer) TO app;
+-- The model-independent aggregate cutover readout is likewise owned by
+-- app_rls. It returns counts only and is intentionally not a public/model
+-- surface. Re-grant to app after ownership transfer because owner privileges
+-- are implicit and the migration's explicit grant must remain durable.
+ALTER FUNCTION llame_search_projection_coverage_v2(integer) OWNER TO app_rls;
+GRANT EXECUTE ON FUNCTION llame_search_projection_coverage_v2(integer) TO app;

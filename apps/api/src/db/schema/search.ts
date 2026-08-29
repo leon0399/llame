@@ -82,6 +82,13 @@ export const searchChatDocuments = pgTable(
     lastMessageAt: timestamp('last_message_at', {
       withTimezone: true,
     }).notNull(),
+    // Zero-based UTF-16 offsets in the first/last message's canonical visible
+    // text. Nullable during the projection backfill; writers populate them in
+    // the later locator-aware chunker layer.
+    firstMessageTextOffset: integer('first_message_text_offset'),
+    lastMessageTextOffsetExclusive: integer(
+      'last_message_text_offset_exclusive',
+    ),
     // Original-cased role-labelled chunk text — the snippet source.
     content: text('content').notNull(),
     // Deterministic role-free normalization (NFKC, whitespace-collapsed, lowercased;
@@ -173,13 +180,16 @@ export const searchChatDocuments = pgTable(
     index('search_chat_documents_embedding_backlog_idx')
       .on(t.chatId, t.ownerUserId)
       .where(sql`embedding IS NULL AND embedding_fail_reason IS NULL`),
-    // Owner is the whole boundary: SELECT (search) and write (reindex worker under
-    // runAs(owner)) are both owner-scoped. FOR ALL covers both; empty identity
-    // (runAsPublic) matches nothing, so public reads never reach this table.
+    // The Chat owner is the authorization boundary. Using the parent Chat here
+    // lets an owner-scoped reindex repair a derived row whose duplicated owner
+    // metadata was corrupted, while the WITH CHECK restores that metadata to
+    // the authenticated owner. The explicit non-empty identity gate prevents
+    // chats_public_read from making public projection rows visible through
+    // runAsPublic.
     pgPolicy('search_chat_documents_owner', {
       for: 'all',
-      using: sql`owner_user_id = current_setting('app.current_user_id', true)`,
-      withCheck: sql`owner_user_id = current_setting('app.current_user_id', true)`,
+      using: sql`current_setting('app.current_user_id', true) <> '' AND chat_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true))`,
+      withCheck: sql`current_setting('app.current_user_id', true) <> '' AND owner_user_id = current_setting('app.current_user_id', true) AND chat_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true))`,
     }),
   ],
 ).enableRLS();
@@ -210,16 +220,26 @@ export const searchChatState = pgTable(
     indexedAt: timestamp('indexed_at', { withTimezone: true }),
     // Chunker version the current projection was built with.
     chunkerVersion: integer('chunker_version').notNull(),
+    // Number of current-version documents produced by the same rebuild. NULL
+    // means this state row predates locator-aware projection preparation and is
+    // therefore not ready for canonical reads; zero is a valid covered state
+    // for a Chat with no eligible visible text.
+    expectedDocumentCount: integer('expected_document_count'),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (t) => [
     index('search_chat_state_owner_idx').on(t.ownerUserId),
+    // The Chat owner is the authorization boundary. Using the parent Chat
+    // lets an owner-scoped rebuild repair duplicated state ownership metadata;
+    // the WITH CHECK still requires that metadata to be rewritten to the
+    // authenticated owner. The non-empty identity gate keeps public Chat
+    // sharing from making state rows visible through runAsPublic.
     pgPolicy('search_chat_state_owner', {
       for: 'all',
-      using: sql`owner_user_id = current_setting('app.current_user_id', true)`,
-      withCheck: sql`owner_user_id = current_setting('app.current_user_id', true)`,
+      using: sql`current_setting('app.current_user_id', true) <> '' AND chat_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true))`,
+      withCheck: sql`current_setting('app.current_user_id', true) <> '' AND owner_user_id = current_setting('app.current_user_id', true) AND chat_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true))`,
     }),
   ],
 ).enableRLS();

@@ -36,6 +36,8 @@ describe('chunkContentHash', () => {
     normalizedContent: 'hello world',
     firstMessageId: 'a',
     lastMessageId: 'b',
+    firstMessageTextOffset: 0,
+    lastMessageTextOffsetExclusive: 11,
   };
   it('is deterministic', () => {
     expect(chunkContentHash(base)).toBe(chunkContentHash({ ...base }));
@@ -55,6 +57,12 @@ describe('chunkContentHash', () => {
     expect(chunkContentHash({ ...base, lastMessageId: 'c' })).not.toBe(
       chunkContentHash(base),
     );
+    expect(chunkContentHash({ ...base, firstMessageTextOffset: 1 })).not.toBe(
+      chunkContentHash(base),
+    );
+    expect(
+      chunkContentHash({ ...base, lastMessageTextOffsetExclusive: 10 }),
+    ).not.toBe(chunkContentHash(base));
   });
 });
 

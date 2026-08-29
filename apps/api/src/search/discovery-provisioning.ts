@@ -1,6 +1,10 @@
 /**
  * Shared BYPASSRLS-provisioning check for the cross-tenant SECURITY DEFINER
  * discovery functions in this domain (`llame_search_stale_chats`,
+ * `llame_search_projection_stale_chats`,
+ * `llame_search_projection_stale_chats_v2`,
+ * `llame_search_projection_coverage`,
+ * `llame_search_projection_coverage_v2`,
  * `llame_search_embedding_coverage`, `llame_search_embedding_backlog`,
  * `llame_search_embedding_report`). Each must be owned by a BYPASSRLS role
  * (`app_rls`) to see rows across tenants under FORCE RLS; until
@@ -16,8 +20,8 @@
  * - `SearchReindexWorker`'s boot self-check is NON-FATAL (a backfill-only
  *   degradation; new activity still indexes synchronously via Tier 1) —
  *   it logs and continues.
- * - The `search:backfill`/`search:coverage` operator commands (chat-search-
- *   embeddings/operations, layer 7) are FATAL: a worker degrading to
+ * - The `search:backfill`/`search:coverage`/`search:projection-coverage`
+ *   operator commands are FATAL: a worker degrading to
  *   lexical-only is a partial service, but an operator command silently
  *   reporting an empty/zero result for "is anything outstanding or failed"
  *   is a WRONG ANSWER to a direct question, not a degradation. `prune`/

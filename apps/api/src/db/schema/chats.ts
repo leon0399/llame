@@ -196,7 +196,7 @@ export const messages = pgTable(
   (t) => [
     index('messages_chat_created_idx').on(t.chatId, t.createdAt),
     // Ordering index: history is read with ORDER BY (chat_id, seq).
-    index('messages_chat_seq_idx').on(t.chatId, t.seq),
+    uniqueIndex('messages_chat_seq_unique_idx').on(t.chatId, t.seq),
     uniqueIndex('messages_in_reply_to_unique_idx').on(t.inReplyTo),
     uniqueIndex('messages_id_chat_id_unique_idx').on(t.id, t.chatId),
     // RLS: access messages only when their chat is owned by the current user
