@@ -496,6 +496,18 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
     expect(queryContains(queries, 42)).toBe(true);
   });
 
+  it('findLatestByChatId can constrain the latest compaction inclusively at a target seq', async () => {
+    const { db, queries } = makeMockDb();
+    await new CompactionsRepository(db)
+      .findLatestByChatId(chatId, ownerUserId, { maxSeq: 42 })
+      .catch(() => null);
+
+    expect(queryContains(queries, ownerUserId)).toBe(true);
+    expect(queryContains(queries, chatId)).toBe(true);
+    expect(queryContains(queries, 42)).toBe(true);
+    expect(lastQuery(queries).sql).toContain('"upto_seq" <= $');
+  });
+
   it('create inserts chat lineage, raw summary, and required replacement history', async () => {
     const { db, queries } = makeMockDb();
     await new CompactionsRepository(db)

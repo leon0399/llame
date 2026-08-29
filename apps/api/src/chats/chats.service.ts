@@ -91,11 +91,16 @@ export class ChatsService {
    * parallelized with the first two since it depends on the first read's
    * result, but it's a single indexed lookup (`compactions_chat_upto_seq_idx`)
    * and only runs when a previous compaction exists.
+   *
+   * A target-ended read uses the existing one-statement, owner-scoped bounded
+   * message query. Requiring its final chronological row to equal `targetSeq`
+   * makes a missing/deleted/foreign target indistinguishable from a missing
+   * chat without a second target lookup that could race the window read.
    */
   async getChatMessages(
     chatId: string,
     ownerUserId: string,
-    options: { limit: number; beforeSeq?: number },
+    options: { limit: number; beforeSeq?: number; targetSeq?: number },
   ): Promise<
     | {
         messages: Message[];
@@ -111,15 +116,36 @@ export class ChatsService {
         return undefined;
       }
 
+      const messagesRepository = new MessagesRepository(tx);
       const compactionsRepository = new CompactionsRepository(tx);
-      const [messages, compaction] = await Promise.all([
-        new MessagesRepository(tx).findByChatId(chatId, ownerUserId, {
+      let messages: Message[];
+      let compaction: Compaction | undefined;
+
+      if (options.targetSeq !== undefined) {
+        messages = await messagesRepository.findByChatId(chatId, ownerUserId, {
           limit: options.limit,
-          maxSeq:
-            options.beforeSeq === undefined ? undefined : options.beforeSeq - 1,
-        }),
-        compactionsRepository.findLatestByChatId(chatId, ownerUserId),
-      ]);
+          maxSeq: options.targetSeq,
+        });
+        if (messages.at(-1)?.seq !== options.targetSeq) {
+          return undefined;
+        }
+        compaction = await compactionsRepository.findLatestByChatId(
+          chatId,
+          ownerUserId,
+          { maxSeq: options.targetSeq },
+        );
+      } else {
+        [messages, compaction] = await Promise.all([
+          messagesRepository.findByChatId(chatId, ownerUserId, {
+            limit: options.limit,
+            maxSeq:
+              options.beforeSeq === undefined
+                ? undefined
+                : options.beforeSeq - 1,
+          }),
+          compactionsRepository.findLatestByChatId(chatId, ownerUserId),
+        ]);
+      }
 
       let absorbedMessageCount: number | null = null;
       if (compaction) {

@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ChatMessagesResponse } from "./history";
+import { messageSeqFromMetadata, type ChatMessagesResponse } from "./history";
 import { rawChatMessage } from "./message-fixtures";
 
 const { getChatMessages, listChats } = vi.hoisted(() => ({
@@ -107,12 +107,53 @@ describe("chat message query options", () => {
       "chat-1",
       "messages",
     ]);
+    expect(chatQueryKeys.targetMessages("chat-1", 9007199254740991)).toEqual([
+      "chats",
+      "chat-1",
+      "messages",
+      "target",
+      9007199254740991,
+    ]);
+    expect(JSON.stringify(chatQueryKeys.targetMessages("chat-1", 42))).toBe(
+      '["chats","chat-1","messages","target",42]',
+    );
+  });
+
+  it("keeps target history in a distinct cache identity", () => {
+    const queryClient = new QueryClient();
+    const ordinary = {
+      pages: [messagesPage([{ id: "new", seq: 900, text: "new" }])],
+      pageParams: [null],
+    };
+    const target = {
+      pages: [messagesPage([{ id: "old", seq: 42, text: "old" }])],
+      pageParams: [null],
+    };
+
+    queryClient.setQueryData(chatQueryKeys.messages("chat-1"), ordinary);
+    queryClient.setQueryData(
+      chatQueryKeys.targetMessages("chat-1", 42),
+      target,
+    );
+
+    expect(chatQueryKeys.targetMessages("chat-1", 42)).not.toEqual(
+      chatQueryKeys.messages("chat-1"),
+    );
+    expect(queryClient.getQueryData(chatQueryKeys.messages("chat-1"))).toBe(
+      ordinary,
+    );
+    expect(
+      queryClient.getQueryData(chatQueryKeys.targetMessages("chat-1", 42)),
+    ).toBe(target);
   });
 
   it("routes chat message history through a chat-scoped React Query key", () => {
     const options = chatMessagesQueryOptions("chat-1");
 
     expect(options.queryKey).toEqual(chatQueryKeys.messages("chat-1"));
+    expect(
+      chatMessagesQueryOptions("chat-1", { targetSeq: 42 }).queryKey,
+    ).toEqual(chatQueryKeys.targetMessages("chat-1", 42));
   });
 
   it("leaves ordinary message queries on TanStack's default retry behavior", () => {
@@ -193,6 +234,46 @@ describe("chat message query options", () => {
     expect(getChatMessages).toHaveBeenLastCalledWith(
       "query-key-chat",
       { limit: 100, beforeSeq: 250 },
+      { signal: abortController.signal },
+      expect.any(Function),
+    );
+  });
+
+  it("requests a target window on page zero and uses only beforeSeq afterwards", async () => {
+    getChatMessages.mockResolvedValue({ messages: [], compaction: null });
+
+    const options = chatMessagesQueryOptions("closed-over-chat", {
+      targetSeq: 700,
+    });
+    const queryFn = options.queryFn as (context: {
+      queryKey: ReturnType<typeof chatQueryKeys.targetMessages>;
+      pageParam: number | null;
+      signal?: AbortSignal;
+    }) => Promise<ChatMessagesResponse>;
+    const abortController = new AbortController();
+
+    await queryFn({
+      queryKey: chatQueryKeys.targetMessages("query-key-chat", 900),
+      pageParam: null,
+      signal: abortController.signal,
+    });
+
+    expect(getChatMessages).toHaveBeenCalledWith(
+      "query-key-chat",
+      { limit: 100, targetSeq: 900 },
+      { signal: abortController.signal },
+      expect.any(Function),
+    );
+
+    await queryFn({
+      queryKey: chatQueryKeys.targetMessages("query-key-chat", 900),
+      pageParam: 701,
+      signal: abortController.signal,
+    });
+
+    expect(getChatMessages).toHaveBeenLastCalledWith(
+      "query-key-chat",
+      { limit: 100, beforeSeq: 701 },
       { signal: abortController.signal },
       expect.any(Function),
     );
@@ -311,5 +392,37 @@ describe("toChatHistory", () => {
     });
 
     expect(history.messages.map((message) => message.id)).toEqual(["m3", "m4"]);
+  });
+
+  it("keeps a target-ended page chronological and uses its compaction snapshot", () => {
+    const targetPage = {
+      ...messagesPage([
+        { id: "m701", seq: 701, text: "older" },
+        { id: "m900", seq: 900, text: "target" },
+      ]),
+      compaction: {
+        uptoSeq: 700,
+        summary: "before target",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        stats: {
+          absorbedMessageCount: null,
+          beforeTokens: null,
+          afterTokens: null,
+          modelId: null,
+        },
+      },
+    };
+
+    const history = toChatHistory({
+      pages: [targetPage],
+      pageParams: [null],
+    });
+
+    expect(
+      history.messages.map((message) =>
+        messageSeqFromMetadata(message.metadata),
+      ),
+    ).toEqual([701, 900]);
+    expect(history.compaction).toBe(targetPage.compaction);
   });
 });

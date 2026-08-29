@@ -72,10 +72,10 @@ Each branch owns only its section below. Commit and verify one layer before `gh 
 
 **Ownership:** Owner-scoped target-ended history loading by sequence; `/chat/<chatId>#msg-<messageSeq>` anchors; focused API/web tests. Tool-call output continues through the generic renderer.
 
-- [ ] 5.1 Extend the existing owner messages query with strict positive-safe-integer `targetSeq`, mutually exclusive with `beforeSeq`; reject fractional/zero/negative/unsafe/malformed/unknown inputs before repository access, verify the exact owned target first, then return the normal fixed-size chronological window ending at that sequence, while valid missing/deleted/public/shared/other-owner targets reveal no foreign existence.
-- [ ] 5.2 Give hash-targeted history a distinct target-mode query/cache identity, use `targetSeq`, anchor rendered messages as `msg-<messageSeq>`, and scroll deterministically; verify older pagination and compaction projection start from the targeted window, clearing the hash reinitializes the ordinary newest-window cache, and unseen newer messages are not silently merged or misordered.
-- [ ] 5.3 Verify sparse/global sequences are treated as opaque values rather than dense indexes, current/reloaded history uses the same anchor, forked Chats produce independent sequence links, and no copy-link or custom tool-result UI is introduced.
-- [ ] 5.4 Run affected API/web tests, typechecks/lints, and sequential builds before creating the acceptance branch.
+- [x] 5.1 Extend the existing owner messages query with strict positive-safe-integer `targetSeq`, mutually exclusive with `beforeSeq`; reject fractional/zero/negative/unsafe/malformed/unknown inputs before repository access, verify the exact owned target first, then return the normal fixed-size chronological window ending at that sequence, while valid missing/deleted/public/shared/other-owner targets reveal no foreign existence.
+- [x] 5.2 Give hash-targeted history a distinct target-mode query/cache identity, use `targetSeq`, anchor rendered messages as `msg-<messageSeq>`, and scroll deterministically; verify older pagination and compaction projection start from the targeted window, clearing the hash reinitializes the ordinary newest-window cache, and unseen newer messages are not silently merged or misordered.
+- [x] 5.3 Verify sparse/global sequences are treated as opaque values rather than dense indexes, current/reloaded history uses the same anchor, forked Chats produce independent sequence links, and no copy-link or custom tool-result UI is introduced.
+- [x] 5.4 Run affected API/web tests, typechecks/lints, and sequential builds before creating the acceptance branch.
 
 ## 6. `conversation-reads/acceptance` — Product Proof, Rollout, and Documentation
 

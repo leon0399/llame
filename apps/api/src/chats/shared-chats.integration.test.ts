@@ -139,6 +139,20 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
     expect(res.status).toBe(400);
   });
 
+  it('rejects the owner-only targetSeq query instead of ignoring it', async () => {
+    const findPublicChat = vi.spyOn(
+      ChatsRepository.prototype,
+      'findPublicById',
+    );
+    const res = await request(http)
+      .get(`/api/v1/shared/chats/${chatId}`)
+      .query({ targetSeq: '1' });
+
+    expect(res.status).toBe(400);
+    expect(findPublicChat).not.toHaveBeenCalled();
+    findPublicChat.mockRestore();
+  });
+
   it('making the chat public exposes it, unauthenticated, with no-store', async () => {
     const patchRes = await request(http)
       .patch(`/api/v1/chats/${chatId}`)
