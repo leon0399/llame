@@ -574,7 +574,7 @@ describe("ChatPage — model context transparency", () => {
     ).toBeNull();
   });
 
-  it("anchors sparse durable sequences and scrolls to a target exactly once", async () => {
+  it("anchors a loaded Chat-local target and scrolls exactly once", async () => {
     const chatId = "chat-message-target";
     const targetSeq = 900;
     const durableMessages: typeof useChatMessages = [

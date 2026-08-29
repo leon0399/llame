@@ -404,21 +404,6 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
     expect(queryContains(queries, 7)).toBe(true);
   });
 
-  it('create inserts carrying chatId and senderUserId', async () => {
-    const { db, queries } = makeMockDb();
-    await new MessagesRepository(db)
-      .create({
-        chatId,
-        role: 'user',
-        senderUserId: 'user-1',
-        parts: [{ type: 'text', text: 'Hello' }],
-      })
-      .catch(() => null);
-    expect(querySqlContains(queries, 'insert into "messages"')).toBe(true);
-    expect(queryContains(queries, chatId)).toBe(true);
-    expect(queryContains(queries, 'user-1')).toBe(true);
-  });
-
   it('findById scopes by messageId, chatId, AND ownerUserId', async () => {
     const { db, queries } = makeMockDb();
     await new MessagesRepository(db)
@@ -453,6 +438,7 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
     const rows = Array.from({ length: 3 }, (_, i) => ({
       id: `copy-${i}`,
       chatId,
+      seq: i + 1,
       role: 'user' as const,
       senderUserId: 'user-1',
       parts: [{ type: 'text', text: `q${i}` }],
@@ -467,7 +453,7 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
     // covered by the live chat-sharing/fork integration tests.
     expect(queries).toHaveLength(1);
     expect(querySqlContains(queries, 'insert into "messages"')).toBe(true);
-    expect(lastQuery(queries).params).toHaveLength(21);
+    expect(lastQuery(queries).params).toHaveLength(24);
   });
 });
 

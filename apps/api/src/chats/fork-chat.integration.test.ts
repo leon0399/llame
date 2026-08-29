@@ -164,6 +164,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     });
     // in_reply_to REMAPPED to the copied user turn, not the original id.
     const [copiedUser, copiedAsst] = copied;
+    expect(copied.map(({ seq }) => seq)).toEqual([1, 2]);
     expect(copiedAsst.inReplyTo).toBe(copiedUser.id);
     expect(copiedAsst.inReplyTo).not.toBe(asst1Id);
     // usage is NOT carried (a fork made no API calls → no cost double-count).
@@ -247,6 +248,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       const rows: {
         id: string;
         chatId: string;
+        seq: number;
         role: 'user' | 'assistant';
         senderUserId: string | null;
         parts: { type: string; text: string }[];
@@ -255,6 +257,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       }[] = Array.from({ length: MESSAGE_COUNT }, (_, i) => ({
         id: crypto.randomUUID(),
         chatId: chat.id,
+        seq: i + 1,
         role: i % 2 === 0 ? 'user' : 'assistant',
         senderUserId: i % 2 === 0 ? a : null,
         parts: [{ type: 'text', text: `m${i}` }],
@@ -277,7 +280,10 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     );
 
     expect(copied).toHaveLength(MESSAGE_COUNT);
-    // Order preserved across chunk boundaries (seq identity assignment
+    expect(copied.map(({ seq }) => seq)).toEqual(
+      Array.from({ length: MESSAGE_COUNT }, (_, i) => i + 1),
+    );
+    // Order preserved across chunk boundaries (explicit Chat-local sequence
     // follows insertion order within and across the 500-row chunks).
     expect(copied.map((m) => textOf(m.parts))).toEqual(
       Array.from({ length: MESSAGE_COUNT }, (_, i) => `m${i}`),

@@ -209,6 +209,9 @@ describe('ChatLoopService effective-context transaction binding', () => {
       RunsRepository.prototype,
       'cancelActiveRunsForMessage',
     ).mockResolvedValue([]);
+    vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
+      undefined,
+    );
     const findPreviousRun = vi
       .spyOn(RunsRepository.prototype, 'findMostRecentByChatMessageSequence')
       .mockResolvedValue(options?.previousRun);

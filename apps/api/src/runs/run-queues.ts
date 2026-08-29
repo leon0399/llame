@@ -34,8 +34,14 @@ export const RUNS_QUEUE = defineQueue<RunJob>({
   parse: (data) => {
     const record = expectRecord(data, 'runs');
     const message = expectRecord(record.userMessage, 'runs');
-    if (!isNumber(message.seq) || !Number.isFinite(message.seq)) {
-      throw new TypeError("Malformed 'runs' job: userMessage.seq not a number");
+    if (
+      !isNumber(message.seq) ||
+      !Number.isSafeInteger(message.seq) ||
+      message.seq <= 0
+    ) {
+      throw new TypeError(
+        "Malformed 'runs' job: userMessage.seq not a positive safe integer",
+      );
     }
     if (!Array.isArray(message.parts)) {
       throw new TypeError(

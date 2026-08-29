@@ -103,7 +103,7 @@ describe("toChatUiMessages", () => {
 });
 
 describe("messageSeqFromMetadata", () => {
-  it("keeps sparse positive sequences as opaque durable identity", () => {
+  it("keeps a positive safe sequence as opaque Chat-local identity", () => {
     expect(messageSeqFromMetadata({ seq: 9007199254740991 })).toBe(
       9007199254740991,
     );

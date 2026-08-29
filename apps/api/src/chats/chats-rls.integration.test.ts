@@ -252,8 +252,8 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     await asUser(userAId, async (tx) => {
       await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Private Chat')`;
       await tx`
-        INSERT INTO messages (id, chat_id, role, parts)
-        VALUES (${msgId}, ${chatId}, 'assistant', ${JSON.stringify([{ type: 'text', text: 'secret' }])})`;
+        INSERT INTO messages (id, chat_id, seq, role, parts)
+        VALUES (${msgId}, ${chatId}, 1, 'assistant', ${JSON.stringify([{ type: 'text', text: 'secret' }])})`;
     });
     try {
       const rows = await asUser(
@@ -379,11 +379,11 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatOne}, ${userAId}, 'One')`;
         await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatTwo}, ${userAId}, 'Two')`;
         await tx`
-          INSERT INTO messages (id, chat_id, role, sender_user_id, parts)
-          VALUES (${userMsgInOne}, ${chatOne}, 'user', ${userAId}, '[]')`;
+          INSERT INTO messages (id, chat_id, seq, role, sender_user_id, parts)
+          VALUES (${userMsgInOne}, ${chatOne}, 1, 'user', ${userAId}, '[]')`;
         await tx`
-          INSERT INTO messages (id, chat_id, role, parts, in_reply_to)
-          VALUES (${assistantMsgInOne}, ${chatOne}, 'assistant', '[]', ${userMsgInOne})`;
+          INSERT INTO messages (id, chat_id, seq, role, parts, in_reply_to)
+          VALUES (${assistantMsgInOne}, ${chatOne}, 2, 'assistant', '[]', ${userMsgInOne})`;
       });
       // Valid reply (same chat, user-role target) was accepted above. Now the
       // two invalid shapes, both as the OWNING tenant — this is an integrity
@@ -392,8 +392,8 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         asUser(
           userAId,
           (tx) => tx`
-            INSERT INTO messages (id, chat_id, role, parts, in_reply_to)
-            VALUES (${crypto.randomUUID()}, ${chatTwo}, 'assistant', '[]', ${userMsgInOne})`,
+            INSERT INTO messages (id, chat_id, seq, role, parts, in_reply_to)
+            VALUES (${crypto.randomUUID()}, ${chatTwo}, 1, 'assistant', '[]', ${userMsgInOne})`,
         ),
       ).rejects.toThrow(/user message in the same chat/i);
 
@@ -401,8 +401,8 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         asUser(
           userAId,
           (tx) => tx`
-            INSERT INTO messages (id, chat_id, role, parts, in_reply_to)
-            VALUES (${crypto.randomUUID()}, ${chatOne}, 'assistant', '[]', ${assistantMsgInOne})`,
+            INSERT INTO messages (id, chat_id, seq, role, parts, in_reply_to)
+            VALUES (${crypto.randomUUID()}, ${chatOne}, 3, 'assistant', '[]', ${assistantMsgInOne})`,
         ),
       ).rejects.toThrow(/user message in the same chat/i);
     } finally {

@@ -342,8 +342,8 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
         await tx`INSERT INTO projects (id, owner_user_id, name) VALUES (${projectId}, ${userAId}, 'Widen check')`;
         await tx`INSERT INTO chats (id, owner_user_id, title, project_id) VALUES (${chatId}, ${userAId}, 'Filed + private', ${projectId})`;
         await tx`
-          INSERT INTO messages (id, chat_id, role, parts)
-          VALUES (${messageId}, ${chatId}, 'assistant', ${JSON.stringify([{ type: 'text', text: 'secret' }])})`;
+          INSERT INTO messages (id, chat_id, seq, role, parts)
+          VALUES (${messageId}, ${chatId}, 1, 'assistant', ${JSON.stringify([{ type: 'text', text: 'secret' }])})`;
       });
 
       const chatRows = await asUser(

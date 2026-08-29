@@ -554,8 +554,8 @@ describeIfDb(
           await asUser(sql, userId, async (inserter) => {
             await inserter`set local lock_timeout = '5s'`;
             const inserted = await inserter`
-              insert into messages (chat_id, role, parts, in_reply_to)
-              values (${seed.chatId}, 'assistant', ${sql.json([{ type: 'text', text: 'lock order answer' }])}, ${seed.userMessage.id})
+              insert into messages (chat_id, seq, role, parts, in_reply_to)
+              values (${seed.chatId}, 2, 'assistant', ${sql.json([{ type: 'text', text: 'lock order answer' }])}, ${seed.userMessage.id})
               returning id
             `;
             expect(inserted).toHaveLength(1);

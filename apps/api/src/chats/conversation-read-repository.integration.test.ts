@@ -85,7 +85,7 @@ describe('conversation source repository lookup', () => {
     });
   }
 
-  it('returns the target and nearest eligible sparse neighbors in one owner scope', async () => {
+  it('returns nearest eligible neighbors across ineligible Chat-local rows', async () => {
     const chat = await createChat(ownerA, 'Evidence lookup');
     const interleavedChat = await createChat(ownerA, 'Interleaved sequence');
 
@@ -95,10 +95,10 @@ describe('conversation source repository lookup', () => {
         role: 'user',
         text: 'first',
       });
-      await createMessage(ownerA, {
+      const interleaved = await createMessage(ownerA, {
         chatId: interleavedChat.id,
         role: 'user',
-        text: 'global sequence gap',
+        text: 'independent local sequence',
       });
       const completed = await createMessage(ownerA, {
         chatId: chat.id,
@@ -173,6 +173,7 @@ describe('conversation source repository lookup', () => {
         previousMessageSeq: completed.seq,
         nextMessageSeq: nextUser.seq,
       });
+      expect([first.seq, interleaved.seq]).toEqual([1, 1]);
       expect(legacy.seq).toBeGreaterThan(first.seq + 1);
       expect(nextUser.seq).toBeGreaterThan(retryableNull.seq);
       expect(retryableError.seq).toBeGreaterThan(nextUser.seq);

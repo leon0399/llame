@@ -347,6 +347,15 @@ export class ChatLoopService {
         chat = (await chatsRepo.touch(input.chatId, input.userId)) ?? chat;
       }
 
+      const eventsRepo = new RunEventsRepository(tx);
+      const runsRepo = new RunsRepository(tx);
+      await this.clearActiveRunSlot({
+        runsRepo,
+        eventsRepo,
+        chatId: input.chatId,
+        userId: input.userId,
+      });
+
       const hadDigestBaseline = chat.recencyDigestBaseline !== null;
       // Read unconditionally: the supersession marker below is gated on this
       // setting too, and it must still be checkable when `input.digestCandidate`
@@ -423,7 +432,6 @@ export class ChatLoopService {
       // the user message, so a message can never exist without its execution
       // record. Reusing a message id is rejected above; retries are a separate
       // feature, not implicit idempotency.
-      const eventsRepo = new RunEventsRepository(tx);
       const snapshotsRepo = new ModelContextSnapshotsRepository(tx);
       const snapshot = await snapshotsRepo.createOrReuse(
         input.userId,
@@ -433,7 +441,6 @@ export class ChatLoopService {
       // Defensive cleanup for impossible legacy state: a freshly inserted
       // message should have no older active runs, but if dev data violates that
       // invariant, canceling them preserves the per-chat single-flight slot.
-      const runsRepo = new RunsRepository(tx);
       const superseded = await runsRepo.cancelActiveRunsForMessage(
         userMessage.id,
         input.userId,
@@ -460,69 +467,12 @@ export class ChatLoopService {
           }),
         );
       } catch (error) {
-        if (!isInflightUniqueViolation(error)) {
-          throw error;
-        }
-
-        // Per-chat single-flight (#48; durable-run-workers D7). A blocker that
-        // VANISHED between our insert and this read (it just finished) falls
-        // through to the retry below — the slot is free, a 409 would be
-        // spurious. A live blocker 409s. But a blocker that is STUCK — its last
-        // sign of life older than the longest a real run could take (the
-        // in-process wall-clock budget + one heartbeat window) — is expired
-        // here and the create retried, because the job-queue can only recover
-        // an ACTIVE job: a run whose pg-boss job was never created (a crash
-        // between the run-row commit and enqueue) or never picked up (a worker
-        // outage) has no job to time out / retry / dead-letter, so without this
-        // it would wedge the chat forever. `markStarted` stamps a fresh
-        // `startedAt` on every (re)claim, so a run pg-boss is actively
-        // re-executing keeps a recent sign of life and is NOT expired here.
-        const blocking = await runsRepo.findActiveByChatId(
-          input.chatId,
-          input.userId,
-        );
-        if (blocking) {
-          const lastSign = blocking.startedAt ?? blocking.createdAt;
-          const stuckAfterMs = stuckRunThresholdMs(this.instanceConfig.config);
-          if (Date.now() - lastSign.getTime() < stuckAfterMs) {
-            throw new ConflictException(
-              'Another run is already in flight for this chat',
-            );
-          }
-          const message =
-            'Expired by a new message: run stuck with no execution progress.';
-          const expired = await runsRepo.markFinished(
-            blocking.id,
-            input.userId,
-            'expired',
-            { message },
+        if (isInflightUniqueViolation(error)) {
+          throw new ConflictException(
+            'Another run is already in flight for this chat',
           );
-          if (expired) {
-            await eventsRepo.append(blocking.id, 'run.expired', {
-              status: 'expired',
-              message,
-            });
-          }
         }
-        try {
-          run = await tx.transaction((inner) =>
-            new RunsRepository(inner).create({
-              id: input.targetRunId,
-              chatId: input.chatId,
-              messageId: userMessage.id,
-              userId: input.userId,
-              modelId: input.modelId,
-              modelContextSnapshotId: snapshot.id,
-            }),
-          );
-        } catch (retryError) {
-          if (isInflightUniqueViolation(retryError)) {
-            throw new ConflictException(
-              'Another run is already in flight for this chat',
-            );
-          }
-          throw retryError;
-        }
+        throw error;
       }
       await eventsRepo.append(run.id, 'run.created', {
         chatId: input.chatId,
@@ -539,6 +489,51 @@ export class ChatLoopService {
         supersededRunIds: superseded.map((stale) => stale.id),
       };
     });
+  }
+
+  private async clearActiveRunSlot(input: {
+    runsRepo: RunsRepository;
+    eventsRepo: RunEventsRepository;
+    chatId: string;
+    userId: string;
+  }): Promise<void> {
+    let blocking = await input.runsRepo.findActiveByChatId(
+      input.chatId,
+      input.userId,
+    );
+    if (!blocking) return;
+
+    let lastSign = blocking.startedAt ?? blocking.createdAt;
+    const stuckAfterMs = stuckRunThresholdMs(this.instanceConfig.config);
+    if (Date.now() - lastSign.getTime() < stuckAfterMs) {
+      const current = await input.runsRepo.findActiveByChatId(
+        input.chatId,
+        input.userId,
+      );
+      if (!current) return;
+      blocking = current;
+      lastSign = blocking.startedAt ?? blocking.createdAt;
+      if (Date.now() - lastSign.getTime() < stuckAfterMs) {
+        throw new ConflictException(
+          'Another run is already in flight for this chat',
+        );
+      }
+    }
+
+    const message =
+      'Expired by a new message: run stuck with no execution progress.';
+    const expired = await input.runsRepo.markFinished(
+      blocking.id,
+      input.userId,
+      'expired',
+      { message },
+    );
+    if (expired) {
+      await input.eventsRepo.append(blocking.id, 'run.expired', {
+        status: 'expired',
+        message,
+      });
+    }
   }
 
   private async buildTurnContextAndParts(input: {
