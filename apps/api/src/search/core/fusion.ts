@@ -72,6 +72,19 @@ export interface ParentColumns {
   recency: string;
 }
 
+/**
+ * Internal result of the shared hybrid candidate query. `bestDocumentId` is
+ * retained for a later canonical hydration adapter; web and tool adapters must
+ * explicitly project it away before returning a public result.
+ */
+export type HybridSearchResult = {
+  id: string;
+  title: string | null;
+  snippet: string | null;
+  updatedAt: Date;
+  bestDocumentId: string | null;
+};
+
 export interface HybridSearchConfig {
   /** Raw user query (for `websearch_to_tsquery` + `word_similarity`, wildcard-safe). */
   query: string;
@@ -223,7 +236,8 @@ export function buildHybridSearchQuery(config: HybridSearchConfig): SQL {
       CASE WHEN gc.best_doc_id IS NOT NULL
         THEN ts_headline('simple', ${dContent}, q.tsq, 'StartSel=, StopSel=, MaxFragments=2, MinWords=8, MaxWords=28')
         ELSE NULL END AS snippet,
-      r.recency AS "updatedAt"
+      r.recency AS "updatedAt",
+      gc.best_doc_id AS "bestDocumentId"
     FROM ranked r
     CROSS JOIN q
     LEFT JOIN group_content gc ON gc.group_id = r.group_id

@@ -5,9 +5,20 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { ChatsRepository } from '../chats/chats-repository';
 import * as schema from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
+import { type CanonicalHydrationRow } from '../search/chat/canonical-search-hydrator';
+import {
+  buildCanonicalSearchExcerpt,
+  type CanonicalSearchPreviewPassage,
+} from '../search/chat/canonical-search-excerpt';
+import {
+  matchCanonicalSearchPreview,
+  scanCanonicalLogicalLines,
+} from '../search/chat/canonical-search-matcher';
 import { searchConversationsTool } from './search-conversations';
+import { parseConversationSourceCoordinates } from './conversation-source-coordinates';
 import { isZodSchema } from './schema-utils';
 import { type ToolContext } from './types';
+import { isRecord, isString } from '../unknown-record';
 
 /**
  * Unit tests with a FAKE ToolContext (no real DB; the repository read is
@@ -25,13 +36,37 @@ type Row = {
   title: string | null;
   snippet: string | null;
   updatedAt: Date;
+  bestDocumentId: string | null;
 };
 
 type CallerIdSpy = { userId?: string };
 
-function fakeContext(rows: Row[], spy?: CallerIdSpy): ToolContext {
+function fakeContext(
+  rows: Row[],
+  spy?: CallerIdSpy,
+  canonicalModelExcerptsEnabled = false,
+  executeRows: readonly (readonly (
+    | CanonicalHydrationRow
+    | { line_id: number }
+  )[])[] = [],
+): ToolContext {
   const db: Db = drizzle.mock({ schema });
   vi.spyOn(ChatsRepository.prototype, 'searchByOwner').mockResolvedValue(rows);
+  if (executeRows.length > 0) {
+    const pending = [...executeRows];
+    const executeSpy = vi.spyOn(db, 'execute');
+    for (const rowSet of pending) {
+      executeSpy.mockResolvedValueOnce(
+        Object.assign([...rowSet], {
+          columns: [],
+          count: rowSet.length,
+          command: 'SELECT',
+          statement: { name: '', string: '', types: [], columns: [] },
+          state: { status: 'I', pid: 0, secret: 0 },
+        }),
+      );
+    }
+  }
   const tenantDb: TenantRunner = {
     runAs: <T>(userId: string, fn: (tx: Db) => Promise<T>) => {
       if (spy) spy.userId = userId;
@@ -42,6 +77,54 @@ function fakeContext(rows: Row[], spy?: CallerIdSpy): ToolContext {
     userId: 'user-A',
     chatId: 'chat-1',
     tenantDb,
+    canonicalModelExcerptsEnabled,
+  };
+}
+
+const CHAT_ID = '00000000-0000-4000-8000-000000000001';
+const DOCUMENT_ID = '00000000-0000-4000-8000-000000000002';
+const MESSAGE_ID = '00000000-0000-4000-8000-000000000003';
+
+function hydrationRow(text: string, chatId = CHAT_ID): CanonicalHydrationRow {
+  return {
+    message_id: MESSAGE_ID,
+    message_chat_id: chatId,
+    message_seq: '7',
+    message_role: 'user',
+    message_parts: [{ type: 'text', text }],
+    message_usage: null,
+    message_created_at: new Date('2026-08-27T10:00:00.000Z'),
+    first_message_id: MESSAGE_ID,
+    last_message_id: MESSAGE_ID,
+    first_seq: '7',
+    last_seq: '7',
+    first_message_text_offset: 0,
+    last_message_text_offset_exclusive: text.length,
+  };
+}
+
+function passage(
+  text: string,
+  anchor: CanonicalSearchPreviewPassage['anchor'],
+): CanonicalSearchPreviewPassage {
+  return {
+    message: {
+      messageSeq: 7,
+      role: 'user',
+      timestamp: new Date('2026-08-27T10:00:00.000Z'),
+    },
+    offset: 0,
+    limit: 1,
+    lines: [
+      {
+        line: 0,
+        text,
+        delimiter: '',
+        startOffset: 0,
+        endOffsetExclusive: text.length,
+      },
+    ],
+    anchor,
   };
 }
 
@@ -70,6 +153,7 @@ describe('search_conversations', () => {
           title: 'TypeScript project',
           snippet: 'I love TypeScript and RLS.',
           updatedAt: new Date('2026-07-01T12:00:00Z'),
+          bestDocumentId: 'document-1',
         },
       ],
       spy,
@@ -91,6 +175,8 @@ describe('search_conversations', () => {
         updatedAt: '2026-07-01T12:00:00.000Z',
       },
     ]);
+    if (!Array.isArray(result.results)) return;
+    expect(result.results[0]).not.toHaveProperty('bestDocumentId');
   });
 
   it('returns success with an empty list when nothing matches', async () => {
@@ -109,6 +195,7 @@ describe('search_conversations', () => {
           title: null,
           snippet: 'matched by content only',
           updatedAt: new Date('2026-07-01T00:00:00Z'),
+          bestDocumentId: 'document-2',
         },
       ]),
       { query: 'x', limit: 5 },
@@ -123,5 +210,263 @@ describe('search_conversations', () => {
         updatedAt: '2026-07-01T00:00:00.000Z',
       },
     ]);
+  });
+
+  it('caps canonical excerpts around an exact raw anchor without splitting Unicode', () => {
+    const raw = `${'x'.repeat(280)}😀NEEDLE${'y'.repeat(400)}`;
+    const result = buildCanonicalSearchExcerpt(
+      passage(raw, {
+        line: 0,
+        startOffset: 282,
+        endOffsetExclusive: 288,
+        kind: 'exact',
+      }),
+    );
+
+    expect(Array.from(result).length).toBeLessThanOrEqual(500);
+    expect(result).toContain('😀NEEDLE');
+    expect(result).toContain('…');
+    expect(result).not.toContain('\uFFFD');
+  });
+
+  it('uses the matcher fixed fallback anchor at the first raw code point of the qualifying line', async () => {
+    const raw = `${'before\r\n'.repeat(20)}😀fallback${'z'.repeat(600)}`;
+    const sourceLines = scanCanonicalLogicalLines(raw);
+    const qualifyingLine = sourceLines.find((line) =>
+      line.text.startsWith('😀fallback'),
+    );
+    if (qualifyingLine === undefined) {
+      throw new Error('Expected a qualifying fallback line.');
+    }
+
+    const selected = await matchCanonicalSearchPreview(
+      {
+        chatId: CHAT_ID,
+        messages: [
+          {
+            messageSeq: 7,
+            role: 'user',
+            timestamp: new Date('2026-08-27T10:00:00.000Z'),
+            visibleText: raw,
+            sourceStart: 0,
+            sourceEndExclusive: raw.length,
+          },
+        ],
+      },
+      'unrelated fuzzy query',
+      (_normalizedQuery, candidates) => {
+        const candidate = candidates.find(({ normalizedText }) =>
+          normalizedText.startsWith('😀fallback'),
+        );
+        return Promise.resolve(
+          new Set(candidate === undefined ? [] : [candidate.id]),
+        );
+      },
+    );
+    if (selected === null) {
+      throw new Error('Expected the fuzzy line to be selected.');
+    }
+
+    expect(selected.anchor).toEqual({
+      line: qualifyingLine.line,
+      startOffset: qualifyingLine.startOffset,
+      endOffsetExclusive: qualifyingLine.startOffset + 2,
+      kind: 'fallback',
+    });
+    expect(selected.offset).toBe(qualifyingLine.line - 1);
+    expect(selected.limit).toBe(2);
+    expect(selected.lines[0]?.delimiter).toBe('\r\n');
+
+    const result = buildCanonicalSearchExcerpt(selected);
+
+    expect(Array.from(result).length).toBeLessThanOrEqual(500);
+    expect(result.startsWith('😀fallback')).toBe(true);
+    expect(result).toContain('…');
+    expect(result).not.toContain('\uFFFD');
+  });
+
+  it('returns strict metadata/content results when canonical shaping is trusted', async () => {
+    const text = 'We decided something: https://example.test/item';
+    const result = await searchConversationsTool.execute(
+      fakeContext(
+        [
+          {
+            id: CHAT_ID,
+            title: 'Decision log',
+            snippet: 'projection bytes must not leak',
+            updatedAt: new Date('2026-08-27T11:00:00.000Z'),
+            bestDocumentId: DOCUMENT_ID,
+          },
+          {
+            id: '00000000-0000-4000-8000-000000000004',
+            title: 'Decision title',
+            snippet: null,
+            updatedAt: new Date('2026-08-27T12:00:00.000Z'),
+            bestDocumentId: null,
+          },
+        ],
+        undefined,
+        true,
+        [[hydrationRow(text)], [{ line_id: 0 }]],
+      ),
+      { query: 'decided', limit: 5 },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      results: [
+        {
+          kind: 'content',
+          chatId: CHAT_ID,
+          title: 'Decision log',
+          updatedAt: '2026-08-27T11:00:00.000Z',
+          role: 'user',
+          timestamp: '2026-08-27T10:00:00.000Z',
+          messageSeq: 7,
+          offset: 0,
+          limit: 1,
+          excerpt: text,
+        },
+        {
+          kind: 'metadata',
+          chatId: '00000000-0000-4000-8000-000000000004',
+          title: 'Decision title',
+          updatedAt: '2026-08-27T12:00:00.000Z',
+        },
+      ],
+    });
+    if (result.status !== 'success') return;
+    if (!isString(result.notice)) return;
+    expect(result.notice).toMatch(/untrusted|stale/iu);
+    if (!Array.isArray(result.results)) return;
+    const content: unknown = result.results[0];
+    const metadata: unknown = result.results[1];
+    if (!isRecord(content) || !isRecord(metadata)) return;
+    const coordinates = {
+      chatId: content['chatId'],
+      messageSeq: content['messageSeq'],
+      offset: content['offset'],
+      limit: content['limit'],
+    };
+    expect(parseConversationSourceCoordinates(coordinates)).toEqual(
+      coordinates,
+    );
+    expect(content).not.toHaveProperty('snippet');
+    expect(content).not.toHaveProperty('bestDocumentId');
+    expect(metadata).not.toHaveProperty('role');
+    expect(metadata).not.toHaveProperty('messageSeq');
+    expect(metadata).not.toHaveProperty('offset');
+    expect(metadata).not.toHaveProperty('limit');
+    expect(metadata).not.toHaveProperty('excerpt');
+  });
+
+  it('omits canonical candidates that cannot hydrate or match instead of falling back to projection text', async () => {
+    const text = 'current canonical source';
+    const omittedByHydration: Row = {
+      id: '00000000-0000-4000-8000-000000000005',
+      title: 'Deleted source',
+      snippet: 'must never be returned',
+      updatedAt: new Date('2026-08-27T13:00:00.000Z'),
+      bestDocumentId: '00000000-0000-4000-8000-000000000006',
+    };
+    const omittedByMatcher: Row = {
+      id: '00000000-0000-4000-8000-000000000007',
+      title: 'Cross-line only source',
+      snippet: 'must never be returned',
+      updatedAt: new Date('2026-08-27T14:00:00.000Z'),
+      bestDocumentId: '00000000-0000-4000-8000-000000000008',
+    };
+
+    const result = await searchConversationsTool.execute(
+      fakeContext(
+        [
+          {
+            id: CHAT_ID,
+            title: 'Kept',
+            snippet: 'projection text',
+            updatedAt: new Date('2026-08-27T11:00:00.000Z'),
+            bestDocumentId: DOCUMENT_ID,
+          },
+          omittedByHydration,
+          omittedByMatcher,
+        ],
+        undefined,
+        true,
+        [
+          [hydrationRow(text)],
+          [{ line_id: 0 }],
+          [],
+          [hydrationRow(text, omittedByMatcher.id)],
+          [],
+        ],
+      ),
+      { query: 'canonical', limit: 5 },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      results: [expect.objectContaining({ kind: 'content', chatId: CHAT_ID })],
+    });
+    if (result.status !== 'success') return;
+    expect(result.results).toHaveLength(1);
+    expect(JSON.stringify(result)).not.toContain('must never be returned');
+    expect(JSON.stringify(result)).not.toContain('projection text');
+  });
+
+  it('keeps the disabled path byte-compatible and does not add the canonical notice', async () => {
+    const result = await searchConversationsTool.execute(
+      fakeContext(
+        [
+          {
+            id: CHAT_ID,
+            title: 'Legacy result',
+            snippet: 'legacy snippet',
+            updatedAt: new Date('2026-08-27T15:00:00.000Z'),
+            bestDocumentId: DOCUMENT_ID,
+          },
+        ],
+        undefined,
+        false,
+      ),
+      { query: 'legacy', limit: 5 },
+    );
+
+    expect(result).toEqual({
+      status: 'success',
+      results: [
+        {
+          chatId: CHAT_ID,
+          title: 'Legacy result',
+          snippet: 'legacy snippet',
+          updatedAt: '2026-08-27T15:00:00.000Z',
+        },
+      ],
+    });
+    expect(result).not.toHaveProperty('notice');
+  });
+
+  it('keeps search_conversations input and declaration surface strict and vector-free', () => {
+    const schema = searchConversationsTool.inputSchema;
+    if (!isZodSchema(schema)) {
+      throw new Error('Expected a Zod input schema');
+    }
+
+    for (const field of [
+      'chatId',
+      'source',
+      'sourceId',
+      'vectorScore',
+      'score',
+      'messageSeq',
+      'offset',
+      'partId',
+      'cursor',
+    ]) {
+      expect(() => schema.parse({ query: 'x', [field]: 'future' })).toThrow();
+    }
+    expect(schema.parse({ query: 'x', limit: 3 })).toEqual({
+      query: 'x',
+      limit: 3,
+    });
   });
 });

@@ -49,6 +49,7 @@ import {
   buildHybridSearchQuery,
   normalizeForSearch,
   RRF_DEFAULT_K,
+  type HybridSearchResult,
 } from '../search/core';
 
 const DEFAULT_CHAT_VISIBILITY = 'private';
@@ -294,7 +295,9 @@ export class ChatsRepository {
    * (chats_owner / search_chat_documents_owner, FORCE) is the tenant guard; the in-CTE
    * `owner_user_id = ${ownerUserId}` seatbelt is defense-in-depth. Blank query →
    * [] (no full-table dump). `title` is nullable (#78) — a still-untitled chat
-   * can match by content alone.
+   * can match by content alone. The internal result also retains
+   * `bestDocumentId` for canonical model shaping; public adapters must project
+   * that field explicitly.
    *
    * MUST be called with a transaction-scoped `Db` (constructed inside a
    * `TenantDbService.runAs` callback) — `SET LOCAL statement_timeout` reverts at
@@ -306,14 +309,7 @@ export class ChatsRepository {
     ownerUserId: string,
     query: string,
     limit: number,
-  ): Promise<
-    Array<{
-      id: string;
-      title: string | null;
-      snippet: string | null;
-      updatedAt: Date;
-    }>
-  > {
+  ): Promise<HybridSearchResult[]> {
     const trimmed = query.trim();
     if (trimmed.length === 0) {
       return [];
@@ -356,12 +352,7 @@ export class ChatsRepository {
       limit,
     });
 
-    const rows = await this.db.execute<{
-      id: string;
-      title: string | null;
-      snippet: string | null;
-      updatedAt: Date;
-    }>(search);
+    const rows = await this.db.execute<HybridSearchResult>(search);
     return [...rows].map((r) => ({
       id: r.id,
       title: r.title,
@@ -370,6 +361,7 @@ export class ChatsRepository {
           ? null
           : truncateSnippet(r.snippet),
       updatedAt: r.updatedAt,
+      bestDocumentId: r.bestDocumentId,
     }));
   }
 

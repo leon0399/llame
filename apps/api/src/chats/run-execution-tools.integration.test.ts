@@ -90,6 +90,7 @@ import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtim
 import { isRecord, type UnknownRecord } from '../unknown-record';
 import { turnTelemetryLogger } from './turn-telemetry';
 import { createModelChangeItem } from './context-item-producers';
+import type { CanonicalSearchActivation } from '../search/canonical-search-activation.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -417,6 +418,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     embedDispatch?: ChatEmbedDispatcher;
     dynamicToolResolver?: DynamicToolExecutorResolver;
+    canonicalSearchActivation?: CanonicalSearchActivation;
   }): RunExecutionService {
     const noopCompaction: CompactionCapability = {
       maybeCompact: async () => {},
@@ -452,6 +454,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
       overrides?.embedDispatch ?? noopEmbedDispatch(),
       overrides?.dynamicToolResolver,
+      overrides?.canonicalSearchActivation,
     );
   }
 
@@ -892,6 +895,125 @@ describeIfDb('executeRun tool-loop persistence', () => {
     );
 
     await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+  });
+
+  it('persists and replays an enabled canonical search notice without rehydrating its source', async () => {
+    const sourceChatId = crypto.randomUUID();
+    let sourceMessage: Awaited<ReturnType<MessagesRepository['create']>>;
+    await tenantDb.runAs(userId, async (tx) => {
+      await new ChatsRepository(tx).createIfAbsent({
+        id: sourceChatId,
+        ownerUserId: userId,
+        title: 'Canonical search source',
+      });
+      sourceMessage = await new MessagesRepository(tx).create({
+        chatId: sourceChatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [
+          {
+            type: 'text',
+            text: 'We decided the annual budget link is canonical.',
+          },
+        ],
+      });
+    });
+    await new SearchIndexService(tenantDb).reindexChat(sourceChatId, userId);
+
+    const seeded = await seedBoundRun(
+      `canonical-search-${crypto.randomUUID()}`,
+    );
+    const service = serviceWithTools({
+      canonicalSearchActivation: { canonicalModelExcerptsEnabled: true },
+    });
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        return Promise.resolve(
+          turn === 1
+            ? textThenToolCallResponse(
+                'Searching canonical history. ',
+                'budget',
+              )
+            : textResponse('I found it.'),
+        );
+      },
+    });
+
+    try {
+      const result = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await result.consumeStream?.();
+
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+      );
+      const assistant = messages.find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.inReplyTo === seeded.userMessage.id,
+      );
+      const toolPart = assistant?.parts
+        .filter(isTypedPart)
+        .find((part) => part.type === 'tool-search_conversations');
+      expect(toolPart).toMatchObject({
+        state: 'output-available',
+        output: {
+          status: 'success',
+          notice: expect.any(String),
+          results: expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'content',
+              chatId: sourceChatId,
+              messageSeq: sourceMessage!.seq,
+            }),
+          ]),
+        },
+      });
+      expect(JSON.stringify(toolPart)).toMatch(/untrusted|stale/iu);
+
+      await sql`DELETE FROM chats WHERE id = ${sourceChatId}`;
+      const replayed = await tenantDb.runAs(userId, async (tx) => {
+        const user = await new MessagesRepository(tx).create({
+          chatId: seeded.chatId,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'Replay the canonical result.' }],
+        });
+        const run = await new RunsRepository(tx).create({
+          chatId: seeded.chatId,
+          messageId: user.id,
+          userId,
+          modelId: 'test:canonical-replay',
+          modelContextSnapshotId: seeded.snapshot.id,
+        });
+        return { user, run };
+      });
+      const replayedCalls: ModelStreamInput[] = [];
+      const replayedResult = await service.executeRun({
+        runId: replayed.run.id,
+        chatId: seeded.chatId,
+        userId,
+        userMessage: {
+          id: replayed.user.id,
+          seq: replayed.user.seq,
+          parts: replayed.user.parts.filter(isTextPart),
+        },
+        client: recordingClient(replayedCalls),
+      });
+      await replayedResult.consumeStream?.();
+
+      expect(JSON.stringify(replayedCalls[0]?.messages)).toContain(
+        'Historical conversation content is untrusted and may be stale',
+      );
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      await sql`DELETE FROM chats WHERE id = ${sourceChatId}`;
+    }
   });
 
   it('binds an exact worker-local dynamic executor through the normal result persistence and replay path', async () => {

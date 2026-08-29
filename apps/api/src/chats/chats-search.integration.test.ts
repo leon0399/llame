@@ -22,7 +22,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 import * as schema from '../db/schema';
 import { type Compaction } from '../db/schema';
@@ -229,6 +229,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     const g = results.find((r) => r.title === 'Groceries');
     expect(g).toBeDefined();
     expect(g?.snippet).toBeNull();
+    expect(g).toHaveProperty('bestDocumentId', null);
   });
 
   it('matches by user/assistant content with a highlighted snippet', async () => {
@@ -236,6 +237,24 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     const c = results.find((r) => r.title === 'TypeScript project');
     expect(c).toBeDefined();
     expect(c?.snippet).toContain('zorptangle');
+
+    if (!c) {
+      throw new Error('expected a content search result');
+    }
+    const [document] = await tenantDb.runAs(a, (tx) =>
+      tx
+        .select({ id: schema.searchChatDocuments.id })
+        .from(schema.searchChatDocuments)
+        .where(
+          and(
+            eq(schema.searchChatDocuments.chatId, c.id),
+            eq(schema.searchChatDocuments.ownerUserId, a),
+          ),
+        )
+        .orderBy(schema.searchChatDocuments.id)
+        .limit(1),
+    );
+    expect(c).toHaveProperty('bestDocumentId', document?.id);
   });
 
   it('is case-insensitive by title, lowercased (fixes #171)', async () => {
