@@ -1,0 +1,47 @@
+openspec/changes/add-conversation-provenance-reads/design.md
+  b61d1e78b7a91a47 101,143
+  9da22abc5f4e3de3 56,85,115,117,135-136,144
+openspec/changes/add-conversation-provenance-reads/specs/chat-search/spec.md
+  9da22abc5f4e3de3 7,31,33-36,43-47
+openspec/changes/add-conversation-provenance-reads/specs/conversation-reads/spec.md
+  b61d1e78b7a91a47 157,164-168
+  9da22abc5f4e3de3 90,122-127,144,149,152-156
+openspec/changes/add-conversation-provenance-reads/proposal.md
+  9da22abc5f4e3de3 14,19-20,38-39,47
+openspec/changes/add-conversation-provenance-reads/specs/tool-calling/spec.md
+  9da22abc5f4e3de3 9
+openspec/changes/add-conversation-provenance-reads/tasks.md
+  b61d1e78b7a91a47 76
+  9da22abc5f4e3de3 44,48,52,63,73,77-78,89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "d637a9f686ca6653cc4c3915058045cd2f06be42",
+  "prompts": {
+    "9da22abc5f4e3de3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0434c-edf5-7561-9220-f7c05c921262",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 64,
+      "total_deletions": 35,
+      "accepted_lines": 60,
+      "overriden_lines": 0
+    },
+    "b61d1e78b7a91a47": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0434c-cf6a-7583-8204-56c9f01e0a0c",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 10,
+      "total_deletions": 3,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  }
+}
