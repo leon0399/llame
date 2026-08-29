@@ -85,6 +85,52 @@ describe('buildCompactionToolReplacementRecords', () => {
     expect(JSON.stringify(records)).not.toContain('private.md');
   });
 
+  it('clears conversation_read payloads during compaction like other read-only tools', () => {
+    const records = buildCompactionToolReplacementRecords({
+      previous: [],
+      absorb: [
+        assistantMessage([
+          toolPart({
+            type: 'tool-conversation_read',
+            toolCallId: 'conversation-call',
+            input: {
+              chatId: 'chat-42',
+              messageSeq: 7,
+              offset: 0,
+              limit: 2,
+            },
+            output: {
+              status: 'success',
+              chatId: 'chat-42',
+              messageSeq: 7,
+              offset: 0,
+              lineCount: 2,
+              content: '1: secret\n2: payload',
+            },
+          }),
+        ]),
+      ],
+    });
+
+    expect(records).toEqual([
+      {
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-conversation_read',
+            toolCallId: 'conversation-call',
+            state: 'output-available',
+            input: {},
+            output: `${UNTRUSTED_LABEL}\nOutcome: success`,
+            outcome: 'success',
+          },
+        ],
+      },
+    ]);
+    expect(JSON.stringify(records)).not.toContain('secret');
+    expect(JSON.stringify(records)).not.toContain('payload');
+  });
+
   it('applies the total budget once and retains newer complete pairs', () => {
     const absorb = Array.from({ length: 220 }, (_, index) =>
       assistantMessage(

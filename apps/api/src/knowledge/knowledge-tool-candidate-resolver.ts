@@ -6,7 +6,7 @@ import {
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
 import { TOOL_REGISTRY } from '../tools/registry';
-import { matchesAllowedToolId } from '../tools/tool-id';
+import { matchesCodeOwnedToolId } from '../tools/tool-id';
 import {
   type TurnToolCandidate,
   type ToolUnavailableReason,
@@ -52,7 +52,7 @@ export class KnowledgeToolCandidateResolver {
       (tool) =>
         isKnowledgeToolId(tool.id) &&
         tool.classification === 'read_only' &&
-        matchesAllowedToolId(tool.id, input.allowedToolRules),
+        matchesCodeOwnedToolId(tool.id, input.allowedToolRules),
     );
 
     const unavailableReason = shouldResolveOwner
