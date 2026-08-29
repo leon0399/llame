@@ -20,30 +20,26 @@ the replacement.
 Tracking: [milestone v0.7](https://github.com/leon0399/llame/milestone/5) and
 [tracker #39](https://github.com/leon0399/llame/issues/39).
 
-Outcome: the assistant builds on the shipped remote-MCP and live Knowledge
-retrieval foundation to use remote research, land a recoverable Git-backed
-update, and deliberately recall a prior Chat. The remaining components do not
-count as a release until the combined product loop runs end to end.
+Outcome: the assistant builds on the shipped remote-MCP, live Knowledge
+retrieval, and deliberate prior-Chat recall foundations to use remote research
+and land a recoverable Git-backed update. The remaining component does not count
+as a release until the combined product loop runs end to end.
 
 ```mermaid
 flowchart TD
     K2["#212 recoverable Git write"]
-    E0["#216 episodic recall proof"]
     Gate{"#39 combined release gate"}
 
     K2 --> Gate
-    E0 --> Gate
 ```
 
-- [#216](https://github.com/leon0399/llame/issues/216) proves safe recall across
-  two Chats. It can proceed in parallel with the mainline.
 - [#212](https://github.com/leon0399/llame/issues/212) introduces the minimum Git
   substrate and lands one visible, recoverable agent-authored knowledge commit
   after the shipped #213 live-read boundary.
 - [#39](https://github.com/leon0399/llame/issues/39) owns the combined MCP to
-  knowledge to later-recall exit gate. Its remote-MCP and multiple-Knowledge-
-  Space prerequisites are already shipped, so they are context for the gate
-  rather than open roadmap nodes.
+  knowledge to later-recall exit gate. Its remote-MCP, multiple-Knowledge-Space,
+  and episodic-recall prerequisites are already shipped, so they are context
+  for the gate rather than open roadmap nodes.
 
 This milestone excludes shared Knowledge Spaces, project routing, embeddings,
 semantic facts, automatic prompt injection, Jujutsu workflows, full permission

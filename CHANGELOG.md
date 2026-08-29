@@ -1,5 +1,19 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-28
+
+- **Canonical conversation recall** (#216, #609): lexical/trigram
+  `search_conversations` can return one bounded canonical excerpt per owned Chat
+  with reusable message-sequence and logical-line coordinates. The new optional
+  `conversation_read` tool reads exact numbered lines with whole-line
+  continuation, sparse previous/next message navigation, closed owner-scoped
+  failures, durable replay, and generic tool rendering. Owner links can target
+  `/chat/<chatId>#msg-<messageSeq>` and load the history window ending at that
+  message. Canonical model excerpts remain off by default until projection
+  locator coverage is complete, and deployment requires a coordinated
+  API/worker declaration cutover. This release adds no vector retrieval,
+  activity history, outline, branching/edit semantics, or performance target.
+
 # 2026-08-26
 
 - **Owner-controlled pin order** (#328): pins carry a cross-type `position`

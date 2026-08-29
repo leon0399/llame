@@ -653,6 +653,17 @@ is unchanged and stays purely lexical (FTS + trigram + title, RRF-fused) —
 populating embeddings is invisible to search results by construction, not by
 convention. Query-time retrieval is a later change (#197).
 
+## Canonical conversation recall
+
+`search.chats.canonicalModelExcerpts` defaults off. Before enabling it, deploy
+locator-aware projection writers, reindex existing Chats, and require
+`search:projection-coverage` to report complete current-version locator coverage.
+Then quiesce Run acceptance, drain prior code-owned declarations, deploy matching
+API/workers, enable the flag, and explicitly add `conversation_read` to
+`tools.allowed`. Rollback quiesces and drains first, disables the flag and read
+tool, then restores older binaries; nullable locators remain. The complete
+contract and operator sequence are in [docs/conversation-recall.md](../../docs/conversation-recall.md).
+
 ## Conventions
 
 - One NestJS module per feature (controller / service / module); wire via DI and register in `app.module.ts`.

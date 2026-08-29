@@ -12,6 +12,7 @@ import {
   CONVERSATION_READ_RESULT_MAX_CODE_UNITS,
   type ConversationReadSuccess,
   conversationReadInputSchema,
+  conversationReadTool,
   executeConversationRead,
   renderConversationRead,
   selectLargestConversationReadPrefix,
@@ -49,6 +50,15 @@ function mockDb(result: ConversationMessageLookup | undefined) {
 
 describe('conversation_read input', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it('describes an exact numbered read without implementation fields', () => {
+    expect(conversationReadTool.description).toContain('exact');
+    expect(conversationReadTool.description).toContain('numbered lines');
+    expect(conversationReadTool.description).toContain('untrusted');
+    expect(conversationReadTool.description).not.toMatch(
+      /documentId|hash|partId|projection|version/u,
+    );
+  });
 
   it('accepts direct search coordinates and defaults offset without weakening them', () => {
     expect(
