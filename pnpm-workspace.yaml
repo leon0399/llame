@@ -2,6 +2,21 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# Fail installs on a Node version outside the declared `engines` floor
+# (>=22.19) instead of only warning. Moved off `.npmrc` in pnpm 11 (that file
+# is auth/registry-only). The reproducible development pin lives in
+# `.node-version`.
+engineStrict: true
+
+# pnpm 11.0 Security & build defaults, written explicitly so a later major
+# cannot silently flip them. https://pnpm.io/blog/releases/11.0
+# `minimumReleaseAge` stays 10080 (7d); 11's default is 1440.
+minimumReleaseAgeStrict: false
+blockExoticSubdeps: true
+strictDepBuilds: true
+optimisticRepeatInstall: true
+verifyDepsBeforeRun: install
+
 # Supply-chain release cooldown (pnpm >=10.16): refuse to *resolve* a package
 # version until it has been on the registry this many minutes, so a compromised
 # release has a detection window before it can enter the lockfile. 10080 = 7
@@ -84,6 +99,11 @@ catalog:
 allowBuilds:
   "@ast-grep/cli": true # selects the pinned platform binary from its optional dependencies
   esbuild: true
+  # testcontainers → dockerode. Native compiles are optional; the JS
+  # fallback is enough for the local Docker socket integration tests use.
+  cpu-features: false
+  protobufjs: false
+  ssh2: false
   "@nestjs/core": false # postinstall is scarf telemetry only
   "@scarf/scarf": false # telemetry
   # Downloads the sentry-cli binary; only needed when a build uploads

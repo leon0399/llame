@@ -1614,7 +1614,7 @@ replacement and manual failure proof, and never use it as a waiver or ignore buc
 
 | State  | Finding                                                                    | Evidence / exit condition                                                                                                    |
 | ------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| done   | Runtime floor is consistently documented as Node 22.19+                    | `package.json`, `.npmrc`, `pnpm-workspace.yaml`, and runtime decision doc agree; `.node-version` pins 22.23.1                |
+| done   | Runtime floor is consistently documented as Node 22.19+                    | `package.json`, `engineStrict` in `pnpm-workspace.yaml`, and runtime decision doc agree; `.node-version` pins 22.23.1        |
 | done   | Root migration policy matches the API's reviewed exception ledger          | Drizzle generation remains the default; security/data-transition exceptions require documented regeneration and verification |
 | done   | Test documentation matches uncached execution                              | `docs/testing.md` now reflects `turbo.json` for unit/Storybook and direct non-Turbo integration/eval/e2e gates               |
 | done   | Root formatting command documents its real owned surface                   | `pnpm format` is described as ignore-pruned repository-wide Prettier with cache, matching `package.json`                     |

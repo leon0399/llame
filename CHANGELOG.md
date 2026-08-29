@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-28
 
+- **pnpm 10 → 11** (#633): `packageManager` and the Nix dev shell pin
+  `pnpm@11.22.0` (`pkgs.pnpm_11`). `engineStrict` moves from `.npmrc` into
+  `pnpm-workspace.yaml` (`.npmrc` is auth/registry-only in 11). pnpm 11's
+  Security & build defaults are written explicitly in the workspace file so a
+  later major cannot silently change them; `minimumReleaseAge` stays 7 days.
+  CI setup switches to SHA-pinned `pnpm/setup@v2`, still with
+  `--frozen-lockfile`.
 - **Canonical conversation recall** (#216, #609, #630; related to #194 and
   #611): lexical/trigram `search_conversations` returns one bounded canonical
   excerpt per owned Chat with reusable Chat-local message sequence and
