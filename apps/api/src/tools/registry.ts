@@ -2,14 +2,20 @@ import {
   knowledgeReadTool,
   knowledgeSearchTool,
 } from '../knowledge/knowledge-tools';
+import { conversationReadTool } from './conversation-read';
 import { searchConversationsTool } from './search-conversations';
-import { isToolId, matchesAllowedToolId } from './tool-id';
+import {
+  isToolId,
+  matchesAllowedToolId,
+  matchesCodeOwnedToolId,
+} from './tool-id';
 import { type Tool } from './types';
 import { isString } from '../unknown-record';
 
 /** Every tool the harness knows about (design D2: in-code registry). */
 export const TOOLS: readonly Tool[] = [
   searchConversationsTool,
+  conversationReadTool,
   knowledgeSearchTool,
   knowledgeReadTool,
 ];
@@ -118,6 +124,8 @@ export function resolveAdvertisedTools(
   return [...candidates].filter(
     (tool) =>
       tool.classification === 'read_only' &&
-      matchesAllowedToolId(tool.id, allowedRules),
+      (tool.id.startsWith('mcp__')
+        ? matchesAllowedToolId(tool.id, allowedRules)
+        : matchesCodeOwnedToolId(tool.id, allowedRules)),
   );
 }

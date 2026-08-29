@@ -23,3 +23,11 @@ export function draftChatPath(
   const query = searchParams.toString();
   return `/chat/${chatId}${query === "" ? "" : `?${query}`}`;
 }
+
+export function draftChatPathWithHash(
+  chatId: string,
+  phase: DraftPhase | null,
+  hash: string,
+): `/chat/${string}` {
+  return `${draftChatPath(chatId, phase)}${hash}`;
+}

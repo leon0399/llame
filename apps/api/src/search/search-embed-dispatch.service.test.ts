@@ -17,7 +17,9 @@ import { SearchEmbedDispatchService } from './search-embed-dispatch.service';
 function fakeInstanceConfig(embeddingModelId: string | null) {
   const config = {
     ...BUILT_IN_DEFAULTS,
-    search: { chats: { embeddingModelId } },
+    search: {
+      chats: { ...BUILT_IN_DEFAULTS.search.chats, embeddingModelId },
+    },
   };
   return { config } satisfies InstanceConfigReader;
 }

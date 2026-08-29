@@ -651,13 +651,14 @@ describeIfDb(
 
     it('409s a DIFFERENT message while a non-terminal run is in flight for the chat, and leaves the blocker untouched', async () => {
       const chatId = crypto.randomUUID();
+      const rejectedMessageId = crypto.randomUUID();
 
       await send(chatId, crypto.randomUUID(), 'blocker');
       const blocker = await activeRun(chatId);
       expect(blocker).toBeDefined();
 
       await expect(
-        send(chatId, crypto.randomUUID(), 'a different message'),
+        send(chatId, rejectedMessageId, 'a different message'),
       ).rejects.toBeInstanceOf(ConflictException);
 
       // The blocker is exactly as it was — a FRESH blocker (well within the
@@ -667,6 +668,10 @@ describeIfDb(
         new RunsRepository(tx).findById(blocker!.id, userId),
       );
       expect(stillBlocking?.status).toBe(blocker!.status);
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(chatId, userId),
+      );
+      expect(messages.some(({ id }) => id === rejectedMessageId)).toBe(false);
       expect(dispatchCalls).toHaveLength(1);
     });
 
@@ -704,22 +709,24 @@ describeIfDb(
         new RunEventsRepository(tx).listByRunId(blocker!.id, userId),
       );
       expect(events.map((e) => e.eventType)).toContain('run.expired');
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(chatId, userId),
+      );
+      expect(messages.map(({ seq }) => seq)).toEqual([1, 2]);
       expect(dispatchCalls).toHaveLength(2);
     });
 
-    it('retries and succeeds when the blocker vanishes between the failed insert and the re-check (design D7 self-heal)', async () => {
+    it('succeeds when the blocker vanishes during the pre-allocation admission check', async () => {
       const chatId = crypto.randomUUID();
 
       await send(chatId, crypto.randomUUID(), 'blocker');
       const blocker = await activeRun(chatId);
       expect(blocker).toBeDefined();
 
-      // Deterministically stand in for the race the production code's own
-      // comment describes ("a blocker that VANISHED between our insert and
-      // this read"): intercept the exact re-check call persistUserMessageAndRun
-      // makes after catching the unique violation, and have a genuinely
-      // separate, already-committed writer mark the blocker terminal right
-      // before it runs — no sleep/timing, fully deterministic.
+      // Deterministically stand in for a blocker that becomes terminal between
+      // the pre-allocation observation and its conflict decision: return the
+      // blocker once, then have a genuinely separate committed writer mark it
+      // terminal during the immediate re-check — no sleep/timing.
       // Restores the prototype's real implementation before re-invoking it,
       // rather than grabbing the unbound method and re-dispatching it with
       // `.call`/`.apply`/`Reflect.apply` — this project's
@@ -727,10 +734,11 @@ describeIfDb(
       // the untyped legacy Function overload (silently `any`), and
       // Reflect.apply bypasses ordinary typed calls entirely. `mockRestore`
       // then a plain `this.findActiveByChatId(...)` call is both simpler
-      // and fully typed: only this one re-check invocation is intercepted
+      // and fully typed: only the re-check invocation is intercepted
       // (mockImplementationOnce), so restoring before re-invoking is safe.
       const spy = vi
         .spyOn(RunsRepository.prototype, 'findActiveByChatId')
+        .mockResolvedValueOnce(blocker)
         .mockImplementationOnce(async function (
           this: RunsRepository,
           queriedChatId: string,

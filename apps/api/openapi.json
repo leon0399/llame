@@ -639,6 +639,18 @@
               "format": "int64",
               "type": "integer"
             }
+          },
+          {
+            "name": "targetSeq",
+            "required": false,
+            "in": "query",
+            "description": "Return a fixed-size history window ending at this sequence number; mutually exclusive with beforeSeq.",
+            "schema": {
+              "minimum": 1,
+              "maximum": 9007199254740991,
+              "format": "int64",
+              "type": "integer"
+            }
           }
         ],
         "responses": {

@@ -20,6 +20,7 @@ import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository } from '../chats/chats-repository';
+import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 
 import { cookieOf } from '../testing/support';
 
@@ -44,7 +45,10 @@ d('auth e2e — real HTTP + Postgres', () => {
   beforeAll(async () => {
     const mod = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(CanonicalSearchCoverageService)
+      .useValue({ assertReady: () => Promise.resolve() })
+      .compile();
     app = mod.createNestApplication();
     configureApp(app);
     await app.init();

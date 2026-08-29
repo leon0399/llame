@@ -27,7 +27,7 @@ import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 
 import * as schema from '../db/schema';
-import { type Compaction } from '../db/schema';
+import { type Compaction, type Message } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   ChatsRepository,
@@ -244,6 +244,52 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
       expect(result?.compaction?.uptoSeq).toBe(25);
       // 25 - 10, NOT 25 (the chain's earlier span isn't re-counted).
       expect(result?.absorbedMessageCount).toBe(15);
+    });
+
+    it('selects the latest compaction applicable to a target-ended history window', async () => {
+      const chat = await newChat(a);
+      const messages: Message[] = [];
+      for (let i = 0; i < 25; i++) {
+        messages.push(await addMessage(chat, a));
+      }
+      const first = await tenantDb.runAs(a, (tx) =>
+        new CompactionsRepository(tx).create({
+          chatId: chat,
+          uptoSeq: messages[9].seq,
+          summary: 'target first',
+          replacementHistory: compactionReplacementHistory('target first'),
+        }),
+      );
+      await tenantDb.runAs(a, (tx) =>
+        new CompactionsRepository(tx).create({
+          chatId: chat,
+          uptoSeq: messages[19].seq,
+          parentId: first.id,
+          summary: 'target second',
+          replacementHistory: compactionReplacementHistory('target second'),
+        }),
+      );
+
+      const cases = [
+        { target: messages[4].seq, summary: undefined },
+        { target: messages[9].seq, summary: 'target first' },
+        { target: messages[14].seq, summary: 'target first' },
+        { target: messages[19].seq, summary: 'target second' },
+        { target: messages[24].seq, summary: 'target second' },
+      ];
+
+      for (const { target, summary } of cases) {
+        const result = await chatsService.getChatMessages(chat, a, {
+          limit: 10,
+          targetSeq: target,
+        });
+
+        expect(result?.messages.at(-1)?.seq).toBe(target);
+        expect(result?.compaction?.summary).toBe(summary);
+        if (result?.compaction) {
+          expect(result.compaction.uptoSeq).toBeLessThanOrEqual(target);
+        }
+      }
     });
 
     it('a foreign/cross-tenant chat id still resolves to undefined — embedding the field does not change 404 behavior', async () => {

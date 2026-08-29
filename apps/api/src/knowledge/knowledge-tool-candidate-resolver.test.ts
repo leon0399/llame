@@ -10,6 +10,7 @@ import {
 } from './knowledge-tool-candidate-resolver';
 import { KnowledgeSpaceRepository } from './knowledge-space.repository';
 import { searchConversationsTool } from '../tools/search-conversations';
+import { conversationReadTool } from '../tools/conversation-read';
 import { TOOL_REGISTRY } from '../tools/registry';
 
 const OWNER_ID = 'owner-a';
@@ -57,6 +58,11 @@ describe('KnowledgeToolCandidateResolver', () => {
         source: { type: 'code_owned' },
         state: 'available',
         tool: searchConversationsTool,
+      },
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: conversationReadTool,
       },
       {
         source: { type: 'code_owned' },
@@ -120,6 +126,23 @@ describe('KnowledgeToolCandidateResolver', () => {
         reason: 'knowledge_space_unavailable',
       },
     ]);
+  });
+
+  it('does not treat a code-owned wildcard as a Knowledge allowlist entry', async () => {
+    const resolver = new KnowledgeToolCandidateResolver(makeConfig(undefined));
+
+    const candidates = await makeInput(resolver, {
+      allowedToolRules: ['knowledge_*'],
+    });
+
+    expect(
+      candidates.filter(
+        (candidate) =>
+          candidate.state === 'unavailable' &&
+          (candidate.id === 'knowledge_search' ||
+            candidate.id === 'knowledge_read'),
+      ),
+    ).toEqual([]);
   });
 
   it('uses no owner transaction or filesystem probe when root is configured', async () => {

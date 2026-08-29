@@ -214,7 +214,9 @@
   // Per-corpus intended-embedding-model selection. Unset (default) means no
   // embedding work is scheduled for that corpus.
   // "search": {
-  //   "chats": { "embeddingModelId": "openai:text-embedding-3-large" }
+  //   "chats": {
+  //     "embeddingModelId": "openai:text-embedding-3-large"
+  //   }
   // },
 
   // Run limits. Interpolated numbers must be whole-value quoted tokens.
@@ -251,6 +253,9 @@
   "tools": {
     // Built-in or discovered MCP tool ids to allow. To enable Knowledge after
     // mounting the root above, add "knowledge_search" and "knowledge_read".
+    // Allowlisting search_conversations makes complete canonical projection
+    // coverage a startup gate. Add conversation_read independently for exact
+    // line reads; see docs/conversation-recall.md.
     "allowed": ["search_conversations"],
     // Maximum tool-requesting steps per run.
     "maxStepsPerRun": 8,

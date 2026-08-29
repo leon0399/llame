@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 
 import { AppModule } from '../app.module';
+import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { configureApp } from '../app.setup';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { modelContextSnapshots } from '../db/schema';
@@ -61,7 +62,10 @@ d('GET /api/v1/runs/:id/context-receipt', () => {
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(CanonicalSearchCoverageService)
+      .useValue({ assertReady: () => Promise.resolve() })
+      .compile();
     app = module.createNestApplication();
     configureApp(app);
     await app.init();

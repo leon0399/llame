@@ -5,6 +5,7 @@ import { AppModule } from './app.module';
 import { configureApp } from './app.setup';
 import { McpRuntimeService } from './mcp/mcp-runtime.service';
 import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './runs/snapshot-tool-execution';
+import { CanonicalSearchCoverageService } from './search/canonical-search-activation.service';
 
 describe('AppController — liveness probe', () => {
   let app: INestApplication<import('http').Server>;
@@ -12,7 +13,10 @@ describe('AppController — liveness probe', () => {
   beforeAll(async () => {
     const mod = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(CanonicalSearchCoverageService)
+      .useValue({ assertReady: () => Promise.resolve() })
+      .compile();
     app = mod.createNestApplication();
     configureApp(app);
     await app.init();

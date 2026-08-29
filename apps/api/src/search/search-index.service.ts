@@ -83,24 +83,38 @@ export class SearchIndexService {
       .select({
         ordinal: searchChatDocuments.chunkOrdinal,
         version: searchChatDocuments.chunkerVersion,
+        ownerUserId: searchChatDocuments.ownerUserId,
         hash: searchChatDocuments.contentHash,
+        firstMessageId: searchChatDocuments.firstMessageId,
+        lastMessageId: searchChatDocuments.lastMessageId,
+        firstMessageTextOffset: searchChatDocuments.firstMessageTextOffset,
+        lastMessageTextOffsetExclusive:
+          searchChatDocuments.lastMessageTextOffsetExclusive,
       })
       .from(searchChatDocuments)
       .where(eq(searchChatDocuments.chatId, chatId));
 
-    const currentHashByOrdinal = new Map(
+    const currentByOrdinal = new Map(
       existing
         .filter((e) => e.version === CHUNKER_VERSION)
-        .map((e) => [e.ordinal, e.hash]),
+        .map((e) => [e.ordinal, e]),
     );
 
-    // Hash-diff: an unchanged chunk is left exactly as-is (no write). Changed/new
-    // chunks upsert in ONE multi-row statement (one round-trip regardless of N —
-    // matters for a version-bump rebuild / cold backfill).
-    const changed = chunks.filter(
-      (chunk) =>
-        currentHashByOrdinal.get(chunk.chunkOrdinal) !== chunk.contentHash,
-    );
+    // Hash/locator diff: an unchanged chunk is left exactly as-is (no write).
+    // Changed/new chunks upsert in ONE multi-row statement (one round-trip
+    // regardless of N — matters for a version-bump rebuild / cold backfill).
+    const changed = chunks.filter((chunk) => {
+      const current = currentByOrdinal.get(chunk.chunkOrdinal);
+      return (
+        current?.ownerUserId !== ownerUserId ||
+        current?.hash !== chunk.contentHash ||
+        current?.firstMessageId !== chunk.firstMessageId ||
+        current?.lastMessageId !== chunk.lastMessageId ||
+        current?.firstMessageTextOffset !== chunk.firstMessageTextOffset ||
+        current?.lastMessageTextOffsetExclusive !==
+          chunk.lastMessageTextOffsetExclusive
+      );
+    });
     if (changed.length > 0) {
       await tx
         .insert(searchChatDocuments)
@@ -114,6 +128,9 @@ export class SearchIndexService {
             lastMessageId: chunk.lastMessageId,
             firstMessageAt: chunk.firstMessageAt,
             lastMessageAt: chunk.lastMessageAt,
+            firstMessageTextOffset: chunk.firstMessageTextOffset,
+            lastMessageTextOffsetExclusive:
+              chunk.lastMessageTextOffsetExclusive,
             content: chunk.content,
             normalizedContent: chunk.normalizedContent,
             contentHash: chunk.contentHash,
@@ -126,22 +143,25 @@ export class SearchIndexService {
             searchChatDocuments.chunkerVersion,
           ],
           set: {
+            ownerUserId: sql`excluded.owner_user_id`,
             firstMessageId: sql`excluded.first_message_id`,
             lastMessageId: sql`excluded.last_message_id`,
             firstMessageAt: sql`excluded.first_message_at`,
             lastMessageAt: sql`excluded.last_message_at`,
+            firstMessageTextOffset: sql`excluded.first_message_text_offset`,
+            lastMessageTextOffsetExclusive: sql`excluded.last_message_text_offset_exclusive`,
             content: sql`excluded.content`,
             normalizedContent: sql`excluded.normalized_content`,
             contentHash: sql`excluded.content_hash`,
             updatedAt: sql`now()`,
             // chat-search-embeddings design D7's "upsert trap" (trap 1): this
-            // upsert only runs for `changed` chunks — those whose content_hash
-            // actually differs (see the filter above) — so nulling here clears
-            // a stale vector PRECISELY when the content it described changed,
-            // never on a no-op rebuild. Omitting these five is the single way
-            // this design can silently serve a WRONG embedding: the row's
-            // content is rewritten while its vector still describes the old
-            // text, with no error and no symptom until ranking degrades.
+            // upsert only runs for `changed` chunks — those whose content hash
+            // or canonical locator differs (see the filter above) — so nulling
+            // here clears a stale vector PRECISELY when its content or source
+            // changed, never on a no-op rebuild. Omitting these five is the
+            // single way this design can silently serve a WRONG embedding: the
+            // row's content is rewritten while its vector still describes the
+            // old text, with no error and no symptom until ranking degrades.
             embedding: sql`NULL`,
             embeddingModelKey: sql`NULL`,
             embeddedContentHash: sql`NULL`,
@@ -175,7 +195,13 @@ export class SearchIndexService {
     // The message-max falls back to the chat's own creation time for a message-less
     // chat (never flagged by the message-time branch).
     await tx.execute(sql`
-      INSERT INTO search_chat_state (chat_id, owner_user_id, indexed_at, chunker_version)
+      INSERT INTO search_chat_state (
+        chat_id,
+        owner_user_id,
+        indexed_at,
+        chunker_version,
+        expected_document_count
+      )
       VALUES (
         ${chatId}, ${ownerUserId},
         greatest(
@@ -185,13 +211,15 @@ export class SearchIndexService {
           ),
           (SELECT updated_at FROM chats WHERE id = ${chatId})
         ),
-        ${CHUNKER_VERSION}
+        ${CHUNKER_VERSION},
+        ${chunks.length}
       )
       ON CONFLICT (chat_id) DO UPDATE SET
         owner_user_id = EXCLUDED.owner_user_id,
         -- monotonic: a reordered/stale rebuild commit can never walk the watermark backward
         indexed_at = GREATEST(search_chat_state.indexed_at, EXCLUDED.indexed_at),
         chunker_version = EXCLUDED.chunker_version,
+        expected_document_count = EXCLUDED.expected_document_count,
         updated_at = now()
     `);
   }

@@ -9,7 +9,6 @@
  */
 
 import { assertNotArchived } from '../db/assert-not-archived';
-import { isRecord } from '../unknown-record';
 
 import {
   and,
@@ -25,6 +24,7 @@ import {
   isNull,
   lt,
   lte,
+  max,
   not,
   sql,
 } from 'drizzle-orm';
@@ -43,16 +43,80 @@ import {
 
 import { type Db } from '../db/tenant-db.service';
 export { type Db } from '../db/tenant-db.service';
+import { isString, type UnknownRecord } from '../unknown-record';
 import { parseCompactionReplacementHistory } from './compaction-replacement-history';
+import { isCompletedAssistantTurn } from './assistant-completion';
+export { isCompletedAssistantTurn };
 import {
   buildHybridSearchQuery,
   normalizeForSearch,
   RRF_DEFAULT_K,
+  type HybridSearchResult,
 } from '../search/core';
 
 const DEFAULT_CHAT_VISIBILITY = 'private';
 
 const SNIPPET_MAX = 160;
+
+// Fixed application budget, not operator configuration. Current writers are
+// bounded to assistant finalization/salvage after accepted-turn admission has
+// rejected or expired an active Run; eight attempts leaves a defensive retry
+// wave without permitting an unbounded transaction loop.
+const MESSAGE_SEQUENCE_INSERT_ATTEMPTS = 8;
+const MESSAGE_SEQUENCE_UNIQUE_INDEX = 'messages_chat_seq_unique_idx';
+
+type MessageInsert = typeof messages.$inferInsert;
+type MessageInsertWithoutSequence = Omit<MessageInsert, 'seq'>;
+
+export type ConversationMessageLookup = {
+  chatId: string;
+  seq: number;
+  role: 'user' | 'assistant';
+  parts: unknown[];
+  usage: unknown;
+  createdAt: Date;
+  previousMessageSeq?: number;
+  nextMessageSeq?: number;
+};
+
+type ConversationMessageLookupRow = {
+  message_chat_id: string;
+  message_seq: string;
+  message_role: string;
+  message_parts: unknown;
+  message_usage: unknown;
+  message_created_at: Date | string;
+  previous_message_seq: string | null;
+  next_message_seq: string | null;
+};
+
+function parseSafePositiveSequence(value: string | null): number | undefined {
+  if (value === null) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function isCauseChainLink(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null;
+}
+
+function isMessageSequenceUniqueViolation(error: unknown): boolean {
+  for (
+    let current = error;
+    isCauseChainLink(current);
+    current = current['cause']
+  ) {
+    const namesSequenceIndex =
+      (isString(current['constraint_name']) &&
+        current['constraint_name'] === MESSAGE_SEQUENCE_UNIQUE_INDEX) ||
+      (isString(current['message']) &&
+        current['message'].includes(MESSAGE_SEQUENCE_UNIQUE_INDEX));
+    if (current['code'] === '23505' && namesSequenceIndex) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /** Collapse whitespace and clip a matching message to a short search snippet. */
 function truncateSnippet(text: string): string {
@@ -293,7 +357,9 @@ export class ChatsRepository {
    * (chats_owner / search_chat_documents_owner, FORCE) is the tenant guard; the in-CTE
    * `owner_user_id = ${ownerUserId}` seatbelt is defense-in-depth. Blank query →
    * [] (no full-table dump). `title` is nullable (#78) — a still-untitled chat
-   * can match by content alone.
+   * can match by content alone. The internal result also retains
+   * `bestDocumentId` for canonical model shaping; public adapters must project
+   * that field explicitly.
    *
    * MUST be called with a transaction-scoped `Db` (constructed inside a
    * `TenantDbService.runAs` callback) — `SET LOCAL statement_timeout` reverts at
@@ -305,14 +371,7 @@ export class ChatsRepository {
     ownerUserId: string,
     query: string,
     limit: number,
-  ): Promise<
-    Array<{
-      id: string;
-      title: string | null;
-      snippet: string | null;
-      updatedAt: Date;
-    }>
-  > {
+  ): Promise<HybridSearchResult[]> {
     const trimmed = query.trim();
     if (trimmed.length === 0) {
       return [];
@@ -355,12 +414,7 @@ export class ChatsRepository {
       limit,
     });
 
-    const rows = await this.db.execute<{
-      id: string;
-      title: string | null;
-      snippet: string | null;
-      updatedAt: Date;
-    }>(search);
+    const rows = await this.db.execute<HybridSearchResult>(search);
     return [...rows].map((r) => ({
       id: r.id,
       title: r.title,
@@ -369,6 +423,7 @@ export class ChatsRepository {
           ? null
           : truncateSnippet(r.snippet),
       updatedAt: r.updatedAt,
+      bestDocumentId: r.bestDocumentId,
     }));
   }
 
@@ -664,13 +719,130 @@ export class MessagesRepository {
   }
 
   /**
+   * Resolve one immutable conversation source and its nearest eligible
+   * neighbors in one statement. The owner predicate is repeated alongside the
+   * RLS join, while the current tenant identity guard prevents the public-share
+   * policy from turning an owner parameter into authority in runAsPublic.
+   */
+  async findConversationMessage(
+    chatId: string,
+    ownerUserId: string,
+    messageSeq: number,
+  ): Promise<ConversationMessageLookup | undefined> {
+    if (!ownerUserId.trim()) {
+      throw new Error(
+        'MessagesRepository.findConversationMessage requires a non-empty userId',
+      );
+    }
+    if (!Number.isSafeInteger(messageSeq) || messageSeq <= 0) {
+      return undefined;
+    }
+
+    // One statement gives target and neighbors one database snapshot. The CTE
+    // is intentionally message-scoped; no full-chat row set crosses the
+    // repository boundary.
+    const rows = await this.db.execute<ConversationMessageLookupRow>(sql`
+      WITH eligible AS (
+        SELECT
+          m.chat_id,
+          m.seq,
+          m.role,
+          m.parts,
+          m.usage,
+          m.created_at
+        FROM messages AS m
+        INNER JOIN chats AS c
+          ON c.id = m.chat_id
+        WHERE m.chat_id = ${chatId}
+          AND c.owner_user_id = ${ownerUserId}
+          AND current_setting('app.current_user_id', true) = ${ownerUserId}
+          AND (
+            m.role = 'user'
+            OR (
+              m.role = 'assistant'
+              AND (
+                m.usage IS NULL
+                OR jsonb_typeof(m.usage) <> 'object'
+                OR NOT (m.usage ? 'status')
+                OR m.usage ->> 'status' = 'completed'
+              )
+            )
+          )
+      ), target AS (
+        SELECT *
+        FROM eligible
+        WHERE seq = ${messageSeq}
+      )
+      SELECT
+        target.chat_id AS message_chat_id,
+        target.seq::text AS message_seq,
+        target.role AS message_role,
+        target.parts AS message_parts,
+        target.usage AS message_usage,
+        target.created_at AS message_created_at,
+        (
+          SELECT previous.seq::text
+          FROM eligible AS previous
+          WHERE previous.seq < target.seq
+          ORDER BY previous.seq DESC
+          LIMIT 1
+        ) AS previous_message_seq,
+        (
+          SELECT next_message.seq::text
+          FROM eligible AS next_message
+          WHERE next_message.seq > target.seq
+          ORDER BY next_message.seq ASC
+          LIMIT 1
+        ) AS next_message_seq
+      FROM target
+    `);
+
+    const row = [...rows][0];
+    if (
+      row === undefined ||
+      (row.message_role !== 'user' && row.message_role !== 'assistant') ||
+      !Array.isArray(row.message_parts)
+    ) {
+      return undefined;
+    }
+
+    const seq = parseSafePositiveSequence(row.message_seq);
+    if (seq === undefined) return undefined;
+
+    const previousMessageSeq = parseSafePositiveSequence(
+      row.previous_message_seq,
+    );
+    const nextMessageSeq = parseSafePositiveSequence(row.next_message_seq);
+    const createdAt =
+      row.message_created_at instanceof Date
+        ? row.message_created_at
+        : new Date(row.message_created_at);
+
+    const result: ConversationMessageLookup = {
+      chatId: row.message_chat_id,
+      seq,
+      role: row.message_role,
+      parts: row.message_parts,
+      usage: row.message_usage,
+      createdAt,
+    };
+    if (previousMessageSeq !== undefined) {
+      result.previousMessageSeq = previousMessageSeq;
+    }
+    if (nextMessageSeq !== undefined) {
+      result.nextMessageSeq = nextMessageSeq;
+    }
+    return result;
+  }
+
+  /**
    * Bulk-insert pre-built message rows (each with a caller-assigned `id`, so
    * `inReplyTo` can be remapped up front — no per-row RETURNING round-trip
    * needed to learn a new id before the next row references it).
    *
    * Chunked into multi-row INSERTs (not one row per statement, not one
-   * INSERT for the whole batch): a single statement keeps `seq` identity
-   * assignment in input order (needed for conversation order), while
+   * INSERT for the whole batch): callers provide the new Chat's explicit
+   * one-based `seq` values in input order, while
    * chunking keeps any one statement's parameter count well under Postgres's
    * limit for arbitrarily large batches (a fork copies a conversation of any
    * length, #143 — no upper bound). Chunks are awaited in order, not via
@@ -680,6 +852,7 @@ export class MessagesRepository {
     rows: {
       id: string;
       chatId: string;
+      seq: number;
       role: MessageRole;
       senderUserId: string | null;
       parts: unknown[];
@@ -892,7 +1065,7 @@ export class MessagesRepository {
     usage?: unknown;
     inReplyTo?: string | null;
   }): Promise<Message> {
-    const values: typeof messages.$inferInsert = {
+    const values: MessageInsertWithoutSequence = {
       chatId: input.chatId,
       role: input.role,
       senderUserId: input.senderUserId ?? null,
@@ -903,8 +1076,16 @@ export class MessagesRepository {
     };
     if (input.id !== undefined) values.id = input.id;
 
-    const [created] = await this.db.insert(messages).values(values).returning();
-
+    const created = await this.insertWithChatSequence(
+      values,
+      async (tx, row) => {
+        const [inserted] = await tx.insert(messages).values(row).returning();
+        return inserted;
+      },
+    );
+    if (!created) {
+      throw new Error('Message insert returned no row');
+    }
     return created;
   }
 
@@ -915,20 +1096,24 @@ export class MessagesRepository {
     parts: unknown[];
     attachments?: unknown[];
   }): Promise<Message | undefined> {
-    const [created] = await this.db
-      .insert(messages)
-      .values({
+    return this.insertWithChatSequence(
+      {
         id: input.id,
         chatId: input.chatId,
         role: 'user',
         senderUserId: input.senderUserId,
         parts: input.parts,
         attachments: input.attachments ?? [],
-      })
-      .onConflictDoNothing({ target: messages.id })
-      .returning();
-
-    return created;
+      },
+      async (tx, row) => {
+        const [created] = await tx
+          .insert(messages)
+          .values(row)
+          .onConflictDoNothing({ target: messages.id })
+          .returning();
+        return created;
+      },
+    );
   }
 
   async createAssistantReplyIfAbsent(input: {
@@ -937,9 +1122,8 @@ export class MessagesRepository {
     usage?: unknown;
     inReplyTo: string;
   }): Promise<Message | undefined> {
-    const [created] = await this.db
-      .insert(messages)
-      .values({
+    return this.insertWithChatSequence(
+      {
         chatId: input.chatId,
         role: 'assistant',
         senderUserId: null,
@@ -947,11 +1131,50 @@ export class MessagesRepository {
         attachments: [],
         usage: input.usage,
         inReplyTo: input.inReplyTo,
-      })
-      .onConflictDoNothing({ target: messages.inReplyTo })
-      .returning();
+      },
+      async (tx, row) => {
+        const [created] = await tx
+          .insert(messages)
+          .values(row)
+          .onConflictDoNothing({ target: messages.inReplyTo })
+          .returning();
+        return created;
+      },
+    );
+  }
 
-    return created;
+  private async insertWithChatSequence(
+    values: MessageInsertWithoutSequence,
+    insert: (tx: Db, row: MessageInsert) => Promise<Message | undefined>,
+  ): Promise<Message | undefined> {
+    let sequenceConflict: unknown;
+    for (
+      let attempt = 0;
+      attempt < MESSAGE_SEQUENCE_INSERT_ATTEMPTS;
+      attempt++
+    ) {
+      try {
+        return await this.db.transaction(async (tx) => {
+          const [current] = await tx
+            .select({ value: max(messages.seq) })
+            .from(messages)
+            .where(eq(messages.chatId, values.chatId));
+          const seq = (current?.value ?? 0) + 1;
+          if (!Number.isSafeInteger(seq) || seq <= 0) {
+            throw new Error(
+              `Chat ${values.chatId} exhausted safe message sequence values`,
+            );
+          }
+          return insert(tx, { ...values, seq });
+        });
+      } catch (error) {
+        if (!isMessageSequenceUniqueViolation(error)) {
+          throw error;
+        }
+        sequenceConflict = error;
+      }
+    }
+    throw sequenceConflict;
   }
 
   async updateAssistantReply(input: {
@@ -998,15 +1221,17 @@ export class CompactionsRepository {
   constructor(private readonly db: Db) {}
 
   /**
-   * Latest compaction for a chat (highest uptoSeq), or undefined when the chat has
-   * never compacted. Owner-scoped as defense-in-depth, mirroring MessagesRepository:
-   * the join requires the chat to be owned by `ownerUserId`; RLS remains the primary
-   * guarantee.
+   * Latest compaction for a chat (highest uptoSeq), optionally bounded by an
+   * inclusive maximum, or undefined when the chat has never compacted. The
+   * existing `beforeSeq` option remains an exclusive bound for callers walking
+   * to a compaction's parent. Owner-scoped as defense-in-depth, mirroring
+   * MessagesRepository: the join requires the chat to be owned by
+   * `ownerUserId`; RLS remains the primary guarantee.
    */
   async findLatestByChatId(
     chatId: string,
     ownerUserId: string,
-    options?: { beforeSeq?: number },
+    options?: { beforeSeq?: number; maxSeq?: number },
   ): Promise<Compaction | undefined> {
     const predicates = [
       eq(compactions.chatId, chatId),
@@ -1015,6 +1240,9 @@ export class CompactionsRepository {
 
     if (options?.beforeSeq !== undefined) {
       predicates.push(lt(compactions.uptoSeq, options.beforeSeq));
+    }
+    if (options?.maxSeq !== undefined) {
+      predicates.push(lte(compactions.uptoSeq, options.maxSeq));
     }
 
     const rows = await this.db
@@ -1138,24 +1366,4 @@ export async function findLiveWindow(
   );
 
   return { compaction, history };
-}
-
-/**
- * A turn is complete iff its assistant message carries completed usage —
- * malformed/legacy usage counts as complete (never retryable by accident).
- * Parameter is structural (`usage` only) so pure callers holding a
- * ContextBuilder StoredMessage share the exact same semantics as Message.
- */
-export function isCompletedAssistantTurn(message: {
-  usage?: unknown;
-}): boolean {
-  const usage = message.usage;
-  // Not `isRecord`'s own array exclusion changing anything here: an array
-  // `usage` has no `status` property either way, so both branches already
-  // agreed on "complete" before this swap.
-  if (!isRecord(usage) || !('status' in usage)) {
-    return true;
-  }
-
-  return usage['status'] === 'completed';
 }

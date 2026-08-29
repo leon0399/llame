@@ -177,7 +177,9 @@ export type EmbeddingModelCatalogEntry = {
  * memory) adds its own key here, not a new shape.
  */
 export interface RawSearchConfig extends Record<string, unknown> {
-  chats?: { embeddingModelId?: unknown };
+  chats?: {
+    embeddingModelId?: unknown;
+  };
 }
 
 /**

@@ -22,3 +22,11 @@ export function matchesAllowedToolId(
     rule.endsWith('*') ? toolId.startsWith(rule.slice(0, -1)) : rule === toolId,
   );
 }
+
+/** Code-owned tool permissions are exact; wildcard rules belong to MCP ids. */
+export function matchesCodeOwnedToolId(
+  toolId: string,
+  allowedRules: readonly string[],
+): boolean {
+  return allowedRules.includes(toolId);
+}

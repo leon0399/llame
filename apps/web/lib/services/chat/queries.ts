@@ -84,9 +84,13 @@ export const chatQueryKeys = {
   detail: (chatId: string) => [...chatQueryKeys.all, chatId] as const,
   messages: (chatId: string) =>
     [...chatQueryKeys.detail(chatId), "messages"] as const,
+  targetMessages: (chatId: string, targetSeq: number) =>
+    [...chatQueryKeys.messages(chatId), "target", targetSeq] as const,
 };
 
-type ChatMessagesQueryKey = ReturnType<typeof chatQueryKeys.messages>;
+type ChatMessagesQueryKey =
+  | ReturnType<typeof chatQueryKeys.messages>
+  | ReturnType<typeof chatQueryKeys.targetMessages>;
 
 type ChatMessagesQueryOptions = {
   recoverSentDraft?: boolean;
@@ -147,7 +151,7 @@ type ChatMessagesPageParam = number | null;
 // GET :id/compaction call into this one), so there's a single fetch, not two
 // independently-failing ones.
 const fetchChatMessagesPage = async ({
-  queryKey: [, chatId],
+  queryKey: [, chatId, , mode, targetSeq],
   pageParam,
   signal,
 }: QueryFunctionContext<
@@ -159,7 +163,11 @@ const fetchChatMessagesPage = async ({
       encodeURIComponent(chatId),
       {
         limit: CHAT_HISTORY_PAGE_SIZE,
-        ...(typeof pageParam === "number" ? { beforeSeq: pageParam } : {}),
+        ...(typeof pageParam === "number"
+          ? { beforeSeq: pageParam }
+          : mode === "target" && targetSeq !== undefined
+            ? { targetSeq }
+            : {}),
       },
       { signal },
       createAuthenticatedBrowserFetch(globalThis.fetch),
@@ -238,10 +246,18 @@ export function seedChatMessagesQueryData(
 
 export function chatMessagesQueryOptions(
   chatId: string,
-  { recoverSentDraft = false }: ChatMessagesQueryOptions = {},
+  {
+    recoverSentDraft = false,
+    targetSeq,
+  }: ChatMessagesQueryOptions & { targetSeq?: number } = {},
 ) {
+  const queryKey =
+    targetSeq === undefined
+      ? chatQueryKeys.messages(chatId)
+      : chatQueryKeys.targetMessages(chatId, targetSeq);
+
   return infiniteQueryOptions({
-    queryKey: chatQueryKeys.messages(chatId),
+    queryKey,
     queryFn: fetchChatMessagesPage,
     initialPageParam: null as ChatMessagesPageParam,
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
@@ -277,13 +293,15 @@ export function useChatMessagesQuery({
   chatId,
   enabled = true,
   recoverSentDraft = false,
+  targetSeq,
 }: {
   chatId: string;
   enabled?: boolean;
   recoverSentDraft?: boolean;
+  targetSeq?: number;
 }) {
   return useInfiniteQuery({
-    ...chatMessagesQueryOptions(chatId, { recoverSentDraft }),
+    ...chatMessagesQueryOptions(chatId, { recoverSentDraft, targetSeq }),
     enabled,
   });
 }

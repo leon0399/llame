@@ -3,6 +3,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -91,6 +92,7 @@ import {
   adoptServerHistory,
   mergeTrustedModelContextParts,
   messageRenderKey,
+  messageSeqFromMetadata,
   modelSwitchPart,
   runIdFromMessageMetadata,
 } from "@/lib/services/chat/history";
@@ -110,9 +112,10 @@ import {
   shouldResumeChat,
 } from "@/lib/services/chat/draft-session";
 import {
-  draftChatPath,
+  draftChatPathWithHash,
   type DraftPhase,
 } from "@/lib/services/chat/draft-route";
+import { useMessageTarget } from "@/lib/services/chat/message-target";
 
 // TODO(#187/#417): these client-only chunks leave EMPTY message bubbles on a
 // hard reload until they load — the transcript SSRs as shells (reasoning
@@ -152,6 +155,7 @@ export function ChatPage({
   initialDraftPhase,
 }: ChatPageProps) {
   const { registerViewedChat } = useActiveRuns();
+  const { resolveLatest, targetSeq } = useMessageTarget(chatId);
 
   // This page boundary owns foreground presence before any session data loads.
   // In particular, a rehydrated draft can wait with no ChatSessionContent while
@@ -159,12 +163,18 @@ export function ChatPage({
   // from being misclassified as a background run completion.
   useEffect(() => registerViewedChat(chatId), [chatId, registerViewedChat]);
 
+  // The server cannot see URL fragments. Keep the first client render equal to
+  // the SSR shell, then mount exactly one history mode after the hash resolves.
+  if (targetSeq === undefined) return null;
+
   return (
     <ChatSession
-      key={chatId}
+      key={`${chatId}:${targetSeq === null ? "latest" : targetSeq}`}
       chatId={chatId}
       initialChatExists={initialChatExists}
       initialDraftPhase={initialDraftPhase}
+      onTargetSendFinished={resolveLatest}
+      targetSeq={targetSeq}
     />
   );
 }
@@ -173,27 +183,75 @@ function ChatSession({
   chatId,
   initialChatExists,
   initialDraftPhase,
+  onTargetSendFinished,
+  targetSeq,
 }: {
   chatId: string;
   initialChatExists: boolean;
   initialDraftPhase: DraftPhase | null;
+  onTargetSendFinished: () => void;
+  targetSeq: number | null;
 }) {
   const [session, dispatch] = useReducer(
     reduceDraftSession,
-    initialDraftSession(initialDraftPhase, initialChatExists),
+    targetSeq === null
+      ? initialDraftSession(initialDraftPhase, initialChatExists)
+      : { kind: "persisted", resumeRequested: false },
   );
   const historyQuery = useChatMessagesQuery({
     chatId,
     enabled: shouldQueryChatHistory(session),
     recoverSentDraft: session.kind === "recovering",
+    targetSeq: targetSeq ?? undefined,
   });
+  const targetSendStateRef = useRef<
+    | { status: "active"; hash: string }
+    | { status: "failed" | "interrupted" | "finished" }
+    | null
+  >(null);
+
+  const consumeTargetSend = useCallback(
+    (status: "interrupted" | "finished") => {
+      if (
+        targetSeq === null ||
+        targetSendStateRef.current?.status !== "active"
+      ) {
+        return false;
+      }
+      targetSendStateRef.current = { status };
+      window.history.replaceState(
+        window.history.state,
+        "",
+        draftChatPathWithHash(
+          chatId,
+          status === "interrupted" ? "sent" : null,
+          "",
+        ),
+      );
+      onTargetSendFinished();
+      return true;
+    },
+    [chatId, onTargetSendFinished, targetSeq],
+  );
+  const onTargetSendInterrupted = useCallback(
+    () => consumeTargetSend("interrupted"),
+    [consumeTargetSend],
+  );
 
   const draftPhase = draftPhaseForSession(session);
   useEffect(() => {
+    // An uncertain stream interruption has already moved the URL to the
+    // hashless sent-draft route before remounting this ordinary session. Keep
+    // that recovery marker until a later successful finish clears it.
+    const recoveryDraft =
+      draftPhase === null &&
+      new URLSearchParams(window.location.search).get("draft") === "sent"
+        ? "sent"
+        : draftPhase;
     window.history.replaceState(
       window.history.state,
       "",
-      draftChatPath(chatId, draftPhase),
+      draftChatPathWithHash(chatId, recoveryDraft, window.location.hash),
     );
   }, [chatId, draftPhase]);
 
@@ -214,30 +272,63 @@ function ChatSession({
   }, [historyQuery.error, historyQuery.isError, session.kind]);
 
   const onSendStarted = useCallback(() => {
+    if (targetSeq !== null) {
+      targetSendStateRef.current = {
+        status: "active",
+        hash: window.location.hash,
+      };
+      window.history.replaceState(
+        window.history.state,
+        "",
+        draftChatPathWithHash(chatId, "sent", ""),
+      );
+      if (session.kind === "fresh") dispatch({ type: "send-started" });
+      return;
+    }
     if (session.kind !== "fresh") return;
     window.history.replaceState(
       window.history.state,
       "",
-      draftChatPath(chatId, "sent"),
+      draftChatPathWithHash(chatId, "sent", window.location.hash),
     );
     dispatch({ type: "send-started" });
-  }, [chatId, session.kind]);
+  }, [chatId, session.kind, targetSeq]);
 
   const onSendFailed = useCallback(() => {
+    const targetSendState = targetSendStateRef.current;
+    if (targetSeq !== null) {
+      if (targetSendState?.status !== "active") return;
+      targetSendStateRef.current = { status: "failed" };
+      window.history.replaceState(
+        window.history.state,
+        "",
+        draftChatPathWithHash(chatId, null, targetSendState.hash),
+      );
+    }
     dispatch({ type: "send-failed" });
-  }, []);
+  }, [chatId, targetSeq]);
 
   const onFinished = useCallback(() => {
+    if (targetSeq !== null) {
+      if (!consumeTargetSend("finished")) return false;
+      dispatch({ type: "finished" });
+      return true;
+    }
     window.history.replaceState(
       window.history.state,
       "",
-      draftChatPath(chatId, null),
+      draftChatPathWithHash(chatId, null, window.location.hash),
     );
     dispatch({ type: "finished" });
-  }, [chatId]);
+    return true;
+  }, [chatId, consumeTargetSend, targetSeq]);
 
   if (!shouldRenderChatOwner(session)) {
     return null;
+  }
+
+  if (targetSeq !== null && historyQuery.data === undefined) {
+    return historyQuery.isError ? <TargetUnavailable /> : null;
   }
 
   const history = historyQuery.data;
@@ -254,10 +345,25 @@ function ChatSession({
         void historyQuery.fetchNextPage({ cancelRefetch: false })
       }
       onFinished={onFinished}
+      onTargetSendInterrupted={onTargetSendInterrupted}
       onSendFailed={onSendFailed}
       onSendStarted={onSendStarted}
       resume={shouldResumeChat(session)}
+      targetSeq={targetSeq}
     />
+  );
+}
+
+function TargetUnavailable() {
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-1 items-center px-5 py-12">
+      <Alert variant="destructive">
+        <AlertTitle>Message unavailable</AlertTitle>
+        <AlertDescription>
+          This message is no longer available in this chat.
+        </AlertDescription>
+      </Alert>
+    </div>
   );
 }
 
@@ -269,9 +375,11 @@ function ChatSessionContent({
   isLoadingOlderMessages,
   onLoadOlderMessages,
   onFinished,
+  onTargetSendInterrupted,
   onSendFailed,
   onSendStarted,
   resume,
+  targetSeq,
 }: {
   chatId: string;
   chatMessages: UIMessage[];
@@ -279,10 +387,12 @@ function ChatSessionContent({
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
   onLoadOlderMessages: () => void;
-  onFinished: () => void;
+  onFinished: () => boolean;
+  onTargetSendInterrupted: () => boolean;
   onSendFailed: () => void;
   onSendStarted: () => void;
   resume: boolean;
+  targetSeq: number | null;
 }) {
   const [input, setInput] = useState("");
   const [sendError, setSendError] = useState<Error | null>(null);
@@ -411,15 +521,20 @@ function ChatSessionContent({
       // diagnostics). The run itself survives server-side; the reloaded page
       // recovers the canonical sent route and resumes it.
       if (isAbort || isDisconnect || isError) {
+        if (onTargetSendInterrupted()) {
+          refreshChatData();
+          return;
+        }
         onSendFailed();
         refreshChatData();
         return;
       }
       // The user watched this finish → drop it from the active-run registry so
       // the background poll can't fire a stale "reply ready" if they navigate
-      // away right after.
+      // away right after. A target callback that was already consumed by an
+      // interruption is a late duplicate and must remain tracked.
+      if (!onFinished()) return;
       untrackChat(chatId);
-      onFinished();
       refreshChatData();
     },
     // Do NOT untrack here: onError fires for a client-visible fetch/stream
@@ -430,6 +545,10 @@ function ChatSessionContent({
     // (completed/failed/expired) instead of silently forgetting a run that
     // might still complete.
     onError: () => {
+      if (onTargetSendInterrupted()) {
+        refreshChatData();
+        return;
+      }
       onSendFailed();
       refreshChatData();
     },
@@ -439,6 +558,26 @@ function ChatSessionContent({
     messages,
     chatMessages,
   ).filter((message) => message.role !== "system");
+
+  const targetMessageRendered =
+    targetSeq !== null &&
+    displayMessages.some(
+      (message) => messageSeqFromMetadata(message.metadata) === targetSeq,
+    );
+  const scrolledTargetRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (
+      !targetMessageRendered ||
+      targetSeq === null ||
+      scrolledTargetRef.current === targetSeq
+    ) {
+      return;
+    }
+    const target = document.getElementById(`msg-${targetSeq}`);
+    if (!target) return;
+    target.scrollIntoView({ block: "center" });
+    scrolledTargetRef.current = targetSeq;
+  }, [targetMessageRendered, targetSeq]);
   const modelSendUnavailableReason = (() => {
     if (modelsQuery.isPending) return null;
     if (modelsQuery.isError) {
@@ -618,6 +757,7 @@ function ChatSessionContent({
             />
             {displayMessages.map((message, index) => {
               const renderKey = messageRenderKey(message);
+              const messageSeq = messageSeqFromMetadata(message.metadata);
               const isUserMessage = message.role === "user";
               const switchPart = isUserMessage
                 ? modelSwitchPart(message)
@@ -657,7 +797,11 @@ function ChatSessionContent({
                   {modelBoundary}
                   {/* data-message-key anchors ChatLoadOlder's scroll
                       compensation when older pages prepend. */}
-                  <Message from={message.role} data-message-key={renderKey}>
+                  <Message
+                    id={messageSeq === null ? undefined : `msg-${messageSeq}`}
+                    from={message.role}
+                    data-message-key={renderKey}
+                  >
                     <MessageContent>
                       {message.parts.map((part, partIndex) => {
                         const messagePartKey = `message-part-${renderKey}-${partIndex}`;

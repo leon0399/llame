@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { type Tool } from './types';
+import { conversationReadTool } from './conversation-read';
 import {
   composeTurnToolCatalog,
   hashToolDeclaration,
@@ -89,6 +90,24 @@ const mcpAvailable = (serverId: string, candidate: Tool) => ({
 });
 
 describe('composeTurnToolCatalog', () => {
+  it('requires an exact allowlist entry for code-owned conversation_read', async () => {
+    const wildcard = await composeTurnToolCatalog({
+      allowedToolRules: ['conversation_*'],
+      callTimeoutSeconds: 15,
+      candidates: [available(conversationReadTool)],
+    });
+    const exact = await composeTurnToolCatalog({
+      allowedToolRules: ['conversation_read'],
+      callTimeoutSeconds: 15,
+      candidates: [available(conversationReadTool)],
+    });
+
+    expect(wildcard.admitted).toEqual([]);
+    expect(exact.admitted.map(({ declaration }) => declaration.id)).toEqual([
+      'conversation_read',
+    ]);
+  });
+
   it('filters a source inventory by a namespace wildcard and emits only exact ids', async () => {
     const catalog = await composeTurnToolCatalog({
       allowedToolRules: ['mcp__web__*'],

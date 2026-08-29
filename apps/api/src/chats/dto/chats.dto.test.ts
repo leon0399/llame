@@ -5,6 +5,7 @@ import {
   ChatMessagesQueryDto,
   ChatSearchQueryDto,
   ForkChatDto,
+  OwnerChatMessagesQueryDto,
   toChatMessageResponse,
   UpdateChatDto,
   toSharedChatResponse,
@@ -235,6 +236,10 @@ describe('ChatMessagesQueryDto', () => {
     type: 'query',
     metatype: ChatMessagesQueryDto,
   };
+  const ownerMetadata: ArgumentMetadata = {
+    type: 'query',
+    metatype: OwnerChatMessagesQueryDto,
+  };
 
   it('accepts the maximum safe beforeSeq cursor', async () => {
     await expect(
@@ -245,6 +250,17 @@ describe('ChatMessagesQueryDto', () => {
         metadata,
       ),
     ).resolves.toMatchObject({ beforeSeq: Number.MAX_SAFE_INTEGER });
+  });
+
+  it('accepts the maximum safe targetSeq cursor', async () => {
+    await expect(
+      pipe.transform(
+        {
+          targetSeq: String(Number.MAX_SAFE_INTEGER),
+        },
+        ownerMetadata,
+      ),
+    ).resolves.toMatchObject({ targetSeq: Number.MAX_SAFE_INTEGER });
   });
 
   it('rejects unsafe beforeSeq cursors instead of rounding them', async () => {
@@ -266,6 +282,45 @@ describe('ChatMessagesQueryDto', () => {
       ).rejects.toMatchObject({ status: 400 });
     },
   );
+
+  it.each([
+    null,
+    '',
+    '   ',
+    '0',
+    '-1',
+    '1.5',
+    '9007199254740992',
+    'not-a-number',
+  ])('rejects invalid targetSeq cursor %j', async (targetSeq) => {
+    await expect(
+      pipe.transform({ targetSeq }, ownerMetadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects a null beforeSeq cursor instead of treating it as absent', async () => {
+    await expect(
+      pipe.transform({ beforeSeq: null }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects targetSeq and beforeSeq together', async () => {
+    await expect(
+      pipe.transform({ targetSeq: '7', beforeSeq: '6' }, ownerMetadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects targetSeq on the shared history query shape', async () => {
+    await expect(
+      pipe.transform({ targetSeq: '7' }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects unknown history query properties on the owner shape', async () => {
+    await expect(
+      pipe.transform({ targetSeq: '7', unexpected: 'value' }, ownerMetadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
 });
 
 describe('ChatSearchQueryDto', () => {

@@ -16,7 +16,10 @@
  * search and re-invokes this mock with the tool result attached, which then
  * falls through to the tool-answer branch (still SLOW-drippable). One unique
  * natural-language fixture-evidence prompt requests only the fixture MCP tool,
- * and a fixture-only result sentinel selects the fixed sourced answer.
+ * and a fixture-only result sentinel selects the fixed sourced answer. A
+ * separate unique episodic prompt performs the acceptance chain: search,
+ * parse canonical source coordinates from that result, read the exact range,
+ * then answer. Ordinary prompts never enter that branch.
  * Requests to /ready serve the Playwright webServer readiness probe.
  */
 
@@ -75,6 +78,18 @@ const TOOL_ANSWER_TOKENS = [
   " I",
   " found",
   ".",
+];
+
+const CONVERSATION_PROMPT_MARKER = "episodic provenance e2e";
+const CONVERSATION_SEARCH_QUERY = "E2E_EPISODIC_SOURCE_MARKER";
+const CONVERSATION_ANSWER_TOKENS = [
+  "I",
+  " read",
+  " the",
+  " canonical",
+  " episodic",
+  " source",
+  " exactly.",
 ];
 
 const MCP_TOOL_ID = "mcp__fixture_search__search";
@@ -193,6 +208,13 @@ function toolFinishChunk(): string {
 
 type ChatMessage = { role?: string; content?: unknown };
 
+type ConversationCoordinates = {
+  chatId: string;
+  messageSeq: number;
+  offset: number;
+  limit: number;
+};
+
 function findStringProperty(value: unknown, key: string): string | undefined {
   if (typeof value === "string") {
     try {
@@ -245,6 +267,86 @@ function findNumberProperty(value: unknown, key: string): number | undefined {
   return undefined;
 }
 
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function findSearchResult(value: unknown): Record<string, unknown> | undefined {
+  const parsed = parseJsonValue(value);
+  if (Array.isArray(parsed)) {
+    for (const item of parsed.toReversed()) {
+      const found = findSearchResult(item);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  if (parsed === null || typeof parsed !== "object") return undefined;
+
+  const record = parsed as Record<string, unknown>;
+  if (record.status === "success" && Array.isArray(record.results)) {
+    return record;
+  }
+  for (const item of Object.values(record).toReversed()) {
+    const found = findSearchResult(item);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function findCanonicalCoordinates(
+  value: unknown,
+): ConversationCoordinates | undefined {
+  const parsed = parseJsonValue(value);
+  if (Array.isArray(parsed)) {
+    for (const item of parsed.toReversed()) {
+      const found = findCanonicalCoordinates(item);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  if (parsed === null || typeof parsed !== "object") return undefined;
+
+  const record = parsed as Record<string, unknown>;
+  if (
+    record.kind === "content" &&
+    typeof record.chatId === "string" &&
+    typeof record.messageSeq === "number" &&
+    typeof record.offset === "number" &&
+    typeof record.limit === "number"
+  ) {
+    return {
+      chatId: record.chatId,
+      messageSeq: record.messageSeq,
+      offset: record.offset,
+      limit: record.limit,
+    };
+  }
+  for (const item of Object.values(record).toReversed()) {
+    const found = findCanonicalCoordinates(item);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function findConversationReadResult(value: unknown): boolean {
+  const parsed = parseJsonValue(value);
+  if (Array.isArray(parsed)) {
+    return parsed.some(findConversationReadResult);
+  }
+  if (parsed === null || typeof parsed !== "object") return false;
+
+  const record = parsed as Record<string, unknown>;
+  if (record.status === "success" && typeof record.content === "string") {
+    return true;
+  }
+  return Object.values(record).some(findConversationReadResult);
+}
+
 /** Classify native and fixture-MCP tool-loop requests independently. */
 function classify(raw: string): {
   hasTools: boolean;
@@ -260,6 +362,11 @@ function classify(raw: string): {
   asksKnowledge: boolean;
   hasKnowledgeSearchTool: boolean;
   hasKnowledgeReadTool: boolean;
+  asksConversationRecall: boolean;
+  hasConversationTools: boolean;
+  hasConversationSearchResult: boolean;
+  hasConversationReadResult: boolean;
+  conversationNextOffset: number | undefined;
   knowledgeOperation: "search" | "read" | "error";
   knowledgeSpaceId: string | undefined;
   knowledgeReadPath: string;
@@ -288,6 +395,8 @@ function classify(raw: string): {
         : messages
             .slice(lastUserIndex + 1)
             .filter((message) => message.role === "tool").length;
+    const currentTurnMessages =
+      lastUserIndex < 0 ? [] : messages.slice(lastUserIndex + 1);
     const hasCurrentTurnToolResult = currentTurnToolResultCount > 0;
     const latestToolContent = messages.findLast(
       (m) => m.role === "tool",
@@ -346,6 +455,18 @@ function classify(raw: string): {
         KNOWLEDGE_SEARCH_TOOL_ID,
       ),
       hasKnowledgeReadTool: toolIsOffered(body.tools, KNOWLEDGE_READ_TOOL_ID),
+      asksConversationRecall: content.includes(CONVERSATION_PROMPT_MARKER),
+      hasConversationTools:
+        toolIsOffered(body.tools, "search_conversations") &&
+        toolIsOffered(body.tools, "conversation_read"),
+      hasConversationSearchResult:
+        findSearchResult(currentTurnMessages) !== undefined,
+      hasConversationReadResult:
+        findConversationReadResult(currentTurnMessages),
+      conversationNextOffset: findNumberProperty(
+        latestToolContent,
+        "nextOffset",
+      ),
       knowledgeOperation,
       knowledgeSpaceId,
       knowledgeReadPath,
@@ -369,6 +490,11 @@ function classify(raw: string): {
       asksKnowledge: false,
       hasKnowledgeSearchTool: false,
       hasKnowledgeReadTool: false,
+      asksConversationRecall: false,
+      hasConversationTools: false,
+      hasConversationSearchResult: false,
+      hasConversationReadResult: false,
+      conversationNextOffset: undefined,
       knowledgeOperation: "search",
       knowledgeSpaceId: undefined,
       knowledgeReadPath: "notes/worker-note.md",
@@ -420,6 +546,11 @@ const server = http.createServer((req, res) => {
           asksKnowledge,
           hasKnowledgeSearchTool,
           hasKnowledgeReadTool,
+          asksConversationRecall,
+          hasConversationTools,
+          hasConversationSearchResult,
+          hasConversationReadResult,
+          conversationNextOffset,
           hasCurrentTurnToolResult,
           currentTurnToolResultCount,
           knowledgeOperation,
@@ -436,6 +567,87 @@ const server = http.createServer((req, res) => {
           "cache-control": "no-cache",
           connection: "keep-alive",
         });
+
+        // Episodic acceptance chain. The second call is built from the
+        // canonical search result itself; the model fixture never knows a
+        // message UUID, part identity, hash, or version. Keep this branch
+        // independent from the ordinary "search" fixture below so generic
+        // prompts cannot accidentally gain a second tool call.
+        if (
+          asksConversationRecall &&
+          hasConversationTools &&
+          !hasConversationSearchResult
+        ) {
+          res.write(
+            toolCallChunk({
+              id: "call_conversation_search_e2e",
+              name: "search_conversations",
+              arguments: { query: CONVERSATION_SEARCH_QUERY, limit: 5 },
+            }),
+          );
+          res.write(toolFinishChunk());
+          res.write("data: [DONE]\n\n");
+          res.end();
+          return;
+        }
+
+        if (
+          asksConversationRecall &&
+          hasConversationTools &&
+          hasConversationSearchResult &&
+          !hasConversationReadResult
+        ) {
+          const coordinates = findCanonicalCoordinates(raw);
+          if (coordinates !== undefined) {
+            res.write(
+              toolCallChunk({
+                id: "call_conversation_read_e2e",
+                name: "conversation_read",
+                arguments: coordinates,
+              }),
+            );
+            res.write(toolFinishChunk());
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+        }
+
+        if (
+          asksConversationRecall &&
+          hasConversationTools &&
+          hasConversationReadResult
+        ) {
+          if (
+            conversationNextOffset !== undefined &&
+            currentTurnToolResultCount === 2
+          ) {
+            const coordinates = findCanonicalCoordinates(raw);
+            if (coordinates !== undefined) {
+              res.write(
+                toolCallChunk({
+                  id: "call_conversation_read_continue_e2e",
+                  name: "conversation_read",
+                  arguments: {
+                    ...coordinates,
+                    offset: conversationNextOffset,
+                  },
+                }),
+              );
+              res.write(toolFinishChunk());
+              res.write("data: [DONE]\n\n");
+              res.end();
+              return;
+            }
+          }
+          for (const token of CONVERSATION_ANSWER_TOKENS) {
+            res.write(chunk(token, false));
+          }
+          res.write(chunk(undefined, true));
+          res.write("data: [DONE]\n\n");
+          res.end();
+          return;
+        }
 
         const readKnowledge =
           knowledgeOperation === "read" || knowledgeOperation === "error";
@@ -618,6 +830,7 @@ const server = http.createServer((req, res) => {
         if (
           !asksMcpFixtureSearch &&
           !asksStdioFixture &&
+          !asksConversationRecall &&
           hasTools &&
           asksSearch &&
           !hasToolResult

@@ -53,7 +53,7 @@ import {
 import { RunsRepository } from '../runs/runs-repository';
 import {
   ChatListItemResponse,
-  ChatMessagesQueryDto,
+  OwnerChatMessagesQueryDto,
   ChatMessagesResponse,
   ChatResponse,
   ChatSearchQueryDto,
@@ -248,11 +248,12 @@ export class ChatsController {
   async getChatMessages(
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,
-    @Query() query: ChatMessagesQueryDto,
+    @Query() query: OwnerChatMessagesQueryDto,
   ): Promise<ChatMessagesResponse> {
     const result = await this.chatsService.getChatMessages(id, userId, {
       limit: query.limit,
       beforeSeq: query.beforeSeq,
+      targetSeq: query.targetSeq,
     });
     if (!result) {
       throw new NotFoundException(`Chat ${id} not found`);

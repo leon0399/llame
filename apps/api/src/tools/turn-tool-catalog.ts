@@ -9,7 +9,12 @@ import {
 import { type ModelToolDeclaration } from '../db/schema';
 import { isRecord, isString, type UnknownRecord } from '../unknown-record';
 import { admitToolInputSchema } from './schema-utils';
-import { asciiCaseFoldToolId, isToolId, matchesAllowedToolId } from './tool-id';
+import {
+  asciiCaseFoldToolId,
+  isToolId,
+  matchesAllowedToolId,
+  matchesCodeOwnedToolId,
+} from './tool-id';
 import { type Tool, type ToolClassification } from './types';
 
 const logger = new Logger('TurnToolCatalog');
@@ -279,6 +284,16 @@ const candidateClassification = (
     ? candidate.tool.classification
     : candidate.classification;
 
+function candidateIsAllowlisted(
+  candidate: TurnToolCandidate,
+  id: string,
+  allowedRules: readonly string[],
+): boolean {
+  return candidate.source.type === 'code_owned'
+    ? matchesCodeOwnedToolId(id, allowedRules)
+    : matchesAllowedToolId(id, allowedRules);
+}
+
 export async function composeTurnToolCatalog(input: {
   readonly allowedToolRules: readonly string[];
   readonly callTimeoutSeconds: number;
@@ -289,7 +304,7 @@ export async function composeTurnToolCatalog(input: {
     const id = candidateId(candidate);
     return (
       isToolId(id) &&
-      matchesAllowedToolId(id, input.allowedToolRules) &&
+      candidateIsAllowlisted(candidate, id, input.allowedToolRules) &&
       candidateClassification(candidate) === 'read_only'
     );
   });

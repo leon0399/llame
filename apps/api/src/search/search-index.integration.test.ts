@@ -90,7 +90,12 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
 
   async function seed(
     title: string,
-    msgs: Array<{ role: 'user' | 'assistant'; text: string }>,
+    msgs: Array<{
+      role: 'user' | 'assistant';
+      text?: string;
+      parts?: unknown[];
+      usage?: unknown;
+    }>,
   ): Promise<string> {
     const id = crypto.randomUUID();
     await tenantDb.runAs(u, async (tx) => {
@@ -102,7 +107,8 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
           chatId: id,
           role: m.role,
           senderUserId: m.role === 'user' ? u : null,
-          parts: text(m.text),
+          parts: m.parts ?? text(m.text ?? ''),
+          usage: m.usage,
         });
       }
     });
@@ -161,6 +167,114 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     expect(row.fts).not.toContain('assistant');
   });
 
+  it('persists current visible-text locator offsets on projection rows', async () => {
+    const id = await seed('Locator offsets', [
+      {
+        role: 'user',
+        parts: [
+          { type: 'text', text: 'alpha' },
+          { type: 'reasoning', text: 'hidden' },
+          { type: 'text', text: 'beta' },
+        ],
+      },
+    ]);
+    await indexService.reindexChat(id, u);
+    const [row] = await ownedRows(
+      sql`
+      SELECT content, first_message_text_offset, last_message_text_offset_exclusive
+      FROM search_chat_documents
+      WHERE chat_id = ${id}
+      ORDER BY chunk_ordinal
+      LIMIT 1`,
+      z.object({
+        content: z.string(),
+        first_message_text_offset: z.number(),
+        last_message_text_offset_exclusive: z.number(),
+      }),
+    );
+    expect(row).toEqual({
+      content: '[user] alpha\n\nbeta',
+      first_message_text_offset: 0,
+      last_message_text_offset_exclusive: 'alpha\n\nbeta'.length,
+    });
+  });
+
+  it('excludes retryable assistant bytes from live projection rows', async () => {
+    const id = await seed('Retryable assistant excluded', [
+      { role: 'user', text: 'stable prompt' },
+      {
+        role: 'assistant',
+        text: 'unstable answer that must stay out of search',
+        usage: { status: 'error' },
+      },
+    ]);
+    await indexService.reindexChat(id, u);
+    const rows = await ownedRows(
+      sql`
+      SELECT content, normalized_content
+      FROM search_chat_documents
+      WHERE chat_id = ${id}
+      ORDER BY chunk_ordinal`,
+      z.object({
+        content: z.string(),
+        normalized_content: z.string(),
+      }),
+    );
+    expect(rows).toEqual([
+      {
+        content: '[user] stable prompt',
+        normalized_content: 'stable prompt',
+      },
+    ]);
+  });
+
+  it('removes bytes from a row that becomes retryable on reindex', async () => {
+    const id = await seed('Retryable assistant removed', [
+      { role: 'user', text: 'stable prompt' },
+      {
+        role: 'assistant',
+        text: 'temporary answer that was indexed before retry',
+        usage: { status: 'completed' },
+      },
+    ]);
+    await indexService.reindexChat(id, u);
+    const [{ id: assistantId }] = await ownedRows(
+      sql`SELECT id FROM messages WHERE chat_id = ${id} AND role = 'assistant'`,
+      z.object({ id: z.string() }),
+    );
+    expect(
+      (
+        await ownedRows(
+          sql`SELECT content FROM search_chat_documents WHERE chat_id = ${id}`,
+          z.object({ content: z.string() }),
+        )
+      )[0].content,
+    ).toContain('temporary answer');
+
+    await tenantDb.runAs(u, (tx) =>
+      tx.execute(sql`
+        UPDATE messages
+        SET usage = '{"status":"error"}'::jsonb
+        WHERE id = ${assistantId}`),
+    );
+    await indexService.reindexChat(id, u);
+
+    const rows = await ownedRows(
+      sql`
+      SELECT content, normalized_content
+      FROM search_chat_documents
+      WHERE chat_id = ${id}
+      ORDER BY chunk_ordinal`,
+      z.object({ content: z.string(), normalized_content: z.string() }),
+    );
+    expect(rows).toEqual([
+      {
+        content: '[user] stable prompt',
+        normalized_content: 'stable prompt',
+      },
+    ]);
+  });
+
   it('an unchanged reindex is a hash no-op (docs not rewritten)', async () => {
     const id = await seed('NoOp', [
       { role: 'user', text: 'stable content here' },
@@ -176,6 +290,173 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     expect(after.map((r) => r.updated_at)).toEqual(
       before.map((r) => r.updated_at),
     );
+  });
+
+  it('repairs a changed locator and invalidates embeddings even when its hash is unchanged', async () => {
+    const id = await seed('Locator repair', [
+      { role: 'user', text: 'stable source coordinates' },
+    ]);
+    await indexService.reindexChat(id, u);
+    const [before] = await ownedRows(
+      sql`
+      SELECT content_hash, first_message_text_offset,
+             last_message_text_offset_exclusive
+      FROM search_chat_documents
+      WHERE chat_id = ${id}`,
+      z.object({
+        content_hash: z.string(),
+        first_message_text_offset: z.number(),
+        last_message_text_offset_exclusive: z.number(),
+      }),
+    );
+
+    // A current-version row can be left with a stale locator by an interrupted
+    // backfill or an operator repair. The writer must validate both hash and
+    // locator state before treating a row as a no-op.
+    await tenantDb.runAs(u, (tx) =>
+      tx.execute(sql`
+        UPDATE search_chat_documents
+        SET first_message_text_offset = ${before.first_message_text_offset + 1},
+            embedding = '[0.7,0.8,0.9]'::vector,
+            embedding_model_key = 'model-a',
+            embedded_content_hash = ${before.content_hash},
+            embed_input_version = 1,
+            embedding_fail_reason = 'stale locator fixture'
+        WHERE chat_id = ${id}`),
+    );
+
+    await indexService.reindexChat(id, u);
+
+    const [after] = await ownedRows(
+      sql`
+      SELECT content_hash, first_message_text_offset,
+             last_message_text_offset_exclusive, embedding::text AS embedding,
+             embedding_model_key, embedded_content_hash, embed_input_version,
+             embedding_fail_reason
+      FROM search_chat_documents
+      WHERE chat_id = ${id}`,
+      z.object({
+        content_hash: z.string(),
+        first_message_text_offset: z.number(),
+        last_message_text_offset_exclusive: z.number(),
+        embedding: z.string().nullable(),
+        embedding_model_key: z.string().nullable(),
+        embedded_content_hash: z.string().nullable(),
+        embed_input_version: z.number().nullable(),
+        embedding_fail_reason: z.string().nullable(),
+      }),
+    );
+    expect(after.content_hash).toBe(before.content_hash);
+    expect(after.first_message_text_offset).toBe(
+      before.first_message_text_offset,
+    );
+    expect(after.last_message_text_offset_exclusive).toBe(
+      before.last_message_text_offset_exclusive,
+    );
+    expect(after.embedding).toBeNull();
+    expect(after.embedding_model_key).toBeNull();
+    expect(after.embedded_content_hash).toBeNull();
+    expect(after.embed_input_version).toBeNull();
+    expect(after.embedding_fail_reason).toBeNull();
+  });
+
+  it('repairs either corrupted boundary UUID and invalidates stale embeddings', async () => {
+    const id = await seed('Boundary UUID repair', [
+      { role: 'user', text: 'first source message' },
+      {
+        role: 'assistant',
+        text: 'last source message',
+        usage: { status: 'completed' },
+      },
+    ]);
+    await indexService.reindexChat(id, u);
+
+    const rowSchema = z.object({
+      first_message_id: z.string(),
+      last_message_id: z.string(),
+      content_hash: z.string(),
+      first_message_text_offset: z.number(),
+      last_message_text_offset_exclusive: z.number(),
+      embedding: z.string().nullable(),
+      embedding_model_key: z.string().nullable(),
+      embedded_content_hash: z.string().nullable(),
+      embed_input_version: z.number().nullable(),
+      embedding_fail_reason: z.string().nullable(),
+    });
+    const readRow = async () => {
+      const [row] = await ownedRows(
+        sql`
+        SELECT first_message_id, last_message_id, content_hash,
+               first_message_text_offset, last_message_text_offset_exclusive,
+               embedding::text AS embedding, embedding_model_key,
+               embedded_content_hash, embed_input_version, embedding_fail_reason
+        FROM search_chat_documents
+        WHERE chat_id = ${id}`,
+        rowSchema,
+      );
+      return row;
+    };
+    const messageRows = await ownedRows(
+      sql`
+      SELECT id
+      FROM messages
+      WHERE chat_id = ${id}
+      ORDER BY seq`,
+      z.object({ id: z.string() }),
+    );
+    const before = await readRow();
+    expect(messageRows).toHaveLength(2);
+    expect(before.first_message_id).toBe(messageRows[0].id);
+    expect(before.last_message_id).toBe(messageRows[1].id);
+
+    const embedFixture = async () =>
+      tenantDb.runAs(u, (tx) =>
+        tx.execute(sql`
+          UPDATE search_chat_documents
+          SET embedding = '[0.11,0.22,0.33]'::vector,
+              embedding_model_key = 'model-a',
+              embedded_content_hash = ${before.content_hash},
+              embed_input_version = 1,
+              embedding_fail_reason = 'stale boundary fixture'
+          WHERE chat_id = ${id}`),
+      );
+    const expectRepairedAndCleared = async () => {
+      const after = await readRow();
+      expect(after.first_message_id).toBe(before.first_message_id);
+      expect(after.last_message_id).toBe(before.last_message_id);
+      expect(after.content_hash).toBe(before.content_hash);
+      expect(after.first_message_text_offset).toBe(
+        before.first_message_text_offset,
+      );
+      expect(after.last_message_text_offset_exclusive).toBe(
+        before.last_message_text_offset_exclusive,
+      );
+      expect(after.embedding).toBeNull();
+      expect(after.embedding_model_key).toBeNull();
+      expect(after.embedded_content_hash).toBeNull();
+      expect(after.embed_input_version).toBeNull();
+      expect(after.embedding_fail_reason).toBeNull();
+    };
+
+    await embedFixture();
+    await tenantDb.runAs(u, (tx) =>
+      tx.execute(sql`
+        UPDATE search_chat_documents
+        SET first_message_id = ${crypto.randomUUID()}
+        WHERE chat_id = ${id}`),
+    );
+    await indexService.reindexChat(id, u);
+    await expectRepairedAndCleared();
+
+    await embedFixture();
+    await tenantDb.runAs(u, (tx) =>
+      tx.execute(sql`
+        UPDATE search_chat_documents
+        SET last_message_id = ${crypto.randomUUID()}
+        WHERE chat_id = ${id}`),
+    );
+    await indexService.reindexChat(id, u);
+    await expectRepairedAndCleared();
   });
 
   it('two sequential reindexes converge to the same projection (idempotent rebuild)', async () => {

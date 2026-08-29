@@ -404,21 +404,6 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
     expect(queryContains(queries, 7)).toBe(true);
   });
 
-  it('create inserts carrying chatId and senderUserId', async () => {
-    const { db, queries } = makeMockDb();
-    await new MessagesRepository(db)
-      .create({
-        chatId,
-        role: 'user',
-        senderUserId: 'user-1',
-        parts: [{ type: 'text', text: 'Hello' }],
-      })
-      .catch(() => null);
-    expect(querySqlContains(queries, 'insert into "messages"')).toBe(true);
-    expect(queryContains(queries, chatId)).toBe(true);
-    expect(queryContains(queries, 'user-1')).toBe(true);
-  });
-
   it('findById scopes by messageId, chatId, AND ownerUserId', async () => {
     const { db, queries } = makeMockDb();
     await new MessagesRepository(db)
@@ -429,11 +414,31 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
     expect(queryContains(queries, 'msg-1')).toBe(true);
   });
 
+  it.each(['', '   '])(
+    'findConversationMessage rejects an empty owner before executing SQL: %j',
+    async (emptyOwnerUserId) => {
+      const { db } = makeMockDb();
+      const executeSpy = vi.spyOn(db, 'execute');
+
+      await expect(
+        new MessagesRepository(db).findConversationMessage(
+          chatId,
+          emptyOwnerUserId,
+          7,
+        ),
+      ).rejects.toThrow(
+        'MessagesRepository.findConversationMessage requires a non-empty userId',
+      );
+      expect(executeSpy).not.toHaveBeenCalled();
+    },
+  );
+
   it('createMany issues one INSERT for a batch under the chunk size', async () => {
     const { db, queries } = makeMockDb();
     const rows = Array.from({ length: 3 }, (_, i) => ({
       id: `copy-${i}`,
       chatId,
+      seq: i + 1,
       role: 'user' as const,
       senderUserId: 'user-1',
       parts: [{ type: 'text', text: `q${i}` }],
@@ -448,7 +453,7 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
     // covered by the live chat-sharing/fork integration tests.
     expect(queries).toHaveLength(1);
     expect(querySqlContains(queries, 'insert into "messages"')).toBe(true);
-    expect(lastQuery(queries).params).toHaveLength(21);
+    expect(lastQuery(queries).params).toHaveLength(24);
   });
 });
 
@@ -475,6 +480,18 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
     expect(queryContains(queries, ownerUserId)).toBe(true);
     expect(queryContains(queries, chatId)).toBe(true);
     expect(queryContains(queries, 42)).toBe(true);
+  });
+
+  it('findLatestByChatId can constrain the latest compaction inclusively at a target seq', async () => {
+    const { db, queries } = makeMockDb();
+    await new CompactionsRepository(db)
+      .findLatestByChatId(chatId, ownerUserId, { maxSeq: 42 })
+      .catch(() => null);
+
+    expect(queryContains(queries, ownerUserId)).toBe(true);
+    expect(queryContains(queries, chatId)).toBe(true);
+    expect(queryContains(queries, 42)).toBe(true);
+    expect(lastQuery(queries).sql).toContain('"upto_seq" <= $');
   });
 
   it('create inserts chat lineage, raw summary, and required replacement history', async () => {

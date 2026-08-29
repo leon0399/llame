@@ -76,6 +76,7 @@
   "tools": {
     "allowed": [
       "search_conversations",
+      "conversation_read",
       "knowledge_search",
       "knowledge_read",
       "mcp__fixture_search__search",

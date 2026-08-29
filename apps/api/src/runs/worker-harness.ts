@@ -24,11 +24,15 @@
  */
 
 import { Test, type TestingModule } from '@nestjs/testing';
-import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import type {
+  LanguageModelV3CallOptions,
+  LanguageModelV3StreamPart,
+} from '@ai-sdk/provider';
 import { sql } from 'drizzle-orm';
-import { streamText as sdkStreamText } from 'ai';
+import { stepCountIs, streamText as sdkStreamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { type Sql } from 'postgres';
+import { z } from 'zod';
 
 import { WorkerModule } from '../worker.module';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
@@ -45,6 +49,7 @@ import {
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
+import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import {
   type ModelClient,
   type ModelStreamInput,
@@ -80,7 +85,176 @@ export type ScriptedBehavior =
   | { kind: 'complete'; text?: string; delayMs?: number }
   | { kind: 'provider-error'; message?: string }
   | { kind: 'infra-throw'; message?: string }
-  | { kind: 'hang' };
+  | { kind: 'hang' }
+  | {
+      kind: 'conversation-recall';
+      query: string;
+      continueRead?: boolean;
+      finalText?: string;
+    };
+
+type ConversationRecallBehavior = Extract<
+  ScriptedBehavior,
+  { kind: 'conversation-recall' }
+>;
+
+type ConversationCoordinates = {
+  chatId: string;
+  messageSeq: number;
+  offset: number;
+  limit: number;
+};
+
+const conversationSearchOutputSchema = z.object({
+  status: z.literal('success'),
+  results: z.array(
+    z.object({
+      kind: z.literal('content'),
+      chatId: z.string().uuid(),
+      messageSeq: z.number().int().positive(),
+      offset: z.number().int().nonnegative(),
+      limit: z.number().int().positive().max(2_000),
+    }),
+  ),
+});
+const conversationReadOutputSchema = z.object({
+  status: z.literal('success'),
+  nextOffset: z.number().int().nonnegative().optional(),
+});
+
+function parseJsonText<T>(value: string, schema: z.ZodType<T>): T | undefined {
+  try {
+    const decoded: unknown = JSON.parse(value);
+    const parsed = schema.safeParse(decoded);
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function findSearchOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
+  const outputs: z.output<typeof conversationSearchOutputSchema>[] = [];
+  for (const message of prompt) {
+    if (message.role !== 'tool') continue;
+    for (const content of message.content) {
+      if (
+        content.type !== 'tool-result' ||
+        content.toolName !== 'search_conversations'
+      )
+        continue;
+      if (content.output.type === 'json') {
+        const parsed = conversationSearchOutputSchema.safeParse(
+          content.output.value,
+        );
+        if (parsed.success) outputs.push(parsed.data);
+      } else if (content.output.type === 'text') {
+        const parsed = parseJsonText(
+          content.output.value,
+          conversationSearchOutputSchema,
+        );
+        if (parsed !== undefined) outputs.push(parsed);
+      }
+    }
+  }
+  return outputs;
+}
+
+function findReadOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
+  const outputs: z.output<typeof conversationReadOutputSchema>[] = [];
+  for (const message of prompt) {
+    if (message.role !== 'tool') continue;
+    for (const content of message.content) {
+      if (
+        content.type !== 'tool-result' ||
+        content.toolName !== 'conversation_read'
+      )
+        continue;
+      if (content.output.type === 'json') {
+        const parsed = conversationReadOutputSchema.safeParse(
+          content.output.value,
+        );
+        if (parsed.success) outputs.push(parsed.data);
+      } else if (content.output.type === 'text') {
+        const parsed = parseJsonText(
+          content.output.value,
+          conversationReadOutputSchema,
+        );
+        if (parsed !== undefined) outputs.push(parsed);
+      }
+    }
+  }
+  return outputs;
+}
+
+function conversationRecallParts(
+  prompt: LanguageModelV3CallOptions['prompt'],
+  behavior: ConversationRecallBehavior,
+): LanguageModelV3StreamPart[] {
+  const searchOutputs = findSearchOutputs(prompt);
+  if (searchOutputs.length === 0) {
+    return [
+      {
+        type: 'tool-call',
+        toolCallId: 'conversation-search',
+        toolName: 'search_conversations',
+        input: JSON.stringify({ query: behavior.query, limit: 5 }),
+      },
+    ];
+  }
+
+  const readOutputs = findReadOutputs(prompt);
+  const result = searchOutputs[0]?.results[0];
+  const coordinates: ConversationCoordinates | undefined =
+    result === undefined
+      ? undefined
+      : {
+          chatId: result.chatId,
+          messageSeq: result.messageSeq,
+          offset: result.offset,
+          limit: result.limit,
+        };
+  if (coordinates !== undefined && readOutputs.length === 0) {
+    return [
+      {
+        type: 'tool-call',
+        toolCallId: 'conversation-read-1',
+        toolName: 'conversation_read',
+        input: JSON.stringify(coordinates),
+      },
+    ];
+  }
+
+  const offset =
+    behavior.continueRead && readOutputs.length === 1
+      ? readOutputs[0]?.nextOffset
+      : undefined;
+  if (coordinates !== undefined && offset !== undefined) {
+    return [
+      {
+        type: 'tool-call',
+        toolCallId: 'conversation-read-2',
+        toolName: 'conversation_read',
+        input: JSON.stringify({ ...coordinates, offset, limit: 2 }),
+      },
+    ];
+  }
+
+  return [
+    {
+      type: 'text-start',
+      id: 'answer',
+    },
+    {
+      type: 'text-delta',
+      id: 'answer',
+      delta: behavior.finalText ?? 'The source was read.',
+    },
+    {
+      type: 'text-end',
+      id: 'answer',
+    },
+  ];
+}
 
 class HarnessModelClient implements ModelClient {
   readonly provider = 'fake';
@@ -90,7 +264,10 @@ class HarnessModelClient implements ModelClient {
     readonly model: string,
     private readonly behavior: Extract<
       ScriptedBehavior,
-      { kind: 'complete' } | { kind: 'provider-error' } | { kind: 'hang' }
+      | { kind: 'complete' }
+      | { kind: 'provider-error' }
+      | { kind: 'hang' }
+      | { kind: 'conversation-recall' }
     >,
     /** Shared with the owning ScriptedModelsService so a test can assert what execution actually requested. */
     private readonly streamCalls: Array<{
@@ -103,6 +280,7 @@ class HarnessModelClient implements ModelClient {
     this.streamCalls.push({ modelId: this.model, effort: input.effort });
     const behavior = this.behavior;
     const text = behavior.kind === 'complete' ? (behavior.text ?? 'ok') : '';
+    const delayMs = behavior.kind === 'complete' ? behavior.delayMs : undefined;
     let abortSettlement = Promise.resolve();
     let abortSettlementError: { error: unknown } | undefined;
     const waitForAbortSettlement = async () => {
@@ -114,7 +292,7 @@ class HarnessModelClient implements ModelClient {
     const model = new MockLanguageModelV3({
       provider: 'fake',
       modelId: this.model,
-      doStream: ({ abortSignal }) => {
+      doStream: ({ abortSignal, prompt }) => {
         if (behavior.kind === 'provider-error') {
           return Promise.reject(
             new Error(behavior.message ?? 'simulated provider failure'),
@@ -146,16 +324,40 @@ class HarnessModelClient implements ModelClient {
                   });
                   return;
                 }
-                if (behavior.delayMs) {
+                if (delayMs) {
                   await new Promise<void>((resolve) => {
                     unblock = resolve;
-                    delayTimer = setTimeout(resolve, behavior.delayMs);
+                    delayTimer = setTimeout(resolve, delayMs);
                   });
                 }
                 if (abortSignal?.aborted) {
                   return;
                 }
                 controller.enqueue({ type: 'stream-start', warnings: [] });
+                if (behavior.kind === 'conversation-recall') {
+                  const parts = conversationRecallParts(
+                    // The V3 provider prompt is the only place where prior
+                    // tool results are available to this scripted model.
+                    // `prompt` is passed through by MockLanguageModelV3.
+                    prompt,
+                    behavior,
+                  );
+                  for (const part of parts) {
+                    controller.enqueue(part);
+                  }
+                  controller.enqueue({
+                    type: 'finish',
+                    finishReason: {
+                      unified: parts.some((part) => part.type === 'tool-call')
+                        ? 'tool-calls'
+                        : 'stop',
+                      raw: undefined,
+                    },
+                    usage: PROVIDER_ZERO_USAGE,
+                  });
+                  controller.close();
+                  return;
+                }
                 controller.enqueue({ type: 'text-start', id: 'answer' });
                 if (text.length > 0) {
                   controller.enqueue({
@@ -191,6 +393,9 @@ class HarnessModelClient implements ModelClient {
         tools: input.tools,
         ...(input.toolChoice !== undefined && {
           toolChoice: input.toolChoice,
+        }),
+        ...(behavior.kind === 'conversation-recall' && {
+          stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
         }),
       }),
       onChunk: ({ chunk }) => {
@@ -346,6 +551,8 @@ export async function bootWorkerHarness(overrides?: {
   runsConcurrency?: number;
   timeoutSeconds?: number;
   heartbeatSeconds?: number;
+  /** Explicit code-owned tool rules for snapshots seeded by this harness. */
+  allowedTools?: readonly string[];
 }): Promise<WorkerHarness> {
   // WorkerModule's DrizzlePostgresModule/PgBossModule read POSTGRES_URL
   // directly (getOrThrow), not TEST_DATABASE_URL — mirror worker.module.integration.test.ts's
@@ -366,6 +573,10 @@ export async function bootWorkerHarness(overrides?: {
   const models = new ScriptedModelsService();
   const config: LlameConfig = {
     ...BUILT_IN_DEFAULTS,
+    tools: {
+      ...BUILT_IN_DEFAULTS.tools,
+      allowed: [...(overrides?.allowedTools ?? [])],
+    },
     runs: {
       ...BUILT_IN_DEFAULTS.runs,
       timeoutSeconds:
@@ -382,12 +593,16 @@ export async function bootWorkerHarness(overrides?: {
     },
   };
 
-  const moduleRef = await Test.createTestingModule({ imports: [WorkerModule] })
+  const builder = Test.createTestingModule({ imports: [WorkerModule] })
     .overrideProvider(ModelsService)
     .useValue(models)
     .overrideProvider(InstanceConfigService)
     .useValue({ config })
-    .compile();
+    // Execution harnesses isolate the worker loop, not fleet-wide projection
+    // admission; dedicated boot tests exercise the real coverage gate.
+    .overrideProvider(CanonicalSearchCoverageService)
+    .useValue({ assertReady: () => Promise.resolve() });
+  const moduleRef = await builder.compile();
 
   await moduleRef.init();
 
@@ -439,6 +654,8 @@ export async function seedRun(input: {
   chatId?: string;
   /** Persisted on the run exactly as the accepting API would have stored it. */
   effort?: string;
+  /** Exact code-owned tool rules captured by the run's immutable snapshot. */
+  allowedTools?: readonly string[];
 }): Promise<{
   chatId: string;
   runId: string;
@@ -468,6 +685,7 @@ export async function seedRun(input: {
       tx,
       input.userId,
       input.modelId,
+      input.allowedTools ?? [],
     );
     const run = await new RunsRepository(tx).create({
       chatId,
@@ -526,6 +744,8 @@ export async function seedAndDispatchRun(
     chatId?: string;
     /** Persisted on the run exactly as the accepting API would have stored it. */
     effort?: string;
+    /** Exact code-owned tool rules captured by the run's immutable snapshot. */
+    allowedTools?: readonly string[];
     enqueueOptions?: EnqueueOptions;
   },
 ): Promise<{
@@ -541,6 +761,9 @@ export async function seedAndDispatchRun(
     text: input.text,
     chatId: input.chatId,
     ...(input.effort !== undefined && { effort: input.effort }),
+    ...(input.allowedTools !== undefined && {
+      allowedTools: input.allowedTools,
+    }),
   });
   await dispatchRun({
     queue: harness.queue,

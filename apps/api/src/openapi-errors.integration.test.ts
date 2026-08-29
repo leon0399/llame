@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import request from 'supertest';
 import { z } from 'zod';
 import { AppModule } from './app.module';
+import { CanonicalSearchCoverageService } from './search/canonical-search-activation.service';
 import { configureApp } from './app.setup';
 import { cookieOf } from './testing/support';
 
@@ -80,7 +81,10 @@ describe('OpenAPI error schemas match real HTTP responses', () => {
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(CanonicalSearchCoverageService)
+      .useValue({ assertReady: () => Promise.resolve() })
+      .compile();
     app = module.createNestApplication();
     configureApp(app);
     await app.init();

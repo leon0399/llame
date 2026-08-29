@@ -248,10 +248,12 @@ export function toChatUiMessages(response: {
  * optimistic user turn or a streamed answer, whose metadata carries at most
  * `usage`, never `seq`.
  */
-function seqFromMessageMetadata(metadata: unknown): number | null {
+export function messageSeqFromMetadata(metadata: unknown): number | null {
   if (typeof metadata !== "object" || metadata === null) return null;
   const seq = (metadata as { seq?: unknown }).seq;
-  return typeof seq === "number" && Number.isFinite(seq) ? seq : null;
+  return typeof seq === "number" && Number.isSafeInteger(seq) && seq > 0
+    ? seq
+    : null;
 }
 
 /**
@@ -267,7 +269,7 @@ function durableSeqBounds(
   let oldest: number | null = null;
   let newest: number | null = null;
   for (const message of messages) {
-    const seq = seqFromMessageMetadata(message.metadata);
+    const seq = messageSeqFromMetadata(message.metadata);
     if (seq === null) continue;
     oldest ??= seq;
     newest = seq;
@@ -332,7 +334,7 @@ export function adoptServerHistory(input: {
 
   const head: UIMessage[] = [];
   for (const message of input.liveMessages) {
-    const seq = seqFromMessageMetadata(message.metadata);
+    const seq = messageSeqFromMetadata(message.metadata);
     if (seq === null || seq >= serverBounds.oldest) break;
     head.push(message);
   }
@@ -360,7 +362,7 @@ export function adoptServerHistory(input: {
   const tail: UIMessage[] = [];
   for (let index = input.liveMessages.length - 1; index >= 0; index--) {
     const message = input.liveMessages[index];
-    if (seqFromMessageMetadata(message.metadata) !== null) break;
+    if (messageSeqFromMetadata(message.metadata) !== null) break;
     if (serverIds.has(message.id) || serverRunIds.has(message.id)) continue;
     tail.unshift(message);
   }

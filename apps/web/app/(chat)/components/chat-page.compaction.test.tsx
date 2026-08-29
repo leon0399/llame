@@ -17,7 +17,7 @@
  */
 
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 process.env.NEXT_PUBLIC_API_URL = "https://api.example.com";
@@ -55,10 +55,15 @@ type OnFinishArg = {
   isError?: boolean;
 };
 let capturedOnFinish: ((arg: OnFinishArg) => void) | undefined;
+let capturedResume: boolean | undefined;
 
 vi.mock("@ai-sdk/react", () => ({
-  useChat: (options: { onFinish?: (arg: OnFinishArg) => void }) => {
+  useChat: (options: {
+    onFinish?: (arg: OnFinishArg) => void;
+    resume?: boolean;
+  }) => {
     capturedOnFinish = options.onFinish;
+    capturedResume = options.resume;
     return {
       messages: useChatMessages,
       sendMessage: vi.fn(),
@@ -117,15 +122,18 @@ beforeAll(() => {
 afterEach(() => {
   useChatMessages = [];
   capturedOnFinish = undefined;
+  capturedResume = undefined;
   cleanup();
 });
 
 function renderChatPage(
   chatId: string,
   seed: { messages: typeof useChatMessages; compaction: Compaction | null },
+  targetSeq?: number,
+  historyMessages = seed.messages,
 ) {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
   // Seed the SAME cache entry SSR hydration provides on a real reload —
   // BEFORE the component (and its query observer) ever mounts, same timing
@@ -133,8 +141,8 @@ function renderChatPage(
   // one seeded newest page; compaction embedded per #136), routed through
   // the one seeding helper the real page.tsx uses, so this test cannot
   // drift from the production cache shape.
-  seedChatMessagesQueryData(queryClient, chatId, {
-    messages: seed.messages.map((message, index) =>
+  const page = {
+    messages: historyMessages.map((message, index) =>
       rawChatMessage({
         id: message.id,
         chatId,
@@ -146,7 +154,14 @@ function renderChatPage(
       }),
     ),
     compaction: seed.compaction,
-  });
+  };
+  seedChatMessagesQueryData(queryClient, chatId, page);
+  if (targetSeq !== undefined) {
+    queryClient.setQueryData(chatQueryKeys.targetMessages(chatId, targetSeq), {
+      pages: [page],
+      pageParams: [null],
+    });
+  }
   queryClient.setQueryData(modelQueryKeys.all, {
     defaultModelId: "system:openai:gpt-5.4-mini",
     models: [
@@ -557,5 +572,73 @@ describe("ChatPage — model context transparency", () => {
     expect(
       screen.queryByRole("button", { name: /model changed from/i }),
     ).toBeNull();
+  });
+
+  it("anchors a loaded Chat-local target and scrolls exactly once", async () => {
+    const chatId = "chat-message-target";
+    const targetSeq = 900;
+    const durableMessages: typeof useChatMessages = [
+      {
+        id: "m701",
+        role: "user",
+        parts: [{ type: "text", text: "older" }],
+        metadata: { seq: 701 },
+      },
+      {
+        id: "m900",
+        role: "assistant",
+        parts: [{ type: "text", text: "target" }],
+        metadata: { seq: targetSeq },
+      },
+    ];
+    useChatMessages = [
+      ...durableMessages,
+      {
+        id: "live-assistant",
+        role: "assistant",
+        parts: [{ type: "text", text: "live" }],
+      },
+    ];
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `/chat/${chatId}#msg-${targetSeq}`,
+    );
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+
+    const { queryClient } = renderChatPage(
+      chatId,
+      { messages: durableMessages, compaction: null },
+      targetSeq,
+      durableMessages,
+    );
+
+    await waitFor(() => {
+      const target = document.getElementById(`msg-${targetSeq}`);
+      expect(target).not.toBeNull();
+      expect(target?.getAttribute("data-message-key")).toBe("assistant:m900");
+    });
+    expect(capturedResume).toBe(false);
+    const liveMessage = document.querySelector<HTMLElement>(
+      '[data-message-key="assistant:live-assistant"]',
+    );
+    expect(liveMessage).not.toBeNull();
+    expect(liveMessage?.id).toBe("");
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" });
+
+    queryClient.setQueryData(chatQueryKeys.targetMessages(chatId, targetSeq), {
+      pages: [
+        {
+          ...queryClient.getQueryData<{
+            pages: Array<{ messages: ChatMessageResponse[] }>;
+          }>(chatQueryKeys.targetMessages(chatId, targetSeq))!.pages[0]!,
+        },
+      ],
+      pageParams: [null],
+    });
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(1));
   });
 });
