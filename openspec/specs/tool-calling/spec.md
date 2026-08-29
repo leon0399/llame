@@ -906,9 +906,11 @@ The code-owned tool inventory SHALL include `conversation_read` in addition to `
 
 The conversation reader SHALL enforce the `conversation-reads` bounds of 2,000 logical lines and 15,000 JavaScript UTF-16 code units before generic result truncation. A read whose first selected source line cannot fit SHALL return `conversation_limit_exceeded`. Bounded pages SHALL preserve exact `nextOffset` and cut-reason metadata, and generic truncation SHALL NOT clip numbered source content.
 
-Structured Chat/message sequence attribution, role/timestamp, numbered content, neighboring eligible sequences, continuation metadata, and the closed untrusted-history notice SHALL persist and render as authored through the ordinary tool UI. Replay SHALL NOT rehydrate newer message content, synthesize hashes/UUIDs/versions/part identities, remove line prefixes/notices, or normalize historical result shapes. Adding or changing the code-owned declaration SHALL use the coordinated API/worker cutover: quiesce new Run acceptance, drain Runs bound to the prior declaration, deploy matching executors/declarations, then resume; rollback uses the reverse boundary.
+Structured Chat/message sequence attribution, role/timestamp, numbered content, neighboring eligible sequences, continuation metadata, and the closed untrusted-history notice SHALL persist and render as authored through the ordinary tool UI. Replay SHALL NOT rehydrate newer message content, synthesize hashes/UUIDs/versions/part identities, remove line prefixes/notices, or normalize historical result shapes. Adding or changing the code-owned declaration or Chat-local sequence semantics SHALL use a coordinated API/worker/data cutover: quiesce new Run acceptance, drain Runs bound to the prior declaration and sequence interpretation, migrate durable sequence boundaries, deploy matching executors/declarations, then resume; rollback SHALL restore the matching prior binaries and data snapshot rather than mix locator interpretations.
 
-A persisted conversation-read observation SHALL follow the destination Chat's existing retention and deletion lifecycle. Deleting or later losing access to the source message SHALL make a fresh read return `conversation_source_not_found` but SHALL NOT redact or rewrite text already recorded in another owner-visible Chat. Deleting the destination Chat SHALL remove its messages, Runs, and Run events through the existing cascade lifecycle.
+A persisted conversation-read observation SHALL follow the destination Chat's existing retention and deletion lifecycle. Product behavior SHALL NOT delete an individual source message. Deleting or later losing access to the source Chat SHALL make a fresh read return `conversation_source_not_found` but SHALL NOT redact or rewrite text already recorded in another owner-visible Chat. Deleting the destination Chat SHALL remove its messages, Runs, and Run events through the existing cascade lifecycle.
+
+Because the global-to-Chat-local sequence rewrite is a pre-merge alpha hard cutover, deployment SHALL preflight persisted assistant parts, compaction replacement history, and Run events before changing sequence values. If it finds an experimental canonical `search_conversations` result or `conversation_read` input/result authored under the prior global interpretation, the cutover SHALL abort before mutation. It SHALL NOT rewrite the historical observation, accept its global value as an alias, or guess between colliding locator namespaces. The unsupported experimental Chat or database must be removed/reset as a whole before retrying the cutover.
 
 #### Scenario: Conversation reader is not allowlisted
 
@@ -933,9 +935,15 @@ A persisted conversation-read observation SHALL follow the destination Chat's ex
 - **THEN** reload and replay preserve the bounded historical observation as authored
 - **AND** they do not reread the source or rewrite its coordinates/content
 
+#### Scenario: Experimental global locator blocks the alpha cutover
+
+- **WHEN** migration preflight finds a persisted canonical search/read observation in live message parts, compaction replacement history, or Run events authored with the unmerged global sequence interpretation
+- **THEN** the cutover fails before rewriting any message or compaction sequence
+- **AND** it neither mutates that observation nor installs a global-sequence alias path
+
 #### Scenario: Source deletion does not rewrite another Chat's observation
 
-- **WHEN** a persisted conversation-read result in one owner-visible Chat quotes a source later deleted or unavailable
+- **WHEN** a persisted conversation-read result in one owner-visible Chat quotes a source Chat later deleted or unavailable
 - **THEN** the historical result remains recorded while a fresh call returns `conversation_source_not_found`
 - **AND** deleting the destination Chat removes that observation under the existing Chat/Run cascade lifecycle
 
@@ -947,6 +955,6 @@ A persisted conversation-read observation SHALL follow the destination Chat's ex
 
 #### Scenario: Conversation-read declaration cutover drains prior Runs
 
-- **WHEN** deployment adds or changes the code-owned conversation reader declaration
-- **THEN** it stops accepting new Runs and drains Runs bound to the prior tool set before replacing API or worker binaries
-- **AND** acceptance resumes only after every executing process exposes the matching declaration and executor
+- **WHEN** deployment changes code-owned conversation declarations or the interpretation of message sequence fields
+- **THEN** it stops accepting new Runs and drains Runs and queue payloads bound to the prior interpretation before migrating sequence boundaries
+- **AND** acceptance resumes only after every API and worker exposes the matching declaration, executor, and Chat-local sequence semantics

@@ -64,6 +64,6 @@ Each implementation layer uses `$openspec-apply-change` only for its assigned ta
 
 **Ownership:** Canonical OpenSpec synchronization and archival only; no runtime, migration, UI, config, or product-behavior repair. This layer closes #630. Implement with `$openspec-sync-specs`, `$openspec-archive-change`, and `$gh-stack`.
 
-- [ ] 5.1 Sync the verified `chat-search`, `conversation-reads`, and `tool-calling` deltas into canonical specs and verify the canonical diff removes sparse/global/legacy-fallback requirements without changing unrelated search/read/tool behavior.
-- [ ] 5.2 Confirm `openspec status --change simplify-conversation-recall --json` is complete and every task is checked, then archive the change while preserving completed task history; stop rather than using an incomplete-artifact confirmation path.
-- [ ] 5.3 Run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; confirm the PR diff contains only canonical spec synchronization/archive movement and its body includes `Closes #630`.
+- [x] 5.1 Sync the verified `chat-search`, `conversation-reads`, and `tool-calling` deltas into canonical specs and verify the canonical diff removes sparse/global/legacy-fallback requirements without changing unrelated search/read/tool behavior.
+- [x] 5.2 Confirm `openspec status --change simplify-conversation-recall --json` is complete and every task is checked, then archive the change while preserving completed task history; stop rather than using an incomplete-artifact confirmation path.
+- [x] 5.3 Run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; confirm the PR diff contains only canonical spec synchronization/archive movement and its body includes `Closes #630`.
