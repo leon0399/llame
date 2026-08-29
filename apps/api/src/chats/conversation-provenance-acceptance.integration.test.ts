@@ -245,6 +245,7 @@ describe('conversation provenance acceptance — queued lexical search and canon
       messageSeq: source.message.seq,
     });
     expect(firstReadOutput.notice).toContain('untrusted');
+    expect(firstReadOutput.content).toMatch(/^\d+: /u);
     expect(JSON.stringify(firstReadOutput)).toContain(SEARCH_QUERY);
     expect(JSON.stringify(firstReadOutput)).not.toContain(
       'reasoning must never enter evidence',
@@ -260,6 +261,7 @@ describe('conversation provenance acceptance — queued lexical search and canon
       chatId: source.chatId,
       messageSeq: source.message.seq,
     });
+    expect(secondReadOutput.content).toMatch(/^\d+: /u);
 
     const events = await runEvents(target.runId, ownerA);
     expect(
@@ -275,7 +277,9 @@ describe('conversation provenance acceptance — queued lexical search and canon
       events.filter((event) => event.eventType === 'tool.requested'),
     ).toHaveLength(3);
 
-    const persistedObservation = JSON.stringify(firstReadOutput);
+    const persistedObservations = JSON.stringify(
+      readParts.map((part) => part.output),
+    );
     await removeChat(ownerA, source.chatId);
 
     await expect(
@@ -300,12 +304,13 @@ describe('conversation provenance acceptance — queued lexical search and canon
         message.role === 'assistant' &&
         message.inReplyTo === target.userMessage.id,
     );
-    const persistedAfterDeletion = readToolParts(afterAssistant?.parts ?? [])[0]
-      ?.output;
-    if (!persistedAfterDeletion) {
-      throw new Error('Expected persisted read after source deletion');
+    const persistedAfterDeletion = readToolParts(afterAssistant?.parts ?? []);
+    if (persistedAfterDeletion.length !== 2) {
+      throw new Error('Expected both persisted reads after source deletion');
     }
-    expect(JSON.stringify(persistedAfterDeletion)).toBe(persistedObservation);
+    expect(
+      JSON.stringify(persistedAfterDeletion.map((part) => part.output)),
+    ).toBe(persistedObservations);
 
     await removeChat(ownerA, target.chatId);
   });

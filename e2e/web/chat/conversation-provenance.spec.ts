@@ -1,5 +1,5 @@
 /**
- * Product proof for canonical conversation provenance (OpenSpec task 6.1).
+ * Product proof for canonical conversation provenance (OpenSpec task 4.1).
  *
  * The source Chat is intentionally created through the browser, while its
  * stable sequence is obtained through the owner API. The model fixture's
@@ -23,7 +23,13 @@ const modelId = "system:openai:gpt-5.4-mini";
 const sourceMarker = "E2E_EPISODIC_SOURCE_MARKER";
 const recallPrompt =
   "Please recall my episodic provenance e2e source and read it exactly.";
-const sourceText = `Owner evidence ${sourceMarker}: the deployment decision is preserved.`;
+const sourceLines = [
+  `Owner evidence ${sourceMarker}: the deployment decision is preserved.`,
+  "The first bounded read includes this adjacent line.",
+  "The continuation begins on this third line.",
+  "The continuation preserves this terminal line.",
+] as const;
+const sourceText = sourceLines.join("\n");
 const answer = "I read the canonical episodic source exactly.";
 
 type ApiMessage = {
@@ -44,10 +50,11 @@ function isApiMessage(value: unknown): value is ApiMessage {
   );
 }
 
-async function sourceMessage(
+async function messageContaining(
   request: APIRequestContext,
   token: string,
   chatId: string,
+  marker: string,
 ): Promise<ApiMessage> {
   const response = await request.get(
     `${apiUrl}/api/v1/chats/${chatId}/messages`,
@@ -65,10 +72,10 @@ async function sourceMessage(
       (part) =>
         part.type === "text" &&
         typeof part.text === "string" &&
-        part.text.includes(sourceMarker),
+        part.text.includes(marker),
     ),
   );
-  if (!source) throw new Error("Owner API did not return the source message");
+  if (!source) throw new Error(`Owner API did not return message: ${marker}`);
   expect(Number.isSafeInteger(source.seq)).toBe(true);
   expect(source.seq).toBeGreaterThan(0);
   return source;
@@ -82,8 +89,11 @@ async function send(page: Page, text: string): Promise<void> {
 }
 
 test.describe("conversation provenance (browser, full stack)", () => {
+  test.setTimeout(90_000);
+
   test("searches, reads, reloads, and opens an owner message target", async ({
     account,
+    freshAccount,
     page,
     request,
   }) => {
@@ -100,7 +110,13 @@ test.describe("conversation provenance (browser, full stack)", () => {
 
     const sourceChatId = new URL(page.url()).pathname.split("/").at(-1);
     if (!sourceChatId) throw new Error("Source Chat id missing from URL");
-    const source = await sourceMessage(request, account.token, sourceChatId);
+    const source = await messageContaining(
+      request,
+      account.token,
+      sourceChatId,
+      sourceMarker,
+    );
+    expect(source.seq).toBe(1);
 
     // Root creates a fresh destination Chat. The fixture model recognizes only
     // this exact natural-language marker, so existing ordinary chat prompts
@@ -111,13 +127,18 @@ test.describe("conversation provenance (browser, full stack)", () => {
     const searchTool = log
       .getByRole("button")
       .filter({ hasText: "search_conversations" });
-    const readTool = log
+    const readTools = log
       .getByRole("button")
       .filter({ hasText: "conversation_read" });
     await expect(searchTool).toHaveCount(1);
-    await expect(readTool).toHaveCount(1);
+    await expect(readTools).toHaveCount(2);
     await expect(searchTool).toContainText("Completed", { timeout: 30_000 });
-    await expect(readTool).toContainText("Completed", { timeout: 30_000 });
+    await expect(readTools.nth(0)).toContainText("Completed", {
+      timeout: 30_000,
+    });
+    await expect(readTools.nth(1)).toContainText("Completed", {
+      timeout: 30_000,
+    });
     await expect(log.getByText(answer)).toBeVisible({ timeout: 30_000 });
 
     // The only presentation is the existing generic structured-tool renderer;
@@ -130,6 +151,22 @@ test.describe("conversation provenance (browser, full stack)", () => {
     const destinationChatId = new URL(page.url()).pathname.split("/").at(-1);
     if (!destinationChatId)
       throw new Error("Destination Chat id missing from URL");
+    const destinationPrompt = await messageContaining(
+      request,
+      account.token,
+      destinationChatId,
+      recallPrompt,
+    );
+    expect(destinationPrompt.seq).toBe(1);
+
+    await readTools.nth(0).click();
+    await expect(readTools.nth(0).locator("..")).toContainText(
+      `1: ${sourceLines[0]}`,
+    );
+    await readTools.nth(1).click();
+    await expect(readTools.nth(1).locator("..")).toContainText(
+      `3: ${sourceLines[2]}`,
+    );
 
     // Full reload reconstructs both persisted call/result pairs through the
     // ordinary tool parts. No source rehydration is allowed on this path.
@@ -139,8 +176,65 @@ test.describe("conversation provenance (browser, full stack)", () => {
     ).toHaveCount(1);
     await expect(
       log.getByRole("button").filter({ hasText: "conversation_read" }),
-    ).toHaveCount(1);
+    ).toHaveCount(2);
     await expect(log.getByText(answer)).toBeVisible({ timeout: 15_000 });
+    const reloadedReadTools = log
+      .getByRole("button")
+      .filter({ hasText: "conversation_read" });
+    await reloadedReadTools.nth(0).click();
+    await expect(reloadedReadTools.nth(0).locator("..")).toContainText(
+      `1: ${sourceLines[0]}`,
+    );
+    await reloadedReadTools.nth(1).click();
+    await expect(reloadedReadTools.nth(1).locator("..")).toContainText(
+      `3: ${sourceLines[2]}`,
+    );
+
+    const forkResponse = await request.post(
+      `${apiUrl}/api/v1/chats/${sourceChatId}/forks`,
+      {
+        headers: { Authorization: `Bearer ${account.token}` },
+        data: {},
+      },
+    );
+    expect(forkResponse.status()).toBe(201);
+    const forkBody = (await forkResponse.json()) as { id?: unknown };
+    if (typeof forkBody.id !== "string") {
+      throw new Error("Fork response did not contain a Chat id");
+    }
+    const forkMessagesResponse = await request.get(
+      `${apiUrl}/api/v1/chats/${forkBody.id}/messages`,
+      { headers: { Authorization: `Bearer ${account.token}` } },
+    );
+    expect(forkMessagesResponse.ok()).toBe(true);
+    const forkMessagesBody = (await forkMessagesResponse.json()) as {
+      messages?: unknown;
+    };
+    const forkMessages = Array.isArray(forkMessagesBody.messages)
+      ? forkMessagesBody.messages.filter(isApiMessage)
+      : [];
+    expect(forkMessages.map((message) => message.seq)).toEqual([1, 2]);
+
+    const foreignChatId = crypto.randomUUID();
+    const foreignCreate = await request.post(
+      `${apiUrl}/api/v1/chats/${foreignChatId}/messages`,
+      {
+        headers: { Authorization: `Bearer ${freshAccount.token}` },
+        data: {
+          modelId,
+          message: {
+            id: crypto.randomUUID(),
+            parts: [{ type: "text", text: "Foreign target evidence." }],
+          },
+        },
+      },
+    );
+    expect(foreignCreate.ok()).toBe(true);
+    const foreignTarget = await request.get(
+      `${apiUrl}/api/v1/chats/${foreignChatId}/messages?limit=100&targetSeq=1`,
+      { headers: { Authorization: `Bearer ${account.token}` } },
+    );
+    expect(foreignTarget.status()).toBe(404);
 
     // Paste the owner-issued sequence URL. The target route must load the
     // source message by opaque sequence, not by the position in a page array.
