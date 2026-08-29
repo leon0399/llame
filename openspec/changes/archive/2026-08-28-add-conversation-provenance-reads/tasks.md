@@ -96,6 +96,6 @@ Each branch owns only its section below. Commit and verify one layer before `gh 
 
 **Ownership:** Canonical OpenSpec synchronization and archival only; no runtime, migration, UI, or product-behavior changes.
 
-- [ ] 7.1 Sync the verified `conversation-reads`, `chat-search`, `search-projection`, and `tool-calling` deltas into canonical specs; verify the canonical diff matches shipped behavior and introduces no unrelated edits.
-- [ ] 7.2 Archive `add-conversation-provenance-reads` after every implementation task is complete; verify strict OpenSpec validation passes for canonical specs and the archived change.
-- [ ] 7.3 Confirm the finalization layer contains only spec/archive movement and no runtime diff, then run Markdown/format checks and `git diff --check` before submitting the top PR.
+- [x] 7.1 Sync the verified `conversation-reads`, `chat-search`, `search-projection`, and `tool-calling` deltas into canonical specs; verify the canonical diff matches shipped behavior and introduces no unrelated edits.
+- [x] 7.2 Archive `add-conversation-provenance-reads` after every implementation task is complete; verify strict OpenSpec validation passes for canonical specs and the archived change.
+- [x] 7.3 Confirm the finalization layer contains only spec/archive movement and no runtime diff, then run Markdown/format checks and `git diff --check` before submitting the top PR.
