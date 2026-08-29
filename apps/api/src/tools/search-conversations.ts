@@ -104,9 +104,6 @@ export const searchConversationsTool: Tool<{ query: string; limit: number }> = {
           query,
           limit,
         );
-        if (context.canonicalModelExcerptsEnabled !== true) {
-          return legacySuccess(rows);
-        }
         return canonicalSuccess(tx, context.userId, query, rows);
       });
     } catch (error) {
@@ -126,23 +123,6 @@ export const searchConversationsTool: Tool<{ query: string; limit: number }> = {
     }
   },
 };
-
-function legacySuccess(rows: readonly HybridSearchResult[]): ToolResult {
-  return {
-    status: 'success',
-    results: rows.map((r) => ({
-      chatId: r.id,
-      title: r.title,
-      snippet: r.snippet,
-      // `searchByOwner` runs a raw `db.execute(sql\`...\`)` (not the
-      // typed query builder), so postgres.js may hand back `updatedAt`
-      // as a string rather than a coerced Date depending on driver
-      // config — `new Date(...)` normalizes either shape before
-      // calling `toISOString()`.
-      updatedAt: toIsoString(r.updatedAt),
-    })),
-  };
-}
 
 async function canonicalSuccess(
   tx: Db,

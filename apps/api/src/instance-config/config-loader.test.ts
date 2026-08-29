@@ -1302,24 +1302,14 @@ describe('loadInstanceConfig — embeddingModels[] / search.* (chat-search-embed
   it('defaults batchSize and distanceMetric off unedited config, and omits optional fields', () => {
     expect(loadInstanceConfig().embeddingModels).toEqual([]);
     expect(loadInstanceConfig().search).toEqual({
-      chats: { embeddingModelId: null, canonicalModelExcerpts: false },
+      chats: { embeddingModelId: null },
     });
   });
 
-  it('resolves canonical model excerpts only from the strict operator boolean', () => {
+  it('rejects the removed canonical model excerpt activation key', () => {
     writeConfig(
       '{ "search": { "chats": { "canonicalModelExcerpts": true } } }',
     );
-
-    expect(loadInstanceConfig().search.chats.canonicalModelExcerpts).toBe(true);
-  });
-
-  it.each([
-    '{ "search": { "chats": { "canonicalModelExcerpts": "true" } } }',
-    '{ "search": { "chats": { "canonicalModelExcerpts": 1 } } }',
-    '{ "search": { "chats": { "canonicalModelExcerpts": null } } }',
-  ])('rejects a non-boolean canonical model excerpt flag: %s', (config) => {
-    writeConfig(config);
 
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
   });

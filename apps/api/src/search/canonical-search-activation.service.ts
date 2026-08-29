@@ -13,13 +13,10 @@ import type { ProjectionCoverage } from './operations/projection-coverage';
 export const CANONICAL_PROJECTION_COVERAGE_FUNCTION =
   'llame_search_projection_coverage_v2';
 
-/**
- * The trusted, process-local result of the canonical excerpt boot gate. The
- * value is deliberately not read from model input or mutable request state.
- */
-export type CanonicalSearchActivation = {
-  readonly canonicalModelExcerptsEnabled: boolean;
-};
+export type CanonicalSearchCoverageGate = Pick<
+  CanonicalSearchCoverageService,
+  'assertReady'
+>;
 
 export function isProjectionCoverageReady(report: ProjectionCoverage): boolean {
   return (
@@ -30,33 +27,21 @@ export function isProjectionCoverageReady(report: ProjectionCoverage): boolean {
 }
 
 /**
- * Validates the opt-in canonical search cutover before Run consumers start.
- * `OnModuleInit` is intentional: Nest awaits module-init hooks before any
- * `onApplicationBootstrap` hook can register a Run consumer, so a true flag
- * cannot race an unvalidated capability. Disabled configuration does no DB
- * readiness work and leaves the legacy model preview path untouched.
+ * Validates canonical projection coverage once per process graph. HTTP Run
+ * admission and runs-consumer registration share this memoized gate.
  */
 @Injectable()
-export class CanonicalSearchActivationService
-  implements OnModuleInit, CanonicalSearchActivation
-{
-  private enabled = false;
+export class CanonicalSearchCoverageService {
+  private readiness?: Promise<void>;
 
-  constructor(
-    @Inject(InstanceConfigService)
-    private readonly instanceConfig: InstanceConfigReader,
-    private readonly tenantDb: TenantDbService,
-  ) {}
+  constructor(private readonly tenantDb: TenantDbService) {}
 
-  get canonicalModelExcerptsEnabled(): boolean {
-    return this.enabled;
+  assertReady(): Promise<void> {
+    this.readiness ??= this.checkCoverage();
+    return this.readiness;
   }
 
-  async onModuleInit(): Promise<void> {
-    if (!this.instanceConfig.config.search.chats.canonicalModelExcerpts) {
-      return;
-    }
-
+  private async checkCoverage(): Promise<void> {
     let report: ProjectionCoverage;
     try {
       await assertDiscoveryFunctionProvisioned(
@@ -69,19 +54,37 @@ export class CanonicalSearchActivationService
       );
     } catch (error) {
       throw new Error(
-        `canonical model excerpts cannot activate: ${error instanceof Error ? error.message : String(error)}`,
+        `canonical conversation search cannot start: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error },
       );
     }
     if (!isProjectionCoverageReady(report)) {
       throw new Error(
-        'canonical model excerpts cannot activate until projection coverage is complete: ' +
+        'canonical conversation search cannot start until projection coverage is complete: ' +
           `chats=${report.chatCount}, ready=${report.readyChatCount}, ` +
           `stale=${report.staleChatCount}, documents=${report.documentCount}, ` +
           `complete=${report.completeDocumentCount}`,
       );
     }
+  }
+}
 
-    this.enabled = true;
+/** HTTP-only gate. Worker graphs import SearchModule but do not accept Runs. */
+@Injectable()
+export class CanonicalSearchActivationService implements OnModuleInit {
+  constructor(
+    @Inject(InstanceConfigService)
+    private readonly instanceConfig: InstanceConfigReader,
+    @Inject(CanonicalSearchCoverageService)
+    private readonly coverage: CanonicalSearchCoverageGate,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    if (
+      !this.instanceConfig.config.tools.allowed.includes('search_conversations')
+    ) {
+      return;
+    }
+    await this.coverage.assertReady();
   }
 }

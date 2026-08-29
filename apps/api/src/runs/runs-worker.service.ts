@@ -36,6 +36,10 @@ import {
   type RunJob,
 } from './run-queues';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import {
+  CanonicalSearchCoverageService,
+  type CanonicalSearchCoverageGate,
+} from '../search/canonical-search-activation.service';
 
 const RUNS_DEAD_QUEUE = deadLetterQueue(RUNS_QUEUE);
 
@@ -73,6 +77,8 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     private readonly instanceConfig: InstanceConfigReader,
     @Inject(WorkerProfileService)
     private readonly workerProfile: WorkerConcurrencyResolver,
+    @Inject(CanonicalSearchCoverageService)
+    private readonly canonicalSearchCoverage: CanonicalSearchCoverageGate,
     @Inject(ModelsService)
     private readonly models: ModelClientFactory,
     @Inject(RunExecutionService)
@@ -91,6 +97,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     if (concurrency === null) {
       return;
     }
+    await this.canonicalSearchCoverage.assertReady();
     await this.queue.ensureQueue(
       runsQueueDefinition(this.instanceConfig.config),
     );

@@ -49,7 +49,7 @@ import {
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
-import { CanonicalSearchActivationService } from '../search/canonical-search-activation.service';
+import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import {
   type ModelClient,
   type ModelStreamInput,
@@ -553,8 +553,6 @@ export async function bootWorkerHarness(overrides?: {
   heartbeatSeconds?: number;
   /** Explicit code-owned tool rules for snapshots seeded by this harness. */
   allowedTools?: readonly string[];
-  /** Expose canonical excerpts after an acceptance test has admitted the capability. */
-  canonicalModelExcerptsEnabled?: boolean;
 }): Promise<WorkerHarness> {
   // WorkerModule's DrizzlePostgresModule/PgBossModule read POSTGRES_URL
   // directly (getOrThrow), not TEST_DATABASE_URL — mirror worker.module.integration.test.ts's
@@ -593,30 +591,17 @@ export async function bootWorkerHarness(overrides?: {
         runs: overrides?.runsConcurrency ?? BUILT_IN_DEFAULTS.workers.all.runs,
       },
     },
-    search: {
-      ...BUILT_IN_DEFAULTS.search,
-      chats: {
-        ...BUILT_IN_DEFAULTS.search.chats,
-        canonicalModelExcerpts:
-          overrides?.canonicalModelExcerptsEnabled ?? false,
-      },
-    },
   };
 
   const builder = Test.createTestingModule({ imports: [WorkerModule] })
     .overrideProvider(ModelsService)
     .useValue(models)
     .overrideProvider(InstanceConfigService)
-    .useValue({ config });
-  if (overrides?.canonicalModelExcerptsEnabled === true) {
-    // Cross-layer tests opt into an already-admitted capability. The real boot
-    // gate has dedicated coverage and cannot inspect a shared integration DB
-    // containing unrelated suites' deliberately stale Chats.
-    builder.overrideProvider(CanonicalSearchActivationService).useValue({
-      canonicalModelExcerptsEnabled: true,
-      onModuleInit: () => Promise.resolve(),
-    });
-  }
+    .useValue({ config })
+    // Execution harnesses isolate the worker loop, not fleet-wide projection
+    // admission; dedicated boot tests exercise the real coverage gate.
+    .overrideProvider(CanonicalSearchCoverageService)
+    .useValue({ assertReady: () => Promise.resolve() });
   const moduleRef = await builder.compile();
 
   await moduleRef.init();

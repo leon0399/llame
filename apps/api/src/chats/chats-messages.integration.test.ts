@@ -13,6 +13,7 @@ import request from 'supertest';
 import { z } from 'zod';
 import { sql as dsql } from 'drizzle-orm';
 import { AppModule } from '../app.module';
+import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { configureApp } from '../app.setup';
 import { type Message } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
@@ -150,6 +151,8 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const mod = await Test.createTestingModule({
       imports: [AppModule],
     })
+      .overrideProvider(CanonicalSearchCoverageService)
+      .useValue({ assertReady: () => Promise.resolve() })
       .overrideProvider(ModelsService)
       .useValue(models)
       .compile();

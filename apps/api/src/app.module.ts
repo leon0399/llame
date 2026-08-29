@@ -16,6 +16,7 @@ import { MemoryModule } from './memory/memory.module';
 import { PersonalizationModule } from './personalization/personalization.module';
 import { SessionAuthGuard } from './auth/session-auth.guard';
 import { KnowledgeModule } from './knowledge/knowledge.module';
+import { CanonicalSearchActivationService } from './search/canonical-search-activation.service';
 
 // Global per-IP request ceiling per minute. Env-tunable for the same reason
 // AUTH_RATE_LIMIT_PER_MINUTE is (auth/constants.ts): the browser e2e harness
@@ -59,6 +60,7 @@ const API_RATE_LIMIT_PER_MINUTE = (() => {
   controllers: [AppController],
   providers: [
     AppService,
+    CanonicalSearchActivationService,
     // Guard order matters: rate limiting runs BEFORE session validation, so a
     // flood is rejected without paying the session lookup.
     { provide: APP_GUARD, useClass: ThrottlerGuard },

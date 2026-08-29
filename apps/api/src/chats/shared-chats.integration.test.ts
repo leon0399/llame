@@ -14,6 +14,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../app.module';
+import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { configureApp } from '../app.setup';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository } from '../chats/chats-repository';
@@ -52,7 +53,10 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
   beforeAll(async () => {
     const mod = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(CanonicalSearchCoverageService)
+      .useValue({ assertReady: () => Promise.resolve() })
+      .compile();
 
     app = mod.createNestApplication();
     configureApp(app);
@@ -207,7 +211,10 @@ d(
     beforeAll(async () => {
       const mod = await Test.createTestingModule({
         imports: [AppModule],
-      }).compile();
+      })
+        .overrideProvider(CanonicalSearchCoverageService)
+        .useValue({ assertReady: () => Promise.resolve() })
+        .compile();
 
       app = mod.createNestApplication();
       configureApp(app);
