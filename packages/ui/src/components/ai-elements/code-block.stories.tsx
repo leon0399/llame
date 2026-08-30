@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect } from "storybook/test";
+import { expect, fn } from "storybook/test";
 
 import { CodeBlock, CodeBlockCopyButton } from "./code-block.js";
 
@@ -81,17 +81,25 @@ export const WithLineNumbers: Story = {
  *
  * @summary for a snippet with a copy-to-clipboard action
  */
+// Module-scoped so both `render` and `play` see the same spy without widening
+// the story's args past CodeBlock's own props.
+const onCopy = fn();
+
 export const WithCopyButton: Story = {
   tags: ["ai-elements-example", "ai-generated"],
   args: { language: "typescript" },
   render: (args) => (
     <CodeBlock {...args}>
-      <CodeBlockCopyButton aria-label="Copy code" />
+      <CodeBlockCopyButton aria-label="Copy code" onCopy={onCopy} />
     </CodeBlock>
   ),
   play: async ({ canvas, userEvent }) => {
+    onCopy.mockClear();
     const button = canvas.getByRole("button", { name: "Copy code" });
     await userEvent.click(button);
-    await expect(button).toBeVisible();
+    // `toBeVisible()` alone was true before the click too, so it stayed green
+    // with the clipboard write removed. `onCopy` fires only after a successful
+    // copy, which is the behaviour this story demonstrates.
+    await expect(onCopy).toHaveBeenCalledOnce();
   },
 };
