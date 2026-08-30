@@ -10,10 +10,22 @@ The repository-wide contribution workflow is a direct operational convention and
 
 @CONTRIBUTING.md
 
+The coding standards govern every diff in this repo, so they are imported in full:
+
+@CODING_STANDARDS.md
+
+Per-developer, machine-local context is imported when present. The file is
+gitignored, so this import resolves to nothing on a checkout that has no
+`CLAUDE.local.md` — nothing in the tracked instructions may depend on it:
+
+@CLAUDE.local.md
+
 ## Key documentation
 
 - [README.md](README.md) — current product overview, shipped baseline, and quickstart (imported above)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — mandatory issue, OpenSpec, stacked-PR, verification, and review workflow (imported above)
+- [CODING_STANDARDS.md](CODING_STANDARDS.md) — what makes a diff acceptable: scope discipline, no speculative abstraction, complexity trip-wires, the review gate (imported above)
+- [REVIEW_GUIDE.md](REVIEW_GUIDE.md) — how a change is reviewed: the merge question, priority order, and the reviewer's checklist that human and bot reviewers share
 - [VISION.md](VISION.md) — north-star direction, principles, horizons, and deliberate deferrals
 - [ROADMAP.md](ROADMAP.md) — forward-only sequence of unshipped work; GitHub owns live status and implementation detail
 - [SPEC.md](SPEC.md) — current cross-cutting architecture contract, enforced invariants, and authority index
@@ -36,7 +48,9 @@ pnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 22.19 (pinned to 
 | `packages/ui`                | Shared shadcn/ui component library (`@workspace/ui`); stories co-located next to components | shadcn/ui, Tailwind, React 19                                                                              |
 | `packages/config-typescript` | Shared `tsconfig` bases                                                                     | —                                                                                                          |
 
-Each app/package has its own `AGENTS.md` (auto-loaded when you work in that directory) with concrete commands, structure, and gotchas. **Keep this file high-level — put implementation detail in the child file, not here.**
+Each app/package has its own `AGENTS.md` (auto-loaded when you work in that directory) with concrete commands, structure, and gotchas. Nesting is allowed and preferred where a subtree has traps of its own — `apps/api/src/db` (schema, migrations, RLS provisioning) and `apps/web/lib/api` (the generated client boundary) both own one.
+
+**Keep every level as high as it can go.** Put implementation detail in the child file, not the parent; put normative capability behavior in [`openspec/specs`](openspec/specs), not in an `AGENTS.md`. An `AGENTS.md` is loaded into every conversation that touches its directory, so it earns its length in commands, boundaries, and traps — not in restated contracts. When the two disagree, the spec wins and the `AGENTS.md` has a bug.
 
 ## Commands (from repo root)
 
@@ -72,7 +86,7 @@ pnpm db:provision-rls # assign privileged RLS helper ownership after migrations
 pnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs
 ```
 
-Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and the self-provisioning `test:integration` gate are documented in [apps/api/AGENTS.md](apps/api/AGENTS.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).
+Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and the self-provisioning `test:integration` gate are documented in [apps/api/src/db/AGENTS.md](apps/api/src/db/AGENTS.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).
 
 ## Conventions
 
@@ -80,8 +94,10 @@ Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in pr
 - Modified cyclomatic complexity must remain `<= 35` under Oxlint's `modified` variant. Extract only along a real responsibility boundary; arbitrary helper extraction, inline disables, and other metric gaming are prohibited.
 - Drizzle ORM for all DB access. Generate migrations with `drizzle-kit` by
   default; a security or data-transition gap may add a reviewed hand-authored
-  step only when it is recorded in the [API migration exception ledger](apps/api/AGENTS.md#gotchas)
-  with its regeneration and verification requirements.
+  step only when the migration's own SQL comment records what it does, why the
+  generator cannot emit it, and what to re-add on regeneration. That comment is
+  the authority and the only record — see
+  [hand-authored migrations](apps/api/src/db/AGENTS.md#hand-authored-migrations).
 - Conventional commits (e.g. `feat(api):`, `docs(spec):`).
 - The constructor-decorator placement rule runs through the pinned native
   `pnpm lint:ast-grep` command in Lefthook and CI. Chained type assertions,
