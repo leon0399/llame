@@ -158,11 +158,16 @@ test.describe("model-context transparency (browser, full stack)", () => {
       messagesResponse.ok(),
       `GET messages failed with ${messagesResponse.status()}`,
     ).toBe(true);
+    // SAFETY: this is the api's own chat-messages endpoint (under test
+    // here), whose { messages: [...] } envelope is fixed by its own OpenAPI
+    // contract.
     const { messages } = (await messagesResponse.json()) as {
       messages: Array<{ seq: number }>;
     };
     const uptoSeq = Math.max(...messages.map((message) => message.seq));
-    seedCompaction(chatId, uptoSeq, COMPACTION_SUMMARY, undefined, account.id);
+    seedCompaction(chatId, uptoSeq, COMPACTION_SUMMARY, {
+      ownerUserId: account.id,
+    });
 
     // A subsequent real turn causes the post-commit search-index job to rebuild
     // this chat after the compaction, switch marker, prompt snapshot, and tool
@@ -179,6 +184,9 @@ test.describe("model-context transparency (browser, full stack)", () => {
         { headers: { Authorization: `Bearer ${account.token}` } },
       );
       expect(response.ok()).toBe(true);
+      // SAFETY: this is the api's own chat search endpoint (under test
+      // here), whose { results: [...] } envelope is fixed by its own
+      // OpenAPI contract.
       return ((await response.json()) as { results: SearchResult[] }).results;
     };
 

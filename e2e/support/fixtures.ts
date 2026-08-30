@@ -37,7 +37,7 @@ const knowledgeApiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
 
-function hasStableId(value: unknown): value is { id: string } {
+export function hasStableId(value: unknown): value is { id: string } {
   return (
     value !== null &&
     typeof value === "object" &&

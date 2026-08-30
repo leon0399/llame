@@ -86,13 +86,16 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
       messagesResponse.ok(),
       `GET messages failed with ${messagesResponse.status()}`,
     ).toBe(true);
+    // SAFETY: this is the api's own chat-messages endpoint (under test
+    // here), whose { messages: [...] } envelope is fixed by its own OpenAPI
+    // contract.
     const { messages } = (await messagesResponse.json()) as {
       messages: Array<{ seq: number }>;
     };
     expect(messages.length).toBeGreaterThan(0);
     const maxSeq = Math.max(...messages.map((m) => m.seq));
 
-    seedCompaction(chatId, maxSeq, SEEDED_SUMMARY, SEEDED_USAGE);
+    seedCompaction(chatId, maxSeq, SEEDED_SUMMARY, { usage: SEEDED_USAGE });
 
     // A real hard reload — the exact step Leo took where the Checkpoint
     // failed to appear despite the endpoint returning the compaction.

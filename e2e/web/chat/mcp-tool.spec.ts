@@ -9,7 +9,7 @@
  * answer without executing the remote tool again.
  */
 
-import { expect, test } from "../../support/fixtures";
+import { expect, test, type APIResponse } from "../../support/fixtures";
 
 const MCP_SEARCH_PROMPT =
   "Please search for the current deterministic operator MCP fixture evidence.";
@@ -28,13 +28,20 @@ type McpFixtureStats = {
   sessionBoundRequests: number;
 };
 
+async function readMcpStats(response: APIResponse): Promise<McpFixtureStats> {
+  // SAFETY: this is our own e2e MCP fixture's /stats endpoint
+  // (e2e/support/mcp-server.ts's sendJson({ toolCalls, sessionBoundRequests
+  // })); the shape is fixed by that source, not external input.
+  return (await response.json()) as McpFixtureStats;
+}
+
 test("operator MCP search settles and reconstructs from durable chat history", async ({
   page,
   request,
 }) => {
   const baseline = await request.get(`${mcpFixtureUrl}/stats`);
   expect(baseline.ok()).toBe(true);
-  const baselineStats = (await baseline.json()) as McpFixtureStats;
+  const baselineStats = await readMcpStats(baseline);
 
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}\?draft=fresh$/, {
@@ -127,14 +134,14 @@ test("operator MCP search settles and reconstructs from durable chat history", a
   await expect
     .poll(async () => {
       const response = await request.get(`${mcpFixtureUrl}/stats`);
-      const stats = (await response.json()) as McpFixtureStats;
+      const stats = await readMcpStats(response);
       return stats.toolCalls;
     })
     .toBe(baselineStats.toolCalls + 1);
 
   const afterTool = await request.get(`${mcpFixtureUrl}/stats`);
   expect(afterTool.ok()).toBe(true);
-  const afterToolStats = (await afterTool.json()) as McpFixtureStats;
+  const afterToolStats = await readMcpStats(afterTool);
   expect(afterToolStats.sessionBoundRequests).toBeGreaterThan(
     baselineStats.sessionBoundRequests,
   );
@@ -153,7 +160,7 @@ test("operator MCP search settles and reconstructs from durable chat history", a
 
   const afterReload = await request.get(`${mcpFixtureUrl}/stats`);
   expect(afterReload.ok()).toBe(true);
-  const afterReloadStats = (await afterReload.json()) as McpFixtureStats;
+  const afterReloadStats = await readMcpStats(afterReload);
   expect(afterReloadStats.toolCalls).toBe(baselineStats.toolCalls + 1);
   expect(afterReloadStats.sessionBoundRequests).toBe(
     afterToolStats.sessionBoundRequests,
