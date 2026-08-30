@@ -307,8 +307,9 @@ Operator runbook: [docs/conversation-recall.md](../../docs/conversation-recall.m
 
 - One NestJS module per feature (controller / service / module); wire via DI and register in `app.module.ts`.
 - Place each constructor-parameter `@Inject(...)` decorator on its own line,
-  immediately before the parameter. `pnpm lint:ast-grep` enforces the all-split
-  form; Prettier preserves but does not choose decorator line placement.
+  immediately before the parameter. `anti-slop/parameter-decorator-own-line`
+  enforces the split form; Prettier preserves but does not choose decorator line
+  placement.
 - Schema lives in `src/db/schema`; change it, then `db:generate`. A hand-authored
   migration step records its own rationale in the migration's SQL comment — see
   [`src/db/AGENTS.md`](src/db/AGENTS.md).

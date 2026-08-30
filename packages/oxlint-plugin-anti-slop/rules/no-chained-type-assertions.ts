@@ -3,11 +3,15 @@ import type { ESTree } from "@oxlint/plugins";
 
 type TypeAssertionExpression = ESTree.TSAsExpression | ESTree.TSTypeAssertion;
 
-function isTypeAssertionExpression(node: ESTree.Node): node is TypeAssertionExpression {
+function isTypeAssertionExpression(
+  node: ESTree.Node,
+): node is TypeAssertionExpression {
   return node.type === "TSAsExpression" || node.type === "TSTypeAssertion";
 }
 
-function unwrapTransparentExpression(expression: ESTree.Expression): ESTree.Expression {
+function unwrapTransparentExpression(
+  expression: ESTree.Expression,
+): ESTree.Expression {
   let current = expression;
   while (
     current.type === "ParenthesizedExpression" ||
@@ -32,7 +36,8 @@ function isOutermostAssertionInChain(node: TypeAssertionExpression): boolean {
   let parent = node.parent;
 
   while (
-    (parent.type === "ParenthesizedExpression" || parent.type === "TSNonNullExpression") &&
+    (parent.type === "ParenthesizedExpression" ||
+      parent.type === "TSNonNullExpression") &&
     parent.expression === current
   ) {
     current = parent;
@@ -71,7 +76,11 @@ export const noChainedTypeAssertionsRule = defineRule({
   },
   createOnce(context) {
     const checkTypeAssertion = (node: TypeAssertionExpression) => {
-      if (!isOutermostAssertionInChain(node) || !isForbiddenAssertionChain(node)) return;
+      if (
+        !isOutermostAssertionInChain(node) ||
+        !isForbiddenAssertionChain(node)
+      )
+        return;
       context.report({ node, messageId: "chained" });
     };
 

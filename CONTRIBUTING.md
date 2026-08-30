@@ -258,7 +258,7 @@ When aggregate evidence is necessary, keep builds resource-bounded:
 ```bash
 pnpm openapi:lint:ci
 pnpm exec turbo run lint
-pnpm lint:ast-grep
+pnpm lint:anti-slop
 pnpm lint:markdown
 pnpm format:check
 pnpm exec turbo run typecheck

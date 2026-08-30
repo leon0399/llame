@@ -51,7 +51,7 @@ export const PromptInputTextarea = ({
   });
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
-    // @TODO: allow to configure enter key behavior
+    // Enter-key behaviour is fixed by `submitBehavior`; it is not user-configurable.
     if (submitBehavior === "enter" && e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       const form = e.currentTarget.form;

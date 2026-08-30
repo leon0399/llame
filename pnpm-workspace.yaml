@@ -97,7 +97,6 @@ catalog:
 # Packages not listed are blocked from running install scripts. Every entry
 # below is a reviewed decision; false entries match the pre-migration blocks.
 allowBuilds:
-  "@ast-grep/cli": true # selects the pinned platform binary from its optional dependencies
   esbuild: true
   # testcontainers → dockerode. Native compiles are optional; the JS
   # fallback is enough for the local Docker socket integration tests use.

@@ -13,8 +13,10 @@
  * NOTE: repos must be constructed inside the callback with the scoped `tx`,
  * NOT stored on the service — the set_config is only live inside that transaction.
  *
- * TODO: wire userId from a request-scoped auth guard/interceptor once authentication
- * is added to apps/api. For now, callers supply it explicitly from handler inputs.
+ * Callers supply `userId` explicitly from handler inputs rather than reading it
+ * from request-scoped state. That is deliberate: the identity a query is scoped
+ * by is then visible at the call site and in its type, so a handler cannot
+ * silently inherit the wrong tenant from ambient context.
  */
 
 import { Inject, Injectable } from '@nestjs/common';

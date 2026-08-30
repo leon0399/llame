@@ -15,13 +15,8 @@ pre-commit:
       run: pnpm --filter api lint
 
     - name: root lint (oxlint)
-      glob: "{e2e/**/*.{ts,tsx,js,mjs},playwright.config.ts,.oxlintrc.json,package.json,tools/oxlint/anti-slop/**/*.{ts,json}}"
+      glob: "{e2e/**/*.{ts,tsx,js,mjs},playwright.config.ts,.oxlintrc.json,package.json,packages/oxlint-plugin-anti-slop/**/*.{ts,json}}"
       run: pnpm lint:root
-
-    # Constructor-decorator placement (#286). The same native ast-grep command
-    # runs in CI; no diff scope, baseline, allowlist, or bespoke wrapper.
-    - name: ast-grep structural rules
-      run: pnpm lint:ast-grep
 
     - name: markdownlint
       glob: "{**/*.md,.markdownlint-cli2.jsonc}"

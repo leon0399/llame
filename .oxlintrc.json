@@ -1,19 +1,183 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+
+  // THE repository lint configuration. Every rule is declared here and applies
+  // everywhere; each workspace `.oxlintrc.json` extends this file and adds only
+  // what is genuinely local to it (env, ignore patterns, `options.typeAware`,
+  // and file-specific overrides). It is deliberately not split into opt-in
+  // tiers: a rule that is right for the repository is right for every
+  // workspace, and where the code does not yet satisfy one, the code is what
+  // changes. Type-aware rules no-op in workspaces that do not set
+  // `options.typeAware`, so they live here too.
+  //
+  // Paths in `jsPlugins` resolve relative to THIS file even when a child
+  // extends it, so the specifier below stays correct from every workspace.
+
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "vitest",
+    "react",
+    "nextjs",
+    "jsx-a11y"
+  ],
   "categories": {
-    "correctness": "off"
+    "correctness": "error"
   },
   "jsPlugins": [
     {
       "name": "anti-slop",
-      "specifier": "./tools/oxlint/anti-slop/index.ts"
+      "specifier": "./packages/oxlint-plugin-anti-slop/index.ts"
     }
   ],
+
   "rules": {
+    // ---- anti-slop: universal. The stricter type-honesty tier lives in
+    // .oxlintrc.strict-types.json, extended by the type-aware workspaces.
+    // ----------------------------------------------------------------------
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-object-parameters": "error",
     "anti-slop/no-shape-in-symbol-names": "error",
     "anti-slop/no-unknown-type-aliases": "error",
-    "anti-slop/no-widen-then-assert": "error"
-  }
+    "anti-slop/no-untracked-todo": "error",
+    "anti-slop/no-widen-then-assert": "error",
+    "anti-slop/parameter-decorator-own-line": "error",
+
+    // ---- strict type honesty: assertions, mocking, dynamic reads ---------
+    // These reject patterns that destroy type evidence. They are global: where
+    // they currently fail (apps/web tests lean on module mocking), the CODE is
+    // what changes, not the rule.
+    "anti-slop/no-conditional-empty-object-spread": "error",
+    "anti-slop/no-known-value-widening": "error",
+    "anti-slop/no-module-mocking": "error",
+    "anti-slop/no-reflect-apply": "error",
+    "anti-slop/no-reflect-get": "error",
+    "anti-slop/no-runtime-typeof": ["error", { "allowInTypeGuards": true }],
+    "anti-slop/no-unknown-parameters": [
+      "error",
+      { "allowWhenImmediatelyValidated": true, "allowErrorFamilyNames": true }
+    ],
+    "anti-slop/no-unknown-returns": "error",
+    "anti-slop/no-unsafe-dictionary-type": "error",
+    "anti-slop/require-safety-comment-for-type-assertion": "error",
+
+    // ---- type-aware: no-ops in workspaces without `options.typeAware` -----
+    "typescript/await-thenable": "error",
+    "typescript/no-array-delete": "error",
+    "typescript/no-base-to-string": "error",
+    "typescript/no-duplicate-type-constituents": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-for-in-array": "error",
+    "typescript/no-implied-eval": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/no-redundant-type-constituents": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-enum-comparison": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-return": "error",
+    "typescript/no-unsafe-type-assertion": "error",
+    "typescript/no-unsafe-unary-minus": "error",
+    "typescript/only-throw-error": "error",
+    "typescript/prefer-promise-reject-errors": "error",
+    "typescript/require-await": "error",
+    "typescript/restrict-plus-operands": "error",
+    "typescript/restrict-template-expressions": "error",
+    "typescript/unbound-method": "error",
+    "typescript/use-unknown-in-catch-callback-variable": "error",
+
+    // ---- tests -----------------------------------------------------------
+    // A left-behind `.only` silently reduces the suite to one test while CI
+    // stays green — the same failure mode docs/testing.md rule 11 exists for.
+    "vitest/no-focused-tests": "error",
+    "vitest/require-mock-type-parameters": "off",
+    "vitest/no-conditional-expect": "off",
+    "vitest/no-standalone-expect": "off",
+    "vitest/require-to-throw-message": "off",
+    "vitest/expect-expect": "off",
+
+    // ---- react -----------------------------------------------------------
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "error",
+
+    // ---- size and shape: the CODING_STANDARDS.md §4 trip-wires -----------
+    // These are the thresholds that document already declares. They were
+    // prose; they are now enforced. When one trips, SIMPLIFY the logic —
+    // carving a function into three private helpers satisfies the number and
+    // makes the code worse (§4 says so explicitly). Never raise a threshold to
+    // pass review.
+    "complexity": ["error", { "max": 35, "variant": "modified" }],
+    "max-params": ["error", { "max": 4 }],
+    "max-depth": ["error", { "max": 3 }],
+    "max-lines-per-function": [
+      "error",
+      { "max": 40, "skipBlankLines": true, "skipComments": true }
+    ],
+    "max-nested-callbacks": ["error", { "max": 3 }],
+    "max-lines": [
+      "error",
+      { "max": 500, "skipBlankLines": true, "skipComments": true }
+    ],
+
+    // ---- markers of unfinished or unreviewed work ------------------------
+    // `log`/`debug`/`info` are debugging leftovers. `error` and `warn` are
+    // deliberate reporting — a failed cancel the user must know about, a
+    // NODE_ENV-guarded invariant warning — and stay allowed.
+    "no-console": ["error", { "allow": ["error", "warn"] }],
+    "unicorn/consistent-function-scoping": "error",
+    "typescript/no-explicit-any": "error"
+  },
+
+  "overrides": [
+    {
+      // Tests and stories are exempt from SIZE and NESTING only. A table-driven
+      // suite is legitimately long, and `describe`/`it` nesting is the idiom —
+      // enforcing 40 lines here would reward splitting one coherent scenario
+      // across helpers that hide what is being asserted. Everything about type
+      // honesty still applies: `no-explicit-any`, every anti-slop rule, and the
+      // focused-test guard are all still errors below.
+      "files": [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.spec.ts",
+        "**/*.stories.tsx",
+        "**/*.test-fixture.ts",
+        "e2e/support/**"
+      ],
+      "rules": {
+        "max-lines-per-function": "off",
+        "max-nested-callbacks": "off",
+        "max-lines": "off",
+        "max-statements": "off",
+        "unicorn/consistent-function-scoping": "off",
+        "no-console": "off"
+      }
+    },
+    {
+      // Operator commands and build scripts write to stdout because that IS
+      // their interface — an operator reads `search:coverage` output in a
+      // terminal. Everywhere else a `console.*` call is a debugging leftover.
+      // Globs are matched against the path as the linter sees it, and each
+      // workspace runs oxlint from its own directory — so these are written
+      // `**/`-prefixed rather than repo-rooted.
+      "files": [
+        "**/operations/cli.ts",
+        "**/db/migrate.ts",
+        "**/generate-openapi.ts",
+        "**/eval/**",
+        "**/evals/**",
+        "**/e2e/support/**",
+        "**/*.config.ts",
+        "**/*.config.mts",
+        "**/*.setup.ts",
+        "**/*.global-setup.mts"
+      ],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
 }

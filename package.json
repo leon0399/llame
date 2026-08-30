@@ -9,8 +9,7 @@
     "dev": "turbo run dev dev:studio",
     "lint": "pnpm openapi:lint:ci && turbo run lint",
     "lint:root": "pnpm lint:anti-slop && oxlint --deny-warnings --report-unused-disable-directives --threads=1 e2e playwright.config.ts",
-    "lint:anti-slop": "tsc -p tools/oxlint/anti-slop/tsconfig.json && node --import tsx tools/oxlint/anti-slop/rules/no-chained-type-assertions.test.ts && node --import tsx tools/oxlint/anti-slop/rules/no-unknown-parameters.test.ts",
-    "lint:ast-grep": "ast-grep scan --error --no-ignore hidden .",
+    "lint:anti-slop": "tsc -p packages/oxlint-plugin-anti-slop/tsconfig.json && for f in packages/oxlint-plugin-anti-slop/rules/*.test.ts; do node --import tsx \"$f\" || exit 1; done",
     "lint:markdown": "markdownlint-cli2",
     "openapi:lint": "redocly lint --config apps/api/redocly.yaml",
     "openapi:lint:ci": "redocly lint --config apps/api/redocly.yaml --skip-rule operation-summary --skip-rule operation-description",
@@ -38,7 +37,6 @@
     "generate:api-client": "pnpm generate:api-schema && pnpm generate:web-client"
   },
   "devDependencies": {
-    "@ast-grep/cli": "0.44.0",
     "@oxlint/plugins": "1.78.0",
     "@playwright/test": "catalog:",
     "@redocly/cli": "2.46.2",

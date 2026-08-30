@@ -11,7 +11,9 @@ type ParameterOwner =
   | ESTree.TSFunctionType
   | ESTree.TSMethodSignature;
 
-function parameterAnnotation(parameter: Parameter): ESTree.TSTypeAnnotation | null | undefined {
+function parameterAnnotation(
+  parameter: Parameter,
+): ESTree.TSTypeAnnotation | null | undefined {
   if (parameter.type === "TSParameterProperty") {
     return parameterAnnotation(parameter.parameter);
   }
@@ -50,10 +52,16 @@ function parameterName(parameter: Parameter, sourceText: string): string {
  */
 function predicateSubjectName(node: ParameterOwner): string | null {
   const predicate = node.returnType?.typeAnnotation;
-  if (predicate === null || predicate === undefined || predicate.type !== "TSTypePredicate") {
+  if (
+    predicate === null ||
+    predicate === undefined ||
+    predicate.type !== "TSTypePredicate"
+  ) {
     return null;
   }
-  return predicate.parameterName.type === "Identifier" ? predicate.parameterName.name : null;
+  return predicate.parameterName.type === "Identifier"
+    ? predicate.parameterName.name
+    : null;
 }
 
 /**
@@ -68,7 +76,10 @@ function predicateSubjectName(node: ParameterOwner): string | null {
  */
 const ERROR_FAMILY_NAMES = new Set(["error", "err", "reason"]);
 
-function isTypeofOfParameter(expression: ESTree.Expression, parameterName: string): boolean {
+function isTypeofOfParameter(
+  expression: ESTree.Expression,
+  parameterName: string,
+): boolean {
   return (
     expression.type === "UnaryExpression" &&
     expression.operator === "typeof" &&
@@ -77,7 +88,10 @@ function isTypeofOfParameter(expression: ESTree.Expression, parameterName: strin
   );
 }
 
-function isValidationCall(call: ESTree.CallExpression, parameterName: string): boolean {
+function isValidationCall(
+  call: ESTree.CallExpression,
+  parameterName: string,
+): boolean {
   const [firstArgument] = call.arguments;
   if (
     firstArgument === undefined ||
@@ -116,8 +130,13 @@ function isValidationCall(call: ESTree.CallExpression, parameterName: string): b
  * other `switch (true)` case ordering or a `default`-first clause is skipped,
  * not exempted.
  */
-function switchStatementFirstUse(node: ESTree.SwitchStatement): ESTree.Expression | null {
-  if (node.discriminant.type === "UnaryExpression" && node.discriminant.operator === "typeof") {
+function switchStatementFirstUse(
+  node: ESTree.SwitchStatement,
+): ESTree.Expression | null {
+  if (
+    node.discriminant.type === "UnaryExpression" &&
+    node.discriminant.operator === "typeof"
+  ) {
     return node.discriminant;
   }
   if (
@@ -126,7 +145,8 @@ function switchStatementFirstUse(node: ESTree.SwitchStatement): ESTree.Expressio
     node.discriminant.value === true
   ) {
     const [firstCase] = node.cases;
-    if (firstCase !== undefined && firstCase.test !== null) return firstCase.test;
+    if (firstCase !== undefined && firstCase.test !== null)
+      return firstCase.test;
   }
   return null;
 }
@@ -152,14 +172,18 @@ function isValidationExpression(
   // the switch-statement spelling of the `typeof x === ...` comparison
   // already handled below.
   if (isTypeofOfParameter(expression, parameterName)) return true;
-  if (expression.type === "CallExpression") return isValidationCall(expression, parameterName);
+  if (expression.type === "CallExpression")
+    return isValidationCall(expression, parameterName);
   if (expression.type === "BinaryExpression") {
     // `#x in obj` shares the "BinaryExpression" node type with `x in obj`
     // and ordinary binary operators, but its `left` is a `PrivateIdentifier`
     // rather than an `Expression` -- never a validation of `parameterName`.
     if (expression.left.type === "PrivateIdentifier") return false;
     if (expression.operator === "instanceof") {
-      return expression.left.type === "Identifier" && expression.left.name === parameterName;
+      return (
+        expression.left.type === "Identifier" &&
+        expression.left.name === parameterName
+      );
     }
     if (["===", "!==", "==", "!="].includes(expression.operator)) {
       return (
@@ -171,7 +195,9 @@ function isValidationExpression(
   return false;
 }
 
-function functionBody(node: ParameterOwner): ESTree.FunctionBody | ESTree.Expression | null {
+function functionBody(
+  node: ParameterOwner,
+): ESTree.FunctionBody | ESTree.Expression | null {
   if (node.type === "ArrowFunctionExpression") return node.body;
   if (
     node.type === "FunctionDeclaration" ||
@@ -212,7 +238,10 @@ function firstUseExpression(node: ParameterOwner): ESTree.Expression | null {
 function unwrapExportedDeclaration(
   statement: ESTree.Statement,
 ): ESTree.Statement | ESTree.Declaration {
-  if (statement.type === "ExportNamedDeclaration" && statement.declaration !== null) {
+  if (
+    statement.type === "ExportNamedDeclaration" &&
+    statement.declaration !== null
+  ) {
     return statement.declaration;
   }
   if (
@@ -236,10 +265,15 @@ function unwrapExportedDeclaration(
  * no matching sibling with a body exists (e.g. a genuinely ambient
  * declaration), this returns null and the caller stays unexempted.
  */
-function resolveOverloadImplementation(node: ParameterOwner): ESTree.Function | null {
+function resolveOverloadImplementation(
+  node: ParameterOwner,
+): ESTree.Function | null {
   if (node.type !== "TSDeclareFunction" || node.id === null) return null;
   let container: ESTree.Node = node.parent;
-  if (container.type === "ExportNamedDeclaration" || container.type === "ExportDefaultDeclaration") {
+  if (
+    container.type === "ExportNamedDeclaration" ||
+    container.type === "ExportDefaultDeclaration"
+  ) {
     container = container.parent;
   }
   if (
@@ -252,7 +286,8 @@ function resolveOverloadImplementation(node: ParameterOwner): ESTree.Function | 
   for (const statement of container.body) {
     const declaration = unwrapExportedDeclaration(statement);
     if (
-      (declaration.type === "FunctionDeclaration" || declaration.type === "TSDeclareFunction") &&
+      (declaration.type === "FunctionDeclaration" ||
+        declaration.type === "TSDeclareFunction") &&
       declaration.id !== null &&
       declaration.id.name === node.id.name &&
       declaration.body !== null
@@ -268,11 +303,18 @@ function resolveOverloadImplementation(node: ParameterOwner): ESTree.Function | 
  * either `node` itself validates it as its first body use, or (for a
  * body-less overload signature) the adjacent implementation signature does.
  */
-function isImmediatelyValidated(node: ParameterOwner, parameterName: string): boolean {
-  if (isValidationExpression(firstUseExpression(node), parameterName)) return true;
+function isImmediatelyValidated(
+  node: ParameterOwner,
+  parameterName: string,
+): boolean {
+  if (isValidationExpression(firstUseExpression(node), parameterName))
+    return true;
   const implementation = resolveOverloadImplementation(node);
   if (implementation === null) return false;
-  return isValidationExpression(firstUseExpression(implementation), parameterName);
+  return isValidationExpression(
+    firstUseExpression(implementation),
+    parameterName,
+  );
 }
 
 /** Disallow unknown inputs except explicitly named error-cause enrichment. */
@@ -297,7 +339,9 @@ export const noUnknownParametersRule = defineRule({
         additionalProperties: false,
       },
     ],
-    defaultOptions: [{ allowWhenImmediatelyValidated: false, allowErrorFamilyNames: false }],
+    defaultOptions: [
+      { allowWhenImmediatelyValidated: false, allowErrorFamilyNames: false },
+    ],
   },
   createOnce(context) {
     const checkParameters = (node: ParameterOwner) => {
@@ -320,11 +364,15 @@ export const noUnknownParametersRule = defineRule({
       for (const parameter of node.params) {
         const annotation = parameterAnnotation(parameter);
         if (annotation?.typeAnnotation.type !== "TSUnknownKeyword") continue;
-        const name = parameterName(parameter, context.sourceCode.getText(parameter));
+        const name = parameterName(
+          parameter,
+          context.sourceCode.getText(parameter),
+        );
         if (name === "cause") continue;
         if (name === guardedName) continue;
         if (allowErrorFamilyNames && ERROR_FAMILY_NAMES.has(name)) continue;
-        if (allowWhenImmediatelyValidated && isImmediatelyValidated(node, name)) continue;
+        if (allowWhenImmediatelyValidated && isImmediatelyValidated(node, name))
+          continue;
         context.report({
           node: annotation.typeAnnotation,
           messageId: "unknownParameter",

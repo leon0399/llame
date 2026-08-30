@@ -139,8 +139,13 @@ licenses dropping one:
   the authority and the only record — see
   [hand-authored migrations](apps/api/src/db/AGENTS.md#hand-authored-migrations).
 - Conventional commits (e.g. `feat(api):`, `docs(spec):`).
-- The constructor-decorator placement rule runs through the pinned native
-  `pnpm lint:ast-grep` command in Lefthook and CI. Chained type assertions,
+- Every lint rule is declared once in the root `.oxlintrc.json`; each workspace
+  config only `extends` it and adds local env, ignores, and overrides. A rule
+  that is right for the repository is right for every workspace — where the code
+  does not yet satisfy one, the code changes, not the rule. The repo-owned rules
+  live in [`packages/oxlint-plugin-anti-slop`](packages/oxlint-plugin-anti-slop);
+  their regressions run through `pnpm lint:anti-slop`. Constructor-decorator
+  placement is `anti-slop/parameter-decorator-own-line`. Chained type assertions,
   including `as unknown as T`, are banned across the root E2E and four workspace
   Oxlint scopes by the vendored anti-slop plugin; narrow the boundary, construct
   a complete value, or validate untrusted input instead of suppressing the
