@@ -34,6 +34,9 @@ function useCookie<T extends string>(
   const [value, setValue] = useState<T | undefined>(() => {
     const cookie = Cookies.get(name);
     if (cookie) {
+      // SAFETY: this hook is the sole writer of `name` (via `updateCookie`/
+      // the `defaultValue` init below), always storing a `T`, so a present
+      // cookie value was written as a `T` by an earlier call.
       return cookie as T;
     }
     if (defaultValue !== undefined) {

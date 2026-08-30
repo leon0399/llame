@@ -209,8 +209,14 @@ const rewriteMathNodes = (node: MathNode, source: string): void => {
   node.children = rewritten;
 };
 
+function hasStringValue(file: {
+  value: unknown;
+}): file is { value: string } {
+  return typeof file.value === "string";
+}
+
 const remarkRewriteMath = () => (tree: MathNode, file: { value: unknown }) => {
-  if (typeof file.value === "string") {
+  if (hasStringValue(file)) {
     rewriteMathNodes(tree, file.value);
   }
 };
@@ -250,6 +256,29 @@ const streamdownMermaid = createMermaidPlugin({
 const mermaidImageAttribute = /\bimg\s*:/i;
 const mermaidImageSource = /<\s*(?:img|image)\b|!\[[^\]]*\]\s*\(/i;
 
+type QuoteScanState = {
+  quote: '"' | "'" | "`" | undefined;
+  escaped: boolean;
+};
+
+// One character's worth of quoted-run tracking, factored out so the caller's
+// loop nesting stays shallow. Mirrors the original inline branching exactly.
+function advanceQuotedCharacter(
+  character: string,
+  state: QuoteScanState,
+): QuoteScanState {
+  if (state.escaped) {
+    return { ...state, escaped: false };
+  }
+  if (character === "\\") {
+    return { ...state, escaped: true };
+  }
+  if (character === state.quote) {
+    return { ...state, quote: undefined };
+  }
+  return state;
+}
+
 const hasMermaidImageAttribute = (source: string) => {
   let blockStart = source.indexOf("@{");
 
@@ -264,13 +293,10 @@ const hasMermaidImageAttribute = (source: string) => {
 
       if (quote) {
         unquotedAttributes += " ";
-        if (escaped) {
-          escaped = false;
-        } else if (character === "\\") {
-          escaped = true;
-        } else if (character === quote) {
-          quote = undefined;
-        }
+        ({ quote, escaped } = advanceQuotedCharacter(character, {
+          quote,
+          escaped,
+        }));
         continue;
       }
 
@@ -321,7 +347,9 @@ const mermaid = {
 
 export const streamdownPlugins: PluginConfig = {
   // Streamdown and @streamdown/code resolve different Shiki minor versions.
-  // Their runtime plugin contract matches; only the language-name union differs.
+  // Their runtime plugin contract matches; only the language-name union
+  // differs. SAFETY: `code` implements CodeHighlighterPlugin's actual runtime
+  // shape, so this cast only bridges that nominal, version-local type gap.
   code: code as NonNullable<PluginConfig["code"]>,
   math,
   mermaid,

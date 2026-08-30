@@ -24,6 +24,7 @@ import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -46,7 +47,7 @@ import { SearchIndexService } from '../search/search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = Sql;
 
 const knowledgeResolver: KnowledgeToolResolver = {
   listForOwnerPage: () => Promise.resolve({ spaces: [] }),

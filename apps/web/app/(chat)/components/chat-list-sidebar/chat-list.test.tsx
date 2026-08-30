@@ -93,6 +93,8 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
+import type { ChatResponse } from "@/lib/services/chat/queries";
+
 import { ChatList } from "./chat-list";
 
 beforeAll(() => {
@@ -141,7 +143,7 @@ function renderChatList() {
   );
 }
 
-function makeChat(overrides: Partial<Record<string, unknown>> = {}) {
+function makeChat(overrides: Partial<ChatResponse> = {}) {
   return {
     id: "chat-1",
     title: "Filed chat",

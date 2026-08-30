@@ -264,6 +264,7 @@ describe("OrgUnitsTree — selected-unit footer", () => {
   it("renders the Manage members button disabled", () => {
     render(<OrgUnitsTree units={fixtureUnits} />);
     fireEvent.click(screen.getByTestId("org-unit-row-org1"));
+    // SAFETY: queried by role "button", so the element is a real <button>.
     const button = screen.getByRole("button", {
       name: /manage members/i,
     }) as HTMLButtonElement;

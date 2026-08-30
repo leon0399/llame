@@ -48,9 +48,10 @@ function unstubbed(method: string) {
 /**
  * The concrete instantiation of `QueueConsumer['consume']` this suite mocks —
  * both the runs queue and its dead-letter queue share this handler shape.
- * `vi.fn()`'s own generic can't express `consume`'s `<Q extends
- * QueueDefinition<any>>` signature directly, so the mock is typed at this
- * fixed instantiation instead of the generic method.
+ * `vi.fn()` can't express `consume`'s `<T extends object>` generic directly,
+ * so the mock is typed at this fixed instantiation and wired into `queue`
+ * below through a thin generic wrapper (its only job is the single cast from
+ * the opaque `JobHandler<T>` down to this suite's one concrete payload).
  */
 type ConsumeMockFn = (
   queue: { name: string },
@@ -76,7 +77,12 @@ function makeService(
   const consumeSpy = vi.fn<ConsumeMockFn>().mockResolvedValue('consumer-id');
   const queue: QueueConsumer = {
     ensureQueue: ensureQueueSpy,
-    consume: consumeSpy,
+    // SAFETY: consume() is generic per queue definition; this suite only ever
+    // registers RunJob-payload queues (runs, runs.dead), so narrowing the
+    // opaque per-call handler down to the mock's fixed RunJob instantiation
+    // matches every real call this test makes.
+    consume: (queueDef, handler, options) =>
+      consumeSpy(queueDef, handler as (job: RunJob) => Promise<void>, options),
   };
 
   const instanceConfig: InstanceConfigReader = {

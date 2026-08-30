@@ -45,6 +45,7 @@ import { type ChatEmbedDispatcher } from '../search/search-embed-dispatch.servic
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { type ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 import { z } from 'zod';
 
 import * as schema from '../db/schema';
@@ -95,7 +96,7 @@ import { createModelChangeItem } from './context-item-producers';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
-type SqlClient = any;
+type SqlClient = Sql;
 
 const knowledgeResolver: KnowledgeToolResolver = {
   listForOwnerPage: () => Promise.resolve({ spaces: [] }),

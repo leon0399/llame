@@ -11,14 +11,10 @@
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 import { Test, type TestingModule } from '@nestjs/testing';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
+import postgres from 'postgres';
 import { z } from 'zod';
 
 import * as schema from '../db/schema';
@@ -41,7 +37,7 @@ import { SearchReindexWorker } from './search-reindex.worker';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = ReturnType<typeof postgres>;
 const text = (t: string) => [{ type: 'text', text: t }];
 
 describeIfDb(
@@ -190,10 +186,8 @@ describeIfDb(
     }
 
     beforeAll(async () => {
-      const postgres = require('postgres');
-      const connect = postgres.default ?? postgres;
       const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-      sqlClient = connect(TEST_DB_URL!, { ssl, max: 5 });
+      sqlClient = postgres(TEST_DB_URL!, { ssl, max: 5 });
       db = drizzle(sqlClient, { schema });
       tenantDb = new TenantDbService(db);
       indexService = new SearchIndexService(tenantDb);

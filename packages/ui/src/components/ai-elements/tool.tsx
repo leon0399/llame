@@ -21,6 +21,10 @@ import type { ComponentProps, ReactNode } from "react";
 import { isValidElement } from "react";
 import { CodeBlock } from "@workspace/ui/components/ai-elements/code-block";
 
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
 // Guard values JSON.stringify can't serialize (circular refs, BigInt) so a
 // single tool payload can't throw during render and blank the whole chat.
 function safeStringify(value: unknown): string {
@@ -73,7 +77,7 @@ export type ToolHeaderProps = {
 };
 
 const getStatusBadge = (status: ToolHeaderState) => {
-  const labels: Record<ToolHeaderState, string> = {
+  const labels = {
     "input-streaming": "Pending",
     "input-available": "Running",
     "approval-requested": "Awaiting Approval",
@@ -82,9 +86,9 @@ const getStatusBadge = (status: ToolHeaderState) => {
     "output-error": "Error",
     "output-denied": "Denied",
     cancelled: "Cancelled",
-  };
+  } satisfies Record<ToolHeaderState, string>;
 
-  const icons: Record<ToolHeaderState, ReactNode> = {
+  const icons = {
     "input-streaming": <CircleIcon className="size-4" />,
     "input-available": <ClockIcon className="size-4 animate-pulse" />,
     "approval-requested": <ClockIcon className="size-4 text-yellow-600" />,
@@ -93,7 +97,7 @@ const getStatusBadge = (status: ToolHeaderState) => {
     "output-error": <XCircleIcon className="size-4 text-red-600" />,
     "output-denied": <XCircleIcon className="size-4 text-orange-600" />,
     cancelled: <BanIcon className="size-4 text-muted-foreground" />,
-  };
+  } satisfies Record<ToolHeaderState, ReactNode>;
 
   return (
     <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
@@ -208,7 +212,7 @@ export const ToolOutput = ({
   let Output: ReactNode = null;
   if (isValidElement(output)) {
     Output = output;
-  } else if (typeof output === "string") {
+  } else if (isString(output)) {
     Output = <CodeBlock code={output} language="json" />;
   } else if (output !== undefined) {
     Output = <CodeBlock code={safeStringify(output)} language="json" />;

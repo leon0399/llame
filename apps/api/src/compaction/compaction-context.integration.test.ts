@@ -9,6 +9,7 @@ import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { asSchema, streamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
 import {
@@ -76,7 +77,7 @@ import { contentText } from '../testing/support';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = Sql;
 
 /** These tests pass a real `client` straight to `maybeCompact`, so `models.createClient` is never exercised. */
 const unexercisedModels: ModelClientFactory = {

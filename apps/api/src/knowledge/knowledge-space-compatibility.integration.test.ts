@@ -1,12 +1,8 @@
 /** Cross-version writer proof against an isolated post-uniqueness schema. */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
 
 import * as schema from '../db/schema';
 import { knowledgeSpaces } from '../db/schema/knowledge-spaces';
@@ -19,7 +15,7 @@ if (!TEST_DB_URL) {
     'TEST_DATABASE_URL is required for Knowledge Space compatibility tests',
   );
 }
-type SqlClient = any;
+type SqlClient = ReturnType<typeof postgres>;
 
 describe('Knowledge Space legacy-writer compatibility', () => {
   let adminSql: SqlClient;
@@ -28,13 +24,11 @@ describe('Knowledge Space legacy-writer compatibility', () => {
   const schemaName = `knowledge_compat_${crypto.randomUUID().replaceAll('-', '')}`;
 
   beforeAll(async () => {
-    const postgres = require('postgres');
-    const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL) ? 'require' : false;
-    adminSql = connect(TEST_DB_URL, { ssl, max: 1 });
+    adminSql = postgres(TEST_DB_URL, { ssl, max: 1 });
     await adminSql`CREATE SCHEMA ${adminSql(schemaName)}`;
 
-    compatSql = connect(TEST_DB_URL, {
+    compatSql = postgres(TEST_DB_URL, {
       ssl,
       max: 6,
       connection: { search_path: schemaName },

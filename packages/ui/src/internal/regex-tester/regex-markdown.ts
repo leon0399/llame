@@ -15,14 +15,18 @@ import { REGEX_TOKEN_TAG } from "#regex-tester/token";
  */
 
 /** `allowedTags` entry that lets `<regex-token>` survive rehype-sanitize. */
-export const regexTokenAllowedTags = { [REGEX_TOKEN_TAG]: [] as string[] };
+export const regexTokenAllowedTags = { [REGEX_TOKEN_TAG]: [] };
+
+/** hast attribute value shapes (hast-util-to-jsx-runtime's `Properties` contract). */
+type HastPropertyValue = boolean | number | string;
 
 type HastNode =
   | { type: "text"; value: string }
+  | { type: "root"; children: HastNode[] }
   | {
       type: "element";
       tagName: string;
-      properties: Record<string, unknown>;
+      properties: Record<string, HastPropertyValue | HastPropertyValue[]>;
       children: HastNode[];
     };
 
@@ -324,6 +328,8 @@ const rewritePhrasingFromSource = (node: MdNode, source: string): boolean => {
         break;
       }
 
+      // SAFETY: the enclosing `while (queue.length > 0)` just checked this,
+      // so `shift()` cannot return undefined here.
       rebuilt.push(queue.shift() as MdNode);
     }
 
@@ -353,6 +359,8 @@ const rewritePhrasingFromSource = (node: MdNode, source: string): boolean => {
 
       runStart ??= start;
       runEnd = end;
+      // SAFETY: the enclosing `while (queue.length > 0)` just checked this,
+      // so `shift()` cannot return undefined here.
       run.push(queue.shift() as MdNode);
     }
 
@@ -473,6 +481,12 @@ const rewriteRegexNodes = (node: MdNode, source: string): void => {
   }
 };
 
+function hasStringValue(file: {
+  value: unknown;
+}): file is { value: string } {
+  return typeof file.value === "string";
+}
+
 /**
  * Remark plugin: underlines regex literals in prose and inline code by
  * wrapping them in `<regex-token>` elements. Appended via Streamdown's
@@ -480,7 +494,7 @@ const rewriteRegexNodes = (node: MdNode, source: string): void => {
  */
 export const remarkRegexTokens =
   () => (tree: MdNode, file: { value: unknown }) => {
-    if (typeof file.value === "string" && file.value.includes("/")) {
+    if (hasStringValue(file) && file.value.includes("/")) {
       rewriteRegexNodes(tree, file.value);
     }
   };
@@ -507,16 +521,11 @@ const HAST_SKIPPED_TAGS = new Set([
 ]);
 
 const rewriteHastNode = (node: HastNode): void => {
-  if (node.type !== "element" && !("children" in node)) {
+  if (node.type === "text") {
     return;
   }
 
-  const children = (node as { children?: HastNode[] }).children;
-
-  if (!children) {
-    return;
-  }
-
+  const children = node.children;
   const rewritten: HastNode[] = [];
   let changed = false;
 
@@ -553,7 +562,7 @@ const rewriteHastNode = (node: HastNode): void => {
   }
 
   if (changed) {
-    (node as { children?: HastNode[] }).children = rewritten;
+    node.children = rewritten;
   }
 };
 

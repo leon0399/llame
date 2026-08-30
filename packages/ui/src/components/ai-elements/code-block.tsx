@@ -180,6 +180,9 @@ export const CodeBlockCopyButton = ({
       onCopy?.();
       setTimeout(() => setIsCopied(false), timeout);
     } catch (error) {
+      // SAFETY: the try block's only fallible call is
+      // navigator.clipboard.writeText, which rejects with a DOMException — an
+      // Error subtype — per the Clipboard API spec.
       onError?.(error as Error);
     }
   };

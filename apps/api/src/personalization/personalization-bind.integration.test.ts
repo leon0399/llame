@@ -14,6 +14,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
@@ -48,7 +49,7 @@ const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 describeIfDb('personalization binds per run', () => {
-  let sql: any;
+  let sql: Sql;
   let tenantDb: TenantDbService;
   let chatLoop: ChatLoopService;
   let personalization: PersonalizationService;

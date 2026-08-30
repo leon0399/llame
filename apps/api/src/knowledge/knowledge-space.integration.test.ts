@@ -80,7 +80,7 @@ d('Knowledge Spaces REST API', () => {
 
   beforeAll(async () => {
     root = mkdtempSync(path.join(tmpdir(), 'llame-knowledge-http-'));
-    const module = await Test.createTestingModule({
+    const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(CanonicalSearchCoverageService)
@@ -94,7 +94,7 @@ d('Knowledge Spaces REST API', () => {
       })
       .compile();
 
-    app = module.createNestApplication();
+    app = moduleRef.createNestApplication();
     configureApp(app);
     await app.init();
     http = app.getHttpServer();

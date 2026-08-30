@@ -1,9 +1,12 @@
 "use client";
 
+import type { ComponentProps, ReactNode } from "react";
+
 import {
   useAppearance,
   fontStyleOptions,
   monoFontStyleOptions,
+  type Theme,
 } from "@/contexts/appearance-context";
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -27,7 +30,6 @@ import {
   PaletteIcon,
   ChevronDownIcon,
 } from "lucide-react";
-import { useCallback, useMemo } from "react";
 import {
   InterfaceFontSwitcher,
   CodeFontSwitcher,
@@ -35,7 +37,120 @@ import {
 import { MemorySection } from "./components/memory-section";
 import { PersonalizationSection } from "./components/personalization-section";
 
-export default function SettingsPage() {
+function themeIcon(theme: Theme) {
+  switch (theme) {
+    case "light":
+      return <SunIcon className="h-4 w-4 mr-2" />;
+    case "dark":
+      return <MoonIcon className="h-4 w-4 mr-2" />;
+    case "system":
+      return <MonitorIcon className="h-4 w-4 mr-2" />;
+    default:
+      return <PaletteIcon className="h-4 w-4 mr-2" />;
+  }
+}
+
+function themeLabel(theme: Theme) {
+  switch (theme) {
+    case "light":
+      return "Light";
+    case "dark":
+      return "Dark";
+    case "system":
+      return "System";
+    default:
+      return "Custom";
+  }
+}
+
+function ThemeDropdown({
+  theme,
+  setTheme,
+}: {
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+        {themeIcon(theme)}
+        {themeLabel(theme)}
+        <ChevronDownIcon className="h-4 w-4 ml-2 opacity-50" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
+          <DropdownMenuRadioItem value="light">
+            <SunIcon className="h-4 w-4 mr-2" />
+            Light
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="dark">
+            <MoonIcon className="h-4 w-4 mr-2" />
+            Dark
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="system">
+            <MonitorIcon className="h-4 w-4 mr-2" />
+            System
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function SettingRow({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <div className="space-y-1">
+        <p className="text-sm font-medium leading-none">{label}</p>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function FontSettingRow({
+  label,
+  description,
+  Switcher,
+  options,
+  currentValue,
+  onValueChange,
+}: {
+  label: string;
+  description: string;
+  Switcher: typeof InterfaceFontSwitcher;
+} & ComponentProps<typeof InterfaceFontSwitcher>) {
+  return (
+    <SettingRow label={label} description={description}>
+      <Switcher
+        options={options}
+        currentValue={currentValue}
+        onValueChange={onValueChange}
+      />
+    </SettingRow>
+  );
+}
+
+// Static (no props/state), so it's hoisted rather than rebuilt every render.
+const appearanceCardHeader = (
+  <CardHeader>
+    <CardTitle>Appearance</CardTitle>
+    <CardDescription>
+      Choose your preferred theme and font styles.
+    </CardDescription>
+  </CardHeader>
+);
+
+function AppearanceSection() {
   const {
     theme,
     setTheme,
@@ -44,33 +159,35 @@ export default function SettingsPage() {
     monoFontStyle,
     setMonoFontStyle,
   } = useAppearance();
+  return (
+    <Card className="lg:max-w-2xl">
+      {appearanceCardHeader}
+      <CardContent className="space-y-6">
+        <SettingRow label="Theme" description="Select the theme for the app.">
+          <ThemeDropdown theme={theme} setTheme={setTheme} />
+        </SettingRow>
+        <FontSettingRow
+          label="Interface Font"
+          description="Select the font for the interface."
+          Switcher={InterfaceFontSwitcher}
+          options={fontStyleOptions}
+          currentValue={fontStyle}
+          onValueChange={setFontStyle}
+        />
+        <FontSettingRow
+          label="Code Font"
+          description="Select the font for code blocks."
+          Switcher={CodeFontSwitcher}
+          options={monoFontStyleOptions}
+          currentValue={monoFontStyle}
+          onValueChange={setMonoFontStyle}
+        />
+      </CardContent>
+    </Card>
+  );
+}
 
-  const CurrentThemeIcon = useCallback(() => {
-    switch (theme) {
-      case "light":
-        return <SunIcon className="h-4 w-4 mr-2" />;
-      case "dark":
-        return <MoonIcon className="h-4 w-4 mr-2" />;
-      case "system":
-        return <MonitorIcon className="h-4 w-4 mr-2" />;
-      default:
-        return <PaletteIcon className="h-4 w-4 mr-2" />;
-    }
-  }, [theme]);
-
-  const currentThemeLabel = useMemo(() => {
-    switch (theme) {
-      case "light":
-        return "Light";
-      case "dark":
-        return "Dark";
-      case "system":
-        return "System";
-      default:
-        return "Custom";
-    }
-  }, [theme]);
-
+export default function SettingsPage() {
   return (
     // ONE scroll container: `h-full` + `overflow-y-auto` on the same element.
     // The overflow is what resolves this flex child's `min-height: auto` to 0,
@@ -93,78 +210,7 @@ export default function SettingsPage() {
           Manage your account settings and set e-mail preferences.
         </p>
       </div>
-      <Card className="lg:max-w-2xl">
-        <CardHeader>
-          <CardTitle>Appearance</CardTitle>
-          <CardDescription>
-            Choose your preferred theme and font styles.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-sm font-medium leading-none">Theme</p>
-              <p className="text-sm text-muted-foreground">
-                Select the theme for the app.
-              </p>
-            </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={<Button variant="outline" size="sm" />}
-              >
-                <CurrentThemeIcon />
-                {currentThemeLabel}
-                <ChevronDownIcon className="h-4 w-4 ml-2 opacity-50" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuRadioGroup
-                  value={theme}
-                  onValueChange={(value) => setTheme(value)}
-                >
-                  <DropdownMenuRadioItem value="light">
-                    <SunIcon className="h-4 w-4 mr-2" />
-                    Light
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="dark">
-                    <MoonIcon className="h-4 w-4 mr-2" />
-                    Dark
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="system">
-                    <MonitorIcon className="h-4 w-4 mr-2" />
-                    System
-                  </DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-sm font-medium leading-none">Interface Font</p>
-              <p className="text-sm text-muted-foreground">
-                Select the font for the interface.
-              </p>
-            </div>
-            <InterfaceFontSwitcher
-              options={fontStyleOptions}
-              currentValue={fontStyle}
-              onValueChange={setFontStyle}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-sm font-medium leading-none">Code Font</p>
-              <p className="text-sm text-muted-foreground">
-                Select the font for code blocks.
-              </p>
-            </div>
-            <CodeFontSwitcher
-              options={monoFontStyleOptions}
-              currentValue={monoFontStyle}
-              onValueChange={setMonoFontStyle}
-            />
-          </div>
-        </CardContent>
-      </Card>
+      <AppearanceSection />
       <PersonalizationSection />
       <MemorySection />
     </div>

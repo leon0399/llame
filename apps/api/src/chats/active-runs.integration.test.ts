@@ -16,6 +16,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -25,7 +26,7 @@ import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fi
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = Sql;
 
 describeIfDb('findActiveByUser — RLS + non-terminal filter', () => {
   let sql: SqlClient;

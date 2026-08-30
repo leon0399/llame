@@ -25,6 +25,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { IdentityService } from './identity.service';
@@ -36,7 +37,7 @@ import {
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
-type SqlClient = any;
+type SqlClient = Sql;
 
 describeIfDb(
   'Identity RLS integration — org tree isolation under FORCE',
@@ -49,7 +50,7 @@ describeIfDb(
     let memberId: string; // plain member of the team
     let strangerId: string; // no memberships at all
 
-    const asUser = (userId: string, fn: (tx: SqlClient) => Promise<any>) =>
+    const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
       sql.begin(async (tx: SqlClient) => {
         await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
         return fn(tx);
@@ -117,7 +118,7 @@ describeIfDb(
         JOIN pg_type t ON t.oid = e.enumtypid
         WHERE t.typname = 'org_unit_type'
         ORDER BY e.enumsortorder`;
-      const labels = rows.map((r: { enumlabel: string }) => r.enumlabel);
+      const labels = rows.map((r) => r.enumlabel);
       expect(labels).toEqual(['organization', 'group', 'team', 'department']);
       expect(labels).not.toContain('project');
     });
@@ -221,7 +222,7 @@ describeIfDb(
         memberId,
         (tx) => tx`SELECT id FROM org_units ORDER BY path`,
       );
-      const ids = visible.map((r: { id: string }) => r.id);
+      const ids = visible.map((r) => r.id);
       expect(ids).toContain(teamId);
       expect(ids).toContain(projectId);
       // The ROOT is not on any of the member's membership paths' subtrees —

@@ -11,7 +11,6 @@ import {
   type ConsumeOptions,
   type EnqueueOptions,
   type JobHandler,
-  type PayloadOf,
   type Queue,
   type QueueDefinition,
   type QueueOptions,
@@ -119,10 +118,9 @@ export class PgBossQueueService implements Queue {
     await this.boss.updateQueue(queue.name, updatable);
   }
 
-  // Mirrors the interface's variance-escape bound (see queue.ts).
-  async enqueue<Q extends QueueDefinition<any>>(
-    queue: Q,
-    data: PayloadOf<Q>,
+  async enqueue<T extends object>(
+    queue: QueueDefinition<T>,
+    data: T,
     options?: EnqueueOptions,
   ): Promise<string | null> {
     const sendOptions: EnqueueOptions = {};
@@ -148,10 +146,9 @@ export class PgBossQueueService implements Queue {
     return this.boss.send(queue.name, data, sendOptions);
   }
 
-  // See enqueue for the variance-escape bound.
-  async consume<Q extends QueueDefinition<any>>(
-    queue: Q,
-    handler: JobHandler<PayloadOf<Q>>,
+  async consume<T extends object>(
+    queue: QueueDefinition<T>,
+    handler: JobHandler<T>,
     options?: ConsumeOptions,
   ): Promise<string> {
     // batchSize 1: the Queue contract settles one job at a time PER WORKER.
@@ -163,7 +160,7 @@ export class PgBossQueueService implements Queue {
     // workers under this ONE work() registration, each polling and settling
     // its own job — per-job settlement by construction, no manual ack. concurrency
     // omitted/1 is today's serial behavior.
-    return this.boss.work<PayloadOf<Q>>(
+    return this.boss.work<T>(
       queue.name,
       {
         batchSize: 1,
@@ -172,27 +169,23 @@ export class PgBossQueueService implements Queue {
           pollingIntervalSeconds: options.pollingIntervalSeconds,
         }),
       },
-      async (jobs: PgBossJob<PayloadOf<Q>>[]) => {
-        const definition: QueueDefinition<PayloadOf<Q>> = queue;
+      async (jobs: PgBossJob<T>[]) => {
         for (const job of jobs) {
           // The definition's guard runs BEFORE domain code: a payload written
           // by an older deploy (or corrupted in flight) fails the job here —
           // retry policy, then dead letter — instead of surfacing as a
           // confusing TypeError deep inside the handler.
-          const data: PayloadOf<Q> = definition.parse
-            ? definition.parse(job.data)
-            : job.data;
+          const data: T = queue.parse ? queue.parse(job.data) : job.data;
           await handler(data, { id: job.id, queue: queue.name });
         }
       },
     );
   }
 
-  // See enqueue for the variance-escape bound.
-  async schedule<Q extends QueueDefinition<any>>(
-    queue: Q,
+  async schedule<T extends object>(
+    queue: QueueDefinition<T>,
     cron: string,
-    data?: PayloadOf<Q>,
+    data?: T,
   ): Promise<void> {
     await this.boss.schedule(queue.name, cron, data);
   }

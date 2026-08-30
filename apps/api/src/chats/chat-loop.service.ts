@@ -25,11 +25,7 @@ import {
   ModelsService,
   type ModelSelectionValidator,
 } from '../models/models.service';
-import {
-  ChatsRepository,
-  CompactionsRepository,
-  MessagesRepository,
-} from './chats-repository';
+import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { type MessagePart } from './context-builder';
 import { isRecord, isString, type UnknownRecord } from '../unknown-record';
 import { RunAbortRegistry, type RunAborter } from '../runs/run-abort-registry';
@@ -52,10 +48,7 @@ import {
   SystemPromptsService,
   type SystemPromptRenderInput,
 } from '../system-prompts/system-prompts.service';
-import {
-  resolveEffectiveContext,
-  type EffectiveContextSnapshotInput,
-} from '../runs/effective-context-resolver';
+import { type EffectiveContextSnapshotInput } from '../runs/effective-context-resolver';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
@@ -65,23 +58,11 @@ import {
 } from '../knowledge/knowledge-tool-candidate-resolver';
 import { sanitizeClientMessageParts } from './context-item';
 import {
-  createModelChangeItem,
-  createRecencyDigestDeltaItem,
-  createRecencyDigestSupersessionItem,
-  createTemporalItem,
-  createToolAvailabilityItem,
-  deriveToolAvailabilityPayload,
-} from './context-item-producers';
-import {
   MemoryService,
   type MemorySettingsBindingResolver,
   type MemorySettingsResolver,
   type ResolvedMemorySettings,
 } from '../memory/memory.service';
-import {
-  formatTemporalAnchor,
-  resolveInstanceTimezone,
-} from '../prompts/temporal-anchor';
 import {
   deriveRecencyDigestDelta,
   RecencyDigestService,
@@ -89,6 +70,7 @@ import {
   type RecencyDigestResolution,
   type RecencyDigestResolver,
 } from './recency-digest.service';
+import { buildTurnContextAndParts } from './turn-context';
 
 type RuntimeCatalogSnapshotter = Pick<McpRuntimeService, 'snapshotCandidates'>;
 
@@ -112,7 +94,7 @@ export type ChatMessageInput = {
   parts: MessagePart[];
 };
 
-type PersistUserMessageAndRunInput = {
+export type PersistUserMessageAndRunInput = {
   chatId: string;
   userId: string;
   modelId: string;
@@ -205,20 +187,10 @@ export class ChatLoopService {
     // between this read and the bind applies only to the next run — specified
     // and accepted.
     const user = await this.personalization.resolvePromptUser(input.userId);
-    let digestCandidate: RecencyDigestResolution | undefined;
-    try {
-      if (
-        (await this.memory.getForOwner(input.userId)).shareRecentChats === true
-      ) {
-        digestCandidate = await this.recencyDigest.resolveCandidate(
-          input.userId,
-          input.chatId,
-        );
-      }
-    } catch {
-      // Do not expose corpus text through diagnostics; only the failure class is useful.
-      this.logger.error('recency_digest_resolution_failed');
-    }
+    const digestCandidate = await this.resolveDigestCandidate(
+      input.userId,
+      input.chatId,
+    );
     const allowedToolRules = this.instanceConfig.config.tools.allowed;
     // This is a pure process-local projection of the last atomically published
     // runtime catalog. It neither waits for nor initiates remote I/O, and it is
@@ -240,31 +212,67 @@ export class ChatLoopService {
         digestCandidate,
       });
 
-    // A retry superseded its prior attempt(s) — if one is executing in this
-    // process, abort its model call now (after the tx committed, so the
-    // superseded run is already terminally cancelled: first writer wins).
-    for (const supersededRunId of supersededRunIds) {
-      this.aborts.abort(supersededRunId);
-    }
-
-    // Durable execution (#50): dispatch the run (queue mechanics and
-    // enqueue-failure handling live in RunDispatchService) and answer with
-    // the run-event bridge. The HTTP connection is a viewport onto the
-    // durable run — closing it does not kill the turn.
-    await this.dispatch.dispatch({
+    return this.finalizeAcceptedRun({
       runId,
+      userMessage,
+      supersededRunIds,
       chatId: input.chatId,
       userId: input.userId,
       modelId: input.modelId,
-      userMessage,
+      abortSignal: input.abortSignal,
+    });
+  }
+
+  /** Best-effort: a failed digest resolution must not fail the turn it decorates. */
+  private async resolveDigestCandidate(
+    userId: string,
+    chatId: string,
+  ): Promise<RecencyDigestResolution | undefined> {
+    try {
+      if ((await this.memory.getForOwner(userId)).shareRecentChats === true) {
+        return await this.recencyDigest.resolveCandidate(userId, chatId);
+      }
+    } catch {
+      // Do not expose corpus text through diagnostics; only the failure class is useful.
+      this.logger.error('recency_digest_resolution_failed');
+    }
+    return undefined;
+  }
+
+  /**
+   * Post-persistence side effects for a just-accepted run: abort any
+   * in-process model call a superseded retry left running (after the tx
+   * committed, so the superseded run is already terminally cancelled — first
+   * writer wins), dispatch the durable execution (#50 — queue mechanics and
+   * enqueue-failure handling live in RunDispatchService), and answer with the
+   * run-event stream bridge. The HTTP connection is a viewport onto the
+   * durable run — closing it does not kill the turn. No inline index here:
+   * the assistant finalize re-indexes the whole chat (incl. this message); an
+   * orphaned user-only turn (failed run) is caught by the discovery sweep.
+   */
+  private async finalizeAcceptedRun(input: {
+    runId: string;
+    userMessage: RunUserMessage;
+    supersededRunIds: string[];
+    chatId: string;
+    userId: string;
+    modelId: string;
+    abortSignal?: AbortSignal;
+  }): Promise<ChatMessageStream> {
+    for (const supersededRunId of input.supersededRunIds) {
+      this.aborts.abort(supersededRunId);
+    }
+
+    await this.dispatch.dispatch({
+      runId: input.runId,
+      chatId: input.chatId,
+      userId: input.userId,
+      modelId: input.modelId,
+      userMessage: input.userMessage,
     });
 
-    // No inline index here: the assistant finalize re-indexes the whole chat
-    // (incl. this message); an orphaned user-only turn (failed run) is caught
-    // by the discovery sweep.
-
     const response = this.bridge.createUiMessageStreamResponse({
-      runId,
+      runId: input.runId,
       userId: input.userId,
       abortSignal: input.abortSignal,
     });
@@ -292,29 +300,10 @@ export class ChatLoopService {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
 
-      // First message creates the chat (#86): the client supplies the id (routing +
-      // idempotency); the owner is always the session user. If the chat is absent, upsert
-      // it; a conflict means the id is already taken — by us (a concurrent first send) or by
-      // another tenant. Re-query to disambiguate: our own row becomes visible (relies on the
-      // default READ COMMITTED seeing the concurrent commit), a cross-tenant id stays
-      // invisible → 404 (no existence leak). Mirrors the user-message path below.
-      let chat = await chatsRepo.findById(input.chatId, input.userId);
-      let createdByUs = false;
-      if (!chat) {
-        chat = await chatsRepo.createIfAbsent({
-          id: input.chatId,
-          ownerUserId: input.userId,
-        });
-        if (chat) {
-          createdByUs = true;
-        } else {
-          chat = await chatsRepo.findById(input.chatId, input.userId);
-        }
-        if (!chat) {
-          throw new NotFoundException(`Chat ${input.chatId} not found`);
-        }
-      }
-
+      let { chat, createdByUs } = await this.resolveChatForTurn(
+        chatsRepo,
+        input,
+      );
       // Archive guard (chat-project-archive): refuse to send into an archived
       // chat. A freshly created chat (createdByUs) is never archived, so this
       // only fires for a pre-existing archived chat — sending does NOT unarchive.
@@ -336,14 +325,10 @@ export class ChatLoopService {
       // transaction's row lock; an existing chat is locked by the activity
       // update before any predecessor state is read.
       if (!createdByUs) {
-        // Take the post-lock row from the locking statement itself. `chat`
+        // Take the post-lock row from the locking statement itself — `chat`
         // above is a pre-lock snapshot, and this transaction may have waited
         // here behind a compaction or a preceding turn that changed the very
-        // digest columns read below: rendering from the stale copy binds an
-        // outdated baseline, and deriving a delta from a stale told-set
-        // re-announces chats another turn already announced. The comment above
-        // is about ordering the READ of successor state after the lock — these
-        // columns are that state.
+        // digest columns read below.
         chat = (await chatsRepo.touch(input.chatId, input.userId)) ?? chat;
       }
 
@@ -356,56 +341,23 @@ export class ChatLoopService {
         userId: input.userId,
       });
 
-      const hadDigestBaseline = chat.recencyDigestBaseline !== null;
-      // Read unconditionally: the supersession marker below is gated on this
-      // setting too, and it must still be checkable when `input.digestCandidate`
-      // is absent because this turn's own candidate resolution failed or was
-      // skipped — that failure is unrelated to whether a *prior* compaction's
-      // re-bake should be disclosed this turn.
-      const shareRecentChats = await this.memory.getForOwnerForBinding(
-        tx,
-        input.userId,
-      );
-      if (chat.recencyDigestBaseline == null && input.digestCandidate) {
-        // FOR SHARE serializes a consent withdrawal with this accepted binding.
-        // The candidate was intentionally read outside this transaction, so a
-        // stale true must be discarded instead of entering an immutable prompt.
-        if (shareRecentChats?.shareRecentChats === true) {
-          const bound = await chatsRepo.setRecencyDigestIfAbsent(
-            input.chatId,
-            input.userId,
-            input.digestCandidate.baseline,
-            input.digestCandidate.told,
-          );
-          chat =
-            bound ?? (await chatsRepo.findById(input.chatId, input.userId))!;
-        }
-      }
-
-      const digestDelta =
-        hadDigestBaseline &&
-        input.digestCandidate &&
-        chat.recencyDigestTold !== null &&
-        shareRecentChats?.shareRecentChats === true
-          ? deriveRecencyDigestDelta({
-              candidate: input.digestCandidate,
-              told: chat.recencyDigestTold,
-              pinnedChatIds: await chatsRepo.findPinnedChatIds(
-                input.userId,
-                chat.recencyDigestTold.map(({ chatId }) => chatId),
-              ),
-            })
-          : null;
+      const {
+        chat: boundChat,
+        shareRecentChats,
+        digestDelta,
+      } = await this.resolveDigestBindingAndDelta(tx, chatsRepo, chat, input);
+      chat = boundChat;
 
       let userMessage: Message | undefined = turn.userMessage;
-      const { effectiveContext, messageParts } =
-        await this.buildTurnContextAndParts({
-          tx,
-          chat,
-          turnInput: input,
-          shareRecentChats,
-          digestDelta,
-        });
+      const { effectiveContext, messageParts } = await buildTurnContextAndParts(
+        {
+          logger: this.logger,
+          systemPrompts: this.systemPrompts,
+          instanceConfig: this.instanceConfig,
+          knowledgeCandidates: this.knowledgeCandidates,
+        },
+        { tx, chat, turnInput: input, shareRecentChats, digestDelta },
+      );
 
       if (!userMessage) {
         userMessage = await messagesRepo.createUserMessageIfAbsent({
@@ -432,52 +384,18 @@ export class ChatLoopService {
       // the user message, so a message can never exist without its execution
       // record. Reusing a message id is rejected above; retries are a separate
       // feature, not implicit idempotency.
-      const snapshotsRepo = new ModelContextSnapshotsRepository(tx);
-      const snapshot = await snapshotsRepo.createOrReuse(
-        input.userId,
+      const { run, supersededRunIds } = await this.createRunForMessage(
+        tx,
+        {
+          userId: input.userId,
+          chatId: input.chatId,
+          modelId: input.modelId,
+          effort: input.effort,
+          targetRunId: input.targetRunId,
+        },
+        userMessage,
         effectiveContext,
       );
-
-      // Defensive cleanup for impossible legacy state: a freshly inserted
-      // message should have no older active runs, but if dev data violates that
-      // invariant, canceling them preserves the per-chat single-flight slot.
-      const superseded = await runsRepo.cancelActiveRunsForMessage(
-        userMessage.id,
-        input.userId,
-      );
-      for (const stale of superseded) {
-        await eventsRepo.append(stale.id, 'run.cancelled', {
-          reason: 'superseded by retry',
-        });
-      }
-
-      let run: Run;
-      try {
-        // Savepoint (nested tx): a unique violation must not poison the outer
-        // transaction — the unwedge path below still needs it.
-        run = await tx.transaction((inner) =>
-          new RunsRepository(inner).create({
-            id: input.targetRunId,
-            chatId: input.chatId,
-            messageId: userMessage.id,
-            userId: input.userId,
-            modelId: input.modelId,
-            effort: input.effort,
-            modelContextSnapshotId: snapshot.id,
-          }),
-        );
-      } catch (error) {
-        if (isInflightUniqueViolation(error)) {
-          throw new ConflictException(
-            'Another run is already in flight for this chat',
-          );
-        }
-        throw error;
-      }
-      await eventsRepo.append(run.id, 'run.created', {
-        chatId: input.chatId,
-        messageId: userMessage.id,
-      });
 
       return {
         runId: run.id,
@@ -486,9 +404,165 @@ export class ChatLoopService {
           seq: userMessage.seq,
           parts: toMessageParts(userMessage.parts),
         },
-        supersededRunIds: superseded.map((stale) => stale.id),
+        supersededRunIds,
       };
     });
+  }
+
+  /**
+   * First message creates the chat (#86): the client supplies the id
+   * (routing + idempotency); the owner is always the session user. If the
+   * chat is absent, upsert it; a conflict means the id is already taken — by
+   * us (a concurrent first send) or by another tenant. Re-query to
+   * disambiguate: our own row becomes visible (relies on the default READ
+   * COMMITTED seeing the concurrent commit), a cross-tenant id stays
+   * invisible → 404 (no existence leak).
+   */
+  private async resolveChatForTurn(
+    chatsRepo: ChatsRepository,
+    input: { chatId: string; userId: string },
+  ): Promise<{ chat: Chat; createdByUs: boolean }> {
+    let chat = await chatsRepo.findById(input.chatId, input.userId);
+    let createdByUs = false;
+    if (!chat) {
+      chat = await chatsRepo.createIfAbsent({
+        id: input.chatId,
+        ownerUserId: input.userId,
+      });
+      if (chat) {
+        createdByUs = true;
+      } else {
+        chat = await chatsRepo.findById(input.chatId, input.userId);
+      }
+      if (!chat) {
+        throw new NotFoundException(`Chat ${input.chatId} not found`);
+      }
+    }
+    return { chat, createdByUs };
+  }
+
+  /**
+   * Bind this turn's recency-digest baseline (if the candidate resolved
+   * earlier is still consented-to and the chat has none yet) and derive the
+   * delta to disclose against the previously told set, if any.
+   */
+  private async resolveDigestBindingAndDelta(
+    tx: Db,
+    chatsRepo: ChatsRepository,
+    chat: Chat,
+    input: PersistUserMessageAndRunInput,
+  ): Promise<{
+    chat: Chat;
+    shareRecentChats: ResolvedMemorySettings;
+    digestDelta: RecencyDigestDelta | null;
+  }> {
+    const hadDigestBaseline = chat.recencyDigestBaseline !== null;
+    // Read unconditionally: the supersession marker below is gated on this
+    // setting too, and it must still be checkable when `input.digestCandidate`
+    // is absent because this turn's own candidate resolution failed or was
+    // skipped — that failure is unrelated to whether a *prior* compaction's
+    // re-bake should be disclosed this turn.
+    const shareRecentChats = await this.memory.getForOwnerForBinding(
+      tx,
+      input.userId,
+    );
+    if (chat.recencyDigestBaseline == null && input.digestCandidate) {
+      // FOR SHARE serializes a consent withdrawal with this accepted binding.
+      // The candidate was intentionally read outside this transaction, so a
+      // stale true must be discarded instead of entering an immutable prompt.
+      if (shareRecentChats?.shareRecentChats === true) {
+        const bound = await chatsRepo.setRecencyDigestIfAbsent(
+          input.chatId,
+          input.userId,
+          input.digestCandidate.baseline,
+          input.digestCandidate.told,
+        );
+        chat = bound ?? (await chatsRepo.findById(input.chatId, input.userId))!;
+      }
+    }
+
+    const digestDelta =
+      hadDigestBaseline &&
+      input.digestCandidate &&
+      chat.recencyDigestTold !== null &&
+      shareRecentChats?.shareRecentChats === true
+        ? deriveRecencyDigestDelta({
+            candidate: input.digestCandidate,
+            told: chat.recencyDigestTold,
+            pinnedChatIds: await chatsRepo.findPinnedChatIds(
+              input.userId,
+              chat.recencyDigestTold.map(({ chatId }) => chatId),
+            ),
+          })
+        : null;
+
+    return { chat, shareRecentChats, digestDelta };
+  }
+
+  /**
+   * The Run row + its context snapshot, atomically with canceling any
+   * (defensively impossible, but legacy-data-tolerant) stale active runs on
+   * this same message, and the `run.created` event.
+   */
+  private async createRunForMessage(
+    tx: Db,
+    input: {
+      userId: string;
+      chatId: string;
+      modelId: string;
+      effort: string | undefined;
+      targetRunId: string;
+    },
+    userMessage: Message,
+    effectiveContext: EffectiveContextSnapshotInput,
+  ): Promise<{ run: Run; supersededRunIds: string[] }> {
+    const snapshotsRepo = new ModelContextSnapshotsRepository(tx);
+    const snapshot = await snapshotsRepo.createOrReuse(
+      input.userId,
+      effectiveContext,
+    );
+
+    const runsRepo = new RunsRepository(tx);
+    const eventsRepo = new RunEventsRepository(tx);
+    const superseded = await runsRepo.cancelActiveRunsForMessage(
+      userMessage.id,
+      input.userId,
+    );
+    for (const stale of superseded) {
+      await eventsRepo.append(stale.id, 'run.cancelled', {
+        reason: 'superseded by retry',
+      });
+    }
+
+    let run: Run;
+    try {
+      // Savepoint (nested tx): a unique violation must not poison the outer
+      // transaction — the unwedge path above still needs it.
+      run = await tx.transaction((inner) =>
+        new RunsRepository(inner).create({
+          id: input.targetRunId,
+          chatId: input.chatId,
+          messageId: userMessage.id,
+          userId: input.userId,
+          modelId: input.modelId,
+          effort: input.effort,
+          modelContextSnapshotId: snapshot.id,
+        }),
+      );
+    } catch (error) {
+      if (isInflightUniqueViolation(error)) {
+        throw new ConflictException(
+          'Another run is already in flight for this chat',
+        );
+      }
+      throw error;
+    }
+    await eventsRepo.append(run.id, 'run.created', {
+      chatId: input.chatId,
+      messageId: userMessage.id,
+    });
+
+    return { run, supersededRunIds: superseded.map((stale) => stale.id) };
   }
 
   private async clearActiveRunSlot(input: {
@@ -497,23 +571,20 @@ export class ChatLoopService {
     chatId: string;
     userId: string;
   }): Promise<void> {
-    let blocking = await input.runsRepo.findActiveByChatId(
-      input.chatId,
-      input.userId,
-    );
-    if (!blocking) return;
-
-    let lastSign = blocking.startedAt ?? blocking.createdAt;
     const stuckAfterMs = stuckRunThresholdMs(this.instanceConfig.config);
-    if (Date.now() - lastSign.getTime() < stuckAfterMs) {
-      const current = await input.runsRepo.findActiveByChatId(
-        input.chatId,
-        input.userId,
-      );
-      if (!current) return;
-      blocking = current;
-      lastSign = blocking.startedAt ?? blocking.createdAt;
-      if (Date.now() - lastSign.getTime() < stuckAfterMs) {
+    const isStuck = (run: Run) =>
+      Date.now() - (run.startedAt ?? run.createdAt).getTime() >= stuckAfterMs;
+    const findActive = () =>
+      input.runsRepo.findActiveByChatId(input.chatId, input.userId);
+
+    let blocking = await findActive();
+    if (!blocking) return;
+    if (!isStuck(blocking)) {
+      // Re-check once: `blocking` may have finished between the read above
+      // and now, or genuinely still be within its grace window.
+      blocking = await findActive();
+      if (!blocking) return;
+      if (!isStuck(blocking)) {
         throw new ConflictException(
           'Another run is already in flight for this chat',
         );
@@ -534,143 +605,6 @@ export class ChatLoopService {
         message,
       });
     }
-  }
-
-  private async buildTurnContextAndParts(input: {
-    tx: Db;
-    chat: Chat;
-    turnInput: PersistUserMessageAndRunInput;
-    shareRecentChats: ResolvedMemorySettings;
-    digestDelta: RecencyDigestDelta | null;
-  }): Promise<{
-    effectiveContext: EffectiveContextSnapshotInput;
-    messageParts: MessagePart[];
-  }> {
-    const { tx, chat, turnInput, shareRecentChats, digestDelta } = input;
-
-    // Read the latest compaction UNCONDITIONALLY — the temporal anchor derives
-    // from it (falling back to chat.createdAt), and it must be available even
-    // for a chat's very first run. The downstream disclosure-epoch and
-    // digest-rebake logic reuses this same row.
-    const compactionsRepo = new CompactionsRepository(tx);
-    const latestCompaction = await compactionsRepo.findLatestByChatId(
-      turnInput.chatId,
-      turnInput.userId,
-    );
-
-    const anchorInstant = latestCompaction?.createdAt ?? chat.createdAt;
-    const instanceTimezone = resolveInstanceTimezone(this.logger);
-    const anchor = formatTemporalAnchor(anchorInstant, instanceTimezone);
-
-    let systemPrompt: string;
-    try {
-      systemPrompt = this.systemPrompts.render({
-        model: turnInput.model,
-        anchor,
-        user: turnInput.user,
-        chats: chat.recencyDigestBaseline ?? undefined,
-      });
-    } catch (error) {
-      if (chat.recencyDigestBaseline === null) throw error;
-      this.logger.error('recency_digest_render_failed');
-      throw new Error('Failed to render system prompt');
-    }
-    const codeOwnedCandidates = await this.knowledgeCandidates.resolve({
-      tx,
-      ownerUserId: turnInput.userId,
-      allowedToolRules: turnInput.allowedToolRules,
-    });
-    const effectiveContext: EffectiveContextSnapshotInput =
-      await resolveEffectiveContext({
-        model: turnInput.model,
-        systemPrompt,
-        allowedToolRules: turnInput.allowedToolRules,
-        callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
-        codeOwnedCandidates,
-        dynamicCandidates: turnInput.dynamicCandidates,
-      });
-
-    const runsRepo = new RunsRepository(tx);
-    const previousRun = await runsRepo.findMostRecentByChatMessageSequence(
-      turnInput.chatId,
-      turnInput.userId,
-    );
-    const snapshotsRepo = new ModelContextSnapshotsRepository(tx);
-    const previousSnapshot = previousRun
-      ? await snapshotsRepo.findByOwnedRun(previousRun.id, turnInput.userId)
-      : undefined;
-    // Reuse the already-read compaction for the disclosure-epoch logic.
-    const activeCompaction = latestCompaction;
-    const startsDisclosureEpoch =
-      !previousSnapshot ||
-      (activeCompaction !== undefined &&
-        previousRun !== undefined &&
-        activeCompaction.createdAt > previousRun.createdAt);
-    const continuesDisclosureEpoch = !startsDisclosureEpoch;
-    const digestRebaked =
-      activeCompaction !== undefined &&
-      previousRun !== undefined &&
-      chat.recencyDigestRebakedFrom === activeCompaction.id &&
-      activeCompaction.createdAt > previousRun.createdAt;
-    const availabilityPayload = deriveToolAvailabilityPayload({
-      current: effectiveContext.toolAvailabilityManifest,
-      ...(continuesDisclosureEpoch && {
-        previous: previousSnapshot.toolAvailabilityManifest,
-      }),
-    });
-    const availabilityPart = availabilityPayload
-      ? createToolAvailabilityItem({
-          runId: turnInput.targetRunId,
-          payload: availabilityPayload,
-        })
-      : undefined;
-    const modelSwitchPart =
-      previousRun && previousRun.modelId !== turnInput.modelId
-        ? createModelChangeItem({
-            fromModelId: previousRun.modelId,
-            toModelId: turnInput.modelId,
-            runId: turnInput.targetRunId,
-          })
-        : undefined;
-    const digestDeltaPart = digestDelta
-      ? createRecencyDigestDeltaItem({
-          runId: turnInput.targetRunId,
-          payload: {
-            entries: digestDelta.entries,
-            pinChanges: digestDelta.pinChanges,
-          },
-        })
-      : undefined;
-    // Compaction is the one context boundary that re-bakes the digest. A
-    // model switch changes only the provider reading unchanged history, so
-    // refreshing there would silently change what the assistant knows.
-    const digestSupersessionPart =
-      digestRebaked &&
-      chat.recencyDigestBaseline !== null &&
-      shareRecentChats?.shareRecentChats === true
-        ? createRecencyDigestSupersessionItem({
-            runId: turnInput.targetRunId,
-          })
-        : undefined;
-    // Stamped unconditionally, in the same zone the anchor above was resolved
-    // in, so a turn's two temporal surfaces agree by construction. The instant
-    // is captured here rather than read back from `created_at`: the renderer
-    // receives the part alone, never the message that carries it.
-    const temporalPart = createTemporalItem({
-      runId: turnInput.targetRunId,
-      instant: new Date(),
-      timeZone: instanceTimezone,
-    });
-    const messageParts: MessagePart[] = [
-      ...(modelSwitchPart ? [modelSwitchPart] : []),
-      ...(availabilityPart ? [availabilityPart] : []),
-      ...(digestSupersessionPart ? [digestSupersessionPart] : []),
-      ...(digestDeltaPart ? [digestDeltaPart] : []),
-      temporalPart,
-      ...turnInput.message.parts,
-    ];
-
-    return { effectiveContext, messageParts };
   }
 }
 

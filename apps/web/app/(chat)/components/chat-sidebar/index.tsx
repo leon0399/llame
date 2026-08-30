@@ -12,6 +12,10 @@ export function ChatSidebar({ className }: { className?: string }) {
         className,
       )}
       style={
+        // SAFETY: `--sidebar-width` is a CSS custom property the sidebar's
+        // own stylesheet reads; React's `CSSProperties` type has no way to
+        // name a custom property, so widening to accept an arbitrary key is
+        // the only way to pass it through inline `style`.
         {
           "--sidebar-width": "24rem",
         } as React.CSSProperties

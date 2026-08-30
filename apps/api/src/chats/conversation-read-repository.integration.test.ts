@@ -14,6 +14,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 import { eq } from 'drizzle-orm';
 
 import * as schema from '../db/schema';
@@ -26,7 +27,7 @@ if (!TEST_DB_URL) {
     'conversation-read-repository.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
   );
 }
-type SqlClient = any;
+type SqlClient = Sql;
 
 describe('conversation source repository lookup', () => {
   let sqlClient: SqlClient;

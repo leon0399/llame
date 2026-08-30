@@ -65,7 +65,7 @@ async function buildService(
     return fn(fakeTx(bindingsByKey[key] ?? []));
   };
 
-  const module = await Test.createTestingModule({
+  const moduleRef = await Test.createTestingModule({
     providers: [
       EmbeddingBindingBootCheckService,
       {
@@ -75,9 +75,9 @@ async function buildService(
       { provide: TenantDbService, useValue: { runAsPublic } },
     ],
   }).compile();
-  openModules.push(module);
+  openModules.push(moduleRef);
   return {
-    service: module.get(EmbeddingBindingBootCheckService),
+    service: moduleRef.get(EmbeddingBindingBootCheckService),
     callCount: () => calls,
   };
 }

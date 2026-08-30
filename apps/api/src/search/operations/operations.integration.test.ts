@@ -31,13 +31,9 @@
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
+import postgres from 'postgres';
 import { z } from 'zod';
 
 import * as schema from '../../db/schema';
@@ -58,7 +54,7 @@ import { retryFailedDocuments } from './retry-failed';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const TEST_UNPRIVILEGED_DB_URL = process.env['TEST_UNPRIVILEGED_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = ReturnType<typeof postgres>;
 const text = (t: string) => [{ type: 'text', text: t }];
 const MODEL_KEY = 'ops-test-model';
 
@@ -195,10 +191,8 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
   }
 
   beforeAll(async () => {
-    const postgres = require('postgres');
-    const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-    sqlClient = connect(TEST_DB_URL!, { ssl, max: 5 });
+    sqlClient = postgres(TEST_DB_URL!, { ssl, max: 5 });
     db = drizzle(sqlClient, { schema });
     tenantDb = new TenantDbService(db);
     indexService = new SearchIndexService(tenantDb);
@@ -342,12 +336,13 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
         return;
       }
 
-      const postgres = require('postgres');
-      const connect = postgres.default ?? postgres;
       const ssl = /sslmode=require/.test(TEST_UNPRIVILEGED_DB_URL)
         ? 'require'
         : false;
-      const unprivileged = connect(TEST_UNPRIVILEGED_DB_URL, { ssl, max: 1 });
+      const unprivileged = postgres(TEST_UNPRIVILEGED_DB_URL, {
+        ssl,
+        max: 1,
+      });
       try {
         for (const statement of [
           `SELECT * FROM llame_search_embedding_coverage('probe', 1, 1)`,

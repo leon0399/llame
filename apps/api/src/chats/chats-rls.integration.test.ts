@@ -36,6 +36,7 @@ import { sql as dsql } from 'drizzle-orm';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql, type TransactionSql } from 'postgres';
 import * as schema from '../db/schema';
 import {
   ChatsRepository,
@@ -51,7 +52,7 @@ import { ChatsService } from './chats.service';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
-type SqlClient = any;
+type SqlClient = Sql;
 
 /** Asserts a raw `sql` template-tag row carries a string `id`. */
 function assertRowId(r: unknown): asserts r is { id: string } {
@@ -72,8 +73,8 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
    * `SET LOCAL` (plain `SET LOCAL x = $1` cannot take a bind parameter). This
    * mirrors what the request layer must do for every chats/messages query.
    */
-  const asUser = (userId: string, fn: (tx: SqlClient) => Promise<any>) =>
-    sql.begin(async (tx: SqlClient) => {
+  const asUser = <T>(userId: string, fn: (tx: TransactionSql) => Promise<T>) =>
+    sql.begin(async (tx) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
       return fn(tx);
     });

@@ -27,6 +27,7 @@ import { expectMessageParts } from '../testing/support';
 import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 import { ConflictException } from '@nestjs/common';
 
 import { eq } from 'drizzle-orm';
@@ -77,7 +78,7 @@ import { renderConversationCheckpoint } from './context-builder';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = Sql;
 
 function compactionReplacementHistory(
   summary: string,

@@ -113,6 +113,19 @@ const fontOpenDyslexicMono = localFont({
   display: "swap",
 });
 
+const fontVariables = cn(
+  fontGeist.variable,
+  fontOpenSans.variable,
+  fontRoboto.variable,
+  fontRobotoCondensed.variable,
+  fontOpenDyslexic.variable,
+  fontGeistMono.variable,
+  fontFiraCode.variable,
+  fontJetBrainsMono.variable,
+  fontRobotoMono.variable,
+  fontOpenDyslexicMono.variable,
+);
+
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -121,23 +134,7 @@ export default async function RootLayout({
   const fontCssVariables = await getFontCssVariables();
 
   return (
-    <html
-      lang="en"
-      suppressHydrationWarning
-      className={cn(
-        fontGeist.variable,
-        fontOpenSans.variable,
-        fontRoboto.variable,
-        fontRobotoCondensed.variable,
-        fontOpenDyslexic.variable,
-        fontGeistMono.variable,
-        fontFiraCode.variable,
-        fontJetBrainsMono.variable,
-        fontRobotoMono.variable,
-        fontOpenDyslexicMono.variable,
-      )}
-      style={{}}
-    >
+    <html lang="en" suppressHydrationWarning className={fontVariables} style={{}}>
       <head>
         <style
           dangerouslySetInnerHTML={{

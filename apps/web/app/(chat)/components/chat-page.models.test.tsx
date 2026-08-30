@@ -36,6 +36,8 @@ vi.mock("@ai-sdk/react", () => ({
 
 const modelsQuery = vi.hoisted(() => ({
   state: {
+    // SAFETY: widening the initial `undefined` literal to the mutable
+    // state's declared union so later reassignments in tests typecheck.
     data: undefined as
       | {
           defaultModelId: string;
@@ -116,10 +118,15 @@ describe("ChatPage model gating", () => {
     const input = screen.getByPlaceholderText("What would you like to know?");
     const send = screen.getByRole("button", { name: "Send message" });
 
+    // SAFETY: the composer textarea is queried by its own placeholder text,
+    // so its concrete DOM element type is known even though Testing
+    // Library's return type is `HTMLElement`.
     expect((input as HTMLTextAreaElement).disabled).toBe(false);
+    // SAFETY: `send` is the composer's send button, queried by its own role.
     expect((send as HTMLButtonElement).disabled).toBe(true);
 
     await user.type(input, "Hello");
+    // SAFETY: same as above — `input` is the composer textarea.
     expect((input as HTMLTextAreaElement).value).toBe("Hello");
     expect(sendMessage).not.toHaveBeenCalled();
   });
@@ -146,6 +153,7 @@ describe("ChatPage model gating", () => {
     const input = screen.getByPlaceholderText("What would you like to know?");
     const send = screen.getByRole("button", { name: "Send message" });
 
+    // SAFETY: `send` is the composer's send button, queried by its own role.
     await waitFor(() =>
       expect((send as HTMLButtonElement).disabled).toBe(false),
     );

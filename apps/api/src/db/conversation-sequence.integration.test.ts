@@ -16,6 +16,7 @@ import { sql as dsql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { type Sql } from 'postgres';
 
 import * as schema from './schema';
 import { TenantDbService, type Db } from './tenant-db.service';
@@ -27,7 +28,10 @@ if (!TEST_DB_URL) {
     'conversation-sequence.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
   );
 }
-type SqlClient = any;
+// `postgres` is required lazily so the unit project never loads the driver at
+// runtime, but a type-only import of its client type is erased and carries no
+// runtime cost.
+type SqlClient = Sql;
 
 const textPart = (text: string) => [{ type: 'text', text }];
 const sequenceMigrationStatements = readFileSync(
@@ -152,11 +156,15 @@ describe('conversation message sequence database invariants', () => {
     schemaName: string,
     fn: (tx: SqlClient) => Promise<T>,
   ): Promise<T> {
-    const result: T = await sqlClient.begin(async (tx: SqlClient) => {
+    // postgres.js's begin() unwraps a returned array's own promise elements
+    // (UnwrapPromiseArray<T>), which can't resolve back to a bare opaque T.
+    // Wrapping the result in an object sidesteps that: `{ value: T }` never
+    // matches the array branch, so the unwrap is provably a no-op here.
+    const { value } = await sqlClient.begin(async (tx: SqlClient) => {
       await tx`SET LOCAL search_path TO ${tx(schemaName)}`;
-      return fn(tx);
+      return { value: await fn(tx) };
     });
-    return result;
+    return value;
   }
 
   async function createLegacyMigrationFixture(

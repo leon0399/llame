@@ -22,6 +22,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 import { and, eq, sql } from 'drizzle-orm';
 
 import * as schema from '../db/schema';
@@ -37,7 +38,7 @@ import { renderConversationCheckpoint } from './context-builder';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = Sql;
 
 const text = (t: string) => [{ type: 'text', text: t }];
 
@@ -402,7 +403,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
       SELECT relname, relforcerowsecurity FROM pg_class
       WHERE relname IN ('search_chat_documents','search_chat_state') ORDER BY relname`;
     // ORDER BY relname is alphabetical: search_chat_documents < search_chat_state.
-    expect(rows.map((r: any) => [r.relname, r.relforcerowsecurity])).toEqual([
+    expect(rows.map((r) => [r.relname, r.relforcerowsecurity])).toEqual([
       ['search_chat_documents', true],
       ['search_chat_state', true],
     ]);

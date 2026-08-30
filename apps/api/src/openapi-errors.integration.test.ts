@@ -79,13 +79,13 @@ describe('OpenAPI error schemas match real HTTP responses', () => {
   let childId: string;
 
   beforeAll(async () => {
-    const module = await Test.createTestingModule({
+    const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
       .compile();
-    app = module.createNestApplication();
+    app = moduleRef.createNestApplication();
     configureApp(app);
     await app.init();
     const appServer: unknown = app.getHttpServer();

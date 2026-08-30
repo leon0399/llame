@@ -15,12 +15,15 @@ type MdNode = {
   position?: { start: { offset?: number }; end: { offset?: number } };
 };
 
+/** hast attribute value shapes (hast-util-to-jsx-runtime's `Properties` contract). */
+type HastPropertyValue = boolean | number | string;
+
 type HastNode =
   | { type: "text"; value: string }
   | {
       type: "element";
       tagName: string;
-      properties: Record<string, unknown>;
+      properties: Record<string, HastPropertyValue | HastPropertyValue[]>;
       children: HastNode[];
     };
 
@@ -167,6 +170,9 @@ describe("rehypeRegexTokens", () => {
       type: "text",
       value: " text.",
     });
+    // SAFETY: children[3] is the `script` element constructed in the fixture
+    // above (the fourth child), so narrowing to the element variant is sound
+    // by construction.
     expect(
       (tree.children[3] as Extract<HastNode, { type: "element" }>).children,
     ).toEqual([{ type: "text", value: "const x = /^\\d+$/;" }]);

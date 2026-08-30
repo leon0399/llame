@@ -10,6 +10,7 @@
 
 import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -29,7 +30,10 @@ import { type EffectiveContextSnapshotInput } from './effective-context-resolver
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+// `postgres` is required lazily so the unit project never loads the driver at
+// runtime, but a type-only import of its client type is erased and carries no
+// runtime cost.
+type SqlClient = Sql;
 
 describeIfDb(
   'model context snapshots — FORCE RLS and immutable bindings',

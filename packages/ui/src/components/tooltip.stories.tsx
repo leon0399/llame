@@ -223,6 +223,9 @@ export const Disabled: Story = {
   play: async ({ canvas, userEvent }) => {
     const button = canvas.getByRole("button", { name: "Disabled" });
     await expect(button).toBeDisabled();
+    // SAFETY: `parentElement` is only null for a detached/root node; this
+    // button is rendered inside the `<span>` wrapper the story above passes
+    // as TooltipTrigger's `render`, so it always has a parent.
     await userEvent.hover(button.parentElement as HTMLElement);
     await findVisibleTooltip();
   },

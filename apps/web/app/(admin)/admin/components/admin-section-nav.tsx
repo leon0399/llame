@@ -19,7 +19,43 @@ import { topBarClasses } from "@/app/shell/top-bar";
 import { DisabledMenuButton } from "@/app/shell/app-sidebar/disabled-menu-button";
 import { SoonChip } from "@/app/shell/soon-chip";
 
-import { ADMIN_SECTIONS, isSectionActive } from "./admin-sections";
+import {
+  ADMIN_SECTIONS,
+  isSectionActive,
+  type AdminSection,
+} from "./admin-sections";
+
+/** One row of the "Instance" section list: a live link or a disabled "soon" placeholder. */
+function AdminSectionMenuItem({
+  section,
+  isActive,
+}: {
+  section: AdminSection;
+  isActive: boolean;
+}) {
+  return (
+    <SidebarMenuItem>
+      {section.href ? (
+        <SidebarMenuButton
+          render={<Link href={section.href} />}
+          isActive={isActive}
+          className="h-[2.15rem] text-[0.86rem]"
+        >
+          <section.icon />
+          <span>{section.label}</span>
+        </SidebarMenuButton>
+      ) : (
+        <DisabledMenuButton className="h-[2.15rem] text-[0.86rem]">
+          <section.icon />
+          <span className="flex flex-1 items-center truncate">
+            {section.label}
+          </span>
+          <SoonChip />
+        </DisabledMenuButton>
+      )}
+    </SidebarMenuItem>
+  );
+}
 
 /**
  * The admin area's second rail (D1): "Administration" header, an "Instance"
@@ -49,31 +85,13 @@ export function AdminSectionNav({ host }: { host: string }) {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="gap-[0.1rem]">
-              {ADMIN_SECTIONS.map((section) => {
-                const isActive = isSectionActive(section, pathname);
-                return (
-                  <SidebarMenuItem key={section.key}>
-                    {section.href ? (
-                      <SidebarMenuButton
-                        render={<Link href={section.href} />}
-                        isActive={isActive}
-                        className="h-[2.15rem] text-[0.86rem]"
-                      >
-                        <section.icon />
-                        <span>{section.label}</span>
-                      </SidebarMenuButton>
-                    ) : (
-                      <DisabledMenuButton className="h-[2.15rem] text-[0.86rem]">
-                        <section.icon />
-                        <span className="flex flex-1 items-center truncate">
-                          {section.label}
-                        </span>
-                        <SoonChip />
-                      </DisabledMenuButton>
-                    )}
-                  </SidebarMenuItem>
-                );
-              })}
+              {ADMIN_SECTIONS.map((section) => (
+                <AdminSectionMenuItem
+                  key={section.key}
+                  section={section}
+                  isActive={isSectionActive(section, pathname)}
+                />
+              ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

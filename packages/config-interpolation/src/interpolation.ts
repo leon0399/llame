@@ -75,40 +75,66 @@ export function interpolateStringWithSubstitutions(
   let out = "";
   let i = 0;
   while (i < input.length) {
-    if (input[i] === "{") {
-      if (input[i + 1] === "{") {
-        out += "{";
-        i += 2;
-        continue;
-      }
+    if (input[i] !== "{") {
+      out += input[i];
+      i += 1;
+      continue;
+    }
 
-      const rest = input.slice(i);
+    if (input[i + 1] === "{") {
+      out += "{";
+      i += 2;
+      continue;
+    }
 
-      const envMatch = ENV_TOKEN.exec(rest);
-      if (envMatch) {
-        const [full, name, fallback] = envMatch;
-        const resolved = resolveEnvToken(name, fallback, env);
-        if (resolved.length > 0) substituted.push(resolved);
-        out += resolved;
-        i += full.length;
-        continue;
-      }
+    const rest = input.slice(i);
 
-      const pathMatch = PATH_TOKEN.exec(rest);
-      if (pathMatch) {
-        const [full, location] = pathMatch;
-        const resolved = resolvePathToken(location);
-        if (resolved.length > 0) substituted.push(resolved);
-        out += resolved;
-        i += full.length;
-        continue;
-      }
+    const envMatch = matchEnvToken(rest, env, substituted);
+    if (envMatch) {
+      out += envMatch.resolved;
+      i += envMatch.length;
+      continue;
+    }
+
+    const pathMatch = matchPathToken(rest, substituted);
+    if (pathMatch) {
+      out += pathMatch.resolved;
+      i += pathMatch.length;
+      continue;
     }
 
     out += input[i];
     i += 1;
   }
   return { value: out, substituted };
+}
+
+/** A token match's resolved replacement text and the source length it consumed. */
+type TokenMatch = { readonly resolved: string; readonly length: number };
+
+function matchEnvToken(
+  rest: string,
+  env: NodeJS.ProcessEnv,
+  substituted: string[],
+): TokenMatch | undefined {
+  const envMatch = ENV_TOKEN.exec(rest);
+  if (!envMatch) return undefined;
+  const [full, name, fallback] = envMatch;
+  const resolved = resolveEnvToken(name, fallback, env);
+  if (resolved.length > 0) substituted.push(resolved);
+  return { resolved, length: full.length };
+}
+
+function matchPathToken(
+  rest: string,
+  substituted: string[],
+): TokenMatch | undefined {
+  const pathMatch = PATH_TOKEN.exec(rest);
+  if (!pathMatch) return undefined;
+  const [full, location] = pathMatch;
+  const resolved = resolvePathToken(location);
+  if (resolved.length > 0) substituted.push(resolved);
+  return { resolved, length: full.length };
 }
 
 function resolveEnvToken(
@@ -151,9 +177,16 @@ function resolvePathToken(location: string): string {
       ? undefined
       : location.slice(separatorAt + JSON_POINTER_SEPARATOR.length);
 
-  let payload: string;
+  const payload = readSecretFile(filePath);
+  if (pointer === undefined) {
+    return payload.trim();
+  }
+  return selectJsonPointerFromPayload(payload, pointer, filePath);
+}
+
+function readSecretFile(filePath: string): string {
   try {
-    payload = readFileSync(filePath, "utf8");
+    return readFileSync(filePath, "utf8");
   } catch (err) {
     // The fs error names the path and errno only — never file contents.
     const detail = err instanceof Error ? err.message : String(err);
@@ -162,11 +195,13 @@ function resolvePathToken(location: string): string {
       { kind: "path", location: filePath },
     );
   }
+}
 
-  if (pointer === undefined) {
-    return payload.trim();
-  }
-
+function selectJsonPointerFromPayload(
+  payload: string,
+  pointer: string,
+  filePath: string,
+): string {
   let document: JsonValue;
   try {
     // SAFETY: JSON.parse returns `any`; unknown is the I/O-boundary type that

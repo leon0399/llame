@@ -954,6 +954,53 @@ type KnowledgeSearchActiveInterval = {
   lookahead: KnowledgeLogicalLine[];
 };
 
+/** One logical line plus its predecessor and its (possibly absent) match. */
+type KnowledgeSearchLineStep = {
+  line: KnowledgeLogicalLine;
+  previousLine: KnowledgeLogicalLine | undefined;
+  occurrence: KnowledgeSearchOccurrence | undefined;
+};
+
+/**
+ * Advance one active search interval by a single logical line: extend it,
+ * split its partition once it outgrows the read-line cap, or emit and
+ * restart/clear it once the line falls outside the lookback window. Returns
+ * the interval to carry into the next line (`undefined` once closed).
+ */
+function advanceActiveInterval(
+  step: KnowledgeSearchLineStep,
+  active: KnowledgeSearchActiveInterval,
+  ctx: KnowledgeSearchEmitContext,
+): KnowledgeSearchActiveInterval | undefined {
+  const { line, previousLine, occurrence } = step;
+  if (occurrence !== undefined) {
+    if (line.line <= active.end + 2) {
+      appendKnowledgeSearchLookahead(active);
+      appendKnowledgeSearchLine(active, line);
+      active.end = Math.max(active.end, line.line + 1);
+      active.lastOccurrence = occurrence;
+      if (line.line > active.partitionStart + KNOWLEDGE_MAX_READ_LINES - 1) {
+        splitKnowledgeSearchPartition(active, occurrence, ctx);
+      } else if (active.partitionFirstOccurrence === undefined) {
+        active.partitionFirstOccurrence = occurrence;
+      }
+      return active;
+    }
+    emitFinalKnowledgeSearchPartition(active, active.end, ctx);
+    return startKnowledgeSearchInterval(line, previousLine, occurrence);
+  }
+  if (line.line <= active.end) {
+    appendKnowledgeSearchLine(active, line);
+    return active;
+  }
+  active.lookahead.push(line);
+  if (line.line > active.end + 2) {
+    emitFinalKnowledgeSearchPartition(active, active.end, ctx);
+    return undefined;
+  }
+  return active;
+}
+
 /**
  * Bounded passage extraction shared by the live adapter and focused unit tests.
  * Logical lines intentionally match the ranged reader: only LF terminates a
@@ -969,7 +1016,12 @@ export async function collectKnowledgePassages(
   if (queryFolded.length === 0) return [];
 
   const passages: KnowledgeFilesystemSearchMatch[] = [];
-  const maxResults = options.maxResults ?? Number.POSITIVE_INFINITY;
+  const ctx: KnowledgeSearchEmitContext = {
+    relativePath,
+    passages,
+    after: options.after,
+    maxResults: options.maxResults ?? Number.POSITIVE_INFINITY,
+  };
   let previousLine: KnowledgeLogicalLine | undefined;
   let active: KnowledgeSearchActiveInterval | undefined;
   let lastLine = -1;
@@ -981,70 +1033,19 @@ export async function collectKnowledgePassages(
       match === undefined ? undefined : { line: line.line, ...match };
 
     if (active === undefined) {
-      if (occurrence !== undefined) {
-        active = startKnowledgeSearchInterval(line, previousLine, occurrence);
-      }
-      previousLine = line;
-      continue;
-    }
-
-    if (occurrence !== undefined) {
-      if (line.line <= active.end + 2) {
-        appendKnowledgeSearchLookahead(active);
-        appendKnowledgeSearchLine(active, line);
-        active.end = Math.max(active.end, line.line + 1);
-        active.lastOccurrence = occurrence;
-        if (line.line > active.partitionStart + KNOWLEDGE_MAX_READ_LINES - 1) {
-          splitKnowledgeSearchPartition(
-            active,
-            occurrence,
-            relativePath,
-            passages,
-            options.after,
-            maxResults,
-          );
-        } else if (active.partitionFirstOccurrence === undefined) {
-          active.partitionFirstOccurrence = occurrence;
-        }
-      } else {
-        emitFinalKnowledgeSearchPartition(
-          active,
-          active.end,
-          relativePath,
-          passages,
-          options.after,
-          maxResults,
-        );
-        active = startKnowledgeSearchInterval(line, previousLine, occurrence);
-      }
-    } else if (line.line <= active.end) {
-      appendKnowledgeSearchLine(active, line);
+      active =
+        occurrence === undefined
+          ? undefined
+          : startKnowledgeSearchInterval(line, previousLine, occurrence);
     } else {
-      active.lookahead.push(line);
-      if (line.line > active.end + 2) {
-        emitFinalKnowledgeSearchPartition(
-          active,
-          active.end,
-          relativePath,
-          passages,
-          options.after,
-          maxResults,
-        );
-        active = undefined;
-      }
+      const step: KnowledgeSearchLineStep = { line, previousLine, occurrence };
+      active = advanceActiveInterval(step, active, ctx);
     }
     previousLine = line;
   }
 
   if (active !== undefined) {
-    emitFinalKnowledgeSearchPartition(
-      active,
-      Math.min(active.end, lastLine),
-      relativePath,
-      passages,
-      options.after,
-      maxResults,
-    );
+    emitFinalKnowledgeSearchPartition(active, Math.min(active.end, lastLine), ctx);
   }
 
   return passages;
@@ -1136,13 +1137,20 @@ function makePassageExcerpt(
   return `${prefix}${codePoints.slice(windowStart, windowEnd).join('')}${suffix}`;
 }
 
+/** The search-wide state threaded through partition emission: where matched
+ * passages accumulate and the cursor/cap that bounds them. Held constant
+ * across one `collectKnowledgePassages` call. */
+type KnowledgeSearchEmitContext = {
+  relativePath: string;
+  passages: KnowledgeFilesystemSearchMatch[];
+  after: KnowledgeFilesystemSearchAfter | undefined;
+  maxResults: number;
+};
+
 function emitFinalKnowledgeSearchPartition(
   active: KnowledgeSearchActiveInterval,
   finalEnd: number,
-  relativePath: string,
-  passages: KnowledgeFilesystemSearchMatch[],
-  after: KnowledgeFilesystemSearchAfter | undefined,
-  maxResults: number,
+  ctx: KnowledgeSearchEmitContext,
 ): void {
   const end = Math.min(active.end, finalEnd);
   if (end < active.partitionStart) return;
@@ -1152,10 +1160,7 @@ function emitFinalKnowledgeSearchPartition(
       active.partitionLines.slice(0, length),
       active.partitionStart,
       active.partitionFirstOccurrence,
-      relativePath,
-      passages,
-      after,
-      maxResults,
+      ctx,
     );
     return;
   }
@@ -1169,29 +1174,20 @@ function emitFinalKnowledgeSearchPartition(
     active.partitionLines.slice(0, firstLength),
     active.partitionStart,
     active.partitionFirstOccurrence,
-    relativePath,
-    passages,
-    after,
-    maxResults,
+    ctx,
   );
   appendKnowledgeSearchPassage(
     active.partitionLines.slice(firstLength, length),
     boundary + 1,
     active.lastOccurrence,
-    relativePath,
-    passages,
-    after,
-    maxResults,
+    ctx,
   );
 }
 
 function splitKnowledgeSearchPartition(
   active: KnowledgeSearchActiveInterval,
   nextOccurrence: KnowledgeSearchOccurrence,
-  relativePath: string,
-  passages: KnowledgeFilesystemSearchMatch[],
-  after: KnowledgeFilesystemSearchAfter | undefined,
-  maxResults: number,
+  ctx: KnowledgeSearchEmitContext,
 ): void {
   const boundary = active.partitionStart + KNOWLEDGE_MAX_READ_LINES - 1;
   const prefixLength = boundary - active.partitionStart + 1;
@@ -1199,10 +1195,7 @@ function splitKnowledgeSearchPartition(
     active.partitionLines.slice(0, prefixLength),
     active.partitionStart,
     active.partitionFirstOccurrence,
-    relativePath,
-    passages,
-    after,
-    maxResults,
+    ctx,
   );
   active.partitionStart = boundary + 1;
   active.partitionLines = active.partitionLines.slice(prefixLength);
@@ -1213,11 +1206,9 @@ function appendKnowledgeSearchPassage(
   lines: readonly KnowledgeLogicalLine[],
   offset: number,
   occurrence: KnowledgeSearchOccurrence | undefined,
-  relativePath: string,
-  passages: KnowledgeFilesystemSearchMatch[],
-  after: KnowledgeFilesystemSearchAfter | undefined,
-  maxResults: number,
+  ctx: KnowledgeSearchEmitContext,
 ): void {
+  const { relativePath, passages, after, maxResults } = ctx;
   if (
     occurrence === undefined ||
     !isAfterSearchCursor(

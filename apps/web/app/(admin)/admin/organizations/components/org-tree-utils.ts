@@ -13,15 +13,12 @@ import type {
 } from "@/lib/services/org-units/types";
 
 /** Icon + label per unit type — matches the design's TYPE map exactly (Admin.dc.html). */
-export const ORG_UNIT_TYPE_META: Record<
-  OrgUnitType,
-  { icon: LucideIcon; label: string }
-> = {
+export const ORG_UNIT_TYPE_META = {
   organization: { icon: Building2Icon, label: "Organization" },
   group: { icon: UsersIcon, label: "Group" },
   team: { icon: UsersRoundIcon, label: "Team" },
   department: { icon: NetworkIcon, label: "Department" },
-};
+} satisfies Record<OrgUnitType, { icon: LucideIcon; label: string }>;
 
 /** Legend order, and the create-child dialog's type segment (root type is
  * fixed to `organization` — only these three are ever a child's type). */
@@ -39,7 +36,7 @@ export const CHILD_ORG_UNIT_TYPES: OrgUnitType[] = [
 
 /** Full 7-role vocabulary display label (D2 — the design mock omits
  * `service_account`, this doesn't). */
-export const ROLE_LABEL: Record<OrgRole, string> = {
+export const ROLE_LABEL = {
   owner: "owner",
   admin: "admin",
   maintainer: "maintainer",
@@ -47,7 +44,7 @@ export const ROLE_LABEL: Record<OrgRole, string> = {
   viewer: "viewer",
   guest: "guest",
   service_account: "service account",
-};
+} satisfies Record<OrgRole, string>;
 
 export type GuideKind = "bar" | "blank" | "elbow" | "tee";
 

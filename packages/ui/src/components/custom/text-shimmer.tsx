@@ -34,6 +34,9 @@ function TextShimmerComponent({
   duration = 2,
   spread = 2,
 }: TextShimmerProps) {
+  // SAFETY: motion.create dispatches on the actual runtime value (string tag
+  // vs. component) regardless of this cast; it only routes TS's generic
+  // inference past `ElementType`'s union-in-call-position ambiguity.
   const MotionComponent = motion.create(
     Component as keyof JSX.IntrinsicElements,
   );
@@ -59,6 +62,9 @@ function TextShimmerComponent({
         ease: "linear",
       }}
       style={
+        // SAFETY: `--spread` is a CSS custom property; it's a valid inline
+        // style key at runtime, but CSSProperties's type doesn't model
+        // arbitrary custom properties, so this asserts past that gap only.
         {
           "--spread": `${dynamicSpread}px`,
           backgroundImage: `var(--bg), linear-gradient(var(--base-color), var(--base-color))`,

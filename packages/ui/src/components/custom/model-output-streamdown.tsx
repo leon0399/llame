@@ -43,6 +43,9 @@ export type ModelOutputStreamdownProps = Pick<
 
 const modelOutputPlugins: PluginConfig = {
   ...streamdownPlugins,
+  // SAFETY: streamdown-plugins.tsx always assigns `code` in
+  // `streamdownPlugins`, so it's never undefined here despite
+  // PluginConfig's optional field type.
   code: withRegexTokens(
     streamdownPlugins.code as NonNullable<PluginConfig["code"]>,
   ),
