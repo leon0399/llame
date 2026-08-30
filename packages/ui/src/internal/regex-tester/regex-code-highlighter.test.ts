@@ -6,6 +6,9 @@ import { withRegexTokens } from "./regex-code-highlighter.js";
 type CodeHighlighter = NonNullable<PluginConfig["code"]>;
 type HighlightResult = NonNullable<ReturnType<CodeHighlighter["highlight"]>>;
 
+// SAFETY: `language` and `themes` are valid BundledLanguage/theme-pair
+// members; the cast only narrows past inference widening the literal
+// `"typescript"` to `string` and the two-theme array to `string[]`.
 const options = {
   code: "",
   language: "typescript",

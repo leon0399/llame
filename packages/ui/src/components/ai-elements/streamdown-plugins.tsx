@@ -209,9 +209,7 @@ const rewriteMathNodes = (node: MathNode, source: string): void => {
   node.children = rewritten;
 };
 
-function hasStringValue(file: {
-  value: unknown;
-}): file is { value: string } {
+function hasStringValue(file: { value: unknown }): file is { value: string } {
   return typeof file.value === "string";
 }
 
