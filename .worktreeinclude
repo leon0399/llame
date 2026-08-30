@@ -1,1 +1,3 @@
 CLAUDE.local.md
+apps/api/.env.local
+apps/api/llame.config.json
