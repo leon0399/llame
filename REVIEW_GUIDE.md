@@ -177,6 +177,13 @@ duplication.
   render test. DB-backed suites go in `*.integration.test.ts` and fail loudly
   rather than skipping when Postgres is absent.
 - Tenancy changes ship a negative test proving cross-tenant access is denied.
+- **Tautological tests considered harmful, and are a blocking finding.** Reject
+  a test that asserts a mock returns what it configured, recomputes the expected
+  value with the implementation's own expression, asserts only
+  `toHaveBeenCalled()` where the behavior is what the call produces, or
+  snapshots current output with no independent notion of correct. When a test
+  looks tautological, say which change to the implementation would leave it
+  green — that is the whole argument.
 - Tests assert on behavior at a real seam, not on mocks threaded through the
   interior. A test that would pass against a broken implementation is not
   coverage.

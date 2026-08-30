@@ -66,6 +66,19 @@ workspace whose tooling they guard.
     reusing processes whose code and configuration are unknown. Dev compiler
     latency and hot-reload DOM churn are not product behavior; do not move
     those races into assertion timeouts or a bespoke readiness endpoint.
+11. **Tautological tests considered harmful.** A test that cannot fail is worse
+    than no test: it reports coverage it does not have, and the next person
+    trusts it. The recurring shapes are asserting that a mock returns what the
+    same test configured it to return; recomputing the expected value with the
+    implementation's own expression instead of an independently known one;
+    letting `toHaveBeenCalled()` stand in for the behavior the call was supposed
+    to produce; and recording a snapshot of current output with no independent
+    notion of correct. The check is mechanical — **break the implementation and
+    re-run**. Still green against a deliberately wrong version means the test
+    measured nothing; that is exactly the property the
+    [mutation pilot](#api-mutation-testing-pilot-diagnostic) samples on the
+    modules it covers. Assert observable behavior at a real seam, against a
+    value derived independently of the code under test.
 
 ## Commands
 

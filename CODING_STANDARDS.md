@@ -132,7 +132,7 @@ Even then: add the least structure that resolves the actual pain, nothing in ant
 
 ## 9. Define done, then prove it
 
-Before coding, restate the task as a checkable outcome: a test that fails now and must pass, a command whose output proves the change, a repro that stops reproducing. "Done" means that check passed — not that code was written, and not that you attest it works: prefer proof a machine can run over claims a reviewer must trust. Test at genuine seams — process, network, module interface — not with mocks threaded through the interior. And done never includes breaking what already worked: regression is the one unforgivable diff.
+Before coding, restate the task as a checkable outcome: a test that fails now and must pass, a command whose output proves the change, a repro that stops reproducing. "Done" means that check passed — not that code was written, and not that you attest it works: prefer proof a machine can run over claims a reviewer must trust. Test at genuine seams — process, network, module interface — not with mocks threaded through the interior. **Tautological tests considered harmful:** a test that asserts a mock returns what the test just configured, or recomputes the expected value with the implementation's own expression, cannot fail and is worse than no test. Break the implementation and re-run — still green means it measured nothing. And done never includes breaking what already worked: regression is the one unforgivable diff.
 
 ## 10. Review gate
 
