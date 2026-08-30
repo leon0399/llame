@@ -1,3 +1,7 @@
+-- identity / org-units. Otherwise Drizzle-generated, then hand-appends FORCE
+-- ROW LEVEL SECURITY for org_units/memberships/external_identities (pattern P1
+-- — .enableRLS() emits ENABLE only, and without FORCE the table-owning `app`
+-- role bypasses every policy). Re-add if this migration is regenerated.
 CREATE TYPE "public"."org_role" AS ENUM('owner', 'admin', 'maintainer', 'member', 'viewer', 'guest', 'service_account');--> statement-breakpoint
 CREATE TYPE "public"."org_unit_type" AS ENUM('organization', 'group', 'team', 'department', 'project');--> statement-breakpoint
 CREATE TABLE "external_identities" (

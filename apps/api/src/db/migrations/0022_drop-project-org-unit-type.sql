@@ -1,3 +1,12 @@
+-- admin-area-org-tree D5: drop `project` from the org_unit_type vocabulary.
+-- drizzle-kit's generated enum-recreate converts the column to text, drops and
+-- recreates the enum, then casts back with USING — it does not account for rows
+-- still holding the value being dropped, so the final cast would fail on any
+-- stray `project` row. A manual UPDATE ... SET type = 'group' is hand-inserted
+-- while the column is still plain text, before the project-less enum exists.
+-- That UPDATE runs inside a NO FORCE ROW LEVEL SECURITY window (pattern P2,
+-- same as 0012/0020) because org_units is FORCE RLS since 0018.
+-- Re-add the remap and the window if this migration is regenerated.
 ALTER TABLE "org_units" ALTER COLUMN "type" SET DATA TYPE text;--> statement-breakpoint
 -- Hand-appended (admin-area-org-tree D5): drizzle-kit's enum-recreate doesn't
 -- account for existing rows holding a value about to be dropped from the

@@ -1,3 +1,6 @@
+-- projects. Otherwise Drizzle-generated, then hand-appends FORCE ROW LEVEL
+-- SECURITY for projects (pattern P1, same as 0004/0011/0018).
+-- Re-add if this migration is regenerated.
 CREATE TABLE "projects" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"owner_user_id" text NOT NULL,

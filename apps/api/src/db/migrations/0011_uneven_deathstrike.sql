@@ -1,3 +1,7 @@
+-- durable-runs. Hand-authored around two drizzle-kit gaps (pattern P1):
+-- FORCE ROW LEVEL SECURITY for runs/run_events (.enableRLS() emits ENABLE only),
+-- and the composite-key unique indexes reordered ahead of the FKs that
+-- reference them. Re-add both if this migration is regenerated.
 CREATE TYPE "public"."run_status" AS ENUM('queued', 'resolving_config', 'retrieving_context', 'planning', 'waiting_for_approval', 'running_model', 'running_tool', 'running_sandbox', 'updating_artifact', 'summarizing', 'completed', 'failed', 'cancelled', 'expired');--> statement-breakpoint
 CREATE TABLE "run_events" (
 	"sequence" bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "run_events_sequence_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 START WITH 1 CACHE 1),

@@ -1,3 +1,7 @@
+-- Owner-scoped memory_settings. Drizzle-generated, then hand-appends FORCE ROW
+-- LEVEL SECURITY (pattern P1); without FORCE the owning `app` role bypasses all
+-- four policies and destroys isolation in the single-role self-hosted topology.
+-- Re-add the statement if this migration is regenerated.
 CREATE TABLE "memory_settings" (
 	"user_id" text PRIMARY KEY NOT NULL,
 	"share_recent_chats" boolean DEFAULT false NOT NULL,
