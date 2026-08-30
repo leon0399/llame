@@ -41,6 +41,10 @@ function chat(id: string, title = id): Chat {
 describe('recency digest baseline', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it('pins the digest list limit', () => {
+    expect(RECENCY_DIGEST_LIST_LIMIT).toBe(10);
+  });
+
   it('truncates at a Unicode code-point boundary', () => {
     const emoji = truncateRecencyDigestExcerpt('😀'.repeat(200) + 'x');
     expect(emoji).toBe('😀'.repeat(200));
@@ -204,13 +208,13 @@ describe('recency digest baseline', () => {
 
     expect(findByOwner).toHaveBeenNthCalledWith(1, 'owner', {
       pinned: 'only',
-      limit: RECENCY_DIGEST_LIST_LIMIT,
+      limit: 10,
       excludeId: 'current-chat',
       titledOnly: true,
     });
     expect(findByOwner).toHaveBeenNthCalledWith(2, 'owner', {
       pinned: 'exclude',
-      limit: RECENCY_DIGEST_LIST_LIMIT,
+      limit: 10,
       excludeId: 'current-chat',
       titledOnly: true,
     });

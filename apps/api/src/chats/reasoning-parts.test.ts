@@ -87,7 +87,9 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
   });
 
   it('caps an oversized reasoning blob (bounds storage + per-turn read cost)', () => {
-    const huge = 'x'.repeat(REASONING_PERSIST_MAX + 5000);
+    // Independent of REASONING_PERSIST_MAX: sizing the input and the expected
+    // output from the same import moves both together, so any cap ships green.
+    const huge = 'x'.repeat(30_000);
     const [reasoning, text] = assistantParts({
       reasoningText: huge,
       toolParts: [],
@@ -98,7 +100,8 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
     }
     expect(reasoning.type).toBe('reasoning');
     // Truncated to the cap + a marker; never the full oversized blob.
-    expect(reasoning.text.length).toBe(REASONING_PERSIST_MAX + 1);
+    expect(REASONING_PERSIST_MAX).toBe(24_000);
+    expect(reasoning.text.length).toBe(24_001);
     expect(reasoning.text.endsWith('…')).toBe(true);
     expect(text).toEqual({ type: 'text', text: 'answer' });
   });
