@@ -157,6 +157,11 @@ exists to avoid.
 
 ## Rollout
 
+**Pre-launch, [the repository policy](../../../../AGENTS.md#pre-launch-evolution)
+outranks this section** — recreate the database rather than choreograph around
+it, and never rewrite an already-applied migration without resetting the
+databases that ran it.
+
 A migration that changes what server-authored data means is a coordinated
 API/worker revision boundary, not a schema-only change. The sequencing rules and
 the operator SQL live in [docs/scaling.md](../../../../docs/scaling.md); the

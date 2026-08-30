@@ -88,6 +88,46 @@ pnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs
 
 Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and the self-provisioning `test:integration` gate are documented in [apps/api/src/db/AGENTS.md](apps/api/src/db/AGENTS.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).
 
+## Pre-launch evolution
+
+llame has not launched: there are no third-party deployments and no production
+data. **This section outranks the coordinated-rollout guidance below and in
+[apps/api/AGENTS.md](apps/api/AGENTS.md) and
+[apps/api/src/db/AGENTS.md](apps/api/src/db/AGENTS.md)** until the first
+production deployment. Revisit the whole policy then.
+
+- Optimize for the smallest coherent design that represents the product today.
+- Remove obsolete code, schemas, APIs, configuration, aliases, and transitional
+  paths directly.
+- Do not add backward-compatibility shims, legacy aliases, dual-read or
+  dual-write paths, or data-preserving backfills unless explicitly asked for.
+- Internal interfaces are not public compatibility contracts. Update their
+  callers and tests atomically when they change.
+- **Test and throwaway databases are disposable** — prefer `pnpm db:reset` and a
+  re-migrate over complicating the product to preserve local fixtures. **The
+  maintainer's own running instance is not.** A change that would discard its
+  chats is called out and agreed before it lands, even though no third party is
+  affected.
+- Treat migration history as a replaceable development baseline, but keep the
+  checked-in migration chain, `meta/_journal.json`, and the
+  `db:migrate` → `db:provision-rls` setup workflow coherent. **Do not rewrite an
+  already-applied migration without also resetting the databases that ran it**:
+  the migrator applies an entry only when its journal `when` is newer than the
+  newest already-applied one, so an edited statement silently never re-runs.
+  Editing a migration's comments is safe; editing its statements is not.
+- Consolidate the migration baseline only as an explicit, coordinated change,
+  never as incidental work in a feature branch.
+
+**These survive everything above.** They are correctness properties, not
+backward-compatibility requirements, and "remove the transitional path" never
+licenses dropping one:
+
+- Tenant isolation — RLS `ENABLE`**d and** `FORCE`**d** on every tenant-bearing
+  table, identity from a trusted source, fail closed. A dropped policy is not a
+  removed legacy path.
+- Transactional safety, migration idempotence, and deterministic setup.
+- Secrets staying out of logs, errors, model context, and owner-visible output.
+
 ## Conventions
 
 - TypeScript only across web/api/worker — no second backend language (SPEC.md §23).
@@ -159,13 +199,15 @@ llame is multi-tenant and self-hosted: tenant isolation is a core invariant. Wei
 
 - `apps/api/src/db` is the single source of truth for the schema. `apps/web` owns no database or chat backend — it is a thin API client (SPEC.md §22.0).
 - Every chat run executes via the pg-boss queue (#107; there is no inline request-thread mode): the api enqueues and answers with the run-event stream bridge, while co-located consumers or the shipped no-HTTP `apps/api/src/worker.ts` entrypoint execute (`RunsWorkerService` → transport-agnostic `RunExecutionService` — don't couple it to HTTP).
-- Production changes that add server-authored message-part schemas are
-  coordinated API/worker revision boundaries. Land backward-compatible schema
-  preparation first; before the writer cutover, quiesce old API writers and
-  drain accepted Runs, then apply the cutover and deploy compatible workers
-  before any API authors the new part. An accepted OpenSpec MAY instead declare
-  an alpha-only single-revision hard cutover when mixed revisions and existing
-  data are explicitly out of scope; do not silently infer that exception.
-  Concrete rollout/rollback steps live in
-  [apps/api/AGENTS.md](apps/api/AGENTS.md) and
+- Changes that add server-authored message-part schemas are coordinated
+  API/worker revision boundaries **once llame is deployed**: land
+  backward-compatible schema preparation first; before the writer cutover,
+  quiesce old API writers and drain accepted Runs, then apply the cutover and
+  deploy compatible workers before any API authors the new part. Concrete
+  rollout/rollback steps live in [apps/api/AGENTS.md](apps/api/AGENTS.md) and
   [docs/scaling.md](docs/scaling.md).
+
+  Until then, [Pre-launch evolution](#pre-launch-evolution) governs: a
+  single-revision hard cutover is the default, not an exception an OpenSpec has
+  to claim. Keep the sequencing documented in the migration's own header
+  regardless — it is what makes the choreography reconstructable at launch.

@@ -346,6 +346,11 @@ Operator runbook: [docs/conversation-recall.md](../../docs/conversation-recall.m
 
 ### Rollout boundaries
 
+**Pre-launch, [the repository policy](../../AGENTS.md#pre-launch-evolution)
+outranks this section**: a single-revision hard cutover is the default, and the
+sequencing below is what you record in the migration's header rather than what
+you execute. It becomes binding at the first production deployment.
+
 A change that alters what server-authored data _means_ is a coordinated
 API/worker revision boundary, not a schema-only change. The shape is always the
 same:
