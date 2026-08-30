@@ -1283,11 +1283,73 @@ byte-identical (`chats.dto.ts`'s change was comment-only).
 | done        | Child layer 3: bounded-fetch request parsing/body sizing/response byte-limit semantics           | PR #393: 39 baseline `U` gaps are killed and `S12`, `S16`, and `NC58` are reclassified `E` for the supported `BodyInit` domain; no useful layer-3 gap remains                                                                                                                                                                                                                                                            |
 | done        | Child layer 4: bounded-fetch SSE recognition/framing plus wrapper cancellation/metadata          | PR #394: eight behavior assertions kill all 16 queued `U` mutants; the native 169-mutant run kills 152 at 89.94%, and no useful layer-4 gap remains                                                                                                                                                                                                                                                                      |
 | done        | API README command inventory                                                                     | The workspace README lists executable commands only; it does not document a nonexistent coverage script or invent coverage tooling                                                                                                                                                                                                                                                                                       |
+| done        | Tautological tests named and ruled out                                                           | `docs/testing.md` rule 11 defines the four shapes, the break-the-implementation check, and the invariant-vs-recompute discriminator; applied in `CODING_STANDARDS.md` §9, `REVIEW_GUIDE.md` §7 as a blocking finding, and the `**/*.test.ts` CodeRabbit path instructions                                                                                                                                                |
+| done        | Repository-wide tautological-test sweep, mutation-verified                                       | 7 parallel read-only auditors over 267 test files; 19 candidates, 17 confirmed by applying the named mutation and observing a green suite, 2 rejected; 16 repairs and 1 rewrite landed, each re-verified so the same mutation now fails; inventory below                                                                                                                                                                 |
+| investigate | The sweep sampled by inspection, not exhaustively                                                | Two slices were partly grep-covered rather than line-read (`instance-config/prompt-loader.test.ts`, the back half of `config-loader.test.ts`); the mutation pilot covers only three MCP utilities. Widening Stryker beyond the pilot is the measured way to close the gap — see the pilot baseline above for the cost profile                                                                                            |
 | queued      | Four disabled Vitest style rules remain known follow-ups                                         | Enable one rule at a time and repair its full owned scope; no baseline, blanket suppression, or source-regex proxy                                                                                                                                                                                                                                                                                                       |
 | investigate | The committed OpenAPI contract has no generated property-based conformance run                   | Pilot Schemathesis against the throwaway API/Postgres environment; measure auth and tenant setup, status/schema findings, replayability, runtime, and false positives before gating                                                                                                                                                                                                                                      |
 | investigate | The chat-message single-flight integration test flakes only under suite load                     | Timed out on PR #361 and locally in the full 329-test run; isolated rerun passes 1/1; treat the flake as a latent architecture defect and remove the scheduling/state coupling with a deterministic readiness boundary before changing any timeout                                                                                                                                                                       |
 | done        | Product E2E startup, settlement, and foreground-notification boundaries                          | PR #402 removes dev compilation races, orders modal interaction after stream settlement, and makes mounted ownership authoritative for notifications; run 31905421872 passed 21/21 first attempt without timeout/retry inflation                                                                                                                                                                                         |
 | done        | PR #405 exposed a remaining first-send route/render-identity defect                              | Run 31915773223 detached the modal close button while live messages were replaced by durable history, then passed on retry; the repair uses canonical draft routes, URL-only identity, Run-ID React keys, and an exact held-history browser proof; PR #406's pre-rebase head (`381c127f`) passed Product E2E first attempt (run 31952264163) with `failOnFlakyTests` retained; the rebase onto PR #405 changed docs only |
+
+#### Tautological-test sweep (2026-08-30)
+
+Seven read-only auditors swept disjoint slices of the 267 test files (~75k lines)
+against `docs/testing.md` rule 11. An auditor could report a finding only by naming
+a concrete implementation mutation that would leave the test green; no mutation, no
+finding. **Agent reports are candidates, not evidence.** Every candidate below was
+then verified in this repository by applying the named mutation and running the
+affected suite. The pass/fail counts are foreground command output; the
+candidate/disposition columns are auditor claims.
+
+| Slice                                      |   Files | Candidates | Verified | Rejected |
+| ------------------------------------------ | ------: | ---------: | -------: | -------: |
+| `apps/web`                                 |      66 |          6 |        6 |        0 |
+| `apps/api/src/chats`                       |      15 |          6 |        5 |        1 |
+| `apps/api` runs/queue/compaction/titles    |      13 |          3 |        3 |        0 |
+| `apps/api` auth/identity/config/db         |      48 |          2 |        2 |        0 |
+| `packages/ui` + `apps/storybook` + stories |      41 |          1 |        1 |        0 |
+| `apps/api` knowledge/mcp/tools             |      34 |          1 |        0 |        1 |
+| `apps/api/src/search`                      |      17 |          0 |        — |        — |
+| **Total**                                  | **234** |     **19** |   **17** |    **2** |
+
+Sixteen were verified by mutation; one (`code-block.stories.tsx`) is static-only —
+Storybook browser tests cannot run on the sweep host, which lacks the chromium
+system libraries (`libglib-2.0`, `libnss3`, `libdbus-1`, `libatk`). That one is
+typechecked, not executed.
+
+**Confirmed findings, by consequence.** Each mutation left its suite fully green
+before the repair and fails after it.
+
+| Site                                                                        | Mutation that shipped green                                                                                                                                       | Repair                                                                                                                         |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `context-item-producers.ts` `DIGEST_PRECEDENCE`                             | Recency-digest prompt-injection defense replaced with an inert sentence; 86 tests passed. Pinned nowhere in `apps/api/src`                                        | Sentence pinned verbatim in `context-builder.test.ts`                                                                          |
+| `models/dto/models.dto.ts` `toAvailableModelResponse`                       | `return { ...model }` — a shallow copy sharing `tags`/`reasoning` with the process-lifetime catalog singleton, which the field-by-field mapping exists to prevent | Fixture carries `tags`; response asserted `not.toBe` the catalog's array                                                       |
+| `auth.controller.ts` `getSessionCookieDomain`                               | Returning the literal `'.example.com'` instead of reading `SESSION_COOKIE_DOMAIN`; every domain test in the repo used that one value                              | `it.each` over two distinct domains                                                                                            |
+| `context-item.ts` `CONTEXT_ITEM_PROVENANCE`                                 | Reworded to `'This was not written by the user.'` — drops the llame attribution while still matching the `/not written by the user/i` guard elsewhere             | Sentence pinned verbatim                                                                                                       |
+| `compaction.ts` `COMPACTION_SECTION_HEADINGS`                               | Dropping a required operational-handoff section; the test iterated the same array the prompt is built from, so its loop shrank too                                | Independently authored heading list, plus equality against the constant                                                        |
+| `compaction.ts` `COMPACTION_WINDOW_RATIO`                                   | `0.8 → 0.1`; both assertions recomputed `Math.floor(window * RATIO)`                                                                                              | Literal `800_000` / `160_000`, plus a ratio anchor                                                                             |
+| `run-execution.service.ts` `REASONING_PERSIST_MAX`                          | `24_000 → 100`; the test sized both input and expectation from the constant                                                                                       | Literal `30_000` input, `24_001` expectation, plus a cap anchor                                                                |
+| `recency-digest.service.ts` `RECENCY_DIGEST_LIST_LIMIT`                     | `10 → 3`; mocks ignored the `limit` argument entirely                                                                                                             | Literal `limit: 10`, plus a constant anchor                                                                                    |
+| `models`/`memory`/`personalization`/`auth` query-key factories (`apps/web`) | Renaming `modelQueryKeys.all` to `["chats"]` — a real cache collision — passed the test named "preserves the model query key"                                     | One literal anchor per file, matching the existing `pinQueryKeys` pattern                                                      |
+| `tool-cap-notice-part.tsx`                                                  | Removing `({stepsUsed}/{maxSteps})` from the chip; the test only compared two renders to each other                                                               | Added a literal assertion on the rendered counts                                                                               |
+| `context-item-temporal.test.ts`                                             | Test recomputed its expectation through `formatTemporalAnchor`, the same function under test                                                                      | Rewritten to assert only the receipt-wording claim; the format/zone conversion is pinned against literals by two sibling tests |
+| `code-block.stories.tsx`                                                    | Deleting the clipboard write; `toBeVisible()` was already true before the click                                                                                   | Asserts the `onCopy` callback fires                                                                                            |
+
+**Rejections are the useful control.** Two candidates died on execution: a
+`turn-tool-catalog` hash assertion and a `context-item-producers` producer regex
+both looked self-referential, but the mutation was caught — the two sides of the
+assertion do not receive the same input. An 11% rejection rate on findings that
+each carried a written mutation argument is the calibration figure for reviewing
+this class by inspection.
+
+The `apps/api/src/search` clean verdict was independently checked rather than
+taken on trust: mutating `conversation-chunker.ts`'s boundary logic produced 3 and
+2 failures, confirming its `CHUNK_MAX_CHARS` assertions are invariants rather than
+recomputations. That contrast is what rule 11's discriminator now records, and it
+is why a mechanical scan is not a verdict: of 102 raw "test imports an
+implementation constant" hits repository-wide, only 2 were the arithmetic-recompute
+shape.
 
 #### Mutation-testing pilot baseline (2026-08-15)
 

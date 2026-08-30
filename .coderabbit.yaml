@@ -113,6 +113,13 @@ reviews:
         call produces; or snapshots current output with no independent notion of correct. State
         which change to the implementation would leave the test green — that is the evidence.
 
+        Importing a constant into a test is not by itself a finding. An assertion that states an
+        invariant over it (`expect(len).toBeLessThanOrEqual(MAX)`) is real and holds at any value.
+        Report it only when the expectation recomputes the implementation's own derivation
+        (`toBe(Math.floor(window * RATIO))`) or iterates the implementation's own array, AND no
+        test in that file pins the constant against a literal. Where such a literal anchor exists,
+        other tests in the file may compose with the constant freely.
+
     - path: ".github/workflows/**"
       instructions: |
         Flag unpinned action references (this repo pins by SHA via pinact), `pull_request_target`

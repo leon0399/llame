@@ -80,6 +80,25 @@ workspace whose tooling they guard.
     modules it covers. Assert observable behavior at a real seam, against a
     value derived independently of the code under test.
 
+### The invariant-vs-recompute line (rule 11)
+
+Importing a constant into a test is not itself the problem — what matters is what
+the assertion does with it.
+
+Stating an **invariant** over a constant is real:
+`expect(chunk.length).toBeLessThanOrEqual(CHUNK_MAX_CHARS)` holds at any bound and
+still catches a chunker that overshoots.
+
+**Recomputing the implementation's own derivation** is not:
+`toBe(Math.floor(window * COMPACTION_WINDOW_RATIO))` moves both sides together, so
+any ratio ships green. Iterating the implementation's own list
+(`for (const h of SECTION_HEADINGS)`) is the same defect — the loop shrinks with
+the array.
+
+A key factory, a cap, or a wire-format constant needs one **literal anchor**
+somewhere in its test file (`expect(pinQueryKeys.all).toEqual(["pins"])`). Given
+that anchor, other tests in the file may compose with the constant freely.
+
 ## Commands
 
 ```bash
