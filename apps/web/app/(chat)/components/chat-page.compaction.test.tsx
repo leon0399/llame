@@ -46,7 +46,7 @@ let useChatMessages: Array<{
   id: string;
   role: "user" | "assistant";
   parts: unknown[];
-  metadata?: { seq?: number; usage?: Record<string, unknown> };
+  metadata?: { seq?: number; usage?: ChatMessageResponse["usage"] };
 }> = [];
 
 type OnFinishArg = {
@@ -148,9 +148,11 @@ function renderChatPage(
         chatId,
         seq: message.metadata?.seq ?? index + 1,
         role: message.role,
+        // SAFETY: `useChatMessages` fixtures in this suite always seed AI
+        // SDK text/tool parts, matching `ChatMessageResponse["parts"]`'s
+        // shape even though the local fixture type keeps `parts: unknown[]`.
         parts: message.parts as ChatMessageResponse["parts"],
-        usage: (message.metadata?.usage ??
-          null) as ChatMessageResponse["usage"],
+        usage: message.metadata?.usage ?? null,
       }),
     ),
     compaction: seed.compaction,
@@ -335,8 +337,13 @@ describe("ChatPage — compaction checkpoint render", () => {
     const mappedMessages = toChatUiMessages({ messages: rawMessages });
     useChatMessages = mappedMessages.map((m) => ({
       id: m.id,
+      // SAFETY: `rawMessages` above only seeds "user"/"assistant" roles, and
+      // `toChatUiMessages` is role-preserving, so `m.role` can't be anything
+      // else here even though its own return type is the wider UI role set.
       role: m.role as "user" | "assistant",
       parts: m.parts,
+      // SAFETY: `rawMessages` never sets a `seq`-bearing metadata shape
+      // beyond `{ seq?: number }`; `toChatUiMessages` doesn't add other keys.
       metadata: m.metadata as { seq?: number } | undefined,
     }));
 

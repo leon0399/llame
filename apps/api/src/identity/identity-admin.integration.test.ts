@@ -177,9 +177,9 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       (tx) =>
         tx`SELECT user_id FROM memberships WHERE org_unit_id = ${unit.id}`,
     );
-    expect(roster.map((r) => r.user_id).sort()).toEqual(
-      [owner, member].sort(),
-    );
+    expect(
+      roster.map((r) => r.user_id).sort((a, b) => a.localeCompare(b)),
+    ).toEqual([owner, member].sort());
 
     const strangerView = await asUser(
       stranger,

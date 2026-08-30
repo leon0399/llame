@@ -24,6 +24,7 @@ import {
   hasModelId,
   modelDisplayName,
   type AvailableModel,
+  type ModelsResponse,
   useModelsQuery,
 } from "@/lib/services/models/queries";
 import { useChatContext } from "@/contexts/chat-context";
@@ -36,19 +37,21 @@ const EMPTY_MODELS: AvailableModel[] = [];
 const SKELETON_LINE_WIDTHS = ["w-28", "w-20", "w-32", "w-24"] as const;
 const MODEL_SKELETON_ROW_COUNT = 6;
 
+type ModelSelectorTriggerProps = {
+  isPending: boolean;
+  isError: boolean;
+  open: boolean;
+  selectedLabel: string;
+  className?: string;
+};
+
 function ModelSelectorTrigger({
   isPending,
   isError,
   open,
   selectedLabel,
   className,
-}: {
-  isPending: boolean;
-  isError: boolean;
-  open: boolean;
-  selectedLabel: string;
-  className?: string;
-}) {
+}: ModelSelectorTriggerProps) {
   return (
     <PopoverTrigger
       render={
@@ -133,17 +136,14 @@ function ModelListSkeleton() {
   );
 }
 
-function ModelOption({
-  model,
-  isSelected,
-  onSelect,
-  onHover,
-}: {
+type ModelOptionProps = {
   model: AvailableModel;
   isSelected: boolean;
   onSelect: (modelId: string) => void;
   onHover: (modelId: string) => void;
-}) {
+};
+
+function ModelOption({ model, isSelected, onSelect, onHover }: ModelOptionProps) {
   return (
     <CommandItem
       value={model.id}
@@ -183,6 +183,141 @@ function ModelOption({
   );
 }
 
+/** Seeds context with the catalog default the first time the current
+ *  selection isn't (or is no longer) a valid model id. */
+function useDefaultModelSeed(
+  data: ModelsResponse | undefined,
+  models: AvailableModel[],
+  value: string | undefined,
+  setValue: (modelId: string) => void,
+): void {
+  React.useEffect(() => {
+    if (!data || models.length === 0) return;
+    if (!hasModelId(models, value)) {
+      setValue(data.defaultModelId);
+    }
+  }, [data, models, setValue, value]);
+}
+
+/** The model shown in the preview card — the selection by default, or
+ *  whatever option is under the pointer while browsing the list. */
+function usePreviewModel(models: AvailableModel[], value: string | undefined) {
+  const [previewModelId, setPreviewModelId] = React.useState<
+    string | undefined
+  >(value);
+  React.useEffect(() => {
+    setPreviewModelId(value);
+  }, [value]);
+
+  const previewModel = React.useMemo(
+    () => models.find((model) => model.id === previewModelId),
+    [models, previewModelId],
+  );
+
+  return { previewModel, setPreviewModelId };
+}
+
+// Rendered only once loaded (isPending shows a skeleton instead).
+function resolveSelectedLabel(
+  isError: boolean,
+  effectiveValue: string | undefined,
+  models: AvailableModel[],
+): string {
+  if (isError) return "Models unavailable";
+  if (!effectiveValue) return "Select a model";
+  return modelDisplayName(effectiveValue, models);
+}
+
+type ModelPickerPanelProps = {
+  isPending: boolean;
+  isError: boolean;
+  models: AvailableModel[];
+  effectiveValue: string | undefined;
+  previewModel: AvailableModel | undefined;
+  onSelect: (modelId: string) => void;
+  onHover: (modelId: string) => void;
+};
+
+type ModelCommandResultsProps = {
+  isPending: boolean;
+  isError: boolean;
+  models: AvailableModel[];
+  effectiveValue: string | undefined;
+  onSelect: (modelId: string) => void;
+  onHover: (modelId: string) => void;
+};
+
+function ModelCommandResults({
+  isPending,
+  isError,
+  models,
+  effectiveValue,
+  onSelect,
+  onHover,
+}: ModelCommandResultsProps) {
+  if (isPending) return <ModelListSkeleton />;
+  return (
+    <>
+      <CommandEmpty>
+        {isError ? "Models unavailable." : "No model found."}
+      </CommandEmpty>
+      <CommandGroup>
+        {models.map((model) => (
+          <ModelOption
+            key={model.id}
+            model={model}
+            isSelected={effectiveValue === model.id}
+            onSelect={onSelect}
+            onHover={onHover}
+          />
+        ))}
+      </CommandGroup>
+    </>
+  );
+}
+
+function ModelPickerPanel({
+  isPending,
+  isError,
+  models,
+  effectiveValue,
+  previewModel,
+  onSelect,
+  onHover,
+}: ModelPickerPanelProps) {
+  return (
+    <PopoverContent
+      // Base UI renders the popover with role=dialog, which needs its own
+      // accessible name (axe aria-dialog-name) — the trigger's label does
+      // not carry over to it.
+      aria-label="Model picker"
+      className={cn("p-0", previewModel ? "w-[36rem]" : "w-72")}
+      align="end"
+      side="top"
+    >
+      <div className="relative flex flex-row divide-x divide-border">
+        <Command className="rounded-e-none w-72">
+          <CommandInput placeholder="Search model..." className="h-9" />
+          <CommandList>
+            <ModelCommandResults
+              isPending={isPending}
+              isError={isError}
+              models={models}
+              effectiveValue={effectiveValue}
+              onSelect={onSelect}
+              onHover={onHover}
+            />
+          </CommandList>
+        </Command>
+
+        {previewModel && (
+          <ModelPreviewCard model={previewModel} className="w-72" />
+        )}
+      </div>
+    </PopoverContent>
+  );
+}
+
 /**
  * Model picker that lives inside the composer, grouped with the send button.
  * The trigger renders inline (borderless — the group wrapper owns the border)
@@ -197,36 +332,14 @@ export function ModelSelector({ className }: { className?: string }) {
   const { data, isError, isPending } = useModelsQuery();
   const models = data?.models ?? EMPTY_MODELS;
 
-  React.useEffect(() => {
-    if (!data || models.length === 0) return;
-    if (!hasModelId(models, value)) {
-      setValue(data.defaultModelId);
-    }
-  }, [data, models, setValue, value]);
-
-  const [previewModelId, setPreviewModelId] = React.useState<
-    string | undefined
-  >(value);
-  React.useEffect(() => {
-    setPreviewModelId(value);
-  }, [value]);
-
-  const previewModel = React.useMemo(
-    () => models.find((model) => model.id === previewModelId),
-    [models, previewModelId],
-  );
+  useDefaultModelSeed(data, models, value, setValue);
+  const { previewModel, setPreviewModelId } = usePreviewModel(models, value);
 
   // Fall back to the catalog default during render so the label/checkmark
   // never flash "Select a model" in the frame before the seeding effect above
   // commits the default into context.
   const effectiveValue = value ?? data?.defaultModelId;
-
-  // Rendered only once loaded (isPending shows a skeleton instead).
-  const selectedLabel = isError
-    ? "Models unavailable"
-    : !effectiveValue
-      ? "Select a model"
-      : modelDisplayName(effectiveValue, models);
+  const selectedLabel = resolveSelectedLabel(isError, effectiveValue, models);
 
   const handleSelect = (modelId: string) => {
     setValue(modelId);
@@ -243,47 +356,15 @@ export function ModelSelector({ className }: { className?: string }) {
         className={className}
       />
 
-      <PopoverContent
-        // Base UI renders the popover with role=dialog, which needs its own
-        // accessible name (axe aria-dialog-name) — the trigger's label does
-        // not carry over to it.
-        aria-label="Model picker"
-        className={cn("p-0", previewModel ? "w-[36rem]" : "w-72")}
-        align="end"
-        side="top"
-      >
-        <div className="relative flex flex-row divide-x divide-border">
-          <Command className="rounded-e-none w-72">
-            <CommandInput placeholder="Search model..." className="h-9" />
-            <CommandList>
-              {isPending ? (
-                <ModelListSkeleton />
-              ) : (
-                <>
-                  <CommandEmpty>
-                    {isError ? "Models unavailable." : "No model found."}
-                  </CommandEmpty>
-                  <CommandGroup>
-                    {models.map((model) => (
-                      <ModelOption
-                        key={model.id}
-                        model={model}
-                        isSelected={effectiveValue === model.id}
-                        onSelect={handleSelect}
-                        onHover={setPreviewModelId}
-                      />
-                    ))}
-                  </CommandGroup>
-                </>
-              )}
-            </CommandList>
-          </Command>
-
-          {previewModel && (
-            <ModelPreviewCard model={previewModel} className="w-72" />
-          )}
-        </div>
-      </PopoverContent>
+      <ModelPickerPanel
+        isPending={isPending}
+        isError={isError}
+        models={models}
+        effectiveValue={effectiveValue}
+        previewModel={previewModel}
+        onSelect={handleSelect}
+        onHover={setPreviewModelId}
+      />
     </Popover>
   );
 }

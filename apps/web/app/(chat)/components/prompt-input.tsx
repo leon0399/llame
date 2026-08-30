@@ -51,26 +51,14 @@ export const PromptInputTextarea = ({
   });
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
+    if (e.key !== "Enter") return;
     // Enter-key behaviour is fixed by `submitBehavior`; it is not user-configurable.
-    if (submitBehavior === "enter" && e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      const form = e.currentTarget.form;
-      if (form) {
-        form.requestSubmit();
-      }
-    }
+    const shouldSubmit =
+      submitBehavior === "enter" ? !e.shiftKey : e.metaKey || e.ctrlKey;
+    if (!shouldSubmit) return;
 
-    if (
-      submitBehavior === "shift-enter" &&
-      e.key === "Enter" &&
-      (e.metaKey || e.ctrlKey)
-    ) {
-      e.preventDefault();
-      const form = e.currentTarget.form;
-      if (form) {
-        form.requestSubmit();
-      }
-    }
+    e.preventDefault();
+    e.currentTarget.form?.requestSubmit();
   };
 
   return (

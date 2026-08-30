@@ -9,6 +9,9 @@ import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import type { ModelClient, ModelStreamInput } from './model-client';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
 
+/** Default for `resolveCompletion`/`rejectCompletion` before the completion Promise executor below replaces them. */
+function noop(): void {}
+
 export const ZERO_USAGE: LanguageModelUsage = {
   inputTokens: 0,
   inputTokenDetails: {
@@ -73,8 +76,8 @@ export function createFakeModelClient(
         },
       );
 
-      let resolveCompletion: () => void = () => undefined;
-      let rejectCompletion: (reason?: unknown) => void = () => undefined;
+      let resolveCompletion: () => void = noop;
+      let rejectCompletion: (reason?: unknown) => void = noop;
       const completion = new Promise<void>((resolve, reject) => {
         resolveCompletion = resolve;
         rejectCompletion = reject;

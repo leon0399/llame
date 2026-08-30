@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { CheckIcon, EyeIcon, EyeOffIcon } from "lucide-react";
 
@@ -26,57 +25,27 @@ import { Switch } from "@workspace/ui/components/switch";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { cn } from "@workspace/ui/lib/utils";
 
-import { useMeOptional } from "@/lib/services/auth/queries";
 import { useUpdatePersonalizationMutation } from "@/lib/services/personalization/mutations";
+import { PERSONALIZATION_CAPS } from "@/lib/services/personalization/types";
+import type { PersonalizationTextField } from "@/lib/services/personalization/types";
+
 import {
-  buildPersonalizationPreview,
+  usePersonalizationDraft,
+  type Draft,
   type PersonalizationPreview,
-} from "@/lib/services/personalization/preview";
-import { usePersonalizationQuery } from "@/lib/services/personalization/queries";
-import {
-  PERSONALIZATION_CAPS,
-  type Personalization,
-  type PersonalizationTextField,
-} from "@/lib/services/personalization/types";
+} from "./use-personalization-draft";
 
 /** Below this much headroom the counter appears; above it, it stays out of the way. */
 const COUNTER_VISIBLE_WITHIN = 0.15;
 
-type Draft = Pick<
-  Personalization,
-  "preferredName" | "about" | "responsePreferences"
->;
-
-/** `Object.keys` typed to the object's own key union — TS's lib type widens to `string[]`. */
-function typedKeys(obj: Draft | typeof PERSONALIZATION_CAPS): PersonalizationTextField[] {
-  // SAFETY: `Draft` and `PERSONALIZATION_CAPS` are both declared object types
-  // (no index signature) whose only keys are `PersonalizationTextField`;
-  // `Object.keys` just doesn't encode that in its return type.
-  return Object.keys(obj) as PersonalizationTextField[];
-}
-
-const toDraft = (value: Personalization): Draft => ({
-  preferredName: value.preferredName ?? "",
-  about: value.about ?? "",
-  responsePreferences: value.responsePreferences ?? "",
-});
-
-/**
- * An omitted key keeps the stored value; an explicit null clears it. Sending
- * `""` would store an empty string instead of clearing, so a field the owner
- * emptied becomes `null` rather than blank — matching what "absent" means all
- * the way down to the render context.
- *
- * The stored value is TRIMMED, not raw. Both the preview and the server's
- * `promptValue` trim on render, so persisting `"Leo "` would store something
- * that disagrees with the field the owner sees and with the preview captioned
- * "exactly as it is sent". The trim is already the decision boundary for
- * present-vs-absent; storing anything else re-opens the same drift.
- */
-const toPatch = (draft: Draft): Partial<Personalization> =>
-  Object.fromEntries(
-    typedKeys(draft).map((key) => [key, draft[key]?.trim() || null]),
+function PersonalizationCardHeader({ description }: { description: string }) {
+  return (
+    <CardHeader>
+      <CardTitle>Personalization</CardTitle>
+      <CardDescription>{description}</CardDescription>
+    </CardHeader>
   );
+}
 
 function CharacterCount({ value, cap }: { value: string; cap: number }) {
   const remaining = cap - value.length;
@@ -400,12 +369,7 @@ function PersonalizationPreviewPanel({
 function PersonalizationSkeleton() {
   return (
     <Card className="lg:max-w-2xl">
-      <CardHeader>
-        <CardTitle>Personalization</CardTitle>
-        <CardDescription>
-          What the assistant knows about you, and how you want it to answer.
-        </CardDescription>
-      </CardHeader>
+      <PersonalizationCardHeader description="What the assistant knows about you, and how you want it to answer." />
       <CardContent className="space-y-4">
         <Skeleton className="h-9 w-full" />
         <Skeleton className="h-20 w-full" />
@@ -415,143 +379,19 @@ function PersonalizationSkeleton() {
   );
 }
 
-/** Keeps `draft` in sync with the server value without ever clobbering an edit. */
-function useDraftState(data: Personalization | undefined) {
-  const [draft, setDraft] = useState<Draft | undefined>();
-
-  // Adopt the server value on first load AND on any later refetch that finds
-  // the draft clean — otherwise a save from another tab leaves this one showing
-  // stale text indefinitely. A DIRTY draft is never touched: overwriting it
-  // would eat the owner's keystrokes mid-edit.
-  useEffect(() => {
-    if (!data) return;
-    setDraft((current) => {
-      if (!current) return toDraft(data);
-      const stored = toDraft(data);
-      const edited = typedKeys(stored).some(
-        (key) => (stored[key] ?? "") !== (current[key] ?? ""),
-      );
-      return edited ? current : stored;
-    });
-  }, [data]);
-
-  return [draft, setDraft] as const;
-}
-
-/** Validation/display flags derived from the current data + draft snapshot. */
-function usePersonalizationDerived(
-  data: Personalization | undefined,
-  draft: Draft | undefined,
-  me: ReturnType<typeof useMeOptional>,
-  update: ReturnType<typeof useUpdatePersonalizationMutation>,
-) {
-  const dirty = useMemo(() => {
-    if (!data || !draft) return false;
-    const stored = toDraft(data);
-    return typedKeys(stored).some(
-      (key) => (stored[key] ?? "") !== (draft[key] ?? ""),
-    );
-  }, [data, draft]);
-
-  const overCap = useMemo(
-    () =>
-      draft
-        ? typedKeys(PERSONALIZATION_CAPS).some(
-            (key) => (draft[key] ?? "").length > PERSONALIZATION_CAPS[key],
-          )
-        : false,
-    [draft],
-  );
-
-  // `me` unresolved is NOT the same as "shares no identity". Collapsing the two
-  // would let the preview state that nothing identifying is sent while the
-  // account query is still in flight or has failed — the one claim this preview
-  // exists to make truthfully.
-  const identityUnknown =
-    data?.shareAccountIdentity === true && me.data === undefined;
-
-  // The Save affordance must reflect SAVES. One mutation hook backs the two
-  // toggles as well, and those persist optimistically on their own — so keying
-  // the spinner off `update.isPending` made Save spin and disable when nothing
-  // was being saved. Only a text-field payload counts.
-  const isSaving =
-    update.isPending &&
-    update.variables !== undefined &&
-    typedKeys(PERSONALIZATION_CAPS).some((key) => key in update.variables!);
-
-  const preview = useMemo(
-    () =>
-      data && draft && !identityUnknown
-        ? buildPersonalizationPreview(
-            { ...data, ...toPatch(draft) },
-            me.data ?? undefined,
-          )
-        : undefined,
-    [data, draft, me.data, identityUnknown],
-  );
-
-  return { dirty, overCap, isSaving, preview };
-}
-
-function usePersonalizationDraft() {
-  const { data, isPending } = usePersonalizationQuery();
-  const me = useMeOptional();
-  const update = useUpdatePersonalizationMutation();
-  const [draft, setDraft] = useDraftState(data);
-  const [previewOpen, setPreviewOpen] = useState(false);
-
-  const { dirty, overCap, isSaving, preview } = usePersonalizationDerived(
-    data,
-    draft,
-    me,
-    update,
-  );
-
-  const setField = (key: PersonalizationTextField, value: string) =>
-    setDraft((current) => (current ? { ...current, [key]: value } : current));
-
-  const save = () => {
-    if (!draft) return;
-    update.mutate(toPatch(draft), {
-      onSuccess: (saved) => setDraft(toDraft(saved)),
-    });
-  };
-
-  return {
-    data,
-    isPending,
-    draft,
-    update,
-    dirty,
-    overCap,
-    isSaving,
-    preview,
-    previewOpen,
-    setPreviewOpen,
-    setField,
-    save,
-  };
-}
+/** The derived-state bundle every form section reads from — passed down whole
+ * rather than fanned out prop-by-prop, since it's already one cohesive unit. */
+type PersonalizationFormState = Omit<
+  ReturnType<typeof usePersonalizationDraft>,
+  "data" | "draft" | "isPending"
+>;
 
 function PersonalizationFieldsSection({
   enabled,
   draft,
   setField,
-  update,
-  dirty,
-  overCap,
-  isSaving,
-  save,
-}: {
-  enabled: boolean;
-  draft: Draft;
-  setField: (key: PersonalizationTextField, value: string) => void;
-  update: ReturnType<typeof useUpdatePersonalizationMutation>;
-  dirty: boolean;
-  overCap: boolean;
-  isSaving: boolean;
-  save: () => void;
-}) {
+  ...state
+}: { enabled: boolean; draft: Draft } & PersonalizationFormState) {
   return (
     <>
       {/* The master switch sits directly on the fields it gates, with no rule
@@ -563,7 +403,7 @@ function PersonalizationFieldsSection({
         label="Use my personalization"
         description="Turn this off to send none of it — including your account details — without deleting what you wrote."
         checked={enabled}
-        onCheckedChange={(checked) => update.mutate({ enabled: checked })}
+        onCheckedChange={(checked) => state.update.mutate({ enabled: checked })}
       />
 
       {TEXT_FIELDS.map((field) => (
@@ -578,11 +418,11 @@ function PersonalizationFieldsSection({
 
       <PersonalizationSaveRow
         enabled={enabled}
-        dirty={dirty}
-        overCap={overCap}
-        isSaving={isSaving}
-        isError={update.isError}
-        onSave={save}
+        dirty={state.dirty}
+        overCap={state.overCap}
+        isSaving={state.isSaving}
+        isError={state.update.isError}
+        onSave={state.save}
       />
     </>
   );
@@ -633,22 +473,8 @@ function PersonalizationIdentitySection({
 function PersonalizationForm({
   data,
   draft,
-  update,
-  dirty,
-  overCap,
-  isSaving,
-  preview,
-  previewOpen,
-  setPreviewOpen,
-  setField,
-  save,
-}: {
-  data: Personalization;
-  draft: Draft;
-} & Omit<
-  ReturnType<typeof usePersonalizationDraft>,
-  "data" | "draft" | "isPending"
->) {
+  ...state
+}: { data: NonNullable<ReturnType<typeof usePersonalizationDraft>["data"]>; draft: Draft } & PersonalizationFormState) {
   // The master switch gates everything below it, so the fields it governs are
   // disabled rather than merely ignored — a field you can still type into while
   // nothing you type is sent would be a lie told by the UI.
@@ -656,37 +482,22 @@ function PersonalizationForm({
 
   return (
     <Card className="lg:max-w-2xl">
-      <CardHeader>
-        <CardTitle>Personalization</CardTitle>
-        <CardDescription>
-          What the assistant knows about you, and how you want it to answer.
-          Everything here is sent with every message you write.
-        </CardDescription>
-      </CardHeader>
+      <PersonalizationCardHeader description="What the assistant knows about you, and how you want it to answer. Everything here is sent with every message you write." />
 
       {/* pb-2 on top of Card's own padding: the closing footnote is 12px type
           and sits right against the card edge without it. */}
       <CardContent className="space-y-6 pb-2">
-        <PersonalizationFieldsSection
-          enabled={enabled}
-          draft={draft}
-          setField={setField}
-          update={update}
-          dirty={dirty}
-          overCap={overCap}
-          isSaving={isSaving}
-          save={save}
-        />
+        <PersonalizationFieldsSection enabled={enabled} draft={draft} {...state} />
 
         <Separator />
 
         <PersonalizationIdentitySection
           enabled={enabled}
           shareAccountIdentity={data.shareAccountIdentity}
-          update={update}
-          preview={preview}
-          previewOpen={previewOpen}
-          setPreviewOpen={setPreviewOpen}
+          update={state.update}
+          preview={state.preview}
+          previewOpen={state.previewOpen}
+          setPreviewOpen={state.setPreviewOpen}
         />
       </CardContent>
     </Card>
@@ -694,11 +505,9 @@ function PersonalizationForm({
 }
 
 export function PersonalizationSection() {
-  const state = usePersonalizationDraft();
-  if (state.isPending || !state.data || !state.draft) {
+  const { data, isPending, draft, ...state } = usePersonalizationDraft();
+  if (isPending || !data || !draft) {
     return <PersonalizationSkeleton />;
   }
-  return (
-    <PersonalizationForm {...state} data={state.data} draft={state.draft} />
-  );
+  return <PersonalizationForm data={data} draft={draft} {...state} />;
 }

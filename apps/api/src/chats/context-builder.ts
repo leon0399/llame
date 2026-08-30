@@ -42,6 +42,7 @@ import {
   isStoredReplacementToolPart,
   parseCompactionReplacementHistory,
   renderToolObservationOmission,
+  type StoredReplacementToolPart,
 } from './compaction-replacement-history';
 
 export { projectToolObservations };
@@ -249,7 +250,13 @@ function replacementRecordToModelMessages(
   if (!isStoredReplacementToolPart(part)) {
     throw new TypeError('Invalid compaction replacement history');
   }
+  return toolReplacementRecordToModelMessages(part);
+}
 
+/** Reconstruct the tool-call/tool-result message pair a stored replacement tool part represents. */
+function toolReplacementRecordToModelMessages(
+  part: StoredReplacementToolPart,
+): ModelMessage[] {
   const toolName = part.type.slice('tool-'.length);
   const toolCallPart: SdkToolCallPart = {
     type: 'tool-call',
@@ -295,16 +302,15 @@ function appendCompactionReplacementHistory(
   });
 }
 
-function pushAssistantHistory(
+/**
+ * Batches consecutive text parts into one assistant message and inserts the
+ * omission notice at the right point in the stream — the running state
+ * `pushAssistantHistory` below drives while walking `parts` in order.
+ */
+function createAssistantHistoryEmitter(
   result: ModelMessage[],
-  parts: MessagePart[],
   projection: ToolObservationProjection,
-): void {
-  // TODO(#599): Research canonical AI SDK UIMessage persistence before replacing
-  // this projector; stored assistant parts currently omit multi-step boundaries.
-  const pairsByPartIndex = new Map(
-    projection.pairs.map((pair) => [pair.partIndex, pair]),
-  );
+) {
   const pendingText: string[] = [];
   let omissionRendered = false;
 
@@ -331,22 +337,37 @@ function pushAssistantHistory(
     }
   };
 
+  return { pendingText, flushPendingText, appendOmissionWhenDue };
+}
+
+function pushAssistantHistory(
+  result: ModelMessage[],
+  parts: MessagePart[],
+  projection: ToolObservationProjection,
+): void {
+  // TODO(#599): Research canonical AI SDK UIMessage persistence before replacing
+  // this projector; stored assistant parts currently omit multi-step boundaries.
+  const pairsByPartIndex = new Map(
+    projection.pairs.map((pair) => [pair.partIndex, pair]),
+  );
+  const emitter = createAssistantHistoryEmitter(result, projection);
+
   for (const [partIndex, part] of parts.entries()) {
-    appendOmissionWhenDue(partIndex);
+    emitter.appendOmissionWhenDue(partIndex);
     if (isTextPart(part)) {
-      pendingText.push(part.text);
+      emitter.pendingText.push(part.text);
       continue;
     }
 
     const pair = pairsByPartIndex.get(partIndex);
     if (!pair) continue;
-    flushPendingText();
+    emitter.flushPendingText();
     result.push({ role: 'assistant', content: [pair.toolCallPart] });
     result.push({ role: 'tool', content: [pair.toolResultPart] });
   }
 
-  appendOmissionWhenDue(Number.POSITIVE_INFINITY);
-  flushPendingText();
+  emitter.appendOmissionWhenDue(Number.POSITIVE_INFINITY);
+  emitter.flushPendingText();
 }
 
 /**
@@ -396,33 +417,46 @@ export function buildContext(
 
   for (const m of ordered) {
     if (m.role === 'user') {
-      const items = readContextItems(m.parts);
-      contextItems.push(...items);
-      const content = userPartsToModelContent(m.parts);
-      if (content.length > 0) {
-        result.push({ role: 'user', content });
-      }
-      continue;
-    }
-
-    const visibleText = partsToText(m.parts);
-    const projected =
-      m.role === 'assistant' ? projectToolObservations(m.parts) : null;
-
-    if (visibleText.length === 0 && !projected) {
-      continue;
-    }
-
-    if (projected) {
-      pushAssistantHistory(result, m.parts, projected);
+      appendUserMessage(result, contextItems, m);
     } else {
-      // Assistant output is replayed byte-identically and never neutralized: a
-      // model does not treat its own prior turns as authoritative, and llame's
-      // users legitimately discuss llame's own envelope, which neutralization
-      // would corrupt.
-      result.push({ role: 'assistant', content: visibleText });
+      appendAssistantMessage(result, m);
     }
   }
 
   return { system: systemPrompt, messages: result, contextItems };
+}
+
+function appendUserMessage(
+  result: ModelMessage[],
+  contextItems: RunContextItem[],
+  m: StoredMessage,
+): void {
+  contextItems.push(...readContextItems(m.parts));
+  const content = userPartsToModelContent(m.parts);
+  if (content.length > 0) {
+    result.push({ role: 'user', content });
+  }
+}
+
+function appendAssistantMessage(
+  result: ModelMessage[],
+  m: StoredMessage,
+): void {
+  const visibleText = partsToText(m.parts);
+  const projected =
+    m.role === 'assistant' ? projectToolObservations(m.parts) : null;
+
+  if (visibleText.length === 0 && !projected) {
+    return;
+  }
+
+  if (projected) {
+    pushAssistantHistory(result, m.parts, projected);
+  } else {
+    // Assistant output is replayed byte-identically and never neutralized: a
+    // model does not treat its own prior turns as authoritative, and llame's
+    // users legitimately discuss llame's own envelope, which neutralization
+    // would corrupt.
+    result.push({ role: 'assistant', content: visibleText });
+  }
 }

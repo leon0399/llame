@@ -21,6 +21,16 @@ import {
  * Chat's extra "navigate away first if deleting the active chat" behavior
  * stays in that wrapper's own onConfirm, not here.
  */
+type ConfirmDeleteDialogProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: ReactNode;
+  confirmLabel?: string;
+  onConfirm: () => void;
+  isPending?: boolean;
+};
+
 export function ConfirmDeleteDialog({
   open,
   onOpenChange,
@@ -29,15 +39,7 @@ export function ConfirmDeleteDialog({
   confirmLabel = "Delete",
   onConfirm,
   isPending = false,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  title: string;
-  description: ReactNode;
-  confirmLabel?: string;
-  onConfirm: () => void;
-  isPending?: boolean;
-}) {
+}: ConfirmDeleteDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>

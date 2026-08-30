@@ -122,7 +122,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
         (tx) =>
           tx`SELECT id FROM projects WHERE id IN (${p1}, ${p2}) ORDER BY id`,
       );
-      expect(aRows.map((r) => r.id).sort()).toEqual(
+      expect(aRows.map((r) => r.id).sort((a, b) => a.localeCompare(b))).toEqual(
         [p1, p2].sort(),
       );
 

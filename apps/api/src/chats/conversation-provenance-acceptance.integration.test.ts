@@ -124,9 +124,12 @@ describe('conversation provenance acceptance — queued lexical search and canon
     ownerUserId: string,
     title: string,
     parts: readonly SourcePart[],
-    role: 'user' | 'assistant' = 'user',
-    usage?: { status: 'error' },
+    options: {
+      role?: 'user' | 'assistant';
+      usage?: { status: 'error' };
+    } = {},
   ) {
+    const { role = 'user', usage } = options;
     const chatId = crypto.randomUUID();
     const message = await harness.tenantDb.runAs(ownerUserId, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
@@ -323,8 +326,7 @@ describe('conversation provenance acceptance — queued lexical search and canon
       ownerB,
       'Retryable source',
       [{ type: 'text', text: RETRYABLE_MARKER }],
-      'assistant',
-      { status: 'error' },
+      { role: 'assistant', usage: { status: 'error' } },
     );
     await new SearchIndexService(harness.tenantDb).reindexChat(
       foreign.chatId,

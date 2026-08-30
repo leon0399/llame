@@ -30,6 +30,10 @@ type FinishArgs = {
   isError?: boolean;
 };
 
+// SAFETY: each assertion below only seeds a mutable slot's declared type for
+// later reassignment by the test/mocks (e.g. `capturedOnFinish` is set once
+// the mocked `useChat` captures its `onFinish` callback) — none narrows
+// untrusted external data.
 const mocks = vi.hoisted(() => ({
   getChat: vi.fn(),
   getChatMessages: vi.fn(),
@@ -462,6 +466,8 @@ describe("ChatPage target hydration", () => {
     await user.type(input, "follow-up");
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
+    // SAFETY: the composer's textarea is the only element this placeholder
+    // resolves to.
     await waitFor(() =>
       expect((input as HTMLTextAreaElement).value).toBe("follow-up"),
     );

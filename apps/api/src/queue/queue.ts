@@ -53,6 +53,9 @@ export interface QueueDefinition<T extends object> {
   readonly [payloadType]?: (payload: T) => T;
 }
 
+/** The payload type carried by a queue definition — used by consume() (see its variance-escape comment). */
+export type PayloadOf<Q> = Q extends QueueDefinition<infer T> ? T : never;
+
 /** Declare a queue: its name, payload type, policy, and optional guard. */
 export function defineQueue<T extends object>(definition: {
   name: string;
@@ -186,9 +189,21 @@ export interface Queue {
    * substrate's native graceful stop (see PgBossQueueService) — there is no
    * per-consumer stop method, so nothing needs to hold the returned id.
    */
-  consume<T extends object>(
-    queue: QueueDefinition<T>,
-    handler: JobHandler<T>,
+  // `any` here is a narrower variance escape than enqueue/schedule need:
+  // definitions are invariant in their payload (so a `QueueDefinition<object>`
+  // bound would reject every concrete definition), AND — unlike enqueue and
+  // schedule — this method's handler is mocked as a fixed monomorphic
+  // instantiation in tests (RunsWorkerService's suite). Tried and rejected: a
+  // genuinely generic `<T extends object>` signature makes every shape of that
+  // mock (a narrow `QueueDefinition<RunJob>` instantiation, a loosened
+  // `Function`-typed handler, a wrapper that casts `handler` down from the
+  // opaque `JobHandler<T>`) fail `typescript/no-unsafe-type-assertion` — the
+  // rule blocks narrowing a function's parameter type regardless of the cast's
+  // source, so no assertion here can pass it. PayloadOf<Q> still extracts the
+  // exact payload type; nothing is weakened at call sites.
+  consume<Q extends QueueDefinition<any>>(
+    queue: Q,
+    handler: JobHandler<PayloadOf<Q>>,
     options?: ConsumeOptions,
   ): Promise<string>;
 

@@ -61,16 +61,14 @@ import {
   MemoryService,
   type MemorySettingsBindingResolver,
   type MemorySettingsResolver,
-  type ResolvedMemorySettings,
 } from '../memory/memory.service';
 import {
-  deriveRecencyDigestDelta,
   RecencyDigestService,
   type RecencyDigestDelta,
   type RecencyDigestResolution,
   type RecencyDigestResolver,
 } from './recency-digest.service';
-import { buildTurnContextAndParts } from './turn-context';
+import { resolveTurnContext, type TurnContextDeps } from './turn-context';
 
 type RuntimeCatalogSnapshotter = Pick<McpRuntimeService, 'snapshotCandidates'>;
 
@@ -87,6 +85,15 @@ function toMessageParts(parts: readonly unknown[]): MessagePart[] {
     }
     return part;
   });
+}
+
+/** Project a persisted user Message into the wire `RunUserMessage` shape. */
+function toRunUserMessage(message: Message): RunUserMessage {
+  return {
+    id: message.id,
+    seq: message.seq,
+    parts: toMessageParts(message.parts),
+  };
 }
 
 export type ChatMessageInput = {
@@ -113,6 +120,32 @@ type ChatMessageStream = Pick<
   ReturnType<ModelClient['streamText']>,
   'toUIMessageStreamResponse'
 >;
+
+type CreateRunForMessageInput = {
+  userId: string;
+  chatId: string;
+  modelId: string;
+  effort: string | undefined;
+  targetRunId: string;
+};
+
+type CreateRunForMessageResult = { run: Run; supersededRunIds: string[] };
+
+type PersistUserMessageAndRunResult = {
+  runId: string;
+  userMessage: RunUserMessage;
+  supersededRunIds: string[];
+};
+
+type CreateMessageStreamInput = {
+  chatId: string;
+  userId: string;
+  modelId: string;
+  /** Requested by the caller; absent resolves the model's `defaultEffort`. */
+  effort?: string;
+  message: ChatMessageInput;
+  abortSignal?: AbortSignal;
+};
 
 /**
  * ChatLoopService — the API side of a message turn (SPEC §9.5): validate,
@@ -155,29 +188,17 @@ export class ChatLoopService {
     private readonly knowledgeCandidates: KnowledgeToolCandidateResolverPort,
   ) {}
 
-  async createMessageStream(input: {
-    chatId: string;
-    userId: string;
-    modelId: string;
-    /** Requested by the caller; absent resolves the model's `defaultEffort`. */
-    effort?: string;
-    message: ChatMessageInput;
-    abortSignal?: AbortSignal;
-  }): Promise<ChatMessageStream> {
+  async createMessageStream(
+    input: CreateMessageStreamInput,
+  ): Promise<ChatMessageStream> {
     const model = this.models.validateModelSelection(input.modelId);
     // Resolved from the already-validated model, so an unavailable model is
     // reported without the effort ever being considered.
     const effort = this.models.resolveEffortSelection(model, input.effort);
-    // Validate the message BEFORE any database work. A rejected message must
-    // not cost a personalization transaction, and a personalization read that
-    // fails must not turn a 400 into a 500 for input that was invalid anyway.
-    const message = {
-      ...input.message,
-      parts: sanitizeClientMessageParts(input.message.parts),
-    };
-    if (message.parts.length === 0) {
-      throw new BadRequestException('Message must contain a text part');
-    }
+    // Validate BEFORE any database work: a rejected message must not cost a
+    // personalization transaction, and a personalization read that fails
+    // must not turn a 400 into a 500 for input that was invalid anyway.
+    const message = this.sanitizeAndValidateMessage(input.message);
 
     // Read the owner's per-user context in its own short transaction, out here
     // rather than inside the binding transaction below: that one holds the chat
@@ -221,6 +242,29 @@ export class ChatLoopService {
       modelId: input.modelId,
       abortSignal: input.abortSignal,
     });
+  }
+
+  private sanitizeAndValidateMessage(
+    message: ChatMessageInput,
+  ): ChatMessageInput {
+    const sanitized = {
+      ...message,
+      parts: sanitizeClientMessageParts(message.parts),
+    };
+    if (sanitized.parts.length === 0) {
+      throw new BadRequestException('Message must contain a text part');
+    }
+    return sanitized;
+  }
+
+  private turnContextDeps(): TurnContextDeps {
+    return {
+      logger: this.logger,
+      systemPrompts: this.systemPrompts,
+      instanceConfig: this.instanceConfig,
+      knowledgeCandidates: this.knowledgeCandidates,
+      memory: this.memory,
+    };
   }
 
   /** Best-effort: a failed digest resolution must not fail the turn it decorates. */
@@ -285,11 +329,7 @@ export class ChatLoopService {
 
   private async persistUserMessageAndRun(
     input: PersistUserMessageAndRunInput,
-  ): Promise<{
-    runId: string;
-    userMessage: RunUserMessage;
-    supersededRunIds: string[];
-  }> {
+  ): Promise<PersistUserMessageAndRunResult> {
     // Accepted-turn binding transaction. The prior accepted Run, active
     // compaction boundary, durable availability delta, frozen digest baseline,
     // rendered effective context, user message, immutable snapshot, Run, and
@@ -299,85 +339,28 @@ export class ChatLoopService {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
-
-      let { chat, createdByUs } = await this.resolveChatForTurn(
-        chatsRepo,
-        input,
-      );
-      // Archive guard (chat-project-archive): refuse to send into an archived
-      // chat. A freshly created chat (createdByUs) is never archived, so this
-      // only fires for a pre-existing archived chat — sending does NOT unarchive.
-      assertNotArchived(chat);
-
-      const turn = await messagesRepo.findTurnState(
-        input.chatId,
-        input.userId,
-        input.message.id,
-      );
-      if (turn.userMessage || turn.assistantMessage) {
-        throw new ConflictException('Message id already exists');
-      }
-
-      // Serialize predecessor reads for accepted turns. The availability and
-      // model-switch reminders compare against the immediately preceding Run,
-      // so two transactions must not both read the same baseline and then
-      // commit in sequence. A freshly inserted chat already carries this
-      // transaction's row lock; an existing chat is locked by the activity
-      // update before any predecessor state is read.
-      if (!createdByUs) {
-        // Take the post-lock row from the locking statement itself — `chat`
-        // above is a pre-lock snapshot, and this transaction may have waited
-        // here behind a compaction or a preceding turn that changed the very
-        // digest columns read below.
-        chat = (await chatsRepo.touch(input.chatId, input.userId)) ?? chat;
-      }
-
       const eventsRepo = new RunEventsRepository(tx);
       const runsRepo = new RunsRepository(tx);
-      await this.clearActiveRunSlot({
-        runsRepo,
-        eventsRepo,
-        chatId: input.chatId,
-        userId: input.userId,
-      });
 
-      const {
-        chat: boundChat,
-        shareRecentChats,
-        digestDelta,
-      } = await this.resolveDigestBindingAndDelta(tx, chatsRepo, chat, input);
-      chat = boundChat;
-
-      let userMessage: Message | undefined = turn.userMessage;
-      const { effectiveContext, messageParts } = await buildTurnContextAndParts(
-        {
-          logger: this.logger,
-          systemPrompts: this.systemPrompts,
-          instanceConfig: this.instanceConfig,
-          knowledgeCandidates: this.knowledgeCandidates,
-        },
-        { tx, chat, turnInput: input, shareRecentChats, digestDelta },
+      const { chat, userMessage: admittedMessage } = await this.admitTurn(
+        chatsRepo,
+        messagesRepo,
+        input,
       );
+      let userMessage = admittedMessage;
+      await this.clearActiveRunSlot({ runsRepo, eventsRepo, ...input });
 
-      if (!userMessage) {
-        userMessage = await messagesRepo.createUserMessageIfAbsent({
-          id: input.message.id,
-          chatId: input.chatId,
-          senderUserId: input.userId,
-          parts: messageParts,
-        });
-      }
-
-      if (!userMessage) {
-        throw new ConflictException('Message id already exists');
-      }
-      if (digestDelta) {
-        await chatsRepo.updateRecencyDigestTold(
-          input.chatId,
-          input.userId,
-          digestDelta.told,
-        );
-      }
+      const turnContext = await resolveTurnContext(
+        this.turnContextDeps(),
+        { tx, chatsRepo, chat },
+        input,
+      );
+      userMessage = await this.finalizeTurnMessage(
+        { messagesRepo, chatsRepo },
+        userMessage,
+        input,
+        turnContext,
+      );
 
       // Durable run (#48): every accepted user message becomes exactly one run
       // (SPEC §9.3). The run row + run.created land in the SAME transaction as
@@ -386,42 +369,44 @@ export class ChatLoopService {
       // feature, not implicit idempotency.
       const { run, supersededRunIds } = await this.createRunForMessage(
         tx,
-        {
-          userId: input.userId,
-          chatId: input.chatId,
-          modelId: input.modelId,
-          effort: input.effort,
-          targetRunId: input.targetRunId,
-        },
+        input,
         userMessage,
-        effectiveContext,
+        turnContext.effectiveContext,
       );
 
       return {
         runId: run.id,
-        userMessage: {
-          id: userMessage.id,
-          seq: userMessage.seq,
-          parts: toMessageParts(userMessage.parts),
-        },
+        userMessage: toRunUserMessage(userMessage),
         supersededRunIds,
       };
     });
   }
 
   /**
-   * First message creates the chat (#86): the client supplies the id
-   * (routing + idempotency); the owner is always the session user. If the
-   * chat is absent, upsert it; a conflict means the id is already taken — by
-   * us (a concurrent first send) or by another tenant. Re-query to
-   * disambiguate: our own row becomes visible (relies on the default READ
-   * COMMITTED seeing the concurrent commit), a cross-tenant id stays
-   * invisible → 404 (no existence leak).
+   * Resolve/create the chat and admit the turn: refuse an archived chat and
+   * a reused message id (a turn already carrying a user or assistant
+   * message). Serializes predecessor reads for an accepted turn on a
+   * pre-existing chat — the availability and model-switch reminders compare
+   * against the immediately preceding Run, so two transactions must not both
+   * read the same baseline and then commit in sequence. A freshly inserted
+   * chat already carries this transaction's row lock; an existing chat is
+   * locked here (by the activity update) before any predecessor state is
+   * read, taking the post-lock row rather than the pre-lock snapshot above —
+   * this transaction may have waited behind a compaction or a preceding turn
+   * that changed the very digest columns read downstream.
    */
-  private async resolveChatForTurn(
+  private async admitTurn(
     chatsRepo: ChatsRepository,
-    input: { chatId: string; userId: string },
-  ): Promise<{ chat: Chat; createdByUs: boolean }> {
+    messagesRepo: MessagesRepository,
+    input: PersistUserMessageAndRunInput,
+  ): Promise<{ chat: Chat; userMessage: Message | undefined }> {
+    // First message creates the chat (#86): the client supplies the id
+    // (routing + idempotency); the owner is always the session user. If the
+    // chat is absent, upsert it; a conflict means the id is already taken —
+    // by us (a concurrent first send) or by another tenant. Re-query to
+    // disambiguate: our own row becomes visible (relies on the default READ
+    // COMMITTED seeing the concurrent commit), a cross-tenant id stays
+    // invisible → 404 (no existence leak).
     let chat = await chatsRepo.findById(input.chatId, input.userId);
     let createdByUs = false;
     if (!chat) {
@@ -438,65 +423,101 @@ export class ChatLoopService {
         throw new NotFoundException(`Chat ${input.chatId} not found`);
       }
     }
-    return { chat, createdByUs };
+
+    // Archive guard (chat-project-archive): a freshly created chat
+    // (createdByUs) is never archived, so this only fires for a pre-existing
+    // archived chat — sending does NOT unarchive.
+    assertNotArchived(chat);
+
+    const turn = await messagesRepo.findTurnState(
+      input.chatId,
+      input.userId,
+      input.message.id,
+    );
+    if (turn.userMessage || turn.assistantMessage) {
+      throw new ConflictException('Message id already exists');
+    }
+
+    if (!createdByUs) {
+      chat = (await chatsRepo.touch(input.chatId, input.userId)) ?? chat;
+    }
+
+    return { chat, userMessage: turn.userMessage };
+  }
+
+  private async persistUserMessageIfAbsent(
+    messagesRepo: MessagesRepository,
+    existing: Message | undefined,
+    input: PersistUserMessageAndRunInput,
+    parts: MessagePart[],
+  ): Promise<Message> {
+    const userMessage =
+      existing ??
+      (await messagesRepo.createUserMessageIfAbsent({
+        id: input.message.id,
+        chatId: input.chatId,
+        senderUserId: input.userId,
+        parts,
+      }));
+    if (!userMessage) {
+      throw new ConflictException('Message id already exists');
+    }
+    return userMessage;
   }
 
   /**
-   * Bind this turn's recency-digest baseline (if the candidate resolved
-   * earlier is still consented-to and the chat has none yet) and derive the
-   * delta to disclose against the previously told set, if any.
+   * Materialize the user message row (or accept the one `admitTurn` already
+   * found — a retry of an already-persisted turn) and, if this turn resolved
+   * a digest delta, persist the told-set it discloses. The two are bound
+   * together deliberately: the told-set update must not race a message that
+   * never actually got created.
    */
-  private async resolveDigestBindingAndDelta(
-    tx: Db,
-    chatsRepo: ChatsRepository,
-    chat: Chat,
+  private async finalizeTurnMessage(
+    repos: { messagesRepo: MessagesRepository; chatsRepo: ChatsRepository },
+    existing: Message | undefined,
     input: PersistUserMessageAndRunInput,
-  ): Promise<{
-    chat: Chat;
-    shareRecentChats: ResolvedMemorySettings;
-    digestDelta: RecencyDigestDelta | null;
-  }> {
-    const hadDigestBaseline = chat.recencyDigestBaseline !== null;
-    // Read unconditionally: the supersession marker below is gated on this
-    // setting too, and it must still be checkable when `input.digestCandidate`
-    // is absent because this turn's own candidate resolution failed or was
-    // skipped — that failure is unrelated to whether a *prior* compaction's
-    // re-bake should be disclosed this turn.
-    const shareRecentChats = await this.memory.getForOwnerForBinding(
-      tx,
-      input.userId,
+    turnContext: {
+      messageParts: MessagePart[];
+      digestDelta: RecencyDigestDelta | null;
+    },
+  ): Promise<Message> {
+    const userMessage = await this.persistUserMessageIfAbsent(
+      repos.messagesRepo,
+      existing,
+      input,
+      turnContext.messageParts,
     );
-    if (chat.recencyDigestBaseline == null && input.digestCandidate) {
-      // FOR SHARE serializes a consent withdrawal with this accepted binding.
-      // The candidate was intentionally read outside this transaction, so a
-      // stale true must be discarded instead of entering an immutable prompt.
-      if (shareRecentChats?.shareRecentChats === true) {
-        const bound = await chatsRepo.setRecencyDigestIfAbsent(
-          input.chatId,
-          input.userId,
-          input.digestCandidate.baseline,
-          input.digestCandidate.told,
-        );
-        chat = bound ?? (await chatsRepo.findById(input.chatId, input.userId))!;
-      }
+    if (turnContext.digestDelta) {
+      await repos.chatsRepo.updateRecencyDigestTold(
+        input.chatId,
+        input.userId,
+        turnContext.digestDelta.told,
+      );
     }
+    return userMessage;
+  }
 
-    const digestDelta =
-      hadDigestBaseline &&
-      input.digestCandidate &&
-      chat.recencyDigestTold !== null &&
-      shareRecentChats?.shareRecentChats === true
-        ? deriveRecencyDigestDelta({
-            candidate: input.digestCandidate,
-            told: chat.recencyDigestTold,
-            pinnedChatIds: await chatsRepo.findPinnedChatIds(
-              input.userId,
-              chat.recencyDigestTold.map(({ chatId }) => chatId),
-            ),
-          })
-        : null;
-
-    return { chat, shareRecentChats, digestDelta };
+  /**
+   * Defensive cleanup for impossible legacy state: a freshly inserted
+   * message should have no older active runs, but if dev data violates that
+   * invariant, canceling them preserves the per-chat single-flight slot.
+   */
+  private async cancelSupersededRuns(
+    runsRepo: RunsRepository,
+    eventsRepo: RunEventsRepository,
+    userMessage: Message,
+    userId: string,
+  ): Promise<Run[]> {
+    const superseded = await runsRepo.cancelActiveRunsForMessage(
+      userMessage.id,
+      userId,
+    );
+    for (const stale of superseded) {
+      await eventsRepo.append(stale.id, 'run.cancelled', {
+        reason: 'superseded by retry',
+      });
+    }
+    return superseded;
   }
 
   /**
@@ -506,39 +527,45 @@ export class ChatLoopService {
    */
   private async createRunForMessage(
     tx: Db,
-    input: {
-      userId: string;
-      chatId: string;
-      modelId: string;
-      effort: string | undefined;
-      targetRunId: string;
-    },
+    input: CreateRunForMessageInput,
     userMessage: Message,
     effectiveContext: EffectiveContextSnapshotInput,
-  ): Promise<{ run: Run; supersededRunIds: string[] }> {
-    const snapshotsRepo = new ModelContextSnapshotsRepository(tx);
-    const snapshot = await snapshotsRepo.createOrReuse(
-      input.userId,
-      effectiveContext,
-    );
+  ): Promise<CreateRunForMessageResult> {
+    const snapshot = await new ModelContextSnapshotsRepository(
+      tx,
+    ).createOrReuse(input.userId, effectiveContext);
 
     const runsRepo = new RunsRepository(tx);
     const eventsRepo = new RunEventsRepository(tx);
-    const superseded = await runsRepo.cancelActiveRunsForMessage(
-      userMessage.id,
+    const superseded = await this.cancelSupersededRuns(
+      runsRepo,
+      eventsRepo,
+      userMessage,
       input.userId,
     );
-    for (const stale of superseded) {
-      await eventsRepo.append(stale.id, 'run.cancelled', {
-        reason: 'superseded by retry',
-      });
-    }
 
-    let run: Run;
+    const run = await this.createRunRow(tx, input, userMessage, snapshot.id);
+    await eventsRepo.append(run.id, 'run.created', {
+      chatId: input.chatId,
+      messageId: userMessage.id,
+    });
+
+    return { run, supersededRunIds: superseded.map((stale) => stale.id) };
+  }
+
+  /**
+   * The Run row itself, in a savepoint (nested tx) so the single-flight
+   * unique violation it may raise cannot poison the outer accepted-turn
+   * transaction — `clearActiveRunSlot` above still needs it live.
+   */
+  private async createRunRow(
+    tx: Db,
+    input: CreateRunForMessageInput,
+    userMessage: Message,
+    snapshotId: string,
+  ): Promise<Run> {
     try {
-      // Savepoint (nested tx): a unique violation must not poison the outer
-      // transaction — the unwedge path above still needs it.
-      run = await tx.transaction((inner) =>
+      return await tx.transaction((inner) =>
         new RunsRepository(inner).create({
           id: input.targetRunId,
           chatId: input.chatId,
@@ -546,7 +573,7 @@ export class ChatLoopService {
           userId: input.userId,
           modelId: input.modelId,
           effort: input.effort,
-          modelContextSnapshotId: snapshot.id,
+          modelContextSnapshotId: snapshotId,
         }),
       );
     } catch (error) {
@@ -557,12 +584,6 @@ export class ChatLoopService {
       }
       throw error;
     }
-    await eventsRepo.append(run.id, 'run.created', {
-      chatId: input.chatId,
-      messageId: userMessage.id,
-    });
-
-    return { run, supersededRunIds: superseded.map((stale) => stale.id) };
   }
 
   private async clearActiveRunSlot(input: {

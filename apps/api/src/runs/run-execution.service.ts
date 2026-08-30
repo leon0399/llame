@@ -99,6 +99,15 @@ type PreparedExecutionContext = {
   tools: Awaited<ReturnType<typeof resolveBoundExecutableTools>>;
 };
 
+type ExecuteRunInput = {
+  runId: string;
+  chatId: string;
+  userId: string;
+  userMessage: RunUserMessage;
+  client: ModelClient;
+  abortSignal?: AbortSignal;
+};
+
 /**
  * The run reached a terminal state (superseded / cancelled / expired) before
  * execution could claim it — nothing was executed, nothing was appended.
@@ -500,14 +509,9 @@ export class RunExecutionService {
     return settlement;
   }
 
-  async executeRun(input: {
-    runId: string;
-    chatId: string;
-    userId: string;
-    userMessage: RunUserMessage;
-    client: ModelClient;
-    abortSignal?: AbortSignal;
-  }): Promise<ReturnType<ModelClient['streamText']>> {
+  async executeRun(
+    input: ExecuteRunInput,
+  ): Promise<ReturnType<ModelClient['streamText']>> {
     const { client } = input;
 
     // Claim before any context preparation can invoke a model. Transition
@@ -588,21 +592,6 @@ export class RunExecutionService {
           input.userId,
         );
 
-        const compaction = await new CompactionsRepository(
-          tx,
-        ).findLatestByChatId(input.chatId, input.userId, {
-          beforeSeq: input.userMessage.seq,
-        });
-
-        const history = await new MessagesRepository(tx).findByChatId(
-          input.chatId,
-          input.userId,
-          {
-            maxSeq: input.userMessage.seq,
-            ...(compaction && { sinceSeq: compaction.uptoSeq }),
-          },
-        );
-
         const snapshot = await new ModelContextSnapshotsRepository(
           tx,
         ).findByOwnedRun(input.runId, input.userId);
@@ -612,16 +601,11 @@ export class RunExecutionService {
           );
         }
 
-        const built = buildContext(toStoredMessages(history), {
-          systemPrompt: snapshot.systemPrompt,
-          ...(compaction && {
-            compaction: {
-              summary: compaction.summary,
-              uptoSeq: compaction.uptoSeq,
-              replacementHistory: compaction.replacementHistory,
-            },
-          }),
-        });
+        const built = await this.rebuildContextForChat(
+          tx,
+          input,
+          snapshot.systemPrompt,
+        );
 
         return {
           ...built,
@@ -642,84 +626,14 @@ export class RunExecutionService {
         ),
       };
 
-      const reservedOutputTokens =
-        this.instanceConfig.config.runs.maxOutputTokens;
-      if (
-        !requestFitsContextWindow({
-          system: prepared.system,
-          messages: prepared.messages,
-          toolDeclarations: prepared.toolDeclarations,
-          contextWindowTokens: client.contextWindowTokens,
-          reservedOutputTokens,
-        })
-      ) {
-        if (!input.userMessage.parts.some(isModelChangeItem)) {
-          throw new ContextIncompatibleError(
-            'The complete request exceeds the target model context window and no model-switch source context is available.',
-          );
-        }
-        try {
-          await this.compaction.compactForTransition({
-            chatId: input.chatId,
-            userId: input.userId,
-            triggeringUserSeq: input.userMessage.seq,
-            reservedOutputTokens,
-            abortSignal: input.abortSignal,
-          });
-        } catch (error) {
-          if (input.abortSignal?.aborted) {
-            throw error;
-          }
-          throw new ContextIncompatibleError(
-            'The complete request does not fit the target model and transition compaction could not produce compatible context.',
-            { cause: error },
-          );
-        }
-
-        const rebuilt = await this.tenantDb.runAs(input.userId, async (tx) => {
-          const compaction = await new CompactionsRepository(
-            tx,
-          ).findLatestByChatId(input.chatId, input.userId, {
-            beforeSeq: input.userMessage.seq,
-          });
-          const history = await new MessagesRepository(tx).findByChatId(
-            input.chatId,
-            input.userId,
-            {
-              maxSeq: input.userMessage.seq,
-              ...(compaction && { sinceSeq: compaction.uptoSeq }),
-            },
-          );
-          return buildContext(toStoredMessages(history), {
-            systemPrompt: prepared.system,
-            ...(compaction && {
-              compaction: {
-                summary: compaction.summary,
-                uptoSeq: compaction.uptoSeq,
-                replacementHistory: compaction.replacementHistory,
-              },
-            }),
-          });
-        });
-        prepared.messages = rebuilt.messages;
-        // Transition compaction replaces the request wholesale, so the items
-        // recorded must be the rebuilt set — the initial build's items were
-        // never sent.
-        contextItems = rebuilt.contextItems;
-        if (
-          !requestFitsContextWindow({
-            system: prepared.system,
-            messages: prepared.messages,
-            toolDeclarations: prepared.toolDeclarations,
-            contextWindowTokens: client.contextWindowTokens,
-            reservedOutputTokens,
-          })
-        ) {
-          throw new ContextIncompatibleError(
-            'The complete request still exceeds the target model context window after one transition compaction.',
-          );
-        }
-      }
+      // Transition compaction replaces the request wholesale when it runs, so
+      // the items recorded must be the rebuilt set — the initial build's
+      // items were never sent.
+      contextItems = await this.ensureRequestFitsContextWindow(
+        prepared,
+        contextItems,
+        input,
+      );
       // Recorded only once the request is final: before this point a
       // transition compaction can still replace it, and a preparation failure
       // means no request was ever made. Recording earlier would durably assert
@@ -1393,6 +1307,127 @@ export class RunExecutionService {
       });
       throw error;
     }
+  }
+
+  /**
+   * Loads the latest compaction and the message history up to the run's
+   * triggering message, then rebuilds the context with `systemPrompt` — the
+   * shared core of both the initial per-run context build and a
+   * transition-compaction rebuild.
+   */
+  private async rebuildContextForChat(
+    tx: Db,
+    input: ExecuteRunInput,
+    systemPrompt: string,
+  ): Promise<ReturnType<typeof buildContext>> {
+    const { chatId, userId, userMessage } = input;
+    const compaction = await new CompactionsRepository(tx).findLatestByChatId(
+      chatId,
+      userId,
+      { beforeSeq: userMessage.seq },
+    );
+    const history = await new MessagesRepository(tx).findByChatId(
+      chatId,
+      userId,
+      {
+        maxSeq: userMessage.seq,
+        ...(compaction && { sinceSeq: compaction.uptoSeq }),
+      },
+    );
+    return buildContext(toStoredMessages(history), {
+      systemPrompt,
+      ...(compaction && {
+        compaction: {
+          summary: compaction.summary,
+          uptoSeq: compaction.uptoSeq,
+          replacementHistory: compaction.replacementHistory,
+        },
+      }),
+    });
+  }
+
+  /**
+   * If the built request doesn't fit the target model's context window,
+   * attempts recovery via `compactAndRebuildForContextWindow` — or fails fast
+   * with `ContextIncompatibleError` when there is no model-switch anchor to
+   * transition from. Returns `contextItems` unchanged when the request
+   * already fits.
+   */
+  private async ensureRequestFitsContextWindow(
+    prepared: PreparedExecutionContext,
+    contextItems: ReturnType<typeof buildContext>['contextItems'],
+    input: ExecuteRunInput,
+  ): Promise<ReturnType<typeof buildContext>['contextItems']> {
+    const reservedOutputTokens =
+      this.instanceConfig.config.runs.maxOutputTokens;
+    if (
+      requestFitsContextWindow({
+        system: prepared.system,
+        messages: prepared.messages,
+        toolDeclarations: prepared.toolDeclarations,
+        contextWindowTokens: input.client.contextWindowTokens,
+        reservedOutputTokens,
+      })
+    ) {
+      return contextItems;
+    }
+    if (!input.userMessage.parts.some(isModelChangeItem)) {
+      throw new ContextIncompatibleError(
+        'The complete request exceeds the target model context window and no model-switch source context is available.',
+      );
+    }
+    return this.compactAndRebuildForContextWindow(
+      prepared,
+      input,
+      reservedOutputTokens,
+    );
+  }
+
+  /**
+   * Attempts one transition compaction and context rebuild, then re-checks;
+   * throws `ContextIncompatibleError` if compaction itself fails (unless the
+   * abort signal fired, which rethrows) or the rebuilt request still doesn't
+   * fit. Mutates `prepared.messages` in place and returns the rebuilt context
+   * items to record — the initial build's items were never sent.
+   */
+  private async compactAndRebuildForContextWindow(
+    prepared: PreparedExecutionContext,
+    input: ExecuteRunInput,
+    reservedOutputTokens: number | null,
+  ): Promise<ReturnType<typeof buildContext>['contextItems']> {
+    try {
+      await this.compaction.compactForTransition({
+        chatId: input.chatId,
+        userId: input.userId,
+        triggeringUserSeq: input.userMessage.seq,
+        reservedOutputTokens,
+        abortSignal: input.abortSignal,
+      });
+    } catch (error) {
+      if (input.abortSignal?.aborted) throw error;
+      throw new ContextIncompatibleError(
+        'The complete request does not fit the target model and transition compaction could not produce compatible context.',
+        { cause: error },
+      );
+    }
+    const rebuilt = await this.tenantDb.runAs(input.userId, (tx) =>
+      this.rebuildContextForChat(tx, input, prepared.system),
+    );
+    prepared.messages = rebuilt.messages;
+    if (
+      !requestFitsContextWindow({
+        system: prepared.system,
+        messages: prepared.messages,
+        toolDeclarations: prepared.toolDeclarations,
+        contextWindowTokens: input.client.contextWindowTokens,
+        reservedOutputTokens,
+      })
+    ) {
+      throw new ContextIncompatibleError(
+        'The complete request still exceeds the target model context window after one transition compaction.',
+      );
+    }
+    return rebuilt.contextItems;
   }
 
   private abortedRunMessage(status: 'cancelled' | 'expired'): string {

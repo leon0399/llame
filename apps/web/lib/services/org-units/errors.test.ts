@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { classifyOrgUnitsError, OrgUnitsApiError } from "./errors";
 
-function protocolError(status: number, info?: unknown) {
+function protocolError<T>(status: number, info?: T) {
   return { status, info };
 }
 

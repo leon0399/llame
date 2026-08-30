@@ -41,10 +41,7 @@ vi.mock("framer-motion", () => {
   function Passthrough({
     children,
     ...props
-  }: {
-    children?: React.ReactNode;
-    [key: string]: unknown;
-  }) {
+  }: React.HTMLAttributes<HTMLDivElement>) {
     return <div {...props}>{children}</div>;
   }
   return {

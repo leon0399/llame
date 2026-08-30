@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import {
   changeOrgUnitMembershipRole as changeOrgUnitMembershipRoleEndpoint,
@@ -9,6 +9,7 @@ import {
   revokeOrgUnitMembership,
   updateOrgUnit as updateOrgUnitEndpoint,
 } from "../../api/generated/org-units/org-units";
+import type { CreateOrgUnitDto } from "../../api/generated/models";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import { withOrgUnitsErrors } from "./errors";
 import { orgUnitsQueryKeys } from "./queries";
@@ -85,13 +86,12 @@ export async function createChildOrg(input: {
   /** Child dialog's type segment (task 4.3) — group/team/department only. */
   type?: OrgUnitType;
 }): Promise<OrgUnitResponse> {
+  const body: CreateOrgUnitDto = { name: input.name };
+  if (input.type) {
+    body.type = input.type;
+  }
   return withOrgUnitsErrors(() =>
-    createChildOrgUnit(
-      input.parentId,
-      { name: input.name, ...(input.type ? { type: input.type } : {}) },
-      undefined,
-      authenticatedFetch(),
-    ),
+    createChildOrgUnit(input.parentId, body, undefined, authenticatedFetch()),
   );
 }
 
@@ -129,6 +129,24 @@ export async function updateOrgUnit(
  * (not just an error message) so the user retries against current state —
  * see the onSettled comment below for how that's satisfied.
  */
+// Deliberately does NOT recompute `path`: sibling ordering after a move is
+// server-computed (materialized id-path), not something the client can
+// derive — the onSettled refetch in useUpdateOrgUnit corrects it.
+function applyOrgUnitPatch(
+  unit: OrgUnitResponse,
+  variables: UpdateOrgUnitInput,
+): OrgUnitResponse {
+  if (unit.id !== variables.orgUnitId) return unit;
+  const patched = { ...unit };
+  if (variables.name !== undefined) {
+    patched.name = variables.name;
+  }
+  if (variables.parentId !== undefined) {
+    patched.parentId = variables.parentId;
+  }
+  return patched;
+}
+
 export function useUpdateOrgUnit() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -145,23 +163,7 @@ export function useUpdateOrgUnit() {
       if (previousLists) {
         queryClient.setQueryData<OrgUnitResponse[]>(
           orgUnitsQueryKeys.lists(),
-          previousLists.map((unit) =>
-            unit.id === variables.orgUnitId
-              ? {
-                  ...unit,
-                  ...(variables.name !== undefined
-                    ? { name: variables.name }
-                    : {}),
-                  ...(variables.parentId !== undefined
-                    ? { parentId: variables.parentId }
-                    : {}),
-                  // Deliberately do NOT recompute `path` here: sibling
-                  // ordering after a move is server-computed (materialized
-                  // id-path), not something the client can derive — the
-                  // onSettled refetch below corrects it.
-                }
-              : unit,
-          ),
+          previousLists.map((unit) => applyOrgUnitPatch(unit, variables)),
         );
       }
       return { previousLists };
@@ -294,6 +296,31 @@ export async function changeMembershipRole(
   );
 }
 
+/** Shared onMutate prefix for both membership hooks below: cancel in-flight
+ * membership reads for this unit and return whatever was cached. */
+async function cancelAndSnapshotMemberships(
+  queryClient: QueryClient,
+  orgUnitId: string,
+): Promise<MembershipResponse[] | undefined> {
+  const key = orgUnitsQueryKeys.memberships(orgUnitId);
+  await queryClient.cancelQueries({ queryKey: key });
+  return queryClient.getQueryData<MembershipResponse[]>(key);
+}
+
+/** Shared onError rollback for both membership hooks below. */
+function rollbackMemberships(
+  queryClient: QueryClient,
+  orgUnitId: string,
+  previousMemberships: MembershipResponse[] | undefined,
+): void {
+  if (previousMemberships) {
+    queryClient.setQueryData(
+      orgUnitsQueryKeys.memberships(orgUnitId),
+      previousMemberships,
+    );
+  }
+}
+
 export function useChangeMembershipRole() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -301,13 +328,13 @@ export function useChangeMembershipRole() {
     scope: { id: "org-unit-memberships" },
     mutationFn: changeMembershipRole,
     onMutate: async (variables) => {
-      const key = orgUnitsQueryKeys.memberships(variables.orgUnitId);
-      await queryClient.cancelQueries({ queryKey: key });
-      const previousMemberships =
-        queryClient.getQueryData<MembershipResponse[]>(key);
+      const previousMemberships = await cancelAndSnapshotMemberships(
+        queryClient,
+        variables.orgUnitId,
+      );
       if (previousMemberships) {
         queryClient.setQueryData<MembershipResponse[]>(
-          key,
+          orgUnitsQueryKeys.memberships(variables.orgUnitId),
           previousMemberships.map((membership) =>
             membership.userId === variables.userId
               ? { ...membership, role: variables.role }
@@ -317,14 +344,12 @@ export function useChangeMembershipRole() {
       }
       return { previousMemberships };
     },
-    onError: (_error, variables, context) => {
-      if (context?.previousMemberships) {
-        queryClient.setQueryData(
-          orgUnitsQueryKeys.memberships(variables.orgUnitId),
-          context.previousMemberships,
-        );
-      }
-    },
+    onError: (_error, variables, context) =>
+      rollbackMemberships(
+        queryClient,
+        variables.orgUnitId,
+        context?.previousMemberships,
+      ),
     onSuccess: (_data, { orgUnitId }) => {
       // The caller may have changed their OWN role — refresh "my role here" too.
       void queryClient.invalidateQueries({
@@ -361,13 +386,13 @@ export function useRevokeMembership() {
     scope: { id: "org-unit-memberships" },
     mutationFn: revokeMembership,
     onMutate: async (variables) => {
-      const key = orgUnitsQueryKeys.memberships(variables.orgUnitId);
-      await queryClient.cancelQueries({ queryKey: key });
-      const previousMemberships =
-        queryClient.getQueryData<MembershipResponse[]>(key);
+      const previousMemberships = await cancelAndSnapshotMemberships(
+        queryClient,
+        variables.orgUnitId,
+      );
       if (previousMemberships) {
         queryClient.setQueryData<MembershipResponse[]>(
-          key,
+          orgUnitsQueryKeys.memberships(variables.orgUnitId),
           previousMemberships.filter(
             (membership) => membership.userId !== variables.userId,
           ),
@@ -375,14 +400,12 @@ export function useRevokeMembership() {
       }
       return { previousMemberships };
     },
-    onError: (_error, variables, context) => {
-      if (context?.previousMemberships) {
-        queryClient.setQueryData(
-          orgUnitsQueryKeys.memberships(variables.orgUnitId),
-          context.previousMemberships,
-        );
-      }
-    },
+    onError: (_error, variables, context) =>
+      rollbackMemberships(
+        queryClient,
+        variables.orgUnitId,
+        context?.previousMemberships,
+      ),
     onSuccess: (_data, { orgUnitId }) => {
       void queryClient.invalidateQueries({
         queryKey: orgUnitsQueryKeys.myRole(orgUnitId),

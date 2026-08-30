@@ -29,10 +29,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("DIAG env check", () => {
-  expect(typeof window).toBe("undefined");
-});
-
 describe("auth query keys", () => {
   it("keeps the resource-path key", () => {
     expect(authQueryKeys.me).toEqual(["auth", "me"]);

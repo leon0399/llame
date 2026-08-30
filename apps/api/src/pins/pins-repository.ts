@@ -11,7 +11,13 @@
  */
 
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { chats, pins, projects, type Pin, type PinItemType } from '../db/schema';
+import {
+  chats,
+  pins,
+  projects,
+  type Pin,
+  type PinItemType,
+} from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 export { type Db } from '../db/tenant-db.service';
 

@@ -138,8 +138,8 @@ function renderChatItem({
               updatedAt: new Date().toISOString(),
               archivedAt: null,
             }}
-            // Only id/name are read by the submenu; cast keeps the fixture
-            // free of ProjectResponse's timestamp noise.
+            // SAFETY: only id/name are read by the submenu; cast keeps the
+            // fixture free of ProjectResponse's timestamp noise.
             projects={
               projects as React.ComponentProps<typeof ChatItem>["projects"]
             }
@@ -236,6 +236,8 @@ describe("ChatItem row menu — Fork (clone whole chat)", () => {
       await user.click(await screen.findByRole("menuitem", { name: "Fork" }));
 
       expect(mutateMock).toHaveBeenCalledTimes(1);
+      // SAFETY: the assertion above proves the mock was called with the
+      // fork-mutation shape; this only names its two argument types.
       const [args, opts] = mutateMock.mock.calls[0] as [
         { chatId: string; fromMessageId?: string },
         { onSuccess: (forked: { id: string }) => void },

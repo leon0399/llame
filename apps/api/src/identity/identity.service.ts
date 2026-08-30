@@ -516,7 +516,10 @@ export class IdentityService {
         }
       });
     } catch (err) {
-      rethrowMembershipWriteError(err, 'Not permitted to revoke this membership');
+      rethrowMembershipWriteError(
+        err,
+        'Not permitted to revoke this membership',
+      );
     }
   }
 

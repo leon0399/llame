@@ -9,28 +9,13 @@
  */
 
 import * as React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
-const { updateChat, deleteChatEndpoint } = vi.hoisted(() => ({
-  updateChat: vi.fn(),
-  deleteChatEndpoint: vi.fn(),
-}));
-const toastError = vi.hoisted(() => vi.fn());
-
-vi.mock("../../api/generated/chats/chats", () => ({
-  updateChat,
-  deleteChat: deleteChatEndpoint,
-}));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch: () => vi.fn(),
-}));
-vi.mock("@workspace/ui/components/sonner", () => ({
-  toast: { error: toastError },
-}));
+import { toast } from "@workspace/ui/components/sonner";
 
 import { useDeleteChat, useRenameChat } from "./management";
+import { stubFetch } from "../../test-support/fetch-stub";
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const queryClient = new QueryClient({
@@ -41,32 +26,39 @@ function wrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
+let fetchMock: Mock<typeof fetch>;
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
+
 afterEach(() => {
-  updateChat.mockReset();
-  deleteChatEndpoint.mockReset();
-  toastError.mockReset();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("useRenameChat", () => {
   it("toasts on failure instead of failing silently", async () => {
-    updateChat.mockRejectedValue(new Error("network down"));
+    fetchMock.mockRejectedValue(new Error("network down"));
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "");
     const { result } = renderHook(() => useRenameChat(), { wrapper });
 
     result.current.mutate({ id: "c1", title: "New title" });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(toastError).toHaveBeenCalledWith("Couldn't rename the chat.");
+    expect(toastErrorSpy).toHaveBeenCalledWith("Couldn't rename the chat.");
   });
 });
 
 describe("useDeleteChat", () => {
   it("toasts on failure instead of failing silently", async () => {
-    deleteChatEndpoint.mockRejectedValue(new Error("network down"));
+    fetchMock.mockRejectedValue(new Error("network down"));
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "");
     const { result } = renderHook(() => useDeleteChat(), { wrapper });
 
     result.current.mutate("c1");
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(toastError).toHaveBeenCalledWith("Couldn't delete the chat.");
+    expect(toastErrorSpy).toHaveBeenCalledWith("Couldn't delete the chat.");
   });
 });

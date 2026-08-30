@@ -106,7 +106,16 @@ beforeAll(() => {
   }
 });
 
-function project(overrides: Partial<Record<string, unknown>> = {}) {
+type ProjectFixture = {
+  id: string;
+  ownerUserId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+function project(overrides: Partial<ProjectFixture> = {}): ProjectFixture {
   return {
     id: "p1",
     ownerUserId: "u1",

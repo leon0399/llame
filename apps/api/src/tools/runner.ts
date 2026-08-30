@@ -4,7 +4,7 @@ import { truncateOversizedResult } from './result-truncation';
 import { safeParseArgs } from './schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
-import { isRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '../unknown-record';
 
 const logger = new Logger('ToolRunner');
 
@@ -64,7 +64,7 @@ export function invalidCallResult(toolName: string): ToolResult {
  */
 export async function runTool(
   tool: Tool,
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated via `safeParseArgs(tool.inputSchema, args)` a few statements down in this function's body, after three unrelated guard checks (identity, abort, timeout) that must run first; genuinely validated, just not as this function's *first* statement, which the structural exemption requires.
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by `admitToolCall`'s own `safeParseArgs(tool.inputSchema, args)` call, reached via the very first statement of this function's body.
   args: unknown,
   context: ToolContext | undefined,
   callTimeoutSeconds: number,
@@ -87,78 +87,120 @@ export async function runTool(
    */
   onValidated?: () => void,
 ): Promise<ToolResult> {
-  if (!context?.userId) {
-    // Defensive: the run loop always resolves an owner before offering
-    // tools. A call with no resolvable identity must fail closed — no reads.
-    return {
-      status: 'error',
-      type: 'no_context',
-      message: 'Tool execution requires a resolvable run owner.',
-    };
-  }
-
-  if (context.abortSignal?.aborted) {
-    return {
-      status: 'error',
-      type: 'cancelled',
-      message: `Tool "${tool.id}" was cancelled.`,
-    };
-  }
-
-  if (!hasValidTrustedTimeout(tool.timeoutSeconds, callTimeoutSeconds)) {
-    return refusalResult(tool.id);
-  }
-
-  const parsed = safeParseArgs(tool.inputSchema, args);
-  if (!parsed.success || !isRecord(parsed.data)) {
-    return {
-      status: 'error',
-      type: 'invalid_input',
-      message: `Invalid arguments for tool "${tool.id}".`,
-    };
-  }
+  const admission = admitToolCall(tool, args, context, callTimeoutSeconds);
+  if ('result' in admission) return admission.result;
+  const { context: validContext, args: validArgs } = admission;
 
   const timeoutMs = (tool.timeoutSeconds ?? callTimeoutSeconds) * 1000;
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
-  const composedSignal = context.abortSignal
-    ? AbortSignal.any([context.abortSignal, timeoutSignal])
+  const composedSignal = validContext.abortSignal
+    ? AbortSignal.any([validContext.abortSignal, timeoutSignal])
     : timeoutSignal;
   const executionContext: ToolContext = {
-    ...context,
+    ...validContext,
     abortSignal: composedSignal,
   };
   onValidated?.();
   try {
     const result = await withAbort(
-      Promise.resolve(tool.execute(executionContext, parsed.data)),
+      Promise.resolve(tool.execute(executionContext, validArgs)),
       composedSignal,
     );
     return truncateOversizedResult(result);
   } catch (error) {
-    if (context.abortSignal?.aborted) {
-      return {
+    return classifyToolExecutionError(
+      error,
+      validContext,
+      timeoutSignal,
+      tool.id,
+    );
+  }
+}
+
+/** How a caught `tool.execute` failure resolves: the caller's own
+ * cancellation, this call's own timeout, or an unexplained throw — never
+ * leaking stack traces or config values into the recorded result (same
+ * redaction posture as instance-config); logged server-side only. */
+function classifyToolExecutionError(
+  error: unknown,
+  context: ToolContext,
+  timeoutSignal: AbortSignal,
+  toolId: string,
+): ToolResult {
+  if (context.abortSignal?.aborted) {
+    return {
+      status: 'error',
+      type: 'cancelled',
+      message: `Tool "${toolId}" was cancelled.`,
+    };
+  }
+  if (timeoutSignal.aborted) {
+    return {
+      status: 'error',
+      type: 'timeout',
+      message: `Tool "${toolId}" timed out.`,
+    };
+  }
+  logger.error(
+    `Tool "${toolId}" threw`,
+    error instanceof Error ? error.stack : String(error),
+  );
+  return {
+    status: 'error',
+    type: 'execution_failed',
+    message: 'The tool failed to execute.',
+  };
+}
+
+/**
+ * The D4/D6 fail-closed guards (resolvable identity, not already cancelled,
+ * a trusted timeout) plus schema validation (2.2), run before anything is
+ * executed. Returns the narrowed context and validated args to proceed with,
+ * or the `ToolResult` to return immediately.
+ */
+function admitToolCall(
+  tool: Tool,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated via `safeParseArgs(tool.inputSchema, args)` a few statements down, after three unrelated guard checks (identity, abort, timeout) that must run first; genuinely validated, just not as this function's *first* statement, which the structural exemption requires.
+  args: unknown,
+  context: ToolContext | undefined,
+  callTimeoutSeconds: number,
+): { context: ToolContext; args: UnknownRecord } | { result: ToolResult } {
+  if (!context?.userId) {
+    // Defensive: the run loop always resolves an owner before offering
+    // tools. A call with no resolvable identity must fail closed — no reads.
+    return {
+      result: {
+        status: 'error',
+        type: 'no_context',
+        message: 'Tool execution requires a resolvable run owner.',
+      },
+    };
+  }
+
+  if (context.abortSignal?.aborted) {
+    return {
+      result: {
         status: 'error',
         type: 'cancelled',
         message: `Tool "${tool.id}" was cancelled.`,
-      };
-    }
-    if (timeoutSignal.aborted) {
-      return {
-        status: 'error',
-        type: 'timeout',
-        message: `Tool "${tool.id}" timed out.`,
-      };
-    }
-    // Never leak stack traces or config values into the recorded result
-    // (same redaction posture as instance-config) — log server-side only.
-    logger.error(
-      `Tool "${tool.id}" threw`,
-      error instanceof Error ? error.stack : String(error),
-    );
-    return {
-      status: 'error',
-      type: 'execution_failed',
-      message: 'The tool failed to execute.',
+      },
     };
   }
+
+  if (!hasValidTrustedTimeout(tool.timeoutSeconds, callTimeoutSeconds)) {
+    return { result: refusalResult(tool.id) };
+  }
+
+  const parsed = safeParseArgs(tool.inputSchema, args);
+  if (!parsed.success || !isRecord(parsed.data)) {
+    return {
+      result: {
+        status: 'error',
+        type: 'invalid_input',
+        message: `Invalid arguments for tool "${tool.id}".`,
+      },
+    };
+  }
+
+  return { context, args: parsed.data };
 }

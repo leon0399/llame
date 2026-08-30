@@ -274,13 +274,21 @@ function incrementOmittedCount(count: number): number {
   return Math.min(Number.MAX_SAFE_INTEGER, count + 1);
 }
 
-function boundCandidates(
-  candidates: PairCandidate[],
-  inheritedOmittedCount = 0,
-) {
-  let omittedCount = inheritedOmittedCount;
-  const omittedPartIndexes: number[] = [];
+type BoundingState = {
+  omittedCount: number;
+  omittedPartIndexes: number[];
+};
 
+function recordOmission(state: BoundingState, partIndex: number): void {
+  state.omittedCount = incrementOmittedCount(state.omittedCount);
+  state.omittedPartIndexes.push(partIndex);
+}
+
+/** Pass 1: clear any candidate whose full call already exceeds the per-call limit. */
+function clearOversizedCandidates(
+  candidates: PairCandidate[],
+  state: BoundingState,
+): void {
   for (const candidate of candidates) {
     if (candidate.selectedSize <= TOOL_REPLAY_CALL_LIMIT) {
       continue;
@@ -288,60 +296,95 @@ function boundCandidates(
     candidate.selected = candidate.cleared;
     candidate.selectedSize = candidate.clearedSize;
     if (candidate.selectedSize > TOOL_REPLAY_CALL_LIMIT) {
-      omittedCount = incrementOmittedCount(omittedCount);
-      omittedPartIndexes.push(candidate.observation.partIndex);
+      recordOmission(state, candidate.observation.partIndex);
     }
   }
+}
 
-  let retained = candidates.filter(
+/** Pass 2: clear retained candidates (front to back) until the turn projection fits. */
+function clearCandidatesUntilWithinLimit(
+  retained: PairCandidate[],
+  retainedSize: number,
+  state: BoundingState,
+): number {
+  let size = retainedSize;
+  if (
+    measureProjection(retained.length, size, state.omittedCount) <=
+    TOOL_REPLAY_TURN_LIMIT
+  ) {
+    return size;
+  }
+  for (const candidate of retained) {
+    if (candidate.selected === candidate.cleared) continue;
+    if (candidate.clearedSize < candidate.selectedSize) {
+      size -= candidate.selectedSize - candidate.clearedSize;
+      candidate.selected = candidate.cleared;
+      candidate.selectedSize = candidate.clearedSize;
+    }
+    if (
+      measureProjection(retained.length, size, state.omittedCount) <=
+      TOOL_REPLAY_TURN_LIMIT
+    ) {
+      break;
+    }
+  }
+  return size;
+}
+
+/** Pass 3: drop retained candidates from the front until the turn projection fits. */
+function dropCandidatesUntilWithinLimit(
+  retained: PairCandidate[],
+  retainedSize: number,
+  state: BoundingState,
+) {
+  let start = 0;
+  let size = retainedSize;
+  while (
+    start < retained.length &&
+    measureProjection(retained.length - start, size, state.omittedCount) >
+      TOOL_REPLAY_TURN_LIMIT
+  ) {
+    const dropped = retained[start];
+    start += 1;
+    size -= dropped.selectedSize;
+    recordOmission(state, dropped.observation.partIndex);
+  }
+  return { retained: retained.slice(start), retainedSize: size };
+}
+
+function boundCandidates(
+  candidates: PairCandidate[],
+  inheritedOmittedCount = 0,
+) {
+  const state: BoundingState = {
+    omittedCount: inheritedOmittedCount,
+    omittedPartIndexes: [],
+  };
+  clearOversizedCandidates(candidates, state);
+
+  const withinCallLimit = candidates.filter(
     (candidate) => candidate.selectedSize <= TOOL_REPLAY_CALL_LIMIT,
   );
-  let retainedSize = retained.reduce(
+  const withinCallLimitSize = withinCallLimit.reduce(
     (total, candidate) => total + candidate.selectedSize,
     0,
   );
 
-  if (
-    measureProjection(retained.length, retainedSize, omittedCount) >
-    TOOL_REPLAY_TURN_LIMIT
-  ) {
-    for (const candidate of retained) {
-      if (candidate.selected === candidate.cleared) continue;
-      if (candidate.clearedSize < candidate.selectedSize) {
-        retainedSize -= candidate.selectedSize - candidate.clearedSize;
-        candidate.selected = candidate.cleared;
-        candidate.selectedSize = candidate.clearedSize;
-      }
-      if (
-        measureProjection(retained.length, retainedSize, omittedCount) <=
-        TOOL_REPLAY_TURN_LIMIT
-      ) {
-        break;
-      }
-    }
-  }
-
-  let retainedStart = 0;
-  while (
-    retainedStart < retained.length &&
-    measureProjection(
-      retained.length - retainedStart,
-      retainedSize,
-      omittedCount,
-    ) > TOOL_REPLAY_TURN_LIMIT
-  ) {
-    const dropped = retained[retainedStart];
-    retainedStart += 1;
-    retainedSize -= dropped.selectedSize;
-    omittedCount = incrementOmittedCount(omittedCount);
-    omittedPartIndexes.push(dropped.observation.partIndex);
-  }
-  retained = retained.slice(retainedStart);
+  const clearedSize = clearCandidatesUntilWithinLimit(
+    withinCallLimit,
+    withinCallLimitSize,
+    state,
+  );
+  const { retained } = dropCandidatesUntilWithinLimit(
+    withinCallLimit,
+    clearedSize,
+    state,
+  );
 
   return {
     pairs: retained.map(({ selected }) => selected),
-    omittedCount,
-    omittedPartIndexes,
+    omittedCount: state.omittedCount,
+    omittedPartIndexes: state.omittedPartIndexes,
   };
 }
 
@@ -457,10 +500,15 @@ function materializedReplacementRecord(
   };
 }
 
-export function buildCompactionToolReplacementRecords(input: {
+/**
+ * Reconstruct the flat observation list to bound: the previous compaction's
+ * own replacement history (skipping its leading summary record) plus every
+ * newly-absorbed assistant message's tool observations, re-indexed in order.
+ */
+function gatherObservationsToBound(input: {
   previous: unknown;
   absorb: StoredMessage[];
-}): CompactionReplacementMessage[] {
+}) {
   const parsedPrevious = parseCompactionReplacementHistory(input.previous);
   const previousObservations = (parsedPrevious ?? [])
     .slice(1)
@@ -484,6 +532,15 @@ export function buildCompactionToolReplacementRecords(input: {
   const observations = [...previousObservations, ...absorbedObservations].map(
     (observation, partIndex) => ({ ...observation, partIndex }),
   );
+  return { observations, inheritedOmittedCount };
+}
+
+export function buildCompactionToolReplacementRecords(input: {
+  previous: unknown;
+  absorb: StoredMessage[];
+}): CompactionReplacementMessage[] {
+  const { observations, inheritedOmittedCount } =
+    gatherObservationsToBound(input);
 
   const bounded = boundCandidates(
     candidatesFromObservations(observations).map((candidate) => ({

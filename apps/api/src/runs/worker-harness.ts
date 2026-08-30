@@ -27,6 +27,7 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import type {
   LanguageModelV3CallOptions,
   LanguageModelV3StreamPart,
+  LanguageModelV3ToolResultOutput,
 } from '@ai-sdk/provider';
 import { sql } from 'drizzle-orm';
 import { stepCountIs, streamText as sdkStreamText } from 'ai';
@@ -68,6 +69,9 @@ const PROVIDER_ZERO_USAGE = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
+
+/** Default for the scripted stream's `unblock` before a pending promise replaces it. */
+function noop(): void {}
 
 /**
  * The behavior a run's fake model client exhibits, keyed by modelId (each
@@ -132,6 +136,21 @@ function parseJsonText<T>(value: string, schema: z.ZodType<T>): T | undefined {
   }
 }
 
+/** Parses a `tool-result` content's output — JSON already, or JSON-as-text — against `schema`. */
+function parseToolOutput<T>(
+  output: LanguageModelV3ToolResultOutput,
+  schema: z.ZodType<T>,
+): T | undefined {
+  if (output.type === 'json') {
+    const parsed = schema.safeParse(output.value);
+    return parsed.success ? parsed.data : undefined;
+  }
+  if (output.type === 'text') {
+    return parseJsonText(output.value, schema);
+  }
+  return undefined;
+}
+
 function findSearchOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
   const outputs: z.output<typeof conversationSearchOutputSchema>[] = [];
   for (const message of prompt) {
@@ -142,18 +161,11 @@ function findSearchOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
         content.toolName !== 'search_conversations'
       )
         continue;
-      if (content.output.type === 'json') {
-        const parsed = conversationSearchOutputSchema.safeParse(
-          content.output.value,
-        );
-        if (parsed.success) outputs.push(parsed.data);
-      } else if (content.output.type === 'text') {
-        const parsed = parseJsonText(
-          content.output.value,
-          conversationSearchOutputSchema,
-        );
-        if (parsed !== undefined) outputs.push(parsed);
-      }
+      const parsed = parseToolOutput(
+        content.output,
+        conversationSearchOutputSchema,
+      );
+      if (parsed !== undefined) outputs.push(parsed);
     }
   }
   return outputs;
@@ -169,18 +181,11 @@ function findReadOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
         content.toolName !== 'conversation_read'
       )
         continue;
-      if (content.output.type === 'json') {
-        const parsed = conversationReadOutputSchema.safeParse(
-          content.output.value,
-        );
-        if (parsed.success) outputs.push(parsed.data);
-      } else if (content.output.type === 'text') {
-        const parsed = parseJsonText(
-          content.output.value,
-          conversationReadOutputSchema,
-        );
-        if (parsed !== undefined) outputs.push(parsed);
-      }
+      const parsed = parseToolOutput(
+        content.output,
+        conversationReadOutputSchema,
+      );
+      if (parsed !== undefined) outputs.push(parsed);
     }
   }
   return outputs;
@@ -303,7 +308,7 @@ class HarnessModelClient implements ModelClient {
           stream: new ReadableStream<LanguageModelV3StreamPart>({
             async start(controller) {
               let delayTimer: ReturnType<typeof setTimeout> | undefined;
-              let unblock: () => void = () => undefined;
+              let unblock: () => void = noop;
               const onAbort = () => {
                 if (delayTimer) {
                   clearTimeout(delayTimer);

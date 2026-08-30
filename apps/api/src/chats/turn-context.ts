@@ -25,14 +25,18 @@ import {
   resolveEffectiveContext,
   type EffectiveContextSnapshotInput,
 } from '../runs/effective-context-resolver';
-import { CompactionsRepository } from './chats-repository';
+import { ChatsRepository, CompactionsRepository } from './chats-repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { type MessagePart } from './context-builder';
-import { type ResolvedMemorySettings } from '../memory/memory.service';
+import {
+  type MemorySettingsBindingResolver,
+  type ResolvedMemorySettings,
+} from '../memory/memory.service';
 import {
   formatTemporalAnchor,
   resolveInstanceTimezone,
+  type TemporalAnchor,
 } from '../prompts/temporal-anchor';
 import {
   createModelChangeItem,
@@ -42,7 +46,10 @@ import {
   createToolAvailabilityItem,
   deriveToolAvailabilityPayload,
 } from './context-item-producers';
-import { type RecencyDigestDelta } from './recency-digest.service';
+import {
+  deriveRecencyDigestDelta,
+  type RecencyDigestDelta,
+} from './recency-digest.service';
 import { type PersistUserMessageAndRunInput } from './chat-loop.service';
 
 export type TurnContextDeps = {
@@ -50,6 +57,7 @@ export type TurnContextDeps = {
   systemPrompts: Pick<SystemPromptsService, 'render'>;
   instanceConfig: InstanceConfigReader;
   knowledgeCandidates: KnowledgeToolCandidateResolverPort;
+  memory: MemorySettingsBindingResolver;
 };
 
 type DisclosureEpoch = {
@@ -71,6 +79,102 @@ export type BuildTurnContextResult = {
   effectiveContext: EffectiveContextSnapshotInput;
   messageParts: MessagePart[];
 };
+
+type DigestBindingResult = {
+  chat: Chat;
+  shareRecentChats: ResolvedMemorySettings;
+  digestDelta: RecencyDigestDelta | null;
+};
+
+export type TurnScope = { tx: Db; chatsRepo: ChatsRepository; chat: Chat };
+
+export type ResolveTurnContextResult = BuildTurnContextResult & {
+  digestDelta: RecencyDigestDelta | null;
+};
+
+/**
+ * This turn's model-facing context: bind the recency-digest baseline/delta
+ * first (resolveDigestBindingAndDelta below), then build the effective
+ * context and context-rail parts from it — the two are tightly coupled,
+ * `shareRecentChats`/`digestDelta` exist only to feed the second call.
+ */
+export async function resolveTurnContext(
+  deps: TurnContextDeps,
+  scope: TurnScope,
+  input: PersistUserMessageAndRunInput,
+): Promise<ResolveTurnContextResult> {
+  const {
+    chat: boundChat,
+    shareRecentChats,
+    digestDelta,
+  } = await resolveDigestBindingAndDelta(deps, scope, input);
+  const { effectiveContext, messageParts } = await buildTurnContextAndParts(
+    deps,
+    {
+      tx: scope.tx,
+      chat: boundChat,
+      turnInput: input,
+      shareRecentChats,
+      digestDelta,
+    },
+  );
+  return { effectiveContext, messageParts, digestDelta };
+}
+
+/**
+ * Bind this turn's recency-digest baseline (if the candidate resolved
+ * earlier is still consented-to and the chat has none yet) and derive the
+ * delta to disclose against the previously told set, if any.
+ */
+async function resolveDigestBindingAndDelta(
+  deps: TurnContextDeps,
+  scope: TurnScope,
+  input: PersistUserMessageAndRunInput,
+): Promise<DigestBindingResult> {
+  const { tx, chatsRepo } = scope;
+  let chat = scope.chat;
+  const hadDigestBaseline = chat.recencyDigestBaseline !== null;
+  // Read unconditionally: the supersession marker below is gated on this
+  // setting too, and it must still be checkable when `input.digestCandidate`
+  // is absent because this turn's own candidate resolution failed or was
+  // skipped — that failure is unrelated to whether a *prior* compaction's
+  // re-bake should be disclosed this turn.
+  const shareRecentChats = await deps.memory.getForOwnerForBinding(
+    tx,
+    input.userId,
+  );
+  if (chat.recencyDigestBaseline == null && input.digestCandidate) {
+    // FOR SHARE serializes a consent withdrawal with this accepted binding.
+    // The candidate was intentionally read outside this transaction, so a
+    // stale true must be discarded instead of entering an immutable prompt.
+    if (shareRecentChats?.shareRecentChats === true) {
+      const bound = await chatsRepo.setRecencyDigestIfAbsent(
+        input.chatId,
+        input.userId,
+        input.digestCandidate.baseline,
+        input.digestCandidate.told,
+      );
+      chat = bound ?? (await chatsRepo.findById(input.chatId, input.userId))!;
+    }
+  }
+
+  const digestDelta =
+    hadDigestBaseline &&
+    input.digestCandidate &&
+    chat.recencyDigestTold !== null &&
+    shareRecentChats?.shareRecentChats === true
+      ? deriveRecencyDigestDelta({
+          candidate: input.digestCandidate,
+          told: chat.recencyDigestTold,
+          pinnedChatIds: await chatsRepo.findPinnedChatIds(
+            input.userId,
+            chat.recencyDigestTold.map(({ chatId }) => chatId),
+          ),
+        })
+      : null;
+
+  return { chat, shareRecentChats, digestDelta };
+}
 
 export async function buildTurnContextAndParts(
   deps: TurnContextDeps,
@@ -129,7 +233,7 @@ async function resolveTurnEffectiveContext(
     tx: Db;
     chat: Chat;
     turnInput: PersistUserMessageAndRunInput;
-    anchor: string;
+    anchor: TemporalAnchor;
   },
 ): Promise<EffectiveContextSnapshotInput> {
   const { tx, chat, turnInput, anchor } = input;
@@ -307,10 +411,7 @@ function deriveTurnContextParts(input: {
   return [
     ...deriveEpochDisclosureParts(turnInput, input.effectiveContext, epoch),
     ...deriveDigestDisclosureParts(
-      chat,
-      shareRecentChats,
-      digestDelta,
-      epoch,
+      { chat, shareRecentChats, digestDelta, epoch },
       runId,
     ),
     temporalPart,

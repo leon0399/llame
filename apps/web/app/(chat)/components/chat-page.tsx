@@ -13,26 +13,8 @@ import React, {
 import { useChat } from "@ai-sdk/react";
 
 import { LoaderCircleIcon, SendIcon, StopCircleIcon } from "lucide-react";
-import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
-import {
-  Message,
-  MessageActions,
-  MessageContent,
-} from "@workspace/ui/components/ai-elements/message";
-import {
-  Reasoning,
-  ReasoningTrigger,
-} from "@workspace/ui/components/ai-elements/reasoning";
-import {
-  Tool,
-  ToolContent,
-  ToolHeader,
-  ToolInput,
-  ToolOutput,
-} from "@workspace/ui/components/ai-elements/tool";
-import { MessageForkButton } from "./message-fork-button";
 import { ButtonGroup } from "@workspace/ui/components/button-group";
 
 import { EffortSelector } from "./effort-selector";
@@ -60,14 +42,9 @@ import {
   notificationLabel,
   streamingRunId,
 } from "@/lib/services/chat/run-notifications";
-import {
-  DefaultChatTransport,
-  getToolName,
-  isToolUIPart,
-  type UIMessage,
-} from "ai";
-import { MessageUsage } from "./message-usage";
-import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
+import { DefaultChatTransport, type UIMessage } from "ai";
+import { ChatMessageRow, messageBoundaries } from "./chat-message-row";
+import { useTargetSendTracking } from "./use-target-send-tracking";
 import { authAwareFetch } from "@/lib/api/fetch";
 import {
   buildChatMessagesUrl,
@@ -93,16 +70,10 @@ import {
   mergeTrustedModelContextParts,
   messageRenderKey,
   messageSeqFromMetadata,
-  modelSwitchPart,
-  runIdFromMessageMetadata,
 } from "@/lib/services/chat/history";
 import { ChatLoadOlder } from "./chat-load-older";
 import { CompactionBoundary } from "./compaction-boundary";
-import { ModelSwitchBoundary } from "@workspace/ui/components/custom/model-switch-boundary";
-import {
-  EffectiveContextAction,
-  EffectiveContextInspector,
-} from "./effective-context-inspector";
+import { EffectiveContextInspector } from "./effective-context-inspector";
 import {
   draftPhaseForSession,
   initialDraftSession,
@@ -116,28 +87,6 @@ import {
   type DraftPhase,
 } from "@/lib/services/chat/draft-route";
 import { useMessageTarget } from "@/lib/services/chat/message-target";
-
-// TODO(#187/#417): these client-only chunks leave EMPTY message bubbles on a
-// hard reload until they load — the transcript SSRs as shells (reasoning
-// accordions, buttons, no bodies). The principled fix is server-rendered
-// markdown per message under 'use cache' (messages are immutable, so the
-// render caches perfectly), which belongs to the #417 Cache Components
-// adoption; a chunk preload or skeleton placeholder is the acceptable
-// stopgap until then. Do NOT paper over it with raw-text fallbacks.
-const MessageResponse = dynamic(
-  () =>
-    import("@workspace/ui/components/ai-elements/message-response").then(
-      (module) => module.MessageResponse,
-    ),
-  { ssr: false },
-);
-const ReasoningContent = dynamic(
-  () =>
-    import("@workspace/ui/components/ai-elements/reasoning-content").then(
-      (module) => module.ReasoningContent,
-    ),
-  { ssr: false },
-);
 
 // Module-level so a draft's empty history keeps a stable identity across
 // renders — it is a dependency of the history-adoption effect below.
@@ -204,39 +153,14 @@ function ChatSession({
     recoverSentDraft: session.kind === "recovering",
     targetSeq: targetSeq ?? undefined,
   });
-  const targetSendStateRef = useRef<
-    | { status: "active"; hash: string }
-    | { status: "failed" | "interrupted" | "finished" }
-    | null
-  >(null);
-
-  const consumeTargetSend = useCallback(
-    (status: "interrupted" | "finished") => {
-      if (
-        targetSeq === null ||
-        targetSendStateRef.current?.status !== "active"
-      ) {
-        return false;
-      }
-      targetSendStateRef.current = { status };
-      window.history.replaceState(
-        window.history.state,
-        "",
-        draftChatPathWithHash(
-          chatId,
-          status === "interrupted" ? "sent" : null,
-          "",
-        ),
-      );
-      onTargetSendFinished();
-      return true;
-    },
-    [chatId, onTargetSendFinished, targetSeq],
-  );
-  const onTargetSendInterrupted = useCallback(
-    () => consumeTargetSend("interrupted"),
-    [consumeTargetSend],
-  );
+  const { onTargetSendInterrupted, onSendStarted, onSendFailed, onFinished } =
+    useTargetSendTracking({
+      chatId,
+      targetSeq,
+      sessionKind: session.kind,
+      dispatch,
+      onTargetSendFinished,
+    });
 
   const draftPhase = draftPhaseForSession(session);
   useEffect(() => {
@@ -270,58 +194,6 @@ function ChatSession({
         : "history-indeterminate",
     });
   }, [historyQuery.error, historyQuery.isError, session.kind]);
-
-  const onSendStarted = useCallback(() => {
-    if (targetSeq !== null) {
-      targetSendStateRef.current = {
-        status: "active",
-        hash: window.location.hash,
-      };
-      window.history.replaceState(
-        window.history.state,
-        "",
-        draftChatPathWithHash(chatId, "sent", ""),
-      );
-      if (session.kind === "fresh") dispatch({ type: "send-started" });
-      return;
-    }
-    if (session.kind !== "fresh") return;
-    window.history.replaceState(
-      window.history.state,
-      "",
-      draftChatPathWithHash(chatId, "sent", window.location.hash),
-    );
-    dispatch({ type: "send-started" });
-  }, [chatId, session.kind, targetSeq]);
-
-  const onSendFailed = useCallback(() => {
-    const targetSendState = targetSendStateRef.current;
-    if (targetSeq !== null) {
-      if (targetSendState?.status !== "active") return;
-      targetSendStateRef.current = { status: "failed" };
-      window.history.replaceState(
-        window.history.state,
-        "",
-        draftChatPathWithHash(chatId, null, targetSendState.hash),
-      );
-    }
-    dispatch({ type: "send-failed" });
-  }, [chatId, targetSeq]);
-
-  const onFinished = useCallback(() => {
-    if (targetSeq !== null) {
-      if (!consumeTargetSend("finished")) return false;
-      dispatch({ type: "finished" });
-      return true;
-    }
-    window.history.replaceState(
-      window.history.state,
-      "",
-      draftChatPathWithHash(chatId, null, window.location.hash),
-    );
-    dispatch({ type: "finished" });
-    return true;
-  }, [chatId, consumeTargetSend, targetSeq]);
 
   if (!shouldRenderChatOwner(session)) {
     return null;
@@ -664,6 +536,9 @@ function ChatSessionContent({
   // a summary for the model's context. `compaction` arrives embedded in the
   // SAME messages fetch (#136) — no second, independently-failing request,
   // and no separate "is it enabled yet" gate to get wrong.
+  // SAFETY: `UIMessage["metadata"]` is generic/unknown-shaped at the type
+  // level; every message here is one this app persisted, so its metadata is
+  // always this app's own `{ seq?: number }` shape (or absent).
   const compactionIndex = compactionBoundaryIndex(
     displayMessages as ReadonlyArray<{ metadata?: { seq?: number } }>,
     compaction?.uptoSeq ?? null,
@@ -757,175 +632,30 @@ function ChatSessionContent({
             />
             {displayMessages.map((message, index) => {
               const renderKey = messageRenderKey(message);
-              const messageSeq = messageSeqFromMetadata(message.metadata);
-              const isUserMessage = message.role === "user";
-              const switchPart = isUserMessage
-                ? modelSwitchPart(message)
-                : null;
-              const contextRunId = isUserMessage
-                ? null
-                : runIdFromMessageMetadata(message.metadata);
-              const boundary =
-                compaction && index === compactionIndex ? (
-                  <div
-                    key="compaction-boundary"
-                    className="mx-auto w-full max-w-3xl md:px-6"
-                  >
-                    <CompactionBoundary
-                      summary={compaction.summary}
-                      createdAt={compaction.createdAt}
-                      stats={compaction.stats}
-                      models={availableModels}
-                    />
-                  </div>
-                ) : null;
-              const modelBoundary = switchPart ? (
-                <div className="mx-auto w-full max-w-3xl md:px-6">
-                  <ModelSwitchBoundary
-                    fromModelId={switchPart.data.payload.fromModelId}
-                    toModelId={switchPart.data.payload.toModelId}
-                    onInspectContext={() =>
-                      setInspectedRunId(switchPart.data.runId)
-                    }
-                  />
-                </div>
-              ) : null;
+              const { boundary, modelBoundary } = messageBoundaries({
+                message,
+                index,
+                compaction,
+                compactionIndex,
+                availableModels,
+                onInspectContext: setInspectedRunId,
+              });
 
               return (
-                <React.Fragment key={`message-${renderKey}`}>
-                  {boundary}
-                  {modelBoundary}
-                  {/* data-message-key anchors ChatLoadOlder's scroll
-                      compensation when older pages prepend. */}
-                  <Message
-                    id={messageSeq === null ? undefined : `msg-${messageSeq}`}
-                    from={message.role}
-                    data-message-key={renderKey}
-                  >
-                    <MessageContent>
-                      {message.parts.map((part, partIndex) => {
-                        const messagePartKey = `message-part-${renderKey}-${partIndex}`;
-
-                        if (part.type === "reasoning") {
-                          return (
-                            <Reasoning
-                              key={messagePartKey}
-                              isStreaming={part.state === "streaming"}
-                              defaultOpen={false}
-                            >
-                              <ReasoningTrigger />
-                              <ReasoningContent>{part.text}</ReasoningContent>
-                            </Reasoning>
-                          );
-                        } else if (part.type === "text") {
-                          return (
-                            <MessageResponse key={messagePartKey}>
-                              {part.text}
-                            </MessageResponse>
-                          );
-                        } else if (isToolUIPart(part)) {
-                          const toolName = getToolName(part);
-                          const toolState =
-                            part.state === "output-error" &&
-                            part.resultProviderMetadata?.llame?.cancelled ===
-                              true
-                              ? "cancelled"
-                              : (part.state ?? "input-streaming");
-                          return (
-                            <Tool key={messagePartKey}>
-                              <ToolHeader
-                                type={`tool-${toolName}`}
-                                state={toolState}
-                                title={
-                                  part.type === "dynamic-tool"
-                                    ? toolName
-                                    : undefined
-                                }
-                              />
-                              <ToolContent>
-                                <ToolInput input={part.input} />
-                                <ToolOutput
-                                  output={part.output}
-                                  errorText={part.errorText}
-                                  state={
-                                    toolState === "cancelled"
-                                      ? "cancelled"
-                                      : part.state === "output-error"
-                                        ? "output-error"
-                                        : undefined
-                                  }
-                                />
-                              </ToolContent>
-                            </Tool>
-                          );
-                        } else if (part.type === "data-cap-notice") {
-                          // Step-cap notice (D6): persisted alongside the
-                          // tool call/result parts when a run hits
-                          // tools.maxStepsPerRun. Same part → same chip,
-                          // live or reloaded from history.
-                          const capNotice = parseCapNoticePart(part);
-                          return capNotice ? (
-                            <ToolCapNoticePart
-                              key={messagePartKey}
-                              {...capNotice}
-                            />
-                          ) : null;
-                        } else if (part.type === "data-context") {
-                          // Every server-authored context item, whatever its
-                          // producer. They are rendered into the MODEL's
-                          // prompt by the api's context-builder and are never
-                          // visible chat content; the model-change boundary
-                          // above this message is the only owner-facing
-                          // surface today. One branch rather than a list of
-                          // producers, so a producer this build does not know
-                          // about cannot fall through to the "unsupported
-                          // part type" span and print debug text into the
-                          // owner's transcript on reload.
-                          return null;
-                        }
-
-                        return (
-                          <span key={messagePartKey}>
-                            unsupported part type: {part.type}
-                          </span>
-                        );
-                      })}
-                    </MessageContent>
-                    {!isUserMessage && (
-                      <div className="flex flex-wrap items-center gap-1">
-                        <MessageUsage
-                          metadata={message.metadata}
-                          models={availableModels}
-                        />
-                        {contextRunId && (
-                          <EffectiveContextAction
-                            onClick={() => setInspectedRunId(contextRunId)}
-                          />
-                        )}
-                      </div>
-                    )}
-                    {(status === "ready" || status === "error") && (
-                      // Persistent action row (not hover-only) so the fork
-                      // affordance stays discoverable — reuses the shared
-                      // MessageActions primitive (the row future per-message
-                      // actions, e.g. copy, will join). On BOTH roles: the
-                      // API forks from any message id regardless of role,
-                      // and this feature is pitched as "fork from any
-                      // point" — restricting the UI to assistant replies
-                      // only would silently narrow that to less than what
-                      // ships.
-                      <MessageActions className="mt-1">
-                        <MessageForkButton
-                          chatId={chatId}
-                          fromMessageId={message.id}
-                          onForked={(forkedChatId) =>
-                            router.push(`/chat/${forkedChatId}`)
-                          }
-                        />
-                      </MessageActions>
-                    )}
-                  </Message>
-                </React.Fragment>
+                <ChatMessageRow
+                  key={`message-${renderKey}`}
+                  renderKey={renderKey}
+                  message={message}
+                  boundary={boundary}
+                  modelBoundary={modelBoundary}
+                  availableModels={availableModels}
+                  chatId={chatId}
+                  status={status}
+                  onForked={(forkedChatId) =>
+                    router.push(`/chat/${forkedChatId}`)
+                  }
+                  onInspectContext={setInspectedRunId}
+                />
               );
             })}
             {/* All loaded messages are within the summarized span → boundary sits
