@@ -2,7 +2,7 @@ import {
   createAssistantPartCollector,
   REASONING_PERSIST_MAX,
   assistantParts,
-} from '../runs/run-execution.service';
+} from '../runs/assistant-transcript';
 import { isRecord } from '../unknown-record';
 
 function isPartWithText(part: unknown): part is { type: string; text: string } {
