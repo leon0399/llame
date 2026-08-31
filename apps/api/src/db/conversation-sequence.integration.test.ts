@@ -648,7 +648,10 @@ describe('conversation message sequence database invariants', () => {
             parts: textPart('foreign'),
           }),
         ),
-      ).rejects.toThrow();
+        // Name the denial: a bare toThrow() here passes on any failure, so a
+        // typo in the fixture would read as isolation working. Matches the
+        // convention in projects-rls.integration.test.ts.
+      ).rejects.toThrow(/row-level security|violates/i);
       const messages = await tenantDb.runAs(ownerUserId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatId, ownerUserId),
       );

@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 /**
  * forkChat on a live DB (RLS) — the copy's correctness + tenancy:
  * - copies the seq-prefix into a NEW owned chat, order preserved, `in_reply_to`
@@ -175,7 +176,9 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
   it('a cross-tenant fork throws and creates nothing', async () => {
     const { chatId, asst1Id } = await seedChat(a);
 
-    await expect(service.forkChat(chatId, b, asst1Id)).rejects.toThrow();
+    await expect(service.forkChat(chatId, b, asst1Id)).rejects.toThrow(
+      NotFoundException,
+    );
 
     const bChats = await service.listChatsWithLastMessage(b);
     expect(bChats).toEqual([]);
@@ -208,7 +211,9 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
   it('a cross-tenant whole-chat fork (clone) throws and creates nothing', async () => {
     const { chatId } = await seedChat(a);
 
-    await expect(service.forkChat(chatId, b, undefined)).rejects.toThrow();
+    await expect(service.forkChat(chatId, b, undefined)).rejects.toThrow(
+      NotFoundException,
+    );
 
     const bChats = await service.listChatsWithLastMessage(b);
     expect(bChats).toEqual([]);
