@@ -48,7 +48,7 @@ describe('conversation message sequence database invariants', () => {
   let otherUserId: string;
 
   beforeAll(async () => {
-    const postgres = require('postgres');
+    const postgres = await import('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL) ? 'require' : false;
     sqlClient = connect(TEST_DB_URL, { ssl, max: 3 });

@@ -70,7 +70,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
 
   beforeAll(async () => {
     // Dynamic import to avoid connecting at module load time.
-    const postgres = require('postgres');
+    const postgres = await import('postgres');
     const connect = postgres.default ?? postgres;
     // Local test databases (docker) have no TLS; only require it if the URL asks.
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;

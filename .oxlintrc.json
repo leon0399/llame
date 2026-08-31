@@ -126,11 +126,18 @@
     // ---- from nkzw-tech/oxlint-config: already satisfied repo-wide ------
     // Enabled at zero cost as regression protection. The rest of that config's
     // remaining rules are style (numeric separators, string-raw) and are not
-    // adopted; its size and shape rules are above. Three more with real
-    // correctness weight — typescript/no-require-imports (24 hits),
-    // preserve-caught-error (3), typescript/no-empty-object-type (2) — are
-    // deliberately NOT enabled yet: turning them on mid-sweep would move the
-    // baseline under agents already working against it.
+    // adopted; its size and shape rules are above. The three with real
+    // correctness weight were held back while agents were mid-sweep, then
+    // enabled once their slices closed.
+    "typescript/no-require-imports": "error",
+    "preserve-caught-error": "error",
+    // `with-single-extends` permits `interface X extends Y {}`, the only way to
+    // merge a declaration onto a lib.dom global — a type alias cannot. The `{}`
+    // type itself is still rejected.
+    "typescript/no-empty-object-type": [
+      "error",
+      { "allowInterfaces": "with-single-extends" }
+    ],
     "typescript/prefer-as-const": "error",
     "typescript/no-unsafe-function-type": "error",
     "typescript/no-wrapper-object-types": "error",

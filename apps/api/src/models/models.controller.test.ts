@@ -89,7 +89,7 @@ describe('ModelsController', () => {
       throw new Error('expected controller to throw');
     } catch (error) {
       if (!(error instanceof HttpException)) {
-        throw new Error('Expected an HttpException');
+        throw new Error('Expected an HttpException', { cause: error });
       }
       expect(error.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
       expect(error.getResponse()).toEqual({

@@ -97,7 +97,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
   };
 
   beforeAll(async () => {
-    const postgres = require('postgres');
+    const postgres = await import('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 5 });

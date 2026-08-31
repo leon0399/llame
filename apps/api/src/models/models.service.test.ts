@@ -176,7 +176,9 @@ describe('ModelsService', () => {
         throw new Error('expected getAvailableModels to throw');
       } catch (error) {
         if (!(error instanceof ModelConfigurationError)) {
-          throw new Error('Expected a ModelConfigurationError');
+          throw new Error('Expected a ModelConfigurationError', {
+            cause: error,
+          });
         }
         expect(error.code).toBe('model_configuration_invalid');
         expect(error.statusCode).toBe(503);
