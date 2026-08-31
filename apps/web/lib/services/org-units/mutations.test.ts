@@ -1,58 +1,36 @@
 // @vitest-environment jsdom
 
 import * as React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-const {
-  createRootOrgUnit,
-  createChildOrgUnit,
-  updateOrgUnitEndpoint,
-  deleteOrgUnitEndpoint,
-  grantOrgUnitMembership,
-  changeOrgUnitMembershipRole,
-  revokeOrgUnitMembership,
-  createAuthenticatedBrowserFetch,
-  authenticatedFetch,
-} = vi.hoisted(() => ({
-  createRootOrgUnit: vi.fn(),
-  createChildOrgUnit: vi.fn(),
-  updateOrgUnitEndpoint: vi.fn(),
-  deleteOrgUnitEndpoint: vi.fn(),
-  grantOrgUnitMembership: vi.fn(),
-  changeOrgUnitMembershipRole: vi.fn(),
-  revokeOrgUnitMembership: vi.fn(),
-  createAuthenticatedBrowserFetch: vi.fn(),
-  authenticatedFetch: vi.fn<typeof fetch>(),
-}));
+let fetchMock: Mock<typeof fetch>;
 
-vi.mock("../../api/generated/org-units/org-units", () => ({
-  createRootOrgUnit,
-  createChildOrgUnit,
-  updateOrgUnit: updateOrgUnitEndpoint,
-  deleteOrgUnit: deleteOrgUnitEndpoint,
-  grantOrgUnitMembership,
-  changeOrgUnitMembershipRole,
-  revokeOrgUnitMembership,
-}));
-
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch,
-}));
-
-createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
-
-function resetEndpointMocks() {
-  createRootOrgUnit.mockReset();
-  createChildOrgUnit.mockReset();
-  updateOrgUnitEndpoint.mockReset();
-  deleteOrgUnitEndpoint.mockReset();
-  grantOrgUnitMembership.mockReset();
-  changeOrgUnitMembershipRole.mockReset();
-  revokeOrgUnitMembership.mockReset();
-  createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+/**
+ * Assert the request the generated endpoint actually sent. The previous
+ * version asserted only that a mocked endpoint function had been called with
+ * certain arguments, so each test's own name — "POSTs /org-units/:id/children"
+ * — was never checked against anything.
+ */
+async function expectRequest(expected: {
+  method: string;
+  pathname: string;
+  body?: unknown;
+}) {
+  const request = requestFromCall(fetchMock);
+  expect(request.method).toBe(expected.method);
+  expect(new URL(request.url).pathname).toBe(expected.pathname);
+  expect(request.credentials).toBe("include");
+  if (expected.body !== undefined) {
+    await expect(request.json()).resolves.toEqual(expected.body);
+  }
 }
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
 
 import {
   changeMembershipRole,
@@ -68,6 +46,12 @@ import {
   useUpdateOrgUnit,
 } from "./mutations";
 import { orgUnitsQueryKeys } from "./queries";
+import {
+  emptyResponse,
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
 import type { MembershipResponse, OrgUnitResponse } from "./types";
 
 function jsonResolved<T>(value: T) {
@@ -133,126 +117,113 @@ function newTestQueryClient() {
 }
 
 afterEach(() => {
-  resetEndpointMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("createRootOrg", () => {
   it("POSTs /org-units with just the name (the API defaults roots to 'organization')", async () => {
-    createRootOrgUnit.mockReturnValue(jsonResolved({ id: "u1" }));
+    fetchMock.mockResolvedValue(jsonResponse({ id: "u1" }));
     await createRootOrg({ name: "Acme" });
-    expect(createRootOrgUnit).toHaveBeenCalledWith(
-      { name: "Acme" },
-      undefined,
-      authenticatedFetch,
-    );
+    await expectRequest({
+      method: "POST",
+      pathname: "/api/v1/org-units",
+      body: { name: "Acme" },
+    });
   });
 });
 
 describe("createChildOrg", () => {
   it("POSTs /org-units/:id/children with the name", async () => {
-    createChildOrgUnit.mockReturnValue(jsonResolved({ id: "u2" }));
+    fetchMock.mockResolvedValue(jsonResponse({ id: "u2" }));
     await createChildOrg({ parentId: "parent-1", name: "Team" });
-    expect(createChildOrgUnit).toHaveBeenCalledWith(
-      "parent-1",
-      { name: "Team" },
-      undefined,
-      authenticatedFetch,
-    );
+    await expectRequest({
+      method: "POST",
+      pathname: "/api/v1/org-units/parent-1/children",
+      body: { name: "Team" },
+    });
   });
 
-  it("includes the type when the child dialog's type segment picked one", () => {
-    createChildOrgUnit.mockReturnValue(jsonResolved({ id: "u3" }));
-    void createChildOrg({
+  it("includes the type when the child dialog's type segment picked one", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: "u3" }));
+    await createChildOrg({
       parentId: "parent-1",
       name: "Design",
       type: "department",
     });
-    expect(createChildOrgUnit).toHaveBeenCalledWith(
-      "parent-1",
-      { name: "Design", type: "department" },
-      undefined,
-      authenticatedFetch,
-    );
+    await expectRequest({
+      method: "POST",
+      pathname: "/api/v1/org-units/parent-1/children",
+      body: { name: "Design", type: "department" },
+    });
   });
 });
 
 describe("updateOrgUnit", () => {
   it("PATCHes /org-units/:id with only the provided fields", async () => {
-    updateOrgUnitEndpoint.mockReturnValue(jsonResolved({ id: "u1" }));
+    fetchMock.mockResolvedValue(jsonResponse({ id: "u1" }));
     await updateOrgUnit({ orgUnitId: "u1", name: "Renamed" });
-    expect(updateOrgUnitEndpoint).toHaveBeenCalledWith(
-      "u1",
-      { name: "Renamed" },
-      undefined,
-      authenticatedFetch,
-    );
+    await expectRequest({
+      method: "PATCH",
+      pathname: "/api/v1/org-units/u1",
+      body: { name: "Renamed" },
+    });
   });
 
   it("passes an explicit null parentId through (move to root)", async () => {
-    updateOrgUnitEndpoint.mockReturnValue(jsonResolved({ id: "u1" }));
+    fetchMock.mockResolvedValue(jsonResponse({ id: "u1" }));
     await updateOrgUnit({ orgUnitId: "u1", parentId: null });
-    expect(updateOrgUnitEndpoint).toHaveBeenCalledWith(
-      "u1",
-      { parentId: null },
-      undefined,
-      authenticatedFetch,
-    );
+    await expectRequest({
+      method: "PATCH",
+      pathname: "/api/v1/org-units/u1",
+      body: { parentId: null },
+    });
   });
 });
 
 describe("deleteOrgUnit", () => {
   it("DELETEs /org-units/:id", async () => {
-    deleteOrgUnitEndpoint.mockResolvedValue(undefined);
+    fetchMock.mockResolvedValue(emptyResponse());
     await deleteOrgUnit("u1");
-    expect(deleteOrgUnitEndpoint).toHaveBeenCalledWith(
-      "u1",
-      undefined,
-      authenticatedFetch,
-    );
+    await expectRequest({ method: "DELETE", pathname: "/api/v1/org-units/u1" });
   });
 });
 
 describe("grantMembership", () => {
   it("POSTs /org-units/:id/memberships with userId + role", async () => {
-    grantOrgUnitMembership.mockResolvedValue(undefined);
+    fetchMock.mockResolvedValue(emptyResponse());
     await grantMembership({ orgUnitId: "u1", userId: "user-2", role: "admin" });
-    expect(grantOrgUnitMembership).toHaveBeenCalledWith(
-      "u1",
-      { userId: "user-2", role: "admin" },
-      undefined,
-      authenticatedFetch,
-    );
+    await expectRequest({
+      method: "POST",
+      pathname: "/api/v1/org-units/u1/memberships",
+      body: { userId: "user-2", role: "admin" },
+    });
   });
 });
 
 describe("changeMembershipRole", () => {
   it("PATCHes /org-units/:id/memberships/:userId with the role", async () => {
-    changeOrgUnitMembershipRole.mockReturnValue(jsonResolved({ id: "m1" }));
+    fetchMock.mockResolvedValue(jsonResponse({ id: "m1" }));
     await changeMembershipRole({
       orgUnitId: "u1",
       userId: "user-2",
       role: "owner",
     });
-    expect(changeOrgUnitMembershipRole).toHaveBeenCalledWith(
-      "u1",
-      "user-2",
-      { role: "owner" },
-      undefined,
-      authenticatedFetch,
-    );
+    await expectRequest({
+      method: "PATCH",
+      pathname: "/api/v1/org-units/u1/memberships/user-2",
+      body: { role: "owner" },
+    });
   });
 });
 
 describe("revokeMembership", () => {
   it("DELETEs /org-units/:id/memberships/:userId", async () => {
-    revokeOrgUnitMembership.mockResolvedValue(undefined);
+    fetchMock.mockResolvedValue(emptyResponse());
     await revokeMembership({ orgUnitId: "u1", userId: "user-2" });
-    expect(revokeOrgUnitMembership).toHaveBeenCalledWith(
-      "u1",
-      "user-2",
-      undefined,
-      authenticatedFetch,
-    );
+    await expectRequest({
+      method: "DELETE",
+      pathname: "/api/v1/org-units/u1/memberships/user-2",
+    });
   });
 });
 
@@ -263,8 +234,8 @@ describe("useUpdateOrgUnit: optimistic cache patch", () => {
     queryClient.setQueryData(orgUnitsQueryKeys.lists(), seeded);
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { promise, resolve } = deferred<OrgUnitResponse>();
-    updateOrgUnitEndpoint.mockReturnValue(promise);
+    const { promise, resolve } = deferred<Response>();
+    fetchMock.mockReturnValue(promise);
 
     const { result } = renderHook(() => useUpdateOrgUnit(), {
       wrapper: wrapperWithClient(queryClient),
@@ -280,7 +251,7 @@ describe("useUpdateOrgUnit: optimistic cache patch", () => {
     );
     expect(invalidateSpy).not.toHaveBeenCalled();
 
-    resolve(orgUnitFixture({ id: "u1", name: "New" }));
+    resolve(jsonResponse(orgUnitFixture({ id: "u1", name: "New" })));
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: orgUnitsQueryKeys.lists(),
@@ -293,8 +264,8 @@ describe("useUpdateOrgUnit: optimistic cache patch", () => {
     queryClient.setQueryData(orgUnitsQueryKeys.lists(), seeded);
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { promise, reject } = deferred<OrgUnitResponse>();
-    updateOrgUnitEndpoint.mockReturnValue(promise);
+    const { promise, reject } = deferred<Response>();
+    fetchMock.mockReturnValue(promise);
 
     const { result } = renderHook(() => useUpdateOrgUnit(), {
       wrapper: wrapperWithClient(queryClient),
@@ -329,8 +300,8 @@ describe("useDeleteOrgUnit: optimistic cache patch", () => {
     ];
     queryClient.setQueryData(orgUnitsQueryKeys.lists(), seeded);
 
-    const { promise, resolve } = deferred<void>();
-    deleteOrgUnitEndpoint.mockReturnValue(promise);
+    const { promise, resolve } = deferred<Response>();
+    fetchMock.mockReturnValue(promise);
 
     const { result } = renderHook(() => useDeleteOrgUnit(), {
       wrapper: wrapperWithClient(queryClient),
@@ -343,7 +314,7 @@ describe("useDeleteOrgUnit: optimistic cache patch", () => {
       ).toEqual([expect.objectContaining({ id: "u2" })]),
     );
 
-    resolve();
+    resolve(emptyResponse());
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
   });
 
@@ -352,8 +323,8 @@ describe("useDeleteOrgUnit: optimistic cache patch", () => {
     const seeded = [orgUnitFixture({ id: "u1" }), orgUnitFixture({ id: "u2" })];
     queryClient.setQueryData(orgUnitsQueryKeys.lists(), seeded);
 
-    const { promise, reject } = deferred<void>();
-    deleteOrgUnitEndpoint.mockReturnValue(promise);
+    const { promise, reject } = deferred<Response>();
+    fetchMock.mockReturnValue(promise);
 
     const { result } = renderHook(() => useDeleteOrgUnit(), {
       wrapper: wrapperWithClient(queryClient),
@@ -380,8 +351,8 @@ describe("useChangeMembershipRole: optimistic cache patch", () => {
     const seeded = [membershipFixture({ userId: "user-2", role: "member" })];
     queryClient.setQueryData(orgUnitsQueryKeys.memberships("u1"), seeded);
 
-    const { promise, resolve } = deferred<MembershipResponse>();
-    changeOrgUnitMembershipRole.mockReturnValue(promise);
+    const { promise, resolve } = deferred<Response>();
+    fetchMock.mockReturnValue(promise);
 
     const { result } = renderHook(() => useChangeMembershipRole(), {
       wrapper: wrapperWithClient(queryClient),
@@ -396,7 +367,9 @@ describe("useChangeMembershipRole: optimistic cache patch", () => {
       ).toMatchObject([{ userId: "user-2", role: "owner" }]),
     );
 
-    resolve(membershipFixture({ userId: "user-2", role: "owner" }));
+    resolve(
+      jsonResponse(membershipFixture({ userId: "user-2", role: "owner" })),
+    );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
   });
 
@@ -405,8 +378,8 @@ describe("useChangeMembershipRole: optimistic cache patch", () => {
     const seeded = [membershipFixture({ userId: "user-2", role: "member" })];
     queryClient.setQueryData(orgUnitsQueryKeys.memberships("u1"), seeded);
 
-    const { promise, reject } = deferred<MembershipResponse>();
-    changeOrgUnitMembershipRole.mockReturnValue(promise);
+    const { promise, reject } = deferred<Response>();
+    fetchMock.mockReturnValue(promise);
 
     const { result } = renderHook(() => useChangeMembershipRole(), {
       wrapper: wrapperWithClient(queryClient),
@@ -438,8 +411,8 @@ describe("useCreateRootOrg: no optimistic insert", () => {
     queryClient.setQueryData(orgUnitsQueryKeys.lists(), seeded);
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { promise, resolve } = deferred<OrgUnitResponse>();
-    createRootOrgUnit.mockReturnValue(promise);
+    const { promise, resolve } = deferred<Response>();
+    fetchMock.mockReturnValue(promise);
 
     const { result } = renderHook(() => useCreateRootOrg(), {
       wrapper: wrapperWithClient(queryClient),
@@ -453,7 +426,7 @@ describe("useCreateRootOrg: no optimistic insert", () => {
     ).toEqual(seeded);
     expect(invalidateSpy).not.toHaveBeenCalled();
 
-    resolve(orgUnitFixture({ id: "u2", name: "New Co" }));
+    resolve(jsonResponse(orgUnitFixture({ id: "u2", name: "New Co" })));
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     // Cache data itself is unchanged here (nothing refetches it without a
@@ -471,9 +444,7 @@ describe("useCreateRootOrg: no optimistic insert", () => {
 describe("optimistic mutations: empty-cache edge", () => {
   it("useUpdateOrgUnit doesn't throw when lists() was never fetched", async () => {
     const queryClient = newTestQueryClient();
-    updateOrgUnitEndpoint.mockReturnValue(
-      jsonResolved(orgUnitFixture({ id: "u1" })),
-    );
+    fetchMock.mockResolvedValue(jsonResponse(orgUnitFixture({ id: "u1" })));
 
     const { result } = renderHook(() => useUpdateOrgUnit(), {
       wrapper: wrapperWithClient(queryClient),
@@ -486,7 +457,7 @@ describe("optimistic mutations: empty-cache edge", () => {
 
   it("useDeleteOrgUnit doesn't throw when lists() was never fetched", async () => {
     const queryClient = newTestQueryClient();
-    deleteOrgUnitEndpoint.mockResolvedValue(undefined);
+    fetchMock.mockResolvedValue(emptyResponse());
 
     const { result } = renderHook(() => useDeleteOrgUnit(), {
       wrapper: wrapperWithClient(queryClient),
