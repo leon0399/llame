@@ -7,6 +7,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import {
   CORNER_RADIUS,
   MessageType,
+  type MessageTypeValue,
   NODE_HEIGHT,
   NODE_WIDTH,
   OPACITY,
@@ -191,6 +192,29 @@ function DefaultNodeMarker({
   );
 }
 
+export interface GraphNodeProps {
+  node: ConversationNode;
+  index: number;
+  isSelected: boolean;
+  onClick: () => void;
+  conversations: ConversationNode[];
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+}
+
+/**
+ * The marker a node type renders. Types absent here fall through to
+ * DefaultNodeMarker, which is the only one that also needs the node itself.
+ */
+const NODE_MARKERS: Partial<
+  Record<MessageTypeValue, (props: NodeMarkerProps) => React.ReactNode>
+> = {
+  [MessageType.MERGE]: MergeNodeMarker,
+  [MessageType.AGENT_WORKING]: AgentWorkingNodeMarker,
+  [MessageType.TOOL_CALL]: ToolNodeMarker,
+  [MessageType.TOOL_RESULT]: ToolNodeMarker,
+};
+
 // Enhanced node component
 export const GraphNode = ({
   node,
@@ -200,15 +224,7 @@ export const GraphNode = ({
   conversations,
   onMouseEnter,
   onMouseLeave,
-}: {
-  node: ConversationNode;
-  index: number;
-  isSelected: boolean;
-  onClick: () => void;
-  conversations: ConversationNode[];
-  onMouseEnter?: () => void;
-  onMouseLeave?: () => void;
-}) => {
+}: GraphNodeProps) => {
   const markerProps: NodeMarkerProps = {
     x: getBranchX(node.branch, conversations),
     y: getNodeY(index),
@@ -221,17 +237,9 @@ export const GraphNode = ({
     },
   };
 
-  if (node.type === MessageType.MERGE) {
-    return <MergeNodeMarker {...markerProps} />;
-  }
-  if (node.type === MessageType.AGENT_WORKING) {
-    return <AgentWorkingNodeMarker {...markerProps} />;
-  }
-  if (
-    node.type === MessageType.TOOL_CALL ||
-    node.type === MessageType.TOOL_RESULT
-  ) {
-    return <ToolNodeMarker {...markerProps} />;
+  const Marker = NODE_MARKERS[node.type];
+  if (Marker) {
+    return <Marker {...markerProps} />;
   }
   return <DefaultNodeMarker {...markerProps} node={node} />;
 };
