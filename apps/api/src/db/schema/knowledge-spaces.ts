@@ -1,12 +1,7 @@
 import { InferSelectModel, sql } from 'drizzle-orm';
-import {
-  index,
-  pgPolicy,
-  pgTable,
-  text,
-  timestamp,
-  uuid,
-} from 'drizzle-orm/pg-core';
+import { index, pgPolicy, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+
+import { timestamptz } from '../columns';
 
 import { users } from './auth';
 
@@ -27,10 +22,10 @@ export const knowledgeSpaces = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull().default('Personal'),
-    createdAt: timestamp('created_at', { withTimezone: true, precision: 3 })
+    createdAt: timestamptz('created_at', { precision: 3 })
       .notNull()
       .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true, precision: 3 })
+    updatedAt: timestamptz('updated_at', { precision: 3 })
       .notNull()
       .defaultNow(),
   },

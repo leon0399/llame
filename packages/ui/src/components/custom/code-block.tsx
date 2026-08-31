@@ -102,6 +102,7 @@ function CodeBlockCode({
   return highlightedHtml ? (
     <div
       className={classNames}
+      // safe-html: shiki codeToHtml output; shiki escapes the source text and wraps it in its own spans, so code cannot re-enter as markup
       dangerouslySetInnerHTML={{ __html: highlightedHtml }}
       {...props}
     />

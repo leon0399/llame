@@ -36,6 +36,47 @@
     // ---- anti-slop: universal. The stricter type-honesty tier lives in
     // .oxlintrc.strict-types.json, extended by the type-aware workspaces.
     // ----------------------------------------------------------------------
+    // Repo-owned invariants that were prose-only until now. See
+    // docs/research/lint/2026-08-31-stella-oxlint-plugins.md for what each one
+    // can and cannot prove — none of them is a proof of the property it names.
+    "anti-slop/forbid-process-env-outside-env-ts": [
+      "error",
+      {
+        "allowedFiles": [
+          "packages/config-interpolation/src/interpolation.ts",
+          "apps/api/src/instance-config/config-loader.ts",
+          "apps/api/src/instance-config/worker-profile.service.ts",
+          "apps/api/src/db/db.ts",
+          "apps/api/src/db/migrate.ts",
+          "apps/api/src/core-infra.module.ts",
+          "apps/api/src/main.ts",
+          "apps/api/src/worker.ts",
+          "apps/api/src/generate-openapi.ts",
+          "apps/api/src/runs/worker-harness.ts",
+          "apps/api/src/queue/queue.module.ts",
+          "apps/api/src/chats/turn-telemetry.ts",
+          "apps/api/src/search/operations/cli.ts",
+          "apps/web/lib/api/fetch.ts",
+          "apps/web/instrumentation.ts",
+          "apps/web/components/sidebar-row-title.tsx",
+          "e2e/support/db-server.ts",
+          "e2e/support/model-server.ts",
+          "e2e/support/mcp-server.ts",
+          "e2e/support/auth-helpers.ts",
+          "e2e/support/fixtures.ts",
+          "e2e/support/seed-sql.ts",
+          "playwright.config.ts",
+          "apps/api/vitest.integration.setup.ts",
+          "apps/api/vitest.integration.global-setup.mts",
+          "apps/api/src/mcp/mcp-stdio-test-fixture.mjs",
+          "apps/api/src/app.setup.ts",
+          "e2e/support/mcp-stdio-server.mjs",
+          "e2e/support/run-after-ready.ts"
+        ]
+      }
+    ],
+    "anti-slop/no-unsafe-inner-html": "error",
+    "anti-slop/require-timestamptz-column": "error",
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-object-parameters": "error",
     "anti-slop/no-shape-in-symbol-names": "error",
@@ -328,6 +369,26 @@
   },
 
   "overrides": [
+    {
+      // Vendored upstream rule sources. llame's own opinions do not apply to
+      // code it did not write: enforcing them here would mean rewriting the
+      // vendored logic, which is exactly what vendoring exists to avoid. The
+      // files still have to parse and load — registry.check.mjs imports the
+      // plugin and fails if they do not.
+      "files": ["packages/oxlint-plugin-anti-slop/vendor/**"],
+      "rules": {
+        "anti-slop/no-runtime-typeof": "off",
+        "anti-slop/no-unknown-parameters": "off",
+        "anti-slop/no-unknown-returns": "off",
+        "anti-slop/no-unsafe-dictionary-type": "off",
+        "anti-slop/no-object-parameters": "off",
+        "anti-slop/require-safety-comment-for-type-assertion": "off",
+        "anti-slop/no-chained-type-assertions": "off",
+        "typescript/no-explicit-any": "off",
+        "max-lines": "off",
+        "max-lines-per-function": "off"
+      }
+    },
     {
       // Tests and stories are exempt from SIZE and NESTING only. A table-driven
       // suite is legitimately long, and `describe`/`it` nesting is the idiom —

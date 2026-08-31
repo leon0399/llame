@@ -143,6 +143,7 @@ export default async function RootLayout({
       <head>
         <style
           dangerouslySetInnerHTML={{
+            // safe-html: next/font build-time CSS variable names from getFontCssVariables(); no request, user, or model input reaches it
             __html: `
             :root {
               --font-sans: ${fontCssVariables["--font-sans"]};

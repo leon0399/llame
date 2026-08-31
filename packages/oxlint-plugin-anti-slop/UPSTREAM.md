@@ -74,3 +74,50 @@ directory, and reconciling every local patch above before replacement. Remove a
 local patch when upstream carries equivalent coverage. Keep llame-specific
 enablement and exceptions in Oxlint configuration, not in the vendored rule
 source.
+
+## Second upstream: stella/stella `.oxlint-plugins`
+
+`vendor/` holds rules vendored from
+[`stella/stella`](https://github.com/stella/stella/tree/main/.oxlint-plugins),
+fetched 2026-08-31. Which rules were taken, which were rejected, and the
+evidence for each, are recorded in
+[`docs/research/lint/2026-08-31-stella-oxlint-plugins.md`](../../docs/research/lint/2026-08-31-stella-oxlint-plugins.md).
+
+| File                                   | Enforces                                                       |
+| -------------------------------------- | -------------------------------------------------------------- |
+| `stella-utils.ts`                      | Shared AST helpers every vendored rule imports (verbatim)      |
+| `require-timestamptz-column.ts`        | Drizzle timestamp columns go through `src/db/columns.ts`       |
+| `forbid-process-env-outside-env-ts.ts` | Settings come from `llame.config.json`, not bare `process.env` |
+| `no-unsafe-inner-html.ts`              | Raw-HTML sinks carry a `safe-html:` provenance comment         |
+
+**Two edits per rule, and no others.** Upstream exports a one-rule plugin per
+file (`eslintCompatPlugin`); llame registers every rule through a single
+`index.ts`, so the wrapper becomes an exported `defineRule`. And the shared
+helper import is repointed from `./utils.ts` to `./stella-utils.ts`. Detection
+logic, options, messages, and documented boundaries are upstream's.
+
+**`vendor/` is a typecheck and lint boundary, deliberately.** Each file opens
+with `@ts-nocheck` and the directory is excluded from llame's own anti-slop
+rules in `.oxlintrc.json`. Upstream compiles under a looser configuration than
+llame's `strict`, and enforcing llame's opinions here would mean rewriting the
+code — which is what vendoring exists to avoid. Adapting a vendored rule to
+llame's style is how you lose the ability to re-pull it.
+
+What still guards these files: `registry.check.mjs` imports the built plugin and
+asserts the rules it exposes match the two rule directories, so a vendored file
+that fails to parse, fails to resolve an import, or silently stops being
+registered fails the check with a stack trace.
+
+**That guard exists because its absence bit.** A duplicate import in `index.ts`
+made oxlint fail plugin loading outright — which it reports as a configuration
+warning and then lints on without any anti-slop rule. Every workspace read
+"0 violations" while all 21 rules were off. `--report-unused-disable-directives`
+cannot catch this, and neither could the previous registry check, which compared
+file names to map keys without ever loading the module.
+
+**Local adaptation, not a patch to upstream logic:** llame has no `env.ts`, so
+`forbid-process-env-outside-env-ts` is configured through its own `allowedFiles`
+option in `.oxlintrc.json` rather than upstream's default patterns.
+`require-timestamptz-column`'s message names `@/api/db/columns`, which is
+stella's path alias; llame's helper is at `apps/api/src/db/columns.ts` and is
+imported relatively. The message is upstream's text, left unedited.

@@ -10,8 +10,18 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "index.ts"), "utf8");
 
-const ruleFiles = readdirSync(join(here, "rules"))
-  .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
+// Two trees: `rules/` is llame-authored, `vendor/` is upstream code kept as
+// received. Both must be registered, so both are scanned. `stella-utils` is a
+// shared helper module, not a rule.
+const ruleFiles = ["rules", "vendor"]
+  .flatMap((dir) =>
+    readdirSync(join(here, dir)).filter(
+      (name) =>
+        name.endsWith(".ts") &&
+        !name.endsWith(".test.ts") &&
+        name !== "stella-utils.ts",
+    ),
+  )
   .map((name) => name.replace(/\.ts$/u, ""));
 
 const registered = new Set(
@@ -33,3 +43,18 @@ assert.deepEqual(
 );
 
 console.log(`registry ok: ${ruleFiles.length} rules, all registered`);
+
+// Load canary. The checks above prove the rules/ directory and the index map
+// agree; they cannot prove the module actually loads. A duplicate import made
+// oxlint fail plugin loading outright, which it reports as a config warning and
+// then lints on with every anti-slop rule silently absent — so the whole suite
+// read as "0 violations". Importing the plugin here turns that into a failure
+// with a stack trace.
+const loaded = (await import("./index.ts")).default;
+const exported = Object.keys(loaded.rules ?? {});
+assert.deepEqual(
+  exported.toSorted(),
+  ruleFiles.toSorted(),
+  `the loaded plugin exposes different rules than rules/ holds: ${exported.join(", ")}`,
+);
+console.log(`plugin loads: ${exported.length} rules exposed`);

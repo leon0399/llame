@@ -250,11 +250,13 @@ function getSessionCookieOptions(): CookieOptions {
 }
 
 function getSessionCookieDomain(): string | undefined {
+  // eslint-disable-next-line anti-slop/forbid-process-env-outside-env-ts -- pending migration into llame.config.json: this is a product setting read as a bare env var, which skips schema validation and secret marking. Tracked in docs/research/lint/2026-08-31-stella-oxlint-plugins.md.
   const domain = process.env.SESSION_COOKIE_DOMAIN?.trim();
   if (domain) {
     return domain;
   }
 
+  // eslint-disable-next-line anti-slop/forbid-process-env-outside-env-ts -- NODE_ENV selects a runtime mode, not a configurable setting; it must be readable before any configuration file is located.
   if (process.env.NODE_ENV === 'production') {
     throw new Error('SESSION_COOKIE_DOMAIN is required in production');
   }
