@@ -220,18 +220,61 @@ Three unshipped shifts change rule value materially. All three are quoted from
    rejects by component — empty, `.`, `..`, posix and win32 absolute,
    backslash, control characters, plus byte and component caps. That is
    strictly stronger than any `startsWith` prefix check and structurally immune
-   to the sibling-path bug the rule targets. Its only value is as a ratchet
-   preventing a weaker `startsWith` shape from appearing at the new Sandbox
-   boundary. Real, but modest — and worth it only because it is free today.
+   to the sibling-path bug the rule targets.
+
+   But the ratchet framing understates it, for a reason worth stating: Knowledge
+   and Sandbox solve **different** problems. Knowledge validates an untrusted
+   _relative_ path before joining it to a known root. Sandbox must decide
+   whether an already-resolved _absolute_ directory falls inside a boundary —
+   the classic "is `candidate` under `root`" check, for which llame has no
+   existing pattern to copy, correct or otherwise. So the risk is not regression
+   from a known-good idiom; it is a first draft reaching for
+   `resolved.startsWith(root)`, which is the obvious-looking wrong answer.
+
+   **The deadline is Sandbox, not #212.** `ROADMAP.md:57-58` says agent changes
+   under the Profile Space "use the bounded Git change path proven by the
+   Knowledge Space" — #212 reuses the safe module rather than writing fresh
+   containment.
+
+   A lint rule cannot reach llame's actual named gap here. `SPEC.md:207-211`
+   states "Path-based checks do not fully defend against a hostile concurrent
+   parent swap or hardlink race; future descriptor-relative containment is
+   required before supporting tenant-writable or synchronization-managed
+   mounts." That is a TOCTOU race, invisible to syntax. The rule is worth
+   adopting because it is free, not because it closes that.
 
 3. **Personal Realm synchronization** ("link one standalone Node to one
    personal upstream and synchronize portable personal state bidirectionally")
    makes llame multi-node. Timestamps stop being a single-writer detail and
    become an ordering authority across nodes. `require-timestamptz-column` and
    `no-truncated-timestamp-comparison` (JS `Date` truncates to milliseconds,
-   Postgres stores microseconds) go from a correctness nicety to a
+   Postgres defaults to microseconds) go from a correctness nicety to a
    reconciliation primitive. The absent central `timestamptz()` helper is
    cheapest to introduce now, while there are 36 call sites and 2 defects.
+
+   **A claimed live pagination bug here does not exist, and why it doesn't is
+   the actual finding.** A review pass reported
+   `knowledge-space.repository.ts:172` as a truncated-comparison defect: a
+   `gt(createdAt, after.createdAt)` keyset cursor with an `eq()` tie-breaker,
+   fed a JS `Date` round-tripped through a base64 cursor. That would skip rows
+   whose stored value shares a millisecond but differs in microseconds — except
+   `knowledge-spaces.ts:30` declares `timestamp('created_at', { withTimezone:
+true, precision: 3 })`. Postgres stores milliseconds there, exactly what a
+   `Date` represents, so the tie-breaker matches and the cursor is sound.
+
+   **`knowledge-spaces.ts` is the only schema file that pins `precision`.** The
+   other 36 timestamp columns take Postgres's microsecond default. So the one
+   table with a `Date`-valued keyset cursor is also the one table whose author
+   knew to pin precision — and nothing records that they are connected. No
+   comment, no helper, no rule. The next keyset cursor over any other table
+   inherits the hazard.
+
+   Verified there is no second instance today: the only other `gt`/`lte`
+   comparisons against timestamp columns are session expiry and idle-TTL range
+   checks in `auth/sessions.repository.ts`, where sub-millisecond drift is
+   meaningless because no equality tie-breaker is involved. So the rule has
+   **zero** violations, and its whole value is forward-looking — which is the
+   point of this section.
 
 ### The i18n cluster splits in two, and half of it is already live
 
@@ -262,6 +305,27 @@ not a documented product requirement — it appears nowhere in `VISION.md`,
 evidence; the broader i18n argument does not have roadmap backing and should not
 be presented as though it does.
 
+### Two candidates that look like they rise, and do not
+
+- **SSRF (`require-safe-outbound-target`) has no trigger on this roadmap.**
+  llame's only outbound surface targets `mcpServers` endpoints from
+  restart-applied operator config, never a model- or request-chosen URL, and
+  `SPEC.md:119` makes the trust model explicit: "Configured endpoints are
+  operator-approved outbound data boundaries... private endpoints are
+  intentionally allowed for self-hosted services." Operator attestation
+  deliberately replaces app-level filtering. The trigger to revisit is the first
+  tool whose fetch target is selected by anything other than operator config —
+  a generic browse or web-fetch tool. Nothing on the roadmap proposes one yet.
+
+- **`require-audit-on-mutation` should be rejected, not deferred.** It flags a
+  `tx.insert/update/delete` lacking an audit-log call, and llame has no audit
+  table at all. More decisively, `ROADMAP.md:60-61` already chose a different
+  mechanism for the one write surface that is coming: "Bind the resource
+  identity, commit OID, and rendered contributions into the Run's
+  effective-context receipt." Git commit history IS the audit trail, and it is
+  attributable and diffable in a way an audit row is not. Adopting this rule
+  would push toward building a second, redundant mechanism.
+
 ### What decays
 
 - **Native absorption is the main decay risk.** `.oxlintrc.json` declares 215
@@ -277,6 +341,23 @@ be presented as though it does.
   rather than satisfied. Not before.
 - **Ratchets on shapes llame will never grow** are the ones to skip outright
   rather than adopt cheaply: RTL is the clear example.
+- **Allowlist rules do not get more accurate with age — they accumulate false
+  positives.** `forbid-process-env-outside-env-ts` carries a list of known
+  boundary files. Every entrypoint the roadmap adds (a CLI `main`, the
+  standalone Node bootstrap) is a legitimate boundary the list does not know
+  about, and the failure is a build break rather than silent rot. Budget for
+  maintenance at each new entrypoint rather than trying to pre-solve it.
+- **Module-ownership rules multiply rather than strengthen.** Each new package
+  needs its own boundary instance; the existing `src/queue/` ↔ `runs/` rule
+  does not extend to a CLI tree. Expect N small rules over time, and write each
+  one only once its package exists — writing it earlier means guessing the
+  shape twice.
+- **Scope the tenancy rule to `apps/api` explicitly when adopting it.** Its
+  invariant (identity resolves to `@CurrentUser()`) assumes a hosted,
+  session-authenticated, RLS-backed installation. The standalone personal Node
+  "operates without an account", so a copy of this rule in that tree would have
+  no session to trace to and would either misfire or be silently disabled. Say
+  so in the rule header, or a future contributor rediscovers it the hard way.
 
 ## The practices are worth more than the rules
 
