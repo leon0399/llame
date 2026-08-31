@@ -2246,7 +2246,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     // Lifecycle bookends.
     expect(types[0]).toBe('run.started');
     expect(types[1]).toBe('model.requested');
-    expect(types[types.length - 1]).toBe('run.completed');
+    expect(types.at(-1)).toBe('run.completed');
 
     // Tool events present, in request -> started -> completed order.
     expect(idx('tool.requested')).toBeGreaterThan(-1);
@@ -3360,7 +3360,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const capNotice = parts.find((p) => p.type === 'data-cap-notice');
     expect(capNotice).toMatchObject({ data: { stepsUsed: 2, maxSteps: 2 } });
     // The cap notice is the LAST part (after the forced answer text).
-    expect(parts[parts.length - 1].type).toBe('data-cap-notice');
+    expect(parts.at(-1)?.type).toBe('data-cap-notice');
     expect(JSON.stringify(assistant?.parts)).toContain('hit the step limit');
 
     await sql`DELETE FROM chats WHERE id = ${chatId}`;

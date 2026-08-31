@@ -172,10 +172,8 @@ const innerStart = (node: MdNode): number | undefined =>
 
 /** Last content offset, descending past wrapper delimiters (e.g. `*`). */
 const innerEnd = (node: MdNode): number | undefined => {
-  const children = node.children;
-  return children && children.length > 0
-    ? innerEnd(children[children.length - 1])
-    : nodeSpan(node)?.end;
+  const last = node.children?.at(-1);
+  return last === undefined ? nodeSpan(node)?.end : innerEnd(last);
 };
 
 /** Source spans of every `text` descendant, in document order. */

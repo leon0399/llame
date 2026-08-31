@@ -254,7 +254,7 @@ function accumulateSpaceMatches(
     acc.matches.push(match);
   }
   if (acc.matches.length >= limit && attributed.length > 0) {
-    const last = acc.matches[acc.matches.length - 1];
+    const last = acc.matches.at(-1);
     if (
       last !== undefined &&
       attributed.some((match) => compareAttributedMatches(match, last) > 0)

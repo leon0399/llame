@@ -338,8 +338,13 @@ function formatConfigPath(
 
 function offsetToLineColumn(text: string, offset: number) {
   const upToOffset = text.slice(0, offset);
-  const lines = upToOffset.split('\n');
-  return { line: lines.length, column: lines[lines.length - 1].length + 1 };
+  // `lastIndexOf` returns -1 when the offset is on the first line, so
+  // `length - -1` is the 1-based column with no separate case. Measured
+  // against the CLAMPED prefix, since an offset past the end slices short.
+  return {
+    line: upToOffset.split('\n').length,
+    column: upToOffset.length - upToOffset.lastIndexOf('\n'),
+  };
 }
 
 // ---- Schema validation --------------------------------------------------

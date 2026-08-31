@@ -40,7 +40,7 @@ export async function copyText(text: string): Promise<boolean> {
     textarea.value = text;
     textarea.style.position = "fixed";
     textarea.style.opacity = "0";
-    document.body.appendChild(textarea);
+    document.body.append(textarea);
     textarea.select();
     return document.execCommand("copy");
   } catch {

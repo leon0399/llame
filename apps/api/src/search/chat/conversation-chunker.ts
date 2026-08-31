@@ -208,8 +208,11 @@ export function chunkConversation(
     const normalizedContent = normalizeForSearch(
       group.map((b) => b.lexicalContent).join('\n\n'),
     );
-    const first = group[0];
-    const last = group[group.length - 1];
+    const [first] = group;
+    const last = group.at(-1);
+    if (first === undefined || last === undefined) {
+      throw new Error('chunkByCharBudget emitted an empty group');
+    }
     return {
       chunkOrdinal,
       firstMessageId: first.messageId,

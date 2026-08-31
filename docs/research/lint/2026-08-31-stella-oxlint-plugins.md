@@ -146,18 +146,17 @@ that oxlint 1.78 recognises:
 
 | Class                         | Count | Disposition                     |
 | ----------------------------- | ----: | ------------------------------- |
-| Adds zero violations to llame |   124 | **Adopted.** Pure ratchet.      |
-| Adds violations, code fixed   |    16 | **Adopted**, code fixed to pass |
-| Adds violations, held back    |     3 | See below                       |
+| Adds zero violations to llame |   125 | **Adopted.** Pure ratchet.      |
+| Adds violations, code fixed   |    18 | **Adopted**, code fixed to pass |
 
 Twelve of nkzw's `react/*` rules do not exist in oxlint 1.78 and make it reject
 the whole config if declared. `no-undef` is excluded for the reason nkzw itself
 excludes it from `.ts`: it is meaningless under TypeScript.
 
-The 124 free rules cost exactly one violation to enable — a genuinely empty
+The 125 free rules cost exactly one violation to enable — a genuinely empty
 `catch` in the e2e readiness poll, which now carries the reason it is empty.
 
-The 16 that cost violations were adopted by **fixing the code, not the rule**.
+The 18 that cost violations were adopted by **fixing the code, not the rule**.
 That was 317 files: `T[]` to `Array<T>` throughout, `catch (err)` to
 `catch (error)`, `replace(/…/g)` to `replaceAll`, `String.raw` for
 backslash-heavy literals, numeric separators, `Object.hasOwn`,
@@ -167,26 +166,51 @@ backslash-heavy literals, numeric separators, `Object.hasOwn`,
 instead of assumed, and `array-type` surfaced nested `Array<T>[]` shapes that
 had been read as one-dimensional.
 
-### The three held back, and why
+### The three that were briefly held back
 
-1. **`unicorn/prefer-at`** — its autofix rewrites `a[a.length - 1]` to
-   `a.at(-1)`, whose `T | undefined` return produced 21 `TS2532`/`TS18048`
-   errors including in compaction. Each site needs real undefined handling, not
-   a mechanical rewrite. Worth doing; not worth doing blind.
-2. **`unicorn/prefer-dom-node-append`** — its autofix swaps `appendChild` for
-   `append`, which changed the DOM surface `apps/web/lib/clipboard.test.ts`
-   asserts on and broke it. The test is right to pin the call it makes; the
-   rewrite needs the test updated with it.
-3. **`no-warning-comments`** — bans every `TODO`, including the tracked
-   `TODO(#123)` form that `anti-slop/no-untracked-todo` exists to permit. Its
-   contract is strictly weaker than the rule llame already has.
+A first attempt deferred `unicorn/prefer-at`, `unicorn/prefer-dom-node-append`,
+and `no-warning-comments`. All three are now enforced. What the deferral got
+wrong is worth keeping:
 
-`unicorn/prefer-top-level-await` is enabled but scoped off five entrypoints.
-`apps/api` is CommonJS (`module: nodenext`, no `"type": "module"`), where
-top-level await is TS1309, not a style preference — verified by making the edit
-and reading the compiler error. `prefer-const` carries
-`ignoreReadBeforeAssign: true` for the one shape a `const` cannot express: a
-variable a closure reads before the value exists.
+1. **`no-warning-comments` was never costly.** It was measured with the rule's
+   DEFAULT terms (`todo`, `fixme`, `xxx`), which flags every TODO in the
+   repository. nkzw configures it as `terms: ['@nocommit']`. With the options
+   nkzw actually ships it adds **zero** violations, and it composes with
+   `anti-slop/no-untracked-todo` rather than competing with it. **Measuring a
+   rule without its configured options measures a different rule.**
+2. **`unicorn/prefer-at`** cost 18 sites, and two were latent bugs rather than
+   style. `nextKnowledgeSpaceCursor` guarded on `rows.length > page.length`,
+   which does not imply `page` is non-empty — an empty page would read
+   `undefined` and throw on `.createdAt`. `resolveDocumentBoundary` read
+   `rows[0]` with no check at all. The `T | undefined` return of `a.at(-1)` is
+   what surfaced both.
+3. **`unicorn/prefer-dom-node-append`** cost two production calls and one test
+   stub, which named `appendChild` because that is what the code called.
+
+### The autofix is not the fix
+
+The deferral came from running `oxlint --fix` in bulk and reading its exit code
+as success: it had rewritten 320 files, broken 21 typechecks and one test.
+Applied deliberately instead, each `prefer-at` site resolves one of three ways,
+and only the first is mechanical:
+
+- The result already flows into a `!== undefined` test or an `expect` — swap
+  the read and change nothing else.
+- The value is provably present but not to the compiler — narrow it once with
+  the guard the function already needed, or assert the invariant
+  (`chunkByCharBudget emitted an empty group`) per CODING_STANDARDS §5.
+- The guard was missing — add it, and record that a bug was found.
+
+**Two of the resulting rewrites were wrong, and the full test suite was green
+for both.** `offsetToLineColumn` was rewritten to take the column from `offset`
+rather than from the CLAMPED `text.slice(0, offset)`, so every offset past
+end-of-text came out one too high. `innerEnd` was rewritten to branch on
+truthiness where the original branched on length, so a falsy child would take
+the wrong path. Both were caught by running the old and new implementations
+against each other over 207 offsets and 7 child shapes — a check that
+demonstrably fails, because failing is how it reported these two. A passing
+suite is evidence about the suite's coverage, not about a rewrite it never
+exercised.
 
 The lesson is the measurement, not the rules. **A rule-adoption probe must run
 against the config the repository actually uses.** Probing with categories

@@ -396,7 +396,7 @@ describe('buildCompactionRequest', () => {
       'plan a trip to Japan',
     );
     expect(request.messages[1].role).toBe('assistant');
-    const last = request.messages[request.messages.length - 1];
+    const last = request.messages.at(-1);
     expect(last).toEqual({ role: 'user', content: COMPACTION_INSTRUCTION });
   });
 

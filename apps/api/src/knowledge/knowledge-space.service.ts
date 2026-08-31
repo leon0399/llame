@@ -45,7 +45,8 @@ function nextKnowledgeSpaceCursor(
   page: Array<KnowledgeSpace>,
 ): string | null {
   if (rows.length <= page.length) return null;
-  const last = page[page.length - 1];
+  const last = page.at(-1);
+  if (last === undefined) return null;
   return encodeKnowledgeSpaceCursor({
     createdAt: last.createdAt,
     id: last.knowledgeSpaceId,

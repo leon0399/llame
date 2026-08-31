@@ -36,7 +36,7 @@ function downloadTextFile(filename: string, content: string): void {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
-  document.body.appendChild(anchor);
+  document.body.append(anchor);
   anchor.click();
   anchor.remove();
   // Revoking synchronously right after click() can race the browser's

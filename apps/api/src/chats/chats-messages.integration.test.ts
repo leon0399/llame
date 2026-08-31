@@ -1201,7 +1201,9 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(sse.text).toContain('data: [DONE]');
 
     // Cursor: replay strictly after the last seen sequence → tail only ([DONE]).
-    const lastSequence = frames[frames.length - 1].sequence;
+    const lastFrame = frames.at(-1);
+    if (lastFrame === undefined) expect.unreachable('expected replayed frames');
+    const lastSequence = lastFrame.sequence;
     const resumed = await request(http)
       .get(`/api/v1/runs/${run.id}/events?after_sequence=${lastSequence}`)
       .set('Cookie', cookieA);

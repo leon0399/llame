@@ -204,8 +204,8 @@ export function toChatHistory(
 ): ChatHistory {
   const pages: Array<ChatMessagesResponse["messages"]> = [];
   for (const page of data.pages) {
-    const previousOldest = pages[pages.length - 1]?.[0]?.seq;
-    const pageNewest = page.messages[page.messages.length - 1]?.seq;
+    const previousOldest = pages.at(-1)?.[0]?.seq;
+    const pageNewest = page.messages.at(-1)?.seq;
     if (
       previousOldest !== undefined &&
       pageNewest !== undefined &&

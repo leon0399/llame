@@ -271,7 +271,9 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       }
       await messages.createMany(rows);
 
-      return { chatId: chat.id, lastId: rows[rows.length - 1].id };
+      const lastRow = rows.at(-1);
+      if (lastRow === undefined) expect.unreachable('expected seeded rows');
+      return { chatId: chat.id, lastId: lastRow.id };
     });
 
     const forked = await service.forkChat(chatId, a, lastId);

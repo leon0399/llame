@@ -193,8 +193,9 @@ function resolveDocumentBoundary(
   rows: ReadonlyArray<CanonicalHydrationRow>,
   candidate: CanonicalSearchCandidate,
 ): { boundary: DocumentBoundary; range: MessageSeqRange } | null {
-  const firstRow = rows[0];
-  const lastRow = rows[rows.length - 1];
+  const [firstRow] = rows;
+  const lastRow = rows.at(-1);
+  if (firstRow === undefined || lastRow === undefined) return null;
   const firstMessageId = firstRow.first_message_id;
   const lastMessageId = firstRow.last_message_id;
   const { firstOffset, lastOffset } = resolveOffsetSpan(firstRow);

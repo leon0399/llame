@@ -1371,14 +1371,27 @@ rest was style. **That conclusion was an artefact of the probe**, which ran with
 roughly ten times. Re-measured against llame's real settings: 124 of nkzw's
 rules add zero violations, 19 add violations.
 
-All 124 free rules are now enforced; enabling them cost one fix. Sixteen of the
-19 costly rules are enforced too, with the code changed to pass rather than the
-rules relaxed — 317 files. Three are held back with a reason recorded in
-[the research note](research/lint/2026-08-31-stella-oxlint-plugins.md):
-`unicorn/prefer-at` needs real `undefined` handling at 21 sites, including in
-compaction; `unicorn/prefer-dom-node-append` needs a clipboard test updated
-alongside the rewrite; `no-warning-comments` is strictly weaker than
-`anti-slop/no-untracked-todo`. `.oxlintrc.json` now declares 212 rules.
+**Every nkzw rule oxlint 1.78 recognises is now enforced.** 125 add zero
+violations; the other 18 were adopted with the code changed to pass rather than
+the rules relaxed. `.oxlintrc.json` declares 215 rules and is still the single
+global config.
+
+Three rules were briefly deferred and are now in. The deferral was wrong about
+all three, and each way it was wrong is a distinct measurement failure recorded
+in [the research note](research/lint/2026-08-31-stella-oxlint-plugins.md):
+
+- **`no-warning-comments` was never costly.** It was measured with the rule's
+  DEFAULT terms, which flag every TODO. nkzw ships `terms: ['@nocommit']`,
+  under which it adds zero violations and composes with
+  `anti-slop/no-untracked-todo`. Measuring a rule without its configured
+  options measures a different rule.
+- **`unicorn/prefer-at` found two latent bugs** across its 18 sites.
+  `nextKnowledgeSpaceCursor` guarded on `rows.length > page.length`, which does
+  not imply `page` is non-empty — an empty page read `undefined` and threw on
+  `.createdAt`. `resolveDocumentBoundary` read `rows[0]` unchecked. The
+  `T | undefined` return is what surfaced both.
+- **`unicorn/prefer-dom-node-append`** was two production calls and a test stub
+  named after the call the code used to make.
 
 Two of the sixteen exposed defects rather than style. `prefer-object-has-own`
 would not compile until an optional `env` was narrowed instead of assumed, and
@@ -1396,12 +1409,21 @@ client factory consumes.
 
 **The process finding is the probe, not the rules.** A rule-adoption
 measurement taken against a modified config does not measure a smaller version
-of the truth; it measures a different repository. The same failure mode has now
-appeared twice in this workstream — once here, and once when a bulk
-`oxlint --fix` was declared green on the linter's own count while it had in fact
-broken 21 typechecks and one test. **A linter's exit code is not evidence that
-the code still works.** Every rule batch since is gated on tsgo and the unit
-suites, not on oxlint alone.
+of the truth; it measures a different repository. That failure appeared three
+times in this workstream: a probe with `categories.correctness` off, a probe of
+`no-warning-comments` without nkzw's `terms`, and a bulk `oxlint --fix`
+declared green on the linter's own exit code while it had broken 21 typechecks
+and one test. **A linter's exit code is not evidence that the code still
+works.**
+
+**Nor is a green suite evidence about code the suite does not exercise.** Two
+of the `prefer-at` fixes were themselves wrong — `offsetToLineColumn` took the
+column from `offset` instead of the clamped prefix, and `innerEnd` branched on
+truthiness where the original branched on length — and all 2332 unit tests
+passed with both defects in place. They were caught by running the old and new
+implementations against each other over 207 offsets and 7 child shapes. When a
+change rewrites logic rather than narrowing a read, the old implementation is
+available as an oracle; use it.
 
 #### Tautological-test sweep (2026-08-30)
 

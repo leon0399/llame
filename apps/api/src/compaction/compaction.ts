@@ -291,11 +291,12 @@ export function planCompaction(input: {
     0,
     Math.max(0, ordered.length - input.keepRecentMessages),
   );
-  if (absorb.length === 0) {
+  const last = absorb.at(-1);
+  if (last === undefined) {
     return null;
   }
 
-  return { uptoSeq: absorb[absorb.length - 1].seq, absorb };
+  return { uptoSeq: last.seq, absorb };
 }
 
 /**

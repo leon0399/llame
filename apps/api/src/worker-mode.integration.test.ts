@@ -186,7 +186,9 @@ d('queue-executed runs behind the stream bridge', () => {
     const runs = await tenantDb.runAs(userId, (tx) =>
       new RunsRepository(tx).findByChatId(chatId, userId),
     );
-    return runs[runs.length - 1];
+    const latest = runs.at(-1);
+    if (latest === undefined) expect.unreachable('expected a run for the chat');
+    return latest;
   }
 
   it('streams the turn through the queue + bridge in the UI-message protocol', async () => {

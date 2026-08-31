@@ -295,6 +295,8 @@
     "unicorn/prefer-string-raw": "error",
     "unicorn/prefer-string-replace-all": "error",
     "unicorn/catch-error-name": "error",
+    "unicorn/prefer-at": "error",
+    "unicorn/prefer-dom-node-append": "error",
     "unicorn/prefer-top-level-await": "error",
     "unicorn/prefer-single-call": "error",
     "prefer-arrow-callback": ["error", { "allowNamedFunctions": true }],
@@ -309,6 +311,12 @@
     // the config the client factory consumes, so it must be able to see the
     // client the factory has not returned yet. Everything assigned once at its
     // declaration is still an error.
+    // nkzw's terms, not the rule's defaults: `@nocommit` marks a local scratch
+    // edit that must never reach a branch. TODO/FIXME/XXX are deliberately NOT
+    // listed here — `anti-slop/no-untracked-todo` already governs those with a
+    // stricter contract (a bare TODO is an error, `TODO(#123)` is allowed), and
+    // the two rules compose rather than overlap.
+    "no-warning-comments": ["error", { "terms": ["@nocommit"] }],
     "prefer-const": ["error", { "ignoreReadBeforeAssign": true }],
     "unicorn/prefer-number-properties": "error",
     "unicorn/prefer-string-slice": "error",
