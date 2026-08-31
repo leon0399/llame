@@ -13,10 +13,27 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 import { SidebarProvider } from "@workspace/ui/components/sidebar";
 
-vi.mock("@workspace/ui/hooks/use-mobile", () => ({
-  useIsMobile: () => true,
-}));
+// The real useIsMobile runs: it reads window.matchMedia and
+// window.innerWidth, both of which jsdom lets us drive directly. Replacing
+// the hook would have proved only that a stub returned true.
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    value: width,
+    configurable: true,
+  });
+  Object.defineProperty(window, "matchMedia", {
+    value: (query: string) => ({
+      matches: width < 768,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }),
+    configurable: true,
+  });
+}
 
+// next/navigation is an external package and a legitimate test boundary;
+// there is no in-process seam for the App Router's pathname.
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
 }));
@@ -24,6 +41,7 @@ vi.mock("next/navigation", () => ({
 import { AppSidebarAdminEntry } from "./app-sidebar-admin-entry";
 
 beforeAll(() => {
+  setViewportWidth(500);
   // jsdom doesn't implement the Pointer Events capture API Base UI's Tooltip
   // relies on for hover/focus handling.
   for (const method of [
