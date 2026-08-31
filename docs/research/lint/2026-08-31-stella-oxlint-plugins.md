@@ -198,6 +198,22 @@ plausible at all.
 So the sequencing question is not "what is broken" but "what will be expensive
 to adopt later".
 
+**One challenge to this, and why it does not hold.** A review pass argued that
+Tier A is not static, on the grounds that a third timestamp violation had
+appeared since the original count of two — evidence that the missing
+`timestamptz()` helper is actively producing new sites. That third instance is
+the `precision: 3` false alarm refuted above. The two real defects both sit in
+`schema/auth.ts`, auth.js-derived scaffolding first committed 2025-07-29 and
+last touched in July 2026; neither is new code, and no third site exists. The
+claim stands: Tier A's count is roughly static, and the clean-today rules are
+the ones whose adoption cost rises.
+
+The fair part of the challenge is that at llame's current scale — single digits,
+not hundreds — both categories are cheap in absolute terms, so the cost curve
+should not be used to defer fixing a known defect in favour of writing a
+preventive rule. Do both; the curve only decides what to write _first_ when
+they compete.
+
 ### What the roadmap actually changes
 
 Three unshipped shifts change rule value materially. All three are quoted from
@@ -283,18 +299,35 @@ This is where "judge the future" changed the answer most.
 - **UI translation** (`no-untranslated-jsx-literal`, `no-broad-translation-callable`)
   — distant. llame ships no i18n framework; a repo-wide search finds one
   passing mention in a comment. Nothing on the roadmap adds one.
-- **RTL** (`no-physical-properties`) — **my hypothesis was wrong.** I reasoned
-  from the owner working across Russian, English and Spanish. All three are
-  left-to-right; RTL needs Arabic or Hebrew. Stays distant.
+- **RTL** (`no-physical-properties`) — distant, but **not for the reason I
+  first gave.** I argued from the owner working across Russian, English and
+  Spanish, all left-to-right. That is necessary and not sufficient:
+  `VISION.md:21` says "The same core should support households, teams, and
+  organizations", so a deployment could serve an RTL language regardless of who
+  built it. The defensible reason is that RTL is downstream of a UI-translation
+  decision that has not been made anywhere in the canonical docs. Same verdict,
+  product-scoped rather than founder-scoped reasoning.
 - **Locale-sensitive formatting and sorting** — **already live, today.**
   `message-usage.tsx:120-129` documents a deliberate discipline: "Deliberately
   locale-independent (plain string math, no `Intl.NumberFormat`) — same
   SSR-hydration-safety goal the repo's earlier `en-US`-pinned formatting
   served." Two sites break it: `model-preview-card.tsx:12` and `:16` call
-  `Intl.NumberFormat(undefined, …)`, taking the host's default locale — exactly
-  the hydration hazard the other file went out of its way to avoid. A
+  `Intl.NumberFormat(undefined, …)`, and `:23` calls
+  `.toLocaleDateString(undefined, …)` — all taking the host's default locale,
+  exactly the hydration hazard the other file went out of its way to avoid. A
   `no-raw-locale-format`-shaped rule enforces a rationale llame has already
   written down and then contradicted.
+
+  **But this rule is not free, and that changes how to adopt it.** There is no
+  obvious fix to point violations at. Stella's rule prescribes routing through
+  `use-intl`, a framework llame has not chosen. And the naive fix — passing a
+  browser-detected locale instead of `undefined` — would _reintroduce_ the SSR
+  hydration mismatch `message-usage.tsx` says was already solved once, because
+  a server-rendered locale and a client browser locale differ. The two safe
+  options are matching the existing precedent (deterministic, locale-free
+  formatting) or threading a stable server-resolved locale end to end, which is
+  new infrastructure. **Pick the fix pattern before enabling the rule**, or it
+  becomes a prompt to introduce the bug it is meant to prevent.
 
   `conversation-tree-model.ts:64` also calls bare `.localeCompare()`, though it
   sorts branch names rather than free user text, so severity is low.
