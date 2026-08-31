@@ -6,6 +6,46 @@
   "ignorePatterns": ["dist/**"],
   "overrides": [
     {
+      // Vendored registry output. `src/components/*.tsx` is the @shadcn
+      // base-nova registry and `ai-elements/**` the @ai-elements registry;
+      // both are OVERWRITTEN in place by `shadcn add` (packages/ui/AGENTS.md
+      // §Component organization). Hand-authored components live in
+      // `custom/**` and are NOT covered here — they are held to every rule.
+      //
+      // Only the rules that cannot be satisfied without restructuring the
+      // vendored source are lifted. Splitting one of these components into
+      // sub-components is a structural fork the next regeneration deletes
+      // wholesale, so it buys a green number and silently loses it. The one
+      // fork this repository does sanction is component/prop JSDoc, which is
+      // cheap to re-apply; a component split is not.
+      //
+      // `no-img-element` is here for the same reason: swapping <img> for
+      // next/image changes the rendered DOM and the network path, which for a
+      // story documented as a verbatim transcription of shadcn's own example
+      // breaks the thing the story exists to be.
+      //
+      // Two type-evidence rules are lifted for the same durability reason,
+      // and both are rule-precision gaps rather than defects:
+      // code-block.tsx guards `typeof window === "undefined"`, which is SSR
+      // feature detection with no parameter to write a predicate over, and
+      // tool.tsx's `safeStringify(value: unknown)` IS the JSON.stringify
+      // boundary for arbitrary tool output, where no narrower honest type
+      // exists. An inline directive explaining either would be erased by the
+      // next regeneration. Every other rule still applies here and passes.
+      "files": [
+        "src/components/*.tsx",
+        "src/components/ai-elements/**/*.tsx",
+        "src/components/*.stories.tsx"
+      ],
+      "rules": {
+        "max-lines-per-function": "off",
+        "max-lines": "off",
+        "nextjs/no-img-element": "off",
+        "anti-slop/no-runtime-typeof": "off",
+        "anti-slop/no-unknown-parameters": "off"
+      }
+    },
+    {
       // Illustrative/mock markup in stories (nav-item previews, `href="#"`
       // placeholders, scroll-demo tabIndex) trips these structurally but
       // isn't real product UI. addon-a11y still gates the rendered stories.
