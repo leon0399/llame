@@ -206,14 +206,15 @@ export interface GraphNodeProps {
  * The marker a node type renders. Types absent here fall through to
  * DefaultNodeMarker, which is the only one that also needs the node itself.
  */
-const NODE_MARKERS: Partial<
-  Record<MessageTypeValue, (props: NodeMarkerProps) => React.ReactNode>
-> = {
-  [MessageType.MERGE]: MergeNodeMarker,
-  [MessageType.AGENT_WORKING]: AgentWorkingNodeMarker,
-  [MessageType.TOOL_CALL]: ToolNodeMarker,
-  [MessageType.TOOL_RESULT]: ToolNodeMarker,
-};
+const NODE_MARKERS = new Map<
+  MessageTypeValue,
+  (props: NodeMarkerProps) => React.ReactNode
+>([
+  [MessageType.MERGE, MergeNodeMarker],
+  [MessageType.AGENT_WORKING, AgentWorkingNodeMarker],
+  [MessageType.TOOL_CALL, ToolNodeMarker],
+  [MessageType.TOOL_RESULT, ToolNodeMarker],
+]);
 
 // Enhanced node component
 export const GraphNode = ({
@@ -237,7 +238,7 @@ export const GraphNode = ({
     },
   };
 
-  const Marker = NODE_MARKERS[node.type];
+  const Marker = NODE_MARKERS.get(node.type);
   if (Marker) {
     return <Marker {...markerProps} />;
   }

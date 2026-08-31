@@ -54,10 +54,6 @@ import {
 } from "../../test-support/fetch-stub";
 import type { MembershipResponse, OrgUnitResponse } from "./types";
 
-function jsonResolved<T>(value: T) {
-  return Promise.resolve(value);
-}
-
 /** A promise plus externally-callable resolve/reject, to hold a mocked
  * fetcher open so an optimistic patch can be observed before it settles. */
 function deferred<T>() {
