@@ -242,7 +242,8 @@ describeIfDb(
     });
 
     it('a plain member cannot grant memberships (not admin)', async () => {
-      // Drizzle wraps the Postgres RLS violation — assert the rejection, then
+      // IdentityService's own app-level authorization check rejects before
+      // the write ever reaches the database — assert the rejection, then
       // prove no row landed (the stranger still sees zero own memberships).
       await expect(
         identity.grantMembership({
@@ -251,7 +252,7 @@ describeIfDb(
           orgUnitId: projectId,
           role: 'member',
         }),
-      ).rejects.toThrow();
+      ).rejects.toThrow(/not permitted to grant membership/i);
       const rows = await asUser(
         strangerId,
         (tx) => tx`SELECT id FROM memberships WHERE user_id = ${strangerId}`,

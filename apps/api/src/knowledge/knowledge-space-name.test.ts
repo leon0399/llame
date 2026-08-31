@@ -1,4 +1,7 @@
-import { normalizeKnowledgeSpaceName } from './knowledge-space-name';
+import {
+  KnowledgeSpaceNameError,
+  normalizeKnowledgeSpaceName,
+} from './knowledge-space-name';
 
 describe('Knowledge Space names', () => {
   it('trims names before validation and persistence', () => {
@@ -9,7 +12,9 @@ describe('Knowledge Space names', () => {
     expect(normalizeKnowledgeSpaceName('😀'.repeat(100))).toBe(
       '😀'.repeat(100),
     );
-    expect(() => normalizeKnowledgeSpaceName('😀'.repeat(101))).toThrow();
+    expect(() => normalizeKnowledgeSpaceName('😀'.repeat(101))).toThrow(
+      KnowledgeSpaceNameError,
+    );
   });
 
   it.each([
@@ -20,7 +25,9 @@ describe('Knowledge Space names', () => {
     `a${String.fromCodePoint(0x2028)}b`,
     `a${String.fromCodePoint(0x2029)}b`,
   ])('rejects invalid label %j', (name) => {
-    expect(() => normalizeKnowledgeSpaceName(name)).toThrow();
+    expect(() => normalizeKnowledgeSpaceName(name)).toThrow(
+      KnowledgeSpaceNameError,
+    );
   });
 
   it('allows duplicate labels', () => {

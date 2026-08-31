@@ -79,13 +79,21 @@ const directoryEntry = (name: string): KnowledgeFilesystemDirent => ({
   isSymbolicLink: () => false,
 });
 
+type FakeFilesystemOptions = {
+  stats?: KnowledgeFilesystemStats;
+  bytes?: Buffer;
+  readLengths?: number[];
+  fileClose?: () => Promise<void>;
+};
+
 function fakeFilesystem(
   entries: KnowledgeFilesystemDirent[],
-  stats: KnowledgeFilesystemStats = fileStats(0),
-  bytes = Buffer.alloc(stats.size),
-  readLengths: number[] = [],
-  fileClose: () => Promise<void> = () => Promise.resolve(),
+  options: FakeFilesystemOptions = {},
 ): KnowledgeFilesystemPort {
+  const stats = options.stats ?? fileStats(0);
+  const bytes = options.bytes ?? Buffer.alloc(stats.size);
+  const readLengths = options.readLengths ?? [];
+  const fileClose = options.fileClose ?? (() => Promise.resolve());
   return {
     lstat: vi.fn((filePath: string) =>
       Promise.resolve(
@@ -482,13 +490,12 @@ describe('KnowledgeFilesystemAdapter', () => {
     const bytes = Buffer.from(`first\n${'x'.repeat(70_000)}`, 'utf8');
     const readLengths: number[] = [];
     const close = vi.fn(() => Promise.resolve());
-    const fileSystem = fakeFilesystem(
-      [fileEntry('long.md')],
-      fileStats(bytes.length),
+    const fileSystem = fakeFilesystem([fileEntry('long.md')], {
+      stats: fileStats(bytes.length),
       bytes,
       readLengths,
-      close,
-    );
+      fileClose: close,
+    });
 
     const result = await new KnowledgeFilesystemAdapter(
       binding,
@@ -515,11 +522,10 @@ describe('KnowledgeFilesystemAdapter', () => {
       directory: `/trusted/root/${SPACE_ID}`,
     };
     const bytes = Buffer.from([0x6f, 0x6b, 0x0a, 0xc3, 0x28]);
-    const fileSystem = fakeFilesystem(
-      [fileEntry('invalid-suffix.md')],
-      fileStats(bytes.length),
+    const fileSystem = fakeFilesystem([fileEntry('invalid-suffix.md')], {
+      stats: fileStats(bytes.length),
       bytes,
-    );
+    });
 
     await expect(
       new KnowledgeFilesystemAdapter(binding, fileSystem).read(
@@ -540,11 +546,10 @@ describe('KnowledgeFilesystemAdapter', () => {
       'utf8',
     );
     const bytes = Buffer.concat([prefix, Buffer.from([0xc3, 0x28])]);
-    const fileSystem = fakeFilesystem(
-      [fileEntry('oversized-invalid.md')],
-      fileStats(bytes.length),
+    const fileSystem = fakeFilesystem([fileEntry('oversized-invalid.md')], {
+      stats: fileStats(bytes.length),
       bytes,
-    );
+    });
 
     await expect(
       new KnowledgeFilesystemAdapter(binding, fileSystem).read(
@@ -795,10 +800,9 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
-    const fileSystem = fakeFilesystem(
-      [fileEntry('large.md')],
-      fileStats(KNOWLEDGE_MAX_SEARCH_FILE_BYTES + 1),
-    );
+    const fileSystem = fakeFilesystem([fileEntry('large.md')], {
+      stats: fileStats(KNOWLEDGE_MAX_SEARCH_FILE_BYTES + 1),
+    });
 
     await expect(
       new KnowledgeFilesystemAdapter(binding, fileSystem).search('needle', 5),
@@ -813,13 +817,12 @@ describe('KnowledgeFilesystemAdapter', () => {
     };
     const readLengths: number[] = [];
     const close = vi.fn(() => Promise.resolve());
-    const fileSystem = fakeFilesystem(
-      [fileEntry('large.md')],
-      fileStats(0),
-      Buffer.alloc(KNOWLEDGE_MAX_SEARCH_FILE_BYTES + 1),
+    const fileSystem = fakeFilesystem([fileEntry('large.md')], {
+      stats: fileStats(0),
+      bytes: Buffer.alloc(KNOWLEDGE_MAX_SEARCH_FILE_BYTES + 1),
       readLengths,
-      close,
-    );
+      fileClose: close,
+    });
 
     await expect(
       new KnowledgeFilesystemAdapter(binding, fileSystem).search('needle', 5),
@@ -837,12 +840,11 @@ describe('KnowledgeFilesystemAdapter', () => {
       directory: `/trusted/root/${SPACE_ID}`,
     };
     const readLengths: number[] = [];
-    const fileSystem = fakeFilesystem(
-      [fileEntry('note.md')],
-      fileStats(1),
-      Buffer.alloc(2),
+    const fileSystem = fakeFilesystem([fileEntry('note.md')], {
+      stats: fileStats(1),
+      bytes: Buffer.alloc(2),
       readLengths,
-    );
+    });
     const budget = createKnowledgeFilesystemSearchBudget();
     budget.remainingBytes = 1;
 
@@ -865,7 +867,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
-    const fileSystem = fakeFilesystem(entries, fileStats(fileSize));
+    const fileSystem = fakeFilesystem(entries, { stats: fileStats(fileSize) });
 
     await expect(
       new KnowledgeFilesystemAdapter(binding, fileSystem).search('needle', 5),
@@ -880,10 +882,9 @@ describe('KnowledgeFilesystemAdapter', () => {
     };
     const entry = fileEntry('note.md');
     const tooLarge = Buffer.alloc(KNOWLEDGE_MAX_READ_BYTES + 1);
-    const preReadFileSystem = fakeFilesystem(
-      [entry],
-      fileStats(KNOWLEDGE_MAX_READ_BYTES + 1),
-    );
+    const preReadFileSystem = fakeFilesystem([entry], {
+      stats: fileStats(KNOWLEDGE_MAX_READ_BYTES + 1),
+    });
 
     await expect(
       new KnowledgeFilesystemAdapter(binding, preReadFileSystem).read(
@@ -893,13 +894,12 @@ describe('KnowledgeFilesystemAdapter', () => {
 
     const readLengths: number[] = [];
     const close = vi.fn(() => Promise.resolve());
-    const statRace = fakeFilesystem(
-      [entry],
-      fileStats(0),
-      tooLarge,
+    const statRace = fakeFilesystem([entry], {
+      stats: fileStats(0),
+      bytes: tooLarge,
       readLengths,
-      close,
-    );
+      fileClose: close,
+    });
     statRace.lstat = vi
       .fn()
       .mockResolvedValueOnce(directoryStats)
@@ -925,13 +925,12 @@ describe('KnowledgeFilesystemAdapter', () => {
     const bytes = Buffer.alloc(KNOWLEDGE_MAX_READ_BYTES, 0x61);
     const readLengths: number[] = [];
     const close = vi.fn(() => Promise.resolve());
-    const fileSystem = fakeFilesystem(
-      [fileEntry('note.md')],
-      fileStats(bytes.length),
+    const fileSystem = fakeFilesystem([fileEntry('note.md')], {
+      stats: fileStats(bytes.length),
       bytes,
       readLengths,
-      close,
-    );
+      fileClose: close,
+    });
 
     const result = await new KnowledgeFilesystemAdapter(
       binding,
@@ -962,7 +961,9 @@ describe('KnowledgeFilesystemAdapter', () => {
       controller.abort();
       return Promise.resolve({ bytesRead: 1 });
     });
-    const fileSystem = fakeFilesystem([fileEntry('note.md')], fileStats(1));
+    const fileSystem = fakeFilesystem([fileEntry('note.md')], {
+      stats: fileStats(1),
+    });
     fileSystem.open = vi.fn(() =>
       Promise.resolve({
         stat: () => Promise.resolve(fileStats(1)),
@@ -986,7 +987,9 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
-    const fileSystem = fakeFilesystem([fileEntry('note.md')], fileStats(1));
+    const fileSystem = fakeFilesystem([fileEntry('note.md')], {
+      stats: fileStats(1),
+    });
     fileSystem.open = vi.fn(() =>
       Promise.reject(Object.assign(new Error('symlink'), { code: 'ELOOP' })),
     );
@@ -1077,11 +1080,10 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
-    const fileSystem = fakeFilesystem(
-      [fileEntry('invalid.md')],
-      fileStats(2),
-      Buffer.from([0xc3, 0x28]),
-    );
+    const fileSystem = fakeFilesystem([fileEntry('invalid.md')], {
+      stats: fileStats(2),
+      bytes: Buffer.from([0xc3, 0x28]),
+    });
 
     await expect(
       new KnowledgeFilesystemAdapter(binding, fileSystem).search('needle', 5),
@@ -1114,11 +1116,10 @@ describe('KnowledgeFilesystemAdapter', () => {
     };
     const bytes = Buffer.from('needle\n'.repeat(100_000));
     const controller = new AbortController();
-    const fileSystem = fakeFilesystem(
-      [fileEntry('large.md')],
-      fileStats(bytes.length),
+    const fileSystem = fakeFilesystem([fileEntry('large.md')], {
+      stats: fileStats(bytes.length),
       bytes,
-    );
+    });
     let abortScheduled = false;
     fileSystem.open = vi.fn(() =>
       Promise.resolve({

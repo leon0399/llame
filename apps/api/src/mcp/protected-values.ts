@@ -1,4 +1,10 @@
-import { isBoolean, isNumber, isRecord, isString } from '../unknown-record';
+import {
+  isBoolean,
+  isNumber,
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '../unknown-record';
 
 export const PROTECTED_VALUE_REDACTION_MARKER = '[REDACTED]';
 
@@ -166,20 +172,33 @@ function sanitizeNormalizedProtectedValueJson(
   }
 
   if (Array.isArray(value)) {
-    const safe: unknown[] = [];
-    for (const item of value) {
-      const result = sanitizeNormalizedProtectedValueJson(
-        item,
-        protectedValues,
-      );
-      if (!result.success) return result;
-      safe.push(result.value);
-    }
-    return { success: true, value: safe };
+    return sanitizeProtectedValueArray(value, protectedValues);
   }
 
   if (!isRecord(value)) return { success: true, value };
 
+  return sanitizeProtectedValueRecord(value, protectedValues);
+}
+
+function sanitizeProtectedValueArray(
+  value: unknown[],
+  protectedValues: readonly string[],
+): ProtectedValueSanitizationResult {
+  const safe: unknown[] = [];
+  for (const item of value) {
+    const result = sanitizeNormalizedProtectedValueJson(item, protectedValues);
+    if (!result.success) return result;
+    safe.push(result.value);
+  }
+  return { success: true, value: safe };
+}
+
+/** A protected object KEY cannot be redacted without changing the object's
+ *  meaning, so its presence fails the whole record closed. */
+function sanitizeProtectedValueRecord(
+  value: UnknownRecord,
+  protectedValues: readonly string[],
+): ProtectedValueSanitizationResult {
   const safeEntries: [string, unknown][] = [];
   for (const [key, item] of Object.entries(value)) {
     if (containsProtectedString(key, protectedValues)) {

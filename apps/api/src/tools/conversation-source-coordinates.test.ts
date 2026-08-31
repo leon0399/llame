@@ -1,3 +1,5 @@
+import { ZodError } from 'zod';
+
 import { parseConversationSourceCoordinates } from './conversation-source-coordinates';
 
 const CHAT_ID = '00000000-0000-4000-8000-000000000001';
@@ -38,6 +40,6 @@ describe('conversation source coordinates', () => {
         limit: 1,
         ...invalid,
       }),
-    ).toThrow();
+    ).toThrow(ZodError);
   });
 });

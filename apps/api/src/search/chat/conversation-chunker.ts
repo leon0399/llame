@@ -104,19 +104,30 @@ function messageToBlocks(
   anchorSource: string | null,
 ): MessageBlock[] {
   const prefix = `[${message.role}] `;
-  if (prefix.length + text.length <= CHUNK_MAX_CHARS) {
-    return [
-      {
-        messageId: message.id,
-        createdAt: message.createdAt,
-        startOffset: 0,
-        endOffsetExclusive: text.length,
-        content: `${prefix}${text}`,
-        lexicalContent: text,
-      },
-    ];
-  }
+  return prefix.length + text.length <= CHUNK_MAX_CHARS
+    ? [
+        {
+          messageId: message.id,
+          createdAt: message.createdAt,
+          startOffset: 0,
+          endOffsetExclusive: text.length,
+          content: `${prefix}${text}`,
+          lexicalContent: text,
+        },
+      ]
+    : sliceOversizedMessage(message, text, prefix, anchorSource);
+}
 
+/** The oversized branch of `messageToBlocks`: splits `text` into budget-sized,
+ *  boundary-cut slices covering it exactly once each. Every continuation
+ *  slice (not the first) carries an anchor in `content` only —
+ *  `lexicalContent` never contains it, matching the `[role]` marker rule. */
+function sliceOversizedMessage(
+  message: ChunkerMessage,
+  text: string,
+  prefix: string,
+  anchorSource: string | null,
+): MessageBlock[] {
   const anchor = anchorSource === null ? '' : formatAnchor(anchorSource);
   const firstMax = CHUNK_MAX_CHARS - prefix.length;
   // The continuation budget is the first-slice budget minus what the anchor

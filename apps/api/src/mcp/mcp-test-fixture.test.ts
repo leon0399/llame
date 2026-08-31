@@ -300,9 +300,9 @@ describe('MCP Streamable HTTP test fixture', () => {
       'tools/call': [{ kind: 'disconnect' }],
     });
 
-    await expect(rpc(fixture.url, 'tools/call')).rejects.toThrow();
+    await expect(rpc(fixture.url, 'tools/call')).rejects.toThrow(TypeError);
     await fixture.close();
     await fixture.close();
-    await expect(rpc(fixture.url, 'tools/call')).rejects.toThrow();
+    await expect(rpc(fixture.url, 'tools/call')).rejects.toThrow(TypeError);
   });
 });

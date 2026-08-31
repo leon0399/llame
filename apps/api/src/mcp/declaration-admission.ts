@@ -203,6 +203,54 @@ function safeDependencies(
   return { success: true, value: Object.fromEntries(safeEntries) };
 }
 
+/**
+ * Dispatch ONE non-`description` schema-node keyword's value to its
+ * dialect-aware handler — the JSON Schema keyword vocabulary (single
+ * subschema, subschema array, subschema map, `dependencies`, `items`,
+ * `additionalItems`, and the 2019-09+/2020-12 keyword extensions), falling
+ * back to a leaf instance value for anything unrecognized. A direct
+ * transcription of `safeSchemaNode`'s dispatch, kept separate from the
+ * record iteration/accumulation around it.
+ */
+function safeSchemaKeywordValue(
+  key: string,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- every branch below delegates `item` straight into a `safeXxx` helper (safeSchemaNode/safeSubschemaArray/safeSubschemaMap/safeDependencies/safeInstanceValue), each of which validates it via its own first-statement guard; this function's job is picking WHICH validator applies, not validating itself.
+  item: unknown,
+  dialect: SupportedSchemaDialect,
+  protectedValues: readonly string[],
+): SafeValueResult {
+  if (COMMON_SINGLE_SUBSCHEMA_KEYWORDS.has(key)) {
+    return safeSchemaNode(item, dialect, protectedValues);
+  }
+  if (COMMON_SUBSCHEMA_ARRAY_KEYWORDS.has(key)) {
+    return safeSubschemaArray(item, dialect, protectedValues);
+  }
+  if (COMMON_SUBSCHEMA_MAP_KEYWORDS.has(key)) {
+    return safeSubschemaMap(item, dialect, protectedValues);
+  }
+  if (key === 'dependencies') {
+    return safeDependencies(item, dialect, protectedValues);
+  }
+  if (key === 'items') {
+    return Array.isArray(item) && dialect !== '2020-12'
+      ? safeSubschemaArray(item, dialect, protectedValues)
+      : safeSchemaNode(item, dialect, protectedValues);
+  }
+  if (key === 'additionalItems' && dialect !== '2020-12') {
+    return safeSchemaNode(item, dialect, protectedValues);
+  }
+  if (dialect !== 'draft-07' && MODERN_SINGLE_SUBSCHEMA_KEYWORDS.has(key)) {
+    return safeSchemaNode(item, dialect, protectedValues);
+  }
+  if (dialect !== 'draft-07' && MODERN_SUBSCHEMA_MAP_KEYWORDS.has(key)) {
+    return safeSubschemaMap(item, dialect, protectedValues);
+  }
+  if (dialect === '2020-12' && key === 'prefixItems') {
+    return safeSubschemaArray(item, dialect, protectedValues);
+  }
+  return safeInstanceValue(item, protectedValues);
+}
+
 function safeSchemaNode(
   value: unknown,
   dialect: SupportedSchemaDialect,
@@ -219,42 +267,223 @@ function safeSchemaNode(
       safeEntries.push([key, sanitizeDescription(item, protectedValues)]);
       continue;
     }
-
-    let result: SafeValueResult;
-    if (COMMON_SINGLE_SUBSCHEMA_KEYWORDS.has(key)) {
-      result = safeSchemaNode(item, dialect, protectedValues);
-    } else if (COMMON_SUBSCHEMA_ARRAY_KEYWORDS.has(key)) {
-      result = safeSubschemaArray(item, dialect, protectedValues);
-    } else if (COMMON_SUBSCHEMA_MAP_KEYWORDS.has(key)) {
-      result = safeSubschemaMap(item, dialect, protectedValues);
-    } else if (key === 'dependencies') {
-      result = safeDependencies(item, dialect, protectedValues);
-    } else if (key === 'items') {
-      result =
-        Array.isArray(item) && dialect !== '2020-12'
-          ? safeSubschemaArray(item, dialect, protectedValues)
-          : safeSchemaNode(item, dialect, protectedValues);
-    } else if (key === 'additionalItems' && dialect !== '2020-12') {
-      result = safeSchemaNode(item, dialect, protectedValues);
-    } else if (
-      dialect !== 'draft-07' &&
-      MODERN_SINGLE_SUBSCHEMA_KEYWORDS.has(key)
-    ) {
-      result = safeSchemaNode(item, dialect, protectedValues);
-    } else if (
-      dialect !== 'draft-07' &&
-      MODERN_SUBSCHEMA_MAP_KEYWORDS.has(key)
-    ) {
-      result = safeSubschemaMap(item, dialect, protectedValues);
-    } else if (dialect === '2020-12' && key === 'prefixItems') {
-      result = safeSubschemaArray(item, dialect, protectedValues);
-    } else {
-      result = safeInstanceValue(item, protectedValues);
-    }
+    const result = safeSchemaKeywordValue(key, item, dialect, protectedValues);
     if (!result.success) return result;
     safeEntries.push([key, result.value]);
   }
   return { success: true, value: Object.fromEntries(safeEntries) };
+}
+
+/** The serverId/protectedValues/assertActive triple every per-definition
+ *  admission step needs — call-wide, unchanged across a whole batch, as
+ *  opposed to each definition's own `index`/`definition`. */
+type AdmissionContext = {
+  readonly serverId: string;
+  readonly protectedValues: readonly string[];
+  readonly assertActive: (() => void) | undefined;
+};
+
+type IdentityAdmission =
+  | {
+      readonly success: true;
+      readonly name: string;
+      readonly description: string | undefined;
+      readonly inputSchema: JsonSchemaDocument;
+      readonly toolId: string;
+    }
+  | { readonly success: false; readonly reason: McpDeclarationRefusalReason };
+
+/**
+ * The identity half of one declaration's admission: is it shaped like a tool
+ * declaration, and does its name mint a safe, non-colliding-with-protected-
+ * values tool id? Split out of `admitOneMcpToolDefinition` below — this is
+ * "who is this declaration", independent of whether its schema is safe.
+ * Synchronous, so relocating its two `assertActive` checkpoints here (instead
+ * of interleaved in the caller) cannot change when cancellation is observed:
+ * nothing here awaits, so no external event can land mid-execution.
+ */
+function admitDefinitionIdentity(
+  serverId: string,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `!isRecord(definition) || !isString(definition.name) || ... || !isRecord(definition.inputSchema)` below -- several checks combined with `||`, a shape the structural exemption's single-check parse doesn't cover.
+  definition: unknown,
+  protectedValues: readonly string[],
+  assertActive: (() => void) | undefined,
+): IdentityAdmission {
+  if (
+    !isRecord(definition) ||
+    !isString(definition.name) ||
+    (definition.description !== undefined &&
+      !isString(definition.description)) ||
+    !isRecord(definition.inputSchema)
+  ) {
+    return { success: false, reason: 'invalid_declaration' };
+  }
+  assertActive?.();
+  if (containsProtectedValueJson(definition.name, protectedValues)) {
+    return { success: false, reason: 'protected_value' };
+  }
+
+  const toolId = createMcpToolId(serverId, definition.name);
+  if (!toolId.success) {
+    return { success: false, reason: 'invalid_tool_id' };
+  }
+  if (containsProtectedValueJson(toolId.id, protectedValues)) {
+    return { success: false, reason: 'protected_value' };
+  }
+  assertActive?.();
+  return {
+    success: true,
+    name: definition.name,
+    description: definition.description,
+    inputSchema: definition.inputSchema,
+    toolId: toolId.id,
+  };
+}
+
+type SchemaAdmission =
+  | { readonly success: true; readonly inputSchema: JsonSchemaDocument }
+  | { readonly success: false; readonly reason: McpDeclarationRefusalReason };
+
+/**
+ * The schema half of one declaration's admission: resolve its dialect,
+ * sanitize protected values through the schema tree, then compile/admit it.
+ * Split out of `admitOneMcpToolDefinition` below — this is "is the schema
+ * safe and valid", independent of the identity checks around it.
+ */
+async function admitDefinitionSchema(
+  inputSchema: JsonSchemaDocument,
+  protectedValues: readonly string[],
+  assertActive: (() => void) | undefined,
+): Promise<SchemaAdmission> {
+  const dialect = resolveSupportedSchemaDialect(inputSchema);
+  const safeSchema =
+    dialect === undefined
+      ? safeInstanceValue(inputSchema, protectedValues)
+      : safeSchemaNode(inputSchema, dialect, protectedValues);
+  assertActive?.();
+  if (!safeSchema.success || !isRecord(safeSchema.value)) {
+    return { success: false, reason: 'protected_value' };
+  }
+  assertActive?.();
+  const schemaAdmission = await admitToolInputSchema(safeSchema.value);
+  assertActive?.();
+  if (!schemaAdmission.success) {
+    return { success: false, reason: schemaAdmission.reason };
+  }
+  return {
+    success: true,
+    inputSchema: canonicalize(schemaAdmission.inputSchema),
+  };
+}
+
+type OneDefinitionAdmission =
+  | { readonly success: true; readonly tool: AdmittedMcpToolDefinition }
+  | {
+      readonly success: false;
+      readonly refusal: {
+        index: number;
+        id?: string;
+        reason: McpDeclarationRefusalReason;
+      };
+    };
+
+function refusalAdmission(
+  index: number,
+  refusalId: string | undefined,
+  reason: McpDeclarationRefusalReason,
+): OneDefinitionAdmission {
+  return {
+    success: false,
+    refusal: {
+      index,
+      ...(refusalId !== undefined && { id: refusalId }),
+      reason,
+    },
+  };
+}
+
+/**
+ * Admit or refuse ONE raw declaration — every check `admitMcpToolDefinitions`
+ * ran inline per-definition, unchanged, just returning its verdict instead of
+ * pushing into a shared `refused` array and `continue`-ing a shared loop.
+ */
+async function admitOneMcpToolDefinition(
+  index: number,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- this function's first use of `definition` is a bare-identifier delegation into `safeRefusalId`/`admitDefinitionIdentity`, which validate it via their own guards; not itself a validating check.
+  definition: unknown,
+  context: AdmissionContext,
+): Promise<OneDefinitionAdmission> {
+  const { serverId, protectedValues, assertActive } = context;
+  assertActive?.();
+  const refusalId = safeRefusalId(serverId, definition, protectedValues);
+
+  const identity = admitDefinitionIdentity(
+    serverId,
+    definition,
+    protectedValues,
+    assertActive,
+  );
+  if (!identity.success) {
+    return refusalAdmission(index, refusalId, identity.reason);
+  }
+
+  const schemaAdmission = await admitDefinitionSchema(
+    identity.inputSchema,
+    protectedValues,
+    assertActive,
+  );
+  if (!schemaAdmission.success) {
+    return refusalAdmission(index, refusalId, schemaAdmission.reason);
+  }
+
+  assertActive?.();
+  const tool = {
+    id: identity.toolId,
+    remoteName: identity.name,
+    description: sanitizeDescription(
+      identity.description ?? '',
+      protectedValues,
+    ),
+    inputSchema: schemaAdmission.inputSchema,
+  };
+  assertActive?.();
+  return { success: true, tool };
+}
+
+/**
+ * The cross-definition half of admission, run once the whole batch's
+ * individually-valid tools are known: fold any ASCII-case-folded name
+ * collision into a refusal (mutating the shared `refused` array, matching
+ * `admitMcpToolDefinitions`'s own accumulation style) and return the rest as
+ * admitted, in provisional order.
+ */
+function resolveNameCollisions(
+  provisional: readonly {
+    readonly index: number;
+    readonly tool: AdmittedMcpToolDefinition;
+  }[],
+  refused: {
+    index: number;
+    id?: string;
+    reason: McpDeclarationRefusalReason;
+  }[],
+  assertActive: (() => void) | undefined,
+): AdmittedMcpToolDefinition[] {
+  assertActive?.();
+  const collisionIndexes = findAsciiCaseFoldedCollisionIndexes(
+    provisional.map(({ tool }) => tool.id),
+  );
+  assertActive?.();
+  const admitted: AdmittedMcpToolDefinition[] = [];
+  for (const [provisionalIndex, { index, tool }] of provisional.entries()) {
+    assertActive?.();
+    if (collisionIndexes.has(provisionalIndex)) {
+      refused.push({ index, id: tool.id, reason: 'name_collision' });
+    } else {
+      admitted.push(tool);
+    }
+  }
+  return admitted;
 }
 
 export async function admitMcpToolDefinitions(input: {
@@ -264,6 +493,11 @@ export async function admitMcpToolDefinitions(input: {
   readonly assertActive?: () => void;
 }): Promise<McpDeclarationAdmissionResult> {
   const protectedValues = normalizeProtectedValues(input.protectedValues);
+  const context: AdmissionContext = {
+    serverId: input.serverId,
+    protectedValues,
+    assertActive: input.assertActive,
+  };
   const provisional: {
     readonly index: number;
     readonly tool: AdmittedMcpToolDefinition;
@@ -275,92 +509,19 @@ export async function admitMcpToolDefinitions(input: {
   }[] = [];
 
   for (const [index, definition] of input.definitions.entries()) {
-    input.assertActive?.();
-    const refusalId = safeRefusalId(
-      input.serverId,
-      definition,
-      protectedValues,
-    );
-    const refuse = (reason: McpDeclarationRefusalReason): void => {
-      refused.push({
-        index,
-        ...(refusalId !== undefined && { id: refusalId }),
-        reason,
-      });
-    };
-    if (
-      !isRecord(definition) ||
-      !isString(definition.name) ||
-      (definition.description !== undefined &&
-        !isString(definition.description)) ||
-      !isRecord(definition.inputSchema)
-    ) {
-      refuse('invalid_declaration');
-      continue;
-    }
-    input.assertActive?.();
-    if (containsProtectedValueJson(definition.name, protectedValues)) {
-      refuse('protected_value');
-      continue;
-    }
-
-    const toolId = createMcpToolId(input.serverId, definition.name);
-    if (!toolId.success) {
-      refuse('invalid_tool_id');
-      continue;
-    }
-    if (containsProtectedValueJson(toolId.id, protectedValues)) {
-      refuse('protected_value');
-      continue;
-    }
-    input.assertActive?.();
-
-    const dialect = resolveSupportedSchemaDialect(definition.inputSchema);
-    const safeSchema =
-      dialect === undefined
-        ? safeInstanceValue(definition.inputSchema, protectedValues)
-        : safeSchemaNode(definition.inputSchema, dialect, protectedValues);
-    input.assertActive?.();
-    if (!safeSchema.success || !isRecord(safeSchema.value)) {
-      refuse('protected_value');
-      continue;
-    }
-    input.assertActive?.();
-    const schemaAdmission = await admitToolInputSchema(safeSchema.value);
-    input.assertActive?.();
-    if (!schemaAdmission.success) {
-      refuse(schemaAdmission.reason);
-      continue;
-    }
-
-    input.assertActive?.();
-    const tool = {
-      id: toolId.id,
-      remoteName: definition.name,
-      description: sanitizeDescription(
-        definition.description ?? '',
-        protectedValues,
-      ),
-      inputSchema: canonicalize(schemaAdmission.inputSchema),
-    };
-    input.assertActive?.();
-    provisional.push({ index, tool });
-  }
-
-  input.assertActive?.();
-  const collisionIndexes = findAsciiCaseFoldedCollisionIndexes(
-    provisional.map(({ tool }) => tool.id),
-  );
-  input.assertActive?.();
-  const admitted: AdmittedMcpToolDefinition[] = [];
-  for (const [provisionalIndex, { index, tool }] of provisional.entries()) {
-    input.assertActive?.();
-    if (collisionIndexes.has(provisionalIndex)) {
-      refused.push({ index, id: tool.id, reason: 'name_collision' });
+    const result = await admitOneMcpToolDefinition(index, definition, context);
+    if (result.success) {
+      provisional.push({ index, tool: result.tool });
     } else {
-      admitted.push(tool);
+      refused.push(result.refusal);
     }
   }
+
+  const admitted = resolveNameCollisions(
+    provisional,
+    refused,
+    input.assertActive,
+  );
   input.assertActive?.();
   refused.sort((left, right) => left.index - right.index);
   input.assertActive?.();

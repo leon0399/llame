@@ -322,7 +322,10 @@ export function hydrateCanonicalSearchRows(
     }
     previousSeq = decoded.messageSeq;
 
-    const position = { isFirst: index === 0, isLast: index === rows.length - 1 };
+    const position = {
+      isFirst: index === 0,
+      isLast: index === rows.length - 1,
+    };
     const outcome = resolveRowOutcome(decoded, position, boundary);
     if (outcome.kind === 'stop') return null;
     if (outcome.kind === 'message') messages.push(outcome.message);
@@ -332,7 +335,11 @@ export function hydrateCanonicalSearchRows(
 }
 
 /** The winning projection document's identity and text-offset boundary. */
-function winningDocumentCte(ownerUserId: string, bestDocumentId: string, chatId: string) {
+function winningDocumentCte(
+  ownerUserId: string,
+  bestDocumentId: string,
+  chatId: string,
+) {
   return sql`
       SELECT
         d.first_message_id,

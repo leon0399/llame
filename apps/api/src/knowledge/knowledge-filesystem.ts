@@ -451,7 +451,11 @@ export class KnowledgeFilesystemAdapter {
         () => this.fileSystem.opendir(directoryPath),
         signal,
       );
-      entries = await readAllDirectoryEntries(directory, remainingEntries, signal);
+      entries = await readAllDirectoryEntries(
+        directory,
+        remainingEntries,
+        signal,
+      );
     } catch (error) {
       failure = error;
     }
@@ -525,7 +529,12 @@ export class KnowledgeFilesystemAdapter {
       }
 
       const budget = resolveLineSelectionBudget(request);
-      const state = await readKnowledgeFileLines(file, fileStats, budget, signal);
+      const state = await readKnowledgeFileLines(
+        file,
+        fileStats,
+        budget,
+        signal,
+      );
       result = resolveLineSelectionResult(state, budget, relativePath);
     } catch (error) {
       failure = error;
@@ -553,4 +562,3 @@ export class KnowledgeFilesystemAdapter {
     }
   }
 }
-

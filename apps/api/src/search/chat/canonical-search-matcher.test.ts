@@ -9,16 +9,16 @@ import {
 
 const timestamp = new Date('2026-08-27T12:00:00.000Z');
 
+// No test varies the role — every fixture is an assistant message.
 function message(
   messageSeq: number,
   visibleText: string,
   sourceStart = 0,
   sourceEndExclusive = visibleText.length,
-  role: 'user' | 'assistant' = 'assistant',
 ): CanonicalSearchMessage {
   return {
     messageSeq,
-    role,
+    role: 'assistant',
     timestamp,
     visibleText,
     sourceStart,

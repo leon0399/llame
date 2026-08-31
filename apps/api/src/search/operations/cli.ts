@@ -24,6 +24,7 @@
  */
 import { config } from 'dotenv';
 import { NestFactory } from '@nestjs/core';
+import type { INestApplicationContext } from '@nestjs/common';
 
 import { TenantDbService } from '../../db/tenant-db.service';
 import { InstanceConfigService } from '../../instance-config/instance-config.service';
@@ -83,6 +84,129 @@ function failIfAnyOwnerFailed(
   );
 }
 
+async function runBackfillCommand(
+  app: INestApplicationContext,
+  tenantDb: TenantDbService,
+  instanceConfig: InstanceConfigService,
+): Promise<void> {
+  const modelId = requireEmbeddingModelId(instanceConfig);
+  // Read-path fail-loud check (review finding): without this, an
+  // unprovisioned `app_rls` role makes llame_search_embedding_coverage
+  // silently return zero rows, and this command would print "enqueued
+  // 0 chat(s)" — a wrong answer, indistinguishable from a genuinely
+  // covered corpus.
+  await assertDiscoveryFunctionProvisioned(
+    tenantDb,
+    'llame_search_embedding_coverage',
+  );
+  const dispatch = app.get(SearchEmbedDispatchService);
+  const { enqueued, coalesced, failures } = await runBackfill(
+    tenantDb,
+    dispatch,
+    modelId,
+    EMBED_INPUT_VERSION,
+  );
+  if (failures.length > 0) {
+    for (const failure of failures) {
+      console.error(
+        `backfill: failed to enqueue chat ${failure.chatId} (owner ${failure.ownerUserId}): ${failure.message}`,
+      );
+    }
+    throw new Error(
+      `backfill: enqueued ${enqueued} chat(s), FAILED to enqueue ${failures.length} — see errors above. Safe to re-run once the queue is reachable again (an already-queued chat coalesces under its singleton key rather than duplicating).`,
+    );
+  }
+  console.log(
+    `backfill: enqueued ${enqueued} chat(s)` +
+      (coalesced > 0
+        ? `, ${coalesced} already queued (coalesced, not re-enqueued)`
+        : ''),
+  );
+}
+
+async function runPruneCommand(
+  tenantDb: TenantDbService,
+  instanceConfig: InstanceConfigService,
+): Promise<void> {
+  const declaredModelKeys = instanceConfig.config.embeddingModels.map(
+    (model) => model.id,
+  );
+  const { prunedDocuments, affectedOwners, retiredBindings, failures } =
+    await pruneUndeclaredModelVectors(tenantDb, declaredModelKeys);
+  failIfAnyOwnerFailed('prune', failures);
+  console.log(
+    `prune: cleared ${prunedDocuments} document(s) across ${affectedOwners} owner(s), retired ${retiredBindings} ledger key(s)`,
+  );
+}
+
+async function runRetryFailedCommand(
+  tenantDb: TenantDbService,
+  instanceConfig: InstanceConfigService,
+): Promise<void> {
+  const modelId = requireEmbeddingModelId(instanceConfig);
+  const { clearedDocuments, affectedOwners, failures } =
+    await retryFailedDocuments(tenantDb, modelId, EMBED_INPUT_VERSION);
+  failIfAnyOwnerFailed('retry-failed', failures);
+  console.log(
+    `retry-failed: reset ${clearedDocuments} document(s) across ${affectedOwners} owner(s) — run 'backfill' (or wait for the sweep) to re-embed them`,
+  );
+}
+
+async function runCoverageCommand(
+  tenantDb: TenantDbService,
+  instanceConfig: InstanceConfigService,
+): Promise<void> {
+  const modelId = requireEmbeddingModelId(instanceConfig);
+  // Same fail-loud provisioning check as backfill above, against the report
+  // function this readout actually reads.
+  await assertDiscoveryFunctionProvisioned(
+    tenantDb,
+    'llame_search_embedding_report',
+  );
+  const rows = await getEmbeddingCoverageReport(
+    tenantDb,
+    modelId,
+    EMBED_INPUT_VERSION,
+    COVERAGE_REPORT_MAX_ROWS,
+  );
+  if (rows.length === 0) {
+    console.log('coverage: no chat has outstanding or failed work');
+    return;
+  }
+  console.log(
+    'chat_id'.padEnd(38) +
+      'owner_user_id'.padEnd(38) +
+      'embedded'.padEnd(10) +
+      'failed'.padEnd(10) +
+      'outstanding',
+  );
+  for (const row of rows) {
+    console.log(
+      row.chatId.padEnd(38) +
+        row.ownerUserId.padEnd(38) +
+        String(row.embedded).padEnd(10) +
+        String(row.failed).padEnd(10) +
+        String(row.outstanding),
+    );
+  }
+}
+
+async function runProjectionCoverageCommand(
+  tenantDb: TenantDbService,
+): Promise<void> {
+  await assertDiscoveryFunctionProvisioned(
+    tenantDb,
+    'llame_search_projection_coverage_v2',
+  );
+  const report = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
+  console.log(
+    `projection-coverage: chunker_version=${report.chunkerVersion} ` +
+      `chats=${report.chatCount} ready=${report.readyChatCount} ` +
+      `stale=${report.staleChatCount} documents=${report.documentCount} ` +
+      `complete_documents=${report.completeDocumentCount}`,
+  );
+}
+
 async function runCommand(command: string): Promise<void> {
   const app = await NestFactory.createApplicationContext(OperationsModule);
   try {
@@ -90,117 +214,16 @@ async function runCommand(command: string): Promise<void> {
     const instanceConfig = app.get(InstanceConfigService);
 
     switch (command) {
-      case 'backfill': {
-        const modelId = requireEmbeddingModelId(instanceConfig);
-        // Read-path fail-loud check (review finding): without this, an
-        // unprovisioned `app_rls` role makes llame_search_embedding_coverage
-        // silently return zero rows, and this command would print "enqueued
-        // 0 chat(s)" — a wrong answer, indistinguishable from a genuinely
-        // covered corpus.
-        await assertDiscoveryFunctionProvisioned(
-          tenantDb,
-          'llame_search_embedding_coverage',
-        );
-        const dispatch = app.get(SearchEmbedDispatchService);
-        const { enqueued, coalesced, failures } = await runBackfill(
-          tenantDb,
-          dispatch,
-          modelId,
-          EMBED_INPUT_VERSION,
-        );
-        if (failures.length > 0) {
-          for (const failure of failures) {
-            console.error(
-              `backfill: failed to enqueue chat ${failure.chatId} (owner ${failure.ownerUserId}): ${failure.message}`,
-            );
-          }
-          throw new Error(
-            `backfill: enqueued ${enqueued} chat(s), FAILED to enqueue ${failures.length} — see errors above. Safe to re-run once the queue is reachable again (an already-queued chat coalesces under its singleton key rather than duplicating).`,
-          );
-        }
-        console.log(
-          `backfill: enqueued ${enqueued} chat(s)` +
-            (coalesced > 0
-              ? `, ${coalesced} already queued (coalesced, not re-enqueued)`
-              : ''),
-        );
-        return;
-      }
-      case 'prune': {
-        const declaredModelKeys = instanceConfig.config.embeddingModels.map(
-          (model) => model.id,
-        );
-        const { prunedDocuments, affectedOwners, retiredBindings, failures } =
-          await pruneUndeclaredModelVectors(tenantDb, declaredModelKeys);
-        failIfAnyOwnerFailed('prune', failures);
-        console.log(
-          `prune: cleared ${prunedDocuments} document(s) across ${affectedOwners} owner(s), retired ${retiredBindings} ledger key(s)`,
-        );
-        return;
-      }
-      case 'retry-failed': {
-        const modelId = requireEmbeddingModelId(instanceConfig);
-        const { clearedDocuments, affectedOwners, failures } =
-          await retryFailedDocuments(tenantDb, modelId, EMBED_INPUT_VERSION);
-        failIfAnyOwnerFailed('retry-failed', failures);
-        console.log(
-          `retry-failed: reset ${clearedDocuments} document(s) across ${affectedOwners} owner(s) — run 'backfill' (or wait for the sweep) to re-embed them`,
-        );
-        return;
-      }
-      case 'coverage': {
-        const modelId = requireEmbeddingModelId(instanceConfig);
-        // Same fail-loud provisioning check as backfill above, against the
-        // report function this readout actually reads.
-        await assertDiscoveryFunctionProvisioned(
-          tenantDb,
-          'llame_search_embedding_report',
-        );
-        const rows = await getEmbeddingCoverageReport(
-          tenantDb,
-          modelId,
-          EMBED_INPUT_VERSION,
-          COVERAGE_REPORT_MAX_ROWS,
-        );
-        if (rows.length === 0) {
-          console.log('coverage: no chat has outstanding or failed work');
-          return;
-        }
-        console.log(
-          'chat_id'.padEnd(38) +
-            'owner_user_id'.padEnd(38) +
-            'embedded'.padEnd(10) +
-            'failed'.padEnd(10) +
-            'outstanding',
-        );
-        for (const row of rows) {
-          console.log(
-            row.chatId.padEnd(38) +
-              row.ownerUserId.padEnd(38) +
-              String(row.embedded).padEnd(10) +
-              String(row.failed).padEnd(10) +
-              String(row.outstanding),
-          );
-        }
-        return;
-      }
-      case 'projection-coverage': {
-        await assertDiscoveryFunctionProvisioned(
-          tenantDb,
-          'llame_search_projection_coverage_v2',
-        );
-        const report = await getProjectionCoverageReport(
-          tenantDb,
-          CHUNKER_VERSION,
-        );
-        console.log(
-          `projection-coverage: chunker_version=${report.chunkerVersion} ` +
-            `chats=${report.chatCount} ready=${report.readyChatCount} ` +
-            `stale=${report.staleChatCount} documents=${report.documentCount} ` +
-            `complete_documents=${report.completeDocumentCount}`,
-        );
-        return;
-      }
+      case 'backfill':
+        return await runBackfillCommand(app, tenantDb, instanceConfig);
+      case 'prune':
+        return await runPruneCommand(tenantDb, instanceConfig);
+      case 'retry-failed':
+        return await runRetryFailedCommand(tenantDb, instanceConfig);
+      case 'coverage':
+        return await runCoverageCommand(tenantDb, instanceConfig);
+      case 'projection-coverage':
+        return await runProjectionCoverageCommand(tenantDb);
       default:
         throw new Error(
           `Unknown command "${command}" — expected one of: backfill, prune, retry-failed, coverage, projection-coverage`,

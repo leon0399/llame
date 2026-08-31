@@ -136,13 +136,13 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
   /** Stamp a document as terminally failed under `modelKey` — mirrors
    *  `persistEmbeddingFailure`'s tombstone (all four attempt-metadata
    *  columns), matched against the document's OWN live content hash so the
-   *  coverage predicate counts it as failed, not outstanding. */
+   *  coverage predicate counts it as failed, not outstanding. No test needs a
+   *  distinct reason string, only a non-null one. */
   async function stampFailed(
     ownerId: string,
     chatId: string,
     modelKey: string,
     version: number,
-    reason = 'terminal test failure',
   ): Promise<void> {
     const hash = await contentHashOf(ownerId, chatId);
     await tenantDb.runAs(ownerId, (tx) =>
@@ -152,7 +152,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
             embedding_model_key = ${modelKey},
             embedded_content_hash = ${hash},
             embed_input_version = ${version},
-            embedding_fail_reason = ${reason}
+            embedding_fail_reason = 'terminal test failure'
         WHERE chat_id = ${chatId}`),
     );
   }

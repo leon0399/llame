@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { ZodError } from 'zod';
 
 import { ChatsRepository } from '../chats/chats-repository';
 import * as schema from '../db/schema';
@@ -148,7 +149,7 @@ describe('search_conversations', () => {
       query: 'hi',
       limit: 5,
     });
-    expect(() => schema.parse({ query: 'hi', userId: 'x' })).toThrow();
+    expect(() => schema.parse({ query: 'hi', userId: 'x' })).toThrow(ZodError);
   });
 
   it('scopes canonical metadata results to the context userId without an activation flag', async () => {
@@ -416,7 +417,9 @@ describe('search_conversations', () => {
       'partId',
       'cursor',
     ]) {
-      expect(() => schema.parse({ query: 'x', [field]: 'future' })).toThrow();
+      expect(() => schema.parse({ query: 'x', [field]: 'future' })).toThrow(
+        ZodError,
+      );
     }
     expect(schema.parse({ query: 'x', limit: 3 })).toEqual({
       query: 'x',

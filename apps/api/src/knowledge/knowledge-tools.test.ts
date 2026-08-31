@@ -1,3 +1,5 @@
+import { ZodError } from 'zod';
+
 import {
   KNOWLEDGE_CONTENT_NOTICE,
   knowledgeReadTool,
@@ -130,13 +132,13 @@ describe('Knowledge tool declarations', () => {
       }
       expect(() => {
         schema.parse({ ownerId: 'other-owner' });
-      }).toThrow();
+      }).toThrow(ZodError);
       expect(() => {
         schema.parse({ root: '/etc' });
-      }).toThrow();
+      }).toThrow(ZodError);
       expect(() => {
         schema.parse({ knowledgeSpaceId: binding.id });
-      }).toThrow();
+      }).toThrow(ZodError);
     }
   });
 
@@ -150,16 +152,16 @@ describe('Knowledge tool declarations', () => {
     }).not.toThrow();
     expect(() => {
       schema.parse({ query: '😀'.repeat(201) });
-    }).toThrow();
+    }).toThrow(ZodError);
     expect(() => {
       schema.parse({ query: '', limit: 5 });
-    }).toThrow();
+    }).toThrow(ZodError);
     expect(() => {
       schema.parse({ query: 'x', limit: 1.5 });
-    }).toThrow();
+    }).toThrow(ZodError);
     expect(() => {
       schema.parse({ query: 'x', limit: 11 });
-    }).toThrow();
+    }).toThrow(ZodError);
     expect(schema.parse({ query: 'x', knowledgeSpaceId: binding.id })).toEqual({
       query: 'x',
       limit: 5,
@@ -172,10 +174,10 @@ describe('Knowledge tool declarations', () => {
     });
     expect(() => {
       schema.parse({ query: 'x', cursor: 1 });
-    }).toThrow();
+    }).toThrow(ZodError);
     expect(() => {
       schema.parse({ query: 'x', cursor: 'x', extra: true });
-    }).toThrow();
+    }).toThrow(ZodError);
   });
 
   it('requires exactly one read path', () => {
@@ -185,10 +187,10 @@ describe('Knowledge tool declarations', () => {
     }
     expect(() => {
       schema.parse({ path: 'notes/a.md' });
-    }).toThrow();
+    }).toThrow(ZodError);
     expect(() => {
       schema.parse({ path: 'notes/a.md', root: '/srv' });
-    }).toThrow();
+    }).toThrow(ZodError);
     expect(
       schema.parse({ path: 'notes/a.md', knowledgeSpaceId: binding.id }),
     ).toEqual({ path: 'notes/a.md', knowledgeSpaceId: binding.id });
@@ -227,7 +229,7 @@ describe('Knowledge tool declarations', () => {
           knowledgeSpaceId: binding.id,
           ...invalid,
         });
-      }).toThrow();
+      }).toThrow(ZodError);
     }
   });
 });

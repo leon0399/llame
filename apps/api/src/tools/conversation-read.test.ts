@@ -1,4 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { ZodError } from 'zod';
 
 import {
   MessagesRepository,
@@ -103,7 +104,7 @@ describe('conversation_read input', () => {
         messageSeq: 7,
         ...invalid,
       }),
-    ).toThrow();
+    ).toThrow(ZodError);
   });
 
   it('rejects invalid runtime input before calling the repository', async () => {

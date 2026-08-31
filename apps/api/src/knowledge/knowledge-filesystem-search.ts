@@ -151,7 +151,11 @@ export async function collectKnowledgePassages(
   }
 
   if (active !== undefined) {
-    emitFinalKnowledgeSearchPartition(active, Math.min(active.end, lastLine), ctx);
+    emitFinalKnowledgeSearchPartition(
+      active,
+      Math.min(active.end, lastLine),
+      ctx,
+    );
   }
 
   return passages;

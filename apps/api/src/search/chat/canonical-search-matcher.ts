@@ -163,6 +163,15 @@ export async function matchCanonicalSearchPreview(
 
   if (matchedLines.length === 0) return null;
 
+  return selectPreviewPassage(matchedLines);
+}
+
+/** Rank `matchedLines`' passages by earliest message/offset and select the
+ *  first — split out of `matchCanonicalSearchPreview` purely for its own
+ *  line budget. */
+function selectPreviewPassage(
+  matchedLines: readonly MatchedLine[],
+): CanonicalSearchPreviewPassage | null {
   const passages = buildPassages(matchedLines);
   passages.sort((left, right) => {
     const leftSeq =
@@ -194,6 +203,50 @@ export async function matchCanonicalSearchPreview(
   };
 }
 
+/** One message's candidate lines, id-numbered starting at `startId` — split
+ *  out of `buildInternalLines` purely for its own line budget. `nextId` lets
+ *  the caller keep ids monotonic and contiguous across every message,
+ *  exactly as the original single loop did. */
+function linesFromMessage(message: CanonicalSearchMessage, startId: number) {
+  const lines: InternalLine[] = [];
+  let id = startId;
+  if (
+    !Number.isSafeInteger(message.sourceStart) ||
+    !Number.isSafeInteger(message.sourceEndExclusive) ||
+    message.sourceStart < 0 ||
+    message.sourceStart > message.sourceEndExclusive ||
+    message.sourceEndExclusive > message.visibleText.length
+  ) {
+    return { lines, nextId: id };
+  }
+
+  for (const logical of scanConversationLogicalLines(message.visibleText)) {
+    const sourceStart = Math.max(logical.startOffset, message.sourceStart);
+    const sourceEndExclusive = Math.min(
+      logical.endOffsetExclusive,
+      message.sourceEndExclusive,
+    );
+    if (sourceStart >= sourceEndExclusive) continue;
+
+    const sourceText = message.visibleText.slice(
+      sourceStart,
+      sourceEndExclusive,
+    );
+    const normalizedText = normalizeForSearch(sourceText);
+    if (normalizedText.length === 0) continue;
+    lines.push({
+      id,
+      message,
+      logical,
+      sourceStart,
+      sourceEndExclusive,
+      normalizedText,
+    });
+    id += 1;
+  }
+  return { lines, nextId: id };
+}
+
 function buildInternalLines(
   document: HydratedCanonicalSearchDocument,
 ): InternalLine[] {
@@ -208,43 +261,44 @@ function buildInternalLines(
     );
 
   for (const { message } of messages) {
-    if (
-      !Number.isSafeInteger(message.sourceStart) ||
-      !Number.isSafeInteger(message.sourceEndExclusive) ||
-      message.sourceStart < 0 ||
-      message.sourceStart > message.sourceEndExclusive ||
-      message.sourceEndExclusive > message.visibleText.length
-    ) {
-      continue;
-    }
-
-    for (const logical of scanConversationLogicalLines(message.visibleText)) {
-      const sourceStart = Math.max(logical.startOffset, message.sourceStart);
-      const sourceEndExclusive = Math.min(
-        logical.endOffsetExclusive,
-        message.sourceEndExclusive,
-      );
-      if (sourceStart >= sourceEndExclusive) continue;
-
-      const sourceText = message.visibleText.slice(
-        sourceStart,
-        sourceEndExclusive,
-      );
-      const normalizedText = normalizeForSearch(sourceText);
-      if (normalizedText.length === 0) continue;
-      result.push({
-        id,
-        message,
-        logical,
-        sourceStart,
-        sourceEndExclusive,
-        normalizedText,
-      });
-      id += 1;
-    }
+    const { lines, nextId } = linesFromMessage(message, id);
+    result.push(...lines);
+    id = nextId;
   }
 
   return result;
+}
+
+/** Every occurrence of `normalizedQuery` in `line.normalizedText`, mapped
+ *  back to a raw-text anchor via `mapping` — the first one that maps cleanly
+ *  wins. Split out of `makeAnchor` purely for its own line budget. */
+function findExactAnchor(
+  line: InternalLine,
+  raw: string,
+  normalizedQuery: string,
+  mapping: NormalizedMapping,
+): CanonicalSearchPreviewAnchor | undefined {
+  for (
+    let occurrence = line.normalizedText.indexOf(normalizedQuery);
+    occurrence >= 0;
+    occurrence = line.normalizedText.indexOf(normalizedQuery, occurrence + 1)
+  ) {
+    const mapped = mapNormalizedOccurrence(
+      raw,
+      mapping,
+      normalizedQuery,
+      occurrence,
+    );
+    if (mapped !== undefined) {
+      return {
+        line: line.logical.line,
+        startOffset: line.sourceStart + mapped.startOffset,
+        endOffsetExclusive: line.sourceStart + mapped.endOffsetExclusive,
+        kind: 'exact',
+      };
+    }
+  }
+  return undefined;
 }
 
 function makeAnchor(
@@ -256,28 +310,11 @@ function makeAnchor(
     line.sourceEndExclusive,
   );
   const mapping = buildNormalizedMapping(raw, line.normalizedText);
-  if (mapping !== undefined) {
-    for (
-      let occurrence = line.normalizedText.indexOf(normalizedQuery);
-      occurrence >= 0;
-      occurrence = line.normalizedText.indexOf(normalizedQuery, occurrence + 1)
-    ) {
-      const mapped = mapNormalizedOccurrence(
-        raw,
-        mapping,
-        normalizedQuery,
-        occurrence,
-      );
-      if (mapped !== undefined) {
-        return {
-          line: line.logical.line,
-          startOffset: line.sourceStart + mapped.startOffset,
-          endOffsetExclusive: line.sourceStart + mapped.endOffsetExclusive,
-          kind: 'exact',
-        };
-      }
-    }
-  }
+  const exact =
+    mapping === undefined
+      ? undefined
+      : findExactAnchor(line, raw, normalizedQuery, mapping);
+  if (exact !== undefined) return exact;
 
   return {
     line: line.logical.line,
@@ -402,22 +439,20 @@ function mapNormalizedOccurrence(
   return { startOffset, endOffsetExclusive };
 }
 
-/**
- * Build a conservative raw-to-normalized map. NFKC can compose adjacent
- * Unicode code points, so combining-mark clusters are normalized together. If
- * the mapped output ever diverges from the canonical normalized candidate, the
- * caller intentionally falls back instead of returning a false raw span.
- */
-function buildNormalizedMapping(
-  raw: string,
-  expectedNormalized: string,
-): NormalizedMapping | undefined {
-  const fragments: Array<{
-    text: string;
-    rawStart: number;
-    rawEndExclusive: number;
-  }> = [];
+/** A raw-text fragment or token: its (possibly transformed) text plus the
+ *  raw-offset span it came from. Shared shape for both `buildNormalizedMapping`
+ *  phases that produce one. */
+type NormalizedFragment = {
+  text: string;
+  rawStart: number;
+  rawEndExclusive: number;
+};
 
+/** Group `raw` into combining-mark clusters — NFKC can compose adjacent
+ *  Unicode code points, so a base character and its combining marks must
+ *  normalize together. Phase 1 of `buildNormalizedMapping`. */
+function buildCombiningMarkFragments(raw: string): NormalizedFragment[] {
+  const fragments: NormalizedFragment[] = [];
   for (let offset = 0; offset < raw.length; ) {
     const rawStart = offset;
     const firstCodePoint = raw.codePointAt(offset);
@@ -435,38 +470,62 @@ function buildNormalizedMapping(
       rawEndExclusive,
     });
   }
+  return fragments;
+}
 
-  const tokens: Array<{
-    text: string;
-    rawStart: number;
-    rawEndExclusive: number;
-  }> = [];
+/** Append one fragment-derived character to `tokens`, collapsing adjacent
+ *  whitespace into a single `' '` token — the per-character body of
+ *  `tokenizeFragments`'s double loop, split out to keep that loop's own
+ *  nesting shallow. */
+function appendNormalizedToken(
+  tokens: NormalizedFragment[],
+  character: string,
+  fragment: NormalizedFragment,
+): void {
+  if (!/\s/u.test(character)) {
+    tokens.push({
+      text: character,
+      rawStart: fragment.rawStart,
+      rawEndExclusive: fragment.rawEndExclusive,
+    });
+    return;
+  }
+  const previous = tokens.at(-1);
+  if (previous?.text === ' ') {
+    previous.rawEndExclusive = fragment.rawEndExclusive;
+  } else {
+    tokens.push({
+      text: ' ',
+      rawStart: fragment.rawStart,
+      rawEndExclusive: fragment.rawEndExclusive,
+    });
+  }
+}
+
+/** Whitespace-collapsed, boundary-trimmed tokens from `fragments`. Phase 2
+ *  of `buildNormalizedMapping`. */
+function tokenizeFragments(
+  fragments: readonly NormalizedFragment[],
+): NormalizedFragment[] {
+  const tokens: NormalizedFragment[] = [];
   for (const fragment of fragments) {
     for (const character of Array.from(fragment.text)) {
-      if (/\s/u.test(character)) {
-        const previous = tokens.at(-1);
-        if (previous?.text === ' ') {
-          previous.rawEndExclusive = fragment.rawEndExclusive;
-        } else {
-          tokens.push({
-            text: ' ',
-            rawStart: fragment.rawStart,
-            rawEndExclusive: fragment.rawEndExclusive,
-          });
-        }
-      } else {
-        tokens.push({
-          text: character,
-          rawStart: fragment.rawStart,
-          rawEndExclusive: fragment.rawEndExclusive,
-        });
-      }
+      appendNormalizedToken(tokens, character, fragment);
     }
   }
-
   while (tokens[0]?.text === ' ') tokens.shift();
   while (tokens.at(-1)?.text === ' ') tokens.pop();
+  return tokens;
+}
 
+/** Fold `tokens` to lowercase and verify the result matches
+ *  `expectedNormalized` — undefined (caller falls back) on any mismatch,
+ *  including a folded length that doesn't sum to the whole normalized
+ *  string's length. Phase 3 of `buildNormalizedMapping`. */
+function foldAndVerifyTokens(
+  tokens: readonly NormalizedFragment[],
+  expectedNormalized: string,
+): { normalized: string; foldedFragments: string[] } | undefined {
   const preLowerNormalized = tokens.map((token) => token.text).join('');
   const normalized = preLowerNormalized.toLowerCase();
   if (normalized !== expectedNormalized) return undefined;
@@ -478,7 +537,16 @@ function buildNormalizedMapping(
   ) {
     return undefined;
   }
+  return { normalized, foldedFragments };
+}
 
+/** Build the normalized-offset ↔ raw-offset segment list from `tokens` and
+ *  their folded text. Phase 4 of `buildNormalizedMapping`. */
+function buildNormalizedSegments(
+  tokens: readonly NormalizedFragment[],
+  foldedFragments: readonly string[],
+  normalizedLength: number,
+): NormalizedSegment[] | undefined {
   const segments: NormalizedSegment[] = [];
   let normalizedOffset = 0;
   for (const [index, token] of tokens.entries()) {
@@ -487,7 +555,7 @@ function buildNormalizedMapping(
     const normalizedEndExclusive = normalizedOffset + foldedFragment.length;
     if (
       normalizedEndExclusive <= normalizedOffset ||
-      normalizedEndExclusive > normalized.length
+      normalizedEndExclusive > normalizedLength
     ) {
       return undefined;
     }
@@ -499,7 +567,34 @@ function buildNormalizedMapping(
     });
     normalizedOffset = normalizedEndExclusive;
   }
-  if (normalizedOffset !== normalized.length) return undefined;
+  if (normalizedOffset !== normalizedLength) return undefined;
+  return segments;
+}
+
+/**
+ * Build a conservative raw-to-normalized map. NFKC can compose adjacent
+ * Unicode code points, so combining-mark clusters are normalized together. If
+ * the mapped output ever diverges from the canonical normalized candidate, the
+ * caller intentionally falls back instead of returning a false raw span.
+ */
+function buildNormalizedMapping(
+  raw: string,
+  expectedNormalized: string,
+): NormalizedMapping | undefined {
+  const fragments = buildCombiningMarkFragments(raw);
+  const tokens = tokenizeFragments(fragments);
+
+  const folded = foldAndVerifyTokens(tokens, expectedNormalized);
+  if (folded === undefined) return undefined;
+  const { normalized, foldedFragments } = folded;
+
+  const segments = buildNormalizedSegments(
+    tokens,
+    foldedFragments,
+    normalized.length,
+  );
+  if (segments === undefined) return undefined;
+
   return { normalized, segments };
 }
 
