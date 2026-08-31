@@ -14,11 +14,11 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "storyproof": "0.0.1-alpha.1",
     "@workspace/ui": "workspace:*",
     "next": "catalog:",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "storyproof": "0.0.1-alpha.1"
   },
   "devDependencies": {
     "@base-ui/react": "^1.6.0",
@@ -35,12 +35,13 @@
     "@types/react-dom": "catalog:",
     "@typescript/native-preview": "catalog:",
     "@vitest/browser-playwright": "^4.1.10",
-    "playwright": "catalog:",
+    "@vitest/coverage-v8": "4.1.11",
     "@workspace/config-typescript": "workspace:*",
     "mermaid": "11.16.1",
     "motion": "^12.23.0",
     "next-themes": "catalog:",
     "oxlint": "catalog:",
+    "playwright": "catalog:",
     "react-hook-form": "catalog:",
     "sonner": "^2.0.5",
     "storybook": "catalog:",

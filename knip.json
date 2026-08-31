@@ -1,0 +1,76 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "playwright.config.ts",
+        "e2e/**/*.spec.ts",
+        "e2e/support/db-server.ts",
+        "e2e/support/model-server.ts",
+        "e2e/support/mcp-server.ts",
+        "e2e/support/mcp-stdio-server.mjs",
+        "e2e/support/run-after-ready.ts"
+      ],
+      "project": ["e2e/**/*.ts", "playwright.config.ts"],
+      "ignoreBinaries": ["actionlint", "zizmor", "pinact"]
+    },
+    "apps/api": {
+      "entry": [
+        "src/main.ts",
+        "src/worker.ts",
+        "src/generate-openapi.ts",
+        "src/db/migrate.ts",
+        "src/db/db.ts",
+        "src/search/operations/cli.ts",
+        "src/**/*.test.ts",
+        "src/**/*.integration.test.ts",
+        "evals/**/*.test.ts",
+        "vitest.config.mts",
+        "vitest.integration.global-setup.mts",
+        "vitest.integration.setup.ts",
+        "drizzle.config.ts",
+        "stryker.config.json"
+      ],
+      "project": ["src/**/*.ts", "evals/**/*.ts"]
+    },
+    "apps/web": {
+      "entry": [
+        "app/**/{page,layout,route,error,loading,not-found,template,default}.tsx",
+        "app/**/{page,layout,route}.ts",
+        "proxy.ts",
+        "instrumentation.ts",
+        "instrumentation-client.ts",
+        "sentry.*.config.ts",
+        "next.config.mjs",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/__mocks__/**"
+      ],
+      "project": ["**/*.{ts,tsx}"]
+    },
+    "packages/ui": {
+      "entry": ["src/**/*.stories.tsx", "src/**/*.test.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}"]
+    },
+    "packages/config-interpolation": {
+      "entry": ["src/index.ts", "src/**/*.test.ts"],
+      "project": ["src/**/*.ts"]
+    },
+    "packages/oxlint-plugin-anti-slop": {
+      "entry": ["index.ts", "registry.check.mjs", "rules/**/*.test.ts"],
+      "project": ["**/*.ts", "**/*.mjs"],
+      "ignore": ["vendor/**"]
+    },
+    "apps/storybook": {
+      "entry": [".storybook/**/*.{ts,tsx}", "vitest.config.ts"],
+      "project": ["**/*.{ts,tsx}"]
+    }
+  },
+  "ignore": [
+    "apps/web/lib/api/generated/**",
+    "apps/api/src/db/migrations/**",
+    "packages/oxlint-plugin-anti-slop/vendor/**"
+  ],
+  "ignoreDependencies": ["shadcn", "@tailwindcss/postcss"],
+  "ignoreExportsUsedInFile": true
+}

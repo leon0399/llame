@@ -151,7 +151,7 @@
     // carving a function into three private helpers satisfies the number and
     // makes the code worse (§4 says so explicitly). Never raise a threshold to
     // pass review.
-    "complexity": ["error", { "max": 35, "variant": "modified" }],
+    "complexity": ["error", { "max": 25, "variant": "modified" }],
     "max-params": ["error", { "max": 4 }],
     "max-depth": ["error", { "max": 3 }],
     "max-lines-per-function": [

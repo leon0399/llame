@@ -2,20 +2,21 @@
   "name": "@workspace/config-interpolation",
   "version": "0.0.1",
   "private": true,
-  "description": "llame's operator-config primitives: {env:}/{path:}/{path:…|json:} secret interpolation and config error contracts, shared by the API and the local CLI.",
+  "description": "llame's operator-config primitives: {env:}/{path:}/{path:\u2026|json:} secret interpolation and config error contracts, shared by the API and the local CLI.",
   "exports": {
     ".": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "4.1.11",
     "@workspace/config-typescript": "workspace:*",
-    "oxlint-tsgolint": "7.0.2001",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
