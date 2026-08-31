@@ -123,6 +123,24 @@
       { "max": 500, "skipBlankLines": true, "skipComments": true }
     ],
 
+    // ---- from nkzw-tech/oxlint-config: already satisfied repo-wide ------
+    // Enabled at zero cost as regression protection. The rest of that config's
+    // remaining rules are style (numeric separators, string-raw) and are not
+    // adopted; its size and shape rules are above. Three more with real
+    // correctness weight — typescript/no-require-imports (24 hits),
+    // preserve-caught-error (3), typescript/no-empty-object-type (2) — are
+    // deliberately NOT enabled yet: turning them on mid-sweep would move the
+    // baseline under agents already working against it.
+    "typescript/prefer-as-const": "error",
+    "typescript/no-unsafe-function-type": "error",
+    "typescript/no-wrapper-object-types": "error",
+    "typescript/no-duplicate-enum-values": "error",
+    "no-throw-literal": "error",
+    "unicorn/no-useless-spread": "error",
+    "unicorn/no-typeof-undefined": "error",
+    "unicorn/consistent-empty-array-spread": "error",
+    "unicorn/no-useless-promise-resolve-reject": "error",
+
     // ---- markers of unfinished or unreviewed work ------------------------
     // `log`/`debug`/`info` are debugging leftovers. `error` and `warn` are
     // deliberate reporting — a failed cancel the user must know about, a

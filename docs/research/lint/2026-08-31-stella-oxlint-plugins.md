@@ -131,6 +131,46 @@ Adopting the internal/external split is a correctness fix to the rule (mocking
 description permits), not a way to shrink the backlog. The 61 still need
 dependency injection or a move to a Storybook play function.
 
+## From nkzw-tech/oxlint-config — measured
+
+Its size and shape rules were adopted first. Measuring the remaining 152 of
+its rules that oxlint 1.78 actually recognises (12 of its `react/*` rules do
+not exist here and reject the whole config if declared) against this
+repository:
+
+| Rule                                | Would add |
+| ----------------------------------- | --------: |
+| `no-undef`                          |     8,587 |
+| `unicorn/numeric-separators-style`  |       129 |
+| `unicorn/prefer-string-raw`         |        39 |
+| `unicorn/catch-error-name`          |        34 |
+| `unicorn/prefer-string-replace-all` |        28 |
+| `typescript/no-require-imports`     |        24 |
+| `unicorn/prefer-at`                 |        18 |
+| everything else                     |  < 6 each |
+
+`no-undef` is noise — it is meaningless under TypeScript, which is why nkzw
+itself disables it for `.ts` files in its own overrides. Excluding it, the
+remainder adds ~290, and the bulk of that is style: numeric separators,
+`String.raw`, `catch` parameter naming. None of it serves the reason these
+rules were adopted, which was god methods, over-qualification, and
+unreadable code.
+
+Nine of its rules turn out to be **already satisfied repo-wide** —
+`prefer-as-const`, `no-unsafe-function-type`, `no-wrapper-object-types`,
+`no-duplicate-enum-values`, `no-throw-literal`, `unicorn/no-useless-spread`,
+`unicorn/no-typeof-undefined`, `unicorn/consistent-empty-array-spread`,
+`unicorn/no-useless-promise-resolve-reject`. Those are enabled: zero cost,
+pure regression protection.
+
+Three more carry real correctness weight and are queued rather than enabled,
+because turning a rule on while agents are working against a fixed baseline
+moves the ground under them: `typescript/no-require-imports` (24, all in
+integration tests), `preserve-caught-error` (3, one of them in production
+code at `chats/turn-context.ts:251`, where an error is rethrown without its
+`cause`), and `typescript/no-empty-object-type` (2, both in an ambient
+`.d.ts`).
+
 ## From nkzw-tech/oxlint-config
 
 Already adopted the size and shape rules. Not adopted, and worth a later look:
