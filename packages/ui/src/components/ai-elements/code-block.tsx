@@ -56,7 +56,7 @@ export async function highlightCode(
   language: BundledLanguage,
   showLineNumbers = false,
 ) {
-  const transformers: ShikiTransformer[] = showLineNumbers
+  const transformers: Array<ShikiTransformer> = showLineNumbers
     ? [lineNumberTransformer]
     : [];
 

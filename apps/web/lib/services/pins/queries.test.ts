@@ -51,7 +51,7 @@ describe("pin query keys and selectors", () => {
   });
 
   it("narrows generated pin unions by item type", () => {
-    const pins: PinnedItem[] = [
+    const pins: Array<PinnedItem> = [
       {
         itemType: "chat",
         itemId: "c1",

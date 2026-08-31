@@ -43,12 +43,11 @@ type Row = {
 type CallerIdSpy = { userId?: string };
 
 function fakeContext(
-  rows: Row[],
+  rows: Array<Row>,
   spy?: CallerIdSpy,
-  executeRows: readonly (readonly (
-    | CanonicalHydrationRow
-    | { line_id: number }
-  )[])[] = [],
+  executeRows: ReadonlyArray<
+    ReadonlyArray<CanonicalHydrationRow | { line_id: number }>
+  > = [],
 ): ToolContext {
   const db: Db = drizzle.mock({ schema });
   vi.spyOn(ChatsRepository.prototype, 'searchByOwner').mockResolvedValue(rows);

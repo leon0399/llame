@@ -65,7 +65,7 @@ function isToolCallParams(value: unknown): value is ToolCallParams {
 }
 
 async function readJson(request: IncomingMessage): Promise<JsonRpcRequest> {
-  const chunks: Uint8Array[] = [];
+  const chunks: Array<Uint8Array> = [];
   for await (const chunk of request) {
     if (!(chunk instanceof Uint8Array)) {
       throw new TypeError("request body is not binary");

@@ -166,7 +166,7 @@ describe("fetchDraftChatMessages", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["fresh", "sent"] satisfies DraftPhase[])(
+  it.each(["fresh", "sent"] satisfies Array<DraftPhase>)(
     "preserves the %s draft route in the login callback on 401",
     async (phase) => {
       const fetchMock = vi.fn<typeof fetch>(() =>

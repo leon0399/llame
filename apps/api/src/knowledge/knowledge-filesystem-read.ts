@@ -62,9 +62,9 @@ export function resolveLineSelectionBudget(
 
 /** Mutable line-selection accumulator threaded through readFileLines' decode loop. */
 type KnowledgeLineSelectionState = {
-  fragments: string[];
+  fragments: Array<string>;
   lineIndex: number;
-  selectedLines: string[];
+  selectedLines: Array<string>;
   serializedContentCodeUnits: number;
   selectionStorageFull: boolean;
 };
@@ -142,7 +142,7 @@ export async function readWholeFileBytes(
   maxBytes: number,
   signal: AbortSignal | undefined,
 ): Promise<Buffer> {
-  const chunks: Buffer[] = [];
+  const chunks: Array<Buffer> = [];
   let totalBytes = 0;
   while (totalBytes <= maxBytes) {
     throwIfAborted(signal);
@@ -297,7 +297,7 @@ type ReadResultSelection = {
   readonly requestedLimit: number | undefined;
   readonly maxLines: number;
   readonly totalLines: number;
-  readonly selectedLines: readonly string[];
+  readonly selectedLines: ReadonlyArray<string>;
   readonly maxResultCodeUnits: number;
   readonly fixedResultCodeUnits: number;
 };
@@ -436,8 +436,8 @@ export async function readAllDirectoryEntries(
   directory: KnowledgeFilesystemDirectory,
   remainingEntries: number,
   signal: AbortSignal | undefined,
-): Promise<KnowledgeFilesystemDirent[]> {
-  const entries: KnowledgeFilesystemDirent[] = [];
+): Promise<Array<KnowledgeFilesystemDirent>> {
+  const entries: Array<KnowledgeFilesystemDirent> = [];
   while (true) {
     throwIfAborted(signal);
     const entry = await observe(directory.read(), signal);

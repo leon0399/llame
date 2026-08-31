@@ -36,7 +36,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
 
   async function seedChat(
     ownerUserId: string,
-    parts: unknown[],
+    parts: Array<unknown>,
     title = 'Projection coverage',
   ): Promise<string> {
     const chatId = crypto.randomUUID();
@@ -122,7 +122,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
   });
 
   it('reindexes a giant multi-part message with complete locators on every current row', async () => {
-    const parts: unknown[] = [];
+    const parts: Array<unknown> = [];
     for (let index = 0; index < 8; index += 1) {
       parts.push(
         textPart(
@@ -132,16 +132,16 @@ describeIfDb('search projection locator coverage and RLS', () => {
               (_, word) => `line-${index}-${word}`,
             ).join(' '),
         ),
+        { type: 'reasoning', text: `hidden reasoning ${index}` },
+        {
+          type: 'tool-knowledge_search',
+          toolCallId: `tool-${index}`,
+          state: 'output-available',
+          input: { query: `hidden query ${index}` },
+          output: { status: 'success', results: [] },
+          outcome: 'success',
+        },
       );
-      parts.push({ type: 'reasoning', text: `hidden reasoning ${index}` });
-      parts.push({
-        type: 'tool-knowledge_search',
-        toolCallId: `tool-${index}`,
-        state: 'output-available',
-        input: { query: `hidden query ${index}` },
-        output: { status: 'success', results: [] },
-        outcome: 'success',
-      });
     }
     const chatId = await seedChat(ownerA, parts, 'Giant multi-part source');
 

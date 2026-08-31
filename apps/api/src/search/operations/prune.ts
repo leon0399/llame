@@ -45,7 +45,7 @@ export type PruneResult = {
    *  must treat any non-empty result as a failed command (see
    *  `owner-write.ts`'s header) — the ledger row is still retired
    *  regardless, since it is a separate global operation, not per-owner. */
-  failures: OwnerWriteFailure[];
+  failures: Array<OwnerWriteFailure>;
 };
 
 /**
@@ -69,7 +69,7 @@ export type PruneResult = {
 // declared," which is the correct semantics.
 function notInDeclared(
   column: ReturnType<typeof sql>,
-  declaredModelKeys: readonly string[],
+  declaredModelKeys: ReadonlyArray<string>,
 ) {
   return declaredModelKeys.length === 0
     ? sql`TRUE`
@@ -81,7 +81,7 @@ function notInDeclared(
 
 export async function pruneUndeclaredModelVectors(
   tenantDb: Pick<TenantDbService, 'runAs' | 'runAsPublic'>,
-  declaredModelKeys: readonly string[],
+  declaredModelKeys: ReadonlyArray<string>,
 ): Promise<PruneResult> {
   const {
     total: prunedDocuments,

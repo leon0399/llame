@@ -32,7 +32,7 @@ describeIfDb('canonical search PostgreSQL line predicates', () => {
   });
 
   it('qualifies FTS, trigram typo, and escaped substring candidates in one batch', async () => {
-    const candidates: readonly CanonicalLinePredicateCandidate[] = [
+    const candidates: ReadonlyArray<CanonicalLinePredicateCandidate> = [
       { id: 1, normalizedText: 'postgres gin index tuning' },
       { id: 2, normalizedText: 'gin_trgm_ops restores fragments' },
       { id: 3, normalizedText: 'unrelated source' },
@@ -55,7 +55,7 @@ describeIfDb('canonical search PostgreSQL line predicates', () => {
   });
 
   it('matches literal percent, underscore, and backslash without treating decoys as wildcards', async () => {
-    const candidates: readonly CanonicalLinePredicateCandidate[] = [
+    const candidates: ReadonlyArray<CanonicalLinePredicateCandidate> = [
       { id: 1, normalizedText: 'literal percent %' },
       { id: 2, normalizedText: 'literal underscore _' },
       { id: 3, normalizedText: 'literal backslash \\' },

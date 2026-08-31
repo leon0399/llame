@@ -31,7 +31,7 @@ const CATALOG = {
       contextWindowTokens: 400_000,
     },
   ],
-} satisfies { defaultModelId: string; models: AvailableModel[] };
+} satisfies { defaultModelId: string; models: Array<AvailableModel> };
 
 const meta = {
   component: ModelSelector,

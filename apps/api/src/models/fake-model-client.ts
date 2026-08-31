@@ -25,8 +25,10 @@ export const ZERO_USAGE: LanguageModelUsage = {
 };
 
 /** The canned event sequence for a completed fake response. */
-function fakeResponseChunks(response: string): LanguageModelV3StreamPart[] {
-  const chunks: LanguageModelV3StreamPart[] = [
+function fakeResponseChunks(
+  response: string,
+): Array<LanguageModelV3StreamPart> {
+  const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'fake-response' },
   ];
@@ -123,7 +125,7 @@ function createFakeStreamOutcome(input: ModelStreamInput): FakeStreamOutcome {
  * @returns A model client that streams the provided responses in order
  */
 export function createFakeModelClient(
-  responses: string[],
+  responses: Array<string>,
   contextWindowTokens = 128_000,
 ): ModelClient {
   let responseIndex = 0;

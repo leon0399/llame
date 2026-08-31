@@ -59,7 +59,7 @@ export function useAppearance() {
 /** Applies the CSS variable for whichever font option is currently selected. */
 function useApplyFontCssVar(
   cssVarName: string,
-  options: readonly { value: string; cssVar: string }[],
+  options: ReadonlyArray<{ value: string; cssVar: string }>,
   selected: string,
 ) {
   useEffect(() => {

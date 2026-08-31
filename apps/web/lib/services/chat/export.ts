@@ -13,7 +13,7 @@ import { chatToMarkdown, slugifyTitle } from "./chat-markdown";
 import { fetchModels } from "../models/queries";
 
 /** Fetch a chat's FULL message history (owner-scoped), paginating the cursor. */
-function fetchAllMessages(chatId: string): Promise<ChatMessageResponse[]> {
+function fetchAllMessages(chatId: string): Promise<Array<ChatMessageResponse>> {
   return paginateAllMessages((beforeSeq) => {
     const params: GetChatMessagesParams = { limit: CHAT_HISTORY_PAGE_SIZE };
     if (beforeSeq !== undefined) {

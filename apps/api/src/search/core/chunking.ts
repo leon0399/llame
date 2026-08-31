@@ -24,13 +24,13 @@ export interface ChunkByBudgetOptions {
 }
 
 export function chunkByCharBudget<T>(
-  items: readonly T[],
+  items: ReadonlyArray<T>,
   sizeOf: (item: T) => number,
   { maxChars, overlapItems }: ChunkByBudgetOptions,
-): T[][] {
-  const groups: T[][] = [];
+): Array<Array<T>> {
+  const groups: Array<Array<T>> = [];
   let cursor = 0;
-  let prevTail: T[] = [];
+  let prevTail: Array<T> = [];
 
   while (cursor < items.length) {
     const group = [...prevTail];

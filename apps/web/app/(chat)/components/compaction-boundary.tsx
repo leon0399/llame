@@ -21,8 +21,8 @@ function formatTokenCount(value: number): string {
   if (rounded >= 1_000_000) {
     return `${trimTrailingZero((rounded / 1_000_000).toFixed(1))}M`;
   }
-  if (rounded >= 1_000) {
-    return `${trimTrailingZero((rounded / 1_000).toFixed(1))}k`;
+  if (rounded >= 1000) {
+    return `${trimTrailingZero((rounded / 1000).toFixed(1))}k`;
   }
   return String(rounded);
 }
@@ -42,7 +42,7 @@ function pluralize(count: number, noun: string): string {
 function deriveCompactionMeta(
   stats: CompactionStats,
   relativeTime: string,
-  models: readonly AvailableModel[] | undefined,
+  models: ReadonlyArray<AvailableModel> | undefined,
 ) {
   const hasTokenStats =
     stats.beforeTokens !== null && stats.afterTokens !== null;
@@ -170,7 +170,7 @@ export function CompactionBoundary({
   summary: string;
   createdAt: string;
   stats: CompactionStats;
-  models?: readonly AvailableModel[];
+  models?: ReadonlyArray<AvailableModel>;
 }) {
   const [open, setOpen] = useState(false);
   const relativeTime = formatDistanceToNowStrict(new Date(createdAt), {

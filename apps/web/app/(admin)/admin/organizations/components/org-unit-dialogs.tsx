@@ -285,7 +285,7 @@ export function RenameOrgUnitDialog({
 
 /** The candidate parent list (units minus the unit's own subtree) and its id
  *  lookup — split out from `MoveOrgUnitDialog` as a pure derivation. */
-function useMoveTargets(unit: OrgUnitResponse, units: OrgUnitResponse[]) {
+function useMoveTargets(unit: OrgUnitResponse, units: Array<OrgUnitResponse>) {
   const unitsById = useMemo(
     () => new Map(units.map((u) => [u.id, u])),
     [units],
@@ -301,7 +301,7 @@ function useMoveTargets(unit: OrgUnitResponse, units: OrgUnitResponse[]) {
 
 type MoveOrgUnitDialogProps = {
   unit: OrgUnitResponse;
-  units: OrgUnitResponse[];
+  units: Array<OrgUnitResponse>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };

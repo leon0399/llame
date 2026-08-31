@@ -13,8 +13,8 @@ const NO_STATS: CompactionStats = {
 
 const FULL_STATS: CompactionStats = {
   absorbedMessageCount: 18,
-  beforeTokens: 71400,
-  afterTokens: 12800,
+  beforeTokens: 71_400,
+  afterTokens: 12_800,
   modelId: "system:openai:gpt-4o",
 };
 

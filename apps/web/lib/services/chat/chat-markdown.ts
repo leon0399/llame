@@ -31,7 +31,7 @@ function partsText(parts: unknown, kind: "text" | "reasoning"): string {
 
 function modelLabel(
   usage: unknown,
-  models?: readonly AvailableModel[],
+  models?: ReadonlyArray<AvailableModel>,
 ): string | undefined {
   if (!isNonNullObject(usage)) return undefined;
   // SAFETY: `isNonNullObject` above confirmed `usage` is a non-null object;
@@ -49,11 +49,11 @@ function modelLabel(
  */
 export function chatToMarkdown(
   title: string,
-  messages: ChatMessageResponse[],
-  models?: readonly AvailableModel[],
+  messages: Array<ChatMessageResponse>,
+  models?: ReadonlyArray<AvailableModel>,
 ): string {
   // Collapse newlines in the title so it can't break the `# ` heading.
-  const blocks: string[] = [`# ${title.replace(/\s*\n+\s*/g, " ")}`];
+  const blocks: Array<string> = [`# ${title.replaceAll(/\s*\n+\s*/g, " ")}`];
 
   for (const message of messages) {
     if (message.role !== "user" && message.role !== "assistant") continue;
@@ -65,13 +65,13 @@ export function chatToMarkdown(
       message.role === "assistant"
         ? modelLabel(message.usage, models)
         : undefined;
-    const parts: string[] = [
+    const parts: Array<string> = [
       message.role === "user"
         ? "**You**"
         : `**Assistant**${model ? ` · ${model}` : ""}`,
     ];
     if (reasoning) {
-      parts.push(`> _Reasoning:_ ${reasoning.replace(/\n/g, "\n> ")}`);
+      parts.push(`> _Reasoning:_ ${reasoning.replaceAll("\n", "\n> ")}`);
     }
     if (text) parts.push(text);
     blocks.push(parts.join("\n\n"));
@@ -84,7 +84,7 @@ export function chatToMarkdown(
 export function slugifyTitle(title: string): string {
   const slug = title
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replaceAll(/[^a-z0-9]+/g, "-")
+    .replaceAll(/^-+|-+$/g, "");
   return slug || "chat";
 }

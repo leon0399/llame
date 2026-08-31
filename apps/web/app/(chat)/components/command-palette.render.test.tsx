@@ -78,10 +78,12 @@ let searchHandler: (q: string) => Promise<Response>;
 function stubPaletteNetwork() {
   fetchMock = stubFetch();
   chatsHandler = () =>
-    Promise.resolve(jsonResponse<ChatListItemResponse[]>([]));
+    Promise.resolve(jsonResponse<Array<ChatListItemResponse>>([]));
   searchHandler = () =>
     Promise.resolve(
-      jsonResponse<{ results: ChatSearchResultResponse[] }>({ results: [] }),
+      jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
+        results: [],
+      }),
     );
   fetchMock.mockImplementation(async (input) => {
     const request = input instanceof Request ? input : new Request(input);
@@ -185,7 +187,7 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
   it("shows recent chats on open with no input typed, with the same lastMessage excerpt as the chat list", async () => {
     chatsHandler = () =>
       Promise.resolve(
-        jsonResponse<ChatListItemResponse[]>([
+        jsonResponse<Array<ChatListItemResponse>>([
           chatListItemFixture({
             id: "chat-1",
             title: "Recent chat",
@@ -224,7 +226,7 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
   it("renders grouped chat results with a Chat kind badge and navigates + closes on select", async () => {
     searchHandler = () =>
       Promise.resolve(
-        jsonResponse<{ results: ChatSearchResultResponse[] }>({
+        jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
           results: [
             {
               id: "chat-1",
@@ -266,7 +268,7 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
   it("keeps the query and results after closing via a selection, so reopening lands on the same search", async () => {
     searchHandler = () =>
       Promise.resolve(
-        jsonResponse<{ results: ChatSearchResultResponse[] }>({
+        jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
           results: [
             {
               id: "chat-1",
@@ -345,7 +347,7 @@ describe("CommandPaletteProvider — #171 server-result filtering", () => {
   it("surfaces a content-only match (query absent from title/snippet — cmdk's own filter would score this 0 and hide it)", async () => {
     searchHandler = () =>
       Promise.resolve(
-        jsonResponse<{ results: ChatSearchResultResponse[] }>({
+        jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
           results: [
             {
               id: "chat-1",
@@ -373,7 +375,7 @@ describe("CommandPaletteProvider — #171 server-result filtering", () => {
   it("surfaces a content-only match with a Cyrillic query (case- and script-insensitive end-to-end)", async () => {
     searchHandler = () =>
       Promise.resolve(
-        jsonResponse<{ results: ChatSearchResultResponse[] }>({
+        jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
           results: [
             {
               id: "chat-1",
@@ -400,7 +402,7 @@ describe("CommandPaletteProvider — #171 server-result filtering", () => {
   it("surfaces an exact chat title typed in all-lowercase via the server-results path", async () => {
     searchHandler = () =>
       Promise.resolve(
-        jsonResponse<{ results: ChatSearchResultResponse[] }>({
+        jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
           results: [
             {
               id: "chat-1",
@@ -426,7 +428,7 @@ describe("CommandPaletteProvider — #171 server-result filtering", () => {
   it("surfaces a Cyrillic chat title typed in all-lowercase via the server-results path", async () => {
     searchHandler = () =>
       Promise.resolve(
-        jsonResponse<{ results: ChatSearchResultResponse[] }>({
+        jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
           results: [
             {
               id: "chat-1",
@@ -457,7 +459,7 @@ describe("CommandPaletteProvider — #171 server-result filtering", () => {
     // OPPOSITE order; a re-ranking client would flip them back.
     searchHandler = () =>
       Promise.resolve(
-        jsonResponse<{ results: ChatSearchResultResponse[] }>({
+        jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
           results: [
             {
               id: "chat-b",
@@ -496,7 +498,7 @@ describe("CommandPaletteProvider — #171 server-result filtering", () => {
   it("still hides an unrelated recent chat while keeping Actions and a matching recent chat (below MIN_SEARCH_LENGTH, cmdk's own filter still applies)", async () => {
     chatsHandler = () =>
       Promise.resolve(
-        jsonResponse<ChatListItemResponse[]>([
+        jsonResponse<Array<ChatListItemResponse>>([
           chatListItemFixture({ id: "chat-1", title: "Recent Match" }),
           chatListItemFixture({ id: "chat-2", title: "Totally Different" }),
         ]),

@@ -8,7 +8,7 @@ import { MessageType, type ConversationNode } from "./conversation-tree-model";
 function truncateMessage(message: string, maxLength = 40) {
   if (!message) return "";
   if (message.length <= maxLength) return message;
-  return message.substring(0, maxLength) + "...";
+  return message.slice(0, maxLength) + "...";
 }
 
 function getTypeLabel(type: ConversationNode["type"]) {

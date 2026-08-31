@@ -54,7 +54,7 @@ export function encodeKnowledgeSearchCursor(
 /** The exact key set a payload must have — `knowledgeSpaceId` only when the
  *  decoded object carries it, since its absence and presence are both valid
  *  cursor shapes (unscoped vs. space-scoped search). */
-function cursorPayloadKeySet(hasSelector: boolean): string[] {
+function cursorPayloadKeySet(hasSelector: boolean): Array<string> {
   const keys = [
     'offset',
     'path',
@@ -118,7 +118,7 @@ export function decodeKnowledgeSearchCursor(
 ): KnowledgeSearchCursor {
   if (
     value.length === 0 ||
-    value.length > 4_096 ||
+    value.length > 4096 ||
     !BASE64URL_PATTERN.test(value)
   ) {
     throw new KnowledgeSearchCursorError();

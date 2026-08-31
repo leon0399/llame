@@ -36,7 +36,7 @@ export async function fetchRun(runId: string): Promise<Run | null> {
 /** One of the caller's in-flight runs (from `GET /api/v1/me/runs?status=active`). */
 export type ActiveRun = ActiveRunResponse;
 
-export async function fetchActiveRuns(): Promise<ActiveRun[]> {
+export async function fetchActiveRuns(): Promise<Array<ActiveRun>> {
   return listActiveRuns({ status: "active" }, undefined, authenticatedFetch());
 }
 
@@ -52,7 +52,7 @@ function authenticatedFetch(): typeof fetch {
  * sync; not imported directly to avoid a lib/services -> components edge).
  */
 export function activeRunsToTrackArgs(
-  runs: ActiveRun[],
+  runs: Array<ActiveRun>,
 ): Array<[string, string, string]> {
   return runs.map((r) => [r.runId, r.chatId, r.chatTitle ?? "New chat"]);
 }

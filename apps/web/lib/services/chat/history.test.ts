@@ -104,8 +104,8 @@ describe("toChatUiMessages", () => {
 
 describe("messageSeqFromMetadata", () => {
   it("keeps a positive safe sequence as opaque Chat-local identity", () => {
-    expect(messageSeqFromMetadata({ seq: 9007199254740991 })).toBe(
-      9007199254740991,
+    expect(messageSeqFromMetadata({ seq: 9_007_199_254_740_991 })).toBe(
+      9_007_199_254_740_991,
     );
   });
 
@@ -282,8 +282,8 @@ describe("adoptServerHistory", () => {
         };
   const adopt = (
     status: string,
-    serverMessages: readonly UIMessage[],
-    liveMessages: readonly UIMessage[],
+    serverMessages: ReadonlyArray<UIMessage>,
+    liveMessages: ReadonlyArray<UIMessage>,
   ) => adoptServerHistory({ status, serverMessages, liveMessages });
 
   it("adopts a strictly longer server history once the turn is settled (#261)", () => {

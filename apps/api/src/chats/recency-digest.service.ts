@@ -17,7 +17,7 @@ export const RECENCY_DIGEST_LIST_LIMIT = 10;
 export const RECENCY_DIGEST_EXCERPT_MAX_CODE_POINTS = 200;
 
 type DigestSourceMessage = {
-  parts: readonly unknown[];
+  parts: ReadonlyArray<unknown>;
 };
 
 /**
@@ -77,8 +77,8 @@ export function toDigestEntry(
  * claim to cover what ships.
  */
 export function buildRecencyDigestBaseline(input: {
-  pinned: readonly StoredRecencyDigestBaseline['pinned'][number][];
-  recent: readonly StoredRecencyDigestBaseline['pinned'][number][];
+  pinned: ReadonlyArray<StoredRecencyDigestBaseline['pinned'][number]>;
+  recent: ReadonlyArray<StoredRecencyDigestBaseline['pinned'][number]>;
   pinnedTotal: number;
   recentTotal: number;
   compiledOn: Date;
@@ -97,9 +97,9 @@ export function buildRecencyDigestBaseline(input: {
 /** Narrow resolver used by the chat turn, never by a public/shared read path. */
 export type RecencyDigestResolution = {
   baseline: RecencyDigestBaseline;
-  told: RecencyDigestToldEntry[];
+  told: Array<RecencyDigestToldEntry>;
   /** Candidate identity and rendered entry are one record, never parallel arrays. */
-  candidates: readonly RecencyDigestCandidate[];
+  candidates: ReadonlyArray<RecencyDigestCandidate>;
 };
 
 export type RecencyDigestResolver = Pick<
@@ -110,7 +110,7 @@ export type RecencyDigestResolver = Pick<
 export type RecencyDigestDelta = {
   entries: Array<RecencyDigestBaseline['pinned'][number] & { pinned: boolean }>;
   pinChanges: Array<{ title: string; pinned: boolean }>;
-  told: RecencyDigestToldEntry[];
+  told: Array<RecencyDigestToldEntry>;
 };
 
 /**
@@ -120,7 +120,7 @@ export type RecencyDigestDelta = {
  */
 export function deriveRecencyDigestDelta(input: {
   candidate: RecencyDigestResolution;
-  told: readonly RecencyDigestToldEntry[];
+  told: ReadonlyArray<RecencyDigestToldEntry>;
   pinnedChatIds: ReadonlySet<string>;
 }): RecencyDigestDelta | null {
   const toldByChatId = new Map(
@@ -197,8 +197,8 @@ export class RecencyDigestService {
     ownerUserId: string,
     currentChatId: string,
   ): Promise<{
-    pinned: Chat[];
-    recent: Chat[];
+    pinned: Array<Chat>;
+    recent: Array<Chat>;
     pinnedTotal: number;
     recentTotal: number;
   }> {
@@ -235,9 +235,9 @@ export class RecencyDigestService {
   /** Two set-scoped queries for every candidate, not one pair per chat. */
   private async hydrateDigestChats(
     messages: MessagesRepository,
-    chats: readonly Chat[],
+    chats: ReadonlyArray<Chat>,
     ownerUserId: string,
-  ): Promise<DigestSourceChat[]> {
+  ): Promise<Array<DigestSourceChat>> {
     const candidateIds = chats.map(({ id }) => id);
     const [firstUserMessages, counts] = await Promise.all([
       messages.findEarliestUserMessagePerChat(candidateIds, ownerUserId),
@@ -262,8 +262,8 @@ export class RecencyDigestService {
    * candidates, so the two cannot disagree.
    */
   private buildDigestCandidates(
-    hydratedPinned: readonly DigestSourceChat[],
-    hydratedRecent: readonly DigestSourceChat[],
+    hydratedPinned: ReadonlyArray<DigestSourceChat>,
+    hydratedRecent: ReadonlyArray<DigestSourceChat>,
   ) {
     const toCandidate = (
       chat: DigestSourceChat,

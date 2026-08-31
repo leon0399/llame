@@ -38,19 +38,19 @@ export type McpDeclarationRefusalReason =
   | 'name_collision';
 
 export type McpDeclarationAdmissionResult = {
-  readonly admitted: readonly AdmittedMcpToolDefinition[];
-  readonly refused: readonly {
+  readonly admitted: ReadonlyArray<AdmittedMcpToolDefinition>;
+  readonly refused: ReadonlyArray<{
     readonly index: number;
     readonly id?: string;
     readonly reason: McpDeclarationRefusalReason;
-  }[];
+  }>;
 };
 
 function safeRefusalId(
   serverId: string,
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `!isRecord(definition) || !isString(definition.name)` below -- two checks combined with `||`, a shape the structural exemption's single-check parse doesn't cover.
   definition: unknown,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): string | undefined {
   if (!isRecord(definition) || !isString(definition.name)) {
     return undefined;
@@ -67,7 +67,7 @@ function safeRefusalId(
 
 function sanitizeDescription(
   value: string,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): string {
   const redacted = sanitizeProtectedValueJson(value, protectedValues);
   if (!redacted.success || !isString(redacted.value)) {
@@ -137,7 +137,7 @@ function resolveSupportedSchemaDialect(
 function safeInstanceValue(
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the ternary test `containsProtectedValueJson(value, protectedValues)` below, which delegates to protected-values.ts's own recursive scanner over untrusted JSON; not an `isXxx`-named guard and the check is a ternary test, both shapes the structural exemption doesn't parse.
   value: unknown,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): SafeValueResult {
   return containsProtectedValueJson(value, protectedValues)
     ? { success: false }
@@ -147,12 +147,12 @@ function safeInstanceValue(
 function safeSubschemaArray(
   value: unknown,
   dialect: SupportedSchemaDialect,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): SafeValueResult {
   if (!Array.isArray(value)) {
     return safeInstanceValue(value, protectedValues);
   }
-  const safe: unknown[] = [];
+  const safe: Array<unknown> = [];
   for (const item of value) {
     const result = safeSchemaNode(item, dialect, protectedValues);
     if (!result.success) return result;
@@ -164,12 +164,12 @@ function safeSubschemaArray(
 function safeSubschemaMap(
   value: unknown,
   dialect: SupportedSchemaDialect,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): SafeValueResult {
   if (!isRecord(value)) {
     return safeInstanceValue(value, protectedValues);
   }
-  const safeEntries: [string, unknown][] = [];
+  const safeEntries: Array<[string, unknown]> = [];
   for (const [key, item] of Object.entries(value)) {
     if (containsProtectedValueJson(key, protectedValues)) {
       return { success: false };
@@ -184,12 +184,12 @@ function safeSubschemaMap(
 function safeDependencies(
   value: unknown,
   dialect: SupportedSchemaDialect,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): SafeValueResult {
   if (!isRecord(value)) {
     return safeInstanceValue(value, protectedValues);
   }
-  const safeEntries: [string, unknown][] = [];
+  const safeEntries: Array<[string, unknown]> = [];
   for (const [key, item] of Object.entries(value)) {
     if (containsProtectedValueJson(key, protectedValues)) {
       return { success: false };
@@ -217,7 +217,7 @@ function safeSchemaKeywordValue(
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- every branch below delegates `item` straight into a `safeXxx` helper (safeSchemaNode/safeSubschemaArray/safeSubschemaMap/safeDependencies/safeInstanceValue), each of which validates it via its own first-statement guard; this function's job is picking WHICH validator applies, not validating itself.
   item: unknown,
   dialect: SupportedSchemaDialect,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): SafeValueResult {
   if (COMMON_SINGLE_SUBSCHEMA_KEYWORDS.has(key)) {
     return safeSchemaNode(item, dialect, protectedValues);
@@ -254,11 +254,11 @@ function safeSchemaKeywordValue(
 function safeSchemaNode(
   value: unknown,
   dialect: SupportedSchemaDialect,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): SafeValueResult {
   if (!isRecord(value)) return safeInstanceValue(value, protectedValues);
 
-  const safeEntries: [string, unknown][] = [];
+  const safeEntries: Array<[string, unknown]> = [];
   for (const [key, item] of Object.entries(value)) {
     if (containsProtectedValueJson(key, protectedValues)) {
       return { success: false };
@@ -279,7 +279,7 @@ function safeSchemaNode(
  *  opposed to each definition's own `index`/`definition`. */
 type AdmissionContext = {
   readonly serverId: string;
-  readonly protectedValues: readonly string[];
+  readonly protectedValues: ReadonlyArray<string>;
   readonly assertActive: (() => void) | undefined;
 };
 
@@ -306,7 +306,7 @@ function admitDefinitionIdentity(
   serverId: string,
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `!isRecord(definition) || !isString(definition.name) || ... || !isRecord(definition.inputSchema)` below -- several checks combined with `||`, a shape the structural exemption's single-check parse doesn't cover.
   definition: unknown,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
   assertActive: (() => void) | undefined,
 ): IdentityAdmission {
   if (
@@ -352,7 +352,7 @@ type SchemaAdmission =
  */
 async function admitDefinitionSchema(
   inputSchema: JsonSchemaDocument,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
   assertActive: (() => void) | undefined,
 ): Promise<SchemaAdmission> {
   const dialect = resolveSupportedSchemaDialect(inputSchema);
@@ -458,23 +458,23 @@ async function admitOneMcpToolDefinition(
  * admitted, in provisional order.
  */
 function resolveNameCollisions(
-  provisional: readonly {
+  provisional: ReadonlyArray<{
     readonly index: number;
     readonly tool: AdmittedMcpToolDefinition;
-  }[],
-  refused: {
+  }>,
+  refused: Array<{
     index: number;
     id?: string;
     reason: McpDeclarationRefusalReason;
-  }[],
+  }>,
   assertActive: (() => void) | undefined,
-): AdmittedMcpToolDefinition[] {
+): Array<AdmittedMcpToolDefinition> {
   assertActive?.();
   const collisionIndexes = findAsciiCaseFoldedCollisionIndexes(
     provisional.map(({ tool }) => tool.id),
   );
   assertActive?.();
-  const admitted: AdmittedMcpToolDefinition[] = [];
+  const admitted: Array<AdmittedMcpToolDefinition> = [];
   for (const [provisionalIndex, { index, tool }] of provisional.entries()) {
     assertActive?.();
     if (collisionIndexes.has(provisionalIndex)) {
@@ -488,8 +488,8 @@ function resolveNameCollisions(
 
 export async function admitMcpToolDefinitions(input: {
   readonly serverId: string;
-  readonly protectedValues: readonly string[];
-  readonly definitions: readonly unknown[];
+  readonly protectedValues: ReadonlyArray<string>;
+  readonly definitions: ReadonlyArray<unknown>;
   readonly assertActive?: () => void;
 }): Promise<McpDeclarationAdmissionResult> {
   const protectedValues = normalizeProtectedValues(input.protectedValues);
@@ -498,15 +498,15 @@ export async function admitMcpToolDefinitions(input: {
     protectedValues,
     assertActive: input.assertActive,
   };
-  const provisional: {
+  const provisional: Array<{
     readonly index: number;
     readonly tool: AdmittedMcpToolDefinition;
-  }[] = [];
-  const refused: {
+  }> = [];
+  const refused: Array<{
     index: number;
     id?: string;
     reason: McpDeclarationRefusalReason;
-  }[] = [];
+  }> = [];
 
   for (const [index, definition] of input.definitions.entries()) {
     const result = await admitOneMcpToolDefinition(index, definition, context);

@@ -197,7 +197,7 @@ export interface GraphNodeProps {
   index: number;
   isSelected: boolean;
   onClick: () => void;
-  conversations: ConversationNode[];
+  conversations: Array<ConversationNode>;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }
@@ -250,7 +250,7 @@ export interface BranchLineProps {
   child: ConversationNode;
   parentIndex: number;
   childIndex: number;
-  conversations: ConversationNode[];
+  conversations: Array<ConversationNode>;
 }
 
 // direction > 0  → split to the right  ⇒ horizontal segment at *parent* Y
@@ -338,7 +338,11 @@ export const BranchLine: React.FC<BranchLineProps> = ({
   );
 };
 
-function BranchLines({ conversations }: { conversations: ConversationNode[] }) {
+function BranchLines({
+  conversations,
+}: {
+  conversations: Array<ConversationNode>;
+}) {
   const nodeIndexMap: Record<string, number> = {};
   conversations.forEach((conv, index) => {
     nodeIndexMap[conv.id] = index;
@@ -374,7 +378,7 @@ export const BranchGraph = ({
   dimensions,
   setHoveredNodeId,
 }: {
-  conversations: ConversationNode[];
+  conversations: Array<ConversationNode>;
   selectedNodeId: string | null;
   setSelectedNodeId: (id: string) => void;
   dimensions: { width: number; height: number };

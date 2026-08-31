@@ -44,7 +44,7 @@ import {
 let fetchMock: Mock<typeof fetch>;
 let queryClient: QueryClient;
 
-function renderTree(units: OrgUnitResponse[]) {
+function renderTree(units: Array<OrgUnitResponse>) {
   return render(
     <QueryClientProvider client={queryClient}>
       <OrgUnitsTree units={units} />

@@ -77,7 +77,7 @@ type TextFieldConfig = {
   control: "input" | "textarea";
 };
 
-const TEXT_FIELDS: TextFieldConfig[] = [
+const TEXT_FIELDS: Array<TextFieldConfig> = [
   {
     key: "preferredName",
     id: "personalization-preferred-name",

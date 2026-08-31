@@ -22,7 +22,7 @@ import {
 } from './conversation-source-coordinates';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 
-export const CONVERSATION_READ_MAX_LINES = 2_000;
+export const CONVERSATION_READ_MAX_LINES = 2000;
 export const CONVERSATION_READ_RESULT_MAX_CODE_UNITS = 15_000;
 
 export { CONVERSATION_HISTORY_NOTICE };
@@ -169,7 +169,7 @@ export function renderConversationRead(
  * where, and how much was asked for vs. is actually available. */
 interface ConversationReadWindow {
   readonly source: ConversationMessageLookup;
-  readonly lines: readonly ConversationLogicalLine[];
+  readonly lines: ReadonlyArray<ConversationLogicalLine>;
   readonly offset: number;
   readonly availableLines: number;
   readonly requestedLineCount: number;
@@ -262,7 +262,7 @@ function resolveCutReason(
 
 function buildResult(
   position: { source: ConversationMessageLookup; offset: number },
-  lines: readonly ConversationLogicalLine[],
+  lines: ReadonlyArray<ConversationLogicalLine>,
   lineCount: number,
   outcome: {
     hasRemaining?: boolean;

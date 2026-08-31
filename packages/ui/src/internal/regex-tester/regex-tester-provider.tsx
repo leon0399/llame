@@ -117,7 +117,7 @@ function MatchHighlightUnderlay({
   segments,
   underlayRef,
 }: {
-  segments: MatchSegment[];
+  segments: Array<MatchSegment>;
   underlayRef: RefObject<HTMLDivElement | null>;
 }) {
   return (

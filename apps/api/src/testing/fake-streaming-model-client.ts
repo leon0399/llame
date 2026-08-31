@@ -36,7 +36,7 @@ import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 const NOOP = () => undefined;
 
 export type FakeTurn = {
-  messages: ModelMessage[];
+  messages: Array<ModelMessage>;
   abortSignal?: AbortSignal;
   aborted: boolean;
 };
@@ -63,7 +63,7 @@ const PROVIDER_ZERO_USAGE: LanguageModelV3Usage = {
 };
 
 /** The canned event sequence for a completed title-generation turn. */
-function titleResponseChunks(title: string): LanguageModelV3StreamPart[] {
+function titleResponseChunks(title: string): Array<LanguageModelV3StreamPart> {
   return [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'title' },
@@ -81,8 +81,8 @@ function titleResponseChunks(title: string): LanguageModelV3StreamPart[] {
 function answerResponseChunks(
   response: string,
   usage: LanguageModelV3Usage,
-): LanguageModelV3StreamPart[] {
-  const chunks: LanguageModelV3StreamPart[] = [
+): Array<LanguageModelV3StreamPart> {
+  const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'answer' },
   ];
@@ -324,10 +324,10 @@ export function awaitSettlementAfter(
 }
 
 export class FakeStreamingModelClient {
-  readonly turns: FakeTurn[] = [];
+  readonly turns: Array<FakeTurn> = [];
   // Title-generation calls (#78) are tracked separately: they are async post-turn
   // work, so counting them in `turns` would make every chat-turn assertion racy.
-  readonly titleTurns: ModelMessage[][] = [];
+  readonly titleTurns: Array<Array<ModelMessage>> = [];
   titleResponse: string | Promise<string> = 'Generated Title';
   readonly model = 'system:openai:gpt-5.4-mini';
   readonly provider = 'openai';
@@ -345,7 +345,7 @@ export class FakeStreamingModelClient {
   // compaction sets this directly instead of the removed
   // COMPACTION_TOKEN_THRESHOLD env var.
   compactionThresholdTokens: number | undefined;
-  responses: string[] = ['fake assistant'];
+  responses: Array<string> = ['fake assistant'];
   usage: LanguageModelUsage = {
     inputTokens: 3,
     inputTokenDetails: {
@@ -441,7 +441,7 @@ export class FakeStreamingModelClient {
 export class FakeModelsService implements ModelSelectionValidator {
   credential: string | null = 'sk-test';
   readonly client = new FakeStreamingModelClient();
-  readonly createClientCalls: unknown[] = [];
+  readonly createClientCalls: Array<unknown> = [];
 
   resolveModelCredential(userId: string): string {
     if (!this.credential) {

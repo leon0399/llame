@@ -131,7 +131,7 @@ function closeWithoutWaiting(client: McpRuntimeClient): void {
 export class McpRuntimeService
   implements OnModuleInit, OnModuleDestroy, DynamicToolExecutorResolver
 {
-  private readonly records: readonly ServerRecord[];
+  private readonly records: ReadonlyArray<ServerRecord>;
   private readonly clientFactory: McpRuntimeClientFactory;
   private readonly random: () => number;
   private readonly now: () => number;
@@ -174,8 +174,8 @@ export class McpRuntimeService
     }
   }
 
-  snapshotCandidates(): readonly TurnToolCandidate[] {
-    const candidates: TurnToolCandidate[] = [];
+  snapshotCandidates(): ReadonlyArray<TurnToolCandidate> {
+    const candidates: Array<TurnToolCandidate> = [];
     for (const record of this.records) {
       if (record.state === 'ready') {
         for (const entry of record.catalog.entries.values()) {

@@ -490,9 +490,9 @@ function SortablePinnedRow({
 
 /** The reorderable local mirror of `pins` plus its commit-on-drag-end
  *  logic — split out so `AppSidebarPinned` composes only markup. */
-function useReorderablePins(pins: PinnedItem[] | undefined) {
+function useReorderablePins(pins: Array<PinnedItem> | undefined) {
   const reorderMutation = useReorderPins();
-  const [items, setItems] = useState<PinnedItem[]>([]);
+  const [items, setItems] = useState<Array<PinnedItem>>([]);
   const itemsRef = useRef(items);
   itemsRef.current = items;
   // While a grip drag is in flight, ignore pins-query mirrors so a refetch

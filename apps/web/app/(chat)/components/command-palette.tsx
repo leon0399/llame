@@ -64,7 +64,7 @@ const SEARCH_RESULT_VALUE_PREFIX = "search-result ";
 function passThroughServerResultsFilter(
   value: string,
   search: string,
-  keywords?: string[],
+  keywords?: Array<string>,
 ): number {
   if (value.startsWith(SEARCH_RESULT_VALUE_PREFIX)) return 1;
   return defaultFilter(value, search, keywords);
@@ -225,7 +225,7 @@ type CommandPaletteSearchResultsProps = {
   query: string;
   resultsStale: boolean;
   isSearching: boolean;
-  searchResults: ChatSearchResult[] | undefined;
+  searchResults: Array<ChatSearchResult> | undefined;
   onSelectChat: (chatId: string) => void;
 };
 
@@ -291,7 +291,7 @@ function CommandPaletteRecentChats({
   chats,
   onSelectChat,
 }: {
-  chats: ChatResponse[];
+  chats: Array<ChatResponse>;
   onSelectChat: (chatId: string) => void;
 }) {
   if (chats.length === 0) return null;
@@ -353,8 +353,8 @@ function CommandPaletteRecentChats({
  */
 type CommandPaletteListProps = {
   query: string;
-  chats: ChatResponse[];
-  searchResults: ChatSearchResult[] | undefined;
+  chats: Array<ChatResponse>;
+  searchResults: Array<ChatSearchResult> | undefined;
   isSearching: boolean;
   searching: boolean;
   resultsStale: boolean;

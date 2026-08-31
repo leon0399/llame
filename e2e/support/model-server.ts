@@ -46,11 +46,11 @@ type ChatCompletionChunk = {
   object: string;
   created: number;
   model: string;
-  choices: {
+  choices: Array<{
     index: number;
     delta: { content?: string };
     finish_reason: "stop" | null;
-  }[];
+  }>;
   usage?: {
     prompt_tokens: number;
     completion_tokens: number;
@@ -164,7 +164,7 @@ type JsonValue =
   | boolean
   | null
   | undefined
-  | JsonValue[]
+  | Array<JsonValue>
   | JsonObject;
 
 type JsonObject = { [key: string]: JsonValue };
@@ -193,7 +193,10 @@ function parseJsonValue(value: JsonValue): JsonValue {
   }
 }
 
-function toolIsOffered(tools: JsonValue[] | undefined, id: string): boolean {
+function toolIsOffered(
+  tools: Array<JsonValue> | undefined,
+  id: string,
+): boolean {
   return (
     tools?.some((candidate) => {
       if (!isJsonObject(candidate)) return false;
@@ -375,8 +378,8 @@ function classify(raw: string) {
     // the api's OpenAI-compatible client, whose {tools, messages} shape is
     // fixed by the AI SDK request format this mock exists to answer.
     const body = JSON.parse(raw) as {
-      tools?: JsonValue[];
-      messages?: ChatMessage[];
+      tools?: Array<JsonValue>;
+      messages?: Array<ChatMessage>;
     };
     const messages = body.messages ?? [];
     const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
@@ -533,7 +536,7 @@ function writeToolCall(
   res.end();
 }
 
-function writeAnswer(res: ServerResponse, tokens: readonly string[]): void {
+function writeAnswer(res: ServerResponse, tokens: ReadonlyArray<string>): void {
   for (const token of tokens) {
     res.write(chunk(token, false));
   }
@@ -684,7 +687,7 @@ function tryKnowledgeContinuationTurn(ctx: ChunkContext): boolean {
           knowledgeSpaceId: ctx.knowledgeSpaceId,
           path: ctx.knowledgeReadPath,
           offset: ctx.knowledgeNextOffset,
-          limit: 2_000,
+          limit: 2000,
         }
       : {
           query: KNOWLEDGE_PAGED_QUERY,

@@ -82,12 +82,12 @@ const directoryEntry = (name: string): KnowledgeFilesystemDirent => ({
 type FakeFilesystemOptions = {
   stats?: KnowledgeFilesystemStats;
   bytes?: Buffer;
-  readLengths?: number[];
+  readLengths?: Array<number>;
   fileClose?: () => Promise<void>;
 };
 
 function fakeFilesystem(
-  entries: KnowledgeFilesystemDirent[],
+  entries: Array<KnowledgeFilesystemDirent>,
   options: FakeFilesystemOptions = {},
 ): KnowledgeFilesystemPort {
   const stats = options.stats ?? fileStats(0);
@@ -390,7 +390,7 @@ describe('KnowledgeFilesystemAdapter', () => {
     await withFixture(async ({ binding, directory }) => {
       await writeFile(
         path.join(directory, 'long.md'),
-        Array.from({ length: 2_001 }, () => 'x').join('\n'),
+        Array.from({ length: 2001 }, () => 'x').join('\n'),
       );
 
       const result = await new KnowledgeFilesystemAdapter(binding).read(
@@ -399,8 +399,8 @@ describe('KnowledgeFilesystemAdapter', () => {
       );
 
       expect(result.offset).toBe(0);
-      expect(result.lineCount).toBe(2_000);
-      expect(result.nextOffset).toBe(2_000);
+      expect(result.lineCount).toBe(2000);
+      expect(result.nextOffset).toBe(2000);
       expect(result.cutReason).toBe('line_limit');
       expect(result.content.endsWith('2000: x\n')).toBe(true);
     });
@@ -488,7 +488,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       directory: `/trusted/root/${SPACE_ID}`,
     };
     const bytes = Buffer.from(`first\n${'x'.repeat(70_000)}`, 'utf8');
-    const readLengths: number[] = [];
+    const readLengths: Array<number> = [];
     const close = vi.fn(() => Promise.resolve());
     const fileSystem = fakeFilesystem([fileEntry('long.md')], {
       stats: fileStats(bytes.length),
@@ -601,7 +601,7 @@ describe('KnowledgeFilesystemAdapter', () => {
     './note.md',
     'nested//note.md',
     '/tmp/note.md',
-    'nested\\note.md',
+    String.raw`nested\note.md`,
     'nested/\u0085note.md',
     'nested/\u202E.md',
     'nested/\u2066.md',
@@ -635,7 +635,7 @@ describe('KnowledgeFilesystemAdapter', () => {
         new KnowledgeFilesystemAdapter(binding).read(tooLong),
       ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
       await expect(
-        new KnowledgeFilesystemAdapter(binding).read(`${'a'.repeat(1_020)}.md`),
+        new KnowledgeFilesystemAdapter(binding).read(`${'a'.repeat(1020)}.md`),
       ).rejects.toMatchObject({ code: 'knowledge_not_found' });
     });
   });
@@ -815,7 +815,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
-    const readLengths: number[] = [];
+    const readLengths: Array<number> = [];
     const close = vi.fn(() => Promise.resolve());
     const fileSystem = fakeFilesystem([fileEntry('large.md')], {
       stats: fileStats(0),
@@ -839,7 +839,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
-    const readLengths: number[] = [];
+    const readLengths: Array<number> = [];
     const fileSystem = fakeFilesystem([fileEntry('note.md')], {
       stats: fileStats(1),
       bytes: Buffer.alloc(2),
@@ -892,7 +892,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       ),
     ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
 
-    const readLengths: number[] = [];
+    const readLengths: Array<number> = [];
     const close = vi.fn(() => Promise.resolve());
     const statRace = fakeFilesystem([entry], {
       stats: fileStats(0),
@@ -923,7 +923,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       directory: `/trusted/root/${SPACE_ID}`,
     };
     const bytes = Buffer.alloc(KNOWLEDGE_MAX_READ_BYTES, 0x61);
-    const readLengths: number[] = [];
+    const readLengths: Array<number> = [];
     const close = vi.fn(() => Promise.resolve());
     const fileSystem = fakeFilesystem([fileEntry('note.md')], {
       stats: fileStats(bytes.length),

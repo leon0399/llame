@@ -178,7 +178,7 @@ test.describe("model-context transparency (browser, full stack)", () => {
       timeout: 20_000,
     });
 
-    const search = async (query: string): Promise<SearchResult[]> => {
+    const search = async (query: string): Promise<Array<SearchResult>> => {
       const response = await page.request.get(
         `${apiUrl}/api/v1/chats/search?q=${encodeURIComponent(query)}`,
         { headers: { Authorization: `Bearer ${account.token}` } },
@@ -187,7 +187,8 @@ test.describe("model-context transparency (browser, full stack)", () => {
       // SAFETY: this is the api's own chat search endpoint (under test
       // here), whose { results: [...] } envelope is fixed by its own
       // OpenAPI contract.
-      return ((await response.json()) as { results: SearchResult[] }).results;
+      return ((await response.json()) as { results: Array<SearchResult> })
+        .results;
     };
 
     let originalResult: SearchResult | undefined;

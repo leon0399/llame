@@ -28,7 +28,7 @@ describe('conversation source coordinates', () => {
     ['fractional offset', { offset: 1.5 }],
     ['unsafe offset', { offset: Number.MAX_SAFE_INTEGER + 1 }],
     ['zero limit', { limit: 0 }],
-    ['limit above reader maximum', { limit: 2_001 }],
+    ['limit above reader maximum', { limit: 2001 }],
     ['fractional limit', { limit: 1.5 }],
     ['unknown property', { source: 'projection' }],
   ])('rejects %s before a source can be read', (_label, invalid) => {

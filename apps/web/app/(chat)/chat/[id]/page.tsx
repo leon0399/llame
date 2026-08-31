@@ -14,7 +14,7 @@ import {
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ draft?: string | string[] }>;
+  searchParams: Promise<{ draft?: string | Array<string> }>;
 };
 
 export default async function Page({ params, searchParams }: PageProps) {

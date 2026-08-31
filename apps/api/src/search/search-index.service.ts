@@ -38,10 +38,10 @@ interface ExistingChunkRow {
  * every rebuild, including a cheap no-op pass.
  */
 function diffChangedChunks(
-  existing: ExistingChunkRow[],
-  chunks: ConversationChunk[],
+  existing: Array<ExistingChunkRow>,
+  chunks: Array<ConversationChunk>,
   ownerUserId: string,
-): ConversationChunk[] {
+): Array<ConversationChunk> {
   const currentByOrdinal = new Map(
     existing
       .filter((row) => row.version === CHUNKER_VERSION)
@@ -184,7 +184,7 @@ export class SearchIndexService {
   private async selectExistingChunks(
     tx: Db,
     chatId: string,
-  ): Promise<ExistingChunkRow[]> {
+  ): Promise<Array<ExistingChunkRow>> {
     return tx
       .select({
         ordinal: searchChatDocuments.chunkOrdinal,
@@ -207,7 +207,7 @@ export class SearchIndexService {
     tx: Db,
     chatId: string,
     ownerUserId: string,
-    changed: ConversationChunk[],
+    changed: Array<ConversationChunk>,
   ): Promise<void> {
     await tx
       .insert(searchChatDocuments)

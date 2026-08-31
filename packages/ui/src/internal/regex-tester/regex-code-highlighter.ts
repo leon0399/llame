@@ -53,10 +53,10 @@ const decorateToken = (
 });
 
 const decorateLine = (
-  line: ThemedToken[],
-  candidates: RegexCandidate[],
-): ThemedToken[] => {
-  const out: ThemedToken[] = [];
+  line: Array<ThemedToken>,
+  candidates: Array<RegexCandidate>,
+): Array<ThemedToken> => {
+  const out: Array<ThemedToken> = [];
   let pos = 0;
 
   for (const token of line) {

@@ -71,7 +71,7 @@ function requireEmbeddingModelId(
  */
 function failIfAnyOwnerFailed(
   command: string,
-  failures: readonly OwnerWriteFailure[],
+  failures: ReadonlyArray<OwnerWriteFailure>,
 ): void {
   if (failures.length === 0) return;
   for (const failure of failures) {
@@ -254,8 +254,8 @@ if (!command) {
 
 runCommand(command)
   .then(() => process.exit(0))
-  .catch((err: unknown) => {
+  .catch((error: unknown) => {
     console.error(`❌ search:${command} failed`);
-    console.error(err);
+    console.error(error);
     process.exit(1);
   });

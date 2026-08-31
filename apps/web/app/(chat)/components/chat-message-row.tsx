@@ -133,7 +133,7 @@ function MessagePartView({ part }: { part: UIMessage["parts"][number] }) {
  *  fork action row beneath a message's content. */
 type ChatMessageActionProps = {
   message: UIMessage;
-  availableModels: readonly AvailableModel[];
+  availableModels: ReadonlyArray<AvailableModel>;
   chatId: string;
   status: ChatStatus;
   onForked: (forkedChatId: string) => void;
@@ -233,7 +233,7 @@ type MessageBoundariesParams = {
   index: number;
   compaction: Compaction | null;
   compactionIndex: number;
-  availableModels: readonly AvailableModel[];
+  availableModels: ReadonlyArray<AvailableModel>;
   onInspectContext: (runId: string) => void;
 };
 

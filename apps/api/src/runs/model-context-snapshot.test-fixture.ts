@@ -9,7 +9,7 @@ export async function seedModelContextSnapshot(
   db: Db,
   ownerUserId: string,
   key = 'default',
-  allowedToolRules: readonly string[] = [],
+  allowedToolRules: ReadonlyArray<string> = [],
 ): Promise<ModelContextSnapshot> {
   const systemPrompt = `Test prompt: ${key}`;
   const model: SystemModelCatalogEntry = {

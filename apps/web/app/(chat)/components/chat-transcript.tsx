@@ -27,7 +27,7 @@ type ChatTranscriptMessageProps = {
   index: number;
   compaction: Compaction | null;
   compactionIndex: number;
-  availableModels: readonly AvailableModel[];
+  availableModels: ReadonlyArray<AvailableModel>;
   status: ChatStatus;
   onInspectContext: (runId: string) => void;
   onForked: (forkedChatId: string) => void;
@@ -73,7 +73,7 @@ function ChatTranscriptMessage({
 
 type ChatTranscriptCompactionBoundaryProps = {
   compaction: Compaction;
-  availableModels: readonly AvailableModel[];
+  availableModels: ReadonlyArray<AvailableModel>;
 };
 
 /** The trailing compaction boundary, shown when it lands after the last
@@ -97,10 +97,10 @@ function ChatTranscriptCompactionBoundary({
 
 type ChatTranscriptMessagesProps = {
   chatId: string;
-  displayMessages: UIMessage[];
+  displayMessages: Array<UIMessage>;
   compaction: Compaction | null;
   compactionIndex: number;
-  availableModels: readonly AvailableModel[];
+  availableModels: ReadonlyArray<AvailableModel>;
   status: ChatStatus;
   onInspectContext: (runId: string) => void;
 };
@@ -162,13 +162,13 @@ function ChatTranscriptErrorAlert({ error }: { error: Error }) {
 
 type ChatTranscriptProps = {
   chatId: string;
-  displayMessages: UIMessage[];
+  displayMessages: Array<UIMessage>;
   compaction: Compaction | null;
   compactionIndex: number;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
   onLoadOlderMessages: () => void;
-  availableModels: readonly AvailableModel[];
+  availableModels: ReadonlyArray<AvailableModel>;
   status: ChatStatus;
   displayedError: Error | undefined;
   onInspectContext: (runId: string) => void;

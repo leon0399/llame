@@ -12,9 +12,9 @@ import {
 } from './discovery-provisioning';
 
 type ProvisioningRow = { bypass: boolean };
-type ProvisioningTx = { execute: () => Promise<ProvisioningRow[]> };
+type ProvisioningTx = { execute: () => Promise<Array<ProvisioningRow>> };
 
-function fakeTenantDb(rows: ProvisioningRow[]) {
+function fakeTenantDb(rows: Array<ProvisioningRow>) {
   return {
     runAsPublic: <T>(fn: (tx: ProvisioningTx) => Promise<T>) =>
       fn({ execute: () => Promise.resolve(rows) }),

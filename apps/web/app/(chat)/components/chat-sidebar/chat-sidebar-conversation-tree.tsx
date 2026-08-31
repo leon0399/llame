@@ -22,7 +22,7 @@ import { BranchGraph } from "./conversation-tree-graph";
 import { ConversationItem } from "./conversation-tree-item";
 
 // Sample seed data for the tree (no live conversation source is wired up yet).
-const SAMPLE_CONVERSATION_NODES: ConversationNode[] = [
+const SAMPLE_CONVERSATION_NODES: Array<ConversationNode> = [
   {
     id: "node-1",
     type: MessageType.USER,
@@ -30,7 +30,7 @@ const SAMPLE_CONVERSATION_NODES: ConversationNode[] = [
     branch: "main",
     parentIds: [],
     children: [],
-    timestamp: new Date(Date.now() - 3600000).toISOString(),
+    timestamp: new Date(Date.now() - 3_600_000).toISOString(),
     position: 0,
   },
   {
@@ -41,7 +41,7 @@ const SAMPLE_CONVERSATION_NODES: ConversationNode[] = [
     branch: "main",
     parentIds: ["node-1"],
     children: [],
-    timestamp: new Date(Date.now() - 3500000).toISOString(),
+    timestamp: new Date(Date.now() - 3_500_000).toISOString(),
     metadata: { provider: "anthropic" },
     position: 1,
   },
@@ -53,7 +53,7 @@ const SAMPLE_CONVERSATION_NODES: ConversationNode[] = [
     branch: "branch-1",
     parentIds: ["node-1"],
     children: [],
-    timestamp: new Date(Date.now() - 3500000).toISOString(),
+    timestamp: new Date(Date.now() - 3_500_000).toISOString(),
     metadata: { provider: "openai" },
     position: 1.1,
   },
@@ -64,7 +64,7 @@ const SAMPLE_CONVERSATION_NODES: ConversationNode[] = [
     branch: "main",
     parentIds: ["node-2"],
     children: [],
-    timestamp: new Date(Date.now() - 3400000).toISOString(),
+    timestamp: new Date(Date.now() - 3_400_000).toISOString(),
     toolCalls: [
       {
         name: "web_search",
@@ -82,7 +82,7 @@ const SAMPLE_CONVERSATION_NODES: ConversationNode[] = [
     branch: "branch-1",
     parentIds: ["node-3"],
     children: [],
-    timestamp: new Date(Date.now() - 3400000).toISOString(),
+    timestamp: new Date(Date.now() - 3_400_000).toISOString(),
     position: 2.1,
   },
   {
@@ -92,7 +92,7 @@ const SAMPLE_CONVERSATION_NODES: ConversationNode[] = [
     branch: "main",
     parentIds: ["node-4"],
     children: [],
-    timestamp: new Date(Date.now() - 3300000).toISOString(),
+    timestamp: new Date(Date.now() - 3_300_000).toISOString(),
     position: 3,
   },
   {
@@ -102,7 +102,7 @@ const SAMPLE_CONVERSATION_NODES: ConversationNode[] = [
     branch: "branch-1",
     parentIds: ["node-5"],
     children: [],
-    timestamp: new Date(Date.now() - 3300000).toISOString(),
+    timestamp: new Date(Date.now() - 3_300_000).toISOString(),
     metadata: { agentName: "DataProfiler", status: "running" },
     position: 3.1,
   },
@@ -113,7 +113,7 @@ const SAMPLE_CONVERSATION_NODES: ConversationNode[] = [
     branch: "main",
     parentIds: ["node-6", "node-7"],
     children: [],
-    timestamp: new Date(Date.now() - 3200000).toISOString(),
+    timestamp: new Date(Date.now() - 3_200_000).toISOString(),
     metadata: { mergeStrategy: "best-of-n", confidence: 0.92 },
     position: 4,
   },
@@ -125,7 +125,7 @@ const SAMPLE_CONVERSATION_NODES: ConversationNode[] = [
     branch: "main",
     parentIds: ["node-8"],
     children: [],
-    timestamp: new Date(Date.now() - 3100000).toISOString(),
+    timestamp: new Date(Date.now() - 3_100_000).toISOString(),
     metadata: { provider: "anthropic" },
     position: 5,
   },
@@ -133,9 +133,9 @@ const SAMPLE_CONVERSATION_NODES: ConversationNode[] = [
 
 function computeVisibleConversations(
   nodes: Record<string, ConversationNode>,
-  conversations: ConversationNode[],
+  conversations: Array<ConversationNode>,
   selectedNodeId: string | null,
-): ConversationNode[] {
+): Array<ConversationNode> {
   if (!selectedNodeId || !nodes[selectedNodeId]) return conversations;
 
   const visibleIds = new Set<string>();
@@ -213,7 +213,7 @@ function ConversationItemList({
   setHoveredNodeId,
   leftOffset,
 }: {
-  conversations: ConversationNode[];
+  conversations: Array<ConversationNode>;
   visibleIds: Set<string>;
   selectedNodeId: string | null;
   setSelectedNodeId: (id: string) => void;

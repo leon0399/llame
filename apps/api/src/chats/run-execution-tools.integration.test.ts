@@ -127,7 +127,7 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
           abortSignal: input.abortSignal,
           tools,
           stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
-          prepareStep: ({ steps }: { steps: StepResult<ToolSet>[] }) => {
+          prepareStep: ({ steps }: { steps: Array<StepResult<ToolSet>> }) => {
             const priorToolSteps = steps.filter(
               (step) => step.toolCalls.length > 0,
             ).length;
@@ -245,7 +245,7 @@ function textThenToolCallResponse(
   pre: string,
   query: string,
 ): LanguageModelV3StreamResult {
-  const chunks: LanguageModelV3StreamPart[] = [
+  const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'p' },
     textDelta('p', pre),
@@ -270,7 +270,7 @@ function reasoningTextThenToolCallResponse(
   pre: string,
   query: string,
 ): LanguageModelV3StreamResult {
-  const chunks: LanguageModelV3StreamPart[] = [
+  const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     { type: 'reasoning-start', id: 'r' },
     { type: 'reasoning-delta', id: 'r', delta: 'I should search first. ' },
@@ -300,7 +300,7 @@ function unlistedToolCallResponse(
   toolName: string,
   query: string,
 ): LanguageModelV3StreamResult {
-  const chunks: LanguageModelV3StreamPart[] = [
+  const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     {
       type: 'tool-call',
@@ -325,7 +325,7 @@ function jsonToolCallResponse(
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- deliberately accepts arbitrary/malformed caller input (see the doc comment above) to prove the AI SDK's own JSON-Schema validation rejects it before the executor runs; genuinely untyped by design, not an oversight.
   input: unknown,
 ): LanguageModelV3StreamResult {
-  const chunks: LanguageModelV3StreamPart[] = [
+  const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     {
       type: 'tool-call',
@@ -348,7 +348,7 @@ function alwaysToolCallResponse(
   callId: string,
   query: string,
 ): LanguageModelV3StreamResult {
-  const chunks: LanguageModelV3StreamPart[] = [
+  const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     {
       type: 'tool-call',
@@ -366,7 +366,7 @@ function alwaysToolCallResponse(
 }
 
 function textResponse(text: string): LanguageModelV3StreamResult {
-  const chunks: LanguageModelV3StreamPart[] = [
+  const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'a' },
     textDelta('a', text),
@@ -409,7 +409,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
   function serviceWithTools(overrides?: {
     maxStepsPerRun?: number;
-    allowed?: string[];
+    allowed?: Array<string>;
     searchIndex?: ChatSearchIndexer;
     reindexDispatch?: ChatReindexDispatcher;
     knowledgeResolver?: KnowledgeToolResolver;
@@ -495,7 +495,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
   async function seedBoundRun(
     key: string,
-    toolIds: readonly string[] = ['search_conversations'],
+    toolIds: ReadonlyArray<string> = ['search_conversations'],
   ) {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
@@ -538,7 +538,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
   async function seedSharedSnapshotTurn(
     key: string,
     chatId: string,
-    parts: readonly UnknownRecord[],
+    parts: ReadonlyArray<UnknownRecord>,
     snapshotId?: string,
   ) {
     return tenantDb.runAs(userId, async (tx) => {
@@ -570,7 +570,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     });
   }
 
-  function recordingClient(calls: ModelStreamInput[]): ModelClient {
+  function recordingClient(calls: Array<ModelStreamInput>): ModelClient {
     const delegate = createMockModelClient(
       new MockLanguageModelV3({
         doStream: () => Promise.resolve(textResponse('snapshot response')),
@@ -588,7 +588,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
   function recordingMockClient(
     model: MockLanguageModelV3,
-    calls: ModelStreamInput[],
+    calls: Array<ModelStreamInput>,
   ): ModelClient {
     const delegate = createMockModelClient(model);
     return {
@@ -603,7 +603,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
   async function seedConversationSource(input: {
     title: string;
     role?: 'user' | 'assistant';
-    parts: readonly UnknownRecord[];
+    parts: ReadonlyArray<UnknownRecord>;
     usage?: unknown;
   }) {
     const chatId = crypto.randomUUID();
@@ -914,7 +914,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
   it('uses the bound prompt and exact snapshotted tool declaration without re-intersecting the mutable operator allowlist', async () => {
     const service = serviceWithTools({ allowed: [] });
     const seeded = await seedBoundRun(`bound-${crypto.randomUUID()}`);
-    const calls: ModelStreamInput[] = [];
+    const calls: Array<ModelStreamInput> = [];
 
     const result = await executeSeeded(seeded, service, recordingClient(calls));
     await result.consumeStream?.();
@@ -1028,7 +1028,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         });
         return { user, run };
       });
-      const replayedCalls: ModelStreamInput[] = [];
+      const replayedCalls: Array<ModelStreamInput> = [];
       const replayedResult = await service.executeRun({
         runId: replayed.run.id,
         chatId: seeded.chatId,
@@ -1156,7 +1156,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         });
         return { userMessage, run };
       });
-      const replayedCalls: ModelStreamInput[] = [];
+      const replayedCalls: Array<ModelStreamInput> = [];
       const laterResult = await service.executeRun({
         runId: later.run.id,
         chatId: seeded.chatId,
@@ -1352,7 +1352,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
           );
         },
       });
-      const advertisedCalls: ModelStreamInput[] = [];
+      const advertisedCalls: Array<ModelStreamInput> = [];
       const delegate = createMockModelClient(model);
       const result = await serviceWithTools({
         allowed: [validToolId, malformedToolId],
@@ -1416,7 +1416,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         });
         return { userMessage, run };
       });
-      const replayedCalls: ModelStreamInput[] = [];
+      const replayedCalls: Array<ModelStreamInput> = [];
       const laterResult = await serviceWithTools({
         allowed: [validToolId],
       }).executeRun({
@@ -1896,7 +1896,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     async ({ mutate }) => {
       const service = serviceWithTools();
       const seeded = await seedBoundRun(`drift-${crypto.randomUUID()}`);
-      const calls: ModelStreamInput[] = [];
+      const calls: Array<ModelStreamInput> = [];
       const original = TOOL_REGISTRY.get('search_conversations');
       if (!original) {
         throw new Error('search_conversations must exist in the test registry');
@@ -1937,7 +1937,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const service = serviceWithTools();
 
     const run = async (seeded: {
-      message: { id: string; seq: number; parts: unknown[] };
+      message: { id: string; seq: number; parts: Array<unknown> };
       run: { id: string };
     }) => {
       const result = await service.executeRun({
@@ -2087,7 +2087,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       return { sourceSnapshot, targetUser, targetRun, targetSnapshot };
     });
 
-    const calls: ModelStreamInput[] = [];
+    const calls: Array<ModelStreamInput> = [];
     const result = await service.executeRun({
       runId: seeded.targetRun.id,
       chatId,
@@ -2608,7 +2608,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       `conversation-read-success-${crypto.randomUUID()}`,
       ['conversation_read'],
     );
-    const calls: ModelStreamInput[] = [];
+    const calls: Array<ModelStreamInput> = [];
 
     let turn = 0;
     const model = new MockLanguageModelV3({
@@ -2781,7 +2781,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       name: 'missing sources',
       args: (source: { chatId: string; message: { seq: number } }) => ({
         chatId: source.chatId,
-        messageSeq: source.message.seq + 1_000,
+        messageSeq: source.message.seq + 1000,
       }),
       type: 'conversation_source_not_found',
     },
@@ -2863,7 +2863,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
   it('persists conversation_read continuation metadata when the output limit wins', async () => {
     const source = await seedConversationSource({
       title: 'Output-limited source',
-      parts: [{ type: 'text', text: '\n'.repeat(2_001) }],
+      parts: [{ type: 'text', text: '\n'.repeat(2001) }],
       usage: { status: 'completed' },
     });
     const seeded = await seedBoundRun(

@@ -23,16 +23,16 @@ export type EmbeddingDocumentInput = {
 export type EmbeddingResult = {
   documentId: string;
   contentHash: string;
-  embedding: readonly number[];
+  embedding: ReadonlyArray<number>;
 };
 
 export interface EmbeddingBackend {
   /** Embed a single search query, applying the model's query-side prefix (if configured). */
-  embedQuery(text: string): Promise<readonly number[]>;
+  embedQuery(text: string): Promise<ReadonlyArray<number>>;
   /** Embed a set of documents, applying the model's document-side prefix (if configured). Returns only the documents whose vector was produced and validated — see `EmbeddingResult`. */
   embedDocuments(
-    documents: readonly EmbeddingDocumentInput[],
-  ): Promise<EmbeddingResult[]>;
+    documents: ReadonlyArray<EmbeddingDocumentInput>,
+  ): Promise<Array<EmbeddingResult>>;
 }
 
 /** Nest DI token for `EmbeddingBackend` — a symbol, not the interface itself (TypeScript interfaces have no runtime value to key a provider on). */

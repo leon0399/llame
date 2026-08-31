@@ -91,7 +91,7 @@ function payloadNumber(payload: unknown, key: string): number | undefined {
  * Pure state machine — trivially unit-testable.
  */
 export type RunEventTranslator = {
-  translate(event: RunEventLike): UiChunk[];
+  translate(event: RunEventLike): Array<UiChunk>;
   /** True once a terminal run event has been translated. */
   finished(): boolean;
 };
@@ -125,7 +125,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     return this.isFinished;
   }
 
-  private prelude(): UiChunk[] {
+  private prelude(): Array<UiChunk> {
     if (this.startedStream) {
       return [];
     }
@@ -133,7 +133,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     return [{ type: 'start', messageId: this.messageId }];
   }
 
-  private closeText(): UiChunk[] {
+  private closeText(): Array<UiChunk> {
     if (this.openTextId === null) {
       return [];
     }
@@ -142,7 +142,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     return [chunk];
   }
 
-  private closeReasoning(): UiChunk[] {
+  private closeReasoning(): Array<UiChunk> {
     if (this.openReasoningId === null) {
       return [];
     }
@@ -151,8 +151,8 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     return [chunk];
   }
 
-  private settleOpenTools(reason: string): UiChunk[] {
-    const chunks: UiChunk[] = [];
+  private settleOpenTools(reason: string): Array<UiChunk> {
+    const chunks: Array<UiChunk> = [];
     for (const toolCallId of this.openToolCallIds) {
       chunks.push({
         type: 'tool-output-error',
@@ -166,7 +166,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     return chunks;
   }
 
-  translate(event: RunEventLike): UiChunk[] {
+  translate(event: RunEventLike): Array<UiChunk> {
     switch (event.eventType) {
       case 'model.delta':
         return this.onModelDelta(event);
@@ -199,7 +199,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     }
   }
 
-  private onModelDelta(event: RunEventLike): UiChunk[] {
+  private onModelDelta(event: RunEventLike): Array<UiChunk> {
     const text = payloadString(event.payload, 'text') ?? '';
     if (text.length === 0) {
       return [];
@@ -214,7 +214,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     return chunks;
   }
 
-  private onReasoningDelta(event: RunEventLike): UiChunk[] {
+  private onReasoningDelta(event: RunEventLike): Array<UiChunk> {
     const text = payloadString(event.payload, 'text') ?? '';
     if (text.length === 0) {
       return [];
@@ -233,7 +233,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     return chunks;
   }
 
-  private onModelCompleted(event: RunEventLike): UiChunk[] {
+  private onModelCompleted(event: RunEventLike): Array<UiChunk> {
     // Surface the per-turn telemetry (tokens + cost + latency + model) as
     // message metadata so the UI can show it live and on resume — useChat
     // lands `messageMetadata` on `message.metadata`. Not terminal — the
@@ -257,7 +257,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     return chunks;
   }
 
-  private onToolRequested(event: RunEventLike): UiChunk[] {
+  private onToolRequested(event: RunEventLike): Array<UiChunk> {
     const toolCallId = payloadString(event.payload, 'toolCallId');
     const toolName = payloadString(event.payload, 'toolName');
     if (!toolCallId || !toolName) {
@@ -282,7 +282,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     ];
   }
 
-  private onToolCompleted(event: RunEventLike): UiChunk[] {
+  private onToolCompleted(event: RunEventLike): Array<UiChunk> {
     const toolCallId = payloadString(event.payload, 'toolCallId');
     // At-most-once: if this call was already settled (by termination or a
     // prior event), a late completion must not emit a second outcome.
@@ -317,7 +317,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     ];
   }
 
-  private onStepCapReached(event: RunEventLike): UiChunk[] {
+  private onStepCapReached(event: RunEventLike): Array<UiChunk> {
     const stepsUsed = payloadNumber(event.payload, 'stepsUsed');
     const maxSteps = payloadNumber(event.payload, 'maxSteps');
     if (stepsUsed === undefined || maxSteps === undefined) {
@@ -336,7 +336,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     ];
   }
 
-  private onRunTerminated(event: RunEventLike): UiChunk[] {
+  private onRunTerminated(event: RunEventLike): Array<UiChunk> {
     this.isFinished = true;
     return [
       ...this.prelude(),
@@ -351,7 +351,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     ];
   }
 
-  private onRunFailed(event: RunEventLike): UiChunk[] {
+  private onRunFailed(event: RunEventLike): Array<UiChunk> {
     this.isFinished = true;
     const message = payloadString(event.payload, 'message') ?? 'Run failed.';
     const chunks = [

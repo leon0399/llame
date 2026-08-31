@@ -54,11 +54,11 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
   const ownedRows = <T extends UnknownRecord>(
     frag: ReturnType<typeof sql>,
     rowSchema: z.ZodType<T>,
-  ): Promise<T[]> =>
+  ): Promise<Array<T>> =>
     tenantDb
       .runAs(u, (tx) => tx.execute(frag))
       .then((rows) => rowSchema.array().parse([...rows]));
-  const staleIds = (): Promise<string[]> =>
+  const staleIds = (): Promise<Array<string>> =>
     tenantDb
       .runAsPublic((tx) =>
         tx.execute<{ chat_id: string }>(sql`
@@ -76,7 +76,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
   const embeddingCoverage = (
     modelKey: string,
     inputVersion: number,
-  ): Promise<CoverageRow[]> =>
+  ): Promise<Array<CoverageRow>> =>
     tenantDb
       .runAsPublic((tx) =>
         tx.execute<CoverageRow>(sql`
@@ -89,7 +89,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     msgs: Array<{
       role: 'user' | 'assistant';
       text?: string;
-      parts?: unknown[];
+      parts?: Array<unknown>;
       usage?: unknown;
     }>,
   ): Promise<string> {

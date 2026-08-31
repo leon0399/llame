@@ -62,7 +62,7 @@ const knowledgeReadInputSchema = z
       .number()
       .int()
       .min(1)
-      .max(2_000)
+      .max(2000)
       .refine(Number.isSafeInteger, {
         message: 'The read limit must be a safe integer.',
       })
@@ -119,7 +119,9 @@ type KnowledgeSearchWarning = {
   readonly message: string;
 };
 
-type KnowledgeSerializedValue = ToolResult | readonly KnowledgeSearchWarning[];
+type KnowledgeSerializedValue =
+  | ToolResult
+  | ReadonlyArray<KnowledgeSearchWarning>;
 
 export const knowledgeSearchTool: Tool<KnowledgeSearchArguments> = {
   id: 'knowledge_search',
@@ -219,8 +221,8 @@ type SpaceSearchRequest = {
 /** Mutated in place across the whole search call, exactly as the original
  *  inline loop's local variables were. */
 type SpaceSearchAccumulator = {
-  readonly matches: AttributedMatch[];
-  readonly warnings: KnowledgeSearchWarning[];
+  readonly matches: Array<AttributedMatch>;
+  readonly warnings: Array<KnowledgeSearchWarning>;
   warningCount: number;
   inspectedSpaces: number;
   currentSpaces: number;
@@ -244,7 +246,7 @@ type SpaceSearchAccumulator = {
  *  exists — the pagination signal `buildSearchPage` turns into `nextOffset`. */
 function accumulateSpaceMatches(
   acc: SpaceSearchAccumulator,
-  attributed: readonly AttributedMatch[],
+  attributed: ReadonlyArray<AttributedMatch>,
   limit: number,
 ): void {
   for (const match of attributed) {
@@ -327,7 +329,7 @@ async function searchOneSpace(
 }
 
 async function searchSpacePage(
-  page: readonly KnowledgeToolSpaceReference[],
+  page: ReadonlyArray<KnowledgeToolSpaceReference>,
   request: SpaceSearchRequest,
   acc: SpaceSearchAccumulator,
 ): Promise<ToolResult | undefined> {
@@ -434,7 +436,7 @@ function readResultBudget(
 
 async function* currentSpacePages(
   context: ToolContext,
-): AsyncGenerator<readonly KnowledgeToolSpaceReference[]> {
+): AsyncGenerator<ReadonlyArray<KnowledgeToolSpaceReference>> {
   const resolver = context.knowledgeResolver;
   if (resolver === undefined) throw new Error('Knowledge resolver unavailable');
 
@@ -473,12 +475,12 @@ async function resolveExplicitAccess(
 }
 
 type SearchPageMatches = {
-  readonly matches: readonly AttributedMatch[];
+  readonly matches: ReadonlyArray<AttributedMatch>;
   readonly laterPassageExists: boolean;
 };
 
 type SearchPageWarnings = {
-  readonly warnings: readonly KnowledgeSearchWarning[];
+  readonly warnings: ReadonlyArray<KnowledgeSearchWarning>;
   readonly warningCount: number;
 };
 
@@ -486,7 +488,7 @@ type SearchPageWarnings = {
  *  point anchored on the last shown match, or undefined when there's
  *  nothing more to page into. */
 function buildSearchPageCursor(
-  results: readonly AttributedMatch[],
+  results: ReadonlyArray<AttributedMatch>,
   page: SearchPageMatches,
   args: KnowledgeSearchArguments,
   explicitSpaceCreatedAt: Date | undefined,
@@ -507,7 +509,7 @@ function buildSearchPageCursor(
 }
 
 function buildSearchPageBase(
-  results: readonly AttributedMatch[],
+  results: ReadonlyArray<AttributedMatch>,
   warningCount: number,
 ) {
   return {
@@ -543,7 +545,7 @@ function buildSearchPage(
   );
   const baseWithCursor =
     nextCursor === undefined ? base : { ...base, nextCursor };
-  let visibleWarnings: KnowledgeSearchWarning[] = [];
+  let visibleWarnings: Array<KnowledgeSearchWarning> = [];
   for (const warning of warnings) {
     const candidate = {
       ...baseWithCursor,
@@ -707,7 +709,7 @@ function preflightSuccess<
 }
 
 function appendBoundedWarning(
-  warnings: KnowledgeSearchWarning[],
+  warnings: Array<KnowledgeSearchWarning>,
   warning: KnowledgeSearchWarning,
 ): void {
   if (

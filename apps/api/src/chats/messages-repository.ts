@@ -42,7 +42,7 @@ export type ConversationMessageLookup = {
   chatId: string;
   seq: number;
   role: 'user' | 'assistant';
-  parts: unknown[];
+  parts: Array<unknown>;
   usage: unknown;
   createdAt: Date;
   previousMessageSeq?: number;
@@ -103,7 +103,7 @@ export class MessagesRepository {
     chatId: string,
     ownerUserId: string,
     options?: { maxSeq?: number; sinceSeq?: number; limit?: number },
-  ): Promise<Message[]> {
+  ): Promise<Array<Message>> {
     const predicates = [
       eq(messages.chatId, chatId),
       eq(chats.ownerUserId, ownerUserId),
@@ -292,16 +292,16 @@ export class MessagesRepository {
    * `Promise.all`, so cross-chunk `seq` order is preserved too.
    */
   async createMany(
-    rows: {
+    rows: Array<{
       id: string;
       chatId: string;
       seq: number;
       role: MessageRole;
       senderUserId: string | null;
-      parts: unknown[];
-      attachments: unknown[];
+      parts: Array<unknown>;
+      attachments: Array<unknown>;
       inReplyTo: string | null;
-    }[],
+    }>,
   ): Promise<void> {
     const CHUNK_SIZE = 500;
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
@@ -315,7 +315,7 @@ export class MessagesRepository {
    * Owner-scoped via the chats join, same defense-in-depth as findByChatId:
    * RLS is the primary guarantee, the ownerUserId predicate is the seatbelt.
    */
-  async findLatestPerOwnedChat(ownerUserId: string): Promise<Message[]> {
+  async findLatestPerOwnedChat(ownerUserId: string): Promise<Array<Message>> {
     const rows = await this.db
       .selectDistinctOn([messages.chatId])
       .from(messages)
@@ -344,9 +344,9 @@ export class MessagesRepository {
    * Owner-scoped via the chats join, same defense-in-depth as findByChatId.
    */
   async findEarliestUserMessagePerChat(
-    chatIds: readonly string[],
+    chatIds: ReadonlyArray<string>,
     ownerUserId: string,
-  ): Promise<Message[]> {
+  ): Promise<Array<Message>> {
     if (chatIds.length === 0) {
       return [];
     }
@@ -368,7 +368,7 @@ export class MessagesRepository {
 
   /** Stored message count per chat for a bounded set, as one grouped query. */
   async countPerChat(
-    chatIds: readonly string[],
+    chatIds: ReadonlyArray<string>,
     ownerUserId: string,
   ): Promise<Map<string, number>> {
     if (chatIds.length === 0) {
@@ -410,7 +410,7 @@ export class MessagesRepository {
   async listPublicByChatId(
     chatId: string,
     options?: { maxSeq?: number; limit?: number },
-  ): Promise<Message[]> {
+  ): Promise<Array<Message>> {
     const predicates = [
       eq(messages.chatId, chatId),
       eq(chats.visibility, 'public'),
@@ -448,7 +448,7 @@ export class MessagesRepository {
    */
   /** The single message matching `predicates`, earliest first when more than one could match. */
   private async findOneMessage(
-    predicates: SQL[],
+    predicates: Array<SQL>,
     options?: { orderBySeq?: boolean },
   ): Promise<Message | undefined> {
     const query = this.db
@@ -502,8 +502,8 @@ export class MessagesRepository {
     chatId: string;
     role: MessageRole;
     senderUserId?: string | null;
-    parts: unknown[];
-    attachments?: unknown[];
+    parts: Array<unknown>;
+    attachments?: Array<unknown>;
     usage?: unknown;
     inReplyTo?: string | null;
   }): Promise<Message> {
@@ -535,8 +535,8 @@ export class MessagesRepository {
     id: string;
     chatId: string;
     senderUserId: string;
-    parts: unknown[];
-    attachments?: unknown[];
+    parts: Array<unknown>;
+    attachments?: Array<unknown>;
   }): Promise<Message | undefined> {
     return this.insertWithChatSequence(
       {
@@ -560,7 +560,7 @@ export class MessagesRepository {
 
   async createAssistantReplyIfAbsent(input: {
     chatId: string;
-    parts: unknown[];
+    parts: Array<unknown>;
     usage?: unknown;
     inReplyTo: string;
   }): Promise<Message | undefined> {
@@ -623,7 +623,7 @@ export class MessagesRepository {
     id: string;
     chatId: string;
     inReplyTo: string;
-    parts: unknown[];
+    parts: Array<unknown>;
     usage?: unknown;
   }): Promise<Message | undefined> {
     const [updated] = await this.db

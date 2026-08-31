@@ -84,7 +84,7 @@ type ChatRef = { readonly chatId: string; readonly ownerUserId: string };
  */
 export function resolveEmbeddingBackendConfig(
   model: EmbeddingModelCatalogEntry,
-  providers: readonly ProviderConfig[],
+  providers: ReadonlyArray<ProviderConfig>,
 ): OpenAIEmbeddingBackendConfig {
   const provider = providers.find((p) => p.id === model.provider);
   if (!provider) {
@@ -357,7 +357,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
    *  `ensureBindingLedgerRow`'s own comment. Returns how many wrote. */
   private async persistBatchSuccesses(
     ownerUserId: string,
-    results: readonly EmbeddingResult[],
+    results: ReadonlyArray<EmbeddingResult>,
     byId: ReadonlyMap<string, OutstandingRow>,
     model: EmbeddingModelCatalogEntry,
   ): Promise<number> {
@@ -401,8 +401,8 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
   private async assertRecoverableZeroWrite(
     chatId: string,
     model: EmbeddingModelCatalogEntry,
-    results: readonly EmbeddingResult[],
-    outstanding: readonly OutstandingRow[],
+    results: ReadonlyArray<EmbeddingResult>,
+    outstanding: ReadonlyArray<OutstandingRow>,
   ): Promise<void> {
     if (results.length >= outstanding.length) return;
     this.logger.warn(
@@ -427,10 +427,10 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     model: EmbeddingModelCatalogEntry,
   ): Promise<
     | {
-        readonly outstanding: OutstandingRow[];
+        readonly outstanding: Array<OutstandingRow>;
         readonly hasMore: boolean;
         readonly byId: ReadonlyMap<string, OutstandingRow>;
-        readonly documents: EmbeddingDocumentInput[];
+        readonly documents: Array<EmbeddingDocumentInput>;
       }
     | undefined
   > {
@@ -443,7 +443,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     const byId = new Map(outstanding.map((row) => [row.id, row]));
     // Design D11: embed `content` verbatim — role labels, original casing,
     // never `normalized_content`.
-    const documents: EmbeddingDocumentInput[] = outstanding.map((row) => ({
+    const documents: Array<EmbeddingDocumentInput> = outstanding.map((row) => ({
       documentId: row.id,
       contentHash: row.contentHash,
       content: row.content,
@@ -464,7 +464,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     }
     const { outstanding, hasMore, byId, documents } = loaded;
 
-    let results: EmbeddingResult[];
+    let results: Array<EmbeddingResult>;
     try {
       // Trap 6: exactly one persist-batch per embedDocuments call. The
       // adapter's own internal chunking already splits by the model's
@@ -502,7 +502,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
   private async handleBatchFailure(
     chatRef: ChatRef,
     batch: {
-      readonly outstanding: readonly OutstandingRow[];
+      readonly outstanding: ReadonlyArray<OutstandingRow>;
       readonly modelId: string;
       readonly hasMore: boolean;
     },
@@ -546,7 +546,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     chatRef: ChatRef,
     modelId: string,
     batchSize: number,
-  ): Promise<OutstandingRow[]> {
+  ): Promise<Array<OutstandingRow>> {
     // Mirrors `llame_search_embedding_coverage`'s `needs_embedding`
     // predicate (design D10) — IS DISTINCT FROM throughout is load-bearing,
     // not stylistic: a never-attempted row has NULL embedding_model_key/

@@ -77,7 +77,7 @@ export type BuildTurnContextInput = {
 
 export type BuildTurnContextResult = {
   effectiveContext: EffectiveContextSnapshotInput;
-  messageParts: MessagePart[];
+  messageParts: Array<MessagePart>;
 };
 
 type DigestBindingResult = {
@@ -325,7 +325,7 @@ function deriveEpochDisclosureParts(
   turnInput: PersistUserMessageAndRunInput,
   effectiveContext: EffectiveContextSnapshotInput,
   epoch: DisclosureEpoch,
-): MessagePart[] {
+): Array<MessagePart> {
   const { previousRun, previousSnapshot } = epoch;
   const runId = turnInput.targetRunId;
 
@@ -366,7 +366,7 @@ function deriveDigestDisclosureParts(
     epoch: DisclosureEpoch;
   },
   runId: string,
-): MessagePart[] {
+): Array<MessagePart> {
   const { chat, shareRecentChats, digestDelta, epoch } = input;
   const digestSupersessionPart =
     epoch.digestRebaked &&
@@ -404,7 +404,7 @@ function deriveTurnContextParts(input: {
   instanceTimezone: string;
   effectiveContext: EffectiveContextSnapshotInput;
   epoch: DisclosureEpoch;
-}): MessagePart[] {
+}): Array<MessagePart> {
   const { chat, turnInput, shareRecentChats, digestDelta, epoch } = input;
   const runId = turnInput.targetRunId;
 

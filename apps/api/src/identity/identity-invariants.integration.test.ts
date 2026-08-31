@@ -39,8 +39,8 @@ describeIfDb(
     let db: Db;
     let tenantDb: TenantDbService;
     let identity: IdentityService;
-    const userIds: string[] = [];
-    const rootIds: string[] = [];
+    const userIds: Array<string> = [];
+    const rootIds: Array<string> = [];
 
     const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
       sql.begin(async (tx: SqlClient) => {

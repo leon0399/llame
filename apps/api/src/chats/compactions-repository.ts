@@ -71,7 +71,7 @@ export class CompactionsRepository {
     uptoSeq: number;
     parentId?: string | null;
     summary: string;
-    replacementHistory: CompactionReplacementMessage[];
+    replacementHistory: Array<CompactionReplacementMessage>;
     usage?: unknown;
   }): Promise<Compaction> {
     assertCompactionWrite(input.summary, input.replacementHistory);
@@ -101,7 +101,7 @@ export class CompactionsRepository {
     uptoSeq: number;
     parentId?: string | null;
     summary: string;
-    replacementHistory: CompactionReplacementMessage[];
+    replacementHistory: Array<CompactionReplacementMessage>;
     usage?: unknown;
   }): Promise<Compaction | undefined> {
     assertCompactionWrite(input.summary, input.replacementHistory);
@@ -128,7 +128,7 @@ export class CompactionsRepository {
 function assertCompactionWrite(
   summary: string,
   replacementHistory: unknown,
-): asserts replacementHistory is CompactionReplacementMessage[] {
+): asserts replacementHistory is Array<CompactionReplacementMessage> {
   if (summary.trim().length === 0) {
     throw new Error('Compaction summary must be non-empty.');
   }
@@ -151,7 +151,7 @@ export async function findLiveWindow(
   chatId: string,
   ownerUserId: string,
   options?: { maxSeq?: number },
-): Promise<{ compaction: Compaction | undefined; history: Message[] }> {
+): Promise<{ compaction: Compaction | undefined; history: Array<Message> }> {
   const compaction = await new CompactionsRepository(db).findLatestByChatId(
     chatId,
     ownerUserId,

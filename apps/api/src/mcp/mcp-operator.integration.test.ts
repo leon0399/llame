@@ -146,7 +146,7 @@ type FixtureStreamResponse = {
 };
 
 function toolCallResponse(): FixtureStreamResponse {
-  const chunks: LanguageModelV3StreamPart[] = [
+  const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     {
       type: 'tool-call',
@@ -166,7 +166,7 @@ function toolCallResponse(): FixtureStreamResponse {
 }
 
 function textResponse(text: string): FixtureStreamResponse {
-  const chunks: LanguageModelV3StreamPart[] = [
+  const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'answer' },
     { type: 'text-delta', id: 'answer', delta: text },
@@ -196,7 +196,7 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
         ...(input.tools && {
           tools: input.tools,
           stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
-          prepareStep: ({ steps }: { steps: StepResult<ToolSet>[] }) => {
+          prepareStep: ({ steps }: { steps: Array<StepResult<ToolSet>> }) => {
             const used = steps.filter(
               (step) => step.toolCalls.length > 0,
             ).length;
@@ -564,7 +564,7 @@ describe('operator-configured MCP production acceptance', () => {
       expect(context.toolDeclarations.map(({ id }) => id)).toEqual([TOOL_ID]);
       expect(canonicalJson(context)).not.toContain('mcp__web__*');
       chatId = crypto.randomUUID();
-      const userMessageParts: TextPart[] = [
+      const userMessageParts: Array<TextPart> = [
         { type: 'text', text: 'Find the fixture evidence.' },
       ];
       const seeded = await tenantDb.runAs(userId, async (tx) => {
@@ -592,7 +592,7 @@ describe('operator-configured MCP production acceptance', () => {
         return { run, snapshot, userMessage };
       });
 
-      const providerInputs: unknown[] = [];
+      const providerInputs: Array<unknown> = [];
       let step = 0;
       const firstModel = new MockLanguageModelV3({
         doStream: (input) => {
@@ -619,7 +619,7 @@ describe('operator-configured MCP production acceptance', () => {
       });
       await result.consumeStream?.();
 
-      const laterUserMessageParts: TextPart[] = [
+      const laterUserMessageParts: Array<TextPart> = [
         { type: 'text', text: 'Replay that evidence.' },
       ];
       const later = await tenantDb.runAs(userId, async (tx) => {
@@ -638,7 +638,7 @@ describe('operator-configured MCP production acceptance', () => {
         });
         return { run, userMessage };
       });
-      const replayProviderInputs: unknown[] = [];
+      const replayProviderInputs: Array<unknown> = [];
       const replayModel = new MockLanguageModelV3({
         doStream: (input) => {
           replayProviderInputs.push(input);

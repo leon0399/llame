@@ -161,7 +161,7 @@ export function MoveTargetList({
   parentId,
   onParentIdChange,
 }: {
-  candidates: OrgUnitResponse[];
+  candidates: Array<OrgUnitResponse>;
   unitsById: Map<string, OrgUnitResponse>;
   parentId: string | null;
   onParentIdChange: (parentId: string | null) => void;

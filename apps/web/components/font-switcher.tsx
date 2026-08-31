@@ -18,7 +18,7 @@ export interface FontOption {
 }
 
 interface FontSwitcherProps {
-  options: readonly FontOption[];
+  options: ReadonlyArray<FontOption>;
   currentValue: string;
   onValueChange: (value: string) => void;
   icon?: ReactNode;
@@ -115,7 +115,7 @@ export function FontSwitcher({
 
 // Convenience components for common use cases
 interface InterfaceFontSwitcherProps {
-  options: readonly FontOption[];
+  options: ReadonlyArray<FontOption>;
   currentValue: string;
   onValueChange: (value: string) => void;
   className?: string;

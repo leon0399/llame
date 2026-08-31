@@ -142,7 +142,7 @@ function matchRegexLiteralAt(
 const scanLine = (
   line: string,
   lineOffset: number,
-  out: RegexCandidate[],
+  out: Array<RegexCandidate>,
 ): void => {
   let i = 0;
 
@@ -200,11 +200,11 @@ export const parseWholeRegexLiteral = (text: string): RegexCandidate | null => {
  */
 export const splitBySpans = <Span extends { start: number; end: number }, T>(
   text: string,
-  spans: Span[],
+  spans: Array<Span>,
   mapPlain: (slice: string) => T,
   mapSpan: (span: Span) => T,
-): T[] => {
-  const out: T[] = [];
+): Array<T> => {
+  const out: Array<T> = [];
   let cursor = 0;
 
   for (const span of spans) {
@@ -227,7 +227,7 @@ export interface RegexEvaluation {
   /** Matched spans within the input, sorted, non-overlapping. */
   ranges: Array<{ start: number; end: number }>;
   /** The matched substrings, one per range. */
-  values: string[];
+  values: Array<string>;
 }
 
 const MAX_MATCHES = 50;
@@ -255,7 +255,7 @@ export const evaluateRegex = (
   }
 
   const ranges: RegexEvaluation["ranges"] = [];
-  const values: string[] = [];
+  const values: Array<string> = [];
 
   if (regex.global) {
     for (const match of input.matchAll(regex)) {
@@ -284,8 +284,8 @@ export const evaluateRegex = (
  * Finds every plausible regex literal in `text`. Literals never span lines;
  * offsets are relative to the start of `text`.
  */
-export const findRegexCandidates = (text: string): RegexCandidate[] => {
-  const out: RegexCandidate[] = [];
+export const findRegexCandidates = (text: string): Array<RegexCandidate> => {
+  const out: Array<RegexCandidate> = [];
   let lineOffset = 0;
 
   for (const line of text.split("\n")) {

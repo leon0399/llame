@@ -257,18 +257,18 @@ function readRawConfig(configPath: string): UnknownRecord | undefined {
   let text: string;
   try {
     text = readFileSync(configPath, 'utf8');
-  } catch (err) {
-    if (err instanceof Error && 'code' in err && err.code === 'ENOENT') {
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return undefined;
     }
     throw new InstanceConfigError(
-      `Failed to read ${configPath}: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to read ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
   assertNoDuplicateProperties(text, configPath);
 
-  const errors: ParseError[] = [];
+  const errors: Array<ParseError> = [];
   const tree = parseJsoncTree(text, errors, {
     allowTrailingComma: true,
     disallowComments: false,
@@ -291,7 +291,7 @@ function readRawConfig(configPath: string): UnknownRecord | undefined {
 
 function assertNoDuplicateProperties(text: string, configPath: string): void {
   const propertiesByObject = new Map<string, Set<string>>();
-  let duplicatePath: readonly (string | number)[] | undefined;
+  let duplicatePath: ReadonlyArray<string | number> | undefined;
 
   visit(
     text,
@@ -322,7 +322,9 @@ function assertNoDuplicateProperties(text: string, configPath: string): void {
   }
 }
 
-function formatConfigPath(pathSegments: readonly (string | number)[]): string {
+function formatConfigPath(
+  pathSegments: ReadonlyArray<string | number>,
+): string {
   return pathSegments
     .map((segment, index) =>
       isNumber(segment)
@@ -419,7 +421,7 @@ function readLeaf(
   if (!isRecord(groupValue)) {
     return { present: false, raw: undefined };
   }
-  if (!Object.prototype.hasOwnProperty.call(groupValue, key)) {
+  if (!Object.hasOwn(groupValue, key)) {
     return { present: false, raw: undefined };
   }
   return { present: true, raw: groupValue[key] };
@@ -433,11 +435,11 @@ function resolveInterpolatedString(
 ): string {
   try {
     return interpolateString(raw, env);
-  } catch (err) {
-    if (err instanceof InterpolationError) {
-      throw new InstanceConfigError(`${configPath}: ${err.message}`);
+  } catch (error) {
+    if (error instanceof InterpolationError) {
+      throw new InstanceConfigError(`${configPath}: ${error.message}`);
     }
-    throw err;
+    throw error;
   }
 }
 
@@ -569,7 +571,7 @@ function requireResolvedNumber(
   return value;
 }
 
-function isStringArray(value: unknown): value is string[] {
+function isStringArray(value: unknown): value is Array<string> {
   return Array.isArray(value) && value.every(isString);
 }
 
@@ -631,7 +633,7 @@ function resolveToolAllowlist(opts: {
   present: boolean;
   raw: unknown;
   configuredMcpServerIds: ReadonlySet<string>;
-}): readonly string[] {
+}): ReadonlyArray<string> {
   const { configPath, present, raw, configuredMcpServerIds } = opts;
   if (!present) {
     return BUILT_IN_DEFAULTS.tools.allowed;
@@ -655,7 +657,7 @@ const TRANSPORT_OWNED_MCP_HEADERS = new Set([
 ]);
 
 function asciiCaseFold(value: string): string {
-  return value.replace(/[A-Z]/gu, (letter) => letter.toLowerCase());
+  return value.replaceAll(/[A-Z]/gu, (letter) => letter.toLowerCase());
 }
 
 function resolveRemoteMcpServer(
@@ -732,7 +734,7 @@ function resolvePrivateMcpValue(
   raw: string,
   configPath: string,
   env: NodeJS.ProcessEnv,
-): { value: string; substituted: readonly string[] } {
+): { value: string; substituted: ReadonlyArray<string> } {
   try {
     return interpolateStringWithSubstitutions(raw, env);
   } catch (error) {
@@ -756,7 +758,7 @@ function resolveStdioServer(
   entry: Extract<RawMcpServerEntry, { type: 'stdio' }>,
   env: NodeJS.ProcessEnv,
 ): McpStdioServerConfig {
-  const protectedValues: string[] = [];
+  const protectedValues: Array<string> = [];
   const take = (raw: string, configPath: string): string => {
     const { value, substituted } = resolvePrivateMcpValue(raw, configPath, env);
     protectedValues.push(...substituted);
@@ -884,7 +886,7 @@ function resolveWorkerProfiles(raw: RawInstanceConfig | undefined) {
 function resolveProviders(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
-): ProviderConfig[] {
+): Array<ProviderConfig> {
   const entries = raw?.providers ?? [];
   const seenIds = new Set<string>();
 
@@ -1045,7 +1047,7 @@ function resolveModels(
   env: NodeJS.ProcessEnv,
   providerIds: ReadonlySet<string>,
   promptLoader: ReturnType<typeof createModelPromptLoader>,
-): SystemModelCatalogEntry[] {
+): Array<SystemModelCatalogEntry> {
   const entries = raw?.models ?? [];
   const context: ModelResolutionContext = {
     env,
@@ -1140,7 +1142,7 @@ function resolveEmbeddingModels(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
   providerIds: ReadonlySet<string>,
-): EmbeddingModelCatalogEntry[] {
+): Array<EmbeddingModelCatalogEntry> {
   const entries = raw?.embeddingModels ?? [];
   const seenIds = new Set<string>();
 

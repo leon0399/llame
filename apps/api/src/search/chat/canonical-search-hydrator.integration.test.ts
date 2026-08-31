@@ -32,7 +32,7 @@ type SqlClient = ReturnType<typeof postgres>;
 
 type SeedMessage = {
   role: 'user' | 'assistant' | 'system' | 'tool';
-  parts: unknown[];
+  parts: Array<unknown>;
   usage?: unknown;
 };
 
@@ -47,10 +47,10 @@ describeIfDb('canonical search hydration', () => {
 
   async function seedChat(
     ownerUserId: string,
-    seedMessages: readonly SeedMessage[],
-  ): Promise<{ chatId: string; messageIds: string[] }> {
+    seedMessages: ReadonlyArray<SeedMessage>,
+  ): Promise<{ chatId: string; messageIds: Array<string> }> {
     const chatId = crypto.randomUUID();
-    const messageIds: string[] = [];
+    const messageIds: Array<string> = [];
     await tenantDb.runAs(ownerUserId, async (tx) => {
       const chats = new ChatsRepository(tx);
       const messages = new MessagesRepository(tx);
@@ -76,7 +76,7 @@ describeIfDb('canonical search hydration', () => {
   async function documentIdsAs(
     ownerUserId: string,
     chatId: string,
-  ): Promise<string[]> {
+  ): Promise<Array<string>> {
     const rows = await tenantDb.runAs(ownerUserId, (tx) =>
       tx.execute<{ id: string }>(sql`
         SELECT id

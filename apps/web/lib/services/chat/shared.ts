@@ -35,7 +35,7 @@ export type SharedChat = {
   // null = untitled (server-side generation pending, #78); render a localized
   // placeholder client-side — same convention as the authenticated chat list.
   title: string | null;
-  messages: SharedChatMessage[];
+  messages: Array<SharedChatMessage>;
 };
 
 export async function fetchSharedChat(

@@ -41,8 +41,8 @@ function validateKnowledgeSpaceListLimit(limit: number | undefined): number {
  *  exists — a longer `rows` than `page`, not `page`'s own length, is what a
  *  `nextCursor` is built from. */
 function nextKnowledgeSpaceCursor(
-  rows: KnowledgeSpace[],
-  page: KnowledgeSpace[],
+  rows: Array<KnowledgeSpace>,
+  page: Array<KnowledgeSpace>,
 ): string | null {
   if (rows.length <= page.length) return null;
   const last = page[page.length - 1];
@@ -120,7 +120,7 @@ export class KnowledgeSpaceService {
       after?: string;
     } = {},
   ): Promise<{
-    items: KnowledgeSpaceApiProjection[];
+    items: Array<KnowledgeSpaceApiProjection>;
     nextCursor: string | null;
   }> {
     const limit = validateKnowledgeSpaceListLimit(options.limit);

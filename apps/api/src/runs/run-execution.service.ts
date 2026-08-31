@@ -82,7 +82,7 @@ type AssistantTurnTelemetry = TurnTelemetry & { runId: string };
 type AssistantTurnPersistence = {
   chatId: string;
   inReplyTo: string;
-  parts: MessagePart[];
+  parts: Array<MessagePart>;
   telemetry?: AssistantTurnTelemetry;
 };
 
@@ -95,7 +95,7 @@ type PreparedExecutionContext = {
   system: string;
   messages: ReturnType<typeof buildContext>['messages'];
   untitled: boolean;
-  toolDeclarations: ModelToolDeclaration[];
+  toolDeclarations: Array<ModelToolDeclaration>;
   tools: Awaited<ReturnType<typeof resolveBoundExecutableTools>>;
 };
 
@@ -145,7 +145,7 @@ export function classifyAbortedRun(
 export type RunUserMessage = {
   id: string;
   seq: number;
-  parts: MessagePart[];
+  parts: Array<MessagePart>;
 };
 
 type TerminalRunStatus = Extract<

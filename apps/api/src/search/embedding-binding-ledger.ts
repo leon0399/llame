@@ -53,8 +53,8 @@ export async function findEmbeddingBinding(tx: Db, modelKey: string) {
  */
 export async function listUndeclaredBindingKeys(
   tx: Db,
-  declaredKeys: readonly string[],
-): Promise<string[]> {
+  declaredKeys: ReadonlyArray<string>,
+): Promise<Array<string>> {
   const rows = await tx
     .select({ modelKey: embeddingModelBindings.modelKey })
     .from(embeddingModelBindings);

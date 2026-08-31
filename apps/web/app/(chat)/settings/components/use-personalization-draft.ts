@@ -21,11 +21,11 @@ export type Draft = Pick<
 /** `Object.keys` typed to the object's own key union — TS's lib type widens to `string[]`. */
 export function typedKeys(
   obj: Draft | typeof PERSONALIZATION_CAPS,
-): PersonalizationTextField[] {
+): Array<PersonalizationTextField> {
   // SAFETY: `Draft` and `PERSONALIZATION_CAPS` are both declared object types
   // (no index signature) whose only keys are `PersonalizationTextField`;
   // `Object.keys` just doesn't encode that in its return type.
-  return Object.keys(obj) as PersonalizationTextField[];
+  return Object.keys(obj) as Array<PersonalizationTextField>;
 }
 
 const toDraft = (value: Personalization): Draft => ({

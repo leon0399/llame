@@ -56,9 +56,9 @@ function pinKey(itemType: PinItemType, itemId: string): string {
 
 /** Validate a full-set reorder and plan collision-free temporary/final writes. */
 export function planPinReorder(
-  existing: readonly PositionedPinOrderItem[],
-  ordered: readonly PinOrderItem[],
-): PositionedPinOrderItem[] {
+  existing: ReadonlyArray<PositionedPinOrderItem>,
+  ordered: ReadonlyArray<PinOrderItem>,
+): Array<PositionedPinOrderItem> {
   if (ordered.length !== existing.length) {
     throw new PinReorderMismatchError();
   }
@@ -95,7 +95,7 @@ export class PinsRepository {
    * each hydrated with its item's card. A pin whose item does not hydrate under
    * RLS (deleted / inaccessible) is omitted.
    */
-  async listWithCards(userId: string): Promise<PinnedRow[]> {
+  async listWithCards(userId: string): Promise<Array<PinnedRow>> {
     const rows = await this.db
       .select()
       .from(pins)
@@ -158,7 +158,7 @@ export class PinsRepository {
 
   /** Chat cards for `ids`, keyed by chat id. */
   private async chatCardsById(
-    ids: readonly string[],
+    ids: ReadonlyArray<string>,
   ): Promise<Map<string, { title: string | null; archivedAt: Date | null }>> {
     if (ids.length === 0) return new Map();
     const cards = await this.db
@@ -176,7 +176,7 @@ export class PinsRepository {
 
   /** Project cards for `ids`, keyed by project id. */
   private async projectCardsById(
-    ids: readonly string[],
+    ids: ReadonlyArray<string>,
   ): Promise<Map<string, { name: string; archivedAt: Date | null }>> {
     if (ids.length === 0) return new Map();
     const cards = await this.db
@@ -252,8 +252,8 @@ export class PinsRepository {
    */
   async reorder(
     userId: string,
-    ordered: readonly PinOrderItem[],
-  ): Promise<PinnedRow[]> {
+    ordered: ReadonlyArray<PinOrderItem>,
+  ): Promise<Array<PinnedRow>> {
     const existing = await this.db
       .select({
         itemType: pins.itemType,
@@ -296,7 +296,7 @@ export class PinsRepository {
    * RLS session — the same drop rule as `listWithCards`.
    */
   private async hydratablePinKeys(
-    rows: readonly PinOrderItem[],
+    rows: ReadonlyArray<PinOrderItem>,
   ): Promise<Set<string>> {
     if (rows.length === 0) return new Set();
 

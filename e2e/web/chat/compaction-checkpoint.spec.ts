@@ -31,8 +31,8 @@ const ANSWER = "Mocked answer from the e2e model server.";
 const SEEDED_SUMMARY =
   "E2E-seeded summary: the user asked about the project roadmap and the assistant outlined next steps.";
 const SEEDED_USAGE = {
-  inputTokens: 71400,
-  outputTokens: 12800,
+  inputTokens: 71_400,
+  outputTokens: 12_800,
   modelId: "e2e-mock",
 };
 
@@ -129,7 +129,7 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
         await checkpoint.click();
       }
       await expect(page.getByText("Compaction result")).toBeVisible({
-        timeout: 2_000,
+        timeout: 2000,
       });
     }).toPass({ timeout: 15_000 });
     await expect(

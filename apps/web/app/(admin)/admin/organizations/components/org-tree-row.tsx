@@ -167,7 +167,7 @@ function rowActions({
   onRename,
   onMove,
   onDelete,
-}: TreeRowActionsProps): RowActionButtonProps[] {
+}: TreeRowActionsProps): Array<RowActionButtonProps> {
   return [
     {
       icon: FolderPlusIcon,
@@ -306,7 +306,7 @@ function TreeRowLeading({
   unitName,
   onToggle,
 }: {
-  guides: GuideKind[];
+  guides: Array<GuideKind>;
   hasChildren: boolean;
   open: boolean;
   unitName: string;

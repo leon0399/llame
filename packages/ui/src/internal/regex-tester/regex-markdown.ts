@@ -22,21 +22,21 @@ type HastPropertyValue = boolean | number | string;
 
 type HastNode =
   | { type: "text"; value: string }
-  | { type: "root"; children: HastNode[] }
+  | { type: "root"; children: Array<HastNode> }
   | {
       type: "element";
       tagName: string;
-      properties: Record<string, HastPropertyValue | HastPropertyValue[]>;
-      children: HastNode[];
+      properties: Record<string, HastPropertyValue | Array<HastPropertyValue>>;
+      children: Array<HastNode>;
     };
 
 type MdNode = {
   type: string;
   value?: string;
-  children?: MdNode[];
+  children?: Array<MdNode>;
   data?: {
     hName?: string;
-    hChildren?: HastNode[];
+    hChildren?: Array<HastNode>;
   };
   position?: { start: { offset?: number }; end: { offset?: number } };
 };
@@ -117,7 +117,7 @@ const isRewritable = (candidate: RegexCandidate): boolean =>
  * Detection must see the source, not `value`: CommonMark resolves escapes
  * while parsing (`\.` becomes `.`), which would silently alter a pattern.
  */
-const splitTextNode = (raw: string): MdNode[] | undefined => {
+const splitTextNode = (raw: string): Array<MdNode> | undefined => {
   const candidates = findRegexCandidates(raw).filter(isRewritable);
 
   if (candidates.length === 0) {
@@ -179,7 +179,7 @@ const innerEnd = (node: MdNode): number | undefined => {
 };
 
 /** Source spans of every `text` descendant, in document order. */
-const collectTextSpans = (node: MdNode, out: Span[]): void => {
+const collectTextSpans = (node: MdNode, out: Array<Span>): void => {
   if (node.type === "text") {
     const span = nodeSpan(node);
 
@@ -204,7 +204,11 @@ const collectTextSpans = (node: MdNode, out: Span[]): void => {
  * pair, a `` ` `` — and re-emitting it would surface delimiters the author
  * never typed as literal ones while losing the structure they did.
  */
-const isTextOnly = (from: number, to: number, textSpans: Span[]): boolean => {
+const isTextOnly = (
+  from: number,
+  to: number,
+  textSpans: Array<Span>,
+): boolean => {
   let cursor = from;
 
   for (const span of textSpans) {
@@ -232,7 +236,7 @@ const isTextOnly = (from: number, to: number, textSpans: Span[]): boolean => {
  * protected descendant has no position (synthesized, e.g. by the math
  * rewrite) — its span is unknowable, so the source-level pass must not run.
  */
-const collectProtectedSpans = (node: MdNode, out: Span[]): boolean => {
+const collectProtectedSpans = (node: MdNode, out: Array<Span>): boolean => {
   for (const child of node.children ?? []) {
     if (PROTECTED_TYPES.has(child.type)) {
       const span = nodeSpan(child);
@@ -270,8 +274,8 @@ const rewriteInlineCodeDeep = (node: MdNode): void => {
  * position is unknown — the whole source-level rewrite must then bail.
  */
 function drainQueueBefore(
-  queue: MdNode[],
-  rebuilt: MdNode[],
+  queue: Array<MdNode>,
+  rebuilt: Array<MdNode>,
   boundary: number,
 ): boolean {
   while (queue.length > 0) {
@@ -293,7 +297,11 @@ function drainQueueBefore(
   return true;
 }
 
-type OverlappingRun = { run: MdNode[]; runStart?: number; runEnd?: number };
+type OverlappingRun = {
+  run: Array<MdNode>;
+  runStart?: number;
+  runEnd?: number;
+};
 
 /**
  * Collects (and removes from `queue`) the run of children starting before
@@ -305,10 +313,10 @@ type OverlappingRun = { run: MdNode[]; runStart?: number; runEnd?: number };
  * position is unknown — the whole source-level rewrite must then bail.
  */
 function collectOverlappingRun(
-  queue: MdNode[],
+  queue: Array<MdNode>,
   boundary: number,
 ): OverlappingRun | null {
-  const run: MdNode[] = [];
+  const run: Array<MdNode> = [];
   let runStart: number | undefined;
   let runEnd: number | undefined;
 
@@ -338,11 +346,11 @@ function collectOverlappingRun(
 
 type FlattenRunArgs = {
   candidate: RegexCandidate;
-  run: MdNode[];
+  run: Array<MdNode>;
   runStart: number;
   runEnd: number;
-  rebuilt: MdNode[];
-  queue: MdNode[];
+  rebuilt: Array<MdNode>;
+  queue: Array<MdNode>;
   source: string;
 };
 
@@ -369,7 +377,7 @@ function flattenRun({
   // would print the nested delimiters as literal asterisks while dropping
   // the outer closing one. Leaving the candidate alone costs an underline;
   // rewriting it would silently change what the message says.
-  const textSpans: Span[] = [];
+  const textSpans: Array<Span> = [];
 
   for (const node of run) {
     collectTextSpans(node, textSpans);
@@ -414,8 +422,8 @@ function flattenRun({
  */
 function applyCandidateToQueue(
   candidate: RegexCandidate,
-  queue: MdNode[],
-  rebuilt: MdNode[],
+  queue: Array<MdNode>,
+  rebuilt: Array<MdNode>,
   source: string,
 ): boolean {
   if (!drainQueueBefore(queue, rebuilt, candidate.start)) {
@@ -461,7 +469,7 @@ const rewritePhrasingFromSource = (node: MdNode, source: string): boolean => {
     return true;
   }
 
-  const protectedSpans: Span[] = [];
+  const protectedSpans: Array<Span> = [];
 
   if (!collectProtectedSpans(node, protectedSpans)) {
     return false;
@@ -487,7 +495,7 @@ const rewritePhrasingFromSource = (node: MdNode, source: string): boolean => {
   }
 
   const queue = [...(node.children ?? [])];
-  const rebuilt: MdNode[] = [];
+  const rebuilt: Array<MdNode> = [];
 
   for (const candidate of candidates) {
     if (!applyCandidateToQueue(candidate, queue, rebuilt, source)) {
@@ -511,7 +519,7 @@ const rewriteChildrenByValue = (node: MdNode): void => {
     return;
   }
 
-  const rewritten: MdNode[] = [];
+  const rewritten: Array<MdNode> = [];
   let changed = false;
 
   for (const child of children) {
@@ -607,7 +615,7 @@ const rewriteHastNode = (node: HastNode): void => {
   }
 
   const children = node.children;
-  const rewritten: HastNode[] = [];
+  const rewritten: Array<HastNode> = [];
   let changed = false;
 
   for (const child of children) {

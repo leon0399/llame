@@ -105,7 +105,7 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
-    queryClient.setQueryData<PinnedItem[]>(pinQueryKeys.list(), []);
+    queryClient.setQueryData<Array<PinnedItem>>(pinQueryKeys.list(), []);
 
     const { result } = renderHook(() => usePinItem(), {
       wrapper: wrapper(queryClient),
@@ -118,7 +118,7 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
     });
 
     await waitFor(() => {
-      const cached = queryClient.getQueryData<PinnedItem[]>(
+      const cached = queryClient.getQueryData<Array<PinnedItem>>(
         pinQueryKeys.list(),
       );
       expect(cached?.[0]).toMatchObject({
@@ -135,7 +135,7 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
-    queryClient.setQueryData<PinnedItem[]>(pinQueryKeys.list(), []);
+    queryClient.setQueryData<Array<PinnedItem>>(pinQueryKeys.list(), []);
 
     const { result } = renderHook(() => usePinItem(), {
       wrapper: wrapper(queryClient),
@@ -149,9 +149,9 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(toastErrorSpy).toHaveBeenCalledWith("Couldn't pin the project.");
-    expect(queryClient.getQueryData<PinnedItem[]>(pinQueryKeys.list())).toEqual(
-      [],
-    );
+    expect(
+      queryClient.getQueryData<Array<PinnedItem>>(pinQueryKeys.list()),
+    ).toEqual([]);
   });
 });
 
@@ -167,7 +167,9 @@ describe("useUnpinItem", () => {
       pinnedAt: "2026-01-01T00:00:00.000Z",
       item: { id: "c1", title: "My chat", archivedAt: null },
     };
-    queryClient.setQueryData<PinnedItem[]>(pinQueryKeys.list(), [existing]);
+    queryClient.setQueryData<Array<PinnedItem>>(pinQueryKeys.list(), [
+      existing,
+    ]);
 
     const { result } = renderHook(() => useUnpinItem(), {
       wrapper: wrapper(queryClient),
@@ -177,7 +179,7 @@ describe("useUnpinItem", () => {
 
     await waitFor(() =>
       expect(
-        queryClient.getQueryData<PinnedItem[]>(pinQueryKeys.list()),
+        queryClient.getQueryData<Array<PinnedItem>>(pinQueryKeys.list()),
       ).toEqual([]),
     );
   });
@@ -219,7 +221,10 @@ describe("useReorderPins", () => {
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
-    queryClient.setQueryData<PinnedItem[]>(pinQueryKeys.list(), [pinA, pinB]);
+    queryClient.setQueryData<Array<PinnedItem>>(pinQueryKeys.list(), [
+      pinA,
+      pinB,
+    ]);
 
     const { result } = renderHook(() => useReorderPins(), {
       wrapper: wrapper(queryClient),
@@ -229,7 +234,7 @@ describe("useReorderPins", () => {
 
     await waitFor(() =>
       expect(
-        queryClient.getQueryData<PinnedItem[]>(pinQueryKeys.list()),
+        queryClient.getQueryData<Array<PinnedItem>>(pinQueryKeys.list()),
       ).toEqual([pinB, pinA]),
     );
   });
@@ -246,7 +251,10 @@ describe("useReorderPins", () => {
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
-    queryClient.setQueryData<PinnedItem[]>(pinQueryKeys.list(), [pinA, pinB]);
+    queryClient.setQueryData<Array<PinnedItem>>(pinQueryKeys.list(), [
+      pinA,
+      pinB,
+    ]);
 
     const { result } = renderHook(() => useReorderPins(), {
       wrapper: wrapper(queryClient),
@@ -261,7 +269,7 @@ describe("useReorderPins", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await waitFor(() =>
       expect(
-        queryClient.getQueryData<PinnedItem[]>(pinQueryKeys.list()),
+        queryClient.getQueryData<Array<PinnedItem>>(pinQueryKeys.list()),
       ).toEqual([pinB, pinA]),
     );
     const secondRequest = requestFromCall(fetchMock, 1);

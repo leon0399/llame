@@ -57,7 +57,7 @@ export type OwnerWriteResult = {
   /** Owners whose write rejected; empty on a fully successful run. A
    *  non-empty result must be treated as a failed command — see this
    *  file's header — never folded into a lower `total`/`affectedOwners`. */
-  failures: OwnerWriteFailure[];
+  failures: Array<OwnerWriteFailure>;
 };
 
 const CONCURRENCY = 20;
@@ -69,12 +69,12 @@ const CONCURRENCY = 20;
  * the fully-bound "do the write for this one owner" callback.
  */
 export async function runOwnerBatches(
-  ownerIds: readonly string[],
+  ownerIds: ReadonlyArray<string>,
   runAsOwner: (ownerId: string) => Promise<{ count: number }>,
 ): Promise<OwnerWriteResult> {
   let total = 0;
   let affectedOwners = 0;
-  const failures: OwnerWriteFailure[] = [];
+  const failures: Array<OwnerWriteFailure> = [];
   for (let i = 0; i < ownerIds.length; i += CONCURRENCY) {
     const batch = ownerIds.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(

@@ -159,13 +159,13 @@ export function useUpdateOrgUnit() {
     mutationFn: updateOrgUnit,
     onMutate: async (variables) => {
       await queryClient.cancelQueries({ queryKey: orgUnitsQueryKeys.lists() });
-      const previousLists = queryClient.getQueryData<OrgUnitResponse[]>(
+      const previousLists = queryClient.getQueryData<Array<OrgUnitResponse>>(
         orgUnitsQueryKeys.lists(),
       );
       // Untouched when the list was never fetched (e.g. mutating before the
       // query mounted) — nothing to patch, and nothing to roll back later.
       if (previousLists) {
-        queryClient.setQueryData<OrgUnitResponse[]>(
+        queryClient.setQueryData<Array<OrgUnitResponse>>(
           orgUnitsQueryKeys.lists(),
           previousLists.map((unit) => applyOrgUnitPatch(unit, variables)),
         );
@@ -207,7 +207,7 @@ export function useDeleteOrgUnit() {
     mutationFn: deleteOrgUnit,
     onMutate: async (orgUnitId) => {
       await queryClient.cancelQueries({ queryKey: orgUnitsQueryKeys.lists() });
-      const previousLists = queryClient.getQueryData<OrgUnitResponse[]>(
+      const previousLists = queryClient.getQueryData<Array<OrgUnitResponse>>(
         orgUnitsQueryKeys.lists(),
       );
       if (previousLists) {
@@ -215,7 +215,7 @@ export function useDeleteOrgUnit() {
         // the API enforces leaf-first delete (D4/task 4.1 — a unit with
         // children 409s HAS_CHILDREN), so a unit that reaches this mutation
         // is guaranteed to have no descendants left dangling in the cache.
-        queryClient.setQueryData<OrgUnitResponse[]>(
+        queryClient.setQueryData<Array<OrgUnitResponse>>(
           orgUnitsQueryKeys.lists(),
           previousLists.filter((unit) => unit.id !== orgUnitId),
         );
@@ -305,17 +305,17 @@ export async function changeMembershipRole(
 async function cancelAndSnapshotMemberships(
   queryClient: QueryClient,
   orgUnitId: string,
-): Promise<MembershipResponse[] | undefined> {
+): Promise<Array<MembershipResponse> | undefined> {
   const key = orgUnitsQueryKeys.memberships(orgUnitId);
   await queryClient.cancelQueries({ queryKey: key });
-  return queryClient.getQueryData<MembershipResponse[]>(key);
+  return queryClient.getQueryData<Array<MembershipResponse>>(key);
 }
 
 /** Shared onError rollback for both membership hooks below. */
 function rollbackMemberships(
   queryClient: QueryClient,
   orgUnitId: string,
-  previousMemberships: MembershipResponse[] | undefined,
+  previousMemberships: Array<MembershipResponse> | undefined,
 ): void {
   if (previousMemberships) {
     queryClient.setQueryData(
@@ -334,7 +334,7 @@ async function onMutateChangeMembershipRole(
     variables.orgUnitId,
   );
   if (previousMemberships) {
-    queryClient.setQueryData<MembershipResponse[]>(
+    queryClient.setQueryData<Array<MembershipResponse>>(
       orgUnitsQueryKeys.memberships(variables.orgUnitId),
       previousMemberships.map((membership) =>
         membership.userId === variables.userId
@@ -398,7 +398,7 @@ async function onMutateRevokeMembership(
     variables.orgUnitId,
   );
   if (previousMemberships) {
-    queryClient.setQueryData<MembershipResponse[]>(
+    queryClient.setQueryData<Array<MembershipResponse>>(
       orgUnitsQueryKeys.memberships(variables.orgUnitId),
       previousMemberships.filter(
         (membership) => membership.userId !== variables.userId,

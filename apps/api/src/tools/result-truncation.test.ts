@@ -22,7 +22,7 @@ function isWellFormed(value: string): boolean {
   return !LONE_SURROGATE_PATTERN.test(value);
 }
 
-function stringLeaves(value: unknown): string[] {
+function stringLeaves(value: unknown): Array<string> {
   if (isString(value)) return [value];
   if (Array.isArray(value)) return value.flatMap(stringLeaves);
   if (isRecord(value)) {
@@ -146,7 +146,7 @@ describe('truncateOversizedResult', () => {
   it('drops the tail of an oversized array, keeping its element shape', () => {
     const result = truncateOversizedResult({
       status: 'success',
-      results: Array.from({ length: 5_000 }, (_entry, index) => ({
+      results: Array.from({ length: 5000 }, (_entry, index) => ({
         chatId: `chat-${index}`,
         title: `conversation ${index}`,
       })),
@@ -159,7 +159,7 @@ describe('truncateOversizedResult', () => {
       .parse(result).results;
     expect(Array.isArray(rows)).toBe(true);
     expect(rows.length).toBeGreaterThan(0);
-    expect(rows.length).toBeLessThan(5_000);
+    expect(rows.length).toBeLessThan(5000);
     expect(rows[0]).toEqual({ chatId: 'chat-0', title: 'conversation 0' });
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
@@ -167,7 +167,7 @@ describe('truncateOversizedResult', () => {
   it('states how much of a shortened list survived', () => {
     const result = truncateOversizedResult({
       status: 'success',
-      results: Array.from({ length: 5_000 }, (_entry, index) => ({
+      results: Array.from({ length: 5000 }, (_entry, index) => ({
         chatId: `chat-${index}`,
         title: `conversation ${index}`,
       })),
@@ -187,7 +187,7 @@ describe('truncateOversizedResult', () => {
       status: 'success',
       output: {
         pages: [
-          { lines: Array.from({ length: 4_000 }, (_e, i) => `line ${i}`) },
+          { lines: Array.from({ length: 4000 }, (_e, i) => `line ${i}`) },
         ],
       },
     });
@@ -199,15 +199,15 @@ describe('truncateOversizedResult', () => {
   });
 
   it('names the biggest lists and summarizes the rest', () => {
-    const list = (length: number): string[] =>
+    const list = (length: number): Array<string> =>
       Array.from({ length }, (_entry, index) => `value ${index}`);
     const result = truncateOversizedResult({
       status: 'success',
-      a: list(9_000),
-      b: list(8_000),
-      c: list(7_000),
-      d: list(6_000),
-      e: list(5_000),
+      a: list(9000),
+      b: list(8000),
+      c: list(7000),
+      d: list(6000),
+      e: list(5000),
     });
 
     const notice = z
@@ -275,7 +275,7 @@ describe('truncateOversizedResult', () => {
 
   it('holds the cap for a payload made of many small values', () => {
     const rows = Object.fromEntries(
-      Array.from({ length: 4_000 }, (_entry, index) => [`key-${index}`, index]),
+      Array.from({ length: 4000 }, (_entry, index) => [`key-${index}`, index]),
     );
     const result = truncateOversizedResult({ status: 'success', rows });
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
@@ -286,7 +286,7 @@ describe('truncateOversizedResult', () => {
     // with every value already emptied. The cap outranks the shape here, and
     // the marker says how much shape was given up.
     const payload = Object.fromEntries(
-      Array.from({ length: 4_000 }, (_entry, index) => [
+      Array.from({ length: 4000 }, (_entry, index) => [
         `field-number-${index}`,
         `value ${index}`,
       ]),

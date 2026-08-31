@@ -49,14 +49,14 @@ type CappedValue =
   | boolean
   | null
   | undefined
-  | CappedValue[]
+  | Array<CappedValue>
   | { [key: string]: CappedValue };
 
 /** The part of `capRecord`/`capValues`' recursion that never changes per
  * call — only `path` does, so it stays a separate argument. */
 interface CapContext {
   readonly limit: number;
-  readonly lists: ShortenedList[];
+  readonly lists: Array<ShortenedList>;
   readonly keepAllEntries: boolean;
 }
 
@@ -117,7 +117,7 @@ function capValues(value: unknown, ctx: CapContext, path = ''): CappedValue {
  * Name the biggest shortened lists, then summarize the rest — a payload of
  * many small lists would otherwise spend the whole cap on its own marker.
  */
-function shortenedListPhrase(lists: readonly ShortenedList[]): string {
+function shortenedListPhrase(lists: ReadonlyArray<ShortenedList>): string {
   if (lists.length === 0) return '';
   const ranked = [...lists].sort(
     (left, right) => right.total - right.kept - (left.total - left.kept),
@@ -143,7 +143,7 @@ function omittedFieldPhrase(
 
 function truncationNotice(
   omittedChars: number,
-  lists: readonly ShortenedList[],
+  lists: ReadonlyArray<ShortenedList>,
   omittedFields: number,
   totalFields: number,
 ): string {
@@ -211,7 +211,7 @@ function buildTruncatedResult(
   limit: number,
   keepAllFields: boolean,
 ): ToolResult {
-  const lists: ShortenedList[] = [];
+  const lists: Array<ShortenedList> = [];
   const capped = capRecord(
     source.payload,
     { limit, lists, keepAllEntries: keepAllFields },

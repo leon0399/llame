@@ -93,7 +93,7 @@ export class KnowledgeSpaceResponse {
 
 export class KnowledgeSpaceCollectionResponse {
   @ApiProperty({ type: () => [KnowledgeSpaceResponse] })
-  items!: KnowledgeSpaceResponse[];
+  items!: Array<KnowledgeSpaceResponse>;
 
   @ApiProperty({ type: String, nullable: true })
   nextCursor!: string | null;
@@ -125,7 +125,7 @@ export function toKnowledgeSpaceResponse(
 }
 
 export function toKnowledgeSpaceCollectionResponse(input: {
-  items: KnowledgeSpaceApiProjection[];
+  items: Array<KnowledgeSpaceApiProjection>;
   nextCursor: string | null;
 }): KnowledgeSpaceCollectionResponse {
   return {

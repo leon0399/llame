@@ -72,14 +72,14 @@ export type RecoveryTransition = {
 
 export interface ToolAvailabilityPayload extends UnknownRecord {
   readonly kind: 'initial' | 'delta';
-  readonly added: readonly string[];
-  readonly removed: readonly string[];
-  readonly unavailable: readonly UnavailableTransition[];
-  readonly becameUnavailable: readonly UnavailableTransition[];
-  readonly nowAvailable: readonly RecoveryTransition[];
+  readonly added: ReadonlyArray<string>;
+  readonly removed: ReadonlyArray<string>;
+  readonly unavailable: ReadonlyArray<UnavailableTransition>;
+  readonly becameUnavailable: ReadonlyArray<UnavailableTransition>;
+  readonly nowAvailable: ReadonlyArray<RecoveryTransition>;
 }
 
-function isSortedToolIdArray(value: unknown): value is string[] {
+function isSortedToolIdArray(value: unknown): value is Array<string> {
   if (!Array.isArray(value)) return false;
   let previous: string | undefined;
   for (const id of value) {
@@ -97,7 +97,7 @@ function isSortedToolIdArray(value: unknown): value is string[] {
 
 function isReasonEntries<TReason extends string>(
   value: unknown,
-  reasons: readonly TReason[],
+  reasons: ReadonlyArray<TReason>,
 ): value is Array<{ id: string; reason: TReason }> {
   if (!Array.isArray(value)) return false;
   let previous: string | undefined;
@@ -252,11 +252,11 @@ function deriveInitialToolAvailabilityPayload(
 }
 
 type ToolTransitionBuckets = {
-  added: string[];
-  removed: string[];
-  unavailable: UnavailableTransition[];
-  becameUnavailable: UnavailableTransition[];
-  nowAvailable: RecoveryTransition[];
+  added: Array<string>;
+  removed: Array<string>;
+  unavailable: Array<UnavailableTransition>;
+  becameUnavailable: Array<UnavailableTransition>;
+  nowAvailable: Array<RecoveryTransition>;
 };
 
 /** Classify one id's before/after state and push it into its transition bucket. */
@@ -319,14 +319,14 @@ function deriveToolAvailabilityDelta(
   return { kind: 'delta', ...buckets };
 }
 
-function renderIds(ids: readonly string[]): string[] {
+function renderIds(ids: ReadonlyArray<string>): Array<string> {
   return ids.map((id) => `- \`${id}\``);
 }
 
 function renderReasons<TReason extends string>(
-  entries: readonly { id: string; reason: TReason }[],
+  entries: ReadonlyArray<{ id: string; reason: TReason }>,
   labels: Readonly<Record<TReason, string>>,
-): string[] {
+): Array<string> {
   return entries.map(({ id, reason }) => `- \`${id}\`: "${labels[reason]}"`);
 }
 
@@ -336,7 +336,7 @@ function renderToolAvailability(payload: ToolAvailabilityPayload): string {
       ? 'Some eligible tools are unavailable for this turn:'
       : 'The available tools were changed since the last turn:',
   ];
-  const groups: Array<[string, string[]]> = [
+  const groups: Array<[string, Array<string>]> = [
     ['Added tools:', renderIds(payload.added)],
     ['Removed tools:', renderIds(payload.removed)],
     [

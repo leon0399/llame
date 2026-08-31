@@ -16,7 +16,7 @@ import { isRecord, type UnknownRecord } from '../unknown-record';
 
 export function isExactRecord(
   value: unknown,
-  expectedKeys: readonly string[],
+  expectedKeys: ReadonlyArray<string>,
 ): value is UnknownRecord {
   return (
     isRecord(value) &&

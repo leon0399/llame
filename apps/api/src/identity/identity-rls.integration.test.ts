@@ -71,7 +71,7 @@ describeIfDb(
         [memberId, 'Team Member'],
         [strangerId, 'Stranger'],
       ] as const) {
-        await sql`INSERT INTO users (id, name, email) VALUES (${id}, ${name}, ${`${name.replace(/\s/g, '-').toLowerCase()}-${id}@test.com`})`;
+        await sql`INSERT INTO users (id, name, email) VALUES (${id}, ${name}, ${`${name.replaceAll(/\s/g, '-').toLowerCase()}-${id}@test.com`})`;
       }
     });
 

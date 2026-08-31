@@ -35,7 +35,7 @@ export class ProjectsRepository {
       pinned?: 'only' | 'with' | 'exclude';
       archived?: 'only' | 'with';
     } = {},
-  ): Promise<Project[]> {
+  ): Promise<Array<Project>> {
     const conditions = [eq(projects.ownerUserId, ownerUserId)];
 
     if (filter.archived === 'only') {

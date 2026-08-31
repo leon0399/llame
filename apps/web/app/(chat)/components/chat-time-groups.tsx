@@ -29,7 +29,7 @@ export const chatGroupTitles = {
 type ChatRowProps = {
   selectedChatId?: string | null;
   /** For the rows' "Add to project" submenu. */
-  projects: ProjectResponse[];
+  projects: Array<ProjectResponse>;
   /**
    * A row's "New project" submenu action: the caller owns ONE shared
    * CreateProjectForChatDialog and files the requesting chat on create.
@@ -51,7 +51,7 @@ function ChatTimeGroup({
   rowProps,
 }: {
   period: ChatGroupPeriod;
-  chats: ChatResponse[];
+  chats: Array<ChatResponse>;
   rowProps: ChatRowProps;
 }) {
   return (
@@ -97,7 +97,7 @@ export function ChatTimeGroups({
   onRequestNewProject,
   pinnedAtByChatId,
 }: {
-  chats: ChatResponse[];
+  chats: Array<ChatResponse>;
 } & ChatRowProps) {
   const groupedChats = React.useMemo(
     () => groupChatsByTimePeriod(chats),

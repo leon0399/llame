@@ -184,7 +184,7 @@ export class ContextReceiptResponse {
   systemPrompt!: string;
 
   @ApiProperty({ type: () => [ContextReceiptToolResponse] })
-  tools!: ContextReceiptToolResponse[];
+  tools!: Array<ContextReceiptToolResponse>;
 
   @ApiProperty()
   availabilityHash!: string;

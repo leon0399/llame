@@ -44,7 +44,7 @@ type ChatSubmitHandlersArgs = {
 // window the last message is the user turn (no run id yet) → just stop().
 // Split out of `useChatActions` as a plain factory — it calls no hooks.
 function createHandleStop(
-  messages: UIMessage[],
+  messages: Array<UIMessage>,
   stop: ReturnType<typeof useChat>["stop"],
 ) {
   return function handleStop() {
@@ -54,8 +54,8 @@ function createHandleStop(
       // terminal); reaching here means the cancel genuinely failed, so the run
       // may still be generating (and billing) server-side — surface it rather
       // than let the user believe stop saved tokens when it may not have.
-      void cancelRun(runId).catch((err: unknown) => {
-        console.error("Failed to cancel run", err);
+      void cancelRun(runId).catch((error: unknown) => {
+        console.error("Failed to cancel run", error);
         toast.error(
           "Couldn't confirm the response was stopped — it may still be finishing.",
         );
@@ -99,18 +99,16 @@ function createHandleSubmit({
       // First message to a new chat upserts it server-side, then streams (#86). The id is
       // adopted as active in onFinish, once the chat is known to exist.
       await sendMessage({ text });
-    } catch (caught) {
+    } catch (error) {
       onSendFailed();
       setInput(text);
-      setSendError(
-        caught instanceof Error ? caught : new Error(String(caught)),
-      );
+      setSendError(error instanceof Error ? error : new Error(String(error)));
     }
   };
 }
 
 type UseChatActionsArgs = {
-  messages: UIMessage[];
+  messages: Array<UIMessage>;
   stop: ReturnType<typeof useChat>["stop"];
   sendMessage: ReturnType<typeof useChat>["sendMessage"];
   status: ReturnType<typeof useChat>["status"];
@@ -173,13 +171,13 @@ function useChatSetup(chatId: string) {
 }
 
 type UseChatSideEffectsArgs = {
-  displayMessages: UIMessage[];
+  displayMessages: Array<UIMessage>;
   targetSeq: number | null;
   resume: boolean;
   resumeStream: ReturnType<typeof useChat>["resumeStream"];
   refreshChatMessages: () => void;
-  chatMessages: UIMessage[];
-  messages: UIMessage[];
+  chatMessages: Array<UIMessage>;
+  messages: Array<UIMessage>;
   status: ReturnType<typeof useChat>["status"];
   setMessages: ReturnType<typeof useChat>["setMessages"];
   chatId: string;
@@ -230,8 +228,8 @@ function useChatSideEffects({
 // so it can be called from anywhere in render; split out of
 // `useChatEngineState` purely to shrink that hook's own line count.
 function deriveChatTranscript(
-  messages: UIMessage[],
-  chatMessages: UIMessage[],
+  messages: Array<UIMessage>,
+  chatMessages: Array<UIMessage>,
   compaction: Compaction | null,
 ) {
   const displayMessages = mergeTrustedModelContextParts(
@@ -250,7 +248,7 @@ function deriveChatTranscript(
 
 type UseChatEngineStateArgs = {
   chatId: string;
-  chatMessages: UIMessage[];
+  chatMessages: Array<UIMessage>;
   compaction: Compaction | null;
   targetSeq: number | null;
   resume: boolean;
@@ -340,7 +338,7 @@ function buildTranscriptState(
 
 export type UseChatConversationArgs = {
   chatId: string;
-  chatMessages: UIMessage[];
+  chatMessages: Array<UIMessage>;
   compaction: Compaction | null;
   onFinished: () => boolean;
   onTargetSendInterrupted: () => boolean;

@@ -56,7 +56,7 @@ export const cookieOf = (res: request.Response): string => {
  * @param body - The SSE payload to parse
  * @returns The parsed JSON values from each `data: ` event, excluding `[DONE]`
  */
-export function parseSseEvents(body: string): unknown[] {
+export function parseSseEvents(body: string): Array<unknown> {
   // SAFETY: JSON.parse returns any; the final .map's assertion to unknown
   // forces callers to narrow before use rather than silently inheriting any.
   return (
@@ -123,7 +123,7 @@ export async function waitFor<T>(
  * Strip it here and assert it with `expectTemporalRow` where it is the point,
  * rather than restating a matcher for it in every spec.
  */
-export function withoutTemporalRow<T>(parts: readonly T[]): T[] {
+export function withoutTemporalRow<T>(parts: ReadonlyArray<T>): Array<T> {
   return parts.filter(
     (part) => !(isContextItemPart(part) && part.data.producer === 'temporal'),
   );
@@ -131,7 +131,7 @@ export function withoutTemporalRow<T>(parts: readonly T[]): T[] {
 
 /** Assert the turn carries exactly one well-formed temporal row. */
 export function expectTemporalRow(
-  parts: readonly unknown[],
+  parts: ReadonlyArray<unknown>,
   runId?: string,
 ): void {
   const rows = parts
@@ -147,8 +147,8 @@ export function expectTemporalRow(
 }
 
 function parseMessagePartAssertions(
-  parts: readonly unknown[],
-): UnknownRecord[] {
+  parts: ReadonlyArray<unknown>,
+): Array<UnknownRecord> {
   return parts.map((part) => {
     if (!isRecord(part)) {
       throw new TypeError('Expected a message part object');
@@ -171,8 +171,8 @@ function withoutContextText(part: UnknownRecord): UnknownRecord {
  * turns are stamped at all.
  */
 export function expectMessageParts(
-  parts: readonly unknown[],
-  expected: readonly unknown[],
+  parts: ReadonlyArray<unknown>,
+  expected: ReadonlyArray<unknown>,
   runId?: string,
 ): void {
   const actualParts = parseMessagePartAssertions(withoutTemporalRow(parts));
@@ -182,7 +182,9 @@ export function expectMessageParts(
 }
 
 /** Text of each content block, so a message's blocks can be asserted apart. */
-export function contentBlockTexts(content: ModelMessage['content']): string[] {
+export function contentBlockTexts(
+  content: ModelMessage['content'],
+): Array<string> {
   if (isString(content)) return [content];
   return content.map((block) =>
     isRecord(block) && isString(block['text']) ? block['text'] : '',

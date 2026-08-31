@@ -56,7 +56,7 @@ const templates = Handlebars.create();
 const toContextKey = (contextPath: string) => contextPath.split('.').join('\0');
 
 /** Context leaf paths a prompt file may emit. Later capabilities extend this list. */
-export const PROMPT_CONTEXT_PATHS: readonly string[] = [
+export const PROMPT_CONTEXT_PATHS: ReadonlyArray<string> = [
   'model.id',
   'model.name',
   // Per-user paths (add-user-personalization). Validated at boot exactly like
@@ -161,7 +161,7 @@ const PROMPT_ESCAPES = new Map([
 ]);
 
 function escapeForPrompt(value: string): string {
-  return value.replace(/[&<>]/gu, (character) => {
+  return value.replaceAll(/[&<>]/gu, (character) => {
     const escaped = PROMPT_ESCAPES.get(character);
     if (escaped === undefined) {
       // Unreachable: the regex above only ever matches a PROMPT_ESCAPES key.
@@ -325,10 +325,9 @@ const PROBE_ANCHOR: TemporalAnchor = {
   systemTime: '2000-01-01 00:00+00:00',
   systemTimezone: 'UTC',
 };
-const SYSTEM_PROMPT_EMPTY_RENDER_PROBES: readonly (readonly [
-  PromptUserInput | undefined,
-  PromptChatsInput | undefined,
-])[] = [
+const SYSTEM_PROMPT_EMPTY_RENDER_PROBES: ReadonlyArray<
+  readonly [PromptUserInput | undefined, PromptChatsInput | undefined]
+> = [
   [undefined, undefined],
   [PROBE_USER, undefined],
   [undefined, PROBE_CHATS],
@@ -376,7 +375,7 @@ function loadPromptFile(
     throw promptReadError(field, error);
   }
 
-  const normalized = raw.replace(/\r\n?/gu, '\n').replace(/\s+$/u, '');
+  const normalized = raw.replaceAll(/\r\n?/gu, '\n').replace(/\s+$/u, '');
   if (normalized.length === 0) {
     throw new InstanceConfigError(`${field}: prompt file is empty`);
   }
@@ -652,7 +651,7 @@ function assertBlockStatement(
 }
 
 function assertStatements(
-  body: readonly hbs.AST.Statement[],
+  body: ReadonlyArray<hbs.AST.Statement>,
   field: string,
   itemFields?: ReadonlySet<string>,
 ): void {
@@ -677,7 +676,7 @@ function assertStatements(
  * conditional bodies — a prompt may legitimately consist of nothing but an
  * `{{#if}}` block wrapping its only prose.
  */
-function hasLiteralContent(body: readonly hbs.AST.Statement[]): boolean {
+function hasLiteralContent(body: ReadonlyArray<hbs.AST.Statement>): boolean {
   return body.some((node) => {
     if (isContentStatement(node)) {
       return node.value.trim().length > 0;
@@ -776,7 +775,7 @@ function chatsContext(chats: PromptChatsInput | undefined) {
   // in a single place. An empty ARRAY would be truthy, making `{{#if
   // chats.recent}}` pass over nothing.
   const projectList = (
-    entries: readonly PromptChatDigestEntry[] | undefined,
+    entries: ReadonlyArray<PromptChatDigestEntry> | undefined,
   ) =>
     entries === undefined || entries.length === 0
       ? undefined

@@ -27,8 +27,8 @@ export interface ConversationNode {
   type: MessageTypeValue;
   content: string;
   branch: string;
-  parentIds: string[];
-  children: string[];
+  parentIds: Array<string>;
+  children: Array<string>;
   timestamp: string;
   position: number;
   archived?: boolean;
@@ -54,7 +54,7 @@ export const NODE_WIDTH = 20;
 // Helper functions
 export const getBranchX = (
   branch: string,
-  conversations: ConversationNode[],
+  conversations: Array<ConversationNode>,
 ) => {
   const allBranches = [...new Set(conversations.map((c) => c.branch))];
   // Ensure 'main' branch is always first, then sort the rest

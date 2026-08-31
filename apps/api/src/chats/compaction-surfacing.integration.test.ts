@@ -196,10 +196,10 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
           summary: 'with usage',
           replacementHistory: compactionReplacementHistory('with usage'),
           usage: {
-            inputTokens: 71400,
+            inputTokens: 71_400,
             cachedInputTokens: 0,
             outputTokens: 1280,
-            totalTokens: 72680,
+            totalTokens: 72_680,
             modelId: 'system:openai:gpt-4o',
             latencyMs: 500,
             finishReason: 'stop',
@@ -244,7 +244,7 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
 
     it('selects the latest compaction applicable to a target-ended history window', async () => {
       const chat = await newChat(a);
-      const messages: Message[] = [];
+      const messages: Array<Message> = [];
       for (let i = 0; i < 25; i++) {
         messages.push(await addMessage(chat, a));
       }

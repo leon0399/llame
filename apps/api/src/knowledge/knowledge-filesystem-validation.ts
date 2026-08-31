@@ -61,7 +61,7 @@ export function validateReadRange(
 export function validatePath(
   relativePath: string,
   requireMarkdown: boolean,
-): string[] {
+): Array<string> {
   if (
     relativePath.length === 0 ||
     containsControlCharacter(relativePath) ||

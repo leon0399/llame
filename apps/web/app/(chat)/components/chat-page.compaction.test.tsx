@@ -43,7 +43,7 @@ vi.mock("next/navigation", () => ({
 let useChatMessages: Array<{
   id: string;
   role: "user" | "assistant";
-  parts: unknown[];
+  parts: Array<unknown>;
   metadata?: { seq?: number; usage?: ChatMessageResponse["usage"] };
 }> = [];
 
@@ -324,7 +324,7 @@ describe("ChatPage — compaction checkpoint render", () => {
 
   it("reload parity: a compaction present in the RAW api-shaped messages payload (the real toChatUiMessages mapping, not a hand-shaped fixture) still renders after being routed through the same cache seeding a real reload uses", () => {
     const chatId = "chat-reload-parity";
-    const rawMessages: ChatMessageResponse[] = [
+    const rawMessages: Array<ChatMessageResponse> = [
       {
         id: "m1",
         chatId,
@@ -668,7 +668,7 @@ describe("ChatPage — model context transparency", () => {
       pages: [
         {
           ...queryClient.getQueryData<{
-            pages: Array<{ messages: ChatMessageResponse[] }>;
+            pages: Array<{ messages: Array<ChatMessageResponse> }>;
           }>(chatQueryKeys.targetMessages(chatId, targetSeq))!.pages[0]!,
         },
       ],

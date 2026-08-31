@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
  * - Code, identifiers, and URLs are preserved as-is (only cased/whitespace-folded).
  */
 export function normalizeForSearch(text: string): string {
-  return text.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
+  return text.normalize('NFKC').replaceAll(/\s+/g, ' ').trim().toLowerCase();
 }
 
 /**

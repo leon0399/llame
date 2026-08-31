@@ -19,7 +19,7 @@ export type AdminSection = {
   href?: Route;
 };
 
-export const ADMIN_SECTIONS: AdminSection[] = [
+export const ADMIN_SECTIONS: Array<AdminSection> = [
   {
     key: "organizations",
     label: "Organizations",

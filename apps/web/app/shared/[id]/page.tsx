@@ -30,7 +30,7 @@ const UNTITLED_CHAT_LABEL = "Untitled chat";
 
 async function fetchAllSharedMessages(
   id: string,
-): Promise<{ title: string | null; messages: SharedChatMessage[] }> {
+): Promise<{ title: string | null; messages: Array<SharedChatMessage> }> {
   let title: string | null = null;
   const messages = await paginateAllMessages<SharedChatMessage>(
     (beforeSeq) => {
@@ -144,7 +144,11 @@ function SharedChatStatus({
   return null;
 }
 
-function SharedMessageList({ messages }: { messages: SharedChatMessage[] }) {
+function SharedMessageList({
+  messages,
+}: {
+  messages: Array<SharedChatMessage>;
+}) {
   return (
     <div className="flex flex-col gap-4">
       {messages.map((message) => {

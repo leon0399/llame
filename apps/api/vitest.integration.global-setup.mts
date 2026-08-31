@@ -139,7 +139,7 @@ async function provision(
 async function dropRunSchemas(url: string, prefix: string): Promise<void> {
   const sql = postgres(url, { max: 1 });
   try {
-    const schemas = await sql<{ nspname: string }[]>`
+    const schemas = await sql<Array<{ nspname: string }>>`
       SELECT nspname FROM pg_namespace WHERE nspname LIKE ${prefix + '%'}
     `;
     for (const { nspname } of schemas) {

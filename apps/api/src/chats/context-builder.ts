@@ -100,8 +100,8 @@ export interface StoredMessage {
   seq: number;
   role: 'user' | 'assistant' | 'system' | 'tool';
   senderUserId: string | null;
-  parts: MessagePart[];
-  attachments: unknown[];
+  parts: Array<MessagePart>;
+  attachments: Array<unknown>;
   /** Durable assistant telemetry; transition compaction uses completed turns only. */
   usage?: unknown;
   createdAt: Date;
@@ -165,7 +165,7 @@ export function renderConversationCheckpoint(summary: string): string {
  * Only canonical visible text is portable across later model requests.
  * Exported for the compaction planner (#57), which renders absorbed turns.
  */
-export function partsToText(parts: readonly unknown[]): string {
+export function partsToText(parts: ReadonlyArray<unknown>): string {
   return parts
     .flatMap((part) => (isTextPart(part) ? [part.text] : []))
     .join('\n');
@@ -174,7 +174,7 @@ export function partsToText(parts: readonly unknown[]): string {
 /** What a provider request needs: the stable prefix plus history. */
 export interface ModelRequestContext {
   system: string;
-  messages: ModelMessage[];
+  messages: Array<ModelMessage>;
 }
 
 export interface BuiltContext extends ModelRequestContext {
@@ -186,14 +186,16 @@ export interface BuiltContext extends ModelRequestContext {
    * reproducible at all — so the caller records this, and the record is the
    * authority for what the run injected.
    */
-  contextItems: RunContextItem[];
+  contextItems: Array<RunContextItem>;
 }
 
 /**
  * Read every stored context item in place. Metadata is receipt-only here;
  * `data.text` is the sole model replay authority.
  */
-function readContextItems(parts: readonly MessagePart[]): RunContextItem[] {
+function readContextItems(
+  parts: ReadonlyArray<MessagePart>,
+): Array<RunContextItem> {
   return parts
     .filter((part): part is ContextItemPart => isContextItemPart(part))
     .map((part) => {
@@ -210,7 +212,9 @@ function readContextItems(parts: readonly MessagePart[]): RunContextItem[] {
     });
 }
 
-function userPartsToModelContent(parts: readonly MessagePart[]): TextPart[] {
+function userPartsToModelContent(
+  parts: ReadonlyArray<MessagePart>,
+): Array<TextPart> {
   return parts.flatMap((part) => {
     if (isTextPart(part)) {
       return [{ type: 'text' as const, text: part.text }];
@@ -225,7 +229,7 @@ function userPartsToModelContent(parts: readonly MessagePart[]): TextPart[] {
 
 function replacementRecordToModelMessages(
   record: CompactionReplacementMessage,
-): ModelMessage[] {
+): Array<ModelMessage> {
   const part = record.parts[0];
   if (record.role === 'user') {
     if (!isTextPart(part)) {
@@ -256,7 +260,7 @@ function replacementRecordToModelMessages(
 /** Reconstruct the tool-call/tool-result message pair a stored replacement tool part represents. */
 function toolReplacementRecordToModelMessages(
   part: StoredReplacementToolPart,
-): ModelMessage[] {
+): Array<ModelMessage> {
   const toolName = part.type.slice('tool-'.length);
   const toolCallPart: SdkToolCallPart = {
     type: 'tool-call',
@@ -277,8 +281,8 @@ function toolReplacementRecordToModelMessages(
 }
 
 function appendCompactionReplacementHistory(
-  result: ModelMessage[],
-  contextItems: RunContextItem[],
+  result: Array<ModelMessage>,
+  contextItems: Array<RunContextItem>,
   value: ContextCompaction['replacementHistory'],
 ): void {
   const replacementHistory = parseCompactionReplacementHistory(value);
@@ -308,10 +312,10 @@ function appendCompactionReplacementHistory(
  * `pushAssistantHistory` below drives while walking `parts` in order.
  */
 function createAssistantHistoryEmitter(
-  result: ModelMessage[],
+  result: Array<ModelMessage>,
   projection: ToolObservationProjection,
 ) {
-  const pendingText: string[] = [];
+  const pendingText: Array<string> = [];
   let omissionRendered = false;
 
   const flushPendingText = () => {
@@ -341,8 +345,8 @@ function createAssistantHistoryEmitter(
 }
 
 function pushAssistantHistory(
-  result: ModelMessage[],
-  parts: MessagePart[],
+  result: Array<ModelMessage>,
+  parts: Array<MessagePart>,
   projection: ToolObservationProjection,
 ): void {
   // TODO(#599): Research canonical AI SDK UIMessage persistence before replacing
@@ -362,8 +366,10 @@ function pushAssistantHistory(
     const pair = pairsByPartIndex.get(partIndex);
     if (!pair) continue;
     emitter.flushPendingText();
-    result.push({ role: 'assistant', content: [pair.toolCallPart] });
-    result.push({ role: 'tool', content: [pair.toolResultPart] });
+    result.push(
+      { role: 'assistant', content: [pair.toolCallPart] },
+      { role: 'tool', content: [pair.toolResultPart] },
+    );
   }
 
   emitter.appendOmissionWhenDue(Number.POSITIVE_INFINITY);
@@ -379,7 +385,7 @@ function pushAssistantHistory(
  * `role: 'system'` entry inside the messages array.
  */
 export function buildContext(
-  messages: StoredMessage[],
+  messages: Array<StoredMessage>,
   options: BuildContextOptions,
 ): BuiltContext {
   const { systemPrompt, compaction } = options;
@@ -401,8 +407,8 @@ export function buildContext(
   // messages share created_at — see messages.seq in the schema.
   const ordered = [...history].sort((a, b) => a.seq - b.seq);
 
-  const result: ModelMessage[] = [];
-  const contextItems: RunContextItem[] = [];
+  const result: Array<ModelMessage> = [];
+  const contextItems: Array<RunContextItem> = [];
 
   // Stored replacement history leads the history — the complete application
   // replay replacement for everything it superseded. The raw summary is not a
@@ -427,8 +433,8 @@ export function buildContext(
 }
 
 function appendUserMessage(
-  result: ModelMessage[],
-  contextItems: RunContextItem[],
+  result: Array<ModelMessage>,
+  contextItems: Array<RunContextItem>,
   m: StoredMessage,
 ): void {
   contextItems.push(...readContextItems(m.parts));
@@ -439,7 +445,7 @@ function appendUserMessage(
 }
 
 function appendAssistantMessage(
-  result: ModelMessage[],
+  result: Array<ModelMessage>,
   m: StoredMessage,
 ): void {
   const visibleText = partsToText(m.parts);

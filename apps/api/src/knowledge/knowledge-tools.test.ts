@@ -88,7 +88,7 @@ function context(
 }
 
 function multiSpaceContext(
-  spaces: readonly KnowledgeToolSpaceReference[],
+  spaces: ReadonlyArray<KnowledgeToolSpaceReference>,
   bindings: ReadonlyMap<string, KnowledgeFilesystemBinding>,
   adapters: ReadonlyMap<string, KnowledgeFilesystemAdapterPort>,
 ): ToolContext {
@@ -206,20 +206,20 @@ describe('Knowledge tool declarations', () => {
         path: 'notes/a.md',
         knowledgeSpaceId: binding.id,
         offset: 0,
-        limit: 2_000,
+        limit: 2000,
       }),
     ).toEqual({
       path: 'notes/a.md',
       knowledgeSpaceId: binding.id,
       offset: 0,
-      limit: 2_000,
+      limit: 2000,
     });
     for (const invalid of [
       { offset: -1 },
       { offset: 1.5 },
       { offset: Number.MAX_SAFE_INTEGER + 1 },
       { limit: 0 },
-      { limit: 2_001 },
+      { limit: 2001 },
       { limit: 1.5 },
       { limit: Number.MAX_SAFE_INTEGER + 1 },
     ]) {
@@ -288,7 +288,7 @@ describe('knowledge_search cursor continuation', () => {
       ]),
     );
 
-    const pages: ToolResult[] = [];
+    const pages: Array<ToolResult> = [];
     let cursor: string | undefined;
     for (let page = 0; page < 4; page += 1) {
       const result =
@@ -925,7 +925,7 @@ describe('knowledge_search', () => {
       name: bindingB.name!,
       createdAt: new Date('2026-08-23T12:01:00.000Z'),
     };
-    const budgets: unknown[] = [];
+    const budgets: Array<unknown> = [];
     const adapterA = fakeAdapter({
       search: vi.fn(
         (
@@ -1434,7 +1434,7 @@ describe('knowledge_read', () => {
       read: vi.fn(() =>
         Promise.resolve({
           path: 'notes/a.md',
-          content: '😀'.repeat(6_000),
+          content: '😀'.repeat(6000),
           offset: 0,
           lineCount: 1,
         }),

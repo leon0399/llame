@@ -295,7 +295,7 @@ export function ChatItem({
   chat: ChatResponse;
   isActive?: boolean;
   /** The caller's projects, for the row menu's "Move to project" submenu. */
-  projects?: ProjectResponse[];
+  projects?: Array<ProjectResponse>;
   /**
    * Opens the caller-owned "new project" dialog (one shared instance, not one
    * per row); the caller files this chat into the created project. Absent →

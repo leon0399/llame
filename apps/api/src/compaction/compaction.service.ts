@@ -52,9 +52,9 @@ export class TransitionCompactionError extends Error {
 }
 
 function schemaOnlyTools(
-  declarations: readonly ModelToolDeclaration[],
+  declarations: ReadonlyArray<ModelToolDeclaration>,
 ): ToolSet | null {
-  const entries: [string, ToolSet[string]][] = [];
+  const entries: Array<[string, ToolSet[string]]> = [];
   for (const declaration of declarations) {
     const inputSchema = toFlexibleSchema(declaration.inputSchema);
     if (inputSchema === null) {
@@ -77,7 +77,9 @@ function schemaOnlyTools(
  * arm), matching every other JSON-record boundary in this codebase. Malformed
  * (non-object) parts fail closed rather than silently coercing.
  */
-export function toStoredMessages(history: readonly Message[]): StoredMessage[] {
+export function toStoredMessages(
+  history: ReadonlyArray<Message>,
+): Array<StoredMessage> {
   return history.map((message) => ({
     ...message,
     parts: message.parts.map((part) => {
@@ -151,7 +153,7 @@ export class CompactionService {
     userId: string;
     client: ModelClient;
     system: string;
-    toolDeclarations: readonly ModelToolDeclaration[];
+    toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
     /** The triggering run's effort — see `summarize`. */
     effort?: string;
     lastTurnTotalTokens?: number;
@@ -171,7 +173,7 @@ export class CompactionService {
     userId: string;
     client: ModelClient;
     system: string;
-    toolDeclarations: readonly ModelToolDeclaration[];
+    toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
     /** The triggering run's effort — see `summarize`. */
     effort?: string;
     lastTurnTotalTokens?: number;
@@ -492,8 +494,8 @@ export class CompactionService {
   private async summarize(input: {
     client: ModelClient;
     system: string;
-    messages: ModelMessage[];
-    toolDeclarations: readonly ModelToolDeclaration[];
+    messages: Array<ModelMessage>;
+    toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
     /**
      * The effort of the run whose prompt prefix this request reuses. Sent as
      * persisted, never re-resolved: the whole point of reproducing that run's

@@ -27,10 +27,10 @@ type FixtureConfig = UnknownRecord;
 function connect(
   config: FixtureConfig,
   overrides: {
-    readonly args?: readonly string[];
+    readonly args?: ReadonlyArray<string>;
     readonly env?: Readonly<Record<string, string>>;
     readonly cwd?: string;
-    readonly protectedValues?: readonly string[];
+    readonly protectedValues?: ReadonlyArray<string>;
     readonly onDisconnect?: () => void;
     readonly onDiagnostic?: (text: string) => void;
   } = {},
@@ -151,7 +151,7 @@ describe('McpServerClient.connectStdio', () => {
   // Task 1.8 — diagnostics captured before init, sanitized, bounded.
   it('captures pre-initialization diagnostics and redacts protected values', async () => {
     const secret = 'stdio-diagnostic-secret';
-    const seen: string[] = [];
+    const seen: Array<string> = [];
     const client = await connect(
       {
         tools: [TOOL],
@@ -170,7 +170,7 @@ describe('McpServerClient.connectStdio', () => {
   });
 
   it('bounds retained diagnostic output', async () => {
-    const seen: string[] = [];
+    const seen: Array<string> = [];
     const client = await connect(
       { tools: [TOOL], stderrBytes: 200_000 },
       { onDiagnostic: (text) => seen.push(text) },
@@ -191,7 +191,7 @@ describe('McpServerClient.connectStdio', () => {
   // chunk larger than the *remaining* room, and pipe buffering would split a
   // blob that size into cap-sized pieces that legitimately consume the budget.
   it('does not let a dropped chunk consume the diagnostic budget', () => {
-    const seen: string[] = [];
+    const seen: Array<string> = [];
     const buffer = new DiagnosticBuffer([], (text) => seen.push(text));
 
     buffer.append('early-line\n');
@@ -215,7 +215,7 @@ describe('McpServerClient.connectStdio', () => {
       'c2VjcmV0LWtleS1tYXRlcmlhbC1saW5lLXR3by1wYWRkaW5n',
       '-----END PRIVATE KEY-----',
     ].join('\n');
-    const seen: string[] = [];
+    const seen: Array<string> = [];
     const client = await connect(
       {
         tools: [TOOL],

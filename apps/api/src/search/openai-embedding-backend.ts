@@ -86,9 +86,9 @@ export function classifyEmbeddingFailure(
  * concretely, and never retried at the same content.
  */
 function isValidVector(
-  vector: readonly number[] | undefined,
+  vector: ReadonlyArray<number> | undefined,
   dimensions: number,
-): vector is readonly number[] {
+): vector is ReadonlyArray<number> {
   return (
     vector !== undefined &&
     vector.length === dimensions &&
@@ -105,7 +105,7 @@ function isValidVector(
  * non-sensitive local values.
  */
 function describeInvalidVector(
-  vector: readonly number[] | undefined,
+  vector: ReadonlyArray<number> | undefined,
   dimensions: number,
 ): string {
   if (vector === undefined) {
@@ -237,15 +237,15 @@ const DEFAULT_DEPENDENCIES: OpenAIEmbeddingBackendDependencies = {
  */
 async function embedChunk(
   model: ReturnType<OpenAIProvider['textEmbeddingModel']>,
-  chunk: readonly EmbeddingDocumentInput[],
+  chunk: ReadonlyArray<EmbeddingDocumentInput>,
   prefix: string | undefined,
   config: Pick<OpenAIEmbeddingBackendConfig, 'dimensions'>,
-): Promise<EmbeddingResult[]> {
+): Promise<Array<EmbeddingResult>> {
   const values = chunk.map((doc) =>
     prefix ? prefix + doc.content : doc.content,
   );
 
-  let embeddings: readonly (readonly number[])[];
+  let embeddings: ReadonlyArray<ReadonlyArray<number>>;
   try {
     // maxRetries: 0 — retry is the caller's job (a pg-boss queue policy,
     // design D5); the SDK's own internal retry would multiply attempts on
@@ -256,7 +256,7 @@ async function embedChunk(
   }
   if (embeddings.length !== chunk.length) return [];
 
-  const results: EmbeddingResult[] = [];
+  const results: Array<EmbeddingResult> = [];
   for (let i = 0; i < chunk.length; i++) {
     const vector = embeddings[i];
     if (!isValidVector(vector, config.dimensions)) {
@@ -314,10 +314,10 @@ export function createOpenAIEmbeddingBackend(
   const batchSize = resolveBatchSize(config.batchSize);
 
   async function embed(
-    documents: readonly EmbeddingDocumentInput[],
+    documents: ReadonlyArray<EmbeddingDocumentInput>,
     prefix: string | undefined,
-  ): Promise<EmbeddingResult[]> {
-    const results: EmbeddingResult[] = [];
+  ): Promise<Array<EmbeddingResult>> {
+    const results: Array<EmbeddingResult> = [];
     // Chunk ourselves so the configured batchSize is what actually reaches
     // the provider and is observable, rather than relying on embedMany's own
     // internal splitting (design D5). In practice a caller already sizes its

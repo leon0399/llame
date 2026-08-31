@@ -27,7 +27,7 @@ export type MarkdownProps = {
   components?: Partial<Components>;
 };
 
-function parseMarkdownIntoBlocks(markdown: string): string[] {
+function parseMarkdownIntoBlocks(markdown: string): Array<string> {
   const tokens = marked.lexer(markdown);
   return tokens.map((token) => token.raw);
 }

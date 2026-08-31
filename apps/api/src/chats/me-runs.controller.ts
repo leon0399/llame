@@ -37,7 +37,7 @@ export class MeRunsController {
   async active(
     @CurrentUser() userId: string,
     @Query() query: ActiveRunsQueryDto,
-  ): Promise<ActiveRunResponse[]> {
+  ): Promise<Array<ActiveRunResponse>> {
     void query.status; // validated to 'active'; the only supported filter today
     const rows = await this.tenantDb.runAs(userId, (tx) =>
       new RunsRepository(tx).findActiveByUser(userId),

@@ -56,8 +56,8 @@ const mocks = vi.hoisted(() => ({
   resumeStream: vi.fn(),
   capturedOnError: undefined as (() => void) | undefined,
   capturedOnFinish: undefined as ((args: FinishArgs) => void) | undefined,
-  useChatCalls: [] as Array<{ messages?: UIMessage[]; resume?: boolean }>,
-  chatInstanceIds: [] as number[],
+  useChatCalls: [] as Array<{ messages?: Array<UIMessage>; resume?: boolean }>,
+  chatInstanceIds: [] as Array<number>,
   nextChatInstanceId: 0,
 }));
 
@@ -69,7 +69,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@ai-sdk/react", () => ({
   useChat: (options: {
-    messages?: UIMessage[];
+    messages?: Array<UIMessage>;
     onError?: () => void;
     onFinish?: (args: FinishArgs) => void;
     resume?: boolean;
@@ -159,7 +159,7 @@ function stubChatNetwork() {
 
 /** The stubbed-fetch requests sent to the chat messages endpoint, oldest
  * first — the real analogue of the old mocks.getChatMessages.mock.calls. */
-function messagesRequests(): Request[] {
+function messagesRequests(): Array<Request> {
   return fetchMock.mock.calls
     .map(([req]) => req)
     .filter(

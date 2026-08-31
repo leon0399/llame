@@ -170,7 +170,7 @@ async function findPinRequest(method: string): Promise<Request> {
 
 describe("AppSidebarPinned", () => {
   it("renders nothing when there are no pins (no empty labelled group)", async () => {
-    pinsHandler = () => Promise.resolve(jsonResponse<PinnedItem[]>([]));
+    pinsHandler = () => Promise.resolve(jsonResponse<Array<PinnedItem>>([]));
     const { container, queryClient } = renderPinnedWithoutSidebar();
 
     await waitFor(() =>
@@ -189,7 +189,7 @@ describe("AppSidebarPinned", () => {
   it("renders a mixed chats+projects Pinned section in server (pin-recency) order", async () => {
     pinsHandler = () =>
       Promise.resolve(
-        jsonResponse<PinnedItem[]>([
+        jsonResponse<Array<PinnedItem>>([
           {
             itemType: "project",
             itemId: "p1",
@@ -220,7 +220,7 @@ describe("AppSidebarPinned", () => {
   it("renders the localized placeholder for an untitled pinned chat", async () => {
     pinsHandler = () =>
       Promise.resolve(
-        jsonResponse<PinnedItem[]>([
+        jsonResponse<Array<PinnedItem>>([
           {
             itemType: "chat",
             itemId: "c1",
@@ -240,7 +240,7 @@ describe("AppSidebarPinned — pinned chat row menu (mirrors ChatItem's row menu
   it("the kebab menu exposes Unpin, Rename, Archive, and Delete — no chat-only data-heavy actions", async () => {
     pinsHandler = () =>
       Promise.resolve(
-        jsonResponse<PinnedItem[]>([
+        jsonResponse<Array<PinnedItem>>([
           {
             itemType: "chat",
             itemId: "c1",
@@ -272,7 +272,7 @@ describe("AppSidebarPinned — pinned chat row menu (mirrors ChatItem's row menu
   it("the kebab menu's Unpin item unpins the chat", async () => {
     pinsHandler = () =>
       Promise.resolve(
-        jsonResponse<PinnedItem[]>([
+        jsonResponse<Array<PinnedItem>>([
           {
             itemType: "chat",
             itemId: "c1",
@@ -296,7 +296,7 @@ describe("AppSidebarPinned — pinned project row menu (mirrors ProjectItem's ro
   it("the kebab menu exposes Unpin, Rename, Archive, and Delete", async () => {
     pinsHandler = () =>
       Promise.resolve(
-        jsonResponse<PinnedItem[]>([
+        jsonResponse<Array<PinnedItem>>([
           {
             itemType: "project",
             itemId: "p1",
@@ -320,7 +320,7 @@ describe("AppSidebarPinned — pinned project row menu (mirrors ProjectItem's ro
   it("the kebab menu's Unpin item unpins the project", async () => {
     pinsHandler = () =>
       Promise.resolve(
-        jsonResponse<PinnedItem[]>([
+        jsonResponse<Array<PinnedItem>>([
           {
             itemType: "project",
             itemId: "p1",

@@ -48,7 +48,7 @@ export type CanonicalSearchMessage = {
 
 export type HydratedCanonicalSearchDocument = {
   chatId: string;
-  messages: CanonicalSearchMessage[];
+  messages: Array<CanonicalSearchMessage>;
 };
 
 function parseSafePositiveInteger(value: string): number | null {
@@ -190,7 +190,7 @@ function hasValidSourceRange(
  * the same boundary columns; the first row is authoritative.
  */
 function resolveDocumentBoundary(
-  rows: readonly CanonicalHydrationRow[],
+  rows: ReadonlyArray<CanonicalHydrationRow>,
   candidate: CanonicalSearchCandidate,
 ): { boundary: DocumentBoundary; range: MessageSeqRange } | null {
   const firstRow = rows[0];
@@ -303,7 +303,7 @@ function resolveRowOutcome(
 
 /** Convert one database snapshot's rows into canonical source records. */
 export function hydrateCanonicalSearchRows(
-  rows: readonly CanonicalHydrationRow[],
+  rows: ReadonlyArray<CanonicalHydrationRow>,
   candidate: CanonicalSearchCandidate,
 ): HydratedCanonicalSearchDocument | null {
   if (candidate.bestDocumentId === null || rows.length === 0) return null;
@@ -312,7 +312,7 @@ export function hydrateCanonicalSearchRows(
   if (resolved === null) return null;
   const { boundary, range } = resolved;
 
-  const messages: CanonicalSearchMessage[] = [];
+  const messages: Array<CanonicalSearchMessage> = [];
   let previousSeq = 0;
 
   for (const [index, row] of rows.entries()) {

@@ -104,7 +104,11 @@ function nextToken(value: string, lt: number) {
  * within that same value, and may never emit a reserved delimiter name as a
  * tag at all. `stack` is mutated, exactly as it was when this lived inline.
  */
-function emitToken(token: string, complete: boolean, stack: string[]): string {
+function emitToken(
+  token: string,
+  complete: boolean,
+  stack: Array<string>,
+): string {
   const reserved = RESERVED_INTENT.exec(token);
   if (reserved !== null && RESERVED_TAG_NAMES.has(reserved[1].toLowerCase())) {
     return escapeAngles(token);
@@ -138,8 +142,8 @@ function emitToken(token: string, complete: boolean, stack: string[]): string {
 }
 
 export function sanitizeAuthoredText(value: string): string {
-  const out: string[] = [];
-  const stack: string[] = [];
+  const out: Array<string> = [];
+  const stack: Array<string> = [];
   let index = 0;
 
   while (index < value.length) {

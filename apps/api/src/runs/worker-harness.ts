@@ -67,7 +67,7 @@ type HarnessOverrides = {
   timeoutSeconds?: number;
   heartbeatSeconds?: number;
   /** Explicit code-owned tool rules for snapshots seeded by this harness. */
-  allowedTools?: readonly string[];
+  allowedTools?: ReadonlyArray<string>;
 };
 
 /** Merges one boot's `bootWorkerHarness` overrides onto the built-in defaults. */
@@ -190,7 +190,7 @@ export async function seedRun(input: {
   /** Persisted on the run exactly as the accepting API would have stored it. */
   effort?: string;
   /** Exact code-owned tool rules captured by the run's immutable snapshot. */
-  allowedTools?: readonly string[];
+  allowedTools?: ReadonlyArray<string>;
 }): Promise<{
   chatId: string;
   runId: string;
@@ -209,7 +209,9 @@ export async function seedRun(input: {
         title: 'Harness chat',
       });
     }
-    const parts: TextPart[] = [{ type: 'text', text: input.text ?? 'hello' }];
+    const parts: Array<TextPart> = [
+      { type: 'text', text: input.text ?? 'hello' },
+    ];
     const message = await new MessagesRepository(tx).create({
       chatId,
       role: 'user',
@@ -280,7 +282,7 @@ export async function seedAndDispatchRun(
     /** Persisted on the run exactly as the accepting API would have stored it. */
     effort?: string;
     /** Exact code-owned tool rules captured by the run's immutable snapshot. */
-    allowedTools?: readonly string[];
+    allowedTools?: ReadonlyArray<string>;
     enqueueOptions?: EnqueueOptions;
   },
 ): Promise<{

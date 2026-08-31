@@ -40,7 +40,7 @@ describeIfDb('chat search — relevance eval', () => {
   let tenantDb: TenantDbService;
   let u: string;
   const chatIdByKey = new Map<string, string>();
-  const results: EvalQueryResult[] = [];
+  const results: Array<EvalQueryResult> = [];
 
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;

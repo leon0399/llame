@@ -98,7 +98,7 @@ type FixtureStreamResponse = {
 // Without the cross-flush at the top of onTextDelta, the buffered reasoning
 // tail would only flush at onFinish — landing AFTER the answer in the log.
 function reasoningThenText(): FixtureStreamResponse {
-  const chunks: LanguageModelV3StreamPart[] = [
+  const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     { type: 'reasoning-start', id: 'r1' },
     { type: 'reasoning-delta', id: 'r1', delta: 'brief thought' },
@@ -123,7 +123,7 @@ function reasoningThenText(): FixtureStreamResponse {
 // partial answer that already streamed -- same "show what the user actually
 // saw" honesty the codebase already applies to partial text on its own.
 function reasoningThenErrorMidAnswer(): FixtureStreamResponse {
-  const chunks: LanguageModelV3StreamPart[] = [
+  const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     { type: 'reasoning-start', id: 'r1' },
     { type: 'reasoning-delta', id: 'r1', delta: 'thinking before it dies' },
@@ -196,7 +196,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
 
   it('reasoning precedes the answer in the event log (cross-flush) and is persisted as a leading part', async () => {
     const chatId = crypto.randomUUID();
-    const initialParts: TextPart[] = [
+    const initialParts: Array<TextPart> = [
       { type: 'text', text: 'think then answer' },
     ];
     const userMessage = await tenantDb.runAs(userId, async (tx) => {
@@ -282,7 +282,9 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
 
   it('keeps both the reasoning and the partial answer when the stream errors mid-turn', async () => {
     const chatId = crypto.randomUUID();
-    const initialParts: TextPart[] = [{ type: 'text', text: 'think then die' }];
+    const initialParts: Array<TextPart> = [
+      { type: 'text', text: 'think then die' },
+    ];
     const userMessage = await tenantDb.runAs(userId, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
         id: chatId,

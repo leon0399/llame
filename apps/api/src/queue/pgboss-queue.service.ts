@@ -171,7 +171,7 @@ export class PgBossQueueService implements Queue {
           pollingIntervalSeconds: options.pollingIntervalSeconds,
         }),
       },
-      async (jobs: PgBossJob<PayloadOf<Q>>[]) => {
+      async (jobs: Array<PgBossJob<PayloadOf<Q>>>) => {
         const definition: QueueDefinition<PayloadOf<Q>> = queue;
         for (const job of jobs) {
           // The definition's guard runs BEFORE domain code: a payload written

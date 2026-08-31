@@ -44,7 +44,7 @@ export type EffortLevel = {
  * no comparable magnitude of its own.
  */
 export type ModelReasoning = {
-  readonly effortLevels: readonly EffortLevel[];
+  readonly effortLevels: ReadonlyArray<EffortLevel>;
   readonly defaultEffort: string;
   /**
    * Whether CHANGING effort invalidates this model's provider-side prompt
@@ -61,7 +61,7 @@ export interface PublicModelCatalogEntry {
   source: ModelSource;
   name?: string;
   description?: string;
-  tags?: string[];
+  tags?: Array<string>;
   icon?: string;
   // Required, execution-critical (not display metadata): every executable model
   // MUST declare its context window. It travels onto the model client and sizes
@@ -109,8 +109,8 @@ export type PromptChatDigestEntry = {
 };
 
 export type PromptChatsInput = {
-  pinned?: readonly PromptChatDigestEntry[];
-  recent?: readonly PromptChatDigestEntry[];
+  pinned?: ReadonlyArray<PromptChatDigestEntry>;
+  recent?: ReadonlyArray<PromptChatDigestEntry>;
   pinnedShown: number;
   pinnedTotal: number;
   recentShown: number;

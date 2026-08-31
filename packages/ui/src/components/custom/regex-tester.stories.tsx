@@ -187,8 +187,8 @@ export const HtmlBlockLiterals: Story = {
     // another and its activation would fight the disclosure toggle.
     await waitFor(() =>
       expect(sources()).toEqual([
-        "/\\b(?:GET|POST)\\b/",
-        "/^\\s*$/",
+        String.raw`/\b(?:GET|POST)\b/`,
+        String.raw`/^\s*$/`,
         "/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i",
       ]),
     );

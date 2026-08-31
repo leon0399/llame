@@ -48,12 +48,12 @@ describeIfDb(
     let tenantDb: TenantDbService;
     let indexService: SearchIndexService;
     let u: string;
-    let openModules: TestingModule[];
+    let openModules: Array<TestingModule>;
 
     const ownedRows = <T extends UnknownRecord>(
       frag: ReturnType<typeof sql>,
       rowSchema: z.ZodType<T>,
-    ): Promise<T[]> =>
+    ): Promise<Array<T>> =>
       tenantDb
         .runAs(u, (tx) => tx.execute(frag))
         .then((rows) => rowSchema.array().parse([...rows]));
@@ -161,7 +161,7 @@ describeIfDb(
       return moduleRef.get(SearchEmbedWorker);
     }
 
-    function fakeBackend(vector: readonly number[]): EmbeddingBackend {
+    function fakeBackend(vector: ReadonlyArray<number>): EmbeddingBackend {
       return {
         embedDocuments: (documents) =>
           Promise.resolve(

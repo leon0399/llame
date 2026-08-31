@@ -13,7 +13,7 @@ import type {
 
 export type { CanonicalSearchMessage } from './canonical-search-hydrator';
 
-export const CANONICAL_SEARCH_MAX_PASSAGE_LINES = 2_000;
+export const CANONICAL_SEARCH_MAX_PASSAGE_LINES = 2000;
 
 export type CanonicalLogicalLine = ConversationLogicalLine;
 
@@ -30,7 +30,7 @@ export type CanonicalLinePredicateCandidate = {
  */
 export type CanonicalLinePredicateEvaluator = (
   normalizedQuery: string,
-  candidates: readonly CanonicalLinePredicateCandidate[],
+  candidates: ReadonlyArray<CanonicalLinePredicateCandidate>,
 ) => Promise<ReadonlySet<number>>;
 
 export type CanonicalSearchPreviewLine = CanonicalLogicalLine;
@@ -46,7 +46,7 @@ export type CanonicalSearchPreviewPassage = {
   message: Pick<CanonicalSearchMessage, 'messageSeq' | 'role' | 'timestamp'>;
   offset: number;
   limit: number;
-  lines: readonly CanonicalSearchPreviewLine[];
+  lines: ReadonlyArray<CanonicalSearchPreviewLine>;
   anchor: CanonicalSearchPreviewAnchor;
 };
 
@@ -67,7 +67,7 @@ type MatchedLine = {
 type LineInterval = {
   start: number;
   end: number;
-  matches: readonly MatchedLine[];
+  matches: ReadonlyArray<MatchedLine>;
 };
 
 type NormalizedSegment = {
@@ -79,7 +79,7 @@ type NormalizedSegment = {
 
 type NormalizedMapping = {
   normalized: string;
-  segments: readonly NormalizedSegment[];
+  segments: ReadonlyArray<NormalizedSegment>;
 };
 
 /**
@@ -97,11 +97,11 @@ export const scanCanonicalLogicalLines = scanConversationLogicalLines;
 export async function evaluateCanonicalLinePredicates(
   tx: Db,
   normalizedQuery: string,
-  candidates: readonly CanonicalLinePredicateCandidate[],
+  candidates: ReadonlyArray<CanonicalLinePredicateCandidate>,
 ): Promise<ReadonlySet<number>> {
   if (normalizedQuery.length === 0 || candidates.length === 0) return new Set();
 
-  const likePattern = `%${normalizedQuery.replace(/[\\%_]/g, '\\$&')}%`;
+  const likePattern = `%${normalizedQuery.replaceAll(/[\\%_]/g, String.raw`\$&`)}%`;
   const values = sql.join(
     candidates.map(
       (candidate) => sql`(${candidate.id}, ${candidate.normalizedText})`,
@@ -170,7 +170,7 @@ export async function matchCanonicalSearchPreview(
  *  first — split out of `matchCanonicalSearchPreview` purely for its own
  *  line budget. */
 function selectPreviewPassage(
-  matchedLines: readonly MatchedLine[],
+  matchedLines: ReadonlyArray<MatchedLine>,
 ): CanonicalSearchPreviewPassage | null {
   const passages = buildPassages(matchedLines);
   passages.sort((left, right) => {
@@ -208,7 +208,7 @@ function selectPreviewPassage(
  *  the caller keep ids monotonic and contiguous across every message,
  *  exactly as the original single loop did. */
 function linesFromMessage(message: CanonicalSearchMessage, startId: number) {
-  const lines: InternalLine[] = [];
+  const lines: Array<InternalLine> = [];
   let id = startId;
   if (
     !Number.isSafeInteger(message.sourceStart) ||
@@ -249,8 +249,8 @@ function linesFromMessage(message: CanonicalSearchMessage, startId: number) {
 
 function buildInternalLines(
   document: HydratedCanonicalSearchDocument,
-): InternalLine[] {
-  const result: InternalLine[] = [];
+): Array<InternalLine> {
+  const result: Array<InternalLine> = [];
   let id = 0;
   const messages = document.messages
     .map((message, index) => ({ message, index }))
@@ -337,12 +337,14 @@ function firstCodePointEnd(
   if (codePoint === undefined) return startOffset;
   return Math.min(
     endOffsetExclusive,
-    startOffset + (codePoint > 0xffff ? 2 : 1),
+    startOffset + (codePoint > 0xff_ff ? 2 : 1),
   );
 }
 
-function buildPassages(matchedLines: readonly MatchedLine[]): LineInterval[] {
-  const grouped = new Map<number, MatchedLine[]>();
+function buildPassages(
+  matchedLines: ReadonlyArray<MatchedLine>,
+): Array<LineInterval> {
+  const grouped = new Map<number, Array<MatchedLine>>();
   for (const match of matchedLines) {
     const group = grouped.get(match.line.message.messageSeq);
     if (group === undefined)
@@ -350,7 +352,7 @@ function buildPassages(matchedLines: readonly MatchedLine[]): LineInterval[] {
     else group.push(match);
   }
 
-  const passages: LineInterval[] = [];
+  const passages: Array<LineInterval> = [];
   for (const group of grouped.values()) {
     group.sort(
       (left, right) => left.line.logical.line - right.line.logical.line,
@@ -383,8 +385,8 @@ function buildPassages(matchedLines: readonly MatchedLine[]): LineInterval[] {
   return passages;
 }
 
-function partitionInterval(interval: LineInterval): LineInterval[] {
-  const result: LineInterval[] = [];
+function partitionInterval(interval: LineInterval): Array<LineInterval> {
+  const result: Array<LineInterval> = [];
   let start = interval.start;
   let remainingMatches = [...interval.matches];
 
@@ -451,17 +453,17 @@ type NormalizedFragment = {
 /** Group `raw` into combining-mark clusters — NFKC can compose adjacent
  *  Unicode code points, so a base character and its combining marks must
  *  normalize together. Phase 1 of `buildNormalizedMapping`. */
-function buildCombiningMarkFragments(raw: string): NormalizedFragment[] {
-  const fragments: NormalizedFragment[] = [];
+function buildCombiningMarkFragments(raw: string): Array<NormalizedFragment> {
+  const fragments: Array<NormalizedFragment> = [];
   for (let offset = 0; offset < raw.length; ) {
     const rawStart = offset;
     const firstCodePoint = raw.codePointAt(offset);
     if (firstCodePoint === undefined) break;
-    offset += firstCodePoint > 0xffff ? 2 : 1;
+    offset += firstCodePoint > 0xff_ff ? 2 : 1;
     while (offset < raw.length) {
       const codePoint = raw.codePointAt(offset);
       if (codePoint === undefined || !isCombiningMark(codePoint)) break;
-      offset += codePoint > 0xffff ? 2 : 1;
+      offset += codePoint > 0xff_ff ? 2 : 1;
     }
     const rawEndExclusive = offset;
     fragments.push({
@@ -478,7 +480,7 @@ function buildCombiningMarkFragments(raw: string): NormalizedFragment[] {
  *  `tokenizeFragments`'s double loop, split out to keep that loop's own
  *  nesting shallow. */
 function appendNormalizedToken(
-  tokens: NormalizedFragment[],
+  tokens: Array<NormalizedFragment>,
   character: string,
   fragment: NormalizedFragment,
 ): void {
@@ -505,9 +507,9 @@ function appendNormalizedToken(
 /** Whitespace-collapsed, boundary-trimmed tokens from `fragments`. Phase 2
  *  of `buildNormalizedMapping`. */
 function tokenizeFragments(
-  fragments: readonly NormalizedFragment[],
-): NormalizedFragment[] {
-  const tokens: NormalizedFragment[] = [];
+  fragments: ReadonlyArray<NormalizedFragment>,
+): Array<NormalizedFragment> {
+  const tokens: Array<NormalizedFragment> = [];
   for (const fragment of fragments) {
     for (const character of Array.from(fragment.text)) {
       appendNormalizedToken(tokens, character, fragment);
@@ -523,9 +525,9 @@ function tokenizeFragments(
  *  including a folded length that doesn't sum to the whole normalized
  *  string's length. Phase 3 of `buildNormalizedMapping`. */
 function foldAndVerifyTokens(
-  tokens: readonly NormalizedFragment[],
+  tokens: ReadonlyArray<NormalizedFragment>,
   expectedNormalized: string,
-): { normalized: string; foldedFragments: string[] } | undefined {
+): { normalized: string; foldedFragments: Array<string> } | undefined {
   const preLowerNormalized = tokens.map((token) => token.text).join('');
   const normalized = preLowerNormalized.toLowerCase();
   if (normalized !== expectedNormalized) return undefined;
@@ -543,11 +545,11 @@ function foldAndVerifyTokens(
 /** Build the normalized-offset ↔ raw-offset segment list from `tokens` and
  *  their folded text. Phase 4 of `buildNormalizedMapping`. */
 function buildNormalizedSegments(
-  tokens: readonly NormalizedFragment[],
-  foldedFragments: readonly string[],
+  tokens: ReadonlyArray<NormalizedFragment>,
+  foldedFragments: ReadonlyArray<string>,
   normalizedLength: number,
-): NormalizedSegment[] | undefined {
-  const segments: NormalizedSegment[] = [];
+): Array<NormalizedSegment> | undefined {
+  const segments: Array<NormalizedSegment> = [];
   let normalizedOffset = 0;
   for (const [index, token] of tokens.entries()) {
     const foldedFragment = foldedFragments[index];

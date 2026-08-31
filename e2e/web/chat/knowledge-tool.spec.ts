@@ -149,7 +149,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     // test here), whose paginated-collection response shape is fixed by its
     // own OpenAPI contract.
     const collection = (await listResponse.json()) as {
-      items: KnowledgeSpaceResponse[];
+      items: Array<KnowledgeSpaceResponse>;
       nextCursor: string | null;
     };
     expect(collection.items).toEqual(
@@ -410,10 +410,10 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       account,
       "Ranged acceptance",
     );
-    const longNote = Array.from({ length: 2_005 }, (_, index) => {
+    const longNote = Array.from({ length: 2005 }, (_, index) => {
       if (index === 2) return `${pagedQuery} first passage`;
-      if (index === 1_102) return `${pagedQuery} second passage`;
-      if (index === 2_002) return `${pagedQuery} final passage`;
+      if (index === 1102) return `${pagedQuery} second passage`;
+      if (index === 2002) return `${pagedQuery} final passage`;
       return "x";
     }).join("\n");
     writeNote(rangedSpace, longNotePath, `${longNote}\n`);

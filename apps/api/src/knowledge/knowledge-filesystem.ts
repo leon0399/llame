@@ -171,7 +171,7 @@ export type KnowledgeFilesystemReadOptions =
     readonly fixedResultCodeUnits?: number;
   };
 type DirectoryReadResult = {
-  readonly entries: KnowledgeFilesystemDirent[];
+  readonly entries: Array<KnowledgeFilesystemDirent>;
   readonly count: number;
 };
 
@@ -181,7 +181,7 @@ type DirectoryReadResult = {
 type KnowledgeSearchWalkContext = {
   readonly query: string;
   readonly budget: KnowledgeFilesystemSearchBudget;
-  readonly matches: KnowledgeFilesystemSearchMatch[];
+  readonly matches: Array<KnowledgeFilesystemSearchMatch>;
   readonly maxResults: number;
   readonly after: KnowledgeFilesystemSearchAfter | undefined;
   readonly signal: AbortSignal | undefined;
@@ -222,7 +222,7 @@ export class KnowledgeFilesystemAdapter {
     query: string,
     limit: number,
     options: KnowledgeFilesystemSearchOptions = {},
-  ): Promise<KnowledgeFilesystemSearchMatch[]> {
+  ): Promise<Array<KnowledgeFilesystemSearchMatch>> {
     validateSearchInput(query, limit);
     const directory = await this.resolveBindingDirectory(options.signal);
     const ctx: KnowledgeSearchWalkContext = {
@@ -459,7 +459,7 @@ export class KnowledgeFilesystemAdapter {
     }
     let directory: KnowledgeFilesystemDirectory | undefined;
     let failure: unknown;
-    let entries: KnowledgeFilesystemDirent[] | undefined;
+    let entries: Array<KnowledgeFilesystemDirent> | undefined;
     try {
       directory = await observeResource(
         () => this.fileSystem.opendir(directoryPath),

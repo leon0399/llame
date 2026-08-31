@@ -25,7 +25,7 @@ type SpaceResponse = {
 };
 
 type SpaceListResponse = {
-  items: SpaceResponse[];
+  items: Array<SpaceResponse>;
   nextCursor: string | null;
 };
 

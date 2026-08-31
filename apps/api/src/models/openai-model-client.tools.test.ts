@@ -25,7 +25,7 @@ const tools = {
 
 const messages = [
   { role: 'user', content: 'Use the available tools.' },
-] satisfies ModelMessage[];
+] satisfies Array<ModelMessage>;
 
 const PROVIDER_USAGE = {
   inputTokens: {
@@ -38,7 +38,7 @@ const PROVIDER_USAGE = {
 };
 
 function providerResponse(
-  content: LanguageModelV3StreamPart[],
+  content: Array<LanguageModelV3StreamPart>,
   finishReason: 'stop' | 'tool-calls',
 ) {
   return {

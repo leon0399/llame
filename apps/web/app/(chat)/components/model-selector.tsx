@@ -30,7 +30,7 @@ import {
 import { useChatContext } from "@/contexts/chat-context";
 import { ModelPreviewCard } from "@/components/ai/model-preview-card";
 
-const EMPTY_MODELS: AvailableModel[] = [];
+const EMPTY_MODELS: Array<AvailableModel> = [];
 
 // Loading-placeholder rows: the title width cycles so the list doesn't read as
 // a uniform grid, and every other row gets a second (description) line.
@@ -192,7 +192,7 @@ function ModelOption({
  *  selection isn't (or is no longer) a valid model id. */
 function useDefaultModelSeed(
   data: ModelsResponse | undefined,
-  models: AvailableModel[],
+  models: Array<AvailableModel>,
   value: string | undefined,
   setValue: (modelId: string) => void,
 ): void {
@@ -206,7 +206,10 @@ function useDefaultModelSeed(
 
 /** The model shown in the preview card — the selection by default, or
  *  whatever option is under the pointer while browsing the list. */
-function usePreviewModel(models: AvailableModel[], value: string | undefined) {
+function usePreviewModel(
+  models: Array<AvailableModel>,
+  value: string | undefined,
+) {
   const [previewModelId, setPreviewModelId] = React.useState<
     string | undefined
   >(value);
@@ -226,7 +229,7 @@ function usePreviewModel(models: AvailableModel[], value: string | undefined) {
 function resolveSelectedLabel(
   isError: boolean,
   effectiveValue: string | undefined,
-  models: AvailableModel[],
+  models: Array<AvailableModel>,
 ): string {
   if (isError) return "Models unavailable";
   if (!effectiveValue) return "Select a model";
@@ -236,7 +239,7 @@ function resolveSelectedLabel(
 type ModelPickerPanelProps = {
   isPending: boolean;
   isError: boolean;
-  models: AvailableModel[];
+  models: Array<AvailableModel>;
   effectiveValue: string | undefined;
   previewModel: AvailableModel | undefined;
   onSelect: (modelId: string) => void;
@@ -246,7 +249,7 @@ type ModelPickerPanelProps = {
 type ModelCommandResultsProps = {
   isPending: boolean;
   isError: boolean;
-  models: AvailableModel[];
+  models: Array<AvailableModel>;
   effectiveValue: string | undefined;
   onSelect: (modelId: string) => void;
   onHover: (modelId: string) => void;

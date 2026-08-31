@@ -107,13 +107,9 @@ describe("chat message query options", () => {
       "chat-1",
       "messages",
     ]);
-    expect(chatQueryKeys.targetMessages("chat-1", 9007199254740991)).toEqual([
-      "chats",
-      "chat-1",
-      "messages",
-      "target",
-      9007199254740991,
-    ]);
+    expect(
+      chatQueryKeys.targetMessages("chat-1", 9_007_199_254_740_991),
+    ).toEqual(["chats", "chat-1", "messages", "target", 9_007_199_254_740_991]);
     expect(JSON.stringify(chatQueryKeys.targetMessages("chat-1", 42))).toBe(
       '["chats","chat-1","messages","target",42]',
     );
@@ -305,7 +301,7 @@ describe("chat message query options", () => {
 });
 
 function messagesPage(
-  rows: { id: string; seq: number; text: string }[],
+  rows: Array<{ id: string; seq: number; text: string }>,
 ): ChatMessagesResponse {
   return {
     messages: rows.map(({ id, seq, text }) =>

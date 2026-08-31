@@ -46,7 +46,7 @@ const MAX_TOOLS_PER_PAGE = 256;
 const MAX_TOOLS_TOTAL = 1000;
 const MAX_DISCOVERY_PAGES = 1000;
 const DISCOVERY_DEADLINE_MS = 30_000;
-const CLOSE_DEADLINE_MS = 5_000;
+const CLOSE_DEADLINE_MS = 5000;
 const MAX_DECLARATION_BYTES = 256 * 1024;
 const MAX_SCHEMA_DEPTH = 64;
 const MAX_DISCOVERY_RESPONSE_BYTES = 8 * ONE_MIB;
@@ -121,15 +121,15 @@ export type McpDiscoveredTool = {
 };
 
 export type McpDiscoveryResult = {
-  readonly tools: readonly McpDiscoveredTool[];
-  readonly refused: readonly {
+  readonly tools: ReadonlyArray<McpDiscoveredTool>;
+  readonly refused: ReadonlyArray<{
     readonly index: number;
     readonly id?: string;
     readonly reason:
       | McpDeclarationRefusalReason
       | 'declaration_too_large'
       | 'schema_too_deep';
-  }[];
+  }>;
 };
 
 export type McpServerClientConfig = {
@@ -149,7 +149,7 @@ export type McpStdioServerClientConfig = McpStdioTransportConfig & {
    * substring-matched across tool traffic, so protecting a low-entropy literal
    * would refuse legitimate calls and corrupt legitimate results.
    */
-  readonly protectedValues?: readonly string[];
+  readonly protectedValues?: ReadonlyArray<string>;
   readonly onDisconnect?: () => void;
   readonly onDiagnostic?: (text: string) => void;
   readonly signal?: AbortSignal;
@@ -229,7 +229,7 @@ type DiscoveryAttempt = {
 function safeDiscoveryRefusalId(
   serverId: string,
   remoteName: string,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): string | undefined {
   if (containsProtectedValueJson(remoteName, protectedValues)) return undefined;
   const toolId = createMcpToolId(serverId, remoteName);
@@ -431,7 +431,7 @@ function hasPortableMcpResultPayload(value: unknown): boolean {
 
 function hasProtectedKeyInErrorData(
   error: unknown,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): boolean {
   const seen = new Set<unknown>();
   let candidate = error;
@@ -537,7 +537,7 @@ async function normalizeJsonRpcResponse(
 }
 
 function sseData(event: string): string | undefined {
-  const data: string[] = [];
+  const data: Array<string> = [];
   let eventType: string | undefined;
   for (const line of event.split(/\r\n|\r|\n/u)) {
     if (line.startsWith(':')) continue;
@@ -994,7 +994,7 @@ export class McpServerClient {
 
   private constructor(
     private readonly serverId: string,
-    private readonly configuredProtectedValues: readonly string[],
+    private readonly configuredProtectedValues: ReadonlyArray<string>,
     connectionState: Pick<
       ConnectionState,
       | 'protectedValueState'
@@ -1012,7 +1012,7 @@ export class McpServerClient {
 
   private static finishConnection(
     serverId: string,
-    configuredProtectedValues: readonly string[],
+    configuredProtectedValues: ReadonlyArray<string>,
     state: ConnectionState,
     client: MCPClient,
   ): McpServerClient {
@@ -1217,13 +1217,13 @@ export class McpServerClient {
 
   private boundToolsBySize(
     rawTools: ListToolsResult['tools'],
-    protectedValues: readonly string[],
+    protectedValues: ReadonlyArray<string>,
     attempt: DiscoveryAttempt,
   ) {
     const { signal, startedAt } = attempt;
     const boundedTools: ListToolsResult['tools'] = [];
-    const originalIndexes: number[] = [];
-    const refused: McpDiscoveryResult['refused'][number][] = [];
+    const originalIndexes: Array<number> = [];
+    const refused: Array<McpDiscoveryResult['refused'][number]> = [];
     assertDiscoveryActive(signal, startedAt);
     for (const [index, rawTool] of rawTools.entries()) {
       assertDiscoveryActive(signal, startedAt);
@@ -1254,8 +1254,8 @@ export class McpServerClient {
 
   private async admitBoundedTools(
     boundedTools: ListToolsResult['tools'],
-    protectedValues: readonly string[],
-    originalIndexes: number[],
+    protectedValues: ReadonlyArray<string>,
+    originalIndexes: Array<number>,
     attempt: DiscoveryAttempt,
   ) {
     const { signal, startedAt } = attempt;
@@ -1291,7 +1291,7 @@ export class McpServerClient {
   private admitExecutableEntry(
     packageTools: ReturnType<MCPClient['toolsFromDefinitions']>,
     admission: McpDeclarationAdmissionResult,
-    originalIndexes: number[],
+    originalIndexes: Array<number>,
     entry: { readonly admittedIndex: number; readonly boundedIndex: number },
   ):
     | { readonly tool: McpDiscoveredTool }
@@ -1354,13 +1354,13 @@ export class McpServerClient {
   private buildExecutableTools(
     boundedTools: ListToolsResult['tools'],
     admission: McpDeclarationAdmissionResult,
-    originalIndexes: number[],
+    originalIndexes: Array<number>,
     attempt: DiscoveryAttempt,
   ) {
     const { executableEntries, packageTools } =
       this.resolveExecutableCandidates(boundedTools, admission, attempt);
-    const tools: McpDiscoveredTool[] = [];
-    const refused: McpDiscoveryResult['refused'][number][] = [];
+    const tools: Array<McpDiscoveredTool> = [];
+    const refused: Array<McpDiscoveryResult['refused'][number]> = [];
     for (const [
       admittedIndex,
       { boundedIndex },
@@ -1417,7 +1417,7 @@ export class McpServerClient {
     return { tools, refused };
   }
 
-  private protectedValues(): readonly string[] {
+  private protectedValues(): ReadonlyArray<string> {
     return normalizeProtectedValues([
       ...this.configuredProtectedValues,
       ...(this.protectedValueState.sessionId === undefined

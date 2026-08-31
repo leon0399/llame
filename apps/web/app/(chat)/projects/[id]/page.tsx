@@ -20,8 +20,8 @@ function ProjectChatsCard({
   pinnedAtByChatId,
   onRequestNewProject,
 }: {
-  chats: ChatResponse[];
-  projects: ProjectResponse[];
+  chats: Array<ChatResponse>;
+  projects: Array<ProjectResponse>;
   pinnedAtByChatId: ReadonlyMap<string, string>;
   onRequestNewProject: (chatId: string) => void;
 }) {

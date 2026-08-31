@@ -25,7 +25,7 @@ const ORG_UNIT_TYPES = [
   'group',
   'team',
   'department',
-] as const satisfies readonly OrgUnitType[];
+] as const satisfies ReadonlyArray<OrgUnitType>;
 
 /** Full SPEC §7.3 role vocabulary, for response payloads. */
 const ORG_ROLES = orgRole.enumValues;

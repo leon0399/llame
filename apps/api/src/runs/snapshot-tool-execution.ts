@@ -162,12 +162,12 @@ function resolveDynamicToolBinding(
  * supplies code and must still match that historical declaration exactly.
  */
 export async function resolveBoundExecutableTools(
-  declarations: readonly ModelToolDeclaration[],
+  declarations: ReadonlyArray<ModelToolDeclaration>,
   registry: ReadonlyMap<string, Tool> = TOOL_REGISTRY,
   dynamicResolver?: DynamicToolExecutorResolver,
-): Promise<BoundExecutableTool[]> {
+): Promise<Array<BoundExecutableTool>> {
   const seen = new Set<string>();
-  const resolved: BoundExecutableTool[] = [];
+  const resolved: Array<BoundExecutableTool> = [];
 
   for (const declaration of declarations) {
     validateDeclaration(declaration, seen);

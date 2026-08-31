@@ -93,7 +93,7 @@ const conversationSearchOutputSchema = z.object({
       chatId: z.string().uuid(),
       messageSeq: z.number().int().positive(),
       offset: z.number().int().nonnegative(),
-      limit: z.number().int().positive().max(2_000),
+      limit: z.number().int().positive().max(2000),
     }),
   ),
 });
@@ -128,7 +128,7 @@ function parseToolOutput<T>(
 }
 
 function findSearchOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
-  const outputs: z.output<typeof conversationSearchOutputSchema>[] = [];
+  const outputs: Array<z.output<typeof conversationSearchOutputSchema>> = [];
   for (const message of prompt) {
     if (message.role !== 'tool') continue;
     for (const content of message.content) {
@@ -148,7 +148,7 @@ function findSearchOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
 }
 
 function findReadOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
-  const outputs: z.output<typeof conversationReadOutputSchema>[] = [];
+  const outputs: Array<z.output<typeof conversationReadOutputSchema>> = [];
   for (const message of prompt) {
     if (message.role !== 'tool') continue;
     for (const content of message.content) {
@@ -168,7 +168,9 @@ function findReadOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
 }
 
 /** The canned text-only completion for a conversation-recall script's final turn. */
-function finalRecallAnswerParts(text: string): LanguageModelV3StreamPart[] {
+function finalRecallAnswerParts(
+  text: string,
+): Array<LanguageModelV3StreamPart> {
   return [
     { type: 'text-start', id: 'answer' },
     { type: 'text-delta', id: 'answer', delta: text },
@@ -179,7 +181,7 @@ function finalRecallAnswerParts(text: string): LanguageModelV3StreamPart[] {
 function conversationRecallParts(
   prompt: LanguageModelV3CallOptions['prompt'],
   behavior: ConversationRecallBehavior,
-): LanguageModelV3StreamPart[] {
+): Array<LanguageModelV3StreamPart> {
   const searchOutputs = findSearchOutputs(prompt);
   if (searchOutputs.length === 0) {
     return [

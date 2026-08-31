@@ -32,7 +32,7 @@ const ESCAPES = {
 } satisfies Record<string, string>;
 
 const escapeStrict = (value: string) =>
-  value.replace(/[&<>]/g, (character) => {
+  value.replaceAll(/[&<>]/g, (character) => {
     // SAFETY: the regex this replaces on only ever matches "&", "<", or
     // ">" — exactly `ESCAPES`'s keys — so this narrows the match to one
     // guaranteed to be present.

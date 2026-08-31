@@ -49,7 +49,7 @@ export const modelContextSnapshots = pgTable(
       .$type<ToolAvailabilityManifest>()
       .notNull(),
     toolDeclarations: jsonb('tool_declarations')
-      .$type<ModelToolDeclaration[]>()
+      .$type<Array<ModelToolDeclaration>>()
       .notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()

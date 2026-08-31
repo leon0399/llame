@@ -12,7 +12,7 @@ import { CHAT_HISTORY_PAGE_SIZE } from "./paginate-messages";
 import { draftChatPath, type DraftPhase } from "./draft-route";
 
 const SESSION_COOKIE_NAME = "llame_session";
-const CHAT_HISTORY_FETCH_TIMEOUT_MS = 5_000;
+const CHAT_HISTORY_FETCH_TIMEOUT_MS = 5000;
 
 function loginRedirectPath(chatId: string, phase: DraftPhase | null): Route {
   return `/login?callbackUrl=${encodeURIComponent(draftChatPath(chatId, phase))}`;

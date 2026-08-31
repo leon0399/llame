@@ -193,7 +193,7 @@ describe('PinsController', () => {
   }
 
   it('GET /pins maps service rows to PinnedItemResponse[]', async () => {
-    const rows: PinnedRow[] = [
+    const rows: Array<PinnedRow> = [
       {
         itemType: 'project',
         itemId: 'p1',
@@ -238,7 +238,7 @@ describe('PinsController', () => {
   });
 
   it('PUT /pins/order delegates the complete order and maps the returned list', async () => {
-    const rows: PinnedRow[] = [
+    const rows: Array<PinnedRow> = [
       {
         itemType: 'project',
         itemId: 'p1',

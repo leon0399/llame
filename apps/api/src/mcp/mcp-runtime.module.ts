@@ -21,10 +21,10 @@ export const EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS: Readonly<
 type MutableStdioDefinition = {
   transport: 'stdio';
   command: string;
-  args?: readonly string[];
+  args?: ReadonlyArray<string>;
   env?: Readonly<Record<string, string>>;
   cwd?: string;
-  protectedValues?: readonly string[];
+  protectedValues?: ReadonlyArray<string>;
 };
 
 type MutableRemoteDefinition = {

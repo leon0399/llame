@@ -94,7 +94,7 @@ const knowledgeResolver: KnowledgeToolResolver = {
 
 function replacementHistoryFor(
   summary: string,
-): CompactionReplacementMessage[] {
+): Array<CompactionReplacementMessage> {
   return [
     {
       role: 'user',
@@ -104,8 +104,8 @@ function replacementHistoryFor(
 }
 
 function replacementToolParts(
-  history: CompactionReplacementMessage[],
-): UnknownRecord[] {
+  history: Array<CompactionReplacementMessage>,
+): Array<UnknownRecord> {
   return history.slice(1).flatMap((record) => {
     const part = record.parts[0];
     return record.role === 'assistant' &&
@@ -120,7 +120,7 @@ function replacementToolParts(
 
 function compactionClient(input: {
   model: string;
-  calls: ModelStreamInput[];
+  calls: Array<ModelStreamInput>;
   response?: string | Promise<string>;
   toolCalls?: Array<{ toolName: string; input: unknown }>;
   error?: Error;
@@ -304,10 +304,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
   it('uses the completed run prompt and schema-only declarations with toolChoice none', async () => {
     const chat = await seedHistory();
-    const calls: ModelStreamInput[] = [];
+    const calls: Array<ModelStreamInput> = [];
     const client = compactionClient({ model: 'source-model', calls });
     const service = createCompactionService(unexercisedModels);
-    const declarations: ModelToolDeclaration[] = [
+    const declarations: Array<ModelToolDeclaration> = [
       {
         id: 'lookup',
         description: 'Look up context',
@@ -375,7 +375,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
   // setting can reach.
   it('keeps the packaged prompt digest out of the persisted checkpoint', async () => {
     const chat = await seedHistory();
-    const calls: ModelStreamInput[] = [];
+    const calls: Array<ModelStreamInput> = [];
     const client = compactionClient({ model: 'source-model', calls });
     const service = createCompactionService(unexercisedModels);
 
@@ -505,7 +505,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     await new MemoryService(tenantDb).updateForOwner(userId, {
       shareRecentChats: true,
     });
-    const calls: ModelStreamInput[] = [];
+    const calls: Array<ModelStreamInput> = [];
     const service = createCompactionService(unexercisedModels);
 
     await service.maybeCompact({
@@ -649,7 +649,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
   it('persists final cleared replacement records and carries them across lineage', async () => {
     const chat = await seedHistory(5, true);
-    const calls: ModelStreamInput[] = [];
+    const calls: Array<ModelStreamInput> = [];
     const client = compactionClient({ model: 'source-model', calls });
     const service = createCompactionService(unexercisedModels);
 
@@ -754,7 +754,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
   it('rejects a provider tool call without persisting a checkpoint or exposing an executor', async () => {
     const chat = await seedHistory();
-    const calls: ModelStreamInput[] = [];
+    const calls: Array<ModelStreamInput> = [];
     const service = createCompactionService(unexercisedModels);
 
     await service.maybeCompact({
@@ -803,7 +803,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         chatId: chat.id,
         role: 'user',
         senderUserId: userId,
-        parts: [{ type: 'text', text: `OLD REQUEST ${'x'.repeat(1_200)}` }],
+        parts: [{ type: 'text', text: `OLD REQUEST ${'x'.repeat(1200)}` }],
       });
       let sourceSnapshot = await seedModelContextSnapshot(
         tx,
@@ -865,7 +865,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         role: 'assistant',
         inReplyTo: oldUser.id,
         parts: [
-          { type: 'text', text: `OLD ANSWER ${'y'.repeat(1_200)}` },
+          { type: 'text', text: `OLD ANSWER ${'y'.repeat(1200)}` },
           ...(options?.toolObservation
             ? [
                 {
@@ -887,7 +887,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         toModelId: 'target-model',
         runId: targetRunId,
       });
-      const targetUserParts: MessagePart[] = [
+      const targetUserParts: Array<MessagePart> = [
         ...(options?.switchMarker === false ? [] : [switchPart]),
         { type: 'text', text: 'CURRENT TRIGGER' },
       ];
@@ -939,7 +939,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
   it('fails transition compaction closed when a legacy snapshot schema cannot be rebound', async () => {
     const seeded = await seedSwitch({ incompatibleSourceSchema: true });
-    const sourceCalls: ModelStreamInput[] = [];
+    const sourceCalls: Array<ModelStreamInput> = [];
     const service = createCompactionService({
       createClient: vi.fn(() =>
         compactionClient({ model: 'source-model', calls: sourceCalls }),
@@ -977,7 +977,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
   // invalidate the message blocks that request shape exists to reuse.
   it('sends the triggering run effort on the compaction call and records it', async () => {
     const chat = await seedHistory();
-    const calls: ModelStreamInput[] = [];
+    const calls: Array<ModelStreamInput> = [];
     const client = compactionClient({ model: 'source-model', calls });
 
     await createCompactionService(unexercisedModels).maybeCompact({
@@ -1001,7 +1001,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
   it('sends no effort on the compaction call when the triggering run carried none', async () => {
     const chat = await seedHistory();
-    const calls: ModelStreamInput[] = [];
+    const calls: Array<ModelStreamInput> = [];
     const client = compactionClient({ model: 'source-model', calls });
 
     await createCompactionService(unexercisedModels).maybeCompact({
@@ -1023,7 +1023,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
   // and was validated against a different model's declared levels entirely.
   it('sends the source run effort on transition compaction, not the incoming turn effort', async () => {
     const seeded = await seedSwitch({ sourceEffort: 'high' });
-    const sourceCalls: ModelStreamInput[] = [];
+    const sourceCalls: Array<ModelStreamInput> = [];
     const sourceClient = compactionClient({
       model: 'source-model',
       calls: sourceCalls,
@@ -1067,8 +1067,8 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
   it('uses one source-snapshot transition checkpoint before invoking the smaller target', async () => {
     const seeded = await seedSwitch({ toolObservation: true });
-    const sourceCalls: ModelStreamInput[] = [];
-    const targetCalls: ModelStreamInput[] = [];
+    const sourceCalls: Array<ModelStreamInput> = [];
+    const targetCalls: Array<ModelStreamInput> = [];
     const summary =
       '## Objective\nPreserve continuity.\n\n## Current State\nReady.';
     const sourceClient = compactionClient({
@@ -1155,7 +1155,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           type: 'text',
           text: expect.stringMatching(
             new RegExp(
-              `^${COMPACTION_CHECKPOINT_ENVELOPE_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+              `^${COMPACTION_CHECKPOINT_ENVELOPE_PREFIX.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}`,
             ),
           ),
         },
@@ -1205,8 +1205,8 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
   it('settles a cancel requested before the claim without spending on transition compaction', async () => {
     const seeded = await seedSwitch();
-    const sourceCalls: ModelStreamInput[] = [];
-    const targetCalls: ModelStreamInput[] = [];
+    const sourceCalls: Array<ModelStreamInput> = [];
+    const targetCalls: Array<ModelStreamInput> = [];
     const compaction = createCompactionService({
       createClient: vi.fn(() =>
         compactionClient({ model: 'source-model', calls: sourceCalls }),
@@ -1258,8 +1258,8 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
   it('aborts in-flight transition compaction and settles the claimed run as expired', async () => {
     const seeded = await seedSwitch();
-    const sourceCalls: ModelStreamInput[] = [];
-    const targetCalls: ModelStreamInput[] = [];
+    const sourceCalls: Array<ModelStreamInput> = [];
+    const targetCalls: Array<ModelStreamInput> = [];
     let sourceStarted!: () => void;
     const sourceStartedPromise = new Promise<void>((resolve) => {
       sourceStarted = resolve;
@@ -1325,7 +1325,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
   it('uses a concurrently won checkpoint instead of failing the target run', async () => {
     const seeded = await seedSwitch();
-    const targetCalls: ModelStreamInput[] = [];
+    const targetCalls: Array<ModelStreamInput> = [];
     let resolveSummary!: (summary: string) => void;
     let sourceStarted!: () => void;
     const sourceStartedPromise = new Promise<void>((resolve) => {
@@ -1398,7 +1398,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
   it('persists the transition cutoff when a concurrent checkpoint is too early for the target', async () => {
     const seeded = await seedSwitch();
-    const targetCalls: ModelStreamInput[] = [];
+    const targetCalls: Array<ModelStreamInput> = [];
     let resolveSummary!: (summary: string) => void;
     let sourceStarted!: () => void;
     const sourceStartedPromise = new Promise<void>((resolve) => {
@@ -1506,7 +1506,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           compactionClient({
             model: 'source-model',
             calls: [],
-            response: `## Objective\n${'z'.repeat(4_000)}`,
+            response: `## Objective\n${'z'.repeat(4000)}`,
           }),
         ),
       },
@@ -1515,7 +1515,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     'fails context_incompatible before target inference when $name',
     async ({ sourceRun, switchMarker, models }) => {
       const seeded = await seedSwitch({ sourceRun, switchMarker });
-      const targetCalls: ModelStreamInput[] = [];
+      const targetCalls: Array<ModelStreamInput> = [];
       const target = createFakeModelClient(['must not run'], 500);
       const targetClient: ModelClient = {
         ...target,

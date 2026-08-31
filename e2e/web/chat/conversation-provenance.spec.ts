@@ -61,7 +61,7 @@ function isTextPart(part: {
   return part.type === "text" && typeof part.text === "string";
 }
 
-async function readMessages(response: APIResponse): Promise<ApiMessage[]> {
+async function readMessages(response: APIResponse): Promise<Array<ApiMessage>> {
   // SAFETY: this is the api's own chat-messages endpoint (under test here),
   // whose { messages: [...] } envelope is fixed by its own OpenAPI contract.
   const body = (await response.json()) as { messages?: unknown };

@@ -61,7 +61,7 @@ export type InterpolationResult = {
    * secret would not be recognized. Empty resolutions are omitted — an empty
    * string matches everywhere and would redact all output.
    */
-  readonly substituted: readonly string[];
+  readonly substituted: ReadonlyArray<string>;
 };
 
 /**
@@ -71,7 +71,7 @@ export function interpolateStringWithSubstitutions(
   input: string,
   env: NodeJS.ProcessEnv = process.env,
 ): InterpolationResult {
-  const substituted: string[] = [];
+  const substituted: Array<string> = [];
   let out = "";
   let i = 0;
   while (i < input.length) {
@@ -115,7 +115,7 @@ type TokenMatch = { readonly resolved: string; readonly length: number };
 function matchEnvToken(
   rest: string,
   env: NodeJS.ProcessEnv,
-  substituted: string[],
+  substituted: Array<string>,
 ): TokenMatch | undefined {
   const envMatch = ENV_TOKEN.exec(rest);
   if (!envMatch) return undefined;
@@ -127,7 +127,7 @@ function matchEnvToken(
 
 function matchPathToken(
   rest: string,
-  substituted: string[],
+  substituted: Array<string>,
 ): TokenMatch | undefined {
   const pathMatch = PATH_TOKEN.exec(rest);
   if (!pathMatch) return undefined;
@@ -187,9 +187,9 @@ function resolvePathToken(location: string): string {
 function readSecretFile(filePath: string): string {
   try {
     return readFileSync(filePath, "utf8");
-  } catch (err) {
+  } catch (error) {
     // The fs error names the path and errno only — never file contents.
-    const detail = err instanceof Error ? err.message : String(err);
+    const detail = error instanceof Error ? error.message : String(error);
     throw new InterpolationError(
       `required file ${filePath} could not be read: ${detail}`,
       { kind: "path", location: filePath },
@@ -208,8 +208,8 @@ function selectJsonPointerFromPayload(
     // parseJsonValue validates into JsonValue.
     const parsed = JSON.parse(payload) as unknown;
     document = parseJsonValue(parsed);
-  } catch (err) {
-    if (err instanceof InterpolationError) throw err;
+  } catch (error) {
+    if (error instanceof InterpolationError) throw error;
     throw new InterpolationError(
       `required file ${filePath} is not valid JSON`,
       { kind: "path", location: filePath },
@@ -242,7 +242,7 @@ type JsonValue =
   | number
   | boolean
   | null
-  | readonly JsonValue[]
+  | ReadonlyArray<JsonValue>
   | JsonObject;
 
 // eslint-disable-next-line anti-slop/no-unsafe-dictionary-type -- package-local UnknownRecord: the one owned Record<string, unknown> declaration for JSON.parse boundaries; consumers use JsonValue / JsonObject after parseJsonValue.
@@ -272,7 +272,7 @@ function isJsonObject(value: JsonValue): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
+function isJsonArray(value: JsonValue): value is ReadonlyArray<JsonValue> {
   return Array.isArray(value);
 }
 

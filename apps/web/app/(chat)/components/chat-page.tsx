@@ -28,7 +28,7 @@ import { EffectiveContextInspector } from "./effective-context-inspector";
 // Module-level so a draft's empty history keeps a stable identity across
 // renders — it is a dependency of the history-adoption effect inside
 // `useChatHistorySync` (see use-chat-conversation.ts).
-const EMPTY_MESSAGES: UIMessage[] = [];
+const EMPTY_MESSAGES: Array<UIMessage> = [];
 
 export type ChatPageProps = {
   chatId: string;
@@ -161,7 +161,7 @@ function TargetUnavailable() {
 
 type ChatSessionContentProps = {
   chatId: string;
-  chatMessages: UIMessage[];
+  chatMessages: Array<UIMessage>;
   compaction: Compaction | null;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;

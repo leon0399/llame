@@ -95,11 +95,12 @@ let pinsHandler: () => Promise<Response>;
 function stubChatListNetwork() {
   fetchMock = stubFetch();
   pinnedOnlyHandler = () =>
-    Promise.resolve(jsonResponse<ChatListItemResponse[]>([]));
+    Promise.resolve(jsonResponse<Array<ChatListItemResponse>>([]));
   pinnedExcludeHandler = () =>
-    Promise.resolve(jsonResponse<ChatListItemResponse[]>([]));
-  projectsHandler = () => Promise.resolve(jsonResponse<ProjectResponse[]>([]));
-  pinsHandler = () => Promise.resolve(jsonResponse<PinnedItem[]>([]));
+    Promise.resolve(jsonResponse<Array<ChatListItemResponse>>([]));
+  projectsHandler = () =>
+    Promise.resolve(jsonResponse<Array<ProjectResponse>>([]));
+  pinsHandler = () => Promise.resolve(jsonResponse<Array<PinnedItem>>([]));
   fetchMock.mockImplementation(async (input) => {
     const request = input instanceof Request ? input : new Request(input);
     const { pathname, searchParams } = new URL(request.url);
@@ -162,13 +163,13 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
   it("renders a filed chat in the time-grouped All section, with no project group header", async () => {
     pinnedExcludeHandler = () =>
       Promise.resolve(
-        jsonResponse<ChatListItemResponse[]>([
+        jsonResponse<Array<ChatListItemResponse>>([
           makeChat({ id: "c1", projectId: "p1" }),
         ]),
       );
     projectsHandler = () =>
       Promise.resolve(
-        jsonResponse<ProjectResponse[]>([
+        jsonResponse<Array<ProjectResponse>>([
           {
             id: "p1",
             ownerUserId: "u1",
@@ -191,7 +192,7 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
   it("renders a filed chat even when the projects query errored", async () => {
     pinnedExcludeHandler = () =>
       Promise.resolve(
-        jsonResponse<ChatListItemResponse[]>([
+        jsonResponse<Array<ChatListItemResponse>>([
           makeChat({ id: "c1", projectId: "missing-project" }),
         ]),
       );
@@ -206,7 +207,7 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
   it("does not wait for the projects query to render chats", async () => {
     pinnedExcludeHandler = () =>
       Promise.resolve(
-        jsonResponse<ChatListItemResponse[]>([
+        jsonResponse<Array<ChatListItemResponse>>([
           makeChat({ id: "c1", projectId: null }),
         ]),
       );
@@ -233,13 +234,13 @@ describe("ChatList — Pinned section driven by server query (design D5)", () =>
   it("renders a Pinned group above time-grouped All when pinned-only data is non-empty", async () => {
     pinnedOnlyHandler = () =>
       Promise.resolve(
-        jsonResponse<ChatListItemResponse[]>([
+        jsonResponse<Array<ChatListItemResponse>>([
           makeChat({ id: "c1", title: "Pinned chat" }),
         ]),
       );
     pinnedExcludeHandler = () =>
       Promise.resolve(
-        jsonResponse<ChatListItemResponse[]>([
+        jsonResponse<Array<ChatListItemResponse>>([
           makeChat({ id: "c2", title: "Unpinned chat" }),
         ]),
       );
@@ -255,7 +256,7 @@ describe("ChatList — Pinned section driven by server query (design D5)", () =>
   it("shows no Pinned group when the pinned-only query returns empty", async () => {
     pinnedExcludeHandler = () =>
       Promise.resolve(
-        jsonResponse<ChatListItemResponse[]>([
+        jsonResponse<Array<ChatListItemResponse>>([
           makeChat({ id: "c1", title: "Lonely chat" }),
         ]),
       );

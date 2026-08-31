@@ -114,9 +114,9 @@ function jsonRpcResult(
 
 function initializedFixtureScripts(input: {
   protocolVersion?: '2025-03-26' | '2025-06-18' | '2025-11-25';
-  listResponses: readonly McpFixtureResponse[];
-  callResponses?: readonly McpFixtureResponse[];
-  deleteResponses?: readonly McpFixtureResponse[];
+  listResponses: ReadonlyArray<McpFixtureResponse>;
+  callResponses?: ReadonlyArray<McpFixtureResponse>;
+  deleteResponses?: ReadonlyArray<McpFixtureResponse>;
 }) {
   return {
     $get: [{ kind: 'raw', status: 405, body: '' }],
@@ -132,14 +132,14 @@ function initializedFixtureScripts(input: {
       'tools/call': input.callResponses,
     }),
     $delete: input.deleteResponses ?? [{ kind: 'raw', status: 204, body: '' }],
-  } satisfies Readonly<Record<string, readonly McpFixtureResponse[]>>;
+  } satisfies Readonly<Record<string, ReadonlyArray<McpFixtureResponse>>>;
 }
 
 async function connectFixture(input: {
   protocolVersion?: '2025-03-26' | '2025-06-18' | '2025-11-25';
-  listResponses: readonly McpFixtureResponse[];
-  callResponses?: readonly McpFixtureResponse[];
-  deleteResponses?: readonly McpFixtureResponse[];
+  listResponses: ReadonlyArray<McpFixtureResponse>;
+  callResponses?: ReadonlyArray<McpFixtureResponse>;
+  deleteResponses?: ReadonlyArray<McpFixtureResponse>;
 }) {
   const fixture = await createMcpTestFixture(initializedFixtureScripts(input));
   const client = await McpServerClient.connect({
@@ -159,7 +159,7 @@ async function cleanup(input: {
 }
 
 function byId(
-  tools: readonly McpDiscoveredTool[],
+  tools: ReadonlyArray<McpDiscoveredTool>,
   id: string,
 ): McpDiscoveredTool {
   const discovered = tools.find(({ definition }) => definition.id === id);
@@ -176,7 +176,7 @@ describe('McpServerClient', () => {
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
     let connected = false;
-    const connectedAtNotify: boolean[] = [];
+    const connectedAtNotify: Array<boolean> = [];
     const onDisconnect = vi.fn(() => {
       connectedAtNotify.push(connected);
     });
@@ -206,7 +206,7 @@ describe('McpServerClient', () => {
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
     let connected = false;
-    const connectedAtNotify: boolean[] = [];
+    const connectedAtNotify: Array<boolean> = [];
     const onDisconnect = vi.fn(() => {
       connectedAtNotify.push(connected);
     });
@@ -242,10 +242,10 @@ describe('McpServerClient', () => {
         body: '{}',
       },
     },
-  ] satisfies readonly {
+  ] satisfies ReadonlyArray<{
     readonly name: string;
     readonly response: McpFixtureResponse;
-  }[])(
+  }>)(
     'reports inbound GET $name instead of silently retaining the client',
     async ({ response }) => {
       const onDisconnect = vi.fn();
@@ -1831,7 +1831,7 @@ describe('McpServerClient', () => {
     try {
       const catalog = await client.discover();
       const execute = byId(catalog.tools, 'mcp__web__lookup').execute;
-      const outcomes: McpCallOutcome[] = [];
+      const outcomes: Array<McpCallOutcome> = [];
       for (const status of statuses) {
         outcomes.push(
           await execute(
@@ -2051,7 +2051,7 @@ describe('McpServerClient', () => {
     try {
       const catalog = await client.discover();
       const execute = byId(catalog.tools, 'mcp__web__lookup').execute;
-      const outcomes: McpCallOutcome[] = [];
+      const outcomes: Array<McpCallOutcome> = [];
       for (let index = 0; index < failures.length; index += 1) {
         outcomes.push(
           await execute(
@@ -2308,10 +2308,10 @@ describe('McpServerClient', () => {
       const observed = Promise.race([
         first.then(() => 'closed' as const),
         new Promise<'missed-bound'>((resolve) =>
-          setTimeout(() => resolve('missed-bound'), 5_100),
+          setTimeout(() => resolve('missed-bound'), 5100),
         ),
       ]);
-      await vi.advanceTimersByTimeAsync(5_100);
+      await vi.advanceTimersByTimeAsync(5100);
       await expect(observed).resolves.toBe('closed');
       expect(deleteRequests).toBe(1);
       expect(deleteAborted).toBe(true);

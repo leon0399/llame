@@ -218,15 +218,15 @@ function renderChatItem({
   trackedRuns = [],
 }: {
   projectId?: string | null;
-  projects?: { id: string; name: string }[];
+  projects?: Array<{ id: string; name: string }>;
   onNewProject?: () => void;
   /** Pins is the sole source of pin state (design D5) — not a chat field. */
   isPinned?: boolean;
   /** Runs to track via the real ActiveRunsProvider before ChatItem mounts. */
-  trackedRuns?: TrackedRun[];
+  trackedRuns?: Array<TrackedRun>;
 } = {}) {
   const queryClient = new QueryClient();
-  const tree = (runs: TrackedRun[]) => (
+  const tree = (runs: Array<TrackedRun>) => (
     <QueryClientProvider client={queryClient}>
       <ActiveRunsProvider>
         {runs.map((run) => (
@@ -265,7 +265,8 @@ function renderChatItem({
     // mounted) with an expanded tracked-run list — the only real way to
     // track a second run after the initial render, mirroring
     // contexts/active-runs-context.test.tsx's rerenderProbe.
-    rerenderTrackedRuns: (runs: TrackedRun[]) => rendered.rerender(tree(runs)),
+    rerenderTrackedRuns: (runs: Array<TrackedRun>) =>
+      rendered.rerender(tree(runs)),
     ...rendered,
   };
 }
@@ -311,7 +312,7 @@ describe("ChatItem — pin toggle (unified /api/v1/pins resource)", () => {
     // cache, synthesizing the card from the row the owner clicked on.
     await waitFor(() =>
       expect(
-        queryClient.getQueryData<PinnedItem[]>(pinQueryKeys.list()),
+        queryClient.getQueryData<Array<PinnedItem>>(pinQueryKeys.list()),
       ).toMatchObject([
         {
           itemType: "chat",
@@ -341,7 +342,7 @@ describe("ChatItem — pin toggle (unified /api/v1/pins resource)", () => {
 
     await waitFor(() =>
       expect(
-        queryClient.getQueryData<PinnedItem[]>(pinQueryKeys.list()),
+        queryClient.getQueryData<Array<PinnedItem>>(pinQueryKeys.list()),
       ).toMatchObject([
         {
           itemType: "chat",

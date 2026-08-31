@@ -44,5 +44,5 @@ export function proxy(req: NextRequest) {
 // redirected to /login. Proxy always runs on the Node.js runtime (Next 16),
 // so the former `runtime` option is gone.
 export const config = {
-  matcher: ["/((?!api|trpc|_next|.+\\.[\\w]+$).*)", "/"],
+  matcher: [String.raw`/((?!api|trpc|_next|.+\.[\w]+$).*)`, "/"],
 };

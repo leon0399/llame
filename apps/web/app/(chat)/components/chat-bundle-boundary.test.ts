@@ -1,14 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
-const repoRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../../..",
-);
+const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
 
 function parse(relativePath: string): ts.SourceFile {
   const absolutePath = path.join(repoRoot, relativePath);
@@ -21,7 +17,7 @@ function parse(relativePath: string): ts.SourceFile {
   );
 }
 
-function staticImports(source: ts.SourceFile): string[] {
+function staticImports(source: ts.SourceFile): Array<string> {
   return source.statements.flatMap((statement) =>
     ts.isImportDeclaration(statement) &&
     ts.isStringLiteral(statement.moduleSpecifier)
@@ -30,8 +26,8 @@ function staticImports(source: ts.SourceFile): string[] {
   );
 }
 
-function dynamicImports(source: ts.SourceFile): string[] {
-  const imports: string[] = [];
+function dynamicImports(source: ts.SourceFile): Array<string> {
+  const imports: Array<string> = [];
 
   function visit(node: ts.Node): void {
     if (
@@ -49,8 +45,8 @@ function dynamicImports(source: ts.SourceFile): string[] {
   return imports;
 }
 
-function clientOnlyDynamicImports(source: ts.SourceFile): string[] {
-  const imports: string[] = [];
+function clientOnlyDynamicImports(source: ts.SourceFile): Array<string> {
+  const imports: Array<string> = [];
 
   function visit(node: ts.Node): void {
     if (

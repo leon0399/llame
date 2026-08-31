@@ -160,7 +160,7 @@ function renderModelChange(payload: ModelChangePayload): string {
 type RecencyDigestDeltaEntry = RecencyDigestEntry & { pinned: boolean };
 
 export interface RecencyDigestDeltaPayload extends UnknownRecord {
-  readonly entries: readonly RecencyDigestDeltaEntry[];
+  readonly entries: ReadonlyArray<RecencyDigestDeltaEntry>;
   readonly pinChanges: ReadonlyArray<{
     readonly title: string;
     readonly pinned: boolean;

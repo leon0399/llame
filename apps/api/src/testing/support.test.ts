@@ -5,7 +5,7 @@ import { FakeStreamingModelClient } from './support';
 
 const messages = [
   { role: 'user', content: 'Generate a title' },
-] satisfies ModelMessage[];
+] satisfies Array<ModelMessage>;
 
 describe('FakeStreamingModelClient', () => {
   it('aborts a pending title response through the real AI SDK stream', async () => {

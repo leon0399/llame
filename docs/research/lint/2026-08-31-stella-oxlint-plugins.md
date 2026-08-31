@@ -135,50 +135,65 @@ for, and a Server Component's `redirect()` has no injectable seam behind it.
 The first-party mocks it still reports need dependency injection or a move to
 a Storybook play function.
 
-## From nkzw-tech/oxlint-config — measured
+## From nkzw-tech/oxlint-config — measured, then adopted
 
-Its size and shape rules were adopted first. Measuring the remaining 152 of
-its rules that oxlint 1.78 actually recognises (12 of its `react/*` rules do
-not exist here and reject the whole config if declared) against this
-repository:
+A first pass concluded that only nine of nkzw's remaining rules were free and
+that the rest was style not worth its churn. **That measurement was wrong**: it
+probed with `categories.correctness` set to `"off"`, which suppressed most of
+what the rules would have caught and made the free set look ten times smaller
+than it is. Re-measured against llame's real category settings, of nkzw's rules
+that oxlint 1.78 recognises:
 
-| Rule                                | Would add |
-| ----------------------------------- | --------: |
-| `no-undef`                          |     8,587 |
-| `unicorn/numeric-separators-style`  |       129 |
-| `unicorn/prefer-string-raw`         |        39 |
-| `unicorn/catch-error-name`          |        34 |
-| `unicorn/prefer-string-replace-all` |        28 |
-| `typescript/no-require-imports`     |        24 |
-| `unicorn/prefer-at`                 |        18 |
-| everything else                     |  < 6 each |
+| Class                         | Count | Disposition                     |
+| ----------------------------- | ----: | ------------------------------- |
+| Adds zero violations to llame |   124 | **Adopted.** Pure ratchet.      |
+| Adds violations, code fixed   |    16 | **Adopted**, code fixed to pass |
+| Adds violations, held back    |     3 | See below                       |
 
-`no-undef` is noise — it is meaningless under TypeScript, which is why nkzw
-itself disables it for `.ts` files in its own overrides. Excluding it, the
-remainder adds ~290, and the bulk of that is style: numeric separators,
-`String.raw`, `catch` parameter naming. None of it serves the reason these
-rules were adopted, which was god methods, over-qualification, and
-unreadable code.
+Twelve of nkzw's `react/*` rules do not exist in oxlint 1.78 and make it reject
+the whole config if declared. `no-undef` is excluded for the reason nkzw itself
+excludes it from `.ts`: it is meaningless under TypeScript.
 
-Nine of its rules turn out to be **already satisfied repo-wide** —
-`prefer-as-const`, `no-unsafe-function-type`, `no-wrapper-object-types`,
-`no-duplicate-enum-values`, `no-throw-literal`, `unicorn/no-useless-spread`,
-`unicorn/no-typeof-undefined`, `unicorn/consistent-empty-array-spread`,
-`unicorn/no-useless-promise-resolve-reject`. Those are enabled: zero cost,
-pure regression protection.
+The 124 free rules cost exactly one violation to enable — a genuinely empty
+`catch` in the e2e readiness poll, which now carries the reason it is empty.
 
-Three more carry real correctness weight and are queued rather than enabled,
-because turning a rule on while agents are working against a fixed baseline
-moves the ground under them: `typescript/no-require-imports` (24, all in
-integration tests), `preserve-caught-error` (3, one of them in production
-code at `chats/turn-context.ts:251`, where an error is rethrown without its
-`cause`), and `typescript/no-empty-object-type` (2, both in an ambient
-`.d.ts`).
+The 16 that cost violations were adopted by **fixing the code, not the rule**.
+That was 317 files: `T[]` to `Array<T>` throughout, `catch (err)` to
+`catch (error)`, `replace(/…/g)` to `replaceAll`, `String.raw` for
+backslash-heavy literals, numeric separators, `Object.hasOwn`,
+`import.meta.dirname`, merged `push` calls, and explicit `type` on two
+`button`s. Two of them exposed real defects rather than style:
+`prefer-object-has-own` failed to compile until an optional `env` was narrowed
+instead of assumed, and `array-type` surfaced nested `Array<T>[]` shapes that
+had been read as one-dimensional.
 
-## From nkzw-tech/oxlint-config
+### The three held back, and why
 
-Already adopted the size and shape rules. Not adopted, and worth a later look:
-`perfectionist/sort-*` (needs `eslint-plugin-perfectionist` as a JS plugin;
-sorting is churn against `git blame` for modest gain), `@typescript-eslint/array-type`
-with `default: "generic"`, and `no-warning-comments` with `@nocommit` — llame's
-`anti-slop/no-untracked-todo` supersedes the last one with a stricter contract.
+1. **`unicorn/prefer-at`** — its autofix rewrites `a[a.length - 1]` to
+   `a.at(-1)`, whose `T | undefined` return produced 21 `TS2532`/`TS18048`
+   errors including in compaction. Each site needs real undefined handling, not
+   a mechanical rewrite. Worth doing; not worth doing blind.
+2. **`unicorn/prefer-dom-node-append`** — its autofix swaps `appendChild` for
+   `append`, which changed the DOM surface `apps/web/lib/clipboard.test.ts`
+   asserts on and broke it. The test is right to pin the call it makes; the
+   rewrite needs the test updated with it.
+3. **`no-warning-comments`** — bans every `TODO`, including the tracked
+   `TODO(#123)` form that `anti-slop/no-untracked-todo` exists to permit. Its
+   contract is strictly weaker than the rule llame already has.
+
+`unicorn/prefer-top-level-await` is enabled but scoped off five entrypoints.
+`apps/api` is CommonJS (`module: nodenext`, no `"type": "module"`), where
+top-level await is TS1309, not a style preference — verified by making the edit
+and reading the compiler error. `prefer-const` carries
+`ignoreReadBeforeAssign: true` for the one shape a `const` cannot express: a
+variable a closure reads before the value exists.
+
+The lesson is the measurement, not the rules. **A rule-adoption probe must run
+against the config the repository actually uses.** Probing with categories
+disabled does not measure a smaller version of the truth, it measures a
+different repository.
+
+## What is not taken from nkzw
+
+`perfectionist/sort-*` needs `eslint-plugin-perfectionist` as a JS plugin, and
+sorting is churn against `git blame` for modest gain.

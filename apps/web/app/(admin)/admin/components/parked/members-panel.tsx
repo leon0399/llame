@@ -362,7 +362,7 @@ export function MembersPanel({
   units,
 }: {
   orgUnitId: string;
-  units: OrgUnitResponse[];
+  units: Array<OrgUnitResponse>;
 }) {
   const { data: me } = useMe();
   const unit = units.find((candidate) => candidate.id === orgUnitId);

@@ -9,7 +9,7 @@ import type { ChatMessageResponse } from "./history";
 // renderer ignores anything that isn't `text`/`reasoning` — matching
 // `partsText`'s own `parts: unknown` signature in chat-markdown.ts.
 type MsgOverrides = Omit<Partial<ChatMessageResponse>, "parts"> & {
-  parts?: unknown[];
+  parts?: Array<unknown>;
 };
 
 const msg = (over: MsgOverrides) => {

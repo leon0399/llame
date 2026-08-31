@@ -73,7 +73,7 @@ type ChatOwnerFilter = {
 
 /** Collapse whitespace and clip a matching message to a short search snippet. */
 function truncateSnippet(text: string): string {
-  const clean = text.replace(/\s+/g, ' ').trim();
+  const clean = text.replaceAll(/\s+/g, ' ').trim();
   return clean.length > SNIPPET_MAX
     ? `${clean.slice(0, SNIPPET_MAX).trimEnd()}…`
     : clean;
@@ -93,8 +93,8 @@ export class ChatsRepository {
   private buildOwnerFilterConditions(
     ownerUserId: string,
     filter: ChatOwnerFilter,
-  ): SQL[] {
-    const conditions: SQL[] = [eq(chats.ownerUserId, ownerUserId)];
+  ): Array<SQL> {
+    const conditions: Array<SQL> = [eq(chats.ownerUserId, ownerUserId)];
 
     if (filter.projectId !== undefined) {
       conditions.push(eq(chats.projectId, filter.projectId));
@@ -108,8 +108,7 @@ export class ChatsRepository {
       // Such a chat is untitled in substance, and admitting it would render a
       // blank entry and trip the digest part's stricter non-blank check, which
       // throws and aborts the whole send.
-      conditions.push(isNotNull(chats.title));
-      conditions.push(sql`btrim(${chats.title}) <> ''`);
+      conditions.push(isNotNull(chats.title), sql`btrim(${chats.title}) <> ''`);
     }
 
     // Archive filter: absent or 'with' besides default excluded; 'only' = archived.
@@ -133,7 +132,7 @@ export class ChatsRepository {
   async findByOwner(
     ownerUserId: string,
     filter: ChatOwnerFilter = {},
-  ): Promise<Chat[]> {
+  ): Promise<Array<Chat>> {
     const conditions = this.buildOwnerFilterConditions(ownerUserId, filter);
 
     // Pinned-only lists follow owner pin rank; every other filter stays
@@ -267,7 +266,7 @@ export class ChatsRepository {
   /** Pin membership for the accumulated told-set, never the capped rendering. */
   async findPinnedChatIds(
     ownerUserId: string,
-    chatIds: readonly string[],
+    chatIds: ReadonlyArray<string>,
   ): Promise<Set<string>> {
     if (chatIds.length === 0) return new Set();
     const rows = await this.db
@@ -375,7 +374,7 @@ export class ChatsRepository {
     ownerUserId: string,
     query: string,
     limit: number,
-  ): Promise<HybridSearchResult[]> {
+  ): Promise<Array<HybridSearchResult>> {
     const trimmed = query.trim();
     if (trimmed.length === 0) {
       return [];
@@ -388,7 +387,7 @@ export class ChatsRepository {
     // internally, so this is a no-op there. The LIKE pattern is escaped from the
     // normalized form for the trigram leg's substring match.
     const normalizedQuery = normalizeForSearch(trimmed);
-    const likePattern = `%${normalizedQuery.replace(/[\\%_]/g, '\\$&')}%`;
+    const likePattern = `%${normalizedQuery.replaceAll(/[\\%_]/g, String.raw`\$&`)}%`;
 
     const search = this.buildChatSearchQuery(
       ownerUserId,

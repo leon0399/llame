@@ -1363,6 +1363,46 @@ the run pipeline still works. Decomposing `RunExecutionService` — a
 nine-dependency constructor, which is the same smell from the other side — is
 the tracked follow-up.
 
+#### nkzw rule adoption, second pass (2026-08-31)
+
+The first pass took nine rules from nkzw-tech/oxlint-config and concluded the
+rest was style. **That conclusion was an artefact of the probe**, which ran with
+`categories.correctness` set to `"off"` and so undercounted the free set by
+roughly ten times. Re-measured against llame's real settings: 124 of nkzw's
+rules add zero violations, 19 add violations.
+
+All 124 free rules are now enforced; enabling them cost one fix. Sixteen of the
+19 costly rules are enforced too, with the code changed to pass rather than the
+rules relaxed — 317 files. Three are held back with a reason recorded in
+[the research note](research/lint/2026-08-31-stella-oxlint-plugins.md):
+`unicorn/prefer-at` needs real `undefined` handling at 21 sites, including in
+compaction; `unicorn/prefer-dom-node-append` needs a clipboard test updated
+alongside the rewrite; `no-warning-comments` is strictly weaker than
+`anti-slop/no-untracked-todo`. `.oxlintrc.json` now declares 212 rules.
+
+Two of the sixteen exposed defects rather than style. `prefer-object-has-own`
+would not compile until an optional `env` was narrowed instead of assumed, and
+`array-type` surfaced `Array<T>[]` shapes that had been read as
+one-dimensional.
+
+**Two rules are scoped, and both scopes were verified against the compiler
+rather than asserted.** `unicorn/prefer-top-level-await` is off for five
+entrypoints because `apps/api` is CommonJS, where top-level await is TS1309 —
+confirmed by making the edit and reading the error, not by inspection.
+`prefer-const` carries `ignoreReadBeforeAssign: true` for the one shape a
+`const` cannot express: a closure reading a variable before the value exists,
+as in `mcp-runtime.service.ts`, where `onDisconnect` is part of the config the
+client factory consumes.
+
+**The process finding is the probe, not the rules.** A rule-adoption
+measurement taken against a modified config does not measure a smaller version
+of the truth; it measures a different repository. The same failure mode has now
+appeared twice in this workstream — once here, and once when a bulk
+`oxlint --fix` was declared green on the linter's own count while it had in fact
+broken 21 typechecks and one test. **A linter's exit code is not evidence that
+the code still works.** Every rule batch since is gated on tsgo and the unit
+suites, not on oxlint alone.
+
 #### Tautological-test sweep (2026-08-30)
 
 Seven read-only auditors swept disjoint slices of the 267 test files (~75k lines)

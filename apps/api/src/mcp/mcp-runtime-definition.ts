@@ -15,10 +15,10 @@ export type McpRuntimeRemoteDefinition = Readonly<{
 export type McpRuntimeStdioDefinition = Readonly<{
   transport: 'stdio';
   command: string;
-  args?: readonly string[];
+  args?: ReadonlyArray<string>;
   env?: Readonly<Record<string, string>>;
   cwd?: string;
-  protectedValues?: readonly string[];
+  protectedValues?: ReadonlyArray<string>;
 }>;
 
 export type McpRuntimeServerDefinition =
@@ -32,10 +32,10 @@ export const isStdio = (
 type MutableStdioDefinition = {
   transport: 'stdio';
   command: string;
-  args?: readonly string[];
+  args?: ReadonlyArray<string>;
   env?: Readonly<Record<string, string>>;
   cwd?: string;
-  protectedValues?: readonly string[];
+  protectedValues?: ReadonlyArray<string>;
 };
 
 type MutableRemoteDefinition = {

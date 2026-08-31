@@ -85,7 +85,7 @@ test.describe("anonymous auth flows", () => {
   for (const callbackUrl of [
     "https://evil.example/path",
     "//evil.example/path",
-    "/\\evil.example",
+    String.raw`/\evil.example`,
   ]) {
     test(`blocks open redirect callbackUrl ${callbackUrl}`, async ({
       page,

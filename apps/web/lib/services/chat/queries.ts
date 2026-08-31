@@ -175,7 +175,7 @@ const fetchChatMessagesPage = async ({
  * already holds the chat's first message.
  */
 export function olderPageParam(
-  lastPage: { messages: { seq: number }[] },
+  lastPage: { messages: Array<{ seq: number }> },
   lastPageParam: ChatMessagesPageParam,
 ): number | undefined {
   if (lastPage.messages.length < CHAT_HISTORY_PAGE_SIZE) return undefined;
@@ -202,7 +202,7 @@ export function olderPageParam(
 export function toChatHistory(
   data: InfiniteData<ChatMessagesResponse, ChatMessagesPageParam>,
 ): ChatHistory {
-  const pages: ChatMessagesResponse["messages"][] = [];
+  const pages: Array<ChatMessagesResponse["messages"]> = [];
   for (const page of data.pages) {
     const previousOldest = pages[pages.length - 1]?.[0]?.seq;
     const pageNewest = page.messages[page.messages.length - 1]?.seq;
@@ -361,7 +361,7 @@ export enum ChatGroupPeriod {
 }
 
 type GroupedChats = {
-  [key in ChatGroupPeriod]?: ChatResponse[];
+  [key in ChatGroupPeriod]?: Array<ChatResponse>;
 };
 
 /**
@@ -369,7 +369,9 @@ type GroupedChats = {
  * section is a separate server query — so this function only groups by time
  * period.
  */
-export function groupChatsByTimePeriod(chats: ChatResponse[]): GroupedChats {
+export function groupChatsByTimePeriod(
+  chats: Array<ChatResponse>,
+): GroupedChats {
   const now = new Date();
   const oneWeekAgo = subWeeks(now, 1);
   const oneMonthAgo = subMonths(now, 1);

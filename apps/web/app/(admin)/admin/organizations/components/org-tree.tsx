@@ -35,7 +35,7 @@ import { TreeRowView } from "./org-tree-row";
 
 /** Selection, expand/collapse, and the derived row list — the tree's
  *  navigation state, independent of which dialog (if any) is open. */
-function useOrgTreeNavigation(units: OrgUnitResponse[]) {
+function useOrgTreeNavigation(units: Array<OrgUnitResponse>) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -226,7 +226,7 @@ function OrgUnitMutationDialogs({
   dialogs,
   childCountOf,
 }: {
-  units: OrgUnitResponse[];
+  units: Array<OrgUnitResponse>;
   dialogs: OrgUnitDialogsBundle;
   childCountOf: (unitId: string) => number;
 }) {
@@ -257,7 +257,7 @@ function OrgUnitDialogs({
   dialogs,
   childCountOf,
 }: {
-  units: OrgUnitResponse[];
+  units: Array<OrgUnitResponse>;
   dialogs: OrgUnitDialogsBundle;
   childCountOf: (unitId: string) => number;
 }) {
@@ -432,7 +432,7 @@ function OrgTreeSelectedFooter({
  * tree-local state itself (selection, expand/collapse, every row dialog),
  * matching how the design's Component owns it in one place.
  */
-export function OrgUnitsTree({ units }: { units: OrgUnitResponse[] }) {
+export function OrgUnitsTree({ units }: { units: Array<OrgUnitResponse> }) {
   const nav = useOrgTreeNavigation(units);
   const dialogs = useOrgUnitDialogs(nav.childCountOf);
   const hasUnits = units.length > 0;

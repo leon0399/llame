@@ -54,10 +54,10 @@ type KnowledgeSearchActiveInterval = {
   start: number;
   end: number;
   partitionStart: number;
-  partitionLines: KnowledgeLogicalLine[];
+  partitionLines: Array<KnowledgeLogicalLine>;
   partitionFirstOccurrence?: KnowledgeSearchOccurrence;
   lastOccurrence: KnowledgeSearchOccurrence;
-  lookahead: KnowledgeLogicalLine[];
+  lookahead: Array<KnowledgeLogicalLine>;
 };
 
 /** One logical line plus its predecessor and its (possibly absent) match. */
@@ -146,11 +146,11 @@ export async function collectKnowledgePassages(
   text: string,
   query: string,
   options: KnowledgeFilesystemPassageOptions = {},
-): Promise<KnowledgeFilesystemSearchMatch[]> {
+): Promise<Array<KnowledgeFilesystemSearchMatch>> {
   const queryFolded = query.toLowerCase();
   if (queryFolded.length === 0) return [];
 
-  const passages: KnowledgeFilesystemSearchMatch[] = [];
+  const passages: Array<KnowledgeFilesystemSearchMatch> = [];
   const ctx: KnowledgeSearchEmitContext = {
     relativePath,
     passages,
@@ -235,7 +235,7 @@ function findLineOccurrence(
 }
 
 function makePassageExcerpt(
-  lines: readonly KnowledgeLogicalLine[],
+  lines: ReadonlyArray<KnowledgeLogicalLine>,
   partitionStart: number,
   occurrence: KnowledgeSearchOccurrence,
 ): string {
@@ -270,7 +270,7 @@ function makePassageExcerpt(
  * across one `collectKnowledgePassages` call. */
 type KnowledgeSearchEmitContext = {
   relativePath: string;
-  passages: KnowledgeFilesystemSearchMatch[];
+  passages: Array<KnowledgeFilesystemSearchMatch>;
   after: KnowledgeFilesystemSearchAfter | undefined;
   maxResults: number;
 };
@@ -331,7 +331,7 @@ function splitKnowledgeSearchPartition(
 }
 
 function appendKnowledgeSearchPassage(
-  lines: readonly KnowledgeLogicalLine[],
+  lines: ReadonlyArray<KnowledgeLogicalLine>,
   offset: number,
   occurrence: KnowledgeSearchOccurrence | undefined,
   ctx: KnowledgeSearchEmitContext,
@@ -380,7 +380,7 @@ async function* iterateKnowledgeLogicalLines(
     lineStart = index + 1;
   }
   if (lineStart < text.length) {
-    yield { line: line, text: text.slice(lineStart), delimiter: '' };
+    yield { line, text: text.slice(lineStart), delimiter: '' };
   }
   throwIfAborted(signal);
 }

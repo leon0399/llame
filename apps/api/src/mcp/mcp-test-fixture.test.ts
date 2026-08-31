@@ -267,7 +267,7 @@ describe('MCP Streamable HTTP test fixture', () => {
   it('scripts delayed errors, oversized JSON, and oversized SSE events', async () => {
     const oversizedJson = 'j'.repeat(ONE_MIB + 1);
     const oversizedSse = 's'.repeat(ONE_MIB + 1);
-    const actions: McpFixtureResponse[] = [
+    const actions: Array<McpFixtureResponse> = [
       {
         kind: 'raw',
         status: 503,

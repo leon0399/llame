@@ -71,7 +71,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     msgs: Array<{
       role: 'user' | 'assistant' | 'system' | 'tool';
       text?: string;
-      parts?: unknown[];
+      parts?: Array<unknown>;
     }>,
   ): Promise<string> {
     const id = crypto.randomUUID();

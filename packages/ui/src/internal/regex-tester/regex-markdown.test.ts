@@ -10,8 +10,8 @@ import { REGEX_TOKEN_TAG } from "./regex-token.js";
 type MdNode = {
   type: string;
   value?: string;
-  children?: MdNode[];
-  data?: { hName?: string; hChildren?: HastNode[] };
+  children?: Array<MdNode>;
+  data?: { hName?: string; hChildren?: Array<HastNode> };
   position?: { start: { offset?: number }; end: { offset?: number } };
 };
 
@@ -23,8 +23,8 @@ type HastNode =
   | {
       type: "element";
       tagName: string;
-      properties: Record<string, HastPropertyValue | HastPropertyValue[]>;
-      children: HastNode[];
+      properties: Record<string, HastPropertyValue | Array<HastPropertyValue>>;
+      children: Array<HastNode>;
     };
 
 const positioned = (type: string, value: string, start = 0): MdNode => ({
@@ -36,7 +36,7 @@ const positioned = (type: string, value: string, start = 0): MdNode => ({
   },
 });
 
-const paragraph = (source: string, children: MdNode[]): MdNode => ({
+const paragraph = (source: string, children: Array<MdNode>): MdNode => ({
   type: "root",
   children: [
     {
@@ -51,7 +51,7 @@ const applyRemark = (tree: MdNode, source: string) => {
   remarkRegexTokens()(tree, { value: source });
 };
 
-const tokenSources = (node: MdNode): string[] =>
+const tokenSources = (node: MdNode): Array<string> =>
   (node.children ?? []).flatMap((child) =>
     child.type === "regexToken"
       ? [
@@ -64,12 +64,12 @@ const tokenSources = (node: MdNode): string[] =>
 
 describe("remarkRegexTokens", () => {
   it("wraps prose literals while preserving surrounding markdown text", () => {
-    const source = "Use /^\\d+$/ before saving.";
+    const source = String.raw`Use /^\d+$/ before saving.`;
     const tree = paragraph(source, [positioned("text", source)]);
 
     applyRemark(tree, source);
 
-    expect(tokenSources(tree)).toEqual(["/^\\d+$/"]);
+    expect(tokenSources(tree)).toEqual([String.raw`/^\d+$/`]);
     expect(tree.children?.[0].children?.map((child) => child.type)).toEqual([
       "text",
       "regexToken",
@@ -80,7 +80,7 @@ describe("remarkRegexTokens", () => {
   it("wraps inline-code literals without replacing the code element", () => {
     const source = "Use `/\\d+\\.\\d+/` here.";
     const codeStart = source.indexOf("`");
-    const codeValue = "/\\d+\\.\\d+/";
+    const codeValue = String.raw`/\d+\.\d+/`;
     const tree = paragraph(source, [
       positioned("text", "Use "),
       {
@@ -110,7 +110,7 @@ describe("remarkRegexTokens", () => {
   });
 
   it("leaves fenced-code subtrees for the code-highlighter adapter", () => {
-    const source = "const pattern = /^\\d+$/;";
+    const source = String.raw`const pattern = /^\d+$/;`;
     const code = {
       type: "code",
       value: source,
@@ -128,7 +128,7 @@ describe("remarkRegexTokens", () => {
   it("rejects invalid and escaped source literals", () => {
     for (const source of [
       "Broken /(unclosed/ literal.",
-      "Escaped \\/\\d+\\/ stays plain.",
+      String.raw`Escaped \/\d+\/ stays plain.`,
     ]) {
       const tree = paragraph(source, [positioned("text", source)]);
       applyRemark(tree, source);
@@ -142,7 +142,7 @@ describe("rehypeRegexTokens", () => {
     const tree: HastNode = {
       type: "element",
       tagName: "section",
-      properties: { "data-pattern": "/^\\d+$/" },
+      properties: { "data-pattern": String.raw`/^\d+$/` },
       children: [
         { type: "text", value: "Rendered /^\\d+$/ text." },
         {
@@ -176,7 +176,7 @@ describe("rehypeRegexTokens", () => {
     expect(
       (tree.children[3] as Extract<HastNode, { type: "element" }>).children,
     ).toEqual([{ type: "text", value: "const x = /^\\d+$/;" }]);
-    expect(tree.properties).toEqual({ "data-pattern": "/^\\d+$/" });
+    expect(tree.properties).toEqual({ "data-pattern": String.raw`/^\d+$/` });
   });
 
   it("does not trust a pre-sanitized model-authored token element", () => {

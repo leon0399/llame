@@ -242,7 +242,9 @@ describe("useUpdateOrgUnit: optimistic cache patch", () => {
     // a synchronous read here would still see the old snapshot.
     await waitFor(() =>
       expect(
-        queryClient.getQueryData<OrgUnitResponse[]>(orgUnitsQueryKeys.lists()),
+        queryClient.getQueryData<Array<OrgUnitResponse>>(
+          orgUnitsQueryKeys.lists(),
+        ),
       ).toMatchObject([{ id: "u1", name: "New" }]),
     );
     expect(invalidateSpy).not.toHaveBeenCalled();
@@ -270,14 +272,18 @@ describe("useUpdateOrgUnit: optimistic cache patch", () => {
 
     await waitFor(() =>
       expect(
-        queryClient.getQueryData<OrgUnitResponse[]>(orgUnitsQueryKeys.lists()),
+        queryClient.getQueryData<Array<OrgUnitResponse>>(
+          orgUnitsQueryKeys.lists(),
+        ),
       ).toMatchObject([{ name: "New" }]),
     );
 
     reject(new Error("network down"));
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(
-      queryClient.getQueryData<OrgUnitResponse[]>(orgUnitsQueryKeys.lists()),
+      queryClient.getQueryData<Array<OrgUnitResponse>>(
+        orgUnitsQueryKeys.lists(),
+      ),
     ).toEqual(seeded);
     // onSettled always invalidates, success or failure (concurrent-reorg
     // auto-refetch requirement) — no dedicated onError invalidation needed.
@@ -306,7 +312,9 @@ describe("useDeleteOrgUnit: optimistic cache patch", () => {
 
     await waitFor(() =>
       expect(
-        queryClient.getQueryData<OrgUnitResponse[]>(orgUnitsQueryKeys.lists()),
+        queryClient.getQueryData<Array<OrgUnitResponse>>(
+          orgUnitsQueryKeys.lists(),
+        ),
       ).toEqual([expect.objectContaining({ id: "u2" })]),
     );
 
@@ -329,14 +337,18 @@ describe("useDeleteOrgUnit: optimistic cache patch", () => {
 
     await waitFor(() =>
       expect(
-        queryClient.getQueryData<OrgUnitResponse[]>(orgUnitsQueryKeys.lists()),
+        queryClient.getQueryData<Array<OrgUnitResponse>>(
+          orgUnitsQueryKeys.lists(),
+        ),
       ).toHaveLength(1),
     );
 
     reject(new Error("network down"));
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(
-      queryClient.getQueryData<OrgUnitResponse[]>(orgUnitsQueryKeys.lists()),
+      queryClient.getQueryData<Array<OrgUnitResponse>>(
+        orgUnitsQueryKeys.lists(),
+      ),
     ).toEqual(seeded);
   });
 });
@@ -357,7 +369,7 @@ describe("useChangeMembershipRole: optimistic cache patch", () => {
 
     await waitFor(() =>
       expect(
-        queryClient.getQueryData<MembershipResponse[]>(
+        queryClient.getQueryData<Array<MembershipResponse>>(
           orgUnitsQueryKeys.memberships("u1"),
         ),
       ).toMatchObject([{ userId: "user-2", role: "owner" }]),
@@ -384,7 +396,7 @@ describe("useChangeMembershipRole: optimistic cache patch", () => {
 
     await waitFor(() =>
       expect(
-        queryClient.getQueryData<MembershipResponse[]>(
+        queryClient.getQueryData<Array<MembershipResponse>>(
           orgUnitsQueryKeys.memberships("u1"),
         ),
       ).toMatchObject([{ role: "owner" }]),
@@ -393,7 +405,7 @@ describe("useChangeMembershipRole: optimistic cache patch", () => {
     reject(new Error("network down"));
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(
-      queryClient.getQueryData<MembershipResponse[]>(
+      queryClient.getQueryData<Array<MembershipResponse>>(
         orgUnitsQueryKeys.memberships("u1"),
       ),
     ).toEqual(seeded);
@@ -418,7 +430,9 @@ describe("useCreateRootOrg: no optimistic insert", () => {
     // Still pending — the server hasn't assigned id/path yet, so there is
     // nothing correct to have patched in.
     expect(
-      queryClient.getQueryData<OrgUnitResponse[]>(orgUnitsQueryKeys.lists()),
+      queryClient.getQueryData<Array<OrgUnitResponse>>(
+        orgUnitsQueryKeys.lists(),
+      ),
     ).toEqual(seeded);
     expect(invalidateSpy).not.toHaveBeenCalled();
 
@@ -429,7 +443,9 @@ describe("useCreateRootOrg: no optimistic insert", () => {
     // mounted observer) — what matters is that invalidation, not a patch,
     // is what drives the eventual update.
     expect(
-      queryClient.getQueryData<OrgUnitResponse[]>(orgUnitsQueryKeys.lists()),
+      queryClient.getQueryData<Array<OrgUnitResponse>>(
+        orgUnitsQueryKeys.lists(),
+      ),
     ).toEqual(seeded);
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: orgUnitsQueryKeys.lists(),

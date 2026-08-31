@@ -8,7 +8,7 @@ export type ChatMessageResponse = {
   role: UIMessage["role"] | "tool";
   senderUserId: string | null;
   parts: UIMessage["parts"];
-  attachments: unknown[];
+  attachments: Array<unknown>;
   usage: unknown;
   inReplyTo: string | null;
   createdAt: string;
@@ -43,7 +43,7 @@ export type Compaction = {
 };
 
 export type ChatMessagesResponse = {
-  messages: ChatMessageResponse[];
+  messages: Array<ChatMessageResponse>;
   compaction: Compaction | null;
 };
 
@@ -67,7 +67,7 @@ export function normalizeChatMessagesResponse(
 
 /** The combined shape `ChatPage` renders from — one query, one fetch. */
 export type ChatHistory = {
-  messages: UIMessage[];
+  messages: Array<UIMessage>;
   compaction: Compaction | null;
 };
 
@@ -114,8 +114,8 @@ function isNumber(value: unknown): value is number {
  *  the caller still owns validating each field's type; this only confirms
  *  which fields exist. */
 function keysMatch(
-  actualKeys: readonly string[],
-  expectedKeys: readonly string[],
+  actualKeys: ReadonlyArray<string>,
+  expectedKeys: ReadonlyArray<string>,
 ): boolean {
   return (
     [...actualKeys].sort().join("\0") === [...expectedKeys].sort().join("\0")
@@ -199,7 +199,7 @@ export function isModelSwitchPart(value: unknown): value is ModelSwitchPart {
 }
 
 export function modelSwitchPart(message: {
-  parts: readonly unknown[];
+  parts: ReadonlyArray<unknown>;
 }): ModelSwitchPart | null {
   return message.parts.find(isModelSwitchPart) ?? null;
 }
@@ -210,9 +210,9 @@ export function modelSwitchPart(message: {
  * by message id; client/stream-authored copies are removed unconditionally.
  */
 export function mergeTrustedModelContextParts(
-  liveMessages: readonly UIMessage[],
-  serverMessages: readonly UIMessage[],
-): UIMessage[] {
+  liveMessages: ReadonlyArray<UIMessage>,
+  serverMessages: ReadonlyArray<UIMessage>,
+): Array<UIMessage> {
   const trustedByMessageId = new Map(
     serverMessages.flatMap((message) => {
       const part = message.role === "user" ? modelSwitchPart(message) : null;
@@ -281,8 +281,8 @@ function isChatUiMessageResponse(
 // plain array straight through, without needing to fabricate a `compaction`
 // field just to satisfy the type.
 export function toChatUiMessages(response: {
-  messages: ChatMessageResponse[];
-}): UIMessage[] {
+  messages: Array<ChatMessageResponse>;
+}): Array<UIMessage> {
   return response.messages.filter(isChatUiMessageResponse).map((message) => {
     // `seq` is unconditional — the compaction boundary needs it to locate
     // where the summarized span ends (AI SDK UIMessage has no seq of its
@@ -325,7 +325,7 @@ export function messageSeqFromMetadata(metadata: unknown): number | null {
  * results that are in fact null together.
  */
 function durableSeqBounds(
-  messages: readonly UIMessage[],
+  messages: ReadonlyArray<UIMessage>,
 ): { oldest: number; newest: number } | null {
   let oldest: number | null = null;
   let newest: number | null = null;
@@ -376,9 +376,9 @@ function durableSeqBounds(
  */
 export function adoptServerHistory(input: {
   status: string;
-  serverMessages: readonly UIMessage[];
-  liveMessages: readonly UIMessage[];
-}): UIMessage[] | null {
+  serverMessages: ReadonlyArray<UIMessage>;
+  liveMessages: ReadonlyArray<UIMessage>;
+}): Array<UIMessage> | null {
   if (input.status === "streaming" || input.status === "submitted") {
     return null;
   }
@@ -393,7 +393,7 @@ export function adoptServerHistory(input: {
     liveBounds !== null && serverBounds.oldest < liveBounds.oldest;
   if (!extendsNewer && !extendsOlder) return null;
 
-  const head: UIMessage[] = [];
+  const head: Array<UIMessage> = [];
   for (const message of input.liveMessages) {
     const seq = messageSeqFromMetadata(message.metadata);
     if (seq === null || seq >= serverBounds.oldest) break;
@@ -420,7 +420,7 @@ export function adoptServerHistory(input: {
       return runId === null ? [] : [runId];
     }),
   );
-  const tail: UIMessage[] = [];
+  const tail: Array<UIMessage> = [];
   for (let index = input.liveMessages.length - 1; index >= 0; index--) {
     const message = input.liveMessages[index];
     if (messageSeqFromMetadata(message.metadata) !== null) break;

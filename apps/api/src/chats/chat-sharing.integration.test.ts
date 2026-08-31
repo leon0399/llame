@@ -270,7 +270,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
     });
 
     const PAGE_SIZE = 100;
-    const pages: (string | undefined)[][] = [];
+    const pages: Array<Array<string | undefined>> = [];
     let beforeSeq: number | undefined;
 
     // Walk backward exactly like the web's paginateAllMessages: each page

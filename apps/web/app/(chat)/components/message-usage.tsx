@@ -132,8 +132,8 @@ function fmtTokens(n: number): string {
   if (rounded >= 1_000_000) {
     return `${trimTrailingZero((rounded / 1_000_000).toFixed(1))}M`;
   }
-  if (rounded >= 1_000) {
-    return `${trimTrailingZero((rounded / 1_000).toFixed(1))}k`;
+  if (rounded >= 1000) {
+    return `${trimTrailingZero((rounded / 1000).toFixed(1))}k`;
   }
   return String(rounded);
 }
@@ -170,7 +170,7 @@ export function usageStatusLabel(status: string | undefined): string | null {
 }
 
 export type UsageRow = { label: string; value: string };
-export type UsageSection = { header: string; rows: UsageRow[] };
+export type UsageSection = { header: string; rows: Array<UsageRow> };
 
 /** Derived display values shared by the badge text and the Cost & model section. */
 type UsageDisplayContext = {
@@ -220,7 +220,7 @@ function buildPerformanceSection(usage: TurnUsage): UsageSection | null {
 }
 
 function buildTokenSection(usage: TurnUsage): UsageSection | null {
-  const rows: UsageRow[] = [];
+  const rows: Array<UsageRow> = [];
   if (usage.inputTokens !== undefined) {
     rows.push({ label: "Input", value: fmtTokens(usage.inputTokens) });
   }
@@ -249,7 +249,7 @@ function buildCostSection(
   usage: TurnUsage,
   ctx: UsageDisplayContext,
 ): UsageSection | null {
-  const rows: UsageRow[] = [];
+  const rows: Array<UsageRow> = [];
   if (usage.modelId) {
     rows.push({ label: "Model", value: ctx.modelName ?? usage.modelId });
   }
@@ -280,8 +280,8 @@ function buildCostSection(
  */
 export function buildUsageLine(
   usage: TurnUsage | null,
-  models?: readonly AvailableModel[],
-): { text: string; sections: UsageSection[] } | null {
+  models?: ReadonlyArray<AvailableModel>,
+): { text: string; sections: Array<UsageSection> } | null {
   if (!usage) return null;
 
   const ctx: UsageDisplayContext = {
@@ -347,7 +347,7 @@ export function MessageUsage({
   models,
 }: {
   metadata: unknown;
-  models?: readonly AvailableModel[];
+  models?: ReadonlyArray<AvailableModel>;
 }) {
   const line = buildUsageLine(parseTurnUsage(metadata), models);
   // `sections` is never empty once `text` is non-null: a known model always

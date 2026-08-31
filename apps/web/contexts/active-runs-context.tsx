@@ -257,7 +257,7 @@ function useRehydrateActiveRuns(
 // default): the whole point of this feature is noticing completion while
 // the tab is backgrounded, so polling must NOT pause on blur/hidden the way
 // refetchInterval does by default.
-function useActiveRunQueries(activeEntries: readonly ActiveEntry[]) {
+function useActiveRunQueries(activeEntries: ReadonlyArray<ActiveEntry>) {
   return useQueries({
     queries: activeEntries.map(([runId]) => ({
       queryKey: activeRunsQueryKeys.run(runId),
@@ -341,7 +341,7 @@ function notifyTerminalRun(
 /** Polls every tracked run and fires the completion/failure toast + badge +
  *  cache-invalidation side effects once each one reaches a terminal status. */
 function useRunCompletionEffects(params: {
-  activeEntries: readonly ActiveEntry[];
+  activeEntries: ReadonlyArray<ActiveEntry>;
   drop: (runId: string) => void;
   queryClient: QueryClient;
   viewedChatIdRef: MutableRefObject<string | null>;

@@ -161,7 +161,7 @@ describe('model prompt rendering', () => {
   it('renders the supported variables and the literal-expression escape in one pass', () => {
     writeFileSync(
       defaultPromptPath,
-      'id {{model.id}} name {{model.name}} literal \\{{model.name}}',
+      String.raw`id {{model.id}} name {{model.name}} literal \{{model.name}}`,
     );
 
     const model = { id: 'model-id', name: 'Model Name' };

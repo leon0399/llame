@@ -14,11 +14,11 @@ const mathPlugin = createMathPlugin({ singleDollarTextMath: true });
 type MathNode = {
   type: string;
   value?: string;
-  children?: MathNode[];
+  children?: Array<MathNode>;
   data?: {
     hName: string;
-    hProperties?: { className: string[] };
-    hChildren: unknown[];
+    hProperties?: { className: Array<string> };
+    hChildren: Array<unknown>;
   };
   wasDisplayDelimited?: boolean;
   position?: { start: { offset?: number }; end: { offset?: number } };
@@ -80,8 +80,8 @@ const displayMathNode = (value: string): MathNode => ({
  * Returns `undefined` when the node holds no delimiters and should be left as
  * it is — including a delimiter still waiting for its closing half mid-stream.
  */
-const expandLatexDelimiters = (raw: string): MathNode[] | undefined => {
-  if (!raw.includes("\\(") && !raw.includes("\\[")) {
+const expandLatexDelimiters = (raw: string): Array<MathNode> | undefined => {
+  if (!raw.includes(String.raw`\(`) && !raw.includes(String.raw`\[`)) {
     return undefined;
   }
 
@@ -91,7 +91,7 @@ const expandLatexDelimiters = (raw: string): MathNode[] | undefined => {
     return undefined;
   }
 
-  const nodes: MathNode[] = [];
+  const nodes: Array<MathNode> = [];
   let cursor = 0;
 
   const pushText = (slice: string) => {
@@ -143,7 +143,7 @@ const rewriteMathNodes = (node: MathNode, source: string): void => {
     return;
   }
 
-  const rewritten: MathNode[] = [];
+  const rewritten: Array<MathNode> = [];
   let changed = false;
 
   for (const child of children) {
@@ -319,7 +319,7 @@ const hasMermaidImageAttribute = (source: string) => {
 };
 
 export const assertSafeMermaidSource = (source: string) => {
-  const sourceWithoutComments = source.replace(/^\s*%%(?!\{).*$/gm, "");
+  const sourceWithoutComments = source.replaceAll(/^\s*%%(?!\{).*$/gm, "");
   if (
     hasMermaidImageAttribute(sourceWithoutComments) ||
     mermaidImageSource.test(sourceWithoutComments)

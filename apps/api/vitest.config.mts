@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
@@ -8,13 +7,7 @@ import { defineConfig } from 'vitest/config';
 // project runs outside turbo on fresh checkouts, so compile it from source
 // here instead.
 const pkgSrc = (name: string) =>
-  path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    '../../packages',
-    name,
-    'src',
-    'index.ts',
-  );
+  path.resolve(import.meta.dirname, '../../packages', name, 'src', 'index.ts');
 
 export default defineConfig({
   resolve: {

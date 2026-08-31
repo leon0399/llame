@@ -6,7 +6,7 @@ import { ModelConfigurationError } from './models.service';
 describe('ModelsController', () => {
   // Held by reference so the copy assertion below has the catalog's own array
   // to compare against.
-  const catalogTags: string[] = ['flagship'];
+  const catalogTags: Array<string> = ['flagship'];
 
   function makeController(service?: Partial<ModelsReader>) {
     const modelsService = {

@@ -159,7 +159,7 @@ export function useChatRefresh(chatId: string, queryClient: QueryClient) {
 
 type UseChatEngineArgs = {
   chatId: string;
-  chatMessages: UIMessage[];
+  chatMessages: Array<UIMessage>;
   transport: DefaultChatTransport<UIMessage>;
   onFinished: () => boolean;
   onTargetSendInterrupted: () => boolean;
@@ -272,8 +272,8 @@ type UseChatHistorySyncArgs = {
   resume: boolean;
   resumeStream: ReturnType<typeof useChat>["resumeStream"];
   refreshChatMessages: () => void;
-  chatMessages: UIMessage[];
-  messages: UIMessage[];
+  chatMessages: Array<UIMessage>;
+  messages: Array<UIMessage>;
   status: ReturnType<typeof useChat>["status"];
   setMessages: ReturnType<typeof useChat>["setMessages"];
 };
@@ -342,7 +342,7 @@ export function useChatHistorySync({
 
 type UseChatPresenceEffectsArgs = {
   status: ReturnType<typeof useChat>["status"];
-  messages: UIMessage[];
+  messages: Array<UIMessage>;
   chatId: string;
   trackRun: (runId: string, chatId: string, label: string) => void;
   markChatSeen: (chatId: string) => void;

@@ -28,8 +28,8 @@ export type RecencyDigestEntry = {
 
 /** Frozen prompt inputs. Deliberately excludes chat identifiers. */
 export type RecencyDigestBaseline = {
-  pinned: RecencyDigestEntry[];
-  recent: RecencyDigestEntry[];
+  pinned: Array<RecencyDigestEntry>;
+  recent: Array<RecencyDigestEntry>;
   pinnedShown: number;
   pinnedTotal: number;
   recentShown: number;
@@ -97,7 +97,7 @@ export const chats = pgTable(
       'recency_digest_baseline',
     ).$type<RecencyDigestBaseline>(),
     recencyDigestTold: jsonb('recency_digest_told').$type<
-      RecencyDigestToldEntry[]
+      Array<RecencyDigestToldEntry>
     >(),
     // Set only when compaction actually re-resolves the baseline. This is the
     // durable event record for the one-shot supersession marker; compaction
@@ -182,9 +182,9 @@ export const messages = pgTable(
     senderUserId: text('sender_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    parts: jsonb('parts').$type<unknown[]>().notNull(), // AI SDK v6 UIMessage parts array
+    parts: jsonb('parts').$type<Array<unknown>>().notNull(), // AI SDK v6 UIMessage parts array
     attachments: jsonb('attachments')
-      .$type<unknown[]>()
+      .$type<Array<unknown>>()
       .notNull()
       .default(sql`'[]'::jsonb`),
     usage: jsonb('usage'),
@@ -224,7 +224,7 @@ export type Message = InferSelectModel<typeof messages>;
 
 export interface CompactionReplacementMessage {
   role: 'user' | 'assistant';
-  parts: unknown[];
+  parts: Array<unknown>;
 }
 
 // A context-compaction summary (#57) — a first-class row, not an opaque inline event,
@@ -252,7 +252,7 @@ export const compactions = pgTable(
     // Complete application replay replacement for the superseded prefix.
     // Internal-only and runtime-validated before replay.
     replacementHistory: jsonb('replacement_history')
-      .$type<CompactionReplacementMessage[]>()
+      .$type<Array<CompactionReplacementMessage>>()
       .notNull(),
     // Telemetry of the summarization call (TurnTelemetry shape), like messages.usage.
     usage: jsonb('usage'),
@@ -365,7 +365,7 @@ export const runs = pgTable(
     // An item whose content originates outside this chat is not erasable
     // through that content's own source: deleting the source, or withdrawing
     // consent for it, does not reach a record already written.
-    contextItems: jsonb('context_items').$type<RunContextItem[]>(),
+    contextItems: jsonb('context_items').$type<Array<RunContextItem>>(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

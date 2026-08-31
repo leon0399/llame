@@ -106,10 +106,10 @@ describeIfDb(
     let db: Db;
     let tenantDb: TenantDbService;
     let userId: string;
-    let dispatchCalls: RunJob[];
+    let dispatchCalls: Array<RunJob>;
     let chatLoop: ChatLoopService;
     let systemPrompt: string;
-    let allowedTools: string[];
+    let allowedTools: Array<string>;
 
     type AvailabilityState =
       | { id: string; state: 'available' }
@@ -120,10 +120,10 @@ describeIfDb(
         };
 
     function availabilityContext(
-      states: readonly AvailabilityState[],
+      states: ReadonlyArray<AvailabilityState>,
       key: string,
     ): EffectiveContextSnapshotInput {
-      const toolDeclarations: ModelToolDeclaration[] = states.flatMap(
+      const toolDeclarations: Array<ModelToolDeclaration> = states.flatMap(
         (state) =>
           state.state === 'available'
             ? [
@@ -181,7 +181,7 @@ describeIfDb(
       userMessage: {
         id: string;
         seq: number;
-        parts: unknown[];
+        parts: Array<unknown>;
       };
     };
 
@@ -219,7 +219,7 @@ describeIfDb(
     };
 
     const availabilityPart = (
-      parts: readonly unknown[],
+      parts: ReadonlyArray<unknown>,
     ): ContextItemPart | undefined =>
       parts.find(
         (part): part is ContextItemPart =>

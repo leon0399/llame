@@ -191,15 +191,15 @@ export class IdentityService {
         // bootstrap) — memberCount/directRole legitimately read 0/null.
         return this.withSummary(tx, input.userId, unit);
       });
-    } catch (err) {
-      if (err instanceof NotFoundException) {
-        throw err;
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
       }
       // The deferred path-integrity constraint trigger (D1) raises 23514 when
       // a commit would leave this unit's path inconsistent with its parent's
       // current path — the backstop behind the FOR UPDATE lock above, for
       // whatever residual race it doesn't close. Retryable, not a server error.
-      if (pgErrorCode(err) === '23514') {
+      if (pgErrorCode(error) === '23514') {
         throw new ConflictException(
           conflictBody(
             ORG_UNITS_ERROR_CODES.concurrentTreeChange,
@@ -207,7 +207,7 @@ export class IdentityService {
           ),
         );
       }
-      throw err;
+      throw error;
     }
   }
 
@@ -241,7 +241,7 @@ export class IdentityService {
    * `directRole`). ONE `summarize` call for the whole list — never a
    * per-unit round trip, regardless of list size.
    */
-  async listOrgUnits(userId: string): Promise<OrgUnitWithSummary[]> {
+  async listOrgUnits(userId: string): Promise<Array<OrgUnitWithSummary>> {
     return this.tenantDb.runAs(userId, async (tx) => {
       const units = await new OrgUnitsRepository(tx).listVisible();
       const summaries = await new MembershipsRepository(tx).summarize(
@@ -291,22 +291,22 @@ export class IdentityService {
       return await this.tenantDb.runAs(input.userId, (tx) =>
         this.applyOrgUnitUpdate(tx, input),
       );
-    } catch (err) {
-      if (err instanceof HttpException) {
-        throw err;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
       }
       // Move-into-own-subtree (repository guard) is a validation error, not
       // an authorization or integrity outcome — 422 (spec: "Move into own
       // subtree is rejected").
-      if (err instanceof MoveIntoOwnSubtreeError) {
+      if (error instanceof MoveIntoOwnSubtreeError) {
         throw new UnprocessableEntityException({
           statusCode: 422,
           error: 'Unprocessable Entity',
-          message: err.message,
+          message: error.message,
           code: ORG_UNITS_ERROR_CODES.moveIntoOwnSubtree,
         });
       }
-      if (isConcurrentTreeChange(err)) {
+      if (isConcurrentTreeChange(error)) {
         throw new ConflictException(
           conflictBody(
             ORG_UNITS_ERROR_CODES.concurrentTreeChange,
@@ -314,10 +314,10 @@ export class IdentityService {
           ),
         );
       }
-      if (pgErrorCode(err) === '42501') {
+      if (pgErrorCode(error) === '42501') {
         throw new ForbiddenException('Not permitted to update this org unit');
       }
-      throw err;
+      throw error;
     }
   }
 
@@ -408,12 +408,12 @@ export class IdentityService {
           );
         }
       });
-    } catch (err) {
-      if (err instanceof HttpException) {
-        throw err;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
       }
       // FK RESTRICT on parent_id — the unit still has children.
-      if (pgErrorCode(err) === '23503') {
+      if (pgErrorCode(error) === '23503') {
         throw new ConflictException(
           conflictBody(
             ORG_UNITS_ERROR_CODES.hasChildren,
@@ -421,7 +421,7 @@ export class IdentityService {
           ),
         );
       }
-      throw err;
+      throw error;
     }
   }
 
@@ -436,7 +436,7 @@ export class IdentityService {
   async listMemberships(input: {
     userId: string;
     orgUnitId: string;
-  }): Promise<Membership[]> {
+  }): Promise<Array<Membership>> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const unit = await new OrgUnitsRepository(tx).findById(input.orgUnitId);
       if (!unit) {
@@ -481,9 +481,9 @@ export class IdentityService {
         }
         return updated;
       });
-    } catch (err) {
+    } catch (error) {
       rethrowMembershipWriteError(
-        err,
+        error,
         'Not permitted to change this membership’s role',
       );
     }
@@ -515,9 +515,9 @@ export class IdentityService {
           );
         }
       });
-    } catch (err) {
+    } catch (error) {
       rethrowMembershipWriteError(
-        err,
+        error,
         'Not permitted to revoke this membership',
       );
     }
@@ -542,10 +542,10 @@ export class IdentityService {
           role: input.role,
         });
       });
-    } catch (err) {
+    } catch (error) {
       // Drizzle wraps the driver error, so the SQLSTATE can be on `.code` OR the
       // wrapped `.cause.code`.
-      const code = pgErrorCode(err);
+      const code = pgErrorCode(error);
       if (code === '23505') {
         throw new ConflictException(
           conflictBody(
@@ -566,7 +566,7 @@ export class IdentityService {
           'Not permitted to grant membership on this org unit',
         );
       }
-      throw err;
+      throw error;
     }
   }
 }

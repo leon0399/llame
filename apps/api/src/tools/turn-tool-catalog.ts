@@ -78,7 +78,7 @@ export type ToolAvailabilityEntry =
 
 export type ToolAvailabilityManifestV1 = {
   readonly version: 1;
-  readonly entries: readonly ToolAvailabilityEntry[];
+  readonly entries: ReadonlyArray<ToolAvailabilityEntry>;
 };
 
 export type ToolAvailabilityManifestV0 = {
@@ -103,7 +103,7 @@ export type AdmittedTurnTool = {
 };
 
 export type TurnToolCatalog = {
-  readonly admitted: readonly AdmittedTurnTool[];
+  readonly admitted: ReadonlyArray<AdmittedTurnTool>;
   readonly manifest: ToolAvailabilityManifestV1;
 };
 
@@ -134,7 +134,7 @@ function isRepresentableAbortTimeout(timeoutSeconds: number): boolean {
 
 const hasExactKeys = (
   value: UnknownRecord,
-  expected: readonly string[],
+  expected: ReadonlyArray<string>,
 ): boolean => {
   const actual = Object.keys(value).sort(compareCodePoints);
   return (
@@ -168,7 +168,7 @@ const isToolUnavailableReason = (
   // SAFETY: value is a plain string, just narrowed above; the reasons tuple's
   // own .includes() only accepts its literal union, so this widens the array
   // to check membership of a general string.
-  (TOOL_UNAVAILABLE_REASONS as readonly string[]).includes(value);
+  (TOOL_UNAVAILABLE_REASONS as ReadonlyArray<string>).includes(value);
 
 export function parseToolAvailabilityManifest(
   value: unknown,
@@ -201,9 +201,9 @@ export function parseToolAvailabilityManifest(
   // SAFETY: Array.isArray narrows an unknown value to any[]; asserting
   // unknown[] forces each entry to be validated below rather than silently
   // inheriting any.
-  const rawEntryValues = rawEntries as unknown[];
+  const rawEntryValues = rawEntries as Array<unknown>;
 
-  const entries: ToolAvailabilityEntry[] = [];
+  const entries: Array<ToolAvailabilityEntry> = [];
   let previousId: string | undefined;
   for (const rawEntry of rawEntryValues) {
     const entry = parseToolAvailabilityEntry(rawEntry, previousId);
@@ -285,7 +285,7 @@ const candidateClassification = (
 function candidateIsAllowlisted(
   candidate: TurnToolCandidate,
   id: string,
-  allowedRules: readonly string[],
+  allowedRules: ReadonlyArray<string>,
 ): boolean {
   return candidate.source.type === 'code_owned'
     ? matchesCodeOwnedToolId(id, allowedRules)
@@ -293,8 +293,8 @@ function candidateIsAllowlisted(
 }
 
 function collidingToolEntries(
-  group: readonly TurnToolCandidate[],
-): ToolAvailabilityEntry[] {
+  group: ReadonlyArray<TurnToolCandidate>,
+): Array<ToolAvailabilityEntry> {
   const collidingIds = [...new Set(group.map(candidateId))].sort(
     compareCodePoints,
   );
@@ -356,10 +356,10 @@ async function admitTurnToolCandidate(
  * well-formed ids — grouped by case-folded id so a same-folded-id collision
  * is detectable before any of them is admitted. */
 function groupEligibleTurnToolCandidates(
-  candidates: readonly TurnToolCandidate[],
-  allowedToolRules: readonly string[],
-): Map<string, TurnToolCandidate[]> {
-  const byFoldedId = new Map<string, TurnToolCandidate[]>();
+  candidates: ReadonlyArray<TurnToolCandidate>,
+  allowedToolRules: ReadonlyArray<string>,
+): Map<string, Array<TurnToolCandidate>> {
+  const byFoldedId = new Map<string, Array<TurnToolCandidate>>();
   for (const candidate of candidates) {
     const id = candidateId(candidate);
     if (
@@ -378,7 +378,7 @@ function groupEligibleTurnToolCandidates(
 }
 
 export async function composeTurnToolCatalog(input: {
-  readonly allowedToolRules: readonly string[];
+  readonly allowedToolRules: ReadonlyArray<string>;
   readonly callTimeoutSeconds: number;
   readonly candidates: Iterable<TurnToolCandidate>;
 }): Promise<TurnToolCatalog> {
@@ -387,8 +387,8 @@ export async function composeTurnToolCatalog(input: {
     input.allowedToolRules,
   );
 
-  const admitted: AdmittedTurnTool[] = [];
-  const entries: ToolAvailabilityEntry[] = [];
+  const admitted: Array<AdmittedTurnTool> = [];
+  const entries: Array<ToolAvailabilityEntry> = [];
   const sortedFoldedIds = [...byFoldedId.keys()].sort(compareCodePoints);
   for (const foldedId of sortedFoldedIds) {
     const group = byFoldedId.get(foldedId) ?? [];

@@ -17,11 +17,11 @@ export const ORG_ROLES = [
   "viewer",
   "guest",
   "service_account",
-] as const satisfies readonly OrgRole[];
+] as const satisfies ReadonlyArray<OrgRole>;
 
 /** Grantable/settable via HTTP: every role except `service_account`. */
 export type GrantableRole = Exclude<OrgRole, "service_account">;
-export const GRANTABLE_ROLES: GrantableRole[] = [
+export const GRANTABLE_ROLES: Array<GrantableRole> = [
   "owner",
   "admin",
   "maintainer",

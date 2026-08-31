@@ -179,7 +179,7 @@ export class ChatsController {
   async getChats(
     @CurrentUser() userId: string,
     @Query() query: ListChatsQueryDto,
-  ): Promise<ChatListItemResponse[]> {
+  ): Promise<Array<ChatListItemResponse>> {
     const chats = await this.chatsService.listChatsWithLastMessage(userId, {
       projectId: query.projectId,
       archived: query.archived,

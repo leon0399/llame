@@ -94,7 +94,7 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
   // resumeStream race throwing on every mid-run reload) logged silently in CI
   // for weeks because nothing asserted on page errors.
   page: async ({ page }, provide) => {
-    const pageErrors: Error[] = [];
+    const pageErrors: Array<Error> = [];
     page.on("pageerror", (error) => pageErrors.push(error));
 
     await provide(page);

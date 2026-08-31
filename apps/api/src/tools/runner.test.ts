@@ -244,7 +244,7 @@ describe('runTool', () => {
     expect(timeoutSpy).toHaveBeenCalledTimes(1);
     expect(executionSignal).toBe(timeoutSpy.mock.results[0]?.value);
     expect(executionSignal?.aborted).toBe(true);
-    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(Date.now() - startedAt).toBeLessThan(1000);
     expect(result).toMatchObject({ status: 'error', type: 'timeout' });
   });
 

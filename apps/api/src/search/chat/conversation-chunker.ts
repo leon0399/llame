@@ -40,7 +40,7 @@ export const CHUNK_ANCHOR_MAX_CHARS = 400;
 export interface ChunkerMessage {
   id: string;
   role: string;
-  parts: unknown[];
+  parts: Array<unknown>;
   usage?: unknown;
   createdAt: Date;
 }
@@ -102,7 +102,7 @@ function messageToBlocks(
   message: ChunkerMessage,
   text: string,
   anchorSource: string | null,
-): MessageBlock[] {
+): Array<MessageBlock> {
   const prefix = `[${message.role}] `;
   return prefix.length + text.length <= CHUNK_MAX_CHARS
     ? [
@@ -127,7 +127,7 @@ function sliceOversizedMessage(
   text: string,
   prefix: string,
   anchorSource: string | null,
-): MessageBlock[] {
+): Array<MessageBlock> {
   const anchor = anchorSource === null ? '' : formatAnchor(anchorSource);
   const firstMax = CHUNK_MAX_CHARS - prefix.length;
   // The continuation budget is the first-slice budget minus what the anchor
@@ -135,7 +135,7 @@ function sliceOversizedMessage(
   // same `prefix`, so its content budget is smaller by exactly that much.
   const continuationMax = firstMax - anchor.length;
 
-  const blocks: MessageBlock[] = [];
+  const blocks: Array<MessageBlock> = [];
   // A cursor into `text` rather than a shrinking `remaining` string: slicing
   // off the consumed head on every iteration would re-copy the whole
   // unconsumed tail each time (O(text.length) per iteration), which is
@@ -168,8 +168,10 @@ function sliceOversizedMessage(
  * Rule (spec): no anchor for an oversized user message, no preceding user
  * message, or a message's first slice.
  */
-function buildBlocks(messages: readonly ChunkerMessage[]): MessageBlock[] {
-  const blocks: MessageBlock[] = [];
+function buildBlocks(
+  messages: ReadonlyArray<ChunkerMessage>,
+): Array<MessageBlock> {
+  const blocks: Array<MessageBlock> = [];
   let precedingUserText: string | null = null;
 
   for (const message of messages) {
@@ -192,8 +194,8 @@ function buildBlocks(messages: readonly ChunkerMessage[]): MessageBlock[] {
  * no-op-upsert path depends on it). Messages ordered by `seq` upstream.
  */
 export function chunkConversation(
-  messages: readonly ChunkerMessage[],
-): ConversationChunk[] {
+  messages: ReadonlyArray<ChunkerMessage>,
+): Array<ConversationChunk> {
   const blocks = buildBlocks(messages);
 
   const groups = chunkByCharBudget(blocks, (b) => b.content.length, {

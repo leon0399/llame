@@ -20,10 +20,10 @@ describe('Knowledge Space names', () => {
   it.each([
     '',
     '   ',
-    `a${String.fromCodePoint(0x0000)}b`,
-    `a${String.fromCodePoint(0x200e)}b`,
-    `a${String.fromCodePoint(0x2028)}b`,
-    `a${String.fromCodePoint(0x2029)}b`,
+    `a${String.fromCodePoint(0x00_00)}b`,
+    `a${String.fromCodePoint(0x20_0e)}b`,
+    `a${String.fromCodePoint(0x20_28)}b`,
+    `a${String.fromCodePoint(0x20_29)}b`,
   ])('rejects invalid label %j', (name) => {
     expect(() => normalizeKnowledgeSpaceName(name)).toThrow(
       KnowledgeSpaceNameError,

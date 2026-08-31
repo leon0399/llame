@@ -40,7 +40,7 @@ const BOLD_SLIDER_CLASS = cn(
 );
 
 type EffortSelection = {
-  levels: EffortLevelResponse[];
+  levels: Array<EffortLevelResponse>;
   activeIndex: number;
   activeDisplay: string;
   activeHasLabel: boolean;
@@ -158,7 +158,7 @@ function EffortSelectorStops({
   levels,
   activeIndex,
 }: {
-  levels: EffortLevelResponse[];
+  levels: Array<EffortLevelResponse>;
   activeIndex: number;
 }) {
   return (
@@ -182,7 +182,7 @@ function EffortSelectorStops({
 }
 
 type EffortSelectorSliderProps = {
-  levels: EffortLevelResponse[];
+  levels: Array<EffortLevelResponse>;
   activeIndex: number;
   setSelectedEffort: (effort: string) => void;
 };
@@ -222,7 +222,7 @@ function EffortSelectorPopoverContent({
   activeDisplay,
   setSelectedEffort,
 }: {
-  levels: EffortLevelResponse[];
+  levels: Array<EffortLevelResponse>;
   activeIndex: number;
   activeDisplay: string;
   setSelectedEffort: (effort: string) => void;

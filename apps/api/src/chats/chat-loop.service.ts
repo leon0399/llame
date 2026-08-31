@@ -78,7 +78,7 @@ type RuntimeCatalogSnapshotter = Pick<McpRuntimeService, 'snapshotCandidates'>;
  * fallback arm), matching every other JSON-record boundary in this
  * codebase. Malformed (non-object) parts fail closed.
  */
-function toMessageParts(parts: readonly unknown[]): MessagePart[] {
+function toMessageParts(parts: ReadonlyArray<unknown>): Array<MessagePart> {
   return parts.map((part) => {
     if (!isRecord(part)) {
       throw new Error('Malformed message part: expected an object');
@@ -98,7 +98,7 @@ function toRunUserMessage(message: Message): RunUserMessage {
 
 export type ChatMessageInput = {
   id: string;
-  parts: MessagePart[];
+  parts: Array<MessagePart>;
 };
 
 export type PersistUserMessageAndRunInput = {
@@ -111,8 +111,8 @@ export type PersistUserMessageAndRunInput = {
   targetRunId: string;
   model: SystemModelCatalogEntry;
   user: SystemPromptRenderInput['user'];
-  allowedToolRules: readonly string[];
-  dynamicCandidates: readonly TurnToolCandidate[];
+  allowedToolRules: ReadonlyArray<string>;
+  dynamicCandidates: ReadonlyArray<TurnToolCandidate>;
   digestCandidate?: RecencyDigestResolution;
 };
 
@@ -129,12 +129,12 @@ type CreateRunForMessageInput = {
   targetRunId: string;
 };
 
-type CreateRunForMessageResult = { run: Run; supersededRunIds: string[] };
+type CreateRunForMessageResult = { run: Run; supersededRunIds: Array<string> };
 
 type PersistUserMessageAndRunResult = {
   runId: string;
   userMessage: RunUserMessage;
-  supersededRunIds: string[];
+  supersededRunIds: Array<string>;
 };
 
 type CreateMessageStreamInput = {
@@ -216,7 +216,7 @@ export class ChatLoopService {
     // This is a pure process-local projection of the last atomically published
     // runtime catalog. It neither waits for nor initiates remote I/O, and it is
     // intentionally resolved before the tenant binding transaction opens.
-    const dynamicCandidates: readonly TurnToolCandidate[] =
+    const dynamicCandidates: ReadonlyArray<TurnToolCandidate> =
       this.mcpRuntime.snapshotCandidates();
     const targetRunId = randomUUID();
 
@@ -297,7 +297,7 @@ export class ChatLoopService {
   private async finalizeAcceptedRun(input: {
     runId: string;
     userMessage: RunUserMessage;
-    supersededRunIds: string[];
+    supersededRunIds: Array<string>;
     chatId: string;
     userId: string;
     modelId: string;
@@ -449,7 +449,7 @@ export class ChatLoopService {
     messagesRepo: MessagesRepository,
     existing: Message | undefined,
     input: PersistUserMessageAndRunInput,
-    parts: MessagePart[],
+    parts: Array<MessagePart>,
   ): Promise<Message> {
     const userMessage =
       existing ??
@@ -477,7 +477,7 @@ export class ChatLoopService {
     existing: Message | undefined,
     input: PersistUserMessageAndRunInput,
     turnContext: {
-      messageParts: MessagePart[];
+      messageParts: Array<MessagePart>;
       digestDelta: RecencyDigestDelta | null;
     },
   ): Promise<Message> {
@@ -507,7 +507,7 @@ export class ChatLoopService {
     eventsRepo: RunEventsRepository,
     userMessage: Message,
     userId: string,
-  ): Promise<Run[]> {
+  ): Promise<Array<Run>> {
     const superseded = await runsRepo.cancelActiveRunsForMessage(
       userMessage.id,
       userId,

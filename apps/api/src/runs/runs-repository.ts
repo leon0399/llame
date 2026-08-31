@@ -86,7 +86,7 @@ export class RunsRepository {
   }
 
   /** A chat's runs, oldest-first. Owner-scoped. */
-  async findByChatId(chatId: string, userId: string): Promise<Run[]> {
+  async findByChatId(chatId: string, userId: string): Promise<Array<Run>> {
     return this.db
       .select()
       .from(runs)
@@ -231,7 +231,7 @@ export class RunsRepository {
   async cancelActiveRunsForMessage(
     messageId: string,
     userId: string,
-  ): Promise<Run[]> {
+  ): Promise<Array<Run>> {
     return this.db
       .update(runs)
       .set({ status: 'cancelled' satisfies RunStatus, finishedAt: new Date() })
@@ -271,7 +271,7 @@ export class RunsRepository {
   async recordContextItems(
     runId: string,
     userId: string,
-    items: RunContextItem[],
+    items: Array<RunContextItem>,
   ): Promise<Run | undefined> {
     const [updated] = await this.db
       .update(runs)
@@ -409,7 +409,7 @@ export class RunEventsRepository {
     runId: string,
     userId: string,
     options?: { afterSequence?: number },
-  ): Promise<RunEvent[]> {
+  ): Promise<Array<RunEvent>> {
     const predicates = [eq(runEvents.runId, runId), eq(runs.userId, userId)];
 
     if (options?.afterSequence !== undefined) {

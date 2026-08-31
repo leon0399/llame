@@ -58,7 +58,7 @@ type ChatMenuAction = {
   destructive?: boolean;
 };
 
-const CHAT_MENU_GROUPS: ChatMenuAction[][] = [
+const CHAT_MENU_GROUPS: Array<Array<ChatMenuAction>> = [
   [{ id: "pin", label: "Pin", icon: PinIcon }],
   [
     { id: "rename", label: "Rename", icon: PenLineIcon },
@@ -85,7 +85,7 @@ const CHAT_MENU_GROUPS: ChatMenuAction[][] = [
  * prop instead of re-declaring the same handful of fields. */
 type ChatMenuCtx = {
   chat: Pick<ChatResponse, "projectId">;
-  projects: ProjectResponse[];
+  projects: Array<ProjectResponse>;
   projectFilter: string;
   onFilterChange: (value: string) => void;
   onNewProject?: () => void;
@@ -181,8 +181,8 @@ function ProjectRadioList({
   onFile,
 }: {
   chat: Pick<ChatResponse, "projectId">;
-  allProjects: ProjectResponse[];
-  filteredProjects: ProjectResponse[];
+  allProjects: Array<ProjectResponse>;
+  filteredProjects: Array<ProjectResponse>;
   onFile: (projectId: string | null) => void;
 }) {
   if (allProjects.length === 0) {
@@ -301,7 +301,7 @@ function ChatMenuGroupRow({
   index,
   ...ctx
 }: {
-  group: ChatMenuAction[];
+  group: Array<ChatMenuAction>;
   index: number;
 } & ChatMenuCtx) {
   return (
@@ -324,7 +324,7 @@ type ChatItemMenuProps = {
   isActive: boolean;
   isPinned: boolean;
   /** The caller's projects, for the "Move to project" submenu. */
-  projects: ProjectResponse[];
+  projects: Array<ProjectResponse>;
   /**
    * Opens the caller-owned "new project" dialog (one shared instance, not one
    * per row); the caller files this chat into the created project. Absent →

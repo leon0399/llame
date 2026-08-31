@@ -70,7 +70,7 @@ type PendingToolPart = { readonly type: 'pending-tool'; toolCallId: string };
  * mirroring `RunEventTranslatorImpl` (run-stream-bridge.ts).
  */
 class AssistantPartCollectorImpl {
-  private readonly collected: (MessagePart | PendingToolPart)[] = [];
+  private readonly collected: Array<MessagePart | PendingToolPart> = [];
   private readonly pendingToolIndexes = new Map<string, number>();
   // Ids whose outcome is already recorded, by either path. Settlement is
   // at-most-once per call (design D6, first writer wins).
@@ -122,7 +122,7 @@ class AssistantPartCollectorImpl {
     this.collected.push(part);
   }
 
-  parts(): MessagePart[] {
+  parts(): Array<MessagePart> {
     return (
       this.collected
         // Only settled tool parts are a durable history representation. A
@@ -213,7 +213,7 @@ class DurableAssistantReconstructor {
   private readonly seenToolCallIds = new Set<string>();
   private readonly completedToolCallIds = new Set<string>();
 
-  apply(events: RunEvent[]): void {
+  apply(events: Array<RunEvent>): void {
     for (const event of events) {
       this.applyEvent(event);
     }
@@ -302,7 +302,7 @@ class DurableAssistantReconstructor {
   }
 }
 
-export function reconstructDurableAssistant(events: RunEvent[]) {
+export function reconstructDurableAssistant(events: Array<RunEvent>) {
   const reconstructor = new DurableAssistantReconstructor();
   reconstructor.apply(events);
   return {
@@ -323,12 +323,12 @@ export function reconstructDurableAssistant(events: RunEvent[]) {
  */
 export function assistantParts(input: {
   reasoningText: string;
-  toolParts: readonly ToolActivityPart[];
+  toolParts: ReadonlyArray<ToolActivityPart>;
   text: string;
   capNotice?: CapNoticePart;
-}): MessagePart[] {
+}): Array<MessagePart> {
   const { reasoningText, toolParts, text, capNotice } = input;
-  const parts: MessagePart[] = [];
+  const parts: Array<MessagePart> = [];
   if (reasoningText.length > 0) {
     const reasoning =
       reasoningText.length > REASONING_PERSIST_MAX

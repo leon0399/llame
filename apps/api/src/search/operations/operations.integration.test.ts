@@ -70,7 +70,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
     userId: string,
     frag: ReturnType<typeof sql>,
     rowSchema: z.ZodType<T>,
-  ): Promise<T[]> =>
+  ): Promise<Array<T>> =>
     tenantDb
       .runAs(userId, (tx) => tx.execute(frag))
       .then((rows) => rowSchema.array().parse([...rows]));
@@ -160,7 +160,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
   async function coverageRows(
     ownerId: string,
     chatId: string,
-  ): Promise<{ needs_embedding_present: boolean }[]> {
+  ): Promise<Array<{ needs_embedding_present: boolean }>> {
     return ownedRows(
       ownerId,
       sql`SELECT true AS needs_embedding_present

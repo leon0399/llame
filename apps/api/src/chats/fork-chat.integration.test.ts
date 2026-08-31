@@ -34,7 +34,7 @@ function hasStringText(value: unknown): value is { text: string } {
   return isRecord(value) && typeof value.text === 'string';
 }
 
-const textOf = (parts: unknown[]): string | undefined => {
+const textOf = (parts: Array<unknown>): string | undefined => {
   if (!Array.isArray(parts)) return undefined;
   const text = parts.find(hasStringText);
   return text?.text;
@@ -246,16 +246,16 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       // test is about fork correctness at scale, not seeding performance.
       // Explicit element type (not `as`): contextually types `role` as the
       // literal union directly, instead of widening to `string`.
-      const rows: {
+      const rows: Array<{
         id: string;
         chatId: string;
         seq: number;
         role: 'user' | 'assistant';
         senderUserId: string | null;
-        parts: { type: string; text: string }[];
-        attachments: unknown[];
+        parts: Array<{ type: string; text: string }>;
+        attachments: Array<unknown>;
         inReplyTo: string | null;
-      }[] = Array.from({ length: MESSAGE_COUNT }, (_, i) => ({
+      }> = Array.from({ length: MESSAGE_COUNT }, (_, i) => ({
         id: crypto.randomUUID(),
         chatId: chat.id,
         seq: i + 1,

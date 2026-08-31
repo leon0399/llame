@@ -58,7 +58,7 @@ export class ChatsService {
       pinned?: 'only' | 'with' | 'exclude';
       archived?: 'only' | 'with';
     } = {},
-  ): Promise<{ chat: Chat; lastMessage: Message | undefined }[]> {
+  ): Promise<Array<{ chat: Chat; lastMessage: Message | undefined }>> {
     return this.tenantDb.runAs(userId, async (tx) => {
       // Independent queries — let postgres.js pipeline them on the connection.
       const [chatList, latest] = await Promise.all([
@@ -108,7 +108,7 @@ export class ChatsService {
     options: { limit: number; beforeSeq?: number; targetSeq?: number },
   ): Promise<
     | {
-        messages: Message[];
+        messages: Array<Message>;
         compaction: Compaction | undefined;
         absorbedMessageCount: number | null;
       }
@@ -148,7 +148,7 @@ export class ChatsService {
     ownerUserId: string,
     options: { limit: number; beforeSeq?: number; targetSeq?: number },
   ): Promise<
-    { messages: Message[]; compaction: Compaction | undefined } | undefined
+    { messages: Array<Message>; compaction: Compaction | undefined } | undefined
   > {
     const chat = await new ChatsRepository(tx).findById(chatId, ownerUserId);
     if (!chat) {
@@ -167,7 +167,7 @@ export class ChatsService {
     scope: { chatId: string; ownerUserId: string; limit: number },
     targetSeq: number,
   ): Promise<
-    { messages: Message[]; compaction: Compaction | undefined } | undefined
+    { messages: Array<Message>; compaction: Compaction | undefined } | undefined
   > {
     const { chatId, ownerUserId, limit } = scope;
     const messages = await new MessagesRepository(tx).findByChatId(
@@ -191,7 +191,7 @@ export class ChatsService {
     tx: Db,
     scope: { chatId: string; ownerUserId: string; limit: number },
     beforeSeq: number | undefined,
-  ): Promise<{ messages: Message[]; compaction: Compaction | undefined }> {
+  ): Promise<{ messages: Array<Message>; compaction: Compaction | undefined }> {
     const { chatId, ownerUserId, limit } = scope;
     const [messages, compaction] = await Promise.all([
       new MessagesRepository(tx).findByChatId(chatId, ownerUserId, {
@@ -253,11 +253,11 @@ export class ChatsService {
       return await this.tenantDb.runAs(ownerUserId, (tx) =>
         new ChatsRepository(tx).update(chatId, ownerUserId, patch),
       );
-    } catch (err) {
-      if (err instanceof HttpException) {
-        throw err;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
       }
-      const code = pgErrorCode(err);
+      const code = pgErrorCode(error);
       // Sound today because project_id is the ONLY patchable FK on chats
       // (owner_user_id isn't patchable, so the WITH CHECK's other conjunct
       // can't fail). If chats ever gains another patchable FK, this catch
@@ -266,7 +266,7 @@ export class ChatsService {
       if (code === '23503' || code === '42501') {
         throw new NotFoundException('Project not found');
       }
-      throw err;
+      throw error;
     }
   }
 
@@ -312,7 +312,7 @@ export class ChatsService {
   async getSharedChat(
     chatId: string,
     options?: { limit?: number; beforeSeq?: number },
-  ): Promise<{ chat: Chat; messages: Message[] } | undefined> {
+  ): Promise<{ chat: Chat; messages: Array<Message> } | undefined> {
     return this.tenantDb.runAsPublic(async (tx) => {
       const chat = await new ChatsRepository(tx).findPublicById(chatId);
       if (!chat) {
@@ -346,14 +346,14 @@ export class ChatsService {
     tx: Db,
     ownerUserId: string,
     title: string | null,
-    toCopy: {
+    toCopy: Array<{
       id: string;
       role: MessageRole;
-      parts: unknown[];
+      parts: Array<unknown>;
       senderUserId: string | null;
-      attachments: unknown[];
+      attachments: Array<unknown>;
       inReplyTo: string | null;
-    }[],
+    }>,
   ): Promise<Chat> {
     const chatsRepo = new ChatsRepository(tx);
     // Nullable title (#78): a still-untitled chat stays untitled when forked

@@ -105,8 +105,8 @@ function project(overrides: Partial<ProjectResponse> = {}): ProjectResponse {
 let fetchMock: Mock<typeof fetch>;
 // Per-test-overridable buckets for the sidebar's two server-driven project
 // queries (?pinned=only vs ?pinned=exclude).
-let pinnedOnlyProjects: ProjectResponse[];
-let pinnedExcludeProjects: ProjectResponse[];
+let pinnedOnlyProjects: Array<ProjectResponse>;
+let pinnedExcludeProjects: Array<ProjectResponse>;
 
 function stubProjectsNetwork() {
   fetchMock = stubFetch();
@@ -116,7 +116,7 @@ function stubProjectsNetwork() {
     const request = input instanceof Request ? input : new Request(input);
     const { pathname, searchParams } = new URL(request.url);
     if (pathname === "/api/v1/projects") {
-      return jsonResponse<ProjectResponse[]>(
+      return jsonResponse<Array<ProjectResponse>>(
         searchParams.get("pinned") === "only"
           ? pinnedOnlyProjects
           : pinnedExcludeProjects,
@@ -197,7 +197,7 @@ describe("ProjectListSidebar — pin toggle (unified /api/v1/pins resource)", ()
     // cache, synthesizing the card from the row the owner clicked on.
     await waitFor(() =>
       expect(
-        queryClient.getQueryData<PinnedItem[]>(pinQueryKeys.list()),
+        queryClient.getQueryData<Array<PinnedItem>>(pinQueryKeys.list()),
       ).toMatchObject([
         {
           itemType: "project",

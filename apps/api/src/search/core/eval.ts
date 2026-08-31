@@ -6,7 +6,7 @@
 
 /** Recall@K = fraction of a query's relevant items present in the top K results. */
 export function recallAtK(
-  rankedIds: readonly string[],
+  rankedIds: ReadonlyArray<string>,
   relevant: ReadonlySet<string>,
   k: number,
 ): number {
@@ -19,7 +19,7 @@ export function recallAtK(
 
 /** Reciprocal rank of the first relevant result (0 if none present). */
 export function reciprocalRank(
-  rankedIds: readonly string[],
+  rankedIds: ReadonlyArray<string>,
   relevant: ReadonlySet<string>,
 ): number {
   for (let i = 0; i < rankedIds.length; i += 1) {
@@ -31,7 +31,7 @@ export function reciprocalRank(
 export interface EvalQueryResult {
   /** Query category (exact-title, typo, paraphrase, ru, es, mixed, code, …). */
   category: string;
-  rankedIds: readonly string[];
+  rankedIds: ReadonlyArray<string>;
   relevant: ReadonlySet<string>;
 }
 
@@ -46,13 +46,13 @@ export interface EvalSummary extends MetricSummary {
   byCategory: Record<string, MetricSummary>;
 }
 
-const mean = (xs: number[]) =>
+const mean = (xs: Array<number>) =>
   xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length;
 
 interface MetricBucket {
-  recall: number[];
-  rr: number[];
-  zero: number[];
+  recall: Array<number>;
+  rr: Array<number>;
+  zero: Array<number>;
 }
 
 const emptyBucket = (): MetricBucket => ({ recall: [], rr: [], zero: [] });
@@ -77,7 +77,7 @@ const summarizeBucket = (bucket: MetricBucket): MetricSummary => ({
 
 /** Aggregate per-query results into overall + per-category metrics at cutoff K. */
 export function summarizeEval(
-  results: readonly EvalQueryResult[],
+  results: ReadonlyArray<EvalQueryResult>,
   k: number,
 ): EvalSummary {
   const overall = emptyBucket();

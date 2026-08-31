@@ -37,7 +37,7 @@ const step = (rate: { PER_CHAR_MS: number; TOTAL_MS: number }, chars: number) =>
   Math.min(rate.PER_CHAR_MS, rate.TOTAL_MS / Math.max(chars, 1));
 
 /** Code-point characters — never UTF-16 code units (emoji surrogates). */
-const charsOf = (value: string): string[] => Array.from(value);
+const charsOf = (value: string): Array<string> => Array.from(value);
 
 /** How many leading code points `a` and `b` share. */
 export function sharedPrefixLength(a: string, b: string): number {

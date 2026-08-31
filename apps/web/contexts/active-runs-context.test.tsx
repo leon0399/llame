@@ -64,7 +64,7 @@ let runHandler: (runId: string) => Promise<Response>;
 function stubActiveRunsNetwork() {
   fetchMock = stubFetch();
   activeRunsHandler = () =>
-    Promise.resolve(jsonResponse<ActiveRunResponse[]>([]));
+    Promise.resolve(jsonResponse<Array<ActiveRunResponse>>([]));
   runHandler = () => Promise.resolve(new Response(null, { status: 404 }));
   fetchMock.mockImplementation(async (input) => {
     const request = input instanceof Request ? input : new Request(input);
@@ -89,7 +89,10 @@ function Probe({
       {viewedChatId ? <ViewedChatRegistration chatId={viewedChatId} /> : null}
       <span data-testid="processing">{String(activeChatIds.has(chatId))}</span>
       <span data-testid="unread">{String(completedChats.has(chatId))}</span>
-      <button onClick={() => trackRun("run-track", chatId, "Tracked chat")}>
+      <button
+        type="button"
+        onClick={() => trackRun("run-track", chatId, "Tracked chat")}
+      >
         track
       </button>
     </div>
@@ -148,7 +151,7 @@ describe("ActiveRunsProvider — mount re-hydration (GET /me/runs?status=active)
     stubActiveRunsNetwork();
     activeRunsHandler = () =>
       Promise.resolve(
-        jsonResponse<ActiveRunResponse[]>([
+        jsonResponse<Array<ActiveRunResponse>>([
           {
             runId: "run-rehydrated",
             chatId: "chat-a",
@@ -217,7 +220,7 @@ describe("ActiveRunsProvider — mount re-hydration (GET /me/runs?status=active)
 
     // The real, current state is that run-stale already finished — resolve
     // with an empty active-run list, as the server would report.
-    resolveFetch(jsonResponse<ActiveRunResponse[]>([]));
+    resolveFetch(jsonResponse<Array<ActiveRunResponse>>([]));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(screen.getByTestId("processing").textContent).toBe("false");
   });

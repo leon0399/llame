@@ -362,7 +362,7 @@ function ProjectGroup({
   isPinned,
 }: {
   label: string | null;
-  projects: ProjectResponse[];
+  projects: Array<ProjectResponse>;
   pathname: string;
   isPinned: boolean;
 }) {
@@ -389,8 +389,8 @@ function ProjectGroup({
 type ProjectListSidebarContentProps = {
   isLoading: boolean;
   hasData: boolean;
-  pinnedProjects: ProjectResponse[];
-  filteredUnpinned: ProjectResponse[];
+  pinnedProjects: Array<ProjectResponse>;
+  filteredUnpinned: Array<ProjectResponse>;
   pathname: string;
 };
 

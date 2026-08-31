@@ -37,7 +37,7 @@ type SweepRow = { chat_id: string; owner_user_id: string };
  * across the batch carries no meaning.
  */
 async function enqueueRowsBounded(
-  rows: readonly SweepRow[],
+  rows: ReadonlyArray<SweepRow>,
   enqueueOne: (chatId: string, ownerUserId: string) => Promise<void>,
 ): Promise<void> {
   const CONCURRENCY = 20;

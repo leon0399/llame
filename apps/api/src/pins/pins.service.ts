@@ -19,7 +19,7 @@ export class PinsService {
   constructor(private readonly tenantDb: TenantDbService) {}
 
   /** The caller's pinned items in owner rank order, hydrated. */
-  async listPins(userId: string): Promise<PinnedRow[]> {
+  async listPins(userId: string): Promise<Array<PinnedRow>> {
     return this.tenantDb.runAs(userId, (tx) =>
       new PinsRepository(tx).listWithCards(userId),
     );
@@ -32,17 +32,17 @@ export class PinsService {
    */
   async reorderPins(
     userId: string,
-    ordered: readonly PinOrderItem[],
-  ): Promise<PinnedRow[]> {
+    ordered: ReadonlyArray<PinOrderItem>,
+  ): Promise<Array<PinnedRow>> {
     try {
       return await this.tenantDb.runAs(userId, (tx) =>
         new PinsRepository(tx).reorder(userId, ordered),
       );
-    } catch (err) {
-      if (err instanceof PinReorderMismatchError) {
-        throw new BadRequestException(err.message);
+    } catch (error) {
+      if (error instanceof PinReorderMismatchError) {
+        throw new BadRequestException(error.message);
       }
-      throw err;
+      throw error;
     }
   }
 
@@ -63,16 +63,16 @@ export class PinsService {
   ): Promise<PinnedRow> {
     try {
       return await this.attemptPin(userId, itemType, itemId);
-    } catch (err) {
-      if (!this.isRetryablePinRace(err, itemType)) throw err;
+    } catch (error) {
+      if (!this.isRetryablePinRace(error, itemType)) throw error;
       // A concurrent net-new pin raced on `pins_user_position_unique`
       // (23505) — retry once; the peer has committed by now.
     }
     try {
       return await this.attemptPin(userId, itemType, itemId);
-    } catch (err) {
-      this.isRetryablePinRace(err, itemType); // maps 42501/23503, else falls through
-      throw err;
+    } catch (error) {
+      this.isRetryablePinRace(error, itemType); // maps 42501/23503, else falls through
+      throw error;
     }
   }
 
