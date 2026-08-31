@@ -247,6 +247,9 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
     // land right back on the same query/results to try the next one.
     await user.click(screen.getByRole("button", { name: "Search" }));
 
+    // SAFETY: this placeholder is only ever rendered on the palette's
+    // search `<input>`, so the query result is always an `HTMLInputElement`
+    // — `getByPlaceholderText` itself only types its result as `HTMLElement`.
     expect(
       (
         screen.getByPlaceholderText(
@@ -266,6 +269,9 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
     await user.click(screen.getByRole("button", { name: "Search" }));
     expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
 
+    // SAFETY: this placeholder is only ever rendered on the palette's
+    // search `<input>`, so the query result is always an `HTMLInputElement`
+    // — `getByPlaceholderText` itself only types its result as `HTMLElement`.
     const input = screen.getByPlaceholderText(
       "Search chats, projects, memories…",
     ) as HTMLInputElement;

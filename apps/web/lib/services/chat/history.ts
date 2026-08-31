@@ -9,7 +9,7 @@ export type ChatMessageResponse = {
   senderUserId: string | null;
   parts: UIMessage["parts"];
   attachments: unknown[];
-  usage: Record<string, unknown> | null;
+  usage: unknown;
   inReplyTo: string | null;
   createdAt: string;
 };
@@ -55,6 +55,11 @@ export function normalizeChatMessagesResponse(
     compaction: response.compaction,
     messages: response.messages.map((message) => ({
       ...message,
+      // SAFETY: the wire contract types `parts` as opaque objects only
+      // because OpenAPI cannot express the AI SDK's discriminated part
+      // union — this app is the sole producer and consumer of the stored
+      // rows, and persists exactly the shapes `UIMessage["parts"]` allows
+      // (see AGENTS.md "Preserve stored conversation parts wholesale").
       parts: message.parts as UIMessage["parts"],
     })),
   };
@@ -93,27 +98,71 @@ export type ModelSwitchPart = {
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function isExactRecord(
-  value: unknown,
+function isNonNullObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function isNumber(value: unknown): value is number {
+  return typeof value === "number";
+}
+
+/** Exact key-set structural check on an already-narrowed object's own keys —
+ *  the caller still owns validating each field's type; this only confirms
+ *  which fields exist. */
+function keysMatch(
+  actualKeys: readonly string[],
   expectedKeys: readonly string[],
-): value is Record<string, unknown> {
+): boolean {
   return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.keys(value).sort().join("\0") === [...expectedKeys].sort().join("\0")
+    [...actualKeys].sort().join("\0") === [...expectedKeys].sort().join("\0")
   );
 }
 
 export function isContextItemPart(
   value: unknown,
-): value is { type: "data-context"; data: Record<string, unknown> } {
+): value is { type: "data-context"; data: unknown } {
+  if (
+    !isNonNullObject(value) ||
+    !keysMatch(Object.keys(value), ["type", "data"])
+  ) {
+    return false;
+  }
+  // SAFETY: `keysMatch` above confirmed `value` has exactly the `type` and
+  // `data` keys; both are read here still unvalidated, and checked on the
+  // following lines before this function returns true.
+  const { type, data } = value as { type: unknown; data: unknown };
+  return type === "data-context" && isNonNullObject(data);
+}
+
+/** The `data.payload` shape of a model-switch context item, validated on its
+ *  own — a real sub-boundary of `isModelSwitchPart`, not an arbitrary split. */
+function isModelSwitchPayload(
+  value: unknown,
+): value is ModelSwitchPart["data"]["payload"] {
+  if (
+    !isNonNullObject(value) ||
+    !keysMatch(Object.keys(value), ["cause", "fromModelId", "toModelId"])
+  ) {
+    return false;
+  }
+  // SAFETY: `keysMatch` above confirmed `value` has exactly these three
+  // keys; each field is validated individually below.
+  const { cause, fromModelId, toModelId } = value as {
+    cause: unknown;
+    fromModelId: unknown;
+    toModelId: unknown;
+  };
   return (
-    isExactRecord(value, ["type", "data"]) &&
-    value.type === "data-context" &&
-    typeof value.data === "object" &&
-    value.data !== null &&
-    !Array.isArray(value.data)
+    cause === "model" &&
+    isString(fromModelId) &&
+    fromModelId.trim().length > 0 &&
+    isString(toModelId) &&
+    toModelId.trim().length > 0 &&
+    fromModelId !== toModelId
   );
 }
 
@@ -121,31 +170,31 @@ export function isModelSwitchPart(value: unknown): value is ModelSwitchPart {
   if (!isContextItemPart(value)) return false;
   const requiredKeys = ["v", "producer", "form", "runId", "payload"];
   if (
-    !isExactRecord(value.data, requiredKeys) &&
-    !isExactRecord(value.data, [...requiredKeys, "text"])
+    !isNonNullObject(value.data) ||
+    (!keysMatch(Object.keys(value.data), requiredKeys) &&
+      !keysMatch(Object.keys(value.data), [...requiredKeys, "text"]))
   ) {
     return false;
   }
-  const { v, producer, form, runId, payload } = value.data;
-  if (
-    v !== 1 ||
-    producer !== "effective-context-change" ||
-    form !== "notice" ||
-    typeof runId !== "string" ||
-    !UUID_PATTERN.test(runId) ||
-    ("text" in value.data && typeof value.data.text !== "string") ||
-    !isExactRecord(payload, ["cause", "fromModelId", "toModelId"])
-  ) {
-    return false;
-  }
-  const { cause, fromModelId, toModelId } = payload;
+  // SAFETY: the checks above confirmed `value.data` is a non-null object
+  // with exactly these keys (optionally plus `text`); each field is
+  // validated individually below before being trusted.
+  const { v, producer, form, runId, payload, text } = value.data as {
+    v: unknown;
+    producer: unknown;
+    form: unknown;
+    runId: unknown;
+    payload: unknown;
+    text?: unknown;
+  };
   return (
-    cause === "model" &&
-    typeof fromModelId === "string" &&
-    fromModelId.trim().length > 0 &&
-    typeof toModelId === "string" &&
-    toModelId.trim().length > 0 &&
-    fromModelId !== toModelId
+    v === 1 &&
+    producer === "effective-context-change" &&
+    form === "notice" &&
+    isString(runId) &&
+    UUID_PATTERN.test(runId) &&
+    (text === undefined || isString(text)) &&
+    isModelSwitchPayload(payload)
   );
 }
 
@@ -181,6 +230,12 @@ export function mergeTrustedModelContextParts(
     const trusted = trustedByMessageId.get(message.id);
     return {
       ...message,
+      // SAFETY: `trusted` is a `ModelSwitchPart` (one of this app's own
+      // `data-context` parts) and `visibleParts` is `message.parts` with
+      // those context parts filtered out — both are already
+      // `UIMessage["parts"]`-shaped content; the cast is only needed
+      // because `ModelSwitchPart`'s literal-typed `data` doesn't
+      // structurally match the SDK's wider generic `data-*` part type.
       parts: (trusted
         ? [trusted, ...visibleParts]
         : visibleParts) as UIMessage["parts"],
@@ -189,11 +244,15 @@ export function mergeTrustedModelContextParts(
 }
 
 export function runIdFromMessageMetadata(metadata: unknown): string | null {
-  if (typeof metadata !== "object" || metadata === null) return null;
+  if (!isNonNullObject(metadata)) return null;
+  // SAFETY: `isNonNullObject` above confirmed `metadata` is a non-null
+  // object; `usage` is read here still unvalidated and checked next.
   const usage = (metadata as { usage?: unknown }).usage;
-  if (typeof usage !== "object" || usage === null) return null;
+  if (!isNonNullObject(usage)) return null;
+  // SAFETY: `isNonNullObject` above confirmed `usage` is a non-null
+  // object; `runId` is read here still unvalidated and checked next.
   const runId = (usage as { runId?: unknown }).runId;
-  return typeof runId === "string" && UUID_PATTERN.test(runId) ? runId : null;
+  return isString(runId) && UUID_PATTERN.test(runId) ? runId : null;
 }
 
 export function messageRenderKey(
@@ -224,22 +283,24 @@ function isChatUiMessageResponse(
 export function toChatUiMessages(response: {
   messages: ChatMessageResponse[];
 }): UIMessage[] {
-  return response.messages.filter(isChatUiMessageResponse).map((message) => ({
-    id: message.id,
-    role: message.role,
-    parts: message.parts,
+  return response.messages.filter(isChatUiMessageResponse).map((message) => {
     // `seq` is unconditional — the compaction boundary needs it to locate
     // where the summarized span ends (AI SDK UIMessage has no seq of its
-    // own), and a conditional spread would drop it on a turn with nothing
-    // else to carry, mis-placing the boundary. `usage` stays conditional: it
+    // own), and dropping it on a turn with nothing else to carry would
+    // mis-place the boundary. `usage` is included only when present: it
     // carries per-turn usage into message metadata so the UI shows it on
     // historical turns exactly as it does live (the run bridge emits the
     // same `{ usage }` shape as a message-metadata chunk at completion).
-    metadata: {
-      seq: message.seq,
-      ...(message.usage ? { usage: message.usage } : {}),
-    },
-  }));
+    const metadata = message.usage
+      ? { seq: message.seq, usage: message.usage }
+      : { seq: message.seq };
+    return {
+      id: message.id,
+      role: message.role,
+      parts: message.parts,
+      metadata,
+    };
+  });
 }
 
 /**
@@ -249,11 +310,11 @@ export function toChatUiMessages(response: {
  * `usage`, never `seq`.
  */
 export function messageSeqFromMetadata(metadata: unknown): number | null {
-  if (typeof metadata !== "object" || metadata === null) return null;
+  if (!isNonNullObject(metadata)) return null;
+  // SAFETY: `isNonNullObject` above confirmed `metadata` is a non-null
+  // object; `seq` is read here still unvalidated and checked next.
   const seq = (metadata as { seq?: unknown }).seq;
-  return typeof seq === "number" && Number.isSafeInteger(seq) && seq > 0
-    ? seq
-    : null;
+  return isNumber(seq) && Number.isSafeInteger(seq) && seq > 0 ? seq : null;
 }
 
 /**

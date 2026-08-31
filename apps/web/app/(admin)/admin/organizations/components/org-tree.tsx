@@ -124,16 +124,53 @@ function useOrgUnitDialogs(childCountOf: (unitId: string) => number) {
 }
 
 type OrgUnitDialogsBundle = ReturnType<typeof useOrgUnitDialogs>;
+type OrgTreeNavigationBundle = ReturnType<typeof useOrgTreeNavigation>;
 
-function OrgUnitDialogs({
-  units,
+/** The tree body itself — rows plus the type legend — a distinct concern
+ *  from the card shell (toolbar/footer/dialogs) around it. */
+function OrgTreeRowList({
+  nav,
   dialogs,
-  childCountOf,
 }: {
-  units: OrgUnitResponse[];
+  nav: OrgTreeNavigationBundle;
   dialogs: OrgUnitDialogsBundle;
-  childCountOf: (unitId: string) => number;
 }) {
+  return (
+    <>
+      <div
+        role="tree"
+        aria-label="Organization units"
+        className="flex flex-col py-[0.15rem]"
+      >
+        {nav.rows.map((row) => (
+          <TreeRowView
+            key={row.unit.id}
+            row={row}
+            selected={row.unit.id === nav.selected?.id}
+            onSelect={nav.setSelectedId}
+            onToggle={nav.toggleRow}
+            actions={{
+              onAddChild: (unit) => {
+                // Expand the parent so the newly-created child is visible.
+                nav.openRow(unit.id);
+                dialogs.setCreateChildFor(unit);
+              },
+              onRename: dialogs.setRenaming,
+              onMove: dialogs.setMoving,
+              onDelete: dialogs.openDelete,
+            }}
+          />
+        ))}
+      </div>
+
+      <OrgUnitTypeLegend />
+    </>
+  );
+}
+
+/** The two unit-creation dialogs (root and child) — a distinct concern from
+ *  mutating/removing an existing unit, below. */
+function OrgUnitCreateDialogs({ dialogs }: { dialogs: OrgUnitDialogsBundle }) {
   return (
     <>
       <CreateOrgUnitDialog
@@ -147,21 +184,22 @@ function OrgUnitDialogs({
           onOpenChange={(open) => !open && dialogs.setCreateChildFor(null)}
         />
       )}
-      {dialogs.renaming && (
-        <RenameOrgUnitDialog
-          unit={dialogs.renaming}
-          open
-          onOpenChange={(open) => !open && dialogs.setRenaming(null)}
-        />
-      )}
-      {dialogs.moving && (
-        <MoveOrgUnitDialog
-          unit={dialogs.moving}
-          units={units}
-          open
-          onOpenChange={(open) => !open && dialogs.setMoving(null)}
-        />
-      )}
+    </>
+  );
+}
+
+/** The delete flow's two mutually-exclusive dialog variants — plain delete,
+ *  or the blocked-by-children explainer — as one unit distinct from the
+ *  single-field rename/move mutations below. */
+function OrgUnitDeleteDialogs({
+  dialogs,
+  childCountOf,
+}: {
+  dialogs: OrgUnitDialogsBundle;
+  childCountOf: (unitId: string) => number;
+}) {
+  return (
+    <>
       {dialogs.deleting && (
         <DeleteOrgUnitDialog
           unit={dialogs.deleting}
@@ -178,6 +216,82 @@ function OrgUnitDialogs({
         />
       )}
     </>
+  );
+}
+
+/** Rename/move/delete — every dialog that acts on an already-existing unit,
+ *  as opposed to creating a new one above. */
+function OrgUnitMutationDialogs({
+  units,
+  dialogs,
+  childCountOf,
+}: {
+  units: OrgUnitResponse[];
+  dialogs: OrgUnitDialogsBundle;
+  childCountOf: (unitId: string) => number;
+}) {
+  return (
+    <>
+      {dialogs.renaming && (
+        <RenameOrgUnitDialog
+          unit={dialogs.renaming}
+          open
+          onOpenChange={(open) => !open && dialogs.setRenaming(null)}
+        />
+      )}
+      {dialogs.moving && (
+        <MoveOrgUnitDialog
+          unit={dialogs.moving}
+          units={units}
+          open
+          onOpenChange={(open) => !open && dialogs.setMoving(null)}
+        />
+      )}
+      <OrgUnitDeleteDialogs dialogs={dialogs} childCountOf={childCountOf} />
+    </>
+  );
+}
+
+function OrgUnitDialogs({
+  units,
+  dialogs,
+  childCountOf,
+}: {
+  units: OrgUnitResponse[];
+  dialogs: OrgUnitDialogsBundle;
+  childCountOf: (unitId: string) => number;
+}) {
+  return (
+    <>
+      <OrgUnitCreateDialogs dialogs={dialogs} />
+      <OrgUnitMutationDialogs
+        units={units}
+        dialogs={dialogs}
+        childCountOf={childCountOf}
+      />
+    </>
+  );
+}
+
+/** Isolated from the toolbar around it because its gating is a live, evolving
+ *  concern (D5.1/#158), not fixed toolbar layout — future work touches only
+ *  this component. */
+function CreateOrgUnitButton({ onCreateRoot }: { onCreateRoot: () => void }) {
+  return (
+    // Gating seam (D5.1/#158): create-root is open to every user by today's
+    // server policy (self-hosted bootstrap) — this affordance is
+    // deliberately NOT gated by any client-side "is admin" check. When the
+    // instance-level `root_org_creation` signal (#158) lands, it gates this
+    // button from server-sourced data; until then it stays plainly
+    // available.
+    <Button
+      size="sm"
+      className="gap-[0.4rem] text-[0.8rem]"
+      onClick={onCreateRoot}
+    >
+      <PlusIcon />
+      New organization
+    </Button>
   );
 }
 
@@ -211,20 +325,7 @@ function OrgTreeToolbar({
             {anyOpen ? "Collapse all" : "Expand all"}
           </Button>
         )}
-        {/* Gating seam (D5.1/#158): create-root is open to every user by
-         * today's server policy (self-hosted bootstrap) — this affordance
-         * is deliberately NOT gated by any client-side "is admin" check.
-         * When the instance-level `root_org_creation` signal (#158)
-         * lands, it gates this button from server-sourced data; until
-         * then it stays plainly available. */}
-        <Button
-          size="sm"
-          className="gap-[0.4rem] text-[0.8rem]"
-          onClick={onCreateRoot}
-        >
-          <PlusIcon />
-          New organization
-        </Button>
+        <CreateOrgUnitButton onCreateRoot={onCreateRoot} />
       </CardAction>
     </CardHeader>
   );
@@ -272,6 +373,30 @@ function OrgTreeEmptyState({ onCreateRoot }: { onCreateRoot: () => void }) {
   );
 }
 
+/** Isolated from the footer around it because its disabled state is a live,
+ *  evolving concern (deferred to D7), not fixed footer layout — the D7
+ *  fast-follow touches only this component. */
+function ManageMembersButton() {
+  return (
+    // Button's disabled:pointer-events-none suppresses the native title
+    // tooltip — the explanation rides a wrapping span.
+    <span
+      className="ml-auto shrink-0"
+      title="Members panel is the next step — deferred to the fast-follow change (D7)."
+    >
+      <Button
+        variant="outline"
+        size="sm"
+        disabled
+        className="gap-[0.4rem] text-[0.8rem] opacity-55"
+      >
+        <UsersIcon />
+        Manage members
+      </Button>
+    </span>
+  );
+}
+
 function OrgTreeSelectedFooter({
   selected,
   unitsById,
@@ -296,22 +421,7 @@ function OrgTreeSelectedFooter({
         <span className="truncate">{breadcrumb}</span>
       </span>
       <span className="text-xs text-muted-foreground">{roleText}</span>
-      {/* Button's disabled:pointer-events-none suppresses the native
-          title tooltip — the explanation rides a wrapping span. */}
-      <span
-        className="ml-auto shrink-0"
-        title="Members panel is the next step — deferred to the fast-follow change (D7)."
-      >
-        <Button
-          variant="outline"
-          size="sm"
-          disabled
-          className="gap-[0.4rem] text-[0.8rem] opacity-55"
-        >
-          <UsersIcon />
-          Manage members
-        </Button>
-      </span>
+      <ManageMembersButton />
     </CardFooter>
   );
 }
@@ -345,40 +455,19 @@ export function OrgUnitsTree({ units }: { units: OrgUnitResponse[] }) {
 
       <CardContent className="px-[0.6rem] py-[0.55rem]">
         {hasUnits ? (
-          <>
-            <div
-              role="tree"
-              aria-label="Organization units"
-              className="flex flex-col py-[0.15rem]"
-            >
-              {nav.rows.map((row) => (
-                <TreeRowView
-                  key={row.unit.id}
-                  row={row}
-                  selected={row.unit.id === nav.selected?.id}
-                  onSelect={nav.setSelectedId}
-                  onToggle={nav.toggleRow}
-                  onAddChild={(unit) => {
-                    // Expand the parent so the newly-created child is visible.
-                    nav.openRow(unit.id);
-                    dialogs.setCreateChildFor(unit);
-                  }}
-                  onRename={dialogs.setRenaming}
-                  onMove={dialogs.setMoving}
-                  onDelete={dialogs.openDelete}
-                />
-              ))}
-            </div>
-
-            <OrgUnitTypeLegend />
-          </>
+          <OrgTreeRowList nav={nav} dialogs={dialogs} />
         ) : (
-          <OrgTreeEmptyState onCreateRoot={() => dialogs.setCreateRootOpen(true)} />
+          <OrgTreeEmptyState
+            onCreateRoot={() => dialogs.setCreateRootOpen(true)}
+          />
         )}
       </CardContent>
 
       {nav.selected && (
-        <OrgTreeSelectedFooter selected={nav.selected} unitsById={nav.unitsById} />
+        <OrgTreeSelectedFooter
+          selected={nav.selected}
+          unitsById={nav.unitsById}
+        />
       )}
 
       <OrgUnitDialogs

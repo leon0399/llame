@@ -26,6 +26,58 @@ interface FontSwitcherProps {
   className?: string;
 }
 
+function FontSwitcherTrigger({
+  currentOption,
+  icon,
+  className,
+}: {
+  currentOption: FontOption | undefined;
+  icon?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <DropdownMenuTrigger
+      render={
+        <Button
+          variant="outline"
+          size="sm"
+          className={className}
+          style={{ fontFamily: currentOption?.cssVar }}
+        />
+      }
+    >
+      {icon}
+      <span className="flex-1 text-left">{currentOption?.label}</span>
+      <ChevronDownIcon className="h-4 w-4 ml-2 opacity-50" />
+    </DropdownMenuTrigger>
+  );
+}
+
+function FontOptionItem({
+  option,
+  previewText,
+}: {
+  option: FontOption;
+  previewText: string;
+}) {
+  return (
+    <DropdownMenuRadioItem
+      value={option.value}
+      className="flex items-center justify-between"
+    >
+      <span style={{ fontFamily: option.cssVar }} className="flex-1">
+        {option.label}
+      </span>
+      <span
+        style={{ fontFamily: option.cssVar }}
+        className="text-xs text-muted-foreground ml-2"
+      >
+        {previewText}
+      </span>
+    </DropdownMenuRadioItem>
+  );
+}
+
 export function FontSwitcher({
   options,
   currentValue,
@@ -38,41 +90,22 @@ export function FontSwitcher({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="outline"
-            size="sm"
-            className={className}
-            style={{ fontFamily: currentOption?.cssVar }}
-          />
-        }
-      >
-        {icon}
-        <span className="flex-1 text-left">{currentOption?.label}</span>
-        <ChevronDownIcon className="h-4 w-4 ml-2 opacity-50" />
-      </DropdownMenuTrigger>
+      <FontSwitcherTrigger
+        currentOption={currentOption}
+        icon={icon}
+        className={className}
+      />
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuRadioGroup
           value={currentValue}
           onValueChange={onValueChange}
         >
           {options.map((option) => (
-            <DropdownMenuRadioItem
+            <FontOptionItem
               key={option.value}
-              value={option.value}
-              className="flex items-center justify-between"
-            >
-              <span style={{ fontFamily: option.cssVar }} className="flex-1">
-                {option.label}
-              </span>
-              <span
-                style={{ fontFamily: option.cssVar }}
-                className="text-xs text-muted-foreground ml-2"
-              >
-                {previewText}
-              </span>
-            </DropdownMenuRadioItem>
+              option={option}
+              previewText={previewText}
+            />
           ))}
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>

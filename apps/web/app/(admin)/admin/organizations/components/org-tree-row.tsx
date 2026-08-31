@@ -119,10 +119,7 @@ function TreeRowExpander({
       className="flex size-5 shrink-0 items-center justify-center rounded-[5px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
     >
       <ChevronRightIcon
-        className={cn(
-          "size-[15px] transition-transform",
-          open && "rotate-90",
-        )}
+        className={cn("size-[15px] transition-transform", open && "rotate-90")}
       />
     </button>
   );
@@ -375,14 +372,7 @@ export function TreeRowView({
         onToggle={() => onToggle(unit.id)}
       />
       <TreeRowLabel unit={unit} isRoot={isRoot} />
-      <TreeRowTrailing
-        unit={unit}
-        hasChildren={hasChildren}
-        onAddChild={onAddChild}
-        onRename={onRename}
-        onMove={onMove}
-        onDelete={onDelete}
-      />
+      <TreeRowTrailing unit={unit} hasChildren={hasChildren} {...actions} />
     </div>
   );
 }

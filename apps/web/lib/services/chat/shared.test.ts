@@ -1,7 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 
 import { fetchSharedChat, forkSharedChat } from "./shared";
-import { jsonResponse, requestFromCall, stubFetch } from "../../test-support/fetch-stub";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
 
 let fetchMock: Mock<typeof fetch>;
 
@@ -48,9 +60,7 @@ describe("forkSharedChat", () => {
 
     const request = requestFromCall(fetchMock);
     expect(request.method).toBe("POST");
-    expect(new URL(request.url).pathname).toBe(
-      "/api/v1/shared/chats/c1/forks",
-    );
+    expect(new URL(request.url).pathname).toBe("/api/v1/shared/chats/c1/forks");
     expect(result.id).toBe("new-chat");
   });
 });

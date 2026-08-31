@@ -11,9 +11,7 @@ import { MessageForkButton } from "./message-fork-button";
 
 const useForkChat = vi.mocked(fork.useForkChat, { partial: true });
 
-function isFunction(
-  value: unknown,
-): value is (forked: { id: string }) => void {
+function isFunction(value: unknown): value is (forked: { id: string }) => void {
   return typeof value === "function";
 }
 

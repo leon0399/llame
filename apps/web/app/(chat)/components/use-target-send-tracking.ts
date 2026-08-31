@@ -1,4 +1,4 @@
-import { useCallback, useRef, type Dispatch } from "react";
+import { useCallback, useRef, type Dispatch, type RefObject } from "react";
 
 import type {
   DraftSessionEvent,
@@ -11,23 +11,15 @@ type TargetSendState =
   | { status: "failed" | "interrupted" | "finished" }
   | null;
 
-/**
- * Tracks a target-scoped send's lifecycle (started/failed/finished/
- * interrupted) against the canonical URL and the draft session state
- * machine. A "target send" is a send performed while `targetSeq` pins the
- * page to one message rather than "latest" — its outcome is reported back
- * via `onTargetSendFinished` instead of driving `dispatch` directly, since
- * the draft state machine only exists for the "latest" (no target) case.
- */
-export function useTargetSendTracking(params: {
-  chatId: string;
-  targetSeq: number | null;
-  sessionKind: DraftSessionState["kind"];
-  dispatch: Dispatch<DraftSessionEvent>;
-  onTargetSendFinished: () => void;
-}) {
-  const { chatId, targetSeq, sessionKind, dispatch, onTargetSendFinished } =
-    params;
+/** The target-send state ref plus the one operation both `onFinished` and
+ *  `onTargetSendInterrupted` share: consuming an active target send and
+ *  rewriting the URL for its outcome. Split out so the main hook composes
+ *  only event handlers, not this shared state machine. */
+function useTargetSendState(
+  chatId: string,
+  targetSeq: number | null,
+  onTargetSendFinished: () => void,
+) {
   const targetSendStateRef = useRef<TargetSendState>(null);
 
   const consumeTargetSend = useCallback(
@@ -54,12 +46,23 @@ export function useTargetSendTracking(params: {
     [chatId, onTargetSendFinished, targetSeq],
   );
 
-  const onTargetSendInterrupted = useCallback(
-    () => consumeTargetSend("interrupted"),
-    [consumeTargetSend],
-  );
+  return { targetSendStateRef, consumeTargetSend };
+}
 
-  const onSendStarted = useCallback(() => {
+function useOnSendStarted({
+  chatId,
+  targetSeq,
+  sessionKind,
+  dispatch,
+  targetSendStateRef,
+}: {
+  chatId: string;
+  targetSeq: number | null;
+  sessionKind: DraftSessionState["kind"];
+  dispatch: Dispatch<DraftSessionEvent>;
+  targetSendStateRef: RefObject<TargetSendState>;
+}) {
+  return useCallback(() => {
     if (targetSeq !== null) {
       targetSendStateRef.current = {
         status: "active",
@@ -80,9 +83,16 @@ export function useTargetSendTracking(params: {
       draftChatPathWithHash(chatId, "sent", window.location.hash),
     );
     dispatch({ type: "send-started" });
-  }, [chatId, sessionKind, targetSeq, dispatch]);
+  }, [chatId, sessionKind, targetSeq, dispatch, targetSendStateRef]);
+}
 
-  const onSendFailed = useCallback(() => {
+function useOnSendFailed(
+  chatId: string,
+  targetSeq: number | null,
+  dispatch: Dispatch<DraftSessionEvent>,
+  targetSendStateRef: RefObject<TargetSendState>,
+) {
+  return useCallback(() => {
     const targetSendState = targetSendStateRef.current;
     if (targetSeq !== null) {
       if (targetSendState?.status !== "active") return;
@@ -94,9 +104,16 @@ export function useTargetSendTracking(params: {
       );
     }
     dispatch({ type: "send-failed" });
-  }, [chatId, targetSeq, dispatch]);
+  }, [chatId, targetSeq, dispatch, targetSendStateRef]);
+}
 
-  const onFinished = useCallback(() => {
+function useOnFinished(
+  chatId: string,
+  targetSeq: number | null,
+  dispatch: Dispatch<DraftSessionEvent>,
+  consumeTargetSend: (status: "interrupted" | "finished") => boolean,
+) {
+  return useCallback(() => {
     if (targetSeq !== null) {
       if (!consumeTargetSend("finished")) return false;
       dispatch({ type: "finished" });
@@ -110,6 +127,54 @@ export function useTargetSendTracking(params: {
     dispatch({ type: "finished" });
     return true;
   }, [chatId, consumeTargetSend, targetSeq, dispatch]);
+}
+
+/**
+ * Tracks a target-scoped send's lifecycle (started/failed/finished/
+ * interrupted) against the canonical URL and the draft session state
+ * machine. A "target send" is a send performed while `targetSeq` pins the
+ * page to one message rather than "latest" — its outcome is reported back
+ * via `onTargetSendFinished` instead of driving `dispatch` directly, since
+ * the draft state machine only exists for the "latest" (no target) case.
+ */
+export function useTargetSendTracking(params: {
+  chatId: string;
+  targetSeq: number | null;
+  sessionKind: DraftSessionState["kind"];
+  dispatch: Dispatch<DraftSessionEvent>;
+  onTargetSendFinished: () => void;
+}) {
+  const { chatId, targetSeq, sessionKind, dispatch, onTargetSendFinished } =
+    params;
+  const { targetSendStateRef, consumeTargetSend } = useTargetSendState(
+    chatId,
+    targetSeq,
+    onTargetSendFinished,
+  );
+
+  const onTargetSendInterrupted = useCallback(
+    () => consumeTargetSend("interrupted"),
+    [consumeTargetSend],
+  );
+  const onSendStarted = useOnSendStarted({
+    chatId,
+    targetSeq,
+    sessionKind,
+    dispatch,
+    targetSendStateRef,
+  });
+  const onSendFailed = useOnSendFailed(
+    chatId,
+    targetSeq,
+    dispatch,
+    targetSendStateRef,
+  );
+  const onFinished = useOnFinished(
+    chatId,
+    targetSeq,
+    dispatch,
+    consumeTargetSend,
+  );
 
   return { onTargetSendInterrupted, onSendStarted, onSendFailed, onFinished };
 }

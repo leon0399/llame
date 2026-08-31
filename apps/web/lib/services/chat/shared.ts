@@ -5,7 +5,10 @@ import {
   forkSharedChat as forkSharedChatEndpoint,
   getSharedChat as getSharedChatEndpoint,
 } from "../../api/generated/chats/chats";
-import type { SharedChatResponse } from "../../api/generated/models";
+import type {
+  SharedChatMessageResponsePartsItem,
+  SharedChatResponse,
+} from "../../api/generated/models";
 import {
   createAuthenticatedBrowserFetch,
   createOptionalAuthFetch,
@@ -79,7 +82,7 @@ function normalizeSharedChat(response: SharedChatResponse): SharedChat {
 }
 
 function isTextPart(
-  part: Record<string, unknown>,
+  part: SharedChatMessageResponsePartsItem,
 ): part is { type: "text"; text: string } {
   return part.type === "text" && typeof part.text === "string";
 }

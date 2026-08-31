@@ -135,8 +135,9 @@ export function ChatList() {
     hasData,
     isLoading,
   } = useChatListData();
-  const [newProjectChatId, setNewProjectChatId] =
-    React.useState<string | null>(null);
+  const [newProjectChatId, setNewProjectChatId] = React.useState<string | null>(
+    null,
+  );
 
   if (isLoading) return <ChatListLoadingState />;
   if (!hasData && pinnedChats.length === 0) return <ChatListEmptyState />;

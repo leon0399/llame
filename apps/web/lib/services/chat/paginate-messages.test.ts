@@ -8,6 +8,10 @@ import {
 import type { ChatMessageResponse } from "./history";
 
 // A message with just the fields the paginator reads (seq); id encodes order.
+// SAFETY: this fixture deliberately omits every other required
+// `ChatMessageResponse` field — the paginator under test reads only `seq`
+// (see `paginate-messages.ts`) — so `as never` opts out of the full-shape
+// check for a value that is intentionally partial.
 const m = (seq: number): ChatMessageResponse =>
   ({ id: `m${seq}`, seq }) as never;
 

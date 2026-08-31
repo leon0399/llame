@@ -1,4 +1,8 @@
-import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 
 import {
   changeOrgUnitMembershipRole as changeOrgUnitMembershipRoleEndpoint,
@@ -321,29 +325,35 @@ function rollbackMemberships(
   }
 }
 
+async function onMutateChangeMembershipRole(
+  queryClient: QueryClient,
+  variables: ChangeMembershipRoleInput,
+) {
+  const previousMemberships = await cancelAndSnapshotMemberships(
+    queryClient,
+    variables.orgUnitId,
+  );
+  if (previousMemberships) {
+    queryClient.setQueryData<MembershipResponse[]>(
+      orgUnitsQueryKeys.memberships(variables.orgUnitId),
+      previousMemberships.map((membership) =>
+        membership.userId === variables.userId
+          ? { ...membership, role: variables.role }
+          : membership,
+      ),
+    );
+  }
+  return { previousMemberships };
+}
+
 export function useChangeMembershipRole() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: orgUnitsMutationKeys.changeRole(),
     scope: { id: "org-unit-memberships" },
     mutationFn: changeMembershipRole,
-    onMutate: async (variables) => {
-      const previousMemberships = await cancelAndSnapshotMemberships(
-        queryClient,
-        variables.orgUnitId,
-      );
-      if (previousMemberships) {
-        queryClient.setQueryData<MembershipResponse[]>(
-          orgUnitsQueryKeys.memberships(variables.orgUnitId),
-          previousMemberships.map((membership) =>
-            membership.userId === variables.userId
-              ? { ...membership, role: variables.role }
-              : membership,
-          ),
-        );
-      }
-      return { previousMemberships };
-    },
+    onMutate: (variables) =>
+      onMutateChangeMembershipRole(queryClient, variables),
     onError: (_error, variables, context) =>
       rollbackMemberships(
         queryClient,
@@ -379,27 +389,32 @@ export async function revokeMembership(
   );
 }
 
+async function onMutateRevokeMembership(
+  queryClient: QueryClient,
+  variables: RevokeMembershipInput,
+) {
+  const previousMemberships = await cancelAndSnapshotMemberships(
+    queryClient,
+    variables.orgUnitId,
+  );
+  if (previousMemberships) {
+    queryClient.setQueryData<MembershipResponse[]>(
+      orgUnitsQueryKeys.memberships(variables.orgUnitId),
+      previousMemberships.filter(
+        (membership) => membership.userId !== variables.userId,
+      ),
+    );
+  }
+  return { previousMemberships };
+}
+
 export function useRevokeMembership() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: orgUnitsMutationKeys.revoke(),
     scope: { id: "org-unit-memberships" },
     mutationFn: revokeMembership,
-    onMutate: async (variables) => {
-      const previousMemberships = await cancelAndSnapshotMemberships(
-        queryClient,
-        variables.orgUnitId,
-      );
-      if (previousMemberships) {
-        queryClient.setQueryData<MembershipResponse[]>(
-          orgUnitsQueryKeys.memberships(variables.orgUnitId),
-          previousMemberships.filter(
-            (membership) => membership.userId !== variables.userId,
-          ),
-        );
-      }
-      return { previousMemberships };
-    },
+    onMutate: (variables) => onMutateRevokeMembership(queryClient, variables),
     onError: (_error, variables, context) =>
       rollbackMemberships(
         queryClient,

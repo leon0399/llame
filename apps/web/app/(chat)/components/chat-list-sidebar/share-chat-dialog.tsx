@@ -82,8 +82,8 @@ function PublicVisibilityToggle({
       <div className="min-w-0">
         <p className="text-sm font-medium">Public link</p>
         <p className="text-muted-foreground text-xs">
-          Anyone with the link can view this chat (read-only). Your thinking
-          and other chats stay private.
+          Anyone with the link can view this chat (read-only). Your thinking and
+          other chats stay private.
         </p>
       </div>
       <Switch

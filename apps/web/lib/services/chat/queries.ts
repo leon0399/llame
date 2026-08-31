@@ -247,6 +247,33 @@ export function chatMessagesQueryOptions(
       ? chatQueryKeys.messages(chatId)
       : chatQueryKeys.targetMessages(chatId, targetSeq);
 
+  // A `retry: undefined` key (instead of omitting it) still shadows the
+  // QueryClient's own `retry` default: TanStack merges defaults and
+  // per-query options with a plain object spread, and an explicit
+  // `undefined` value is a present key, so it wins over the default and
+  // falls through to the library's OWN retry default (3 attempts) rather
+  // than the client's. Building two separate calls below (instead of one
+  // object literal with a conditional `retry` key, or a shared variable —
+  // which would lose `infiniteQueryOptions`'s contextual parameter
+  // inference) is what actually omits the key when this isn't a draft
+  // recovery, letting the QueryClient's configured default apply.
+  if (recoverSentDraft) {
+    return infiniteQueryOptions({
+      queryKey,
+      queryFn: fetchChatMessagesPage,
+      initialPageParam: INITIAL_MESSAGES_PAGE_PARAM,
+      getNextPageParam: (lastPage, _allPages, lastPageParam) =>
+        olderPageParam(lastPage, lastPageParam),
+      select: toChatHistory,
+      // `error: Error` (not `unknown`) matches TanStack's own `DefaultError`
+      // generic — the type both branches must agree on so this function's
+      // two `infiniteQueryOptions` calls unify into one consistent return
+      // type instead of an unusable union.
+      retry: (failureCount: number, error: Error) =>
+        failureCount < SENT_DRAFT_RECOVERY_RETRY_COUNT &&
+        isChatHistoryMissing(error),
+    });
+  }
   return infiniteQueryOptions({
     queryKey,
     queryFn: fetchChatMessagesPage,
@@ -254,14 +281,6 @@ export function chatMessagesQueryOptions(
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
       olderPageParam(lastPage, lastPageParam),
     select: toChatHistory,
-    // `undefined` here falls through to React Query's own retry default —
-    // the same as omitting the key — so this stays a single object literal
-    // instead of a conditional spread.
-    retry: recoverSentDraft
-      ? (failureCount: number, error: unknown) =>
-          failureCount < SENT_DRAFT_RECOVERY_RETRY_COUNT &&
-          isChatHistoryMissing(error)
-      : undefined,
   });
 }
 

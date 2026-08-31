@@ -330,9 +330,7 @@ function PersonalizationPreviewBody({
         <div className="space-y-1 break-words whitespace-pre-wrap">
           <p className="text-muted-foreground">&lt;user_personalization&gt;</p>
           <div className="pl-3">{preview?.text}</div>
-          <p className="text-muted-foreground">
-            &lt;/user_personalization&gt;
-          </p>
+          <p className="text-muted-foreground">&lt;/user_personalization&gt;</p>
         </div>
       )}
     </div>
@@ -358,9 +356,8 @@ function PersonalizationPreviewPanel({
           prompt file, and a replacement that omits these paths makes the
           switches above do nothing, silently. */}
       <p className="text-xs text-muted-foreground">
-        Based on the prompt llame ships. If this instance uses a custom
-        system prompt, what it sends may differ — or it may send none of
-        this.
+        Based on the prompt llame ships. If this instance uses a custom system
+        prompt, what it sends may differ — or it may send none of this.
       </p>
     </div>
   );
@@ -474,7 +471,10 @@ function PersonalizationForm({
   data,
   draft,
   ...state
-}: { data: NonNullable<ReturnType<typeof usePersonalizationDraft>["data"]>; draft: Draft } & PersonalizationFormState) {
+}: {
+  data: NonNullable<ReturnType<typeof usePersonalizationDraft>["data"]>;
+  draft: Draft;
+} & PersonalizationFormState) {
   // The master switch gates everything below it, so the fields it governs are
   // disabled rather than merely ignored — a field you can still type into while
   // nothing you type is sent would be a lie told by the UI.
@@ -487,7 +487,11 @@ function PersonalizationForm({
       {/* pb-2 on top of Card's own padding: the closing footnote is 12px type
           and sits right against the card edge without it. */}
       <CardContent className="space-y-6 pb-2">
-        <PersonalizationFieldsSection enabled={enabled} draft={draft} {...state} />
+        <PersonalizationFieldsSection
+          enabled={enabled}
+          draft={draft}
+          {...state}
+        />
 
         <Separator />
 

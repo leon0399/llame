@@ -3,15 +3,26 @@ import type { ChatMessageResponse } from "./history";
 
 type MaybePart = { type?: unknown; text?: unknown };
 
+function isNonNullObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
 function partsText(parts: unknown, kind: "text" | "reasoning"): string {
   if (!Array.isArray(parts)) return "";
   return (
     parts
-      .filter(
-        (p): p is MaybePart =>
-          typeof p === "object" && p !== null && (p as MaybePart).type === kind,
-      )
-      .map((p) => (typeof p.text === "string" ? p.text : ""))
+      .filter((p): p is MaybePart => {
+        if (!isNonNullObject(p)) return false;
+        // SAFETY: `isNonNullObject` above confirmed `p` is a non-null
+        // object; `MaybePart`'s fields are optional and `unknown`-typed, so
+        // this only unlocks property access — it asserts no value type.
+        return (p as MaybePart).type === kind;
+      })
+      .map((p) => (isString(p.text) ? p.text : ""))
       // Text parts around a tool call are distinct paragraphs in the UI — separate
       // them with a blank line so the export doesn't fuse two sentences.
       .join(kind === "reasoning" ? "\n" : "\n\n")
@@ -22,11 +33,11 @@ function modelLabel(
   usage: unknown,
   models?: readonly AvailableModel[],
 ): string | undefined {
-  if (typeof usage !== "object" || usage === null) return undefined;
+  if (!isNonNullObject(usage)) return undefined;
+  // SAFETY: `isNonNullObject` above confirmed `usage` is a non-null object;
+  // `modelId` is read here still unvalidated and checked next.
   const modelId = (usage as { modelId?: unknown }).modelId;
-  return typeof modelId === "string"
-    ? modelDisplayName(modelId, models)
-    : undefined;
+  return isString(modelId) ? modelDisplayName(modelId, models) : undefined;
 }
 
 /**

@@ -123,6 +123,20 @@ function resolveAnchorElement(
   return findMessageElement(content, key);
 }
 
+/** The anchor entry `usePrependScrollAnchor` should remember for next time —
+ *  a pure derivation, split out from the effect's scrollTop compensation. */
+function nextAnchorEntry(
+  content: HTMLElement | null,
+  cached: AnchorEntry | null,
+  oldestMessageKey: string | null,
+): AnchorEntry | null {
+  if (oldestMessageKey === null) return null;
+  const element = resolveAnchorElement(content, cached, oldestMessageKey);
+  return element
+    ? { key: oldestMessageKey, element, offsetTop: element.offsetTop }
+    : null;
+}
+
 /**
  * Prepending an older page grows the content ABOVE the viewport, which the
  * library only compensates when stuck to the bottom — from the reader's
@@ -159,18 +173,7 @@ function usePrependScrollAnchor({
       }
     }
 
-    const oldestElement =
-      oldestMessageKey === null
-        ? null
-        : resolveAnchorElement(content, previous, oldestMessageKey);
-    anchorRef.current =
-      oldestMessageKey !== null && oldestElement
-        ? {
-            key: oldestMessageKey,
-            element: oldestElement,
-            offsetTop: oldestElement.offsetTop,
-          }
-        : null;
+    anchorRef.current = nextAnchorEntry(content, previous, oldestMessageKey);
   });
 }
 

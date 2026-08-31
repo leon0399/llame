@@ -1,8 +1,20 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 
 import { chatSearchQueryKey, searchChats } from "./search";
 import { chatQueryKeys } from "./queries";
-import { jsonResponse, requestFromCall, stubFetch } from "../../test-support/fetch-stub";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
 
 let fetchMock: Mock<typeof fetch>;
 

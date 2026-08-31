@@ -13,8 +13,7 @@ function fakeDeps(overrides?: { hasSessionCookie?: boolean }) {
 
   return {
     cookies: vi.fn(async () => ({
-      get: () =>
-        hasSessionCookie ? { value: "session-token" } : undefined,
+      get: () => (hasSessionCookie ? { value: "session-token" } : undefined),
     })),
     redirect: vi.fn((url: string): never => {
       throw new Error(`redirect:${url}`);
@@ -114,9 +113,9 @@ describe("fetchInitialChatMessages", () => {
     vi.stubGlobal("fetch", fetchMock);
     const deps = fakeDeps();
 
-    await expect(
-      fetchInitialChatMessages("chat-1", deps),
-    ).rejects.toThrow("not-found");
+    await expect(fetchInitialChatMessages("chat-1", deps)).rejects.toThrow(
+      "not-found",
+    );
     expect(deps.notFound).toHaveBeenCalledOnce();
   });
 });

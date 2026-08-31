@@ -1,5 +1,13 @@
 import { QueryClient } from "@tanstack/react-query";
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { messageSeqFromMetadata, type ChatMessagesResponse } from "./history";
 import { rawChatMessage } from "./message-fixtures";
 
@@ -14,7 +22,11 @@ import {
   seedChatMessagesQueryData,
   toChatHistory,
 } from "./queries";
-import { jsonResponse, requestFromCall, stubFetch } from "../../test-support/fetch-stub";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
 
 function generatedApiError(
   status: number,
@@ -190,7 +202,9 @@ describe("chat message query options", () => {
   );
 
   it("derives the chat message request from the query function context", async () => {
-    fetchMock.mockImplementation(async () => jsonResponse({ messages: [], compaction: null }));
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ messages: [], compaction: null }),
+    );
 
     const options = chatMessagesQueryOptions("closed-over-chat");
     if (options.queryFn === undefined) {
@@ -230,7 +244,9 @@ describe("chat message query options", () => {
   });
 
   it("requests a target window on page zero and uses only beforeSeq afterwards", async () => {
-    fetchMock.mockImplementation(async () => jsonResponse({ messages: [], compaction: null }));
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ messages: [], compaction: null }),
+    );
 
     const options = chatMessagesQueryOptions("closed-over-chat", {
       targetSeq: 700,

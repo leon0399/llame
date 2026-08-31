@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 
 import {
@@ -13,7 +21,11 @@ import {
 import { InvalidCredentialsError, isInvalidCredentialsError } from "./errors";
 import { registerApiQueryClient } from "../../api/fetch";
 import type { PublicUserResponse } from "../../api/generated/models";
-import { jsonResponse, requestFromCall, stubFetch } from "../../test-support/fetch-stub";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
 
 // No @vitest-environment jsdom here: `window` stays undefined, so
 // handleUnauthorizedResponse()'s redirect branch (tested via renderHook, in

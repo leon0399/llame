@@ -14,7 +14,10 @@ import {
 import { ChevronDown } from "lucide-react";
 
 import { MessageType, type ConversationNode } from "./conversation-tree-model";
-import { ConversationProvider, useConversation } from "./conversation-tree-context";
+import {
+  ConversationProvider,
+  useConversation,
+} from "./conversation-tree-context";
 import { BranchGraph } from "./conversation-tree-graph";
 import { ConversationItem } from "./conversation-tree-item";
 

@@ -1,12 +1,23 @@
 // @vitest-environment jsdom
 
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 
 import { authQueryKeys, useMe, useMeOptional } from "./queries";
 import { jsonResponse, stubFetch } from "../../test-support/fetch-stub";
-import { newTestQueryClient, wrapperWithClient } from "../../test-support/query-client";
+import {
+  newTestQueryClient,
+  wrapperWithClient,
+} from "../../test-support/query-client";
 
 // Split from queries.test.ts: these hook tests need jsdom for renderHook.
 // The plain-function transport tests stay in the default node environment,

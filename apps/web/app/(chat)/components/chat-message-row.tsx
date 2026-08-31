@@ -248,8 +248,7 @@ export function messageBoundaries(params: MessageBoundariesParams) {
     availableModels,
     onInspectContext,
   } = params;
-  const switchPart =
-    message.role === "user" ? modelSwitchPart(message) : null;
+  const switchPart = message.role === "user" ? modelSwitchPart(message) : null;
   const boundary =
     compaction && index === compactionIndex ? (
       <div

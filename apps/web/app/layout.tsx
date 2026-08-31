@@ -134,7 +134,12 @@ export default async function RootLayout({
   const fontCssVariables = await getFontCssVariables();
 
   return (
-    <html lang="en" suppressHydrationWarning className={fontVariables} style={{}}>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={fontVariables}
+      style={{}}
+    >
       <head>
         <style
           dangerouslySetInnerHTML={{

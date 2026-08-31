@@ -2,10 +2,7 @@
 
 import * as React from "react";
 
-import {
-  type ChatResponse,
-  useChatsQuery,
-} from "@/lib/services/chat/queries";
+import { type ChatResponse, useChatsQuery } from "@/lib/services/chat/queries";
 import { selectPinnedChatMap, usePins } from "@/lib/services/pins/queries";
 import { useProjects } from "@/lib/services/project/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
@@ -81,9 +78,9 @@ export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
   const { loading, project, allProjects, projectChats, pinnedAtByChatId } =
     useProjectPageData(id);
-  const [newProjectChatId, setNewProjectChatId] = React.useState<
-    string | null
-  >(null);
+  const [newProjectChatId, setNewProjectChatId] = React.useState<string | null>(
+    null,
+  );
 
   return (
     <>

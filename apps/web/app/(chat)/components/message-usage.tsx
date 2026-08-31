@@ -335,9 +335,7 @@ function UsageSectionColumn({ section }: { section: UsageSection }) {
           )}
         >
           <span className="text-muted-foreground">{row.label}</span>
-          <b className="font-mono font-medium text-foreground">
-            {row.value}
-          </b>
+          <b className="font-mono font-medium text-foreground">{row.value}</b>
         </div>
       ))}
     </div>

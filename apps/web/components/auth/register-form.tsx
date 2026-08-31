@@ -40,20 +40,14 @@ const registerSchema = z
 
 type RegisterFormValues = z.infer<typeof registerSchema>;
 
-export function RegisterForm() {
+/** The submit flow's state and side effects (session cache seed, redirect,
+ *  error mapping) — kept out of `RegisterForm` so it composes only markup. */
+function useRegisterSubmit(
+  form: ReturnType<typeof useForm<RegisterFormValues>>,
+) {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
   const queryClient = useQueryClient();
-
-  const form = useForm<RegisterFormValues>({
-    resolver: zodResolver(registerSchema),
-    defaultValues: {
-      name: "",
-      email: "",
-      password: "",
-      confirmPassword: "",
-    },
-  });
 
   async function onSubmit(data: RegisterFormValues) {
     setIsLoading(true);
@@ -78,6 +72,128 @@ export function RegisterForm() {
     }
   }
 
+  return { isLoading, onSubmit };
+}
+
+type RegisterControl = ReturnType<
+  typeof useForm<RegisterFormValues>
+>["control"];
+
+function NameField({ control }: { control: RegisterControl }) {
+  return (
+    <FormField
+      control={control}
+      name="name"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Name</FormLabel>
+          <FormControl>
+            <Input placeholder="John Doe" {...field} />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
+}
+
+function EmailField({ control }: { control: RegisterControl }) {
+  return (
+    <FormField
+      control={control}
+      name="email"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Email</FormLabel>
+          <FormControl>
+            <Input type="email" placeholder="johndoe@gmail.com" {...field} />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
+}
+
+function PasswordField({ control }: { control: RegisterControl }) {
+  return (
+    <FormField
+      control={control}
+      name="password"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Password</FormLabel>
+          <FormControl>
+            <Input type="password" placeholder="********" {...field} />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
+}
+
+function ConfirmPasswordField({ control }: { control: RegisterControl }) {
+  return (
+    <FormField
+      control={control}
+      name="confirmPassword"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Confirm Password</FormLabel>
+          <FormControl>
+            <Input type="password" placeholder="********" {...field} />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
+}
+
+/** The form's actual field set — kept separate from the `Card` chrome around
+ *  it in `RegisterForm`, so each stays a legible, single-purpose piece. */
+function RegisterFormFields({
+  form,
+  isLoading,
+  onSubmit,
+}: {
+  form: ReturnType<typeof useForm<RegisterFormValues>>;
+  isLoading: boolean;
+  onSubmit: (data: RegisterFormValues) => void;
+}) {
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <NameField control={form.control} />
+        <EmailField control={form.control} />
+        <PasswordField control={form.control} />
+        <ConfirmPasswordField control={form.control} />
+        {form.formState.errors.root && (
+          <div className="text-sm text-destructive">
+            {form.formState.errors.root.message}
+          </div>
+        )}
+        <Button type="submit" className="w-full" disabled={isLoading}>
+          {isLoading ? "Creating account..." : "Create account"}
+        </Button>
+      </form>
+    </Form>
+  );
+}
+
+export function RegisterForm() {
+  const form = useForm<RegisterFormValues>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
+    },
+  });
+  const { isLoading, onSubmit } = useRegisterSubmit(form);
+
   return (
     <Card className="w-full max-w-sm">
       <CardHeader>
@@ -87,74 +203,11 @@ export function RegisterForm() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="John Doe" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="email"
-                      placeholder="johndoe@gmail.com"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Password</FormLabel>
-                  <FormControl>
-                    <Input type="password" placeholder="********" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="confirmPassword"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Confirm Password</FormLabel>
-                  <FormControl>
-                    <Input type="password" placeholder="********" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            {form.formState.errors.root && (
-              <div className="text-sm text-destructive">
-                {form.formState.errors.root.message}
-              </div>
-            )}
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Creating account..." : "Create account"}
-            </Button>
-          </form>
-        </Form>
+        <RegisterFormFields
+          form={form}
+          isLoading={isLoading}
+          onSubmit={onSubmit}
+        />
       </CardContent>
     </Card>
   );

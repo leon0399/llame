@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
 
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 
 import {
@@ -11,8 +19,15 @@ import {
   useModelsQuery,
 } from "./queries";
 import type { AvailableModel } from "./queries";
-import { jsonResponse, requestFromCall, stubFetch } from "../../test-support/fetch-stub";
-import { newTestQueryClient, wrapperWithClient } from "../../test-support/query-client";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
+import {
+  newTestQueryClient,
+  wrapperWithClient,
+} from "../../test-support/query-client";
 
 let fetchMock: Mock<typeof fetch>;
 

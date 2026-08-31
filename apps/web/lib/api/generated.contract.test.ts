@@ -400,7 +400,10 @@ describe("generated API contract", () => {
 
     try {
       await expect(
-        Reflect.apply(listPins, undefined, [undefined, undefined]),
+        (async () => {
+          // @ts-expect-error Generated endpoints require the runtime Fetch policy.
+          return listPins(undefined, undefined);
+        })(),
       ).rejects.toThrow(TypeError);
       expect(globalFetch).not.toHaveBeenCalled();
     } finally {

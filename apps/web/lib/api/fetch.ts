@@ -63,7 +63,11 @@ function isCredentialSubmission(requestUrl: string): boolean {
 export function handleUnauthorizedResponse(): void {
   queryClient?.clear();
 
-  if (typeof window === "undefined" || redirectingToLogin) {
+  // `globalThis.window` is a property read (safe even when absent), unlike
+  // the bare `window` identifier — reading that directly during SSR (where
+  // it was never declared) throws a ReferenceError instead of evaluating to
+  // `undefined`.
+  if (globalThis.window === undefined || redirectingToLogin) {
     return;
   }
 

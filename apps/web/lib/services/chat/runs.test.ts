@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 
 import {
@@ -7,7 +15,12 @@ import {
   runIdToCancel,
   runQueryKeys,
 } from "./runs";
-import { emptyResponse, jsonResponse, requestFromCall, stubFetch } from "../../test-support/fetch-stub";
+import {
+  emptyResponse,
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
 
 let fetchMock: Mock<typeof fetch>;
 

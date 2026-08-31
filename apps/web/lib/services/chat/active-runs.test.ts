@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 
 import {
   activeRunsToTrackArgs,
@@ -6,7 +14,11 @@ import {
   fetchRun,
   type ActiveRun,
 } from "./active-runs";
-import { jsonResponse, requestFromCall, stubFetch } from "../../test-support/fetch-stub";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
 
 // Real generated endpoints + the real authenticated-fetch policy run
 // unmocked; only the actual network boundary (globalThis.fetch, the seam
@@ -64,9 +76,9 @@ describe("fetchRun", () => {
     await expect(fetchActiveRuns()).resolves.toHaveLength(1);
     const request = requestFromCall(fetchMock);
     expect(request.method).toBe("GET");
-    expect(`${new URL(request.url).pathname}${new URL(request.url).search}`).toBe(
-      "/api/v1/me/runs?status=active",
-    );
+    expect(
+      `${new URL(request.url).pathname}${new URL(request.url).search}`,
+    ).toBe("/api/v1/me/runs?status=active");
   });
 });
 

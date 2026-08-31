@@ -81,7 +81,12 @@ function MergeNodeMarker({ x, y, isSelected, baseProps }: NodeMarkerProps) {
   );
 }
 
-function AgentWorkingNodeMarker({ x, y, isSelected, baseProps }: NodeMarkerProps) {
+function AgentWorkingNodeMarker({
+  x,
+  y,
+  isSelected,
+  baseProps,
+}: NodeMarkerProps) {
   return (
     <g>
       <rect
@@ -222,7 +227,10 @@ export const GraphNode = ({
   if (node.type === MessageType.AGENT_WORKING) {
     return <AgentWorkingNodeMarker {...markerProps} />;
   }
-  if (node.type === MessageType.TOOL_CALL || node.type === MessageType.TOOL_RESULT) {
+  if (
+    node.type === MessageType.TOOL_CALL ||
+    node.type === MessageType.TOOL_RESULT
+  ) {
     return <ToolNodeMarker {...markerProps} />;
   }
   return <DefaultNodeMarker {...markerProps} node={node} />;
@@ -321,11 +329,7 @@ export const BranchLine: React.FC<BranchLineProps> = ({
   );
 };
 
-function BranchLines({
-  conversations,
-}: {
-  conversations: ConversationNode[];
-}) {
+function BranchLines({ conversations }: { conversations: ConversationNode[] }) {
   const nodeIndexMap: Record<string, number> = {};
   conversations.forEach((conv, index) => {
     nodeIndexMap[conv.id] = index;

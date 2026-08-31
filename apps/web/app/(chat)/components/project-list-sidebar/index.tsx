@@ -247,11 +247,7 @@ const projectRowClassName = cn(
   "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
 );
 
-export function ProjectItem({
-  project,
-  isActive,
-  isPinned,
-}: ProjectItemProps) {
+export function ProjectItem({ project, isActive, isPinned }: ProjectItemProps) {
   const isArchived = project.archivedAt !== null;
   const togglePin = useProjectItemPin(project, isPinned);
   const dialogs = useProjectItemDialogs();
@@ -480,9 +476,7 @@ export function ProjectListSidebar() {
       collapsible="none"
       className="hidden w-64 shrink-0 border-r bg-background md:flex"
     >
-      <ProjectListSidebarHeader
-        onNewProject={() => setNewProjectOpen(true)}
-      />
+      <ProjectListSidebarHeader onNewProject={() => setNewProjectOpen(true)} />
 
       <SearchFilterInput
         value={filter}

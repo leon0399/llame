@@ -99,8 +99,8 @@ describe("chat bundle boundary", () => {
     expect(heavyImports).toEqual([]);
   });
 
-  test("loads markdown renderers dynamically from the chat page", () => {
-    const source = parse("apps/web/app/(chat)/components/chat-page.tsx");
+  test("loads markdown renderers dynamically from the chat message row", () => {
+    const source = parse("apps/web/app/(chat)/components/chat-message-row.tsx");
     const renderers = [
       "@workspace/ui/components/ai-elements/message-response",
       "@workspace/ui/components/ai-elements/reasoning-content",

@@ -143,7 +143,12 @@ type ModelOptionProps = {
   onHover: (modelId: string) => void;
 };
 
-function ModelOption({ model, isSelected, onSelect, onHover }: ModelOptionProps) {
+function ModelOption({
+  model,
+  isSelected,
+  onSelect,
+  onHover,
+}: ModelOptionProps) {
   return (
     <CommandItem
       value={model.id}
@@ -326,8 +331,7 @@ function ModelPickerPanel({
  */
 export function ModelSelector({ className }: { className?: string }) {
   const [open, setOpen] = React.useState(false);
-  const { selectedModel: value, setSelectedModel: setValue } =
-    useChatContext();
+  const { selectedModel: value, setSelectedModel: setValue } = useChatContext();
 
   const { data, isError, isPending } = useModelsQuery();
   const models = data?.models ?? EMPTY_MODELS;

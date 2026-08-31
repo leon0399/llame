@@ -22,9 +22,7 @@ const DEFAULT_DOCUMENT_TITLE = "llame";
 
 /** null = not on a chat route; undefined = on a chat but title not resolved
  *  yet (do not fake "New chat"); string = known display title. */
-function isResolvedTitle(
-  title: string | null | undefined,
-): title is string {
+function isResolvedTitle(title: string | null | undefined): title is string {
   return typeof title === "string";
 }
 

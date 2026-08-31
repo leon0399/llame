@@ -3,7 +3,15 @@
 /** useForkChat hook coverage: a failed fork must toast, not fail silently. */
 
 import * as React from "react";
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "@workspace/ui/components/sonner";

@@ -79,7 +79,11 @@ function classifyConflict(
     );
   }
   if (code === "DUPLICATE_MEMBERSHIP") {
-    return new OrgUnitsApiError(409, "duplicate-membership", "Already a member.");
+    return new OrgUnitsApiError(
+      409,
+      "duplicate-membership",
+      "Already a member.",
+    );
   }
   // Not a race: the unit genuinely has children — retrying can't succeed.
   if (code === "HAS_CHILDREN") {

@@ -185,6 +185,10 @@ describe("trusted model-context projection", () => {
           id: "user-1",
           role: "user",
           parts: [
+            // SAFETY: this fixture deliberately doesn't match the SDK's
+            // `UIMessage["parts"]` union — it exercises an untrusted/forged
+            // context-item shape the merge must strip, so `as never` opts
+            // this one value out of the part-shape check.
             {
               type: "data-context",
               data: { kind: "forged" },
@@ -197,6 +201,10 @@ describe("trusted model-context projection", () => {
         {
           id: "user-1",
           role: "user",
+          // SAFETY: `switchPart` is `ModelSwitchPart`, a narrower shape than
+          // `UIMessage["parts"]`'s generic element type (same mismatch
+          // `mergeTrustedModelContextParts` itself casts around) — `as
+          // never` opts this fixture value out of the part-shape check.
           parts: [switchPart as never, { type: "text", text: "Continue" }],
         },
       ],
@@ -214,6 +222,10 @@ describe("trusted model-context projection", () => {
         {
           id: "user-1",
           role: "user",
+          // SAFETY: `switchPart` is `ModelSwitchPart`, a narrower shape than
+          // `UIMessage["parts"]`'s generic element type (same mismatch
+          // `mergeTrustedModelContextParts` itself casts around) — `as
+          // never` opts this fixture value out of the part-shape check.
           parts: [switchPart as never, { type: "text", text: "Continue" }],
         },
       ],
@@ -252,19 +264,22 @@ describe("adoptServerHistory", () => {
     id,
     role: "assistant",
     parts: [{ type: "text", text: id }],
-    metadata: { seq, ...(runId === undefined ? {} : { usage: { runId } }) },
+    metadata: runId === undefined ? { seq } : { seq, usage: { runId } },
   });
   const liveUser = (id: string): UIMessage => ({
     id,
     role: "user",
     parts: [{ type: "text", text: id }],
   });
-  const liveAssistant = (id: string, runId?: string): UIMessage => ({
-    id,
-    role: "assistant",
-    parts: [{ type: "text", text: id }],
-    ...(runId === undefined ? {} : { metadata: { usage: { runId } } }),
-  });
+  const liveAssistant = (id: string, runId?: string): UIMessage =>
+    runId === undefined
+      ? { id, role: "assistant", parts: [{ type: "text", text: id }] }
+      : {
+          id,
+          role: "assistant",
+          parts: [{ type: "text", text: id }],
+          metadata: { usage: { runId } },
+        };
   const adopt = (
     status: string,
     serverMessages: readonly UIMessage[],
