@@ -35,110 +35,246 @@ rules, and that disclaimer is the single most important thing to copy:
 
 ## What to adopt, ranked by measured evidence
 
-Every count below was measured against this repository on 2026-08-31, not
-estimated.
+Third pass: three independent auditors read the catalogue and 40+ rule sources
+in full, and every claim below was then re-verified against this repository.
+Counts are measured, not estimated.
 
-### Tier A — finds real defects today
+### The portability question, settled
 
-1. **`forbid-process-env-outside-env-ts`** — **2 genuine violations.**
-   `apps/api/AGENTS.md:87` declares "Bare env vars are not a config source — the
-   environment reaches settings only through `{env:…}` / `{path:…}` tokens."
-   Two settings bypass it right now:
+Of 131 catalogued rule modules: **30 portable as-is, 40 portable with rework,
+61 domain-only, 0 blocked on types.** So 70/131 (53%) are reusable in some
+form — the first pass's "most are domain-specific" was wrong, and this note's
+second pass ("on the order of 30") counted only the strict bucket.
 
-   - `apps/api/src/auth/constants.ts:18` — `AUTH_RATE_LIMIT_PER_MINUTE`
-   - `apps/api/src/auth/auth.controller.ts:253` — `SESSION_COOKIE_DOMAIN`
+Zero need type information _by design_: stella hit the same wall and routed its
+one genuinely type-aware check (`result-consumption.ts`) out of the plugin
+system entirely, into a standalone script over `tsc`. Worth remembering if
+llame ever wants a type-aware rule.
 
-   The allowlist is the genuine boundary set: `NODE_ENV` mode reads, `db.ts`
-   (`POSTGRES_URL`), `main.ts` (`PORT`), `config-loader.ts` (which IS the
-   interpolation boundary), and the build/ops entrypoints. 24 non-test reads
-   across 15 files total, so the rule needs that allowlist to be useful rather
-   than noisy.
+The 61 domain-only rules are genuinely domain-only, and the reasons are
+structural rather than cosmetic: stella runs Bun, Elysia + TypeBox, TanStack
+Router, Valkey, and `better-result`. Each mismatch invalidates a whole cluster.
 
-2. **`require-description` on suppressions** — **49 directives carry no `--`
-   justification**, against 68 that do. The undocumented ones cluster in
-   file-level blanket disables of type-safety rules
-   (`/* eslint-disable @typescript-eslint/no-unsafe-assignment */` at the top of
-   integration suites), which is the highest-risk suppression shape in the
-   repository: unbounded scope, no stated reason.
+### Tier A — finds a real defect today
 
-### Tier B — zero violations today, but ratchets a declared invariant
+1. **`require-timestamptz-column`** — the strongest finding in this audit, and
+   one the first two passes missed. llame has **no central `timestamptz()`
+   helper**: 36 timestamp columns each repeat `{ withTimezone: true }` by hand,
+   so correctness rests on remembering the option, not on the type system. Two
+   columns forgot it, and they need different fixes:
 
-1. **`no-request-derived-rls-identity`** (llame-original, not a port). llame's
-   sharpest tenancy anchor is `tenantDb.runAs(X, …)`, which sets
-   `app.current_user_id` for the transaction — **88 non-test call sites**. The
-   rule: `X` must not derive from a `@Body()` / `@Query()` / `@Param()`
-   parameter. This is the single most important invariant in the codebase and
-   it is enforced by code review alone.
+   - `apps/api/src/db/schema/auth.ts:27` — `users.emailVerified` is a naive
+     `timestamp without time zone`, and it is **live**: `users.service.ts:19`
+     maps it into `PublicUserResponse` (`public-user.response.ts:17`). Nothing
+     writes it today, so it is always null — but it is in the public API
+     contract with the wrong type.
+   - `apps/api/src/db/schema/auth.ts:105` — `verificationTokens.expires` is
+     also naive, and the table has **zero references outside the schema file**.
+     This is vestigial auth.js scaffolding. Under
+     [Pre-launch evolution](../../../AGENTS.md#pre-launch-evolution) the
+     correct fix is deleting the table, not adding `withTimezone` to it.
 
-2. **`require-escape-like`** — llame escapes `%`/`_`/`\` correctly at both
-   sites (`chats-repository.ts:390`, `canonical-search-matcher.ts:104`). A rule
-   here locks in a correct pattern rather than fixing a broken one.
+   Four other single-line grep hits are false positives — `search.ts:79,82` and
+   `auth.ts:70,77` declare `withTimezone: true` on the following line.
 
-3. **`no-unsafe-inner-html`** — 4 production `dangerouslySetInnerHTML` sites
-   (`apps/web/app/layout.tsx:145`, `app/(chat)/chat/[id]/page.tsx:38`,
-   `packages/ui/.../custom/code-block.tsx:105`,
-   `ai-elements/code-block.tsx:126`). Each is plausibly justified — shiki
-   output, a prehydration script — and none states why.
+2. **`forbid-process-env-outside-env-ts`** — **2 genuine violations** of
+   `apps/api/AGENTS.md:87` ("bare env vars are not a config source"):
+   `AUTH_RATE_LIMIT_PER_MINUTE` (`auth/constants.ts:18`) and
+   `SESSION_COOKIE_DOMAIN` (`auth/auth.controller.ts:253`). 24 non-test reads
+   across 15 files total, so the rule needs an allowlist for the real
+   boundaries — `NODE_ENV` mode reads, `db.ts`, `main.ts`, `config-loader.ts`
+   (which IS the interpolation boundary), and the build/ops entrypoints.
 
-4. **`no-inline-style-colors` / `no-raw-foreground-opacity`** — 0 violations;
-   every color already resolves through `hsl(var(--token))`. DESIGN.md §10
-   forbids a brand hue and ad-hoc colors, and nothing enforces it.
+3. **`require-description` on suppressions** — 117 directives repo-wide
+   (103 `eslint-disable`, 14 `oxlint-disable`); **49 carry no `--`
+   justification**. The undocumented ones cluster in file-level blanket
+   disables of type-safety rules at the top of integration suites, the
+   highest-risk suppression shape in the repository.
+
+4. **`no-eager-singleton`** — `apps/api/src/db/db.ts` constructs
+   `postgres(...)` and `drizzle(client)` at module top level. Plausibly the
+   intended canonical singleton, which is what the rule's per-file exemption
+   exists for; worth stating deliberately rather than by accident.
+
+### Tier B — zero violations, ratchets a declared invariant
+
+1. **`no-request-derived-rls-identity`** (llame-original). `tenantDb.runAs(X, …)`
+   sets `app.current_user_id` (`tenant-db.service.ts:55-66`) across 84 non-test
+   call sites, and every controller-layer site traces to `@CurrentUser()`
+   (e.g. `runs.controller.ts:79` → `:96`). The rule flags `X` resolving instead
+   to a `@Body()` / `@Query()` / `@Param()` parameter, scoped to a single
+   controller function — no cross-file dataflow, so it stays sound without
+   types.
+
+   **The rule only catches drift; the structural fix is branding.**
+   `identity.controller.ts:226` proves a `@Body()`-sourced `userId` legitimately
+   exists here — the grant's _subject_, not the caller — so the two meanings
+   must be typed apart (`AuthenticatedUserId` vs `string`) before a
+   client-supplied identity reaching `runAs` can be a compile error rather than
+   a review convention. Stella's `no-unbranded-ownership-id-param` is the
+   technique, and it is purely syntactic (it inspects the literal
+   `TSStringKeyword` annotation), so only its id-name list is domain config.
+
+2. **Module-ownership boundaries.** `apps/api/AGENTS.md` states "`src/queue/` —
+   consumed **only** by `runs/`" and `apps/web/lib/api/AGENTS.md` states that
+   only `lib/services/` and `lib/api/` may import generated modules. Both are
+   import-specifier allowlists, the shape of stella's `confine-redis-client`.
+   The queue boundary has 0 violations; the generated-client boundary has
+   **1 production violation** — `apps/web/app/(chat)/components/effort-selector.tsx:17`
+   imports `EffortLevelResponse` from `@/lib/api/generated/models`. It is a
+   type-only import and the doc carves out no exception, so the first decision
+   is whether type-only imports are exempt. The other four hits are test files.
+
+3. **`no-unsafe-inner-html`** — 4 production `dangerouslySetInnerHTML` sites,
+   each plausibly justified (shiki output, a prehydration script) and none
+   stating why.
+
+4. **`require-escape-like`, `no-inline-style-colors`, `no-offset-pagination`,
+   `no-auth-token-in-web-storage`, `no-raw-stored-json`,
+   `require-cached-collator`, `no-partial-record-satisfies`,
+   `require-safe-window-open`, `no-async-context-enter-with`** — all 0
+   violations. Cheap ratchets that lock in practices llame already follows.
+
+### Judgement calls, not defects
+
+- **`no-swallowed-rejection`** — 67 raw `.catch(() => <literal>)` sites, but
+  most are MCP teardown (`.cancel()`, `.close()`) that stella's own rule
+  allowlists, because there the fallback IS the handling. The one production
+  site worth a human decision is
+  `apps/web/lib/services/chat/export.ts:58` — `fetchModels().catch(() => undefined)`,
+  which degrades the export to omit model names. That reads deliberate; it is
+  a design question, not a bug.
+- **`no-document-cookie`** — 2 hits, both the vendored shadcn sidebar's own
+  UI-state cookie. Needs a file exemption, not a fix.
+- **`no-detached-void`** — 49 raw `void <expr>` sites, many idiomatic
+  (`void bootstrap()`). Not adoptable without first introducing a `detached()`
+  helper.
 
 ### Rejected, with the evidence
 
-- **`no-foreign-directive`** — no value here. oxlint reports
-  "Unused eslint-disable directive" for ANY rule name, including
-  `@typescript-eslint/`-prefixed and entirely invented ones (tested directly).
-  llame reports 0 unused across all six scopes, so its ~30 foreign-prefixed
-  blanket disables are live and load-bearing, not drift. The first version of
-  this note claimed the opposite; it was wrong.
-- **`no-body-ownership-ids` ported verbatim** — stella keys on identifiers
-  literally named `body` / `query`. NestJS names the parameter freely
-  (`@Body() input: GrantMembershipDto`), so a direct port fires on all 141
-  `input.userId`-shaped reads in `apps/api`, nearly all service-internal.
-  Worse, `apps/api/src/identity/identity.controller.ts:226` reads `input.userId`
-  off a `@Body()` **legitimately** — it is the grant's subject, not the
-  authorization identity. Separating scope-identity from operand-identity is the
-  entire difficulty, and it is why Tier B #1 anchors on `runAs` instead.
-- **`no-crypto-random-uuid`, `no-nanoid`** — encode Bun-specific id choices.
-- **Anything needing type information** — blocked by the gate above, not
-  rejected on merit.
-- **The domain-only majority** — matter/entity glyphs, public case law, playbook
-  verdicts, Eden, Convex, chrome queries, buffer-cleanup intents, ingestion
-  checkpoints, S3 object access, Redis client confinement.
+- **`no-foreign-directive`** — low value here. oxlint honors `eslint-disable`
+  as equivalent to `oxlint-disable`, including in unused-directive tracking
+  (verified by controlled probe, from two directions). llame's 103
+  `eslint-disable` directives across 49 files are live, functioning
+  suppressions in another toolchain's spelling — cosmetic drift, not a
+  correctness gap. Both earlier versions of this note were wrong about this:
+  the first claimed the drift was confined to one file, the second reasoned
+  from a single probe.
+- **`no-body-ownership-ids` ported verbatim** — fires on all 141
+  `input.userId`-shaped reads in `apps/api`, nearly all service-internal and
+  legitimate. Superseded by Tier B #1, which anchors on `runAs` instead.
+- **`no-secret-in-log-sink`** — a closed 9-name identifier allowlist whose own
+  header admits an aliased secret slips past. llame's `protected-values.ts`
+  already protects by _resolved value_ rather than property name, which is
+  strictly stronger. Porting it would be a downgrade.
+- **`security-guards` / `require-search-scope`** — enforce app-level per-query
+  tenant scoping. llame's stated principle is RLS-first ("enforce isolation in
+  the datastore, not just app code"), so adopting these would promote the
+  secondary defense to primary. A design tension, not a feasibility gap.
+- **Nothing in the 133 matches llame's RLS invariants.** Stella's tenancy is
+  app-level RBAC, so `FORCE ROW LEVEL SECURITY` and `SECURITY DEFINER`
+  ownership have no counterpart to borrow. That is a gap in the source
+  material, and it is why Tier B #1 had to be written rather than ported.
 
 ## The practices are worth more than the rules
 
-Four things stella does structurally, in rough order of value to llame:
+Still true, and the third pass found the biggest one.
 
-1. **A suppression ratchet.** Per-rule budgets that only ever decrease, with
-   security-tier suppressions additionally requiring a waiver entry. "A baseline
-   reseed is not a mechanical way to make CI pass."
+### 1. Twelve of llame's eighteen anti-slop rules have NO regression protection
 
-   This is directly relevant right now: llame has ~328 violations outstanding
-   against newly-enforced rules. A ratchet is not a weakening — it enforces every
-   rule immediately and prevents regression while the backlog burns down, which
-   is strictly better than either a red build or a relaxed rule.
+Measured: 6 rules have a `RuleTester` `*.test.ts`
+(`no-chained-type-assertions`, `no-module-mocking`, `no-unknown-parameters`,
+`no-untracked-todo`, `no-vacuous-throw-assertion`,
+`parameter-decorator-own-line`). The other 12 have neither a test nor a live
+suppression that would go stale — **zero** coverage of any kind:
 
-2. **Regression fixtures where the suppression IS the test.** Each rule has a
-   fixture containing an intentionally suppressed violation. If the detector
-   stops reporting, that directive becomes unused and CI fails. llame already
-   runs `--report-unused-disable-directives`, so this works today at no cost —
-   and it solves a real problem: `anti-slop`'s rule tests only run because
-   `lint:anti-slop` globs them, and a rule whose detector silently breaks is
-   invisible.
+`no-conditional-empty-object-spread`, `no-known-value-widening`,
+`no-object-parameters`, `no-reflect-apply`, `no-reflect-get`,
+`no-runtime-typeof`, `no-shape-in-symbol-names`, `no-unknown-returns`,
+`no-unknown-type-aliases`, `no-unsafe-dictionary-type`, `no-widen-then-assert`,
+`require-safety-comment-for-type-assertion`.
 
-3. **A catalogue with honest scoping.** Every rule documents its detection
-   boundary with flagged and accepted examples, and the README states plainly
-   that "a rule can prove only the shapes described in its source. Security rules
-   that recognize local data flow say so explicitly; they do not replace
-   authorization, runtime validation, or integration tests." llame should copy
-   that disclaimer verbatim in spirit — a lint rule named after a security
-   property invites the belief that the property is proven.
+Any of those twelve could silently stop detecting anything and nothing would
+notice. Stella covers 133/133 rules at roughly ten lines each, because its
+fixture IS the test: one intentionally suppressed violation plus a few accepted
+lines, checked by `oxlint --report-unused-disable-directives-severity=error`
+over a fixtures directory. If the detector goes silent the directive becomes
+unused and CI fails; if it starts false-positiving, an accepted line fails under
+`--deny-warnings`. A whole fixture is this:
 
-4. **A registry check** keeping module names, exported rule ids, config,
-   fixtures, and catalogue in sync, so a rule cannot be added to the plugin and
-   forgotten in the config.
+```ts
+// oxlint-disable-next-line no-nanoid/no-nanoid -- fixture proves a side-effect
+// import cannot reintroduce the removed dependency
+import "nanoid";
+const generatedId = Bun.randomUUIDv7();
+```
+
+**Correction to this note's earlier claim that the fixture trick "works today at
+no cost."** It costs nothing in machinery — llame already runs the flag
+everywhere — but it yields nothing until a directive exists, and llame has zero
+`oxlint-disable` directives for any anti-slop rule. The protection has to be
+authored.
+
+RuleTester is strictly more precise where it exists (named cases, `messageId`
+assertions, a reviewable spec). The right move is fixtures for the twelve
+untested rules, not a wholesale swap.
+
+### 2. No rule catalogue exists
+
+`packages/oxlint-plugin-anti-slop/` has `UPSTREAM.md` (which documents only the
+three vendored patches) and per-rule `meta.docs.description` one-liners. There
+is nothing browsable, no domain grouping, and — most importantly — no honesty
+disclaimer. Stella's is the single most valuable paragraph in that repository
+and should be copied in spirit:
+
+> "The text below is a concise contract, not a claim that syntax analysis proves
+> more than it does. A rule can prove only the shapes described in its source."
+> Security rules "do not replace authorization, runtime validation, or
+> integration tests."
+
+A rule named for a security property invites the belief that the property is
+proven. Cheapest item on this list; one README.
+
+### 3. The registry check stops one step short
+
+`registry.check.mjs` verifies `rules/*.ts` ↔ the index rules map, and nothing
+else. It never reads `.oxlintrc.json`, so a rule can be written, tested,
+registered, and still not switched on. All 18 are enabled today, so the gap is
+latent — but it is the same failure the check's own header describes ("an import
+landed while its map entry silently did not... looking installed"), one step
+further out. Stella's equivalent checks eleven properties per rule, including
+enabled-in-production-config. Adding that one regex pass is cheap and closes the
+real gap.
+
+### 4. The ratchet is broader than described, and does not compose
+
+`scripts/ratchet.ts` is a **general whole-repo metrics ratchet** with
+decrease-only baselines for any line counter, not just suppressions — and it has
+**four** suppression tiers (`security`, `data-volume`, `observability`,
+`test-integrity`), where only `security` additionally requires a waiver-ledger
+entry, and budgets are partitioned so a style cleanup cannot fund a new security
+waiver. This note's earlier description ("security-tier suppressions require a
+waiver") missed three of the four tiers.
+
+It does **not** compose with `--report-unused-disable-directives`: it runs its
+own regex scanner over raw source and needs its own baseline file. The two ask
+different questions — oxlint asks "is this directive used", the ratchet asks
+"did the repo-wide count rise". Given llame's current suppression volume this is
+insurance against future creep, not a present gap. Lowest priority here.
+
+### 5. A grandfather ledger for `no-module-mocking`
+
+Stella pairs `no-internal-module-mock` with
+`scripts/internal-module-mock-ledger.json`: legacy exceptions are listed, the
+list can only shrink, and an entry whose mock disappears is reported as stale so
+the ledger gets cleaned up. This note already said stella's boundary was "worth
+importing" without naming a mechanism. This is the mechanism.
+
+### 6. Retire a custom rule when a native one covers it
+
+Stella's README has a "Native and shared rules" section recording custom rules
+it deleted once oxlint natives covered them. llame has no equivalent prompt to
+re-ask "is this native yet?", and it now declares 215 rules.
 
 ## What llame already has that these do not replace
 
