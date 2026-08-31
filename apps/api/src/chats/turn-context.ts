@@ -248,6 +248,16 @@ async function resolveTurnEffectiveContext(
   } catch (error) {
     if (chat.recencyDigestBaseline === null) throw error;
     deps.logger.error('recency_digest_render_failed');
+    // The asymmetry above is the reason this error is deliberately bare: with
+    // no digest bound the original is rethrown untouched, so this branch
+    // exists ONLY to withhold detail once a recency digest IS bound. That
+    // digest carries the owner's other chats' titles and opening excerpts,
+    // which a render failure can embed in its message. Attaching `cause`
+    // would reattach exactly what the branch suppresses, into an error that
+    // leaves this process; the detail-free log marker is the same decision.
+    // Preserving more means first deciding how much of a render failure may
+    // travel without carrying prompt content.
+    // eslint-disable-next-line preserve-caught-error -- see above
     throw new Error('Failed to render system prompt');
   }
   const codeOwnedCandidates = await deps.knowledgeCandidates.resolve({
