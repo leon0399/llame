@@ -372,6 +372,57 @@ function findConversationReadResult(value: JsonValue): boolean {
 }
 
 /** Classify native and fixture-MCP tool-loop requests independently. */
+/**
+ * Which knowledge-fixture scenario a prompt is asking for.
+ *
+ * Separate from `classify` because it answers a different question: `classify`
+ * reads the REQUEST SHAPE (what tools were offered, which messages came back),
+ * while this reads the PROMPT TEXT to pick a scenario. The two only meet in the
+ * returned record.
+ */
+function classifyKnowledgeRequest(content: string) {
+  const ERROR_SCENARIOS = [
+    "traversal",
+    "symlink",
+    "oversized",
+    "missing",
+    "unavailable",
+  ];
+  // Ordered: the first matching scenario names the fixture file to read.
+  const READ_PATHS: ReadonlyArray<readonly [string, string]> = [
+    ["traversal", "../outside.md"],
+    ["symlink", "notes/link.md"],
+    ["oversized", "notes/oversized.md"],
+    ["missing", "notes/missing.md"],
+    ["long knowledge", KNOWLEDGE_LONG_PATH],
+  ];
+
+  const asksKnowledge =
+    content.includes(KNOWLEDGE_PROMPT_MARKER) ||
+    content.includes(KNOWLEDGE_CHANGED_MARKER) ||
+    content.includes("long knowledge fixture") ||
+    ERROR_SCENARIOS.some((scenario) =>
+      content.includes(`knowledge ${scenario}`),
+    );
+
+  const operation = ERROR_SCENARIOS.some((scenario) =>
+    content.includes(scenario),
+  )
+    ? "error"
+    : content.includes("read")
+      ? "read"
+      : "search";
+
+  return {
+    asksKnowledge,
+    operation,
+    readPath:
+      READ_PATHS.find(([marker]) => content.includes(marker))?.[1] ??
+      "notes/worker-note.md",
+    spaceId: /Knowledge Space ID: ([0-9a-f-]{36})/iu.exec(content)?.[1],
+  };
+}
+
 function classify(raw: string) {
   try {
     // SAFETY: raw is this fixture's own /chat/completions request body --
@@ -406,30 +457,7 @@ function classify(raw: string) {
         ?.content,
       "path",
     );
-    const knowledgeReadPath = content.includes("traversal")
-      ? "../outside.md"
-      : content.includes("symlink")
-        ? "notes/link.md"
-        : content.includes("oversized")
-          ? "notes/oversized.md"
-          : content.includes("missing")
-            ? "notes/missing.md"
-            : content.includes("long knowledge")
-              ? KNOWLEDGE_LONG_PATH
-              : "notes/worker-note.md";
-    const knowledgeSpaceId = /Knowledge Space ID: ([0-9a-f-]{36})/iu.exec(
-      content,
-    )?.[1];
-    const knowledgeOperation =
-      content.includes("traversal") ||
-      content.includes("symlink") ||
-      content.includes("oversized") ||
-      content.includes("missing") ||
-      content.includes("unavailable")
-        ? "error"
-        : content.includes("read")
-          ? "read"
-          : "search";
+    const knowledge = classifyKnowledgeRequest(content);
     return {
       hasTools,
       hasToolResult,
@@ -441,15 +469,7 @@ function classify(raw: string) {
       hasMcpFixtureResult: raw.includes(MCP_RESULT_SENTINEL),
       asksStdioFixture: content.includes(STDIO_PROMPT_MARKER),
       hasStdioFixtureResult: raw.includes(STDIO_RESULT_SENTINEL),
-      asksKnowledge:
-        content.includes(KNOWLEDGE_PROMPT_MARKER) ||
-        content.includes(KNOWLEDGE_CHANGED_MARKER) ||
-        content.includes("long knowledge fixture") ||
-        content.includes("knowledge traversal") ||
-        content.includes("knowledge symlink") ||
-        content.includes("knowledge oversized") ||
-        content.includes("knowledge missing") ||
-        content.includes("knowledge unavailable"),
+      asksKnowledge: knowledge.asksKnowledge,
       hasKnowledgeSearchTool: toolIsOffered(
         body.tools,
         KNOWLEDGE_SEARCH_TOOL_ID,
@@ -467,9 +487,9 @@ function classify(raw: string) {
         latestToolContent,
         "nextOffset",
       ),
-      knowledgeOperation,
-      knowledgeSpaceId,
-      knowledgeReadPath,
+      knowledgeOperation: knowledge.operation,
+      knowledgeSpaceId: knowledge.spaceId,
+      knowledgeReadPath: knowledge.readPath,
       knowledgeNextOffset: findNumberProperty(latestToolContent, "nextOffset"),
       knowledgeCursor: findStringProperty(latestToolContent, "nextCursor"),
       knowledgeResultPath,

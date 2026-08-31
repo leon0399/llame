@@ -3,7 +3,6 @@
   "workspaces": {
     ".": {
       "entry": [
-        "playwright.config.ts",
         "e2e/**/*.spec.ts",
         "e2e/support/db-server.ts",
         "e2e/support/model-server.ts",
@@ -36,15 +35,12 @@
     "apps/web": {
       "entry": [
         "app/**/{page,layout,route,error,loading,not-found,template,default}.tsx",
-        "app/**/{page,layout,route}.ts",
-        "proxy.ts",
-        "instrumentation.ts",
-        "instrumentation-client.ts",
         "sentry.*.config.ts",
         "next.config.mjs",
         "**/*.test.ts",
         "**/*.test.tsx",
-        "**/__mocks__/**"
+        "**/__mocks__/**",
+        "**/parked/*.tsx"
       ],
       "project": ["**/*.{ts,tsx}"]
     },
@@ -63,14 +59,25 @@
     },
     "apps/storybook": {
       "entry": [".storybook/**/*.{ts,tsx}", "vitest.config.ts"],
-      "project": ["**/*.{ts,tsx}"]
+      "project": ["**/*.{ts,tsx}"],
+      "ignoreDependencies": [
+        "@base-ui/react",
+        "@hookform/resolvers",
+        "@radix-ui/react-use-controllable-state",
+        "motion",
+        "next-themes",
+        "react-hook-form",
+        "sonner",
+        "streamdown",
+        "use-stick-to-bottom",
+        "zod"
+      ]
     }
   },
   "ignore": [
     "apps/web/lib/api/generated/**",
-    "apps/api/src/db/migrations/**",
     "packages/oxlint-plugin-anti-slop/vendor/**"
   ],
-  "ignoreDependencies": ["shadcn", "@tailwindcss/postcss"],
+  "ignoreDependencies": ["cognitive-complexity-ts", "shadcn"],
   "ignoreExportsUsedInFile": true
 }
