@@ -126,10 +126,14 @@ llame's current backlog. Classifying all 79 `vi.mock` specifiers in `apps/web`:
 So stella's boundary would excuse 18 and leave 61 — the mocks of
 `lib/api/generated/*`, `lib/api/fetch`, `lib/services/*`, and `contexts/*` are
 llame mocking its own modules, which is exactly what the rule exists to reject.
-Adopting the internal/external split is a correctness fix to the rule (mocking
-`next/navigation` is replacing an external boundary, which the rule's own
-description permits), not a way to shrink the backlog. The 61 still need
-dependency injection or a move to a Storybook play function.
+**Adopted.** `no-module-mocking` now reports only first-party specifiers —
+relative paths, `@/`, `@workspace/`, `~/` — and permits bare npm packages. A
+non-literal specifier fails closed. This is a correctness fix to the rule's
+boundary, not a way to shrink the backlog: mocking `next/navigation` is
+replacing an external interface, which the rule's own message already asks
+for, and a Server Component's `redirect()` has no injectable seam behind it.
+The first-party mocks it still reports need dependency injection or a move to
+a Storybook play function.
 
 ## From nkzw-tech/oxlint-config — measured
 

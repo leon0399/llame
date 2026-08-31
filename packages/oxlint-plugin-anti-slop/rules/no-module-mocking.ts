@@ -81,13 +81,39 @@ function moduleMockCall(
   return method !== null && moduleMockMethods.has(method);
 }
 
-/** Ban test framework module mocking in favor of real dependency seams. */
+/**
+ * Is this specifier a module this repository owns?
+ *
+ * Relative paths, the `@/` app alias and `@workspace/*` are ours: mocking one
+ * replaces our own code with a fixture, which is what this rule exists to
+ * stop. A bare npm specifier — `next/navigation`, `@ai-sdk/react` — is an
+ * external boundary, and replacing it in a test is the same category of act as
+ * stubbing `fetch`. The rule's own message asks for "a real interface"; a
+ * third-party package IS the interface, and there is frequently no in-process
+ * seam behind it (a Server Component's `redirect()` is not injectable).
+ *
+ * A non-literal specifier is treated as owned: it cannot be checked, and
+ * failing closed is the safer default for a rule about hiding real code.
+ */
+function isWorkspaceSpecifier(node: ESTree.Node | undefined): boolean {
+  if (node === undefined) return true;
+  if (node.type !== "Literal" || typeof node.value !== "string") return true;
+  const specifier = node.value;
+  return (
+    specifier.startsWith(".") ||
+    specifier.startsWith("@/") ||
+    specifier.startsWith("@workspace/") ||
+    specifier.startsWith("~/")
+  );
+}
+
+/** Ban test framework module mocking of first-party modules. */
 export const noModuleMockingRule = defineRule({
   meta: {
     type: "problem",
     docs: {
       description:
-        "Disallow Vitest and Jest module mocking; tests must replace dependencies through real interfaces.",
+        "Disallow Vitest and Jest module mocking of first-party modules; tests must replace them through real interfaces. External npm packages stay allowed.",
     },
     messages: {
       moduleMock:
@@ -102,9 +128,9 @@ export const noModuleMockingRule = defineRule({
           node.callee.type === "V8IntrinsicExpression"
         )
           return;
-        if (moduleMockCall(context.sourceCode, node.callee)) {
-          context.report({ node, messageId: "moduleMock" });
-        }
+        if (!moduleMockCall(context.sourceCode, node.callee)) return;
+        if (!isWorkspaceSpecifier(node.arguments[0])) return;
+        context.report({ node, messageId: "moduleMock" });
       },
     };
   },
