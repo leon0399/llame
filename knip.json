@@ -11,7 +11,7 @@
         "e2e/support/run-after-ready.ts"
       ],
       "project": ["e2e/**/*.ts", "playwright.config.ts"],
-      "ignoreBinaries": ["actionlint", "zizmor", "pinact"]
+      "ignoreBinaries": ["actionlint", "pinact", "psql", "zizmor"]
     },
     "apps/api": {
       "entry": [
@@ -78,6 +78,6 @@
     "apps/web/lib/api/generated/**",
     "packages/oxlint-plugin-anti-slop/vendor/**"
   ],
-  "ignoreDependencies": ["cognitive-complexity-ts", "shadcn"],
+  "ignoreDependencies": ["cognitive-complexity-ts", "next", "shadcn"],
   "ignoreExportsUsedInFile": true
 }

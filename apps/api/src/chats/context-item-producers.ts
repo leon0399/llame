@@ -44,10 +44,6 @@ import {
   RECOVERY_REASON_BY_UNAVAILABLE_REASON,
   TOOL_RECOVERY_REASON_LABELS,
   TOOL_RECOVERY_REASONS,
-  type RecoveryTransition,
-  type ToolAvailabilityPayload,
-  type ToolRecoveryReason,
-  type UnavailableTransition,
 } from './tool-availability-context-item';
 
 // Re-exported: this producer used to live inline here; every existing
@@ -59,10 +55,6 @@ export {
   RECOVERY_REASON_BY_UNAVAILABLE_REASON,
   TOOL_RECOVERY_REASON_LABELS,
   TOOL_RECOVERY_REASONS,
-  type RecoveryTransition,
-  type ToolAvailabilityPayload,
-  type ToolRecoveryReason,
-  type UnavailableTransition,
 };
 
 /* ------------------------------------------------------------------ *
@@ -82,9 +74,6 @@ export {
  * so only the binder knows why it minted a new snapshot.
  */
 export const EFFECTIVE_CONTEXT_CHANGE_CAUSES = ['model'] as const;
-
-export type EffectiveContextChangeCause =
-  (typeof EFFECTIVE_CONTEXT_CHANGE_CAUSES)[number];
 
 export interface ModelChangePayload extends UnknownRecord {
   readonly cause: 'model';
@@ -432,17 +421,6 @@ export const COMPACTION_CHECKPOINT_FORM: ContextItemForm = 'checkpoint';
 
 /** The checkpoint's envelope opening, for callers matching on the prefix. */
 export const COMPACTION_CHECKPOINT_ENVELOPE_PREFIX = `<${CONTEXT_ITEM_TAG} producer="compaction" form="${COMPACTION_CHECKPOINT_FORM}">`;
-
-/** Does this part carry a tool-availability transition? */
-export function isToolAvailabilityItem(
-  value: unknown,
-): value is ContextItemPart {
-  return (
-    isContextItemPart(value) &&
-    value.data.producer === 'tool-availability' &&
-    isToolAvailabilityPayload(value.data.payload)
-  );
-}
 
 /** Does this part carry a recency-digest delta or supersession? */
 export function isRecencyDigestItem(value: unknown): value is ContextItemPart {

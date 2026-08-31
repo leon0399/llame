@@ -77,10 +77,12 @@ never as passing.
 
 Two caveats that change how these read:
 
-- **`apps/api` coverage is unit-only.** The integration project needs a real
-  Postgres, so a large amount of genuinely tested API behavior is invisible to
-  this number. The honest figure is "68.5% from unit tests alone", not "68.5%
-  tested".
+- **`apps/api` coverage must span both vitest projects.** `test:coverage` runs
+  unit and integration together, which is the only number that means anything:
+  a large amount of API behavior is covered exclusively by Postgres-backed
+  integration suites, and measuring units alone reports that code as untested.
+  `test:coverage:unit` exists for hosts without Postgres, and its 68.5%
+  baseline is "from unit tests alone", not "tested".
 - **CRAP inherits that.** Every api file whose real coverage comes from an
   integration suite scores as though it were untested, so the 32 is an upper
   bound, not a defect count.
