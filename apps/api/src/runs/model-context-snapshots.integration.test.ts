@@ -3,10 +3,6 @@
  * same non-superuser, table-owning TEST_DATABASE_URL used by the RLS suite.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-
 import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';

@@ -21,9 +21,6 @@
  *   datastore backstop and MUST be filtered on the owner id in the query
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 
 import { type Sql } from 'postgres';

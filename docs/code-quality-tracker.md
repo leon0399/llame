@@ -1283,6 +1283,9 @@ byte-identical (`chats.dto.ts`'s change was comment-only).
 | done        | Child layer 3: bounded-fetch request parsing/body sizing/response byte-limit semantics           | PR #393: 39 baseline `U` gaps are killed and `S12`, `S16`, and `NC58` are reclassified `E` for the supported `BodyInit` domain; no useful layer-3 gap remains                                                                                                                                                                                                                                                            |
 | done        | Child layer 4: bounded-fetch SSE recognition/framing plus wrapper cancellation/metadata          | PR #394: eight behavior assertions kill all 16 queued `U` mutants; the native 169-mutant run kills 152 at 89.94%, and no useful layer-4 gap remains                                                                                                                                                                                                                                                                      |
 | done        | API README command inventory                                                                     | The workspace README lists executable commands only; it does not document a nonexistent coverage script or invent coverage tooling                                                                                                                                                                                                                                                                                       |
+| done        | Draconian lint rules adopted repo-wide from one config                                           | 820 violations to 0; CODING_STANDARDS §4 trip-wires made executable, one root `.oxlintrc.json` every workspace extends, 52 exceptions scoped per file and per rule with probes proving unlisted files stay enforced; inventory below                                                                                                                                                                                     |
+| done        | Module mocking replaced by a real fetch seam in apps/web                                         | 79 to 1; found a wrong endpoint path, nine unverified wire claims, two missing QueryClientProviders, a non-existent network contract, and a sync/async mismatch — none of which a module mock could report                                                                                                                                                                                                               |
+| investigate | `executeRun` is a 574-line god method and its service takes nine dependencies                    | Its file cannot satisfy max-lines while it stands. Not attempted: behaviour is covered by five Postgres-backed integration suites, so the refactor cannot be verified without them. Decompose the service and the method together                                                                                                                                                                                        |
 | done        | Tautological tests named and ruled out                                                           | `docs/testing.md` rule 11 defines the four shapes, the break-the-implementation check, and the invariant-vs-recompute discriminator; applied in `CODING_STANDARDS.md` §9, `REVIEW_GUIDE.md` §7 as a blocking finding, and the `**/*.test.ts` CodeRabbit path instructions                                                                                                                                                |
 | done        | Repository-wide tautological-test sweep, mutation-verified                                       | 7 parallel read-only auditors over 267 test files; 19 candidates, 17 confirmed by applying the named mutation and observing a green suite, 2 rejected; 16 repairs and 1 rewrite landed, each re-verified so the same mutation now fails; inventory below                                                                                                                                                                 |
 | investigate | The sweep sampled by inspection, not exhaustively                                                | Two slices were partly grep-covered rather than line-read (`instance-config/prompt-loader.test.ts`, the back half of `config-loader.test.ts`); the mutation pilot covers only three MCP utilities. Widening Stryker beyond the pilot is the measured way to close the gap — see the pilot baseline above for the cost profile                                                                                            |
@@ -1291,6 +1294,74 @@ byte-identical (`chats.dto.ts`'s change was comment-only).
 | investigate | The chat-message single-flight integration test flakes only under suite load                     | Timed out on PR #361 and locally in the full 329-test run; isolated rerun passes 1/1; treat the flake as a latent architecture defect and remove the scheduling/state coupling with a deterministic readiness boundary before changing any timeout                                                                                                                                                                       |
 | done        | Product E2E startup, settlement, and foreground-notification boundaries                          | PR #402 removes dev compilation races, orders modal interaction after stream settlement, and makes mounted ownership authoritative for notifications; run 31905421872 passed 21/21 first attempt without timeout/retry inflation                                                                                                                                                                                         |
 | done        | PR #405 exposed a remaining first-send route/render-identity defect                              | Run 31915773223 detached the modal close button while live messages were replaced by durable history, then passed on retry; the repair uses canonical draft routes, URL-only identity, Run-ID React keys, and an exact held-history browser proof; PR #406's pre-rebase head (`381c127f`) passed Product E2E first attempt (run 31952264163) with `failOnFlakyTests` retained; the rebase onto PR #405 changed docs only |
+
+#### Draconian lint adoption (2026-08-31)
+
+820 violations at adoption, 0 at close. The rules are the CODING_STANDARDS.md
+§4 trip-wires made executable — `max-params` 4, `max-depth` 3,
+`max-lines-per-function` 40, `max-lines` 500, `max-nested-callbacks` 3 — plus
+`typescript/no-explicit-any` (which `apps/api` had explicitly switched off),
+`unicorn/consistent-function-scoping`, nine already-satisfied rules from
+nkzw-tech/oxlint-config, and three new anti-slop rules. Every rule is declared
+once in the root `.oxlintrc.json`; each workspace config only extends it.
+
+| Workspace                       | At adoption | Fixed | Recorded exception |
+| ------------------------------- | ----------: | ----: | -----------------: |
+| `apps/api`                      |         278 |   244 |                 34 |
+| `apps/web`                      |         368 |   367 |                  1 |
+| `packages/ui`                   |          71 |    54 |                 17 |
+| root `e2e`                      |          96 |    96 |                  0 |
+| `apps/storybook`                |           4 |     4 |                  0 |
+| `packages/config-interpolation` |           3 |     3 |                  0 |
+
+**`no-module-mocking` went 79 to 1** in `apps/web`. Tests now stub
+`globalThis.fetch` through `lib/test-support/fetch-stub.ts`, so the generated
+endpoints, the authenticated-fetch policy, URL construction and error mapping
+all execute. That conversion found defects no module mock could have caught:
+a wrong endpoint path (`/api/v1/me/personalization`, not
+`/api/v1/personalization`); nine org-units tests whose NAMES claimed a URL and
+verb their bodies never checked; two files rendering with no
+`QueryClientProvider` at all; a pin "card" asserted as a network contract when
+it never crosses the wire; an assertion passing synchronously against a spy
+where the real mutation dispatches asynchronously; and a `next/dynamic`
+client-only chunk gap that mocking had made invisible.
+
+The rule itself was corrected mid-sweep to report only first-party specifiers.
+Mocking `next/navigation` replaces an external interface — which is what the
+rule's own message asks for — and a Server Component's `redirect()` has no
+injectable seam. Every defect above came from mocking first-party modules;
+none came from mocking a package.
+
+**The 52 recorded exceptions are not a backlog to burn down uniformly.** They
+are four distinct classes, each scoped per file and per rule in the workspace
+config, with unlisted files still fully enforced (verified by probe):
+
+1. _Vendored registry output_ (17, `packages/ui`). `shadcn add` overwrites
+   these in place, so a component split — or an inline disable — is deleted by
+   the next regeneration. `src/components/custom/**` is hand-authored and holds
+   to every rule.
+2. _Framework signatures_ (8, `apps/api`). NestJS DI constructors and decorated
+   route handlers, plus a jsonc-parser `JSONVisitor` callback whose arity is
+   fixed by the library.
+3. _Irreducible execution cores_ (16). Stream ordering, transaction
+   boundaries, TOCTOU job pickup, ABBA lock avoidance, SSE poll loops, a
+   single-snapshot SQL CTE, and RLS policy definitions.
+4. _Deliberate escapes_ (2 + 1). A documented queue variance escape, and one
+   module mock kept because the real component OOMs the vitest worker at 4-8GB
+   in combination with the full shell graph — measured, not assumed.
+
+**`executeRun` is the one genuine god method and remains unfixed at 574
+lines.** Its file cannot reach `max-lines` 500 while it stands: `executeRun`
+plus `onError` (89), `onFinish` (122) and `finishRun` (121) are roughly 900
+lines of protected control flow inside a 500-line budget. Everything with a
+clean boundary has already been extracted — most recently the
+assistant-transcript block to its own module. Reaching 40 lines is a redesign
+of the run-execution flow, and its behaviour is covered by five integration
+suites requiring Postgres. It was deliberately NOT attempted here: with only
+unit coverage available, a green linter would have replaced the evidence that
+the run pipeline still works. Decomposing `RunExecutionService` — a
+nine-dependency constructor, which is the same smell from the other side — is
+the tracked follow-up.
 
 #### Tautological-test sweep (2026-08-30)
 

@@ -8,11 +8,6 @@
 
 import { type Sql } from 'postgres';
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-
 export {};
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];

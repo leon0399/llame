@@ -13,11 +13,6 @@
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 import { streamText } from 'ai';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';

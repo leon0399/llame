@@ -44,6 +44,7 @@ vi.mock("next/navigation", () => ({
 // COMBINATION with the rest of this suite's shell that doesn't fit. Kept
 // mocked deliberately; this suite only asserts Administration placement in
 // the chrome, which doesn't depend on the pinned rail's content.
+// eslint-disable-next-line anti-slop/no-module-mocking -- measured OOM, see above
 vi.mock("./app-sidebar-pinned", () => ({
   AppSidebarPinned: () => null,
 }));
