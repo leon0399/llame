@@ -187,61 +187,69 @@ export type CapNoticePart = {
   data: { stepsUsed: number; maxSteps: number };
 };
 
-/** Builds the stored assistant transcript in the exact order llame observed it. */
-export function createAssistantPartCollector() {
-  type PendingToolPart = { readonly type: 'pending-tool'; toolCallId: string };
-  const collected: (MessagePart | PendingToolPart)[] = [];
-  const pendingToolIndexes = new Map<string, number>();
+type PendingToolPart = { readonly type: 'pending-tool'; toolCallId: string };
+
+/**
+ * Stateful implementation behind `createAssistantPartCollector` — a class
+ * rather than a closure so each append/settle operation is its own method,
+ * mirroring `RunEventTranslatorImpl` (run-stream-bridge.ts).
+ */
+class AssistantPartCollectorImpl {
+  private readonly collected: (MessagePart | PendingToolPart)[] = [];
+  private readonly pendingToolIndexes = new Map<string, number>();
   // Ids whose outcome is already recorded, by either path. Settlement is
   // at-most-once per call (design D6, first writer wins).
-  const settledToolCallIds = new Set<string>();
+  private readonly settledToolCallIds = new Set<string>();
 
-  const appendText = (text: string) => {
+  text(text: string): void {
     if (text.length === 0) return;
-    const last = collected.at(-1);
+    const last = this.collected.at(-1);
     if (last?.type === 'text' && isString(last.text)) {
       last.text += text;
       return;
     }
-    collected.push({ type: 'text', text });
-  };
+    this.collected.push({ type: 'text', text });
+  }
 
-  const appendReasoning = (text: string) => {
+  reasoning(text: string): void {
     if (text.length === 0) return;
-    const last = collected.at(-1);
+    const last = this.collected.at(-1);
     if (last?.type === 'reasoning' && isString(last.text)) {
       last.text += text;
       return;
     }
-    collected.push({ type: 'reasoning', text });
-  };
+    this.collected.push({ type: 'reasoning', text });
+  }
 
-  return {
-    text: appendText,
-    reasoning: appendReasoning,
-    toolRequested: (toolCallId: string) => {
-      pendingToolIndexes.set(toolCallId, collected.length);
-      collected.push({ type: 'pending-tool', toolCallId });
-    },
-    tool: (part: ToolActivityPart) => {
-      // Settlement is at-most-once per call. A tool that ignored cancellation
-      // and completed after termination already settled it must not replace
-      // that record, nor append a second one for the same id.
-      if (settledToolCallIds.has(part.toolCallId)) {
-        return;
-      }
-      settledToolCallIds.add(part.toolCallId);
-      const pendingIndex = pendingToolIndexes.get(part.toolCallId);
-      if (pendingIndex === undefined) {
-        collected.push(part);
-        return;
-      }
-      collected[pendingIndex] = part;
-      pendingToolIndexes.delete(part.toolCallId);
-    },
-    capNotice: (part: CapNoticePart) => collected.push(part),
-    parts: (): MessagePart[] =>
-      collected
+  toolRequested(toolCallId: string): void {
+    this.pendingToolIndexes.set(toolCallId, this.collected.length);
+    this.collected.push({ type: 'pending-tool', toolCallId });
+  }
+
+  tool(part: ToolActivityPart): void {
+    // Settlement is at-most-once per call. A tool that ignored cancellation
+    // and completed after termination already settled it must not replace
+    // that record, nor append a second one for the same id.
+    if (this.settledToolCallIds.has(part.toolCallId)) {
+      return;
+    }
+    this.settledToolCallIds.add(part.toolCallId);
+    const pendingIndex = this.pendingToolIndexes.get(part.toolCallId);
+    if (pendingIndex === undefined) {
+      this.collected.push(part);
+      return;
+    }
+    this.collected[pendingIndex] = part;
+    this.pendingToolIndexes.delete(part.toolCallId);
+  }
+
+  capNotice(part: CapNoticePart): void {
+    this.collected.push(part);
+  }
+
+  parts(): MessagePart[] {
+    return (
+      this.collected
         // Only settled tool parts are a durable history representation. A
         // provider failure after tool.requested leaves the request in the
         // event log, while avoiding an invalid UI tool-part snapshot.
@@ -255,8 +263,14 @@ export function createAssistantPartCollector() {
                 text: `${part.text.slice(0, REASONING_PERSIST_MAX)}…`,
               }
             : part,
-        ),
-  };
+        )
+    );
+  }
+}
+
+/** Builds the stored assistant transcript in the exact order llame observed it. */
+export function createAssistantPartCollector(): AssistantPartCollectorImpl {
+  return new AssistantPartCollectorImpl();
 }
 
 function toolActivityPart(
@@ -307,64 +321,86 @@ function eventPayloadString(payload: unknown, key: string): string | undefined {
  * Request-time reservations keep synthetic results in occurrence order even
  * though their completion events are appended at terminalization.
  */
-function reconstructDurableAssistant(events: RunEvent[]) {
-  const collector = createAssistantPartCollector();
-  const openToolCalls = new Map<
-    string,
-    { readonly toolName: string; readonly toolInput: unknown }
-  >();
-  const seenToolCallIds = new Set<string>();
-  const completedToolCallIds = new Set<string>();
+type OpenToolCall = { readonly toolName: string; readonly toolInput: unknown };
 
-  for (const event of events) {
-    if (event.eventType === 'model.delta') {
-      collector.text(eventPayloadString(event.payload, 'text') ?? '');
-      continue;
-    }
-    if (event.eventType === 'reasoning.delta') {
-      collector.reasoning(eventPayloadString(event.payload, 'text') ?? '');
-      continue;
-    }
-    if (event.eventType === 'run.step_cap_reached') {
-      const stepsUsed = eventPayloadField(event.payload, 'stepsUsed');
-      const maxSteps = eventPayloadField(event.payload, 'maxSteps');
-      if (isNumber(stepsUsed) && isNumber(maxSteps)) {
-        collector.capNotice({
-          type: 'data-cap-notice',
-          data: { stepsUsed, maxSteps },
-        });
-      }
-      continue;
-    }
-    if (event.eventType === 'tool.requested') {
-      const toolCallId = eventPayloadString(event.payload, 'toolCallId');
-      const toolName = eventPayloadString(event.payload, 'toolName');
-      if (
-        !toolCallId ||
-        !toolName ||
-        seenToolCallIds.has(toolCallId) ||
-        completedToolCallIds.has(toolCallId)
-      ) {
-        continue;
-      }
-      seenToolCallIds.add(toolCallId);
-      const toolInput = eventPayloadField(event.payload, 'input');
-      openToolCalls.set(toolCallId, { toolName, toolInput });
-      collector.toolRequested(toolCallId);
-      continue;
-    }
-    if (event.eventType !== 'tool.completed') {
-      continue;
-    }
+/**
+ * Replays the append-only event log into `createAssistantPartCollector`. A
+ * class rather than a closure/for-loop so each event type is its own method,
+ * mirroring `RunEventTranslatorImpl` (run-stream-bridge.ts).
+ */
+class DurableAssistantReconstructor {
+  readonly collector = createAssistantPartCollector();
+  readonly openToolCalls = new Map<string, OpenToolCall>();
+  private readonly seenToolCallIds = new Set<string>();
+  private readonly completedToolCallIds = new Set<string>();
 
+  apply(events: RunEvent[]): void {
+    for (const event of events) {
+      this.applyEvent(event);
+    }
+  }
+
+  private applyEvent(event: RunEvent): void {
+    switch (event.eventType) {
+      case 'model.delta':
+        this.collector.text(eventPayloadString(event.payload, 'text') ?? '');
+        return;
+      case 'reasoning.delta':
+        this.collector.reasoning(
+          eventPayloadString(event.payload, 'text') ?? '',
+        );
+        return;
+      case 'run.step_cap_reached':
+        this.applyStepCapReached(event);
+        return;
+      case 'tool.requested':
+        this.applyToolRequested(event);
+        return;
+      case 'tool.completed':
+        this.applyToolCompleted(event);
+        return;
+      default:
+        return;
+    }
+  }
+
+  private applyStepCapReached(event: RunEvent): void {
+    const stepsUsed = eventPayloadField(event.payload, 'stepsUsed');
+    const maxSteps = eventPayloadField(event.payload, 'maxSteps');
+    if (isNumber(stepsUsed) && isNumber(maxSteps)) {
+      this.collector.capNotice({
+        type: 'data-cap-notice',
+        data: { stepsUsed, maxSteps },
+      });
+    }
+  }
+
+  private applyToolRequested(event: RunEvent): void {
     const toolCallId = eventPayloadString(event.payload, 'toolCallId');
-    if (!toolCallId || completedToolCallIds.has(toolCallId)) {
-      continue;
+    const toolName = eventPayloadString(event.payload, 'toolName');
+    if (
+      !toolCallId ||
+      !toolName ||
+      this.seenToolCallIds.has(toolCallId) ||
+      this.completedToolCallIds.has(toolCallId)
+    ) {
+      return;
     }
-    const request = openToolCalls.get(toolCallId);
+    this.seenToolCallIds.add(toolCallId);
+    const toolInput = eventPayloadField(event.payload, 'input');
+    this.openToolCalls.set(toolCallId, { toolName, toolInput });
+    this.collector.toolRequested(toolCallId);
+  }
+
+  private applyToolCompleted(event: RunEvent): void {
+    const toolCallId = eventPayloadString(event.payload, 'toolCallId');
+    if (!toolCallId || this.completedToolCallIds.has(toolCallId)) {
+      return;
+    }
+    const request = this.openToolCalls.get(toolCallId);
     const output = eventPayloadField(event.payload, 'output');
     if (!request || !isRecord(output)) {
-      continue;
+      return;
     }
     const status = output['status'];
     let result: ToolResult;
@@ -377,16 +413,23 @@ function reconstructDurableAssistant(events: RunEvent[]) {
     ) {
       result = { status, type: output['type'], message: output['message'] };
     } else {
-      continue;
+      return;
     }
-    completedToolCallIds.add(toolCallId);
-    openToolCalls.delete(toolCallId);
-    collector.tool(
+    this.completedToolCallIds.add(toolCallId);
+    this.openToolCalls.delete(toolCallId);
+    this.collector.tool(
       toolActivityPart(toolCallId, request.toolName, request.toolInput, result),
     );
   }
+}
 
-  return { collector, openToolCalls };
+function reconstructDurableAssistant(events: RunEvent[]) {
+  const reconstructor = new DurableAssistantReconstructor();
+  reconstructor.apply(events);
+  return {
+    collector: reconstructor.collector,
+    openToolCalls: reconstructor.openToolCalls,
+  };
 }
 
 /**
@@ -1725,6 +1768,62 @@ export class RunExecutionService {
    * a failure here must not roll back the committed turn. No-op when nothing
    * was persisted (dual-fire, or the chat vanished mid-stream).
    */
+  /**
+   * Bump the chat's activity time so an in-place assistant-reply update
+   * (which leaves messages.created_at unchanged) still moves the search
+   * staleness high-water mark — the reindex sweep's backstop for a lost
+   * enqueue — and so the chat list reflects the latest turn. Its own
+   * single-row transaction, called BEFORE the reindex rather than in the
+   * terminal one: the finalizer never holds the chat row (see the lock-order
+   * note there), and a touch landing after the reindex would leave every
+   * completed turn looking stale (`indexed_at < updated_at`) and re-enqueue
+   * it for nothing.
+   */
+  private async touchChatActivity(
+    chatId: string,
+    userId: string,
+  ): Promise<void> {
+    try {
+      await this.tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).touch(chatId, userId),
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to bump activity time for chat ${chatId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  /**
+   * Tier-1 synchronous lexical index: rebuild inline on the worker path
+   * (already post-model-call, so a rebuild is cheap) so the finished turn is
+   * searchable at once. Post-commit + best-effort: a chunker failure must
+   * never fail the run — on error fall back to the async reindex queue (a
+   * producer of the general per-chat reindex job).
+   */
+  private async reindexAfterTurn(
+    chatId: string,
+    userId: string,
+  ): Promise<void> {
+    try {
+      await this.searchIndex.reindexChat(chatId, userId);
+      // chat-search-embeddings design D5: the inline Tier-1 rebuild is one of
+      // the three enqueue sites embed work must fire from — the reindex
+      // worker only runs on the fallback/fork/sweep paths below, so an
+      // ordinary turn would otherwise produce no embedding work until a
+      // sweep noticed. Best-effort + off-by-default; see the dispatch
+      // service's own contract.
+      void this.embedDispatch.enqueueChatEmbed(chatId, userId);
+    } catch (error) {
+      this.logger.error(
+        `Inline reindex failed for chat ${chatId}; falling back to async`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      void this.reindexDispatch.enqueueChatReindex(chatId, userId);
+    }
+  }
+
   private async afterAssistantTurn(
     assistantMessage: Message | undefined,
     userId: string,
@@ -1734,51 +1833,8 @@ export class RunExecutionService {
       return;
     }
 
-    // Bump the chat's activity time so an in-place assistant-reply update
-    // (which leaves messages.created_at unchanged) still moves the search
-    // staleness high-water mark — the reindex sweep's backstop for a lost
-    // enqueue — and so the chat list reflects the latest turn. Its own
-    // single-row transaction, out here rather than in the terminal one, so the
-    // finalizer never holds the chat row (see the lock-order note there).
-    //
-    // BEFORE the reindex, not concurrently with it: the sweep flags a chat when
-    // `indexed_at < updated_at`, so a touch landing after the reindex would
-    // leave every completed turn looking stale and re-enqueue it for nothing.
-    try {
-      await this.tenantDb.runAs(userId, (tx) =>
-        new ChatsRepository(tx).touch(assistantMessage.chatId, userId),
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to bump activity time for chat ${assistantMessage.chatId}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-    }
-
-    // Tier-1 synchronous lexical index: rebuild inline on the worker path
-    // (already post-model-call, so a rebuild is cheap) so the finished turn
-    // is searchable at once. Post-commit + best-effort: a chunker failure
-    // must never fail the run — on error fall back to the async reindex
-    // queue (a producer of the general per-chat reindex job).
-    try {
-      await this.searchIndex.reindexChat(assistantMessage.chatId, userId);
-      // chat-search-embeddings design D5: the inline Tier-1 rebuild is one of
-      // the three enqueue sites embed work must fire from — the reindex
-      // worker only runs on the fallback/fork/sweep paths below, so an
-      // ordinary turn would otherwise produce no embedding work until a
-      // sweep noticed. Best-effort + off-by-default; see the dispatch
-      // service's own contract.
-      void this.embedDispatch.enqueueChatEmbed(assistantMessage.chatId, userId);
-    } catch (error) {
-      this.logger.error(
-        `Inline reindex failed for chat ${assistantMessage.chatId}; falling back to async`,
-        error instanceof Error ? error.stack : String(error),
-      );
-      void this.reindexDispatch.enqueueChatReindex(
-        assistantMessage.chatId,
-        userId,
-      );
-    }
+    await this.touchChatActivity(assistantMessage.chatId, userId);
+    await this.reindexAfterTurn(assistantMessage.chatId, userId);
 
     if (!telemetry || !assistantMessage.inReplyTo) {
       return;

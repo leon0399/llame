@@ -302,13 +302,13 @@ export class CompactionService {
         digestCandidate !== null &&
         shareRecentChats.shareRecentChats
       ) {
-        await chatsRepo.setRecencyDigest(
-          input.chatId,
-          input.userId,
-          digestCandidate.baseline,
-          digestCandidate.told,
-          compaction.id,
-        );
+        await chatsRepo.setRecencyDigest({
+          chatId: input.chatId,
+          ownerUserId: input.userId,
+          baseline: digestCandidate.baseline,
+          told: digestCandidate.told,
+          rebakedFrom: compaction.id,
+        });
       }
     });
 

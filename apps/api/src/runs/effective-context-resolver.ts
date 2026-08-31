@@ -16,6 +16,17 @@ import { type Tool } from '../tools/types';
 
 export { canonicalJson } from '../canonical-json';
 
+/** Code-owned candidates when the caller doesn't supply pre-classified ones. */
+function defaultCodeOwnedCandidates(
+  candidates: Iterable<Tool> | undefined,
+): TurnToolCandidate[] {
+  return [...(candidates ?? TOOL_REGISTRY.values())].map((tool) => ({
+    source: { type: 'code_owned' as const },
+    state: 'available' as const,
+    tool,
+  }));
+}
+
 export type EffectiveContextSnapshotInput = {
   availabilityHash: string;
   contentHash: string;
@@ -52,11 +63,7 @@ export async function resolveEffectiveContext(input: {
   const { systemPrompt } = input;
   const codeOwnedCandidates: TurnToolCandidate[] = input.codeOwnedCandidates
     ? [...input.codeOwnedCandidates]
-    : [...(input.candidates ?? TOOL_REGISTRY.values())].map((tool) => ({
-        source: { type: 'code_owned' as const },
-        state: 'available' as const,
-        tool,
-      }));
+    : defaultCodeOwnedCandidates(input.candidates);
   const catalog = await composeTurnToolCatalog({
     allowedToolRules: input.allowedToolRules,
     callTimeoutSeconds: input.callTimeoutSeconds,

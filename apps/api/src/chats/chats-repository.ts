@@ -27,6 +27,7 @@ import {
   max,
   not,
   sql,
+  type SQL,
 } from 'drizzle-orm';
 import {
   type Chat,
@@ -67,6 +68,22 @@ const MESSAGE_SEQUENCE_UNIQUE_INDEX = 'messages_chat_seq_unique_idx';
 
 type MessageInsert = typeof messages.$inferInsert;
 type MessageInsertWithoutSequence = Omit<MessageInsert, 'seq'>;
+
+type ChatUpdatePatch = {
+  title?: string;
+  visibility?: 'private' | 'public';
+  projectId?: string | null;
+  archived?: boolean;
+};
+
+type ChatOwnerFilter = {
+  projectId?: string;
+  pinned?: 'only' | 'with' | 'exclude';
+  archived?: 'only' | 'with';
+  limit?: number;
+  excludeId?: string;
+  titledOnly?: boolean;
+};
 
 export type ConversationMessageLookup = {
   chatId: string;
@@ -137,18 +154,11 @@ export class ChatsRepository {
    * server-side WHERE (covered by chats_project_idx), never a client-side
    * pass over the full list.
    */
-  async findByOwner(
+  private buildOwnerFilterConditions(
     ownerUserId: string,
-    filter: {
-      projectId?: string;
-      pinned?: 'only' | 'with' | 'exclude';
-      archived?: 'only' | 'with';
-      limit?: number;
-      excludeId?: string;
-      titledOnly?: boolean;
-    } = {},
-  ): Promise<Chat[]> {
-    const conditions = [eq(chats.ownerUserId, ownerUserId)];
+    filter: ChatOwnerFilter,
+  ): SQL[] {
+    const conditions: SQL[] = [eq(chats.ownerUserId, ownerUserId)];
 
     if (filter.projectId !== undefined) {
       conditions.push(eq(chats.projectId, filter.projectId));
@@ -180,6 +190,15 @@ export class ChatsRepository {
     if (pinCondition !== undefined) {
       conditions.push(pinCondition);
     }
+
+    return conditions;
+  }
+
+  async findByOwner(
+    ownerUserId: string,
+    filter: ChatOwnerFilter = {},
+  ): Promise<Chat[]> {
+    const conditions = this.buildOwnerFilterConditions(ownerUserId, filter);
 
     // Pinned-only lists follow owner pin rank; every other filter stays
     // updatedAt DESC (item-archive / add-pinned-items-reorder).
@@ -291,13 +310,14 @@ export class ChatsRepository {
   }
 
   /** Compaction starts a fresh epoch; unlike initialization it replaces both fields. */
-  async setRecencyDigest(
-    chatId: string,
-    ownerUserId: string,
-    baseline: NonNullable<Chat['recencyDigestBaseline']>,
-    told: NonNullable<Chat['recencyDigestTold']>,
-    rebakedFrom: string,
-  ): Promise<void> {
+  async setRecencyDigest(options: {
+    chatId: string;
+    ownerUserId: string;
+    baseline: NonNullable<Chat['recencyDigestBaseline']>;
+    told: NonNullable<Chat['recencyDigestTold']>;
+    rebakedFrom: string;
+  }): Promise<void> {
+    const { chatId, ownerUserId, baseline, told, rebakedFrom } = options;
     await this.db
       .update(chats)
       .set({
@@ -367,26 +387,13 @@ export class ChatsRepository {
    * `ChatsService.searchChats` (web chat search) and the `search_conversations`
    * tool, which calls this SAME method (tool-calling D7 — one search path).
    */
-  async searchByOwner(
+  private buildChatSearchQuery(
     ownerUserId: string,
-    query: string,
+    normalizedQuery: string,
+    likePattern: string,
     limit: number,
-  ): Promise<HybridSearchResult[]> {
-    const trimmed = query.trim();
-    if (trimmed.length === 0) {
-      return [];
-    }
-    await this.db.execute(sql`SET LOCAL statement_timeout = 3000`);
-    // Normalize the query the SAME way the corpus was normalized (lowercase, NFKC,
-    // whitespace-collapse) BEFORE it reaches the trigram leg: `word_similarity` is
-    // case-sensitive, and `normalized_content` is always lowercased, so a raw-cased
-    // query would score near zero on the fuzzy leg. FTS ('simple') lowercases
-    // internally, so this is a no-op there. The LIKE pattern is escaped from the
-    // normalized form for the trigram leg's substring match.
-    const normalizedQuery = normalizeForSearch(trimmed);
-    const likePattern = `%${normalizedQuery.replace(/[\\%_]/g, '\\$&')}%`;
-
-    const search = buildHybridSearchQuery({
+  ) {
+    return buildHybridSearchQuery({
       query: normalizedQuery,
       likePattern,
       document: {
@@ -413,18 +420,49 @@ export class ChatsRepository {
       groupTopNWeights: [1, 0.25, 0.1],
       limit,
     });
+  }
+
+  private toHybridSearchResult(row: HybridSearchResult): HybridSearchResult {
+    return {
+      id: row.id,
+      title: row.title,
+      snippet:
+        row.snippet === null || row.snippet === undefined
+          ? null
+          : truncateSnippet(row.snippet),
+      updatedAt: row.updatedAt,
+      bestDocumentId: row.bestDocumentId,
+    };
+  }
+
+  async searchByOwner(
+    ownerUserId: string,
+    query: string,
+    limit: number,
+  ): Promise<HybridSearchResult[]> {
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      return [];
+    }
+    await this.db.execute(sql`SET LOCAL statement_timeout = 3000`);
+    // Normalize the query the SAME way the corpus was normalized (lowercase, NFKC,
+    // whitespace-collapse) BEFORE it reaches the trigram leg: `word_similarity` is
+    // case-sensitive, and `normalized_content` is always lowercased, so a raw-cased
+    // query would score near zero on the fuzzy leg. FTS ('simple') lowercases
+    // internally, so this is a no-op there. The LIKE pattern is escaped from the
+    // normalized form for the trigram leg's substring match.
+    const normalizedQuery = normalizeForSearch(trimmed);
+    const likePattern = `%${normalizedQuery.replace(/[\\%_]/g, '\\$&')}%`;
+
+    const search = this.buildChatSearchQuery(
+      ownerUserId,
+      normalizedQuery,
+      likePattern,
+      limit,
+    );
 
     const rows = await this.db.execute<HybridSearchResult>(search);
-    return [...rows].map((r) => ({
-      id: r.id,
-      title: r.title,
-      snippet:
-        r.snippet === null || r.snippet === undefined
-          ? null
-          : truncateSnippet(r.snippet),
-      updatedAt: r.updatedAt,
-      bestDocumentId: r.bestDocumentId,
-    }));
+    return [...rows].map((r) => this.toHybridSearchResult(r));
   }
 
   /**
@@ -522,37 +560,34 @@ export class ChatsRepository {
    * foundation) — the caller maps that denial to a clean 4xx, not here.
    * Returns undefined if not found or not owned by this user.
    */
-  async update(
-    chatId: string,
-    ownerUserId: string,
-    patch: {
-      title?: string;
-      visibility?: 'private' | 'public';
-      projectId?: string | null;
-      archived?: boolean;
-    },
-  ): Promise<Chat | undefined> {
-    const current = await this.findById(chatId, ownerUserId);
-    if (!current) return undefined;
+  /**
+   * Archive guard (chat-project-archive): an archived resource rejects every
+   * write except pure unarchive (archived: false, no other fields) or pure
+   * re-archive (archived: true on already archived — idempotent no-op).
+   * Mixed unarchive-and-edit is rejected; the caller must unarchive first.
+   */
+  private assertUpdateArchiveGuard(
+    current: Chat,
+    patch: ChatUpdatePatch,
+  ): void {
+    if (current.archivedAt === null) return;
 
-    // Archive guard (chat-project-archive): an archived resource rejects every
-    // write except pure unarchive (archived: false, no other fields) or pure
-    // re-archive (archived: true on already archived — idempotent no-op).
-    // Mixed unarchive-and-edit is rejected; the caller must unarchive first.
     const hasContentFields =
       patch.title !== undefined ||
       patch.visibility !== undefined ||
       patch.projectId !== undefined;
+    const isPureUnarchive = patch.archived === false && !hasContentFields;
+    const isPureReArchive = patch.archived === true && !hasContentFields;
 
-    if (current.archivedAt !== null) {
-      const isPureUnarchive = patch.archived === false && !hasContentFields;
-      const isPureReArchive = patch.archived === true && !hasContentFields;
-
-      if (!isPureUnarchive && !isPureReArchive) {
-        assertNotArchived(current);
-      }
+    if (!isPureUnarchive && !isPureReArchive) {
+      assertNotArchived(current);
     }
+  }
 
+  private resolveUpdateFields(
+    current: Chat,
+    patch: ChatUpdatePatch,
+  ): Partial<typeof chats.$inferInsert> {
     const fields: Partial<typeof chats.$inferInsert> = {};
     if (patch.title !== undefined) fields.title = patch.title;
     if (patch.visibility !== undefined) fields.visibility = patch.visibility;
@@ -562,7 +597,20 @@ export class ChatsRepository {
     } else if (patch.archived === false) {
       fields.archivedAt = null;
     }
+    return fields;
+  }
 
+  async update(
+    chatId: string,
+    ownerUserId: string,
+    patch: ChatUpdatePatch,
+  ): Promise<Chat | undefined> {
+    const current = await this.findById(chatId, ownerUserId);
+    if (!current) return undefined;
+
+    this.assertUpdateArchiveGuard(current, patch);
+
+    const fields = this.resolveUpdateFields(current, patch);
     // Nothing to change: don't issue a no-op write (which would needlessly bump
     // updatedAt). Return the current row instead — still owner-scoped, so the caller
     // gets the chat on a match and undefined (→ 404) when it's absent / not owned.
@@ -1003,6 +1051,22 @@ export class MessagesRepository {
    * Find a user turn and its assistant reply, scoped to one owned chat.
    * Used for client-message-id idempotency before any new write or model call.
    */
+  /** The single message matching `predicates`, earliest first when more than one could match. */
+  private async findOneMessage(
+    predicates: SQL[],
+    options?: { orderBySeq?: boolean },
+  ): Promise<Message | undefined> {
+    const query = this.db
+      .select()
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(and(...predicates));
+    const rows = options?.orderBySeq
+      ? await query.orderBy(asc(messages.seq)).limit(1)
+      : await query.limit(1);
+    return rows.map((r) => r.messages)[0];
+  }
+
   async findTurnState(
     chatId: string,
     ownerUserId: string,
@@ -1011,38 +1075,21 @@ export class MessagesRepository {
     userMessage?: Message;
     assistantMessage?: Message;
   }> {
-    const [userMessage] = (
-      await this.db
-        .select()
-        .from(messages)
-        .innerJoin(chats, eq(messages.chatId, chats.id))
-        .where(
-          and(
-            eq(messages.id, userMessageId),
-            eq(messages.chatId, chatId),
-            eq(messages.role, 'user'),
-            eq(chats.ownerUserId, ownerUserId),
-          ),
-        )
-        .limit(1)
-    ).map((r) => r.messages);
-
-    const [assistantMessage] = (
-      await this.db
-        .select()
-        .from(messages)
-        .innerJoin(chats, eq(messages.chatId, chats.id))
-        .where(
-          and(
-            eq(messages.chatId, chatId),
-            eq(messages.role, 'assistant'),
-            eq(messages.inReplyTo, userMessageId),
-            eq(chats.ownerUserId, ownerUserId),
-          ),
-        )
-        .orderBy(asc(messages.seq))
-        .limit(1)
-    ).map((r) => r.messages);
+    const userMessage = await this.findOneMessage([
+      eq(messages.id, userMessageId),
+      eq(messages.chatId, chatId),
+      eq(messages.role, 'user'),
+      eq(chats.ownerUserId, ownerUserId),
+    ]);
+    const assistantMessage = await this.findOneMessage(
+      [
+        eq(messages.chatId, chatId),
+        eq(messages.role, 'assistant'),
+        eq(messages.inReplyTo, userMessageId),
+        eq(chats.ownerUserId, ownerUserId),
+      ],
+      { orderBySeq: true },
+    );
 
     return { userMessage, assistantMessage };
   }
