@@ -7,70 +7,105 @@ read of [`stella/stella/.oxlint-plugins`](https://github.com/stella/stella/tree/
 
 ## The headline
 
-Most of stella's 133 rules are domain-specific to it (matter glyphs, public case
-law, playbook verdicts, Eden, Convex) and are not portable. **The portable value
-is not the rule list — it is that stella enforces in a linter what llame states
-in prose.**
+**Correction (second pass).** The first version of this note said "most of
+stella's 133 rules are domain-specific and are not portable — the portable value
+is not the rule list." That was too dismissive, and it was written from rule
+NAMES rather than from the inventory. Pulling the actual directory listing, on
+the order of 30 rules are domain-agnostic and map onto something llame already
+declares. The first pass also wrote a six-rule Tier 1 and shipped exactly one of
+them (`no-vacuous-throw-assertion`).
 
-llame's `AGENTS.md` §Security declares four invariants and enforces none of them
-mechanically:
+The original point still stands and is worth keeping: **stella enforces in a
+linter what llame states in prose.** llame's `AGENTS.md` §Security declares four
+invariants and mechanically checks none of them.
 
-| llame declares (prose only)                                                                                                                   | stella enforces (rule)                                                           |
-| --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| "Authorization identity comes only from a trusted, authenticated source — never from client-controlled input (params, body, query, headers)." | `no-body-ownership-ids`                                                          |
-| "Secrets stay secret — never commit, log, print, or echo credentials, keys, or tokens."                                                       | `no-secret-in-log-sink`, `no-raw-error-logging`, `no-redacted-log-attribute-key` |
-| "Bare env vars are NOT a config source — the environment reaches settings only via `{env:…}` tokens." (`apps/api/AGENTS.md`)                  | `forbid-process-env-outside-env-ts`                                              |
-| "Parse untrusted input at its boundary before narrowing it." (anti-slop messages)                                                             | `no-unvalidated-json-domain-cast`                                                |
+## The hard feasibility gate
 
-A prose invariant is enforced by whoever happens to review the PR. That is the
-gap worth closing, and it is worth more than any size rule.
+`node_modules/.pnpm/@oxlint+plugins@1.78.0/node_modules/@oxlint/plugins/index.d.ts:3402`
+states verbatim: **"Oxlint does not offer any parser services."** JS plugins get
+the AST and nothing else — no type checker, no cross-file resolution. Every rule
+below is a SYNTACTIC approximation, and any rule named after a security property
+must say so in its own header. Stella's README says the same thing about its own
+rules, and that disclaimer is the single most important thing to copy:
 
-## Tier 1 — adopt: enforces an invariant llame already declares
+> "The text below is a concise contract, not a claim that syntax analysis proves
+> more than it does. A rule can prove only the shapes described in its source."
+> Security rules "do not replace authorization, runtime validation, or
+> integration tests."
 
-1. **`no-body-ownership-ids`** — rejects a request body or query string supplying
-   a trusted ownership id. This is llame's single most important security rule
-   and it is currently review-only. Highest value on this list.
-2. **`no-secret-in-log-sink`** + **`no-raw-error-logging`** — traces
-   secret-named values into logging, analytics, error, and serialization sinks.
-   llame resolves `{env:…}`/`{path:…}` tokens and holds MCP session ids and
-   provider keys; the rule that they never reach a sink is asserted in three
-   documents and checked by nobody.
-3. **`no-vacuous-throw-assertion`** — `toThrow()` with no argument is satisfied
-   by _every_ error, so it keeps passing once the code fails for an unrelated
-   reason. This is `docs/testing.md` rule 11's exact shape, mechanically
-   detectable, and a direct extension of the tautological-test sweep. Cheapest
-   real win here.
-4. **`forbid-process-env-outside-env-ts`** — confines unvalidated `process.env`
-   reads to declared boundaries. Near-exact match for llame's config-as-code
-   rule, which today is a convention a new module can silently break.
-5. **`suppression-hygiene`** (`require-description`, `no-foreign-directive`) —
-   every disable must name a rule and explain itself, and directives for another
-   engine are rejected. llame already runs `--report-unused-disable-directives`;
-   this closes the other half. Note llame currently carries `eslint-disable`
-   comments in `packages/config-interpolation` while running oxlint —
-   `no-foreign-directive` would catch exactly that drift.
-6. **`no-unvalidated-json-domain-cast`** — rejects asserting `response.json()` or
-   `JSON.parse()` output straight into a closed domain type.
+## What to adopt, ranked by measured evidence
 
-## Tier 2 — adopt if cheap: maps to an existing convention
+Every count below was measured against this repository on 2026-08-31, not
+estimated.
 
-- `require-query-key-factory` and `no-spread-input-in-query-key` — `apps/web`
-  documents a key-factory convention that the tautological-test sweep already
-  found unanchored in four services.
-- `no-swallowed-rejection` — a `.catch()` returning a constant empty value is
-  fail-open, which llame's security section forbids in prose.
-- `require-fetch-timeout` — llame has a bounded MCP fetch; nothing stops the
-  next network call from omitting the bound.
-- `no-eager-singleton`, `no-db-await-in-loop`, `require-escape-like`,
-  `no-unsafe-inner-html`, `ai-output-strict-schema`.
+### Tier A — finds real defects today
 
-## Do not adopt
+1. **`forbid-process-env-outside-env-ts`** — **2 genuine violations.**
+   `apps/api/AGENTS.md:87` declares "Bare env vars are not a config source — the
+   environment reaches settings only through `{env:…}` / `{path:…}` tokens."
+   Two settings bypass it right now:
 
-Anything naming a stella domain, its storage or router choices, or its design
-system: `no-direct-matter-glyph`, `public-law-*`, `require-eden-error-check`,
-`no-bare-chrome-query`, `no-physical-properties`, `stella-toast`, and the rest.
-`no-crypto-random-uuid` and `no-nanoid` encode Bun-specific id choices llame does
-not share.
+   - `apps/api/src/auth/constants.ts:18` — `AUTH_RATE_LIMIT_PER_MINUTE`
+   - `apps/api/src/auth/auth.controller.ts:253` — `SESSION_COOKIE_DOMAIN`
+
+   The allowlist is the genuine boundary set: `NODE_ENV` mode reads, `db.ts`
+   (`POSTGRES_URL`), `main.ts` (`PORT`), `config-loader.ts` (which IS the
+   interpolation boundary), and the build/ops entrypoints. 24 non-test reads
+   across 15 files total, so the rule needs that allowlist to be useful rather
+   than noisy.
+
+2. **`require-description` on suppressions** — **49 directives carry no `--`
+   justification**, against 68 that do. The undocumented ones cluster in
+   file-level blanket disables of type-safety rules
+   (`/* eslint-disable @typescript-eslint/no-unsafe-assignment */` at the top of
+   integration suites), which is the highest-risk suppression shape in the
+   repository: unbounded scope, no stated reason.
+
+### Tier B — zero violations today, but ratchets a declared invariant
+
+1. **`no-request-derived-rls-identity`** (llame-original, not a port). llame's
+   sharpest tenancy anchor is `tenantDb.runAs(X, …)`, which sets
+   `app.current_user_id` for the transaction — **88 non-test call sites**. The
+   rule: `X` must not derive from a `@Body()` / `@Query()` / `@Param()`
+   parameter. This is the single most important invariant in the codebase and
+   it is enforced by code review alone.
+
+2. **`require-escape-like`** — llame escapes `%`/`_`/`\` correctly at both
+   sites (`chats-repository.ts:390`, `canonical-search-matcher.ts:104`). A rule
+   here locks in a correct pattern rather than fixing a broken one.
+
+3. **`no-unsafe-inner-html`** — 4 production `dangerouslySetInnerHTML` sites
+   (`apps/web/app/layout.tsx:145`, `app/(chat)/chat/[id]/page.tsx:38`,
+   `packages/ui/.../custom/code-block.tsx:105`,
+   `ai-elements/code-block.tsx:126`). Each is plausibly justified — shiki
+   output, a prehydration script — and none states why.
+
+4. **`no-inline-style-colors` / `no-raw-foreground-opacity`** — 0 violations;
+   every color already resolves through `hsl(var(--token))`. DESIGN.md §10
+   forbids a brand hue and ad-hoc colors, and nothing enforces it.
+
+### Rejected, with the evidence
+
+- **`no-foreign-directive`** — no value here. oxlint reports
+  "Unused eslint-disable directive" for ANY rule name, including
+  `@typescript-eslint/`-prefixed and entirely invented ones (tested directly).
+  llame reports 0 unused across all six scopes, so its ~30 foreign-prefixed
+  blanket disables are live and load-bearing, not drift. The first version of
+  this note claimed the opposite; it was wrong.
+- **`no-body-ownership-ids` ported verbatim** — stella keys on identifiers
+  literally named `body` / `query`. NestJS names the parameter freely
+  (`@Body() input: GrantMembershipDto`), so a direct port fires on all 141
+  `input.userId`-shaped reads in `apps/api`, nearly all service-internal.
+  Worse, `apps/api/src/identity/identity.controller.ts:226` reads `input.userId`
+  off a `@Body()` **legitimately** — it is the grant's subject, not the
+  authorization identity. Separating scope-identity from operand-identity is the
+  entire difficulty, and it is why Tier B #1 anchors on `runAs` instead.
+- **`no-crypto-random-uuid`, `no-nanoid`** — encode Bun-specific id choices.
+- **Anything needing type information** — blocked by the gate above, not
+  rejected on merit.
+- **The domain-only majority** — matter/entity glyphs, public case law, playbook
+  verdicts, Eden, Convex, chrome queries, buffer-cleanup intents, ingestion
+  checkpoints, S3 object access, Redis client confinement.
 
 ## The practices are worth more than the rules
 
