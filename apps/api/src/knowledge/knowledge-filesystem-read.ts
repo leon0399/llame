@@ -236,11 +236,8 @@ export async function readKnowledgeFileLines(
     if (totalBytes > KNOWLEDGE_MAX_READ_BYTES) {
       throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
     }
-    consumeKnowledgeLineText(
-      state,
-      budget,
-      decodeChunk(decoder, buffer, bytesRead),
-    );
+    const decoded = decodeChunk(decoder, buffer, bytesRead);
+    consumeKnowledgeLineText(state, budget, decoded);
     if (hasKnownSize && totalBytes > fileStats.size) {
       readTarget = KNOWLEDGE_MAX_READ_BYTES + 1;
     }

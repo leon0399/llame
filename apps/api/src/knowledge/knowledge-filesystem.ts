@@ -193,6 +193,20 @@ type KnowledgeSearchEntryOutcome =
   | { kind: 'descend'; item: { absolutePath: string; relativePath: string } }
   | { kind: 'none' };
 
+/** Shared by `readFile` and `readFileLines`: the already-open file must be a
+ *  regular, non-symlink file within its own caller's byte budget. */
+function assertReadableFileStats(
+  fileStats: KnowledgeFilesystemStats,
+  maxBytes: number,
+): void {
+  if (fileStats.isSymbolicLink() || !fileStats.isFile()) {
+    throw new KnowledgeFilesystemError('knowledge_path_invalid');
+  }
+  if (fileStats.size > maxBytes) {
+    throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+  }
+}
+
 /**
  * Bounded, live filesystem access for one trusted Knowledge Space binding.
  * This class deliberately knows nothing about owners, PostgreSQL, Git, or
@@ -493,12 +507,7 @@ export class KnowledgeFilesystemAdapter {
         signal,
       );
       const fileStats = await observe(file.stat(), signal);
-      if (fileStats.isSymbolicLink() || !fileStats.isFile()) {
-        throw new KnowledgeFilesystemError('knowledge_path_invalid');
-      }
-      if (fileStats.size > maxBytes) {
-        throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
-      }
+      assertReadableFileStats(fileStats, maxBytes);
       bytes = await readWholeFileBytes(file, maxBytes, signal);
     } catch (error) {
       failure = error;
@@ -521,12 +530,7 @@ export class KnowledgeFilesystemAdapter {
         signal,
       );
       const fileStats = await observe(file.stat(), signal);
-      if (fileStats.isSymbolicLink() || !fileStats.isFile()) {
-        throw new KnowledgeFilesystemError('knowledge_path_invalid');
-      }
-      if (fileStats.size > KNOWLEDGE_MAX_READ_BYTES) {
-        throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
-      }
+      assertReadableFileStats(fileStats, KNOWLEDGE_MAX_READ_BYTES);
 
       const budget = resolveLineSelectionBudget(request);
       const state = await readKnowledgeFileLines(

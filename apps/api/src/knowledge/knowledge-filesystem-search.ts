@@ -112,6 +112,35 @@ function advanceActiveInterval(
  * Logical lines intentionally match the ranged reader: only LF terminates a
  * line, and a preceding CR belongs to that delimiter as CRLF.
  */
+/** Constant across the whole scan — the folded query and the emit context
+ *  every line's occurrence check and interval update shares. */
+type KnowledgeSearchScan = {
+  readonly queryFolded: string;
+  readonly ctx: KnowledgeSearchEmitContext;
+};
+
+/** Fold one line's occurrence into the running active interval — the body of
+ *  `collectKnowledgePassages`'s scan loop, split out purely for its own line
+ *  budget. Returns the interval to carry into the next line. */
+function advanceKnowledgeSearchLine(
+  line: KnowledgeLogicalLine,
+  previousLine: KnowledgeLogicalLine | undefined,
+  active: KnowledgeSearchActiveInterval | undefined,
+  scan: KnowledgeSearchScan,
+): KnowledgeSearchActiveInterval | undefined {
+  const match = findLineOccurrence(line.text, scan.queryFolded);
+  const occurrence =
+    match === undefined ? undefined : { line: line.line, ...match };
+
+  if (active === undefined) {
+    return occurrence === undefined
+      ? undefined
+      : startKnowledgeSearchInterval(line, previousLine, occurrence);
+  }
+  const step: KnowledgeSearchLineStep = { line, previousLine, occurrence };
+  return advanceActiveInterval(step, active, scan.ctx);
+}
+
 export async function collectKnowledgePassages(
   relativePath: string,
   text: string,
@@ -128,25 +157,14 @@ export async function collectKnowledgePassages(
     after: options.after,
     maxResults: options.maxResults ?? Number.POSITIVE_INFINITY,
   };
+  const scan: KnowledgeSearchScan = { queryFolded, ctx };
   let previousLine: KnowledgeLogicalLine | undefined;
   let active: KnowledgeSearchActiveInterval | undefined;
   let lastLine = -1;
 
   for await (const line of iterateKnowledgeLogicalLines(text, options.signal)) {
     lastLine = line.line;
-    const match = findLineOccurrence(line.text, queryFolded);
-    const occurrence =
-      match === undefined ? undefined : { line: line.line, ...match };
-
-    if (active === undefined) {
-      active =
-        occurrence === undefined
-          ? undefined
-          : startKnowledgeSearchInterval(line, previousLine, occurrence);
-    } else {
-      const step: KnowledgeSearchLineStep = { line, previousLine, occurrence };
-      active = advanceActiveInterval(step, active, ctx);
-    }
+    active = advanceKnowledgeSearchLine(line, previousLine, active, scan);
     previousLine = line;
   }
 
