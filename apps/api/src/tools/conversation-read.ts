@@ -27,7 +27,6 @@ export const CONVERSATION_READ_RESULT_MAX_CODE_UNITS = 15_000;
 
 export { CONVERSATION_HISTORY_NOTICE };
 export { scanConversationLogicalLines };
-export type { ConversationLogicalLine };
 
 export const conversationReadInputSchema = z
   .object({

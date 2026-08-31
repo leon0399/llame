@@ -564,7 +564,7 @@ function classifyAliasBroadTarget(
   );
 }
 
-export function isPopulatedObjectExpression(
+function isPopulatedObjectExpression(
   expression: ESTree.Expression,
 ): boolean {
   let current = expression;

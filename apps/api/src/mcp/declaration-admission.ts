@@ -16,12 +16,6 @@ import {
 
 export const MCP_REDACTION_MARKER = PROTECTED_VALUE_REDACTION_MARKER;
 
-export type RawMcpToolDefinition = {
-  readonly name: string;
-  readonly description?: string;
-  readonly inputSchema: JsonSchemaDocument;
-};
-
 export type AdmittedMcpToolDefinition = {
   readonly id: string;
   readonly remoteName: string;

@@ -29,11 +29,7 @@ import {
   type McpRuntimeServerDefinition,
 } from './mcp-runtime-definition';
 
-export {
-  type McpRuntimeRemoteDefinition,
-  type McpRuntimeServerDefinition,
-  type McpRuntimeStdioDefinition,
-} from './mcp-runtime-definition';
+export { type McpRuntimeServerDefinition } from './mcp-runtime-definition';
 
 const REFRESH_BASE_MS = 60 * 60 * 1000;
 const REFRESH_JITTER_MS = REFRESH_BASE_MS * 0.2;
