@@ -14,6 +14,7 @@ import { noUnknownParametersRule } from "./rules/no-unknown-parameters.ts";
 import { noUnknownReturnsRule } from "./rules/no-unknown-returns.ts";
 import { noUnknownTypeAliasesRule } from "./rules/no-unknown-type-aliases.ts";
 import { noUnsafeDictionaryTypeRule } from "./rules/no-unsafe-dictionary-type.ts";
+import { noVacuousThrowAssertionRule } from "./rules/no-vacuous-throw-assertion.ts";
 import { noWidenThenAssertRule } from "./rules/no-widen-then-assert.ts";
 import { parameterDecoratorOwnLineRule } from "./rules/parameter-decorator-own-line.ts";
 import { requireSafetyCommentForTypeAssertionRule } from "./rules/require-safety-comment-for-type-assertion.ts";
@@ -36,6 +37,7 @@ const antiSlopPlugin = eslintCompatPlugin({
     "no-unknown-parameters": noUnknownParametersRule,
     "no-unknown-returns": noUnknownReturnsRule,
     "no-unknown-type-aliases": noUnknownTypeAliasesRule,
+    "no-vacuous-throw-assertion": noVacuousThrowAssertionRule,
     "no-widen-then-assert": noWidenThenAssertRule,
     "parameter-decorator-own-line": parameterDecoratorOwnLineRule,
     "require-safety-comment-for-type-assertion":

@@ -9,7 +9,7 @@
     "dev": "turbo run dev dev:studio",
     "lint": "pnpm openapi:lint:ci && turbo run lint",
     "lint:root": "pnpm lint:anti-slop && oxlint --deny-warnings --report-unused-disable-directives --threads=1 e2e playwright.config.ts",
-    "lint:anti-slop": "tsc -p packages/oxlint-plugin-anti-slop/tsconfig.json && for f in packages/oxlint-plugin-anti-slop/rules/*.test.ts; do node --import tsx \"$f\" || exit 1; done",
+    "lint:anti-slop": "tsc -p packages/oxlint-plugin-anti-slop/tsconfig.json && node packages/oxlint-plugin-anti-slop/registry.check.mjs && for f in packages/oxlint-plugin-anti-slop/rules/*.test.ts; do node --import tsx \"$f\" || exit 1; done",
     "lint:markdown": "markdownlint-cli2",
     "openapi:lint": "redocly lint --config apps/api/redocly.yaml",
     "openapi:lint:ci": "redocly lint --config apps/api/redocly.yaml --skip-rule operation-summary --skip-rule operation-description",
