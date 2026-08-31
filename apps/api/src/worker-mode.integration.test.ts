@@ -186,9 +186,7 @@ d('queue-executed runs behind the stream bridge', () => {
     const runs = await tenantDb.runAs(userId, (tx) =>
       new RunsRepository(tx).findByChatId(chatId, userId),
     );
-    const latest = runs.at(-1);
-    if (latest === undefined) expect.unreachable('expected a run for the chat');
-    return latest;
+    return runs.at(-1);
   }
 
   it('streams the turn through the queue + bridge in the UI-message protocol', async () => {
@@ -232,6 +230,7 @@ d('queue-executed runs behind the stream bridge', () => {
 
     // The turn persisted end-to-end through the queue.
     const run = await latestRun(chatId);
+    if (run === undefined) expect.unreachable('expected a persisted run');
     expect(run.status).toBe('completed');
     expect(run.modelId).toBe('system:openai:gpt-5.4-mini');
     expect(models.createClientCalls).toContainEqual(

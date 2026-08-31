@@ -280,15 +280,12 @@
     "valid-typeof": "error",
 
     // ---- nkzw-tech/oxlint-config: the rules that cost something.
-    // Adopted and the code fixed, mostly through oxlint --fix. Its
-    // `no-warning-comments` is deliberately NOT taken: it bans every TODO,
-    // including the tracked `TODO(#123)` form that
-    // anti-slop/no-untracked-todo exists to permit. `unicorn/prefer-at` and
-    // `unicorn/prefer-dom-node-append` are held back too and tracked
-    // separately: the first rewrites `a[a.length - 1]` to `a.at(-1)`, whose
-    // `T | undefined` return needs real handling at 21 call sites including
-    // compaction, and the second swaps appendChild for append, changing the
-    // DOM surface a test asserts on. Neither is a mechanical fix.
+    // Adopted, with the code fixed rather than the rules relaxed. `prefer-at`
+    // was the expensive one: `a.at(-1)` returns `T | undefined`, and the 18
+    // sites split between reads that already tested for undefined, reads that
+    // needed the guard their function was missing, and one invariant worth
+    // asserting instead. Two of those were latent bugs — see
+    // docs/research/lint/2026-08-31-stella-oxlint-plugins.md.
     // ---------------------------------------------------------------------
     "unicorn/numeric-separators-style": "error",
     "typescript/array-type": ["error", { "default": "generic" }],
