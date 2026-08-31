@@ -176,6 +176,108 @@ Router, Valkey, and `better-result`. Each mismatch invalidates a whole cluster.
   ownership have no counterpart to borrow. That is a gap in the source
   material, and it is why Tier B #1 had to be written rather than ported.
 
+## Value over time, not just today
+
+Every count above is a snapshot, and a snapshot is the wrong basis for this
+decision. Two rules with 0 violations today can differ completely in worth: one
+guards a shape llame is about to acquire, the other guards a shape it will never
+have.
+
+### The cost asymmetry, which reorders everything above
+
+**A rule adopted at 0 violations is free forever. The same rule adopted after N
+violations have accumulated is a migration.** Enabling 143 nkzw rules cost 317
+files of churn precisely because the code drifted first.
+
+That inverts the urgency of the tiers above. Tier A's violations already exist
+and are roughly static — two `process.env` reads will not become twenty on their
+own. Tier B's cost is the one that rises monotonically with every PR. **The
+clean-today rules are the urgent ones**, provided their future relevance is
+plausible at all.
+
+So the sequencing question is not "what is broken" but "what will be expensive
+to adopt later".
+
+### What the roadmap actually changes
+
+Three unshipped shifts change rule value materially. All three are quoted from
+`ROADMAP.md`, not inferred.
+
+1. **Git-backed writes** (`ROADMAP.md` §2) give llame its first write tools.
+   `apps/api/AGENTS.md` already records the landmine: "Queue retries restart a
+   still-claimable Run's tool loop from the first step... the first
+   write-capable tool must ship checkpoint-or-dedupe semantics." Rules about
+   transaction abort, audited mutation, and swallowed rejections move from
+   stylistic to load-bearing at that moment — and they must precede the work,
+   because a retry-unsafe write is a data-loss bug, not a lint warning.
+
+2. **Local Sandbox execution** ("run an approved current-directory or derived
+   worktree view in one fixed managed environment") introduces a SECOND
+   filesystem boundary alongside Knowledge's.
+
+   **Correcting a hypothesis I held:** `no-path-prefix-containment` is not a
+   traversal fix llame needs. `knowledge-filesystem-validation.ts:61-93`
+   rejects by component — empty, `.`, `..`, posix and win32 absolute,
+   backslash, control characters, plus byte and component caps. That is
+   strictly stronger than any `startsWith` prefix check and structurally immune
+   to the sibling-path bug the rule targets. Its only value is as a ratchet
+   preventing a weaker `startsWith` shape from appearing at the new Sandbox
+   boundary. Real, but modest — and worth it only because it is free today.
+
+3. **Personal Realm synchronization** ("link one standalone Node to one
+   personal upstream and synchronize portable personal state bidirectionally")
+   makes llame multi-node. Timestamps stop being a single-writer detail and
+   become an ordering authority across nodes. `require-timestamptz-column` and
+   `no-truncated-timestamp-comparison` (JS `Date` truncates to milliseconds,
+   Postgres stores microseconds) go from a correctness nicety to a
+   reconciliation primitive. The absent central `timestamptz()` helper is
+   cheapest to introduce now, while there are 36 call sites and 2 defects.
+
+### The i18n cluster splits in two, and half of it is already live
+
+This is where "judge the future" changed the answer most.
+
+- **UI translation** (`no-untranslated-jsx-literal`, `no-broad-translation-callable`)
+  — distant. llame ships no i18n framework; a repo-wide search finds one
+  passing mention in a comment. Nothing on the roadmap adds one.
+- **RTL** (`no-physical-properties`) — **my hypothesis was wrong.** I reasoned
+  from the owner working across Russian, English and Spanish. All three are
+  left-to-right; RTL needs Arabic or Hebrew. Stays distant.
+- **Locale-sensitive formatting and sorting** — **already live, today.**
+  `message-usage.tsx:120-129` documents a deliberate discipline: "Deliberately
+  locale-independent (plain string math, no `Intl.NumberFormat`) — same
+  SSR-hydration-safety goal the repo's earlier `en-US`-pinned formatting
+  served." Two sites break it: `model-preview-card.tsx:12` and `:16` call
+  `Intl.NumberFormat(undefined, …)`, taking the host's default locale — exactly
+  the hydration hazard the other file went out of its way to avoid. A
+  `no-raw-locale-format`-shaped rule enforces a rationale llame has already
+  written down and then contradicted.
+
+  `conversation-tree-model.ts:64` also calls bare `.localeCompare()`, though it
+  sorts branch names rather than free user text, so severity is low.
+
+**One honesty note.** Cross-lingual capability is a fact about llame's owner,
+not a documented product requirement — it appears nowhere in `VISION.md`,
+`ROADMAP.md`, or `SPEC.md`. The live formatting finding above stands on its own
+evidence; the broader i18n argument does not have roadmap backing and should not
+be presented as though it does.
+
+### What decays
+
+- **Native absorption is the main decay risk.** `.oxlintrc.json` declares 215
+  rules and oxlint ships 849, growing fast. A custom rule that duplicates a
+  future native is pure debt — llame has already retired its ast-grep rules
+  into oxlint once. Stella's answer is a README section recording rules deleted
+  when a native superseded them; llame has no equivalent prompt to re-ask "is
+  this native yet?"
+- **The suppression ratchet's crossover.** Near-zero value now: 14
+  `oxlint-disable` directives, and none for any anti-slop rule. The signal to
+  build it is the anti-slop suppression count becoming nonzero and rising
+  across consecutive PRs — that is when a rule starts being routed around
+  rather than satisfied. Not before.
+- **Ratchets on shapes llame will never grow** are the ones to skip outright
+  rather than adopt cheaply: RTL is the clear example.
+
 ## The practices are worth more than the rules
 
 Still true, and the third pass found the biggest one.
