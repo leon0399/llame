@@ -52,6 +52,16 @@ const sourceFiles = () =>
  * like raising a threshold — which CODING_STANDARDS §4 prohibits outright.
  */
 const EXCEPTIONS = {
+  crap: {
+    "apps/web/components/ai/model-preview-card.tsx":
+      "27.7. Its three formatters are extracted and unit-tested; everything " +
+      "left is render-conditional (pricing rows, meta rows, link visibility), " +
+      "which docs/testing.md rule 5 assigns to a Storybook play function — and " +
+      "Storybook coverage does not feed vitest's coverage.json, so no story " +
+      "can move this number. Crossing the threshold would mean writing jsdom " +
+      "render assertions against rule 5 to satisfy a metric. Remove this entry " +
+      "if the two runners' coverage is ever merged.",
+  },
   cognitive: {
     "apps/api/src/runs/run-execution.service.ts":
       "executeRun and its callbacks close over ~8 let-mutated locals shared " +
