@@ -422,6 +422,7 @@
       // `**/`-prefixed rather than repo-rooted.
       "files": [
         "**/operations/cli.ts",
+        "**/operations/cli-commands.ts",
         "**/db/migrate.ts",
         "**/generate-openapi.ts",
         "**/eval/**",
