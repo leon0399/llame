@@ -13,7 +13,7 @@
   "testRunner": "vitest",
   "plugins": ["@stryker-mutator/vitest-runner"],
   "vitest": {
-    "configFile": "vitest.mutation.config.mts"
+    "configFile": "vitest.config.mts"
   },
   "reporters": ["clear-text", "html", "json"],
   "htmlReporter": {

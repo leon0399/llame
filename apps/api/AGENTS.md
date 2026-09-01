@@ -73,27 +73,33 @@ pnpm --filter api test:mutation        # :dry preflights without evaluating muta
 below; at that setting a full run is hours, not minutes. Use `test:mutation:dry`
 to check the setup, and expect to run the real thing out of band.
 
-Four things had to be true for whole-`src` mutation to work at all, and each
-will break again if reverted:
+Three things make whole-`src` mutation work, all in `vitest.config.mts` behind
+`underStryker` (`process.env.STRYKER_MUTATOR_WORKER`, which Stryker sets in the
+worker and its own vitest runner already reads). Each will break again if
+reverted:
 
-1. **A dedicated vitest config, `vitest.mutation.config.mts`.** The main config
-   declares an `integration` project whose globalSetup provisions Postgres via
-   Testcontainers, and Stryker's sandbox does not include the repo-root
-   `docker/postgres/initdb/*.sql` those containers mount — so the runner
-   crashes before evaluating a single mutant. Stryker's vitest runner exposes
-   only `dir`, `related`, and `configFile`; there is no project selector. Keep
-   that file in step with the `unit` project in `vitest.config.mts`.
-2. **`mcp-runtime.module.test.ts` is excluded there.** It reads the operator's
-   real `llame.config.json`, so it fails on any machine whose local config
-   names a server with an unset secret. Stryker refuses to start when the
-   initial run has any failure, and a developer's personal config is not a
-   mutation signal.
-3. **`testTimeout` of 180s in that config.** Instrumentation adds a counter to
-   every statement, and knowledge-filesystem's aggregate-search byte-budget
-   test walks a tree — it takes 30s+ instrumented against well under a second
-   normally.
-4. **`dryRunTimeoutMinutes: 20`.** The instrumented initial run is ~2m46s for
-   1193 tests; the old 2-minute ceiling was sized for the three-file pilot.
+1. **Only the unit project loads.** The `integration` project's globalSetup
+   provisions Postgres through Testcontainers, and Stryker's sandbox does not
+   include the repo-root `docker/postgres/initdb/*.sql` those containers mount,
+   so the runner crashes before evaluating a single mutant. Stryker's vitest
+   runner exposes only `dir`, `related`, and `configFile` — no project selector
+   — so the choice has to be made inside the config.
+2. **`mcp-runtime.module.test.ts` is excluded.** It reads the operator's real
+   `llame.config.json`, so it fails on any machine whose local config names a
+   server with an unset secret. Stryker refuses to start when the initial run
+   has any failure, and a developer's personal config is not a mutation signal.
+3. **`testTimeout` rises to 180s.** Instrumentation adds a counter to every
+   statement, and knowledge-filesystem's aggregate-search byte-budget test walks
+   a tree — 30s+ instrumented against well under a second normally.
+
+`stryker.config.json` also sets `dryRunTimeoutMinutes: 20`; the old 2-minute
+ceiling was sized for a three-file pilot, and the instrumented initial run takes
+about a minute for 1193 tests.
+
+There is deliberately **no separate vitest config for mutation**. An earlier
+attempt used one and had to end with "keep this in step with the unit project" —
+a duplicated definition nothing enforces. One config with a conditional is the
+version that cannot drift.
 
 Stryker is limited to one worker (`concurrency: 1`);
 `@stryker-mutator/vitest-runner@9.6.1` is pinned in `apps/api/package.json` and
