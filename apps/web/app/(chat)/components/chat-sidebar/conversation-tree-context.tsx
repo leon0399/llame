@@ -12,6 +12,35 @@ const ConversationContext = React.createContext<{
   addNode: (node: ConversationNode) => void;
 } | null>(null);
 
+/**
+ * Adds `node` to `nodes` and rebuilds every parent -> child edge from
+ * `parentIds` from scratch (not incrementally), so `children` never drifts
+ * out of sync with the declared parents. Pure so it is unit-testable without
+ * the provider (docs/testing.md rule 5).
+ */
+export function addNodeToTree(
+  nodes: Record<string, ConversationNode>,
+  node: ConversationNode,
+) {
+  const newNodes = { ...nodes, [node.id]: node };
+
+  // Rebuild all parent-child relationships from scratch
+  for (const n of Object.values(newNodes)) {
+    n.children = [];
+  }
+
+  for (const n of Object.values(newNodes)) {
+    for (const parentId of n.parentIds ?? []) {
+      const parent = newNodes[parentId];
+      if (parent && !parent.children.includes(n.id)) {
+        parent.children.push(n.id);
+      }
+    }
+  }
+
+  return newNodes;
+}
+
 export const ConversationProvider = ({
   children,
 }: {
@@ -21,25 +50,7 @@ export const ConversationProvider = ({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const addNode = useCallback((node: ConversationNode) => {
-    setNodes((prev) => {
-      const newNodes = { ...prev, [node.id]: node };
-
-      // Rebuild all parent-child relationships from scratch
-      for (const n of Object.values(newNodes)) {
-        n.children = [];
-      }
-
-      for (const n of Object.values(newNodes)) {
-        for (const parentId of n.parentIds ?? []) {
-          const parent = newNodes[parentId];
-          if (parent && !parent.children.includes(n.id)) {
-            parent.children.push(n.id);
-          }
-        }
-      }
-
-      return newNodes;
-    });
+    setNodes((prev) => addNodeToTree(prev, node));
   }, []);
 
   const value = {

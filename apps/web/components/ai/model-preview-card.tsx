@@ -8,22 +8,32 @@ export type ModelPreviewCardProps = {
   model: AvailableModel;
 } & React.ComponentPropsWithoutRef<"div">;
 
-function formatTokens(tokens: number): string {
-  return Intl.NumberFormat(undefined, { style: "decimal" }).format(tokens);
+// Pinned "en-US" rather than the host locale (`undefined`), matching the
+// repo's established SSR-hydration-safety convention (message-usage.tsx):
+// the server and the browser must format identically, or React flags a
+// hydration mismatch on any non-en-US client. `formatDate` also pins
+// `timeZone: "UTC"` — `knowledgeCutoff`/`releasedAt` are date-only ISO
+// strings, which `new Date()` parses at UTC midnight; a host-timezone format
+// would otherwise shift the day for any UTC-negative client, on top of the
+// same locale mismatch. Exported for unit tests (docs/testing.md rule 5).
+
+export function formatTokens(tokens: number): string {
+  return Intl.NumberFormat("en-US", { style: "decimal" }).format(tokens);
 }
 
-function formatUsd(amount: number): string {
-  return Intl.NumberFormat(undefined, {
+export function formatUsd(amount: number): string {
+  return Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
   }).format(amount);
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
+export function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: "UTC",
   });
 }
 
