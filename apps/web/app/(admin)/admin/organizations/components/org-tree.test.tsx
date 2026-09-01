@@ -226,6 +226,52 @@ describe("OrgUnitsTree — leaf-first delete", () => {
   });
 });
 
+describe("OrgUnitsTree — toolbar", () => {
+  it("Collapse all / Expand all toggles every collapsible row at once", () => {
+    renderTree(fixtureUnits);
+
+    expect(screen.getByTestId("org-unit-row-teamC")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(screen.queryByTestId("org-unit-row-teamA")).toBeNull();
+    expect(screen.queryByTestId("org-unit-row-teamC")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(screen.getByTestId("org-unit-row-teamA")).toBeTruthy();
+    expect(screen.getByTestId("org-unit-row-teamC")).toBeTruthy();
+  });
+});
+
+describe("OrgUnitsTree — add child / rename", () => {
+  it("Add child opens the create dialog scoped to that parent and expands its row", () => {
+    renderTree(fixtureUnits);
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Dept B" }));
+    expect(screen.queryByTestId("org-unit-row-teamC")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add child unit to Dept B" }),
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "New unit under “Dept B”" }),
+    ).toBeTruthy();
+    // The parent row is expanded so the unit the dialog will create is
+    // visible once it lands, rather than hidden behind a collapsed chevron.
+    expect(screen.getByTestId("org-unit-row-teamC")).toBeTruthy();
+  });
+
+  it("Rename opens the rename dialog for that unit", () => {
+    renderTree(fixtureUnits);
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename Team A" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Rename “Team A”" }),
+    ).toBeTruthy();
+  });
+});
+
 describe("OrgUnitsTree — move picker", () => {
   it("excludes the unit and its descendants, offers make-root, keeps unrelated units", () => {
     renderTree(fixtureUnits);

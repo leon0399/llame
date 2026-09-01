@@ -24,9 +24,22 @@ import {
   useCreateProject,
   useDeleteProject,
   useFileChat,
+  useSetProjectArchive,
   useUpdateProject,
 } from "./mutations";
-import { requestFromCall, stubFetch } from "../../test-support/fetch-stub";
+import { projectQueryKeys } from "./queries";
+import { chatQueryKeys } from "../chat/queries";
+import { pinQueryKeys } from "../pins/queries";
+import {
+  emptyResponse,
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
+import {
+  newTestQueryClient,
+  wrapperWithClient,
+} from "../../test-support/query-client";
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const queryClient = new QueryClient({
@@ -63,6 +76,22 @@ describe("useCreateProject", () => {
     expect(new URL(request.url).pathname).toBe("/api/v1/projects");
     await expect(request.clone().json()).resolves.toEqual({ name: "Acme" });
   });
+
+  it("invalidates the project list on success", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: "p1" }));
+    const queryClient = newTestQueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useCreateProject(), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+
+    result.current.mutate("Acme");
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: projectQueryKeys.lists(),
+    });
+  });
 });
 
 describe("useUpdateProject", () => {
@@ -82,6 +111,70 @@ describe("useUpdateProject", () => {
       name: "Renamed",
     });
   });
+
+  it("invalidates the project list and pins list on success", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: "p1" }));
+    const queryClient = newTestQueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useUpdateProject(), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+
+    result.current.mutate({ id: "p1", name: "Renamed" });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: projectQueryKeys.lists(),
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: pinQueryKeys.list(),
+    });
+  });
+});
+
+describe("useSetProjectArchive", () => {
+  it("invalidates the project list and pins list on success", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: "p1" }));
+    const queryClient = newTestQueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useSetProjectArchive(), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+
+    result.current.mutate({ id: "p1", archived: true });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: projectQueryKeys.lists(),
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: pinQueryKeys.list(),
+    });
+  });
+
+  it("toasts an archive-specific message on failure", async () => {
+    fetchMock.mockRejectedValue(new Error("network down"));
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "");
+    const { result } = renderHook(() => useSetProjectArchive(), { wrapper });
+
+    result.current.mutate({ id: "p1", archived: true });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(toastErrorSpy).toHaveBeenCalledWith("Couldn't archive the project.");
+  });
+
+  it("toasts an unarchive-specific message on failure", async () => {
+    fetchMock.mockRejectedValue(new Error("network down"));
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "");
+    const { result } = renderHook(() => useSetProjectArchive(), { wrapper });
+
+    result.current.mutate({ id: "p1", archived: false });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(toastErrorSpy).toHaveBeenCalledWith(
+      "Couldn't unarchive the project.",
+    );
+  });
 });
 
 describe("useDeleteProject", () => {
@@ -97,6 +190,30 @@ describe("useDeleteProject", () => {
     const request = requestFromCall(fetchMock);
     expect(request.method).toBe("DELETE");
     expect(new URL(request.url).pathname).toBe("/api/v1/projects/p1");
+  });
+
+  it("invalidates the project list, chat list, and pins list on success", async () => {
+    fetchMock.mockResolvedValue(emptyResponse());
+    const queryClient = newTestQueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useDeleteProject(), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+
+    result.current.mutate("p1");
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: projectQueryKeys.lists(),
+    });
+    // Deleting a project unfiles its chats server-side rather than deleting
+    // them, so the chat list must refresh too (or they'd look vanished).
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: chatQueryKeys.lists(),
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: pinQueryKeys.list(),
+    });
   });
 });
 

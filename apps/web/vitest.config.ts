@@ -26,8 +26,24 @@ export default defineConfig({
       // Product source only: generated clients, migrations, vendored
       // code, and the test scaffolding itself are not what the 85%
       // target is about.
-      include: ["app/**/*.{ts,tsx}", "lib/**/*.{ts,tsx}", "components/**/*.{ts,tsx}", "contexts/**/*.{ts,tsx}", "hooks/**/*.{ts,tsx}", "utils/**/*.{ts,tsx}"],
-      exclude: ["**/*.test.*", "**/*.spec.*", "**/*.stories.tsx", "**/__mocks__/**", "**/testing/**", "**/db/migrations/**", "**/lib/api/generated/**", "**/vendor/**"],
+      include: [
+        "app/**/*.{ts,tsx}",
+        "lib/**/*.{ts,tsx}",
+        "components/**/*.{ts,tsx}",
+        "contexts/**/*.{ts,tsx}",
+        "hooks/**/*.{ts,tsx}",
+        "utils/**/*.{ts,tsx}",
+      ],
+      exclude: [
+        "**/*.test.*",
+        "**/*.spec.*",
+        "**/*.stories.tsx",
+        "**/__mocks__/**",
+        "**/testing/**",
+        "**/db/migrations/**",
+        "**/lib/api/generated/**",
+        "**/vendor/**",
+      ],
     },
   },
 });

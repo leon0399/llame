@@ -83,7 +83,8 @@ function Probe({
   chatId: string;
   viewedChatId?: string;
 }) {
-  const { activeChatIds, completedChats, trackRun } = useActiveRuns();
+  const { activeChatIds, completedChats, trackRun, untrackChat, markChatSeen } =
+    useActiveRuns();
   return (
     <div>
       {viewedChatId ? <ViewedChatRegistration chatId={viewedChatId} /> : null}
@@ -94,6 +95,12 @@ function Probe({
         onClick={() => trackRun("run-track", chatId, "Tracked chat")}
       >
         track
+      </button>
+      <button type="button" onClick={() => untrackChat(chatId)}>
+        untrack
+      </button>
+      <button type="button" onClick={() => markChatSeen(chatId)}>
+        mark seen
       </button>
     </div>
   );
@@ -365,5 +372,108 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(screen.getAllByText("Reply ready — Tracked chat")).toHaveLength(1);
+  });
+});
+
+describe("ActiveRunsProvider — failed/expired runs", () => {
+  it("surfaces a failure toast (not a completion toast) and still sets the badge", async () => {
+    stubActiveRunsNetwork();
+    runHandler = (runId) =>
+      Promise.resolve(
+        jsonResponse(
+          runResponseFixture({ id: runId, status: "running_model" }),
+        ),
+      );
+
+    const { queryClient } = renderProbe("chat-fail");
+    screen.getByText("track").click();
+    await waitFor(() =>
+      expect(screen.getByTestId("processing").textContent).toBe("true"),
+    );
+
+    queryClient.setQueryData(activeRunsQueryKeys.run("run-track"), {
+      id: "run-track",
+      status: "failed",
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("unread").textContent).toBe("true"),
+    );
+    expect(screen.getByText("Run failed — Tracked chat")).toBeTruthy();
+    expect(screen.queryByText(/Reply ready/)).toBeNull();
+  });
+});
+
+describe("ActiveRunsProvider — untrackChat / markChatSeen", () => {
+  it("untrackChat drops that chat's tracked run (removeChatRuns' matching branch)", async () => {
+    stubActiveRunsNetwork();
+    runHandler = (runId) =>
+      Promise.resolve(
+        jsonResponse(
+          runResponseFixture({ id: runId, status: "running_model" }),
+        ),
+      );
+
+    renderProbe("chat-untrack");
+    screen.getByText("track").click();
+    await waitFor(() =>
+      expect(screen.getByTestId("processing").textContent).toBe("true"),
+    );
+
+    screen.getByText("untrack").click();
+    await waitFor(() =>
+      expect(screen.getByTestId("processing").textContent).toBe("false"),
+    );
+  });
+
+  it("markChatSeen clears the unread badge (clearSeenChat's matching branch)", async () => {
+    stubActiveRunsNetwork();
+    runHandler = (runId) =>
+      Promise.resolve(
+        jsonResponse(
+          runResponseFixture({ id: runId, status: "running_model" }),
+        ),
+      );
+
+    const { queryClient } = renderProbe("chat-seen");
+    screen.getByText("track").click();
+    await waitFor(() =>
+      expect(screen.getByTestId("processing").textContent).toBe("true"),
+    );
+    queryClient.setQueryData(activeRunsQueryKeys.run("run-track"), {
+      id: "run-track",
+      status: "completed",
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("unread").textContent).toBe("true"),
+    );
+
+    screen.getByText("mark seen").click();
+    await waitFor(() =>
+      expect(screen.getByTestId("unread").textContent).toBe("false"),
+    );
+  });
+});
+
+describe("ActiveRunsProvider — trackRun idempotence", () => {
+  it("re-tracking the same run for the same chat is a no-op (addTrackedRun's idempotent branch)", async () => {
+    stubActiveRunsNetwork();
+    runHandler = (runId) =>
+      Promise.resolve(
+        jsonResponse(
+          runResponseFixture({ id: runId, status: "running_model" }),
+        ),
+      );
+
+    renderProbe("chat-idempotent");
+    screen.getByText("track").click();
+    await waitFor(() =>
+      expect(screen.getByTestId("processing").textContent).toBe("true"),
+    );
+
+    // Second click with the identical (runId, chatId) must not throw or
+    // change the observable state.
+    screen.getByText("track").click();
+    expect(screen.getByTestId("processing").textContent).toBe("true");
   });
 });

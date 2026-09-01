@@ -8,7 +8,12 @@ import {
   type Mock,
 } from "vitest";
 
-import { deleteChat, renameChat, setChatVisibility } from "./management";
+import {
+  deleteChat,
+  renameChat,
+  setChatArchive,
+  setChatVisibility,
+} from "./management";
 import {
   emptyResponse,
   jsonResponse,
@@ -51,6 +56,18 @@ describe("setChatVisibility", () => {
     await expect(request.clone().json()).resolves.toEqual({
       visibility: "public",
     });
+  });
+});
+
+describe("setChatArchive", () => {
+  it("PATCHes /chats/:id with the archived flag", async () => {
+    fetchMock.mockResolvedValue(emptyResponse());
+    await setChatArchive("c1", true);
+
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("PATCH");
+    expect(new URL(request.url).pathname).toBe("/api/v1/chats/c1");
+    await expect(request.clone().json()).resolves.toEqual({ archived: true });
   });
 });
 

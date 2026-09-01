@@ -1,3 +1,6 @@
+// jsdom (not the workspace default "node") — useChatsQuery/useChatQuery below
+// render real hooks through @testing-library/react.
+// @vitest-environment jsdom
 import { QueryClient } from "@tanstack/react-query";
 import {
   afterEach,
@@ -8,6 +11,7 @@ import {
   vi,
   type Mock,
 } from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
 import { messageSeqFromMetadata, type ChatMessagesResponse } from "./history";
 import { rawChatMessage } from "./message-fixtures";
 
@@ -21,12 +25,18 @@ import {
   olderPageParam,
   seedChatMessagesQueryData,
   toChatHistory,
+  useChatQuery,
+  useChatsQuery,
 } from "./queries";
 import {
   jsonResponse,
   requestFromCall,
   stubFetch,
 } from "../../test-support/fetch-stub";
+import {
+  newTestQueryClient,
+  wrapperWithClient,
+} from "../../test-support/query-client";
 
 function generatedApiError(
   status: number,
@@ -92,6 +102,38 @@ describe("groupChatsByTimePeriod", () => {
     ]);
     expect(grouped[ChatGroupPeriod.LAST_WEEK]?.map((c) => c.id)).toEqual([
       "older",
+    ]);
+  });
+
+  it("buckets yesterday, last month, and older separately from today/last week", () => {
+    const now = new Date();
+    const chat = (id: string, updatedAt: Date): ChatResponse => ({
+      id,
+      title: id,
+      visibility: "private",
+      createdAt: updatedAt.toISOString(),
+      updatedAt: updatedAt.toISOString(),
+      lastMessage: null,
+      projectId: null,
+      archivedAt: null,
+    });
+    const daysAgo = (n: number) =>
+      new Date(now.getTime() - 60_000 * 60 * 24 * n);
+
+    const grouped = groupChatsByTimePeriod([
+      chat("yesterday", daysAgo(1)),
+      chat("three-weeks", daysAgo(21)), // > 7 days, <= 30 days: LAST_MONTH
+      chat("ancient", daysAgo(90)), // > 30 days: OLDER
+    ]);
+
+    expect(grouped[ChatGroupPeriod.YESTERDAY]?.map((c) => c.id)).toEqual([
+      "yesterday",
+    ]);
+    expect(grouped[ChatGroupPeriod.LAST_MONTH]?.map((c) => c.id)).toEqual([
+      "three-weeks",
+    ]);
+    expect(grouped[ChatGroupPeriod.OLDER]?.map((c) => c.id)).toEqual([
+      "ancient",
     ]);
   });
 });
@@ -426,5 +468,64 @@ describe("toChatHistory", () => {
       ),
     ).toEqual([701, 900]);
     expect(history.compaction).toBe(targetPage.compaction);
+  });
+});
+
+describe("useChatsQuery", () => {
+  it("sends the filters as query params and derives hasData from the pages", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([{ id: "c1", title: "Chat", visibility: "private" }]),
+    );
+    const queryClient = newTestQueryClient();
+
+    const { result } = renderHook(() => useChatsQuery({ projectId: "p1" }), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const request = requestFromCall(fetchMock);
+    expect(new URL(request.url).searchParams.get("projectId")).toBe("p1");
+    expect(result.current.hasData).toBe(true);
+  });
+
+  it("hasData is false when every loaded page is empty", async () => {
+    fetchMock.mockResolvedValue(jsonResponse([]));
+    const queryClient = newTestQueryClient();
+
+    const { result } = renderHook(() => useChatsQuery(), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.hasData).toBe(false);
+  });
+});
+
+describe("useChatQuery", () => {
+  it("fetches the chat under its exact detail key", async () => {
+    const chat = { id: "c1", title: "Chat", visibility: "private" };
+    fetchMock.mockResolvedValue(jsonResponse(chat));
+    const queryClient = newTestQueryClient();
+
+    const { result } = renderHook(() => useChatQuery("c1"), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(chat);
+    const request = requestFromCall(fetchMock);
+    expect(new URL(request.url).pathname).toBe("/api/v1/chats/c1");
+    expect(queryClient.getQueryData(chatQueryKeys.detail("c1"))).toEqual(chat);
+  });
+
+  it("stays disabled for an empty chatId (the draft/new-chat case)", () => {
+    const queryClient = newTestQueryClient();
+
+    const { result } = renderHook(() => useChatQuery(""), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

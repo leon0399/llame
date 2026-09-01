@@ -112,6 +112,13 @@ function stubPinsNetwork() {
     if (pinMatch && request.method === "DELETE") {
       return new Response(null, { status: 204 });
     }
+    if (
+      request.method === "PATCH" &&
+      (/^\/api\/v1\/chats\/.+$/.exec(pathname) ||
+        /^\/api\/v1\/projects\/.+$/.exec(pathname))
+    ) {
+      return new Response(null, { status: 204 });
+    }
     throw new Error(`unrouted fetch in test: ${request.method} ${pathname}`);
   });
 }
@@ -290,6 +297,36 @@ describe("AppSidebarPinned — pinned chat row menu (mirrors ChatItem's row menu
     const request = await findPinRequest("DELETE");
     expect(new URL(request.url).pathname).toBe("/api/v1/pins/chat/c1");
   });
+
+  it("the kebab menu's Archive item archives the chat", async () => {
+    pinsHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<PinnedItem>>([
+          {
+            itemType: "chat",
+            itemId: "c1",
+            pinnedAt: "2026-01-01T00:00:00.000Z",
+            item: { id: "c1", title: "Trip to Lisbon", archivedAt: null },
+          },
+        ]),
+      );
+    const user = userEvent.setup();
+    renderPinned();
+
+    await user.click(await screen.findByRole("button", { name: /more/i }));
+    await user.click(await screen.findByRole("menuitem", { name: "Archive" }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([req]) =>
+            req instanceof Request &&
+            req.method === "PATCH" &&
+            new URL(req.url).pathname === "/api/v1/chats/c1",
+        ),
+      ).toBe(true),
+    );
+  });
 });
 
 describe("AppSidebarPinned — pinned project row menu (mirrors ProjectItem's row menu)", () => {
@@ -337,5 +374,35 @@ describe("AppSidebarPinned — pinned project row menu (mirrors ProjectItem's ro
 
     const request = await findPinRequest("DELETE");
     expect(new URL(request.url).pathname).toBe("/api/v1/pins/project/p1");
+  });
+
+  it("the kebab menu's Archive item archives the project", async () => {
+    pinsHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<PinnedItem>>([
+          {
+            itemType: "project",
+            itemId: "p1",
+            pinnedAt: "2026-01-02T00:00:00.000Z",
+            item: { id: "p1", name: "Acme relaunch", archivedAt: null },
+          },
+        ]),
+      );
+    const user = userEvent.setup();
+    renderPinned();
+
+    await user.click(await screen.findByRole("button", { name: /more/i }));
+    await user.click(await screen.findByRole("menuitem", { name: "Archive" }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([req]) =>
+            req instanceof Request &&
+            req.method === "PATCH" &&
+            new URL(req.url).pathname === "/api/v1/projects/p1",
+        ),
+      ).toBe(true),
+    );
   });
 });

@@ -41,8 +41,11 @@ import {
   revokeMembership,
   updateOrgUnit,
   useChangeMembershipRole,
+  useCreateChildOrg,
   useCreateRootOrg,
   useDeleteOrgUnit,
+  useGrantMembership,
+  useRevokeMembership,
   useUpdateOrgUnit,
 } from "./mutations";
 import { orgUnitsQueryKeys } from "./queries";
@@ -450,6 +453,144 @@ describe("useCreateRootOrg: no optimistic insert", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: orgUnitsQueryKeys.lists(),
     });
+  });
+});
+
+describe("useUpdateOrgUnit: patches only the matching row", () => {
+  it("leaves a sibling unit's fields untouched (applyOrgUnitPatch's id-mismatch branch)", async () => {
+    const queryClient = newTestQueryClient();
+    const seeded = [
+      orgUnitFixture({ id: "u1", name: "Old" }),
+      orgUnitFixture({ id: "u2", name: "Sibling" }),
+    ];
+    queryClient.setQueryData(orgUnitsQueryKeys.lists(), seeded);
+    fetchMock.mockResolvedValue(
+      jsonResponse(orgUnitFixture({ id: "u1", name: "New" })),
+    );
+
+    const { result } = renderHook(() => useUpdateOrgUnit(), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+    result.current.mutate({ orgUnitId: "u1", name: "New" });
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<Array<OrgUnitResponse>>(
+          orgUnitsQueryKeys.lists(),
+        ),
+      ).toMatchObject([
+        { id: "u1", name: "New" },
+        { id: "u2", name: "Sibling" },
+      ]),
+    );
+  });
+});
+
+describe("useCreateChildOrg: hook invalidates lists() on success", () => {
+  it("POSTs the child and invalidates lists() only after the fetcher resolves", async () => {
+    const queryClient = newTestQueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { promise, resolve } = deferred<Response>();
+    fetchMock.mockReturnValue(promise);
+
+    const { result } = renderHook(() => useCreateChildOrg(), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+    result.current.mutate({ parentId: "u1", name: "Team" });
+
+    expect(invalidateSpy).not.toHaveBeenCalled();
+    resolve(jsonResponse(orgUnitFixture({ id: "u2", name: "Team" })));
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: orgUnitsQueryKeys.lists(),
+    });
+  });
+});
+
+describe("useGrantMembership: invalidates memberships() and myRole()", () => {
+  it("grants and invalidates both keys for the target unit (the creator-visibility edge)", async () => {
+    const queryClient = newTestQueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    fetchMock.mockResolvedValue(emptyResponse());
+
+    const { result } = renderHook(() => useGrantMembership(), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+    result.current.mutate({ orgUnitId: "u1", userId: "user-2", role: "admin" });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: orgUnitsQueryKeys.memberships("u1"),
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: orgUnitsQueryKeys.myRole("u1"),
+    });
+  });
+});
+
+describe("useRevokeMembership: optimistic removal + rollback + invalidation", () => {
+  it("removes the membership from the cache before the fetcher resolves, then invalidates myRole and lists (self-leave)", async () => {
+    const queryClient = newTestQueryClient();
+    const seeded = [
+      membershipFixture({ userId: "user-2" }),
+      membershipFixture({ userId: "user-3" }),
+    ];
+    queryClient.setQueryData(orgUnitsQueryKeys.memberships("u1"), seeded);
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { promise, resolve } = deferred<Response>();
+    fetchMock.mockReturnValue(promise);
+
+    const { result } = renderHook(() => useRevokeMembership(), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+    result.current.mutate({ orgUnitId: "u1", userId: "user-2" });
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<Array<MembershipResponse>>(
+          orgUnitsQueryKeys.memberships("u1"),
+        ),
+      ).toEqual([expect.objectContaining({ userId: "user-3" })]),
+    );
+
+    resolve(emptyResponse());
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: orgUnitsQueryKeys.myRole("u1"),
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: orgUnitsQueryKeys.lists(),
+    });
+  });
+
+  it("rolls back the removed membership on error", async () => {
+    const queryClient = newTestQueryClient();
+    const seeded = [membershipFixture({ userId: "user-2" })];
+    queryClient.setQueryData(orgUnitsQueryKeys.memberships("u1"), seeded);
+    const { promise, reject } = deferred<Response>();
+    fetchMock.mockReturnValue(promise);
+
+    const { result } = renderHook(() => useRevokeMembership(), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+    result.current.mutate({ orgUnitId: "u1", userId: "user-2" });
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<Array<MembershipResponse>>(
+          orgUnitsQueryKeys.memberships("u1"),
+        ),
+      ).toEqual([]),
+    );
+
+    reject(new Error("network down"));
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(
+      queryClient.getQueryData<Array<MembershipResponse>>(
+        orgUnitsQueryKeys.memberships("u1"),
+      ),
+    ).toEqual(seeded);
   });
 });
 
