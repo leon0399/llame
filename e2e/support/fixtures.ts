@@ -112,7 +112,8 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
     await provide(workerAccount);
   },
 
-  freshAccount: async (_fixtures, provide) => {
+  // oxlint-disable-next-line eslint/no-empty-pattern -- Playwright statically requires fixture callbacks to destructure their first parameter.
+  freshAccount: async ({}, provide) => {
     const request = await playwrightRequest.newContext();
 
     try {
@@ -132,7 +133,8 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
     provide(workerStorageState),
 
   workerAccount: [
-    async (_fixtures, provide) => {
+    // oxlint-disable-next-line eslint/no-empty-pattern -- Playwright statically requires fixture callbacks to destructure their first parameter.
+    async ({}, provide) => {
       const request = await playwrightRequest.newContext();
 
       try {
@@ -151,7 +153,8 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
   ],
 
   knowledgeRoot: [
-    async (_fixtures, provide) => {
+    // oxlint-disable-next-line eslint/no-empty-pattern -- Playwright statically requires fixture callbacks to destructure their first parameter.
+    async ({}, provide) => {
       const root = process.env.E2E_KNOWLEDGE_ROOT;
       if (!root) {
         throw new Error("E2E_KNOWLEDGE_ROOT is required for Knowledge tests");
