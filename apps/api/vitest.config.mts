@@ -1,7 +1,19 @@
 import path from 'node:path';
 
 import swc from 'unplugin-swc';
+import type { TestProjectConfiguration } from 'vitest/config';
 import { defineConfig } from 'vitest/config';
+
+const qualityExcludes = [
+  '**/*.test.*',
+  '**/*.spec.*',
+  '**/*.stories.tsx',
+  '**/__mocks__/**',
+  '**/testing/**',
+  '**/db/migrations/**',
+  '**/lib/api/generated/**',
+  '**/vendor/**',
+];
 
 // @workspace/config-interpolation normally resolves to built ./dist; the integration
 // project runs outside turbo on fresh checkouts, so compile it from source
@@ -38,7 +50,10 @@ const unitTest = {
   hookTimeout: underStryker ? 180_000 : undefined,
 };
 
-const unitProject = { extends: true, test: unitTest };
+const unitProject = {
+  extends: true,
+  test: unitTest,
+} satisfies TestProjectConfiguration;
 
 export default defineConfig({
   resolve: {
@@ -72,16 +87,7 @@ export default defineConfig({
       // code, and the test scaffolding itself are not what the 85%
       // target is about.
       include: ['src/**/*.ts'],
-      exclude: [
-        '**/*.test.*',
-        '**/*.spec.*',
-        '**/*.stories.tsx',
-        '**/__mocks__/**',
-        '**/testing/**',
-        '**/db/migrations/**',
-        '**/lib/api/generated/**',
-        '**/vendor/**',
-      ],
+      exclude: qualityExcludes,
     },
     globals: true,
     environment: 'node',

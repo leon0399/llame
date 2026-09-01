@@ -28,7 +28,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -38,46 +38,9 @@ jobs:
         with:
           turbo-cache: lint
 
-      # OpenAPI correctness gate; the full warning audit remains available via
-      # pnpm openapi:lint without adding its summary/description warnings here.
-      - run: pnpm openapi:lint:ci
-
-      # Oxlint across root E2E and every workspace; type-aware rules via
-      # tsgolint in apps/api. The Turbo graph owns the root lint dependency.
-      - run: pnpm exec turbo run lint
-
-      # Product-owned Markdown; generated integrations and symlink aliases are
-      # excluded explicitly in the shared markdownlint-cli2 configuration.
-      - run: pnpm lint:markdown
-
-  quality:
-    name: Quality metrics
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/setup
-
-      # The targets in docs/code-quality-targets.md that oxlint does not
-      # already gate. Cyclomatic complexity, file length, and the
-      # any/unknown targets are enforced by the Lint job above.
-
-      # Dead code: unused files, exports, types, and dependencies. A file a
-      # script runs by PATH has no importer, so it is declared as an entry in
-      # knip.json rather than deleted — see the note in the targets doc.
-      - run: pnpm quality:dead
-
-      # Copy-paste detection over product source. Tests, stories, generated
-      # clients, and vendored code are excluded in .jscpd.json; the threshold
-      # is a percentage, so this fails on a rise rather than on any clone.
-      - run: pnpm quality:dupes
-
-      # Halstead difficulty and per-function cognitive complexity.
-      - run: pnpm quality:halstead
-      - run: pnpm quality:cognitive
+      # Canonical static gate: root and workspace Oxlint, Markdown, OpenAPI,
+      # dead code, duplication, and Halstead difficulty.
+      - run: pnpm lint
 
   format:
     name: Format

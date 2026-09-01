@@ -3,7 +3,7 @@
 #   typecheck ─┐
 #   unit ──────┼─→ build ───────────┐
 #              ├─→ integration ─────┴─→ browser-e2e
-#              └─→ storybook        (component tests, real browser)
+#              └─→ component        (Storybook, real browser)
 #
 # One job per concern, so a red X names what broke instead of hiding inside a
 # grab-bag. Cheap gates run first and unconditionally; each expensive layer
@@ -68,7 +68,13 @@ jobs:
 
       # Strictly dependency-free by construction: DB-backed suites are their
       # own `test:integration` task, evals are opt-in behind RUN_MODEL_EVALS.
-      - run: pnpm exec turbo run test
+      - run: pnpm test:metrics
+
+      - run: pnpm exec turbo run test --filter='!api' --filter='!web' --filter='!@workspace/config-interpolation'
+
+      # Coverage and function-level CRAP replace the plain test command for
+      # these workspaces, so the suite runs once and both thresholds gate CI.
+      - run: pnpm exec turbo run test:coverage --filter=web --filter=@workspace/config-interpolation
 
   build:
     name: Build
@@ -109,9 +115,58 @@ jobs:
       # migrations — the worst-case single-role self-hosted deployment, so a
       # green RLS suite proves FORCE constrains even the table owner. Needs
       # host Docker, hence no container image for this job.
-      - run: pnpm --filter api test:integration
+      # Runs unit + integration once, then enforces coverage and function-level
+      # CRAP from the fresh Istanbul report.
+      - run: pnpm --filter api test:coverage
 
-  storybook:
+  mutation:
+    name: Mutation testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    needs: [typecheck, unit]
+    # Shares this group with mutation-baseline.yml so only one trusted baseline
+    # writer runs at a time. PRs use a per-ref group and cancel stale revisions.
+    concurrency:
+      group: ${{ github.event_name == 'pull_request' && format('mutation-pr-{0}', github.ref) || 'mutation-baseline' }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      # Shared with the forced scheduled refresh in mutation-baseline.yml.
+      # Source and discovered tests stay out of the key because Stryker diffs
+      # them; the action fingerprints inputs its incremental differ cannot see.
+      - uses: ./.github/actions/stryker-baseline
+        id: baseline
+
+      # A missing compatible cache is safe: Stryker performs a cold full run.
+      # Its mandatory dry run stops before mutants when API unit tests are red.
+      - run: pnpm --filter api exec stryker run --incremental
+
+      # PRs never publish. A successful push to master is the merge-time writer;
+      # the schedule-only forced writer lives in mutation-baseline.yml.
+      - name: Save refreshed mutation baseline
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/api/reports/stryker-incremental.json
+          key: ${{ steps.baseline.outputs.prefix }}${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mutation-report
+          path: |
+            apps/api/reports/mutation/
+            !apps/api/reports/stryker-incremental.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  component:
     name: Component tests (Storybook)
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -157,7 +212,7 @@ jobs:
           restore-keys: |
             turbo-storybook-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.github/workflows/ci.yml') }}-
 
-      - run: pnpm exec turbo run test:storybook build --filter=storybook
+      - run: pnpm exec turbo run test:component build --filter=storybook
 
   browser-e2e:
     name: Product e2e (Playwright)

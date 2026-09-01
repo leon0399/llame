@@ -16,7 +16,7 @@
       ],
       "outputs": ["storybook-static/**"]
     },
-    "test:storybook": {
+    "test:component": {
       // Same re-includes as build: transit excludes ui stories, and web is not
       // a package dependency of storybook.
       "inputs": [

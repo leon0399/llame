@@ -1,0 +1,56 @@
+# Forced counterpart to ci.yml's incremental mutation job. Both workflows use
+# .github/actions/stryker-baseline and the repository-wide mutation-baseline
+# concurrency group; change their writer conditions together.
+
+name: Mutation baseline refresh
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  refresh:
+    name: Forced full mutation run
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    concurrency:
+      group: mutation-baseline
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      # Restore is still useful for report continuity, but --force below reruns
+      # every current mutant. The merge-time counterpart is ci.yml#mutation.
+      - uses: ./.github/actions/stryker-baseline
+        id: baseline
+
+      - run: pnpm --filter api exec stryker run --incremental --force
+
+      - name: Save rebuilt mutation baseline
+        if: success() && github.ref == 'refs/heads/master'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/api/reports/stryker-incremental.json
+          key: ${{ steps.baseline.outputs.prefix }}${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mutation-report-forced
+          path: |
+            apps/api/reports/mutation/
+            !apps/api/reports/stryker-incremental.json
+          retention-days: 30
+          if-no-files-found: warn

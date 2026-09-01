@@ -44,7 +44,7 @@ export type TypeEnvironment = {
   readonly aliases: ReadonlyMap<string, ESTree.TSTypeAliasDeclaration>;
   readonly interfaces: ReadonlyMap<
     string,
-    readonly ESTree.TSInterfaceDeclaration[]
+    ReadonlyArray<ESTree.TSInterfaceDeclaration>
   >;
   readonly shadowedBuiltIns: ReadonlySet<string>;
 };
@@ -60,7 +60,7 @@ export function createTypeEnvironment(
   program: ESTree.Program,
 ): TypeEnvironment {
   const aliases = new Map<string, ESTree.TSTypeAliasDeclaration>();
-  const interfaces = new Map<string, ESTree.TSInterfaceDeclaration[]>();
+  const interfaces = new Map<string, Array<ESTree.TSInterfaceDeclaration>>();
   const shadowedBuiltIns = new Set<string>();
 
   for (const statement of program.body) {
@@ -161,7 +161,7 @@ function isEffectivelyEmptyTypeLiteral(type: ESTree.TSTypeLiteral): boolean {
 }
 
 function isEffectivelyEmptyInterface(
-  declarations: readonly ESTree.TSInterfaceDeclaration[],
+  declarations: ReadonlyArray<ESTree.TSInterfaceDeclaration>,
 ): boolean {
   if (declarations.length !== 1) return false;
   const [type] = declarations;
@@ -293,14 +293,15 @@ function dictionaryValueTypes(
   environment: TypeEnvironment,
   substitutions: TypeAliasEnvironment,
   resolvingAliases: ReadonlySet<string>,
-): readonly ResolvedType[] {
+): ReadonlyArray<ResolvedType> {
   const unwrapped = unwrapTransparentType(type);
 
   if (unwrapped.type === "TSTypeLiteral") {
-    return unwrapped.members.flatMap((member): readonly ResolvedType[] =>
-      member.type === "TSIndexSignature" && member.typeAnnotation !== null
-        ? [{ type: member.typeAnnotation.typeAnnotation, substitutions }]
-        : [],
+    return unwrapped.members.flatMap(
+      (member): ReadonlyArray<ResolvedType> =>
+        member.type === "TSIndexSignature" && member.typeAnnotation !== null
+          ? [{ type: member.typeAnnotation.typeAnnotation, substitutions }]
+          : [],
     );
   }
 
@@ -562,19 +563,6 @@ function classifyAliasBroadTarget(
     nextSubstitutions,
     nextResolving,
   );
-}
-
-function isPopulatedObjectExpression(expression: ESTree.Expression): boolean {
-  let current = expression;
-  while (
-    current.type === "ParenthesizedExpression" ||
-    current.type === "TSAsExpression" ||
-    current.type === "TSTypeAssertion" ||
-    current.type === "TSNonNullExpression"
-  ) {
-    current = current.expression;
-  }
-  return current.type === "ObjectExpression" && current.properties.length > 0;
 }
 
 export function isKnownEvidenceExpression(

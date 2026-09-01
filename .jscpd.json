@@ -1,5 +1,4 @@
 {
-  "$schema": "https://raw.githubusercontent.com/kucherenko/jscpd/master/packages/jscpd/schema.json",
   "pattern": "**/*.{ts,tsx}",
   "path": ["apps", "packages"],
   "minLines": 10,
@@ -25,6 +24,5 @@
     "**/testing/**",
     "**/evals/**",
     "**/e2e/**"
-  ],
-  "_note": "threshold is a RATCHET, not an allowance. Every clone still counted is justified in docs/code-quality-targets.md; lower this number when one is removed, never raise it to admit a new one."
+  ]
 }

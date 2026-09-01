@@ -193,12 +193,12 @@ function functionBoundary(node: ESTree.Node): ESTree.Node | null {
 }
 
 function resolvedVariableForIdentifier(
-  scopes: readonly {
-    readonly references: readonly {
+  scopes: ReadonlyArray<{
+    readonly references: ReadonlyArray<{
       readonly identifier: ESTree.Node;
       readonly resolved: Variable | null;
-    }[];
-  }[],
+    }>;
+  }>,
   identifier: ESTree.IdentifierReference,
 ): Variable | null {
   for (const scope of scopes) {

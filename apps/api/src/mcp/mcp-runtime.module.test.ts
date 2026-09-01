@@ -102,10 +102,16 @@ describe('McpRuntimeModule', () => {
   it('creates one runtime per Nest application graph', async () => {
     const firstGraph = await Test.createTestingModule({
       imports: [McpRuntimeModule, McpRuntimeModule],
-    }).compile();
+    })
+      .overrideProvider(InstanceConfigService)
+      .useValue({ config: { ...BUILT_IN_DEFAULTS, mcpServers: {} } })
+      .compile();
     const secondGraph = await Test.createTestingModule({
       imports: [McpRuntimeModule],
-    }).compile();
+    })
+      .overrideProvider(InstanceConfigService)
+      .useValue({ config: { ...BUILT_IN_DEFAULTS, mcpServers: {} } })
+      .compile();
 
     expect(firstGraph.get(McpRuntimeService)).toBe(
       firstGraph.get(McpRuntimeService),

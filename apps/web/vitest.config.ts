@@ -1,6 +1,19 @@
 import { defineConfig } from "vitest/config";
 import tsconfigPaths from "vite-tsconfig-paths";
 
+const qualityExcludes = [
+  "**/*.test.*",
+  "**/*.spec.*",
+  "**/*.stories.tsx",
+  "**/__mocks__/**",
+  "**/testing/**",
+  "**/db/migrations/**",
+  "**/lib/api/generated/**",
+  "**/vendor/**",
+];
+
+const productRoots = ["app", "lib", "components", "contexts", "hooks", "utils"];
+
 // Resolves this workspace's tsconfig path aliases ("@/*", "@workspace/ui/*")
 // for vitest, same as Next's own bundler already does. Additive only: every
 // existing test imports relatively and is unaffected; this only unblocks
@@ -30,24 +43,8 @@ export default defineConfig({
       // Product source only: generated clients, migrations, vendored
       // code, and the test scaffolding itself are not what the 85%
       // target is about.
-      include: [
-        "app/**/*.{ts,tsx}",
-        "lib/**/*.{ts,tsx}",
-        "components/**/*.{ts,tsx}",
-        "contexts/**/*.{ts,tsx}",
-        "hooks/**/*.{ts,tsx}",
-        "utils/**/*.{ts,tsx}",
-      ],
-      exclude: [
-        "**/*.test.*",
-        "**/*.spec.*",
-        "**/*.stories.tsx",
-        "**/__mocks__/**",
-        "**/testing/**",
-        "**/db/migrations/**",
-        "**/lib/api/generated/**",
-        "**/vendor/**",
-      ],
+      include: productRoots.map((root) => `${root}/**/*.{ts,tsx}`),
+      exclude: qualityExcludes,
     },
   },
 });

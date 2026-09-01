@@ -1,5 +1,17 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-01
+
+- **Repository quality gates**: one root Oxlint policy now enforces complexity,
+  unsafe-type, module-boundary, and repository anti-slop rules across every
+  workspace. Standard tooling gates Halstead difficulty, cognitive complexity,
+  dead code, duplication, workspace coverage, function-level CRAP, and full-API
+  mutation score in local commands and CI. The adoption refactors oversized
+  modules along responsibility boundaries, replaces first-party module mocks
+  with real seams, repairs tautological tests, and adds missing behavior
+  coverage. Contributor, reviewer, testing, runtime, and workspace instructions
+  are compressed around one owner per rule.
+
 # 2026-08-28
 
 - **pnpm 10 → 11** (#633): `packageManager` and the Nix dev shell pin

@@ -11,7 +11,7 @@
     "lint:fix": "oxlint --deny-warnings --fix",
     "start": "next start",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "vitest run --coverage && crap-typescript --threshold 42 --format none --exclude 'lib/api/generated/**' app lib components contexts hooks utils",
     "test:watch": "vitest",
     "typecheck": "next typegen && tsgo --noEmit"
   },
@@ -36,8 +36,9 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@barney-media/crap-typescript": "catalog:",
     "@storybook/nextjs-vite": "catalog:",
-    "@tailwindcss/postcss": "^4.3.2",
+    "@tailwindcss/postcss": "catalog:",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/js-cookie": "^3.0.6",

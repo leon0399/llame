@@ -1,0 +1,51 @@
+name: Restore Stryker baseline
+description: >-
+  Compute the mutation-environment fingerprint and restore the newest
+  compatible Stryker incremental report. Callers own execution and saving.
+
+# Stryker diffs mutated source and discovered test files itself. This action
+# fingerprints only inputs outside that model. Keep both mutation workflows on
+# this action: a second key definition can silently admit stale killed verdicts.
+
+outputs:
+  prefix:
+    description: Immutable-cache restore prefix for this environment.
+    value: ${{ steps.fingerprint.outputs.prefix }}
+  matched-key:
+    description: Cache key restored by actions/cache, or empty on a cold run.
+    value: ${{ steps.restore.outputs.cache-matched-key }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compute mutation-environment fingerprint
+      id: fingerprint
+      shell: bash
+      env:
+        INPUT_HASH: >-
+          ${{ hashFiles(
+            'pnpm-lock.yaml',
+            'package.json',
+            '.node-version',
+            '.github/actions/setup/action.yml',
+            '.github/actions/stryker-baseline/action.yml',
+            'apps/api/package.json',
+            'apps/api/stryker.config.json',
+            'apps/api/vitest.config.mts',
+            'apps/api/tsconfig.json',
+            'apps/api/src/testing/**',
+            'apps/api/src/**/*.mjs',
+            'packages/config-interpolation/package.json',
+            'packages/config-interpolation/src/**'
+          ) }}
+      run: echo "prefix=stryker-v1-${RUNNER_OS}-${INPUT_HASH}-" >> "$GITHUB_OUTPUT"
+
+    - name: Restore compatible mutation baseline
+      id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: apps/api/reports/stryker-incremental.json
+        key: ${{ steps.fingerprint.outputs.prefix }}${{ github.sha }}
+        restore-keys: |
+          ${{ steps.fingerprint.outputs.prefix }}${{ github.sha }}-
+          ${{ steps.fingerprint.outputs.prefix }}

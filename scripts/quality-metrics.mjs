@@ -1,25 +1,17 @@
 #!/usr/bin/env node
-// Reports the code-quality targets that no linter in this repository measures.
-//
-// This is a thin driver, deliberately: every number below comes out of a
-// standard library (`ts-complex` for Halstead and cyclomatic,
-// `cognitive-complexity-ts` for cognitive, vitest's own coverage JSON), and the
-// only arithmetic here is the published CRAP formula over two of them. Nothing
-// implements a metric. See docs/code-quality-targets.md.
-//
-//   node scripts/quality-metrics.mjs halstead|cognitive|crap|all
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { globSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+import tsComplex from "ts-complex";
+import ts from "typescript";
 
 const THRESHOLDS = {
   halsteadDifficulty: 90,
-  cognitive: 25,
-  crap: 25,
 };
 
-/** Product source only: generated, vendored, and test files are out of scope. */
 const SOURCE_GLOBS = [
   "apps/api/src/**/*.ts",
   "apps/web/{app,lib,components,contexts,hooks,utils}/**/*.{ts,tsx}",
@@ -38,206 +30,123 @@ const EXCLUDE = [
   /\/testing\//u,
 ];
 
-const sourceFiles = () =>
-  SOURCE_GLOBS.flatMap((pattern) => globSync(pattern)).filter(
-    (file) => !EXCLUDE.some((skip) => skip.test(file)),
+function relativeFile(file) {
+  return path.relative(process.cwd(), file).replaceAll("\\", "/");
+}
+
+function sourceFiles() {
+  return [...new Set(SOURCE_GLOBS.flatMap((pattern) => globSync(pattern)))]
+    .filter((file) => !EXCLUDE.some((skip) => skip.test(file)))
+    .sort();
+}
+
+function hasCallable(source, file) {
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
   );
+  let found = false;
+  const visit = (node) => {
+    if (ts.isFunctionLike(node) && node.body) found = true;
+    if (!found) ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
 
-/**
- * Files allowed over a threshold, each with the reason and where it is tracked.
- *
- * This is a RATCHET, not an escape hatch: a listed file that falls below its
- * threshold is reported as a stale exception and fails too, so the list can
- * only shrink. Adding an entry is a decision to be argued in review, exactly
- * like raising a threshold — which CODING_STANDARDS §4 prohibits outright.
- */
-const EXCEPTIONS = {
-  crap: {
-    "apps/web/components/ai/model-preview-card.tsx":
-      "27.7. Its three formatters are extracted and unit-tested; everything " +
-      "left is render-conditional (pricing rows, meta rows, link visibility), " +
-      "which docs/testing.md rule 5 assigns to a Storybook play function — and " +
-      "Storybook coverage does not feed vitest's coverage.json, so no story " +
-      "can move this number. Crossing the threshold would mean writing jsdom " +
-      "render assertions against rule 5 to satisfy a metric. Remove this entry " +
-      "if the two runners' coverage is ever merged.",
-  },
-  cognitive: {
-    "apps/api/src/runs/run-execution.service.ts":
-      "executeRun and its callbacks close over ~8 let-mutated locals shared " +
-      "across onTextDelta/onReasoningDelta/onError/onFinish and the tool " +
-      "execute wrapper. Extracting any of them means threading a shared " +
-      "mutable box, and the file's own comments say only the five " +
-      "Postgres-backed integration suites can verify stream ordering, " +
-      "abort-mid-flight, and tool-settlement races. Tracked in " +
-      "docs/code-quality-tracker.md as the run-execution decomposition.",
-  },
-};
+export function analyzeHalsteadFile(filePath) {
+  const file = relativeFile(filePath);
+  const source = readFileSync(filePath, "utf8");
+  if (!hasCallable(source, file)) return [];
 
-/** One row per file, sorted worst-first, with a pass/fail count. */
-function report(label, rows, threshold, metric) {
-  const allowed = EXCEPTIONS[metric] ?? {};
-  const over = rows.filter((row) => row.value >= threshold);
-  over.sort((a, b) => b.value - a.value);
-  const unexpected = over.filter((row) => !(row.name in allowed));
-  const stale = Object.keys(allowed).filter(
-    (name) => !over.some((row) => row.name === name),
+  let output;
+  try {
+    output = tsComplex.calculateHalstead(filePath);
+  } catch (error) {
+    throw new Error(`Halstead analysis failed for ${file}`, { cause: error });
+  }
+
+  return Object.entries(output).map(([name, metrics]) => {
+    const difficulty = Number(metrics?.difficulty);
+    return {
+      file,
+      name: `${file} ${name}`,
+      value: Number.isFinite(difficulty) ? difficulty : 0,
+    };
+  });
+}
+
+export function evaluateRows(label, rows, threshold, exceptions) {
+  if (rows.length === 0) {
+    throw new Error(`${label} measured zero functions`);
+  }
+
+  const over = rows
+    .filter((row) => row.value >= threshold)
+    .sort((left, right) => right.value - left.value);
+  const unexpected = over.filter((row) => !(row.file in exceptions));
+  const stale = Object.keys(exceptions).filter(
+    (file) => !over.some((row) => row.file === file),
   );
+  return { failures: unexpected.length + stale.length, over, stale };
+}
 
+function printEvaluation(label, rows, threshold, exceptions) {
+  const result = evaluateRows(label, rows, threshold, exceptions);
   console.log(`\n${label} (threshold < ${threshold})`);
-  console.log(`  files measured: ${rows.length}`);
-  console.log(`  over threshold: ${over.length}`);
-  for (const row of over) {
-    const note = row.name in allowed ? "  [documented exception]" : "";
+  console.log(`  functions measured: ${rows.length}`);
+  console.log(`  over threshold: ${result.over.length}`);
+  for (const row of result.over) {
+    const note = row.file in exceptions ? "  [documented exception]" : "";
     console.log(`    ${row.value.toFixed(1).padStart(7)}  ${row.name}${note}`);
   }
-  for (const name of stale) {
-    console.log(
-      `  STALE EXCEPTION: ${name} is now under threshold — remove it from EXCEPTIONS.`,
-    );
+  for (const file of result.stale) {
+    console.log(`  STALE EXCEPTION: ${file}`);
   }
-  return unexpected.length + stale.length;
+  return result.failures;
 }
 
-async function halstead() {
-  const { calculateHalstead } = await import("ts-complex");
-  const rows = [];
-  for (const file of sourceFiles()) {
-    try {
-      const result = calculateHalstead(file);
-      // ts-complex reports per-function; take the file's worst.
-      const values = Object.values(result ?? {})
-        .map((entry) => Number(entry?.difficulty))
-        .filter((value) => Number.isFinite(value));
-      if (values.length > 0) {
-        rows.push({ name: file, value: Math.max(...values) });
-      }
-    } catch {
-      // A file ts-complex cannot parse is reported by tsgo and oxlint already;
-      // skipping it here keeps this driver from duplicating their errors.
-    }
-  }
-  return report(
+function analyzeAll(analyze) {
+  const files = sourceFiles();
+  if (files.length === 0)
+    throw new Error("Quality metrics matched zero source files");
+  return files.flatMap(analyze);
+}
+
+function halstead() {
+  return printEvaluation(
     "Halstead difficulty",
-    rows,
+    analyzeAll(analyzeHalsteadFile),
     THRESHOLDS.halsteadDifficulty,
-    "halstead",
+    {},
   );
 }
 
-async function cognitive() {
-  // Uses the package's own `ccts-json` CLI rather than reaching into its module
-  // internals: the CLI is its documented interface. It keys results by
-  // BASENAME, which collides across a monorepo, so files are measured one at a
-  // time and re-keyed to their real path.
-  const { execFileSync } = await import("node:child_process");
-  const rows = [];
-  for (const file of sourceFiles()) {
-    let parsed;
-    try {
-      parsed = JSON.parse(
-        execFileSync("./node_modules/.bin/ccts-json", [file], {
-          encoding: "utf8",
-          maxBuffer: 32 * 1024 * 1024,
-          stdio: ["ignore", "pipe", "ignore"],
-        }),
-      );
-    } catch {
-      continue;
-    }
-    // Cognitive complexity is a PER-FUNCTION metric. The tool's top-level
-    // entry is `kind: "file"` and carries the sum of everything inside it;
-    // scoring against that would demand splitting files rather than
-    // simplifying functions, which is the opposite of what the threshold is
-    // for. Only callable entries count, and the file's worst one represents it.
-    const CALLABLE = new Set(["function", "method", "arrow", "constructor"]);
-    const scores = [];
-    const walk = (entry) => {
-      if (!entry) return;
-      if (CALLABLE.has(entry.kind)) {
-        const score = Number(entry.score);
-        if (Number.isFinite(score)) scores.push(score);
-      }
-      for (const child of entry.inner ?? []) walk(child);
-    };
-    for (const entry of Object.values(parsed)) walk(entry);
-    if (scores.length > 0) {
-      rows.push({ name: file, value: Math.max(...scores) });
-    }
+const commands = { halstead };
+
+function main() {
+  const requested = process.argv[2] ?? "all";
+  const selected =
+    requested === "all" ? Object.keys(commands) : requested.split(",");
+  let failures = 0;
+  for (const name of selected) {
+    const run = commands[name];
+    if (!run) throw new Error(`Unknown metric: ${name}`);
+    failures += run();
   }
-  return report(
-    "Cognitive complexity",
-    rows,
-    THRESHOLDS.cognitive,
-    "cognitive",
+  console.log(
+    failures === 0
+      ? "\nAll measured metrics within threshold."
+      : `\n${failures} metric violation(s).`,
   );
+  process.exitCode = failures === 0 ? 0 : 1;
 }
 
-/**
- * CRAP = cc² × (1 − coverage)³ + cc — the published formula, over vitest's
- * coverage JSON and ts-complex's cyclomatic number. Uncovered complex code
- * scores high; either covering it or simplifying it brings it down.
- */
-async function crap() {
-  const summaryPaths = [
-    "apps/api/coverage/coverage-final.json",
-    "apps/web/coverage/coverage-final.json",
-    "packages/ui/coverage/coverage-final.json",
-    "packages/config-interpolation/coverage/coverage-final.json",
-  ].filter((file) => existsSync(file));
-
-  if (summaryPaths.length === 0) {
-    console.error(
-      "No coverage JSON found. Run the workspace `test:coverage` scripts first.",
-    );
-    return -1;
-  }
-
-  const { calculateCyclomaticComplexity } = await import("ts-complex");
-  const rows = [];
-  for (const summaryPath of summaryPaths) {
-    const summary = JSON.parse(readFileSync(summaryPath, "utf8"));
-    for (const [absolute, entry] of Object.entries(summary)) {
-      const statements = Object.values(entry.s ?? {});
-      if (statements.length === 0) continue;
-      const covered =
-        statements.filter((hits) => hits > 0).length / statements.length;
-      const relative = path.relative(process.cwd(), absolute);
-      if (EXCLUDE.some((skip) => skip.test(relative))) continue;
-      let cc = 1;
-      try {
-        const perFunction = calculateCyclomaticComplexity(absolute);
-        const values = Object.values(perFunction ?? {})
-          .map(Number)
-          .filter(Number.isFinite);
-        if (values.length > 0) cc = Math.max(...values);
-      } catch {
-        continue;
-      }
-      rows.push({ name: relative, value: cc ** 2 * (1 - covered) ** 3 + cc });
-    }
-  }
-  return report("CRAP", rows, THRESHOLDS.crap, "crap");
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  main();
 }
-
-const commands = { halstead, cognitive, crap };
-const requested = process.argv[2] ?? "all";
-const selected =
-  requested === "all" ? Object.keys(commands) : requested.split(",");
-
-let failures = 0;
-for (const name of selected) {
-  const run = commands[name];
-  if (!run) {
-    console.error(`unknown metric: ${name}`);
-    process.exit(2);
-  }
-  const over = await run();
-  if (over > 0) failures += over;
-}
-console.log(
-  failures === 0
-    ? "\nAll measured metrics within threshold."
-    : `\n${failures} file(s) over threshold.`,
-);
-process.exit(failures === 0 ? 0 : 1);

@@ -3,7 +3,6 @@
   "mutate": [
     "src/**/*.ts",
     "!src/**/*.test.ts",
-    "!src/**/*.spec.ts",
     "!src/db/migrations/**",
     "!src/testing/**",
     "!src/main.ts",
@@ -22,11 +21,11 @@
   "jsonReporter": {
     "fileName": "reports/mutation/mutation.json"
   },
-  "concurrency": 1,
+  "concurrency": 4,
   "thresholds": {
     "high": 80,
     "low": 60,
-    "break": null
+    "break": 80
   },
   "dryRunTimeoutMinutes": 20
 }

@@ -7,6 +7,14 @@
     ".": "./index.ts"
   },
   "scripts": {
-    "test": "for f in rules/*.test.ts; do node --import tsx \"$f\" || exit 1; done"
+    "lint": "oxlint --deny-warnings --report-unused-disable-directives",
+    "lint:fix": "oxlint --deny-warnings --fix",
+    "test": "node registry.check.mjs && for f in rules/*.test.ts; do node --import tsx \"$f\" || exit 1; done",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "oxlint": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:"
   }
 }

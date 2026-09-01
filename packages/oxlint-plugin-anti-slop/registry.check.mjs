@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 // Registry guard. A rule can be written, tested, imported, and still never run,
 // because registering it in the `rules` map is a separate edit that nothing
 // checks. That happened once: an import landed while its map entry silently did
 // not, and the rule reported nothing while looking installed.
-const here = dirname(fileURLToPath(import.meta.url));
+const here = import.meta.dirname;
 const source = readFileSync(join(here, "index.ts"), "utf8");
 
 // Two trees: `rules/` is llame-authored, `vendor/` is upstream code kept as
@@ -42,7 +41,9 @@ assert.deepEqual(
   `index registers rules with no file in rules/: ${orphaned.join(", ")}`,
 );
 
-console.log(`registry ok: ${ruleFiles.length} rules, all registered`);
+process.stdout.write(
+  `registry ok: ${ruleFiles.length} rules, all registered\n`,
+);
 
 // Load canary. The checks above prove the rules/ directory and the index map
 // agree; they cannot prove the module actually loads. A duplicate import made
@@ -57,4 +58,4 @@ assert.deepEqual(
   ruleFiles.toSorted(),
   `the loaded plugin exposes different rules than rules/ holds: ${exported.join(", ")}`,
 );
-console.log(`plugin loads: ${exported.length} rules exposed`);
+process.stdout.write(`plugin loads: ${exported.length} rules exposed\n`);
