@@ -59,7 +59,7 @@ often satisfied dishonestly:
 
 ## Status, 2026-09-01
 
-Seven of ten targets met. Four are enforced by `pnpm lint`, four more by the
+Eight of ten targets met. Four are enforced by `pnpm lint`, four more by the
 Quality job in `.github/workflows/lint.yml`, so none of them can silently
 regress.
 
@@ -106,10 +106,21 @@ a behavior-selecting callback — the strategy-pattern-over-a-small-set
 CODING_STANDARDS §2 prohibits. The rest are two-site pairs that the rule of
 three says to leave, on surfaces already diverging.
 
-**apps/web's remaining 6.4 points** are concentrated in component rendering,
-which [docs/testing.md](testing.md) rule 5 places in Storybook play functions
-rather than jsdom. Chasing them with `render()` assertions would raise the
-number and lower the mutation score at once.
+**apps/web reached 85.03%.** `apps/api` sits at 68.6% from unit tests alone and
+cannot be honestly measured without Postgres; CI's `test:coverage` spans both
+vitest projects and produces the real figure.
+
+**Storybook coverage does not feed this metric.** `memory-section.tsx` had a
+`.stories.tsx` and still reported 0% until a vitest test was added — worth
+knowing before treating a story as coverage.
+
+**The files left uncovered are the ones rule 5 assigns to Storybook**: the
+conversation-tree cluster (~147 lines), `chat-load-older.tsx` (third-party
+scroll physics against jsdom's zero layout metrics), `model-preview-card`,
+`font-switcher`, and the root shells. Those same files are most of what remains
+over the CRAP threshold in `apps/web`. Covering them with jsdom `render()`
+assertions would raise both numbers with tests that cannot fail — which the
+mutation-score target exists to catch.
 
 ## Verify every dead-code finding against scripts, not just imports
 
