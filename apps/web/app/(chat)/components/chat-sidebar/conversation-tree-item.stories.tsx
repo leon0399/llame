@@ -82,7 +82,7 @@ export const Dimmed: Story = {
     const canvas = within(canvasElement);
     const row = canvas.getByRole("button");
 
-    await expect(row.className).toContain("opacity-30");
+    await expect(row.className).toContain("opacity-60");
   },
 };
 
@@ -99,7 +99,7 @@ export const Archived: Story = {
     const canvas = within(canvasElement);
     const row = canvas.getByRole("button");
 
-    await expect(row.className).toContain("opacity-50");
+    await expect(row.className).toContain("opacity-70");
   },
 };
 

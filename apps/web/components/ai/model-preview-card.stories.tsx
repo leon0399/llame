@@ -82,7 +82,9 @@ export const MinimalModel: Story = {
     const canvas = within(canvasElement);
 
     // Falls back to the raw id as the heading when `name` is absent.
-    await expect(canvas.getByText("local/tiny-model")).toBeInTheDocument();
+    await expect(
+      canvas.getByRole("heading", { name: "local/tiny-model" }),
+    ).toBeInTheDocument();
     await expect(canvas.getByText("8,192 tokens")).toBeInTheDocument();
     await expect(canvas.queryByText("Input")).not.toBeInTheDocument();
     await expect(

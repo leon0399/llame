@@ -10,7 +10,11 @@
     "!src/generate-openapi.ts"
   ],
   "testRunner": "vitest",
-  "plugins": ["@stryker-mutator/vitest-runner"],
+  "checkers": ["typescript"],
+  "plugins": [
+    "@stryker-mutator/typescript-checker",
+    "@stryker-mutator/vitest-runner"
+  ],
   "vitest": {
     "configFile": "vitest.config.mts"
   },

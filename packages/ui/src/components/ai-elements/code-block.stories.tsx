@@ -95,11 +95,29 @@ export const WithCopyButton: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     onCopy.mockClear();
-    const button = canvas.getByRole("button", { name: "Copy code" });
-    await userEvent.click(button);
-    // `toBeVisible()` alone was true before the click too, so it stayed green
-    // with the clipboard write removed. `onCopy` fires only after a successful
-    // copy, which is the behaviour this story demonstrates.
-    await expect(onCopy).toHaveBeenCalledOnce();
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      "clipboard",
+    );
+    const originalClipboard = navigator.clipboard;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: fn().mockResolvedValue(undefined) },
+    });
+
+    try {
+      const button = canvas.getByRole("button", { name: "Copy code" });
+      await userEvent.click(button);
+      await expect(onCopy).toHaveBeenCalledOnce();
+    } finally {
+      if (clipboardDescriptor) {
+        Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
+      } else {
+        Object.defineProperty(navigator, "clipboard", {
+          configurable: true,
+          value: originalClipboard,
+        });
+      }
+    }
   },
 };

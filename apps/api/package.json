@@ -78,6 +78,7 @@
     "@nestjs/schematics": "^11.1.0",
     "@nestjs/testing": "^11.0.1",
     "@stryker-mutator/core": "9.6.1",
+    "@stryker-mutator/typescript-checker": "9.6.1",
     "@stryker-mutator/vitest-runner": "9.6.1",
     "@swc/cli": "^0.6.0",
     "@swc/core": "^1.10.7",
