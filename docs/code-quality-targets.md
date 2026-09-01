@@ -79,7 +79,7 @@ cannot outlive its problem.
 | Dead code `0`          | 18 files, 152 exports | 0                       | **met**        |
 | Surviving mutants      | unmeasured            | 10.1%                   | **met**, pilot |
 | Redundant code         | 0.47%, 21 clones      | 0.21%, 9, ratcheted     | **met**        |
-| Coverage `>= 85%`      | api 68.5%, web 64.8%  | api 91.1%, web 88.6%    | **met**        |
+| Coverage `>= 85%`      | api 68.5%, web 64.8%  | api 92.0%, web 88.6%    | **met**        |
 | CRAP `< 25`            | 32 files over         | 1, ratcheted            | **met**        |
 
 ### The one cognitive exception
@@ -115,14 +115,19 @@ makes `search-embed` register and two `worker.module.integration.test.ts` tests
 fail for reasons unrelated to any code. With it in place the suite reports 4
 failures that look like regressions and are not.
 
-### What is left
+### What the last two needed
 
-The 7 CRAP files split cleanly. Two are `apps/api` files with genuinely thin
-coverage — `projects-repository.ts` at 30% and `search/operations/cli.ts` at
-0%. Five are `apps/web` components at 0% coverage with no Storybook stories
-either: the chat-header, the conversation-tree cluster, and
-`model-preview-card`. Those five are a real gap, not a measurement artifact —
-I checked for stories and there are none.
+Both were coverage, not complexity. `projects-repository.ts` went 30% -> 100%
+with integration tests covering the cross-owner denials as well as the happy
+path. `search/operations/cli.ts` was untestable as written — parsing, dispatch,
+and `process.argv` in one module — so the commands moved to `cli-commands.ts`
+(87%), leaving a fifteen-statement shell. That extraction is what the number was
+pointing at: the operator commands' fail-loudly property is now tested, rather
+than argv handling being exercised for its own sake.
+
+In `apps/web`, four of five 0%-coverage components were closed by extracting
+their real logic and unit-testing it, with stories for the render surface. The
+fifth, `model-preview-card.tsx`, is the documented exception below.
 
 **The 9 remaining clones are each justified, and the threshold is a ratchet.**
 `.jscpd.json` sits at 0.25% against a measured 0.21%: lower it when one is
