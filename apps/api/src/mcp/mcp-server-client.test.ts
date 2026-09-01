@@ -1398,19 +1398,56 @@ describe('McpServerClient', () => {
     'enforces the 1 MiB pre-parse cap on %s discovery input',
     async (kind) => {
       const oversized = 'x'.repeat(ONE_MIB + 1);
-      const response: McpFixtureResponse =
-        kind === 'json'
-          ? {
-              kind: 'raw',
-              contentType: 'application/json',
-              body: oversized,
-            }
-          : {
-              kind: 'sse',
-              events: [{ data: oversized, rawData: true }],
-            };
-      const { fixture, client } = await connectFixture({
-        listResponses: [response],
+      const fetchStub = vi.fn(
+        (_request: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.method === 'GET') {
+            return resolvedResponse(new Response('', { status: 405 }));
+          }
+          if (init?.method === 'DELETE') {
+            return resolvedResponse(new Response(null, { status: 204 }));
+          }
+          const request = requestBody(init);
+          if (request.method === 'initialize') {
+            return resolvedResponse(
+              new Response(
+                JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: request.id,
+                  result: {
+                    protocolVersion: '2025-11-25',
+                    capabilities: { tools: {} },
+                    serverInfo: { name: 'fixture', version: '1.0.0' },
+                  },
+                }),
+                { headers: { 'content-type': 'application/json' } },
+              ),
+            );
+          }
+          if (request.method === 'notifications/initialized') {
+            return resolvedResponse(new Response(null, { status: 204 }));
+          }
+          if (request.method === 'tools/list') {
+            return resolvedResponse(
+              new Response(
+                kind === 'json' ? oversized : `data: ${oversized}\n\n`,
+                {
+                  headers: {
+                    'content-type':
+                      kind === 'json'
+                        ? 'application/json'
+                        : 'text/event-stream',
+                  },
+                },
+              ),
+            );
+          }
+          return Promise.reject(new Error('unexpected request'));
+        },
+      );
+      const client = await McpServerClient.connect({
+        serverId: 'web',
+        url: 'https://fixture.invalid/mcp',
+        fetch: fetchStub,
       });
 
       try {
@@ -1421,7 +1458,7 @@ describe('McpServerClient', () => {
           disposition: 'reconnect',
         } satisfies Partial<McpServerOperationError>);
       } finally {
-        await cleanup({ client, fixture });
+        await client.close();
       }
     },
   );
