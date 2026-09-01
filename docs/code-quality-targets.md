@@ -59,7 +59,7 @@ often satisfied dishonestly:
 
 ## Status, 2026-09-01
 
-Eight of ten targets met. Four are enforced by `pnpm lint`, four more by the
+Nine of ten targets met. Four are enforced by `pnpm lint`, four more by the
 Quality job in `.github/workflows/lint.yml`, so none of them can silently
 regress.
 
@@ -88,15 +88,35 @@ listed in `scripts/quality-metrics.mjs`'s `EXCEPTIONS` with that reason. The
 list only shrinks: a file that falls back under threshold is reported as a
 STALE EXCEPTION and fails, so an entry cannot outlive its problem.
 
-### Why the last three gaps are partly unmeasurable here
+### The integration suites DO run here, and that changed the numbers
 
-**56 integration test files cannot run without Postgres**, and every one of the
-worst CRAP files sits in a directory with several. `apps/api`'s 68.6% is
-therefore "from unit tests alone", not "68.6% tested", and CRAP inherits the
-same distortion: a file whose real coverage comes from an integration suite is
-scored as though untested. Both numbers are upper bounds on the defect, not
-counts of it. CI runs `test:coverage` across both vitest projects and gets the
-true figure.
+`apps/api`'s integration project was assumed unrunnable without a manually
+provisioned Postgres. It is not: Testcontainers provisions its own on
+docker-assigned ephemeral ports, which sit below the range this machine's
+Hyper-V exclusions break. `pnpm --filter api test:coverage` runs both projects
+and gives **2259 passing, 0 failing**.
+
+That moved two targets at once. api coverage is **91.12%**, not the 68.6% the
+unit-only run reported, and CRAP fell from 32 files over to **7** — because
+every file whose real coverage lives in an integration suite had been scored as
+though untested. The earlier "upper bound, not a defect count" caveat was
+correct, and this is what it was hiding.
+
+**One environment caveat when running the full api suite.** Move
+`apps/api/llame.config.json` aside first and put it back after. It is the
+maintainer's gitignored local config and it declares `embeddingModels`, which
+makes `search-embed` register and two `worker.module.integration.test.ts` tests
+fail for reasons unrelated to any code. With it in place the suite reports 4
+failures that look like regressions and are not.
+
+### What is left
+
+The 7 CRAP files split cleanly. Two are `apps/api` files with genuinely thin
+coverage — `projects-repository.ts` at 30% and `search/operations/cli.ts` at
+0%. Five are `apps/web` components at 0% coverage with no Storybook stories
+either: the chat-header, the conversation-tree cluster, and
+`model-preview-card`. Those five are a real gap, not a measurement artifact —
+I checked for stories and there are none.
 
 **The 9 remaining clones are each justified, and the threshold is a ratchet.**
 `.jscpd.json` sits at 0.25% against a measured 0.21%: lower it when one is
