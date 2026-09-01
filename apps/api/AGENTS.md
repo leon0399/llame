@@ -52,27 +52,58 @@ pnpm --filter api typecheck    # tsgo --noEmit — full program incl. specs (nes
 pnpm --filter api test              # vitest unit project — zero external deps, always safe
 pnpm --filter api test:integration  # everything needing real Postgres incl. RLS proof + HTTP suites; self-provisions via Testcontainers, TEST_DATABASE_URL overrides
 pnpm --filter api test:evals        # opt-in model-graded evals — bring model credentials
-pnpm --filter api test:mutation     # bounded Stryker pilot; diagnostic, foreground only (:dry preflights)
+pnpm --filter api test:mutation     # whole-src Stryker; diagnostic, foreground, HOURS (:dry preflights)
 ```
 
 Database commands live in [`src/db/AGENTS.md`](src/db/AGENTS.md).
 
-### Mutation-testing pilot
+### Mutation testing
 
-A bounded diagnostic that follows the direct unit tests. Not a coverage
-substitute, not a CI gate. It targets only `src/mcp/tool-id.ts`,
-`protected-values.ts`, and `mcp-bounded-fetch.ts` with their direct unit tests,
-and does not expand to the monorepo, integration, Docker, browser, or e2e suites.
+Runs over the whole of `src` — 225 files, ~17,566 mutants — and follows the
+direct unit tests. Still a diagnostic, not a CI gate and not a coverage
+substitute (`thresholds.break` is null).
 
-Run both commands in the foreground from the repository root. Stryker is limited
-to one worker (`concurrency: 1`); `@stryker-mutator/vitest-runner@9.6.1` is
-pinned in `apps/api/package.json` and the lockfile, and the installed runner's
-runtime options force `maxThreads`, `maxWorkers`, and `maxConcurrency` to 1.
-That pin plus installed source is the repo-reproducible evidence. **Do not raise
-either concurrency setting without new measured peak-memory evidence**; a runner
-upgrade must reverify those three options and the memory budget first. Reports
-land in the ignored `apps/api/reports/mutation/`. Do not replace this with a
-bespoke wrapper, reporter, checker, or threshold gate.
+Run from the repository root, in the foreground:
+
+```bash
+pnpm --filter api test:mutation        # :dry preflights without evaluating mutants
+```
+
+**It is slow by construction.** `concurrency: 1` is deliberate and documented
+below; at that setting a full run is hours, not minutes. Use `test:mutation:dry`
+to check the setup, and expect to run the real thing out of band.
+
+Four things had to be true for whole-`src` mutation to work at all, and each
+will break again if reverted:
+
+1. **A dedicated vitest config, `vitest.mutation.config.mts`.** The main config
+   declares an `integration` project whose globalSetup provisions Postgres via
+   Testcontainers, and Stryker's sandbox does not include the repo-root
+   `docker/postgres/initdb/*.sql` those containers mount — so the runner
+   crashes before evaluating a single mutant. Stryker's vitest runner exposes
+   only `dir`, `related`, and `configFile`; there is no project selector. Keep
+   that file in step with the `unit` project in `vitest.config.mts`.
+2. **`mcp-runtime.module.test.ts` is excluded there.** It reads the operator's
+   real `llame.config.json`, so it fails on any machine whose local config
+   names a server with an unset secret. Stryker refuses to start when the
+   initial run has any failure, and a developer's personal config is not a
+   mutation signal.
+3. **`testTimeout` of 180s in that config.** Instrumentation adds a counter to
+   every statement, and knowledge-filesystem's aggregate-search byte-budget
+   test walks a tree — it takes 30s+ instrumented against well under a second
+   normally.
+4. **`dryRunTimeoutMinutes: 20`.** The instrumented initial run is ~2m46s for
+   1193 tests; the old 2-minute ceiling was sized for the three-file pilot.
+
+Stryker is limited to one worker (`concurrency: 1`);
+`@stryker-mutator/vitest-runner@9.6.1` is pinned in `apps/api/package.json` and
+the lockfile, and the installed runner's runtime options force `maxThreads`,
+`maxWorkers`, and `maxConcurrency` to 1. That pin plus installed source is the
+repo-reproducible evidence. **Do not raise either concurrency setting without
+new measured peak-memory evidence**; a runner upgrade must reverify those three
+options and the memory budget first. Reports land in the ignored
+`apps/api/reports/mutation/`. Do not replace this with a bespoke wrapper,
+reporter, checker, or threshold gate.
 
 The full run opens Stryker's internal logging server with Node `listen`; a
 restricted sandbox may need a narrowly scoped local-bind permission. Neither

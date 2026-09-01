@@ -1,19 +1,19 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "mutate": [
-    "src/mcp/tool-id.ts",
-    "src/mcp/protected-values.ts",
-    "src/mcp/mcp-bounded-fetch.ts"
-  ],
-  "testFiles": [
-    "src/mcp/tool-id.test.ts",
-    "src/mcp/protected-values.test.ts",
-    "src/mcp/mcp-bounded-fetch.test.ts"
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "!src/**/*.spec.ts",
+    "!src/db/migrations/**",
+    "!src/testing/**",
+    "!src/main.ts",
+    "!src/worker.ts",
+    "!src/generate-openapi.ts"
   ],
   "testRunner": "vitest",
   "plugins": ["@stryker-mutator/vitest-runner"],
   "vitest": {
-    "configFile": "vitest.config.mts"
+    "configFile": "vitest.mutation.config.mts"
   },
   "reporters": ["clear-text", "html", "json"],
   "htmlReporter": {
@@ -28,5 +28,5 @@
     "low": 60,
     "break": null
   },
-  "dryRunTimeoutMinutes": 2
+  "dryRunTimeoutMinutes": 20
 }
