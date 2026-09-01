@@ -647,9 +647,17 @@ describe('conversation message sequence database invariants', () => {
           }),
         ),
         // Name the denial: a bare toThrow() here passes on any failure, so a
-        // typo in the fixture would read as isolation working. Matches the
-        // convention in projects-rls.integration.test.ts.
-      ).rejects.toThrow(/row-level security|violates/i);
+        // typo in the fixture would read as isolation working. Asserted on the
+        // driver's own SQLSTATE rather than on message text -- drizzle's
+        // top-level message is "Failed query: insert into ..." and the RLS
+        // detail lives on the cause, the same shape this file already relies
+        // on for 23505 above. 42501 is insufficient_privilege, which is what
+        // a FORCE RLS policy denial raises.
+      ).rejects.toThrow(
+        expect.objectContaining({
+          cause: expect.objectContaining({ code: '42501' }),
+        }),
+      );
       const messages = await tenantDb.runAs(ownerUserId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatId, ownerUserId),
       );
