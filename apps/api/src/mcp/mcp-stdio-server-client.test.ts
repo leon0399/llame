@@ -335,6 +335,19 @@ describe('BoundedReadBuffer', () => {
     );
   });
 
+  it('stays failed after exceeding the cap', () => {
+    const buffer = new BoundedReadBuffer(8);
+
+    expect(() => buffer.append(Buffer.from('012345678'))).toThrow(
+      McpStdioMessageLimitError,
+    );
+    buffer.clear();
+
+    expect(() => buffer.append(Buffer.from('{}\n'))).toThrow(
+      McpStdioMessageLimitError,
+    );
+  });
+
   it('accumulates across chunks up to the cap without a newline', () => {
     const buffer = new BoundedReadBuffer(16);
     buffer.append(Buffer.from('0123'));

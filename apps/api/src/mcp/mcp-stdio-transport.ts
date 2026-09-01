@@ -176,12 +176,15 @@ function delay(ms: number): Promise<void> {
  */
 export class BoundedReadBuffer {
   private buffer: Buffer | undefined;
+  private limitExceeded = false;
 
   constructor(private readonly maxBytes: number) {}
 
   append(chunk: Buffer): void {
     const nextLength = (this.buffer?.length ?? 0) + chunk.length;
-    if (nextLength > this.maxBytes) {
+    if (this.limitExceeded || nextLength > this.maxBytes) {
+      this.limitExceeded = true;
+      this.buffer = undefined;
       throw new McpStdioMessageLimitError(this.maxBytes);
     }
     this.buffer = this.buffer ? Buffer.concat([this.buffer, chunk]) : chunk;
