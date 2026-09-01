@@ -7,9 +7,6 @@
     ".": "./index.ts"
   },
   "scripts": {
-    "test": "vitest run"
-  },
-  "devDependencies": {
-    "vitest": "catalog:"
+    "test": "for f in rules/*.test.ts; do node --import tsx \"$f\" || exit 1; done"
   }
 }

@@ -62,19 +62,20 @@ export {
  * ------------------------------------------------------------------ */
 
 /**
- * Causes that change a run's effective context. Closed, and **one cause per
- * item**: when several occur on the same turn each is its own item, because a
- * notice that enumerates dimensions is nearly always a single word and every
- * future dimension would need enumeration support.
+ * A model change, the one cause of an effective-context change with a shipped
+ * detector.
  *
- * `model` is the only member with a shipped detector. The remaining snapshot
- * inputs — an operator prompt reload, a personalization edit — are disclosed
- * separately (#466), because they cannot be inferred from a hash: `promptHash`
- * also moves on a routine digest re-bake and on every temporal-anchor refresh,
- * so only the binder knows why it minted a new snapshot.
+ * The cause set is closed and carries **one cause per item**: when several
+ * occur on the same turn each becomes its own item, because a notice that
+ * enumerates dimensions is nearly always a single word and every future
+ * dimension would need enumeration support.
+ *
+ * The remaining snapshot inputs — an operator prompt reload, a personalization
+ * edit — are disclosed separately (#466), because they cannot be inferred from
+ * a hash: `promptHash` also moves on a routine digest re-bake and on every
+ * temporal-anchor refresh, so only the binder knows why it minted a new
+ * snapshot.
  */
-export const EFFECTIVE_CONTEXT_CHANGE_CAUSES = ['model'] as const;
-
 export interface ModelChangePayload extends UnknownRecord {
   readonly cause: 'model';
   readonly fromModelId: string;
