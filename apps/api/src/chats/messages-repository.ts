@@ -119,6 +119,21 @@ export class MessagesRepository {
       predicates.push(gt(messages.seq, options.sinceSeq));
     }
 
+    return this.windowedByPredicates(predicates, options);
+  }
+
+  /**
+   * Run `predicates` against the joined messages/chats query, windowed
+   * oldest-first: unbounded ascending, or the most recent `limit` rows
+   * (queried newest-first, then reversed back to ascending). Shared by every
+   * caller of this ordering/limiting shape — currently `findByChatId` and
+   * `listPublicByChatId` — so the desc+limit+reverse-for-a-window pattern
+   * can't drift between them.
+   */
+  private async windowedByPredicates(
+    predicates: Array<SQL>,
+    options?: { limit?: number },
+  ): Promise<Array<Message>> {
     const query = this.db
       .select()
       .from(messages)
@@ -425,21 +440,7 @@ export class MessagesRepository {
       predicates.push(lte(messages.seq, options.maxSeq));
     }
 
-    const query = this.db
-      .select()
-      .from(messages)
-      .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(and(...predicates));
-
-    const rows =
-      options?.limit === undefined
-        ? await query.orderBy(asc(messages.seq))
-        : await query.orderBy(desc(messages.seq)).limit(options.limit);
-
-    const orderedRows =
-      options?.limit === undefined ? rows : [...rows].reverse();
-
-    return orderedRows.map((r) => r.messages);
+    return this.windowedByPredicates(predicates, options);
   }
 
   /**

@@ -78,14 +78,7 @@ export class CompactionsRepository {
 
     const [created] = await this.db
       .insert(compactions)
-      .values({
-        chatId: input.chatId,
-        uptoSeq: input.uptoSeq,
-        parentId: input.parentId ?? null,
-        summary: input.summary,
-        replacementHistory: input.replacementHistory,
-        usage: input.usage,
-      })
+      .values(compactionInsertValues(input))
       .returning();
 
     return created;
@@ -108,14 +101,7 @@ export class CompactionsRepository {
 
     const [created] = await this.db
       .insert(compactions)
-      .values({
-        chatId: input.chatId,
-        uptoSeq: input.uptoSeq,
-        parentId: input.parentId ?? null,
-        summary: input.summary,
-        replacementHistory: input.replacementHistory,
-        usage: input.usage,
-      })
+      .values(compactionInsertValues(input))
       .onConflictDoNothing({
         target: [compactions.chatId, compactions.uptoSeq],
       })
@@ -123,6 +109,24 @@ export class CompactionsRepository {
 
     return created;
   }
+}
+
+function compactionInsertValues(input: {
+  chatId: string;
+  uptoSeq: number;
+  parentId?: string | null;
+  summary: string;
+  replacementHistory: Array<CompactionReplacementMessage>;
+  usage?: unknown;
+}) {
+  return {
+    chatId: input.chatId,
+    uptoSeq: input.uptoSeq,
+    parentId: input.parentId ?? null,
+    summary: input.summary,
+    replacementHistory: input.replacementHistory,
+    usage: input.usage,
+  };
 }
 
 function assertCompactionWrite(

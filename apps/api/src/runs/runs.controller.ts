@@ -266,12 +266,14 @@ export class RunsController {
     const clientGone = () => response.writableEnded || request.destroyed;
     const deadlineExceeded = () => Date.now() - startedAt > MAX_STREAM_MS;
 
+    // Both bail conditions below just stop the loop: `sendDone` is only ever
+    // set right before its own break, so every other exit — gone client,
+    // deadline, or a run deleted mid-stream — leaves it false and the
+    // fallthrough `if (sendDone)` below is a no-op. A single `break` per
+    // check is therefore behaviorally identical to returning early.
     for (;;) {
-      if (clientGone()) {
-        return;
-      }
-      if (deadlineExceeded()) {
-        break; // client reconnects with its cursor
+      if (clientGone() || deadlineExceeded()) {
+        break; // gone: nothing left to send; deadline: client reconnects with its cursor
       }
 
       const drained = await this.drainRunEvents(
@@ -290,12 +292,6 @@ export class RunsController {
         sendDone = true;
         break;
       }
-      if (clientGone()) {
-        return;
-      }
-      if (deadlineExceeded()) {
-        break; // client reconnects with its cursor
-      }
 
       if (!terminalSeen && drained.count > 0) {
         const resolved = await this.refreshTerminalSeen(run.id, userId);
@@ -305,11 +301,10 @@ export class RunsController {
         terminalSeen = resolved;
       }
 
+      // A gone or deadline-exceeded client naturally falls out on the next
+      // pass through the top-of-loop check above.
       if (drained.count === 0) {
         await sleep(EVENT_POLL_MS);
-        if (clientGone()) {
-          return;
-        }
       }
     }
 

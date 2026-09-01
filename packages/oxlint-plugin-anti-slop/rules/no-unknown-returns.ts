@@ -3,15 +3,7 @@ import { defineRule } from "@oxlint/plugins";
 import type { ESTree } from "@oxlint/plugins";
 
 import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
-
-type FunctionWithReturnType =
-  | ESTree.ArrowFunctionExpression
-  | ESTree.Function
-  | ESTree.TSCallSignatureDeclaration
-  | ESTree.TSConstructSignatureDeclaration
-  | ESTree.TSConstructorType
-  | ESTree.TSFunctionType
-  | ESTree.TSMethodSignature;
+import { type FunctionLikeNode } from "../shared/function-like.ts";
 
 function referencedAliasName(type: ESTree.TSType): string | null {
   if (type.type === "TSParenthesizedType")
@@ -86,7 +78,7 @@ export const noUnknownReturnsRule = defineRule({
       );
     };
 
-    const checkReturnType = (node: FunctionWithReturnType) => {
+    const checkReturnType = (node: FunctionLikeNode) => {
       const annotation = node.returnType;
       if (annotation === null || annotation === undefined) return;
       if (

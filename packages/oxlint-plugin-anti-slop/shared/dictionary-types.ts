@@ -564,9 +564,7 @@ function classifyAliasBroadTarget(
   );
 }
 
-function isPopulatedObjectExpression(
-  expression: ESTree.Expression,
-): boolean {
+function isPopulatedObjectExpression(expression: ESTree.Expression): boolean {
   let current = expression;
   while (
     current.type === "ParenthesizedExpression" ||

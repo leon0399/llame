@@ -846,10 +846,11 @@ export class RunExecutionService {
             await parentAbortSettlement;
             return;
           }
+          // `streamedText === ''` makes the `startsWith` check vacuously true
+          // (every string starts with the empty string), so that case is
+          // already covered by this branch — there is no second case to guard.
           if (text.startsWith(streamedText)) {
             assistantPartCollector.text(text.slice(streamedText.length));
-          } else if (streamedText.length === 0) {
-            assistantPartCollector.text(text);
           }
           const telemetry = buildTurnTelemetry({
             usage,

@@ -29,7 +29,9 @@ export const isStdio = (
   definition: McpRuntimeServerDefinition,
 ): definition is McpRuntimeStdioDefinition => definition.transport === 'stdio';
 
-type MutableStdioDefinition = {
+// Exported so mcp-runtime.module.ts's config->runtime translation can share
+// this shape rather than redeclaring it.
+export type MutableStdioDefinition = {
   transport: 'stdio';
   command: string;
   args?: ReadonlyArray<string>;

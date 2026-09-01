@@ -282,26 +282,7 @@ export class OrgUnitsRepository {
     const oldPrefix = locked.path;
     const newPrefix = childPath(lockedNewParent.path, locked.id);
 
-    await this.db
-      .update(orgUnits)
-      .set({
-        // Prefix rewrite. substr(text, int) — NOT `substring(x from y)`: with
-        // a bind parameter the latter resolves to the POSIX-REGEX form
-        // (substring(text from text)), silently yielding NULL. The RLS
-        // WITH CHECK caught exactly that during #44 development.
-        path: sql`${newPrefix} || substr(${orgUnits.path}, ${oldPrefix.length + 1}::int)`,
-        updatedAt: new Date(),
-      })
-      .where(
-        or(eq(orgUnits.path, oldPrefix), like(orgUnits.path, `${oldPrefix}/%`)),
-      );
-
-    const [updated] = await this.db
-      .update(orgUnits)
-      .set({ parentId: lockedNewParent.id, updatedAt: new Date() })
-      .where(eq(orgUnits.id, locked.id))
-      .returning();
-    return updated;
+    return this.rebaseSubtree(locked, oldPrefix, newPrefix, lockedNewParent.id);
   }
 
   /**
@@ -322,9 +303,32 @@ export class OrgUnitsRepository {
     const oldPrefix = locked.path;
     const newPrefix = locked.id;
 
+    return this.rebaseSubtree(locked, oldPrefix, newPrefix, null);
+  }
+
+  /**
+   * Rewrite a subtree's `path` prefix from `oldPrefix` to `newPrefix` and set
+   * its root's `parentId`, in the two-step shape `move`/`moveToRoot` share:
+   * a prefix rewrite over every row under `oldPrefix`, then the root's own
+   * parent pointer. Both callers already hold the tree-root lock; this only
+   * assembles the writes. Keeping the substr() bind-parameter form below in
+   * one place matters — the POSIX-REGEX `substring(x from y)` spelling
+   * silently yields NULL instead of failing loudly, so a duplicated rewrite
+   * is a duplicated chance to regress it (#44).
+   */
+  private async rebaseSubtree(
+    locked: Pick<OrgUnit, 'id'>,
+    oldPrefix: string,
+    newPrefix: string,
+    newParentId: string | null,
+  ): Promise<OrgUnit | undefined> {
     await this.db
       .update(orgUnits)
       .set({
+        // Prefix rewrite. substr(text, int) — NOT `substring(x from y)`: with
+        // a bind parameter the latter resolves to the POSIX-REGEX form
+        // (substring(text from text)), silently yielding NULL. The RLS
+        // WITH CHECK caught exactly that during #44 development.
         path: sql`${newPrefix} || substr(${orgUnits.path}, ${oldPrefix.length + 1}::int)`,
         updatedAt: new Date(),
       })
@@ -334,7 +338,7 @@ export class OrgUnitsRepository {
 
     const [updated] = await this.db
       .update(orgUnits)
-      .set({ parentId: null, updatedAt: new Date() })
+      .set({ parentId: newParentId, updatedAt: new Date() })
       .where(eq(orgUnits.id, locked.id))
       .returning();
     return updated;

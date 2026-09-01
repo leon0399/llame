@@ -1,32 +1,16 @@
 import { defineRule } from "@oxlint/plugins";
 import type { ESTree } from "@oxlint/plugins";
 
-type Parameter = ESTree.ParamPattern;
-type ParameterOwner =
-  | ESTree.ArrowFunctionExpression
-  | ESTree.Function
-  | ESTree.TSCallSignatureDeclaration
-  | ESTree.TSConstructSignatureDeclaration
-  | ESTree.TSConstructorType
-  | ESTree.TSFunctionType
-  | ESTree.TSMethodSignature;
+import {
+  parameterAnnotation,
+  type FunctionLikeNode,
+  type FunctionParameter,
+} from "../shared/function-like.ts";
 
-function parameterAnnotation(
-  parameter: Parameter,
-): ESTree.TSTypeAnnotation | null | undefined {
-  if (parameter.type === "TSParameterProperty") {
-    return parameterAnnotation(parameter.parameter);
-  }
-  if (parameter.type === "RestElement") {
-    return parameter.typeAnnotation ?? parameterAnnotation(parameter.argument);
-  }
-  if (parameter.type === "AssignmentPattern") {
-    return parameter.typeAnnotation ?? parameter.left.typeAnnotation;
-  }
-  return parameter.typeAnnotation;
-}
-
-function parameterName(parameter: Parameter, sourceText: string): string {
+function parameterName(
+  parameter: FunctionParameter,
+  sourceText: string,
+): string {
   if (parameter.type === "TSParameterProperty") {
     return parameterName(parameter.parameter, sourceText);
   }
@@ -50,7 +34,7 @@ function parameterName(parameter: Parameter, sourceText: string): string {
  * Returns the name of the one parameter a predicate return type exempts, or
  * null if the owner has no predicate return type.
  */
-function predicateSubjectName(node: ParameterOwner): string | null {
+function predicateSubjectName(node: FunctionLikeNode): string | null {
   const predicate = node.returnType?.typeAnnotation;
   if (
     predicate === null ||
@@ -196,7 +180,7 @@ function isValidationExpression(
 }
 
 function functionBody(
-  node: ParameterOwner,
+  node: FunctionLikeNode,
 ): ESTree.FunctionBody | ESTree.Expression | null {
   if (node.type === "ArrowFunctionExpression") return node.body;
   if (
@@ -219,7 +203,7 @@ function functionBody(
  * first-statement shape this rule doesn't recognize) -- conservatively not
  * exempt in that case.
  */
-function firstUseExpression(node: ParameterOwner): ESTree.Expression | null {
+function firstUseExpression(node: FunctionLikeNode): ESTree.Expression | null {
   const body = functionBody(node);
   if (body === null) return null;
   if (body.type !== "BlockStatement") return body; // arrow expression body
@@ -266,7 +250,7 @@ function unwrapExportedDeclaration(
  * declaration), this returns null and the caller stays unexempted.
  */
 function resolveOverloadImplementation(
-  node: ParameterOwner,
+  node: FunctionLikeNode,
 ): ESTree.Function | null {
   if (node.type !== "TSDeclareFunction" || node.id === null) return null;
   let container: ESTree.Node = node.parent;
@@ -304,7 +288,7 @@ function resolveOverloadImplementation(
  * body-less overload signature) the adjacent implementation signature does.
  */
 function isImmediatelyValidated(
-  node: ParameterOwner,
+  node: FunctionLikeNode,
   parameterName: string,
 ): boolean {
   if (isValidationExpression(firstUseExpression(node), parameterName))
@@ -344,7 +328,7 @@ export const noUnknownParametersRule = defineRule({
     ],
   },
   createOnce(context) {
-    const checkParameters = (node: ParameterOwner) => {
+    const checkParameters = (node: FunctionLikeNode) => {
       // `createOnce` builds this visitor once and reuses it across files, so
       // options must be read here (per node visit, i.e. per file) rather
       // than hoisted above -- reading them at `createOnce`'s top level would

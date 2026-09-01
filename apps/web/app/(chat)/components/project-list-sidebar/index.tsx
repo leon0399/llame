@@ -42,6 +42,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { ArchivedBadge } from "@/components/archived-badge";
+import { PinButton } from "@/components/pin-button";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import { HoverReveal, SidebarRowAction } from "@/components/hover-reveal";
 import { SidebarRowTitle } from "@/components/sidebar-row-title";
@@ -73,26 +74,6 @@ function useProjectItemPin(project: ProjectResponse, isPinned: boolean) {
             archivedAt: project.archivedAt,
           },
         });
-}
-
-function ProjectPinButton({
-  isPinned,
-  onToggle,
-}: {
-  isPinned: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <HoverReveal atRest={isPinned}>
-      <Tooltip>
-        <TooltipTrigger render={<SidebarRowAction onClick={onToggle} />}>
-          {isPinned ? <PinOffIcon /> : <PinIcon />}
-          <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
-        </TooltipTrigger>
-        <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
-      </Tooltip>
-    </HoverReveal>
-  );
 }
 
 type ProjectRowMenuItemsProps = {
@@ -263,7 +244,7 @@ export function ProjectItem({ project, isActive, isPinned }: ProjectItemProps) {
         isActive={isActive}
         isArchived={isArchived}
       />
-      <ProjectPinButton isPinned={isPinned} onToggle={togglePin} />
+      <PinButton isPinned={isPinned} togglePin={togglePin} />
       <ProjectRowMenu
         project={project}
         isActive={isActive}

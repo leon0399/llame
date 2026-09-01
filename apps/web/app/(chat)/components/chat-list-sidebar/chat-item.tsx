@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { MessagesSquareIcon, PinIcon, PinOffIcon } from "lucide-react";
+import { MessagesSquareIcon } from "lucide-react";
 import Link from "next/link";
 
 import { useActiveRuns } from "@/contexts/active-runs-context";
@@ -9,7 +9,7 @@ import type { ChatResponse } from "@/lib/services/chat/queries";
 import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import { ArchivedBadge } from "@/components/archived-badge";
-import { HoverReveal, SidebarRowAction } from "@/components/hover-reveal";
+import { PinButton } from "@/components/pin-button";
 import { SidebarRowTitle } from "@/components/sidebar-row-title";
 import { cn } from "@workspace/ui/lib/utils";
 import {
@@ -24,11 +24,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@workspace/ui/components/sidebar";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
 
 import { ChatItemMenu } from "./chat-item-menu";
 import { ShareChatDialog } from "./share-chat-dialog";
@@ -162,28 +157,6 @@ function ChatItemRow({
   );
 }
 
-function ChatItemPinButton({
-  isPinned,
-  togglePin,
-}: {
-  isPinned: boolean;
-  togglePin: () => void;
-}) {
-  return (
-    // A pinned row keeps its pin in layout; everything else appears with
-    // hover, taking its width only then.
-    <HoverReveal atRest={isPinned}>
-      <Tooltip>
-        <TooltipTrigger render={<SidebarRowAction onClick={togglePin} />}>
-          {isPinned ? <PinOffIcon /> : <PinIcon />}
-          <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
-        </TooltipTrigger>
-        <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
-      </Tooltip>
-    </HoverReveal>
-  );
-}
-
 type DialogState = { open: boolean; onOpenChange: (open: boolean) => void };
 
 /** The row's three action dialogs, plus the state driving them — bundled so
@@ -313,7 +286,7 @@ export function ChatItem({
   return (
     <ChatItemRow isActive={isActive}>
       <ChatItemLink {...row} />
-      <ChatItemPinButton {...row} />
+      <PinButton {...row} />
       <ChatItemMenu {...row} projects={projects} onNewProject={onNewProject} />
       <ChatItemDialogs {...row} />
     </ChatItemRow>
