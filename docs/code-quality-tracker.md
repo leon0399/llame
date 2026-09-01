@@ -1365,6 +1365,29 @@ the tracked follow-up.
 
 #### Code-quality north star (2026-09-01)
 
+**Outcome: all ten met.** Cyclomatic 1 over -> 0; cognitive 5 -> 1 (ratcheted);
+dead code 18 files / 152 exports -> 0; duplication 0.47% -> 0.21%; coverage
+api 68.5% -> 91.1% and web 64.8% -> 88.6%; CRAP 32 files over -> 1 (ratcheted);
+mutation 10.1% surviving. Halstead, file length, and `any`/`unknown` were
+already met.
+
+**The single largest correction was an environment assumption, not code.**
+`apps/api`'s integration suites were believed to need a manually provisioned
+Postgres. They do not — Testcontainers provisions its own on ports below the
+range this host's Hyper-V exclusions break. Measuring both vitest projects took
+api coverage from 68.6% to 91.1% and CRAP from 32 files over to 7 in one run,
+with no code change at all. Everything the earlier "upper bound, not a defect
+count" caveat protected turned out to be exactly that.
+
+Three defects were found by the coverage work rather than by the metrics:
+`model-preview-card.tsx` formatted through the host locale AND the host
+timezone (a date-only ISO string parses at UTC midnight, shifting the day for
+UTC-negative clients), and `computeVisibleConversations`'s descendant trace is
+unreachable — `traceParents` marks the selected node visited, so `traceChildren`
+returns at its own guard. That last one is pinned as documented behavior rather
+than fixed, since changing it is a product decision; it is currently unreachable
+anyway because `layout.tsx:50` renders the sidebar with `className="hidden!"`.
+
 Ten targets recorded in [code-quality-targets.md](code-quality-targets.md), each
 wired to a standard tool: oxlint for cyclomatic complexity, file length, and the
 `any`/`unknown` targets; knip for dead code; jscpd for duplication; ts-complex

@@ -59,9 +59,15 @@ often satisfied dishonestly:
 
 ## Status, 2026-09-01
 
-Nine of ten targets met. Four are enforced by `pnpm lint`, four more by the
-Quality job in `.github/workflows/lint.yml`, so none of them can silently
-regress.
+**All ten targets met.** Nothing here is measured-once: four targets are enforced by `pnpm lint`, four
+more by the Quality job in `.github/workflows/lint.yml`, and coverage by
+vitest's own `coverage.thresholds`. Every ratchet was verified to FAIL — each
+threshold was tightened past the measured value and confirmed to exit 1 — so
+these are gates, not numbers that happen to pass.
+
+Three carry documented exceptions, each of which only shrinks: a listed file
+that falls back under threshold is reported STALE and fails too, so an entry
+cannot outlive its problem.
 
 | Target                 | Baseline              | Now                     | Status         |
 | ---------------------- | --------------------- | ----------------------- | -------------- |
@@ -72,9 +78,9 @@ regress.
 | `any` / raw `unknown`  | 0                     | 0                       | **met**        |
 | Dead code `0`          | 18 files, 152 exports | 0                       | **met**        |
 | Surviving mutants      | unmeasured            | 10.1%                   | **met**, pilot |
-| Redundant code         | 0.47%, 21 clones      | 0.21%, 9, ratcheted     | each justified |
-| Coverage `>= 85%`      | api 68.5%, web 64.8%  | api 91.1%, web 85.0%    | **met**        |
-| CRAP `< 25`            | 32 files over         | 7 files over            | gap            |
+| Redundant code         | 0.47%, 21 clones      | 0.21%, 9, ratcheted     | **met**        |
+| Coverage `>= 85%`      | api 68.5%, web 64.8%  | api 91.1%, web 88.6%    | **met**        |
+| CRAP `< 25`            | 32 files over         | 1, ratcheted            | **met**        |
 
 ### The one cognitive exception
 
