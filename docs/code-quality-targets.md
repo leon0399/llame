@@ -87,6 +87,29 @@ Two caveats that change how these read:
   integration suite scores as though it were untested, so the 32 is an upper
   bound, not a defect count.
 
+## Verify every dead-code finding against scripts, not just imports
+
+knip builds an import graph. A file invoked **by path** from a `package.json`
+script is invisible to it and will be reported as unused.
+
+That is not hypothetical: `apps/api/src/instance-config/prompt-built-runtime.contract.ts`
+was deleted on knip's say-so during this work. Its own header reads "Build
+contract executed by package.json after `nest build`", and `apps/api`'s build
+script runs `node dist/instance-config/prompt-built-runtime.contract.js`
+immediately after compiling. Deleting it broke `pnpm --filter api build`, and
+nothing else caught it — lint, typecheck, and every test suite stayed green,
+because the file has no importer by design.
+
+Before deleting anything knip calls unused, grep the scripts:
+
+```bash
+grep -rn "<basename>" --include='*.json' --include='*.mjs' . | grep -v node_modules
+```
+
+Then declare it as an `entry` in `knip.json` rather than deleting it. The same
+applies to Playwright's `webServer` commands, which start their servers as
+strings, and to anything a CI workflow invokes directly.
+
 ## Running them
 
 ```bash

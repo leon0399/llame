@@ -28,7 +28,8 @@
         "vitest.integration.global-setup.mts",
         "vitest.integration.setup.ts",
         "drizzle.config.ts",
-        "stryker.config.json"
+        "stryker.config.json",
+        "src/instance-config/prompt-built-runtime.contract.ts"
       ],
       "project": ["src/**/*.ts", "evals/**/*.ts"]
     },
