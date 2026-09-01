@@ -144,7 +144,7 @@ jobs:
 
       # A missing compatible cache is safe: Stryker performs a cold full run.
       # Its mandatory dry run stops before mutants when API unit tests are red.
-      - run: pnpm --filter api test:mutation -- --incremental
+      - run: pnpm --filter api test:mutation --incremental
 
       # PRs never publish. A successful push to master is the merge-time writer;
       # the schedule-only forced writer lives in mutation-baseline.yml.
