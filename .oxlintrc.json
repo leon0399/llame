@@ -1,18 +1,8 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
 
-  // THE repository lint configuration. Every rule is declared here and applies
-  // everywhere; each workspace `.oxlintrc.json` extends this file and adds only
-  // what is genuinely local to it (env, ignore patterns, `options.typeAware`,
-  // and file-specific overrides). It is deliberately not split into opt-in
-  // tiers: a rule that is right for the repository is right for every
-  // workspace, and where the code does not yet satisfy one, the code is what
-  // changes. Type-aware rules no-op in workspaces that do not set
-  // `options.typeAware`, so they live here too.
-  //
-  // Paths in `jsPlugins` resolve relative to THIS file even when a child
-  // extends it, so the specifier below stays correct from every workspace.
-
+  // Repository policy. Workspace configs add only local environments,
+  // generated-file ignores, type-aware mode, and reviewed exceptions.
   "plugins": [
     "typescript",
     "unicorn",
@@ -25,6 +15,7 @@
   "categories": {
     "correctness": "error"
   },
+  // Specifiers resolve relative to this file, including through `extends`.
   "jsPlugins": [
     {
       "name": "anti-slop",
@@ -37,297 +28,232 @@
   ],
 
   "rules": {
-    // ---- anti-slop: universal. The stricter type-honesty tier lives in
-    // .oxlintrc.strict-types.json, extended by the type-aware workspaces.
-    // ----------------------------------------------------------------------
-    // Repo-owned invariants that were prose-only until now. See
-    // docs/research/lint/2026-08-31-stella-oxlint-plugins.md for what each one
-    // can and cannot prove — none of them is a proof of the property it names.
+    // Repository boundaries and security.
     "anti-slop/forbid-process-env-outside-env-ts": [
       "error",
       {
         "allowedFiles": [
-          "packages/config-interpolation/src/interpolation.ts",
-          "apps/api/src/instance-config/config-loader.ts",
-          "apps/api/src/instance-config/worker-profile.service.ts",
+          "apps/api/src/app.setup.ts",
+          "apps/api/src/chats/turn-telemetry.ts",
+          "apps/api/src/core-infra.module.ts",
           "apps/api/src/db/db.ts",
           "apps/api/src/db/migrate.ts",
-          "apps/api/src/core-infra.module.ts",
-          "apps/api/src/main.ts",
-          "apps/api/src/worker.ts",
           "apps/api/src/generate-openapi.ts",
-          "apps/api/src/runs/worker-harness.ts",
-          "apps/api/src/queue/queue.module.ts",
-          "apps/api/src/chats/turn-telemetry.ts",
-          "apps/api/src/search/operations/cli.ts",
-          "apps/web/lib/api/fetch.ts",
-          "apps/web/instrumentation.ts",
-          "apps/web/components/sidebar-row-title.tsx",
-          "e2e/support/db-server.ts",
-          "e2e/support/model-server.ts",
-          "e2e/support/mcp-server.ts",
-          "e2e/support/auth-helpers.ts",
-          "e2e/support/fixtures.ts",
-          "e2e/support/seed-sql.ts",
-          "playwright.config.ts",
-          "apps/api/vitest.integration.setup.ts",
-          "apps/api/vitest.integration.global-setup.mts",
+          "apps/api/src/instance-config/config-loader.ts",
+          "apps/api/src/instance-config/worker-profile.service.ts",
+          "apps/api/src/main.ts",
           "apps/api/src/mcp/mcp-stdio-test-fixture.mjs",
-          "apps/api/src/app.setup.ts",
+          "apps/api/src/queue/queue.module.ts",
+          "apps/api/src/runs/worker-harness.ts",
+          "apps/api/src/search/operations/cli.ts",
+          "apps/api/src/worker.ts",
+          "apps/api/vitest.integration.global-setup.mts",
+          "apps/api/vitest.integration.setup.ts",
+          "apps/web/components/sidebar-row-title.tsx",
+          "apps/web/instrumentation.ts",
+          "apps/web/lib/api/fetch.ts",
+          "e2e/support/auth-helpers.ts",
+          "e2e/support/db-server.ts",
+          "e2e/support/fixtures.ts",
+          "e2e/support/mcp-server.ts",
           "e2e/support/mcp-stdio-server.mjs",
-          "e2e/support/run-after-ready.ts"
+          "e2e/support/model-server.ts",
+          "e2e/support/run-after-ready.ts",
+          "e2e/support/seed-sql.ts",
+          "packages/config-interpolation/src/interpolation.ts",
+          "playwright.config.ts"
         ]
       }
     ],
     "anti-slop/no-unsafe-inner-html": "error",
     "anti-slop/require-timestamptz-column": "error",
-    "anti-slop/no-chained-type-assertions": "error",
-    "anti-slop/no-object-parameters": "error",
-    "anti-slop/no-shape-in-symbol-names": "error",
-    "anti-slop/no-unknown-type-aliases": "error",
-    "anti-slop/no-untracked-todo": "error",
-    "anti-slop/no-vacuous-throw-assertion": "error",
-    "anti-slop/no-widen-then-assert": "error",
-    "anti-slop/parameter-decorator-own-line": "error",
 
-    // ---- strict type honesty: assertions, mocking, dynamic reads ---------
-    // These reject patterns that destroy type evidence. They are global: where
-    // they currently fail (apps/web tests lean on module mocking), the CODE is
-    // what changes, not the rule.
+    // Type evidence and trust-boundary discipline.
+    "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-conditional-empty-object-spread": "error",
     "anti-slop/no-known-value-widening": "error",
     "anti-slop/no-module-mocking": "error",
+    "anti-slop/no-object-parameters": "error",
     "anti-slop/no-reflect-apply": "error",
     "anti-slop/no-reflect-get": "error",
     "anti-slop/no-runtime-typeof": ["error", { "allowInTypeGuards": true }],
+    "anti-slop/no-shape-in-symbol-names": "error",
     "anti-slop/no-unknown-parameters": [
       "error",
       { "allowWhenImmediatelyValidated": true, "allowErrorFamilyNames": true }
     ],
     "anti-slop/no-unknown-returns": "error",
+    "anti-slop/no-unknown-type-aliases": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
+    "anti-slop/no-vacuous-throw-assertion": "error",
+    "anti-slop/no-widen-then-assert": "error",
+    "anti-slop/parameter-decorator-own-line": "error",
     "anti-slop/require-safety-comment-for-type-assertion": "error",
-
-    // ---- type-aware: no-ops in workspaces without `options.typeAware` -----
-    "typescript/await-thenable": "error",
+    "typescript/array-type": ["error", { "default": "generic" }],
     "typescript/no-array-delete": "error",
     "typescript/no-base-to-string": "error",
+    "typescript/no-duplicate-enum-values": "error",
     "typescript/no-duplicate-type-constituents": "error",
-    "typescript/no-floating-promises": "error",
+    // Allows declaration merging onto lib.dom globals without allowing `{}`.
+    "typescript/no-empty-object-type": [
+      "error",
+      { "allowInterfaces": "with-single-extends" }
+    ],
+    "typescript/no-explicit-any": "error",
     "typescript/no-for-in-array": "error",
-    "typescript/no-implied-eval": "error",
-    "typescript/no-misused-promises": "error",
     "typescript/no-redundant-type-constituents": "error",
+    "typescript/no-require-imports": "error",
     "typescript/no-unnecessary-type-assertion": "error",
     "typescript/no-unsafe-argument": "error",
     "typescript/no-unsafe-assignment": "error",
     "typescript/no-unsafe-call": "error",
     "typescript/no-unsafe-enum-comparison": "error",
+    "typescript/no-unsafe-function-type": "error",
     "typescript/no-unsafe-member-access": "error",
     "typescript/no-unsafe-return": "error",
     "typescript/no-unsafe-type-assertion": "error",
     "typescript/no-unsafe-unary-minus": "error",
+    "typescript/no-wrapper-object-types": "error",
+    "typescript/prefer-as-const": "error",
+
+    // Async, promises, and error handling. Type-aware rules no-op unless a
+    // workspace enables `options.typeAware`.
+    "no-throw-literal": "error",
+    "preserve-caught-error": "error",
+    "typescript/await-thenable": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-implied-eval": "error",
+    "typescript/no-misused-promises": "error",
     "typescript/only-throw-error": "error",
     "typescript/prefer-promise-reject-errors": "error",
     "typescript/require-await": "error",
-    "typescript/restrict-plus-operands": "error",
-    "typescript/restrict-template-expressions": "error",
     "typescript/unbound-method": "error",
     "typescript/use-unknown-in-catch-callback-variable": "error",
+    "unicorn/catch-error-name": "error",
+    "unicorn/no-useless-promise-resolve-reject": "error",
 
-    // ---- tests -----------------------------------------------------------
-    // A left-behind `.only` silently reduces the suite to one test while CI
-    // stays green — the same failure mode docs/testing.md rule 11 exists for.
-    "vitest/no-focused-tests": "error",
-    "vitest/require-mock-type-parameters": "off",
-    "vitest/no-conditional-expect": "off",
-    "vitest/no-standalone-expect": "off",
-    "vitest/require-to-throw-message": "off",
-    "vitest/expect-expect": "off",
+    // Expressions, collections, and platform APIs.
+    "no-regex-spaces": "error",
+    "object-shorthand": "error",
+    "prefer-arrow-callback": ["error", { "allowNamedFunctions": true }],
+    "prefer-const": ["error", { "ignoreReadBeforeAssign": true }],
+    "prefer-object-has-own": "error",
+    "typescript/restrict-plus-operands": "error",
+    "typescript/restrict-template-expressions": "error",
+    "unicorn/consistent-empty-array-spread": "error",
+    "unicorn/no-typeof-undefined": "error",
+    "unicorn/no-useless-spread": "error",
+    "unicorn/numeric-separators-style": "error",
+    "unicorn/prefer-at": "error",
+    "unicorn/prefer-dom-node-append": "error",
+    "unicorn/prefer-import-meta-properties": "error",
+    "unicorn/prefer-number-properties": "error",
+    "unicorn/prefer-single-call": "error",
+    "unicorn/prefer-string-raw": "error",
+    "unicorn/prefer-string-replace-all": "error",
+    "unicorn/prefer-string-slice": "error",
+    "unicorn/prefer-top-level-await": "error",
 
-    // ---- react -----------------------------------------------------------
-    "react/rules-of-hooks": "error",
+    // React.
+    "react/button-has-type": "error",
     "react/exhaustive-deps": "error",
+    "react/rules-of-hooks": "error",
 
-    // ---- size and shape: the CODING_STANDARDS.md §4 trip-wires -----------
-    // These are the thresholds that document already declares. They were
-    // prose; they are now enforced. When one trips, SIMPLIFY the logic —
-    // carving a function into three private helpers satisfies the number and
-    // makes the code worse (§4 says so explicitly). Never raise a threshold to
-    // pass review.
+    // Tests. Focused tests are forbidden; the other rules conflict with
+    // table-driven and framework-managed assertions.
+    "vitest/expect-expect": "off",
+    "vitest/no-conditional-expect": "off",
+    "vitest/no-focused-tests": "error",
+    "vitest/no-standalone-expect": "off",
+    "vitest/require-mock-type-parameters": "off",
+    "vitest/require-to-throw-message": "off",
+
+    // Complexity and size limits.
     "complexity": ["error", { "max": 25, "variant": "modified" }],
-    "sonarjs/cognitive-complexity": ["error", 25],
-    "max-params": ["error", { "max": 4 }],
     "max-depth": ["error", { "max": 3 }],
+    "max-lines": [
+      "error",
+      { "max": 500, "skipBlankLines": true, "skipComments": true }
+    ],
     "max-lines-per-function": [
       "error",
       { "max": 40, "skipBlankLines": true, "skipComments": true }
     ],
     "max-nested-callbacks": ["error", { "max": 3 }],
-    "max-lines": [
-      "error",
-      { "max": 500, "skipBlankLines": true, "skipComments": true }
-    ],
+    "max-params": ["error", { "max": 4 }],
+    "sonarjs/cognitive-complexity": ["error", 25],
 
-    // ---- from nkzw-tech/oxlint-config: already satisfied repo-wide ------
-    // Enabled at zero cost as regression protection. The rest of that config's
-    // remaining rules are style (numeric separators, string-raw) and are not
-    // adopted; its size and shape rules are above. The three with real
-    // correctness weight were held back while agents were mid-sweep, then
-    // enabled once their slices closed.
-    "typescript/no-require-imports": "error",
-    "preserve-caught-error": "error",
-    // `with-single-extends` permits `interface X extends Y {}`, the only way to
-    // merge a declaration onto a lib.dom global — a type alias cannot. The `{}`
-    // type itself is still rejected.
-    "typescript/no-empty-object-type": [
-      "error",
-      { "allowInterfaces": "with-single-extends" }
-    ],
-    "typescript/prefer-as-const": "error",
-    "typescript/no-unsafe-function-type": "error",
-    "typescript/no-wrapper-object-types": "error",
-    "typescript/no-duplicate-enum-values": "error",
-    "no-throw-literal": "error",
-    "unicorn/no-useless-spread": "error",
-    "unicorn/no-typeof-undefined": "error",
-    "unicorn/consistent-empty-array-spread": "error",
-    "unicorn/no-useless-promise-resolve-reject": "error",
-
-    // ---- nkzw-tech/oxlint-config: the rules that cost something.
-    // Adopted, with the code fixed rather than the rules relaxed. `prefer-at`
-    // was the expensive one: `a.at(-1)` returns `T | undefined`, and the 18
-    // sites split between reads that already tested for undefined, reads that
-    // needed the guard their function was missing, and one invariant worth
-    // asserting instead. Two of those were latent bugs — see
-    // docs/research/lint/2026-08-31-stella-oxlint-plugins.md.
-    // ---------------------------------------------------------------------
-    "unicorn/numeric-separators-style": "error",
-    "typescript/array-type": ["error", { "default": "generic" }],
-    "unicorn/prefer-string-raw": "error",
-    "unicorn/prefer-string-replace-all": "error",
-    "unicorn/catch-error-name": "error",
-    "unicorn/prefer-at": "error",
-    "unicorn/prefer-dom-node-append": "error",
-    "unicorn/prefer-top-level-await": "error",
-    "unicorn/prefer-single-call": "error",
-    "prefer-arrow-callback": ["error", { "allowNamedFunctions": true }],
-    "prefer-object-has-own": "error",
-    "react/button-has-type": "error",
-    "unicorn/prefer-import-meta-properties": "error",
-    "no-regex-spaces": "error",
-    "object-shorthand": "error",
-    // `ignoreReadBeforeAssign` covers the one shape a `const` cannot express:
-    // a variable a closure reads before the value exists, as in
-    // `mcp-runtime.service.ts`, where `onDisconnect` is registered as part of
-    // the config the client factory consumes, so it must be able to see the
-    // client the factory has not returned yet. Everything assigned once at its
-    // declaration is still an error.
-    // nkzw's terms, not the rule's defaults: `@nocommit` marks a local scratch
-    // edit that must never reach a branch. TODO/FIXME/XXX are deliberately NOT
-    // listed here — `anti-slop/no-untracked-todo` already governs those with a
-    // stricter contract (a bare TODO is an error, `TODO(#123)` is allowed), and
-    // the two rules compose rather than overlap.
-    "no-warning-comments": ["error", { "terms": ["@nocommit"] }],
-    "prefer-const": ["error", { "ignoreReadBeforeAssign": true }],
-    "unicorn/prefer-number-properties": "error",
-    "unicorn/prefer-string-slice": "error",
-
-    // ---- markers of unfinished or unreviewed work ------------------------
-    // `log`/`debug`/`info` are debugging leftovers. `error` and `warn` are
-    // deliberate reporting — a failed cancel the user must know about, a
-    // NODE_ENV-guarded invariant warning — and stay allowed.
+    // Unfinished work and debugging residue.
+    "anti-slop/no-untracked-todo": "error",
     "no-console": ["error", { "allow": ["error", "warn"] }],
-    "unicorn/consistent-function-scoping": "error",
-    "typescript/no-explicit-any": "error"
+    "no-warning-comments": ["error", { "terms": ["@nocommit"] }],
+    "unicorn/consistent-function-scoping": "error"
   },
 
   "overrides": [
     {
-      // Vendored upstream rule sources. llame's own opinions do not apply to
-      // code it did not write: enforcing them here would mean rewriting the
-      // vendored logic, which is exactly what vendoring exists to avoid. The
-      // files still have to parse and load — registry.check.mjs imports the
-      // plugin and fails if they do not.
+      // Vendored rules must parse and load; repository style does not apply.
       "files": ["packages/oxlint-plugin-anti-slop/vendor/**"],
       "rules": {
+        "anti-slop/no-chained-type-assertions": "off",
+        "anti-slop/no-object-parameters": "off",
         "anti-slop/no-runtime-typeof": "off",
         "anti-slop/no-unknown-parameters": "off",
         "anti-slop/no-unknown-returns": "off",
         "anti-slop/no-unsafe-dictionary-type": "off",
-        "anti-slop/no-object-parameters": "off",
         "anti-slop/require-safety-comment-for-type-assertion": "off",
-        "anti-slop/no-chained-type-assertions": "off",
-        "typescript/no-explicit-any": "off",
         "max-lines": "off",
-        "max-lines-per-function": "off"
+        "max-lines-per-function": "off",
+        "typescript/no-explicit-any": "off"
       }
     },
     {
-      // Tests and stories are exempt from SIZE and NESTING only. A table-driven
-      // suite is legitimately long, and `describe`/`it` nesting is the idiom —
-      // enforcing 40 lines here would reward splitting one coherent scenario
-      // across helpers that hide what is being asserted. Everything about type
-      // honesty still applies: `no-explicit-any`, every anti-slop rule, and the
-      // focused-test guard are all still errors below.
+      // Tests favor readable scenarios over production size limits.
       "files": [
-        "**/*.test.ts",
-        "**/*.test.tsx",
         "**/*.spec.ts",
         "**/*.stories.tsx",
         "**/*.test-fixture.ts",
+        "**/*.test.ts",
+        "**/*.test.tsx",
         "e2e/support/**"
       ],
       "rules": {
+        "max-lines": "off",
         "max-lines-per-function": "off",
         "max-nested-callbacks": "off",
-        "max-lines": "off",
         "max-statements": "off",
-        "unicorn/consistent-function-scoping": "off",
-        "no-console": "off"
+        "no-console": "off",
+        "unicorn/consistent-function-scoping": "off"
       }
     },
     {
-      // Operator commands and build scripts write to stdout because that IS
-      // their interface — an operator reads `search:coverage` output in a
-      // terminal. Everywhere else a `console.*` call is a debugging leftover.
-      // Globs are matched against the path as the linter sees it, and each
-      // workspace runs oxlint from its own directory — so these are written
-      // `**/`-prefixed rather than repo-rooted.
+      // Console output is the interface for commands, setup, and evaluation.
       "files": [
-        "**/operations/cli.ts",
-        "**/operations/cli-commands.ts",
+        "**/*.config.mts",
+        "**/*.config.ts",
+        "**/*.global-setup.mts",
+        "**/*.setup.ts",
         "**/db/migrate.ts",
-        "**/generate-openapi.ts",
+        "**/e2e/support/**",
         "**/eval/**",
         "**/evals/**",
-        "**/e2e/support/**",
-        "**/*.config.ts",
-        "**/*.config.mts",
-        "**/*.setup.ts",
-        "**/*.global-setup.mts"
+        "**/generate-openapi.ts",
+        "**/operations/cli-commands.ts",
+        "**/operations/cli.ts"
       ],
       "rules": {
         "no-console": "off"
       }
     },
     {
-      // `apps/api` is CommonJS: `module: nodenext` with no `"type": "module"`
-      // in its package.json. Top-level await there is not a style choice, it
-      // is TS1309 ("The current file is a CommonJS module and cannot use
-      // 'await' at the top level"). The rule stays on everywhere ESM actually
-      // runs — the root `e2e/` scripts under `node --import tsx`, and
-      // `apps/web`. Delete this override if `apps/api` ever moves to ESM.
-      // Scoped to the entrypoints themselves rather than to `src/**`, which
-      // each workspace would match against its own `src/`. A new api
-      // entrypoint therefore reports until it is added here, which is the
-      // right prompt: the fix is this list, not an `await`.
+      // These API entrypoints compile as CommonJS. Remove this if API moves
+      // to ESM.
       "files": [
-        "**/src/main.ts",
-        "**/src/worker.ts",
-        "**/generate-openapi.ts",
         "**/db/migrate.ts",
-        "**/operations/cli.ts"
+        "**/generate-openapi.ts",
+        "**/operations/cli.ts",
+        "**/src/main.ts",
+        "**/src/worker.ts"
       ],
       "rules": {
         "unicorn/prefer-top-level-await": "off"
