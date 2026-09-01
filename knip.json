@@ -79,6 +79,11 @@
     "apps/web/lib/api/generated/**",
     "packages/oxlint-plugin-anti-slop/vendor/**"
   ],
-  "ignoreDependencies": ["cognitive-complexity-ts", "next", "shadcn"],
+  "ignoreDependencies": [
+    "@tailwindcss/postcss",
+    "cognitive-complexity-ts",
+    "next",
+    "shadcn"
+  ],
   "ignoreExportsUsedInFile": true
 }

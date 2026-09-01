@@ -89,15 +89,6 @@ export const PromptInputToolbar = ({
   />
 );
 
-export type PromptInputToolsProps = HTMLAttributes<HTMLDivElement>;
-
-export const PromptInputTools = ({
-  className,
-  ...props
-}: PromptInputToolsProps) => (
-  <div className={cn("flex items-center gap-1", className)} {...props} />
-);
-
 export type PromptInputButtonProps = ComponentProps<typeof Button>;
 
 export const PromptInputButton = ({
@@ -127,23 +118,6 @@ export const PromptInputButton = ({
     />
   );
 };
-
-export type PromptInputSubmitProps = ComponentProps<typeof Button>;
-
-export const PromptInputSubmit = ({
-  className,
-  variant = "ghost",
-  size = "icon",
-  ...props
-}: PromptInputSubmitProps) => (
-  <Button
-    type="submit"
-    variant={variant}
-    size={size}
-    className={cn("gap-1.5 text-muted-foreground", className)}
-    {...props}
-  />
-);
 
 // export type PromptInputModelSelectProps = ComponentProps<typeof Select>;
 
