@@ -86,7 +86,7 @@ function useDocumentTitleSync(settledTitle: string | null | undefined): void {
   }, []);
 }
 
-export function PureChatHeader({ className }: ChatHeaderProps) {
+export function ChatHeader({ className }: ChatHeaderProps) {
   const pathname = usePathname();
   const settledTitle = useResolvedChatTitle();
 
@@ -118,5 +118,3 @@ export function PureChatHeader({ className }: ChatHeaderProps) {
     </header>
   );
 }
-
-export const ChatHeader = PureChatHeader;

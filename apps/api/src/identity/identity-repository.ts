@@ -560,6 +560,10 @@ export class MembershipsRepository {
   }
 }
 
+/**
+ * @public — built alongside the rest of the org/membership governance, which
+ * has no HTTP surface yet. Unwired rather than unused.
+ */
 export class ExternalIdentitiesRepository {
   constructor(private readonly db: Db) {}
 

@@ -35,5 +35,10 @@ export interface EmbeddingBackend {
   ): Promise<Array<EmbeddingResult>>;
 }
 
-/** Nest DI token for `EmbeddingBackend` — a symbol, not the interface itself (TypeScript interfaces have no runtime value to key a provider on). */
+/**
+ * @public — the DI token for embedding wiring that is not connected yet:
+ * embeddings are populated but not read (SPEC's search section), so nothing
+ * injects this today. Deleting it would delete the seam, not dead code.
+ *
+ * Nest DI token for `EmbeddingBackend` — a symbol, not the interface itself (TypeScript interfaces have no runtime value to key a provider on). */
 export const EMBEDDING_BACKEND = Symbol('EMBEDDING_BACKEND');

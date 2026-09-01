@@ -9,7 +9,7 @@ import type {
 /** Full role vocabulary, as returned in response payloads. */
 export type OrgRole = MembershipResponseRole;
 
-export const ORG_ROLES = [
+const ORG_ROLES = [
   "owner",
   "admin",
   "maintainer",
