@@ -988,41 +988,46 @@ describe('McpServerClient', () => {
   });
 
   it.each(['json', 'sse'] as const)(
-    'closes an oversized %s initialize response behind the safe body-limit failure',
+    'rejects an oversized %s initialize response behind the safe body-limit failure',
     async (kind) => {
       const secret = `AUTH-SENTINEL${'x'.repeat(ONE_MIB)}`;
-      const initializeResponse: McpFixtureResponse =
-        kind === 'json'
-          ? {
-              kind: 'raw',
-              contentType: 'application/json',
-              body: JSON.stringify({ secret }),
-            }
-          : {
-              kind: 'sse',
-              events: [{ data: secret, rawData: true }],
-            };
-      const fixture = await createMcpTestFixture({
-        $get: [{ kind: 'raw', status: 405, body: '' }],
-        initialize: [initializeResponse],
-        $delete: [{ kind: 'raw', status: 204, body: '' }],
+      const fetchStub = vi.fn(
+        (_request: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.method === 'GET') {
+            return resolvedResponse(new Response('', { status: 405 }));
+          }
+          const request = requestBody(init);
+          if (request.method !== 'initialize') {
+            return Promise.reject(new Error('unexpected request'));
+          }
+          return resolvedResponse(
+            new Response(
+              kind === 'json'
+                ? JSON.stringify({ secret })
+                : `data: ${secret}\n\n`,
+              {
+                headers: {
+                  'content-type':
+                    kind === 'json' ? 'application/json' : 'text/event-stream',
+                },
+              },
+            ),
+          );
+        },
+      );
+      const connection = McpServerClient.connect({
+        serverId: 'web',
+        url: 'https://fixture.invalid/mcp',
+        fetch: fetchStub,
       });
 
-      try {
-        const connection = McpServerClient.connect({
-          serverId: 'web',
-          url: fixture.url,
-        });
-        await expect(connection).rejects.toMatchObject({
-          name: 'McpServerOperationError',
-          stage: 'initialize',
-          kind: 'body_limit',
-          disposition: 'reconnect',
-        } satisfies Partial<McpServerOperationError>);
-        await expect(connection).rejects.not.toThrow('AUTH-SENTINEL');
-      } finally {
-        await fixture.close();
-      }
+      await expect(connection).rejects.toMatchObject({
+        name: 'McpServerOperationError',
+        stage: 'initialize',
+        kind: 'body_limit',
+        disposition: 'reconnect',
+      } satisfies Partial<McpServerOperationError>);
+      await expect(connection).rejects.not.toThrow('AUTH-SENTINEL');
     },
   );
 
