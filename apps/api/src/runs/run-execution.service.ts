@@ -769,16 +769,10 @@ export class RunExecutionService {
           persistDelta(deltas.flush());
           await deltaWrites;
           if (progressWriteFailed) {
-            await this.settleTerminalRun({
+            await this.settleProgressWriteFailure({
               userId: input.userId,
               runId: input.runId,
-              status: 'failed',
               telemetry: assistantTelemetry,
-              runPayload: {
-                status: 'failed',
-                message: 'Run progress could not be persisted.',
-              },
-              error: { message: 'Run progress could not be persisted.' },
             });
             return;
           }
@@ -798,16 +792,10 @@ export class RunExecutionService {
           // in that window permanently loses them.
           await deltaWrites;
           if (progressWriteFailed) {
-            await this.settleTerminalRun({
+            await this.settleProgressWriteFailure({
               userId: input.userId,
               runId: input.runId,
-              status: 'failed',
               telemetry: assistantTelemetry,
-              runPayload: {
-                status: 'failed',
-                message: 'Run progress could not be persisted.',
-              },
-              error: { message: 'Run progress could not be persisted.' },
             });
             return;
           }
@@ -882,16 +870,10 @@ export class RunExecutionService {
           persistDelta(deltas.flush());
           await deltaWrites;
           if (progressWriteFailed) {
-            await this.settleTerminalRun({
+            await this.settleProgressWriteFailure({
               userId: input.userId,
               runId: input.runId,
-              status: 'failed',
               telemetry: assistantTelemetry,
-              runPayload: {
-                status: 'failed',
-                message: 'Run progress could not be persisted.',
-              },
-              error: { message: 'Run progress could not be persisted.' },
             });
             return;
           }
@@ -917,16 +899,10 @@ export class RunExecutionService {
             // Re-drain after settlement — same reason as in onError.
             await deltaWrites;
             if (progressWriteFailed) {
-              await this.settleTerminalRun({
+              await this.settleProgressWriteFailure({
                 userId: input.userId,
                 runId: input.runId,
-                status: 'failed',
                 telemetry: assistantTelemetry,
-                runPayload: {
-                  status: 'failed',
-                  message: 'Run progress could not be persisted.',
-                },
-                error: { message: 'Run progress could not be persisted.' },
               });
               return;
             }
@@ -1179,6 +1155,31 @@ export class RunExecutionService {
       );
     }
     throw new RunNotRunnableError(input.runId);
+  }
+
+  /**
+   * Settle the run as failed because its own progress could not be persisted.
+   *
+   * Reached from four points in the stream lifecycle — `onError` and
+   * `onFinish`, each before and after the assistant turn is written. Once a
+   * delta write has failed the durable log no longer matches what the model
+   * produced, so the run must not settle as anything but failed, and it must
+   * settle the same way from every one of those points.
+   */
+  private async settleProgressWriteFailure(input: {
+    userId: string;
+    runId: string;
+    telemetry: AssistantTurnTelemetry;
+  }): Promise<void> {
+    const message = 'Run progress could not be persisted.';
+    await this.settleTerminalRun({
+      userId: input.userId,
+      runId: input.runId,
+      status: 'failed',
+      telemetry: input.telemetry,
+      runPayload: { status: 'failed', message },
+      error: { message },
+    });
   }
 
   private async failRunProgressPersistence(input: {
