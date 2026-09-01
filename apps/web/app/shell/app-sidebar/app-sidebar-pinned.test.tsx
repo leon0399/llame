@@ -327,6 +327,48 @@ describe("AppSidebarPinned — pinned chat row menu (mirrors ChatItem's row menu
       ).toBe(true),
     );
   });
+
+  it("the kebab menu's Rename item opens the rename dialog", async () => {
+    pinsHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<PinnedItem>>([
+          {
+            itemType: "chat",
+            itemId: "c1",
+            pinnedAt: "2026-01-01T00:00:00.000Z",
+            item: { id: "c1", title: "Trip to Lisbon", archivedAt: null },
+          },
+        ]),
+      );
+    const user = userEvent.setup();
+    renderPinned();
+
+    await user.click(await screen.findByRole("button", { name: /more/i }));
+    await user.click(await screen.findByRole("menuitem", { name: "Rename" }));
+
+    expect(await screen.findByText("Rename chat")).toBeTruthy();
+  });
+
+  it("the kebab menu's Delete item opens the delete confirmation", async () => {
+    pinsHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<PinnedItem>>([
+          {
+            itemType: "chat",
+            itemId: "c1",
+            pinnedAt: "2026-01-01T00:00:00.000Z",
+            item: { id: "c1", title: "Trip to Lisbon", archivedAt: null },
+          },
+        ]),
+      );
+    const user = userEvent.setup();
+    renderPinned();
+
+    await user.click(await screen.findByRole("button", { name: /more/i }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
+
+    expect(await screen.findByText("Delete chat?")).toBeTruthy();
+  });
 });
 
 describe("AppSidebarPinned — pinned project row menu (mirrors ProjectItem's row menu)", () => {

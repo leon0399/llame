@@ -142,6 +142,29 @@ describe("CreateOrgUnitDialog — root", () => {
       name: "Spaced Co",
     });
   });
+
+  it("Enter on a blank/whitespace-only name does not submit", () => {
+    renderWithClient(<CreateOrgUnitDialog open onOpenChange={vi.fn()} />);
+
+    const field = screen.getByLabelText("Name");
+    fireEvent.change(field, { target: { value: "   " } });
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("Cancel closes without submitting", () => {
+    const onOpenChange = vi.fn();
+    renderWithClient(<CreateOrgUnitDialog open onOpenChange={onOpenChange} />);
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "New Co" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("CreateOrgUnitDialog — child", () => {
@@ -206,6 +229,34 @@ describe("RenameOrgUnitDialog", () => {
       name: "Team Alpha",
     });
   });
+
+  it("submits on Enter in the name field", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...teamA, name: "Team Alpha" }));
+    renderWithClient(
+      <RenameOrgUnitDialog unit={teamA} open onOpenChange={vi.fn()} />,
+    );
+
+    const field = screen.getByLabelText("Name");
+    fireEvent.change(field, { target: { value: "Team Alpha" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  });
+
+  it("Cancel closes without submitting", () => {
+    const onOpenChange = vi.fn();
+    renderWithClient(
+      <RenameOrgUnitDialog unit={teamA} open onOpenChange={onOpenChange} />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Something else" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("MoveOrgUnitDialog", () => {
@@ -234,5 +285,23 @@ describe("MoveOrgUnitDialog", () => {
     expect(request.method).toBe("PATCH");
     expect(new URL(request.url).pathname).toBe("/api/v1/org-units/teamA");
     await expect(request.clone().json()).resolves.toEqual({ parentId: null });
+  });
+
+  it("Cancel closes without submitting", () => {
+    const onOpenChange = vi.fn();
+    renderWithClient(
+      <MoveOrgUnitDialog
+        unit={teamA}
+        units={[acme, teamA]}
+        open
+        onOpenChange={onOpenChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("— Make root organization —"));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

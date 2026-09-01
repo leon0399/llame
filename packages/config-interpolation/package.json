@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/coverage-v8": "catalog:",
     "@workspace/config-typescript": "workspace:*",
     "typescript": "catalog:",
     "vitest": "catalog:"

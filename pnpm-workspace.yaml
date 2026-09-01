@@ -90,6 +90,10 @@ catalog:
   storybook: ^10.5.0
   tsx: ^4.20.3
   typescript: 5.7.3
+  # Exact, not a range: vitest warns and may misbehave when the
+  # coverage provider's version differs from its own, and vitest
+  # itself is lockfile-pinned at 4.1.10.
+  "@vitest/coverage-v8": 4.1.10
   vitest: ^4.1.10
   zod: ^3.25.76
 

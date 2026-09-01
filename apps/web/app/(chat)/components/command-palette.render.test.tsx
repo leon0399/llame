@@ -35,7 +35,7 @@ import {
   it,
   vi,
 } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Mock } from "vitest";
@@ -173,6 +173,45 @@ async function waitForDeferredAction() {
   await new Promise((resolve) => setTimeout(resolve, 250));
 }
 
+describe("useCommandPalette", () => {
+  it("throws when called outside a CommandPaletteProvider", () => {
+    // React logs its own error-boundary console.error for this — silence it,
+    // it's the assertion, not a leak.
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    expect(() => render(<Trigger />)).toThrow(
+      "useCommandPalette must be used within CommandPaletteProvider",
+    );
+    consoleError.mockRestore();
+  });
+});
+
+describe("CommandPaletteProvider — ⌘K / Ctrl+K shortcut", () => {
+  it("opens the palette on Ctrl+K and does not react to a held-repeat", async () => {
+    renderPalette();
+    expect(
+      screen.queryByPlaceholderText("Search chats, projects, memories…"),
+    ).toBeNull();
+
+    fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+
+    expect(
+      await screen.findByPlaceholderText("Search chats, projects, memories…"),
+    ).toBeTruthy();
+  });
+
+  it("ignores a repeat keydown (a held chord) so it does not flicker the toggle", () => {
+    renderPalette();
+
+    fireEvent.keyDown(document, { key: "k", ctrlKey: true, repeat: true });
+
+    expect(
+      screen.queryByPlaceholderText("Search chats, projects, memories…"),
+    ).toBeNull();
+  });
+});
+
 describe("CommandPaletteProvider — design-matching visual pass", () => {
   it("shows Actions and an Esc hint while idle", async () => {
     const user = userEvent.setup();
@@ -305,6 +344,34 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
       ).value,
     ).toBe("hello");
     expect(screen.getByText("My chat")).toBeTruthy();
+  });
+
+  it("New Chat action navigates home", async () => {
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.click(screen.getByText("New chat"));
+    await waitForDeferredAction();
+
+    expect(routerPushMock).toHaveBeenCalledWith("/");
+  });
+
+  it("selecting a recent chat navigates to it", async () => {
+    chatsHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<ChatListItemResponse>>([
+          chatListItemFixture({ id: "chat-1", title: "Recent chat" }),
+        ]),
+      );
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.click(await screen.findByText("Recent chat"));
+    await waitForDeferredAction();
+
+    expect(routerPushMock).toHaveBeenCalledWith("/chat/chat-1");
   });
 
   it("shows a clear button once there's a query, and clears it on click", async () => {
