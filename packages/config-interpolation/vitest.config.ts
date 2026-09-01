@@ -12,6 +12,10 @@ export default defineConfig({
       reportOnFailure: true,
       reporter: ["text-summary", "json"],
       reportsDirectory: "./coverage",
+      // Ratchet, not an allowance (measured 85.0% lines): raise these when coverage
+      // rises, never lower one to admit a regression. The 85% target
+      // lives in docs/code-quality-targets.md.
+      thresholds: { lines: 84, statements: 82 },
       // Product source only: generated clients, migrations, vendored
       // code, and the test scaffolding itself are not what the 85%
       // target is about.
