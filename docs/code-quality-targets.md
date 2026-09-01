@@ -72,9 +72,9 @@ regress.
 | `any` / raw `unknown`  | 0                     | 0                       | **met**        |
 | Dead code `0`          | 18 files, 152 exports | 0                       | **met**        |
 | Surviving mutants      | unmeasured            | 10.1%                   | **met**, pilot |
-| Redundant code         | 0.47%, 21 clones      | 0.24%, 10 clones        | gap            |
-| Coverage `>= 85%`      | api 68.5%, web 64.8%  | api 68.6%, web 78.7%    | gap            |
-| CRAP `< 25`            | 32 files over         | 28 files over           | gap            |
+| Redundant code         | 0.47%, 21 clones      | 0.21%, 9, ratcheted     | each justified |
+| Coverage `>= 85%`      | api 68.5%, web 64.8%  | api 91.1%, web 85.0%    | **met**        |
+| CRAP `< 25`            | 32 files over         | 7 files over            | gap            |
 
 ### The one cognitive exception
 
