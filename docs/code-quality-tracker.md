@@ -1363,6 +1363,43 @@ the run pipeline still works. Decomposing `RunExecutionService` — a
 nine-dependency constructor, which is the same smell from the other side — is
 the tracked follow-up.
 
+#### Code-quality north star (2026-09-01)
+
+Ten targets recorded in [code-quality-targets.md](code-quality-targets.md), each
+wired to a standard tool: oxlint for cyclomatic complexity, file length, and the
+`any`/`unknown` targets; knip for dead code; jscpd for duplication; ts-complex
+for Halstead; cognitive-complexity-ts; vitest + v8 for coverage; Stryker for
+mutation. CRAP has no mainstream JavaScript implementation, so it is computed
+from the published formula over the other two tools' output — arithmetic on
+standard output, not a bespoke metric.
+
+Seven of ten met. Four are enforced by `pnpm lint` and four by a new Quality CI
+job, so none can silently regress. Dead code reached zero; cyclomatic reached
+zero; cognitive went 5 files over to 1 (ratcheted, with the reason inline);
+duplication 0.47% to 0.24%; apps/web coverage 64.8% to 78.7%; mutation 10.1%
+surviving against a 20% target.
+
+**Three measurement bugs were caught before they could drive a refactor**, which
+is the transferable part:
+
+1. `cognitive-complexity-ts` keys its JSON by BASENAME, which collides across a
+   monorepo — the first run silently measured 11 files instead of 396.
+2. Its top-level entry is the file's SUM, not a per-function score. Reading that
+   as the metric would have demanded splitting files rather than simplifying
+   functions, which is the opposite of what the threshold is for. Scoring per
+   callable took reported violations from 74 to 5.
+3. `apps/api` coverage was measured unit-only, so the 56 integration suites'
+   coverage read as untested. CRAP inherited the distortion; both numbers are
+   upper bounds, not defect counts.
+
+**And one regression this work caused.** `prompt-built-runtime.contract.ts` was
+deleted on knip's say-so. knip builds an IMPORT graph, and that file is invoked
+by PATH from `apps/api`'s build script, so it has no importer by construction.
+oxlint, tsgo, and all 1760 unit tests stayed green; only `pnpm --filter api
+build` failed, and a subagent found it. The rule is now written into the targets
+doc: grep `package.json` scripts before deleting anything knip reports unused,
+and declare it as an entry rather than deleting it.
+
 #### nkzw rule adoption, second pass (2026-08-31)
 
 The first pass took nine rules from nkzw-tech/oxlint-config and concluded the
