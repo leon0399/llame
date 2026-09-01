@@ -35,7 +35,7 @@ jobs:
       - uses: ./.github/actions/stryker-baseline
         id: baseline
 
-      - run: pnpm --filter api exec stryker run --incremental --force
+      - run: pnpm --filter api test:mutation -- --incremental --force
 
       - name: Save rebuilt mutation baseline
         if: success() && github.ref == 'refs/heads/master'

@@ -36,8 +36,8 @@
     "test:evals": "RUN_MODEL_EVALS=1 vitest run --project integration qa-evals",
     "test:evals:mcp-web-search": "RUN_MCP_WEB_SEARCH_EVAL=1 vitest run --project mcp-live-eval",
     "test:integration": "vitest run --project integration",
-    "test:mutation": "stryker run",
-    "test:mutation:dry": "stryker run --dryRunOnly",
+    "test:mutation": "pnpm --filter @workspace/config-interpolation build && stryker run",
+    "test:mutation:dry": "pnpm --filter @workspace/config-interpolation build && stryker run --dryRunOnly",
     "test:watch": "vitest --project unit",
     "typecheck": "tsgo --noEmit"
   },
