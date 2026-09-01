@@ -16,7 +16,16 @@ export default defineConfig({
       // code, and the test scaffolding itself are not what the 85%
       // target is about.
       include: ["src/**/*.ts"],
-      exclude: ["**/*.test.*", "**/*.spec.*", "**/*.stories.tsx", "**/__mocks__/**", "**/testing/**", "**/db/migrations/**", "**/lib/api/generated/**", "**/vendor/**"],
+      exclude: [
+        "**/*.test.*",
+        "**/*.spec.*",
+        "**/*.stories.tsx",
+        "**/__mocks__/**",
+        "**/testing/**",
+        "**/db/migrations/**",
+        "**/lib/api/generated/**",
+        "**/vendor/**",
+      ],
     },
     environment: "node",
     globals: true,

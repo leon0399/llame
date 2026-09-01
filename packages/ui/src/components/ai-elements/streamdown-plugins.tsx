@@ -136,6 +136,40 @@ const isCurrencyPair = (node: MathNode, source: string): boolean => {
   return /^\s|\s$/.test(node.value ?? "") || /\d/.test(source.charAt(end));
 };
 
+/** What one `inlineMath` or `text` child rewrites to, and whether it changed. */
+type ChildRewrite = { nodes: Array<MathNode>; changed: boolean };
+
+const rewriteInlineMathChild = (
+  child: MathNode,
+  raw: string | undefined,
+  source: string,
+): ChildRewrite => {
+  // `$$…$$` written inline is display math, never a currency pair.
+  if (
+    raw === undefined ||
+    raw.startsWith("$$") ||
+    !isCurrencyPair(child, source)
+  ) {
+    return { nodes: [child], changed: false };
+  }
+
+  // Restore from the source rather than re-wrapping `value` in dollars, so
+  // the delimiters come back exactly as written — but decode it, since this
+  // is now prose: math content is raw, and a `&amp;` or `\&` inside it has to
+  // resolve the way the rest of the paragraph's text does.
+  return { nodes: [{ type: "text", value: decodeString(raw) }], changed: true };
+};
+
+const rewriteTextChild = (
+  child: MathNode,
+  raw: string | undefined,
+): ChildRewrite => {
+  const expanded = raw === undefined ? undefined : expandLatexDelimiters(raw);
+  return expanded
+    ? { nodes: expanded, changed: true }
+    : { nodes: [child], changed: false };
+};
+
 const rewriteMathNodes = (node: MathNode, source: string): void => {
   const children = node.children;
 
@@ -155,36 +189,16 @@ const rewriteMathNodes = (node: MathNode, source: string): void => {
         : source.slice(start, end);
 
     if (child.type === "inlineMath") {
-      // `$$…$$` written inline is display math, never a currency pair.
-      if (
-        raw === undefined ||
-        raw.startsWith("$$") ||
-        !isCurrencyPair(child, source)
-      ) {
-        rewritten.push(child);
-        continue;
-      }
-
-      // Restore from the source rather than re-wrapping `value` in dollars,
-      // so the delimiters come back exactly as written — but decode it, since
-      // this is now prose: math content is raw, and a `&amp;` or `\&` inside
-      // it has to resolve the way the rest of the paragraph's text does.
-      rewritten.push({ type: "text", value: decodeString(raw) });
-      changed = true;
+      const rewrite = rewriteInlineMathChild(child, raw, source);
+      rewritten.push(...rewrite.nodes);
+      changed ||= rewrite.changed;
       continue;
     }
 
     if (child.type === "text") {
-      const expanded =
-        raw === undefined ? undefined : expandLatexDelimiters(raw);
-
-      if (expanded) {
-        rewritten.push(...expanded);
-        changed = true;
-      } else {
-        rewritten.push(child);
-      }
-
+      const rewrite = rewriteTextChild(child, raw);
+      rewritten.push(...rewrite.nodes);
+      changed ||= rewrite.changed;
       continue;
     }
 
