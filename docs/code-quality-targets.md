@@ -98,13 +98,27 @@ scored as though untested. Both numbers are upper bounds on the defect, not
 counts of it. CI runs `test:coverage` across both vitest projects and gets the
 true figure.
 
-**The remaining 10 clones are each deliberate**, not a backlog. Three are the
-api/web sanitizer pair that `apps/api/AGENTS.md` requires to stay mirrored
-byte-for-byte across two deployables with no shared package. Two are
-JSON-Schema helpers whose semantics genuinely differ, where merging would need
-a behavior-selecting callback — the strategy-pattern-over-a-small-set
-CODING_STANDARDS §2 prohibits. The rest are two-site pairs that the rule of
-three says to leave, on surfaces already diverging.
+**The 9 remaining clones are each justified, and the threshold is a ratchet.**
+`.jscpd.json` sits at 0.25% against a measured 0.21%: lower it when one is
+removed, never raise it to admit a new one. Verified it fails at 0.1%.
+
+| Clone                                                     | Lines | Why it stays                                                                                                                                                                                                                                                                             |
+| --------------------------------------------------------- | ----: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `authored-text.ts` <-> `personalization/sanitize.ts` (×3) |    70 | `apps/api/AGENTS.md` requires these mirrored byte-for-byte. api and web are separate deployables with no shared package, so the duplication is currently a product invariant. **This is the one worth removing** — see below.                                                            |
+| `login-form.tsx` <-> `register-form.tsx` (×2)             |    46 | One is shadcn form import boilerplate, not extractable. The other is an email field that would need a generic over two call sites. The forms already diverge (schema, submit, login's open-redirect guard) and will keep diverging.                                                      |
+| `declaration-admission.ts` same-file                      |    14 | `safeSubschemaMap` and `safeDependencies` handle genuinely different JSON-Schema keywords; `dependencies` carries an array-or-subschema union the plain map does not. Merging needs a behavior-selecting callback — the strategy-pattern-over-a-small-set CODING_STANDARDS §2 prohibits. |
+| `chats.dto.ts` <-> `projects.dto.ts`                      |    13 | Two sites, no cross-domain DTO composition precedent anywhere in the repo, and the comments already differ. Rule of three says leave it.                                                                                                                                                 |
+| anti-slop rule pairs (×2)                                 |    27 | Two sites each. A third occurrence would make them extractable; `resolveVariable` and `FunctionLikeNode` already were, and moved to `shared/`.                                                                                                                                           |
+
+### The one worth removing
+
+The api/web sanitizer pair is 70 lines of _mandated_ duplication on a
+prompt-injection path, kept in step by a comment and parity tests. Extracting it
+to a workspace package would delete the sync hazard outright, and the precedent
+is exact — `packages/config-interpolation` was pulled out of `apps/api` for the
+same reason. It is left here because moving a security-relevant module across a
+package boundary deserves its own reviewed change rather than being folded into
+a metrics pass.
 
 **apps/web reached 85.03%.** `apps/api` sits at 68.6% from unit tests alone and
 cannot be honestly measured without Postgres; CI's `test:coverage` spans both

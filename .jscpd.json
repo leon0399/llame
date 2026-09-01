@@ -4,7 +4,7 @@
   "path": ["apps", "packages"],
   "minLines": 10,
   "minTokens": 70,
-  "threshold": 1,
+  "threshold": 0.25,
   "reporters": ["consoleFull"],
   "absolute": true,
   "gitignore": true,
@@ -14,11 +14,9 @@
     "**/.next/**",
     "**/storybook-static/**",
     "**/coverage/**",
-
     "**/db/migrations/**",
     "**/lib/api/generated/**",
     "**/oxlint-plugin-anti-slop/vendor/**",
-
     "**/*.test.ts",
     "**/*.test.tsx",
     "**/*.spec.ts",
@@ -27,5 +25,6 @@
     "**/testing/**",
     "**/evals/**",
     "**/e2e/**"
-  ]
+  ],
+  "_note": "threshold is a RATCHET, not an allowance. Every clone still counted is justified in docs/code-quality-targets.md; lower this number when one is removed, never raise it to admit a new one."
 }
