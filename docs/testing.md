@@ -66,6 +66,38 @@ workspace whose tooling they guard.
     reusing processes whose code and configuration are unknown. Dev compiler
     latency and hot-reload DOM churn are not product behavior; do not move
     those races into assertion timeouts or a bespoke readiness endpoint.
+11. **Tautological tests considered harmful.** A test that cannot fail is worse
+    than no test: it reports coverage it does not have, and the next person
+    trusts it. The recurring shapes are asserting that a mock returns what the
+    same test configured it to return; recomputing the expected value with the
+    implementation's own expression instead of an independently known one;
+    letting `toHaveBeenCalled()` stand in for the behavior the call was supposed
+    to produce; and recording a snapshot of current output with no independent
+    notion of correct. The check is mechanical — **break the implementation and
+    re-run**. Still green against a deliberately wrong version means the test
+    measured nothing; that is exactly the property the
+    [mutation pilot](#api-mutation-testing-pilot-diagnostic) samples on the
+    modules it covers. Assert observable behavior at a real seam, against a
+    value derived independently of the code under test.
+
+### The invariant-vs-recompute line (rule 11)
+
+Importing a constant into a test is not itself the problem — what matters is what
+the assertion does with it.
+
+Stating an **invariant** over a constant is real:
+`expect(chunk.length).toBeLessThanOrEqual(CHUNK_MAX_CHARS)` holds at any bound and
+still catches a chunker that overshoots.
+
+**Recomputing the implementation's own derivation** is not:
+`toBe(Math.floor(window * COMPACTION_WINDOW_RATIO))` moves both sides together, so
+any ratio ships green. Iterating the implementation's own list
+(`for (const h of SECTION_HEADINGS)`) is the same defect — the loop shrinks with
+the array.
+
+A key factory, a cap, or a wire-format constant needs one **literal anchor**
+somewhere in its test file (`expect(pinQueryKeys.all).toEqual(["pins"])`). Given
+that anchor, other tests in the file may compose with the constant freely.
 
 ## Commands
 

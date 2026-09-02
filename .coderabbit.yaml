@@ -1,0 +1,141 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+reviews:
+  path_filters:
+    - "!pnpm-lock.yaml"
+    - "!**/dist/**"
+    - "!**/__fixtures__/**"
+    - "!**/__screenshots__/**"
+    - "!**/*.snap"
+    - "!CHANGELOG.md"
+    # Generated artifacts — review the generator input, never the output.
+    - "!apps/api/openapi.json"
+    - "!apps/web/lib/api/generated/**"
+    # Archived OpenSpec records are history, not proposals under review.
+    - "!openspec/changes/archive/**"
+
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        Apply the review framework in REVIEW_GUIDE.md. Its priority order governs every
+        comment you make: (1) tenant isolation and security, (2) durability and correctness
+        of persisted history, (3) product fit and contract containment, (4) maintainability,
+        (5) measured performance on a hot path.
+
+        llame is multi-tenant and self-hosted. Treat request bodies, params, headers, model
+        output, tool results, and MCP responses as attacker-controlled. Always report, at any
+        confidence: authorization identity taken from client-controlled input; a tenant-bearing
+        table or query without datastore-level isolation; a fail-open branch in an authorization
+        path; a secret, resolved `{env:...}`/`{path:...}` value, MCP session id, or host
+        filesystem path reaching logs, errors, model context, or owner-visible output.
+
+        You are the consistently-present reviewer on this repository; a Codex reviewer runs
+        intermittently as a second opinion. Do not assume anything is covered by someone else.
+        Concentrate your added depth on:
+          (1) bugs and logic errors, including the failure input or state that triggers them;
+          (2) violations of the documented conventions of the workspace the file belongs to —
+              the nearest AGENTS.md, plus CODING_STANDARDS.md and CONTRIBUTING.md;
+          (3) missed reuse and duplication across the monorepo, and speculative abstraction
+              (an interface with one implementation, a helper with one call site, config or
+              options nothing sets).
+
+        Do not repeat what CI already enforces: oxlint (type-aware, on tsgo), prettier,
+        ast-grep, and markdownlint-cli2 all run as gates. Do not comment on formatting.
+
+        Name the bug and its failure scenario, or name the specific documented rule violated.
+        Mark blocking findings as blocking; do not bury one among nits. Comment only on changed
+        code. Before asserting a version number, an API behavior, or a deprecation, verify it
+        against the lockfile or the installed package in this repo rather than from memory.
+
+    - path: "apps/api/**"
+      instructions: |
+        NestJS 11 + Drizzle + pg-boss, and the SOLE database owner.
+
+        Check: every endpoint has a class-validator DTO and an explicit response type mirroring
+        an egress allowlist; `apps/api/openapi.json` is regenerated in the same change as any
+        endpoint, DTO, or Swagger annotation edit (CI fails on a stale copy); one NestJS module
+        per feature with `@Inject(...)` decorators each on their own line; `queue/` is consumed
+        only by `runs/`; `RunExecutionService` stays transport-agnostic and no run executes on
+        the HTTP thread; `messages.parts` ordering and prior model-bearing parts are preserved
+        rather than rebuilt during replay; chained type assertions (`as unknown as T`) are
+        banned — narrow the dependency with a `Pick<>` instead.
+
+    - path: "apps/api/src/db/**"
+      instructions: |
+        Schema, migrations, and RLS. Read apps/api/src/db/AGENTS.md.
+
+        Flag every one of these: a new tenant-bearing table whose migration does not hand-append
+        `FORCE ROW LEVEL SECURITY` (Drizzle's `.enableRLS()` emits ENABLE only); a data backfill
+        not wrapped in a `NO FORCE ROW LEVEL SECURITY` window (migrations run as `app` with no
+        `app.current_user_id`, so under FORCE the write silently affects zero rows and a later
+        `SET NOT NULL` or `USING` cast fails); a `CREATE OR REPLACE` on a `SECURITY DEFINER`
+        function that `db:provision-rls` may already have reassigned to `app_rls` (add a new
+        sibling function instead); a `SECURITY DEFINER` function returning content rather than
+        identifiers and counts; a hand-authored step lacking both a `.sql` header comment and a
+        ledger row; a journal `when` that does not sort last.
+
+    - path: "apps/web/**"
+      instructions: |
+        Next.js 16 App Router thin client. It owns NO database — a DB import here is an
+        automatic reject.
+
+        Check: server state goes through TanStack Query key factories, not ad-hoc fetches;
+        `proxy.ts` stays a cookie-presence UX gate and never calls the API per request or
+        touches auth logic (apps/api guards are authoritative); generated Orval modules are
+        consumed only from `lib/services/` and `lib/api/`, never from components or routes;
+        optimistic cache patches only where the next state is client-computable, and never for
+        creations needing server-assigned fields; a test that renders a component and asserts
+        DOM belongs in a Storybook play function, not a jsdom test.
+
+    - path: "packages/ui/**"
+      instructions: |
+        Shared shadcn/ui library consumed by the apps.
+
+        Check: generated shadcn and AI Elements primitives are treated as vendored — composed
+        around rather than edited, except for the intentional JSDoc fork; every story an agent
+        writes carries the `ai-generated` tag and never has it removed; a story-only dependency
+        is added to BOTH `optimizeDeps.include` and `apps/storybook`'s devDependencies; an a11y
+        rule suppression carries a justifying comment and, at story level, spreads the inherited
+        meta rules rather than replacing them; no ad-hoc colors — use the semantic OKLCH tokens
+        in DESIGN.md.
+
+    - path: "**/*.test.ts"
+      instructions: |
+        Per docs/testing.md. Check that the test fails without the change it covers, sits at the
+        right level, and asserts behavior at a real seam rather than on mocks threaded through
+        the interior. Flag any silently skipped DB-backed suite — those must fail loudly when
+        Postgres is absent — and any assertion weakened to make a flake pass. A change touching
+        data, auth, or tenancy needs a negative test proving cross-tenant access is denied.
+
+        Tautological tests are a blocking finding (docs/testing.md rule 11). Report a test that
+        asserts a mock returns what the same test configured it to return; recomputes the
+        expected value using the implementation's own expression rather than an independently
+        known one; asserts only `toHaveBeenCalled()` where the behavior under test is what the
+        call produces; or snapshots current output with no independent notion of correct. State
+        which change to the implementation would leave the test green — that is the evidence.
+
+        Importing a constant into a test is not by itself a finding. An assertion that states an
+        invariant over it (`expect(len).toBeLessThanOrEqual(MAX)`) is real and holds at any value.
+        Report it only when the expectation recomputes the implementation's own derivation
+        (`toBe(Math.floor(window * RATIO))`) or iterates the implementation's own array, AND no
+        test in that file pins the constant against a literal. Where such a literal anchor exists,
+        other tests in the file may compose with the constant freely.
+
+    - path: ".github/workflows/**"
+      instructions: |
+        Flag unpinned action references (this repo pins by SHA via pinact), `pull_request_target`
+        combined with a checkout of untrusted code, secrets reachable from a fork-triggered job,
+        and script injection through `${{ github.event.* }}` interpolated into a `run` block.
+
+  # Walkthrough poem adds no review value.
+  poem: false
+  # Required for CodeRabbit to submit approving reviews at all. With this off
+  # (the default — and what the dashboard toggle resolves to for this repo)
+  # CodeRabbit only comments and never approves. Declared in-repo so approvals
+  # don't depend on dashboard state.
+  request_changes_workflow: true
+  auto_apply_labels: true
+
+knowledge_base:
+  learnings:
+    # Only apply learnings from this repository, not shared across other orgs/repos.
+    scope: local

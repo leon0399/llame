@@ -11,7 +11,6 @@ import {
   isTemporalPayload,
 } from './context-item-producers';
 import { type ContextItemPart } from './context-item';
-import { formatTemporalAnchor } from '../prompts/temporal-anchor';
 import { contentBlockTexts, contentText } from '../testing/support';
 
 const RUN_ID = '11111111-2222-4333-8444-555555555555';
@@ -268,16 +267,13 @@ describe('temporal rows in assembled context', () => {
     expect(result.contextItems).toEqual([]);
   });
 
-  it('agrees with the frozen anchor on format and timezone', () => {
-    const anchor = formatTemporalAnchor(
-      new Date('2026-08-19T16:36:00.000Z'),
-      'Europe/Madrid',
-    );
+  it('states a receipt, never the present instant', () => {
     const row = temporalPart().data.text;
 
-    // One format, one zone, two different claims: the anchor is a reference
-    // point that is explicitly not now, the row states when its turn arrived.
-    expect(row).toContain(`${anchor.systemTime} (${anchor.systemTimezone})`);
+    // The format/zone conversion itself is pinned against independent literals
+    // by 'states receipt in the stored zone, with a numeric offset' and
+    // 'renders UTC with a zero offset' above. What is left to assert here is
+    // the wording claim: a receipt, not a "current" time.
     expect(row).toContain('Message received:');
     expect(row).not.toContain('Current');
   });

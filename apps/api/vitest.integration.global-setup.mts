@@ -5,7 +5,7 @@
  * and runs the migrations, so a green RLS suite proves FORCE ROW LEVEL
  * SECURITY constrains even the table owner, plus the `app_rls` BYPASSRLS
  * function owner (docker/postgres/rls-function-owner.sql, which needs
- * superuser — see apps/api/AGENTS.md "app_rls (BYPASSRLS)").
+ * superuser — see apps/api/src/db/AGENTS.md "app_rls (BYPASSRLS)").
  *
  * TEST_DATABASE_URL overrides everything: point it at an already-provisioned
  * database (e.g. when docker is unavailable) and no container is started.

@@ -87,5 +87,11 @@ describe("live vs. historical rendering parity", () => {
 
     const historicalRender = render(<ToolCapNoticePart {...historicalData} />);
     expect(historicalRender.container.innerHTML).toBe(liveHtml);
+
+    // Parity alone compares two renders to each other, so dropping the counts
+    // from the chip would keep both sides equal. Anchor on the literal values.
+    expect(historicalRender.container.textContent).toContain(
+      `(${String(liveData.stepsUsed)}/${String(liveData.maxSteps)})`,
+    );
   });
 });

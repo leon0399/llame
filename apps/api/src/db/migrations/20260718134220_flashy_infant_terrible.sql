@@ -1,3 +1,6 @@
+-- Otherwise Drizzle-generated, then hand-appends FORCE ROW LEVEL SECURITY for
+-- model_context_snapshots (pattern P1 — .enableRLS() emits ENABLE only).
+-- Re-add the statement if this migration is regenerated.
 CREATE TYPE "public"."model_context_prompt_source" AS ENUM('project_default', 'model_override');--> statement-breakpoint
 CREATE TABLE "model_context_snapshots" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

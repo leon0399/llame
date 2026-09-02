@@ -13,7 +13,7 @@
 -- role to already OWN the function, but the migrating `app` role only owns
 -- it until `pnpm db:provision-rls` reassigns ownership to `app_rls`
 -- (BYPASSRLS) — which the deploy runbook says to run "immediately after
--- every fresh db:migrate" (apps/api/AGENTS.md). Any instance that has
+-- every fresh db:migrate" (apps/api/src/db/AGENTS.md). Any instance that has
 -- already provisioned since the coverage function's own migration landed
 -- would have `app_rls` as owner by the time this migration runs, and `app`
 -- is deliberately never granted membership in `app_rls` (see
