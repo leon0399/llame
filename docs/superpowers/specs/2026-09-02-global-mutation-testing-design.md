@@ -10,7 +10,7 @@ parallel in CI.
 
 | Workspace                          | Runner  | Scope                                                 |
 | ---------------------------------- | ------- | ----------------------------------------------------- |
-| `apps/api`                         | Vitest  | all production `src/**/*.ts`; all unit tests          |
+| `apps/api`                         | Vitest  | all production `src/**/*.ts`; complete unit glob      |
 | `apps/web`                         | Vitest  | hand-written TS/TSX including root runtime files      |
 | `apps/storybook`                   | Vitest  | config/runtime TS; all four unit tests                |
 | `packages/config-interpolation`    | Vitest  | all production `src`; all tests                       |
@@ -38,10 +38,21 @@ The root commands are `turbo run test:mutation --concurrency=1` and
 avoid running several Stryker worker pools on one developer machine. Turbo
 registers both tasks with `cache: false`.
 
-Vitest configs select each workspace's complete unit-test project. Anti-slop's
-command runner executes its existing registry check and every RuleTester file;
-it does not require a test-framework rewrite. `coverageAnalysis` is `perTest`
-for Vitest and `off` for the command runner.
+API, web, and Storybook own small mutation Vitest configs:
+
+- API selects the complete unit glob, removes the operator-config exclusion,
+  and resolves config interpolation through its built package instead of a
+  source alias outside the Stryker sandbox. Config-dependent unit tests use
+  committed examples or temporary fixtures.
+- Web resolves UI through its installed workspace package instead of the
+  tsconfig source alias outside the sandbox.
+- Storybook defines only its unit project; its normal config still owns the
+  browser project.
+
+Config interpolation and UI reuse their single-project Vitest configs.
+Anti-slop's command runner executes its existing registry check and every
+RuleTester file; it does not require a test-framework rewrite.
+`coverageAnalysis` is `perTest` for Vitest and `off` for the command runner.
 
 ## Quality policy
 
@@ -59,19 +70,33 @@ for Vitest and `off` for the command runner.
 
 CI uses a `fail-fast: false` matrix with one job per workspace. Matrix entries
 provide workspace name, path, timeout, and Stryker concurrency. Cold runs
-execute in parallel and each failure names its owner.
+execute in parallel and each failure names its owner. Concurrency groups are:
+
+- PR: `mutation-pr-<number>-<workspace>` with stale revisions cancelled;
+- trusted: `mutation-trusted-<workspace>` without cancellation.
 
 The baseline action accepts workspace path and an environment fingerprint.
-Cache keys include workspace, runner OS, dependency/config hash, commit, run,
-and attempt. Restore prefixes never cross workspaces. GitHub's pull-request
-cache scope isolates PR writes from `master`; successful PR, `master`, and
-scheduled runs save their own incremental report. Artifact names include the
-workspace and never collide.
+Cache keys include workspace, runner OS, trust class, dependency/config hash,
+commit, run, and attempt. PR restore order is its own cache followed by the
+trusted cache; PR saves use only `pr-<number>`. Trusted runs save only
+`trusted`. Artifact names use `mutation-report-<workspace>`.
 
-Fingerprints include the lockfile, Node version, setup/baseline actions, the
-workspace manifest, Stryker/Vitest/TypeScript configs, generated inputs consumed
-by tests, and internal workspace dependencies. Source and test files remain out
-of the fingerprint because Stryker diffs them inside the incremental report.
+Every fingerprint includes `pnpm-lock.yaml`, root `package.json`,
+`.node-version`, setup/baseline actions, and the workspace's package, Stryker,
+Vitest, and TypeScript configs. Additional inputs are exact:
+
+| Workspace     | External inputs                                         |
+| ------------- | ------------------------------------------------------- |
+| API           | `openapi.json`, config-interpolation package and source |
+| web           | generated API client, UI package/source/types           |
+| Storybook     | `.storybook`, UI package/source/styles                  |
+| interpolation | none                                                    |
+| anti-slop     | registry script and package root entrypoint             |
+| UI            | component registry and ambient type declarations        |
+
+API search-eval baselines are excluded because eval tests are outside the unit
+project. Source and unit-test files stay out of the fingerprint because Stryker
+diffs them inside the incremental report.
 
 The scheduled workflow uses the same matrix and forces every configured mutant.
 Pull requests reuse the latest compatible baseline and rerun affected mutants.
@@ -86,7 +111,8 @@ For every workspace:
 1. Dry run passes with all workspace tests discovered.
 2. Full mutation run completes and records score, mutant count, and duration.
 3. The configured decimal break threshold passes that measured result.
-4. Zero tests or zero mutants fails.
+4. Dry-run output confirms a non-zero test and mutant count for every explicit
+   scope; no custom report wrapper is added.
 5. Root Turbo dry runs contain all six workspaces.
 6. Cache keys and artifacts are unique per workspace and trust scope.
 7. CI matrix, actionlint, formatting, lint, typecheck, unit, integration,
