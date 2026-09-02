@@ -11,7 +11,12 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { InterpolationError, interpolateString } from "./interpolation";
+import {
+  InterpolationError,
+  interpolateString,
+  interpolateStringWithSubstitutions,
+} from "./interpolation";
+import { InstanceConfigError } from "./instance-config-error";
 
 /** Narrows a `catch`-clause `unknown` to the InterpolationError it's expected to be, without a cast. */
 function interpolationErrorSource(err: unknown): InterpolationError["source"] {
@@ -66,6 +71,9 @@ describe("interpolateString — {env:...}", () => {
       expect.unreachable("expected throw");
     } catch (error) {
       expect(error).toBeInstanceOf(InterpolationError);
+      expect(errorMessage(error)).toBe(
+        "required environment variable IC_TEST_VAR is not set",
+      );
       expect(interpolationErrorSource(error)).toEqual({
         kind: "env",
         name: "IC_TEST_VAR",
@@ -100,6 +108,18 @@ describe("interpolateString — {env:...}", () => {
     expect(() => interpolateString("{env:IC_TEST_VAR}", {})).toThrow(
       InterpolationError,
     );
+  });
+
+  it("reports non-empty substitutions and omits empty resolutions", () => {
+    const result = interpolateStringWithSubstitutions(
+      "before {env:IC_TEST_VAR} middle {env:IC_TEST_SECRET} after",
+      { IC_TEST_VAR: "resolved", IC_TEST_SECRET: "" },
+    );
+
+    expect(result).toEqual({
+      value: "before resolved middle  after",
+      substituted: ["resolved"],
+    });
   });
 
   it("embeds a token within a larger string", () => {
@@ -138,6 +158,9 @@ describe("interpolateString — {path:...}", () => {
       expect.unreachable("expected throw");
     } catch (error) {
       expect(error).toBeInstanceOf(InterpolationError);
+      expect(errorMessage(error)).toContain(
+        `required file ${missing} could not be read:`,
+      );
       expect(interpolationErrorSource(error)).toEqual({
         kind: "path",
         location: missing,
@@ -159,6 +182,19 @@ describe("interpolateString — {path:...}", () => {
     expect(interpolateString(`{path:${file}|json:/a~1b/~0key}`)).toBe(
       "escaped",
     );
+  });
+
+  it("reports file substitutions and omits an empty trimmed file", () => {
+    const valueFile = tempSecretFile("file-secret", "value.txt");
+    const emptyFile = tempSecretFile("  \n", "empty.txt");
+    const result = interpolateStringWithSubstitutions(
+      `{path:${valueFile}}|{path:${emptyFile}}`,
+    );
+
+    expect(result).toEqual({
+      value: "file-secret|",
+      substituted: ["file-secret"],
+    });
   });
 
   it("selects an own JSON member named __proto__", () => {
@@ -185,13 +221,34 @@ describe("interpolateString — {path:...}", () => {
     );
   });
 
-  it("rejects malformed pointers and invalid array traversal", () => {
+  it("does not treat array or scalar properties as object members", () => {
     const file = tempSecretFile(
       JSON.stringify({ items: ["first"], scalar: "secret" }),
+      "pseudo-properties.json",
+    );
+
+    for (const pointer of ["/items/length", "/scalar/length"]) {
+      expect(() => interpolateString(`{path:${file}|json:${pointer}}`)).toThrow(
+        `JSON pointer did not select a value in ${file}`,
+      );
+    }
+  });
+
+  it("rejects malformed pointers and invalid array traversal", () => {
+    const file = tempSecretFile(
+      JSON.stringify({
+        "/": "slash-secret",
+        key: "key-secret",
+        items: ["first"],
+        scalar: "secret",
+      }),
       "auth.json",
     );
     const invalidPointers = [
       "items/0",
+      "xkey",
+      "Stryker was here!",
+      "/~2",
       "/items/~2",
       "/items/01",
       "/items/1",
@@ -202,6 +259,24 @@ describe("interpolateString — {path:...}", () => {
     for (const pointer of invalidPointers) {
       expect(() => interpolateString(`{path:${file}|json:${pointer}}`)).toThrow(
         InterpolationError,
+      );
+    }
+  });
+
+  it("enforces JSON array index grammar instead of coercing tokens", () => {
+    const file = tempSecretFile(
+      JSON.stringify({
+        items: Array.from({ length: 13 }, (_, index) => `item-${index}`),
+      }),
+      "array-indexes.json",
+    );
+
+    expect(interpolateString(`{path:${file}|json:/items/10}`)).toBe("item-10");
+    expect(interpolateString(`{path:${file}|json:/items/12}`)).toBe("item-12");
+
+    for (const pointer of ["/items/ 1", "/items/1 "]) {
+      expect(() => interpolateString(`{path:${file}|json:${pointer}}`)).toThrow(
+        `JSON pointer did not select a value in ${file}`,
       );
     }
   });
@@ -224,6 +299,9 @@ describe("interpolateString — {path:...}", () => {
       expect.unreachable("expected throw");
     } catch (error) {
       expect(error).toBeInstanceOf(InterpolationError);
+      expect(errorMessage(error)).toBe(
+        `JSON pointer must select a string in ${file}`,
+      );
       expect(interpolationErrorSource(error)).toEqual({
         kind: "path",
         location: file,
@@ -244,6 +322,9 @@ describe("interpolateString — {path:...}", () => {
       expect.unreachable("expected throw");
     } catch (error) {
       expect(error).toBeInstanceOf(InterpolationError);
+      expect(errorMessage(error)).toBe(
+        `required file ${badJson} is not valid JSON`,
+      );
       expect(errorMessage(error)).not.toContain("not-json");
     }
 
@@ -252,8 +333,48 @@ describe("interpolateString — {path:...}", () => {
       expect.unreachable("expected throw");
     } catch (error) {
       expect(error).toBeInstanceOf(InterpolationError);
+      expect(errorMessage(error)).toBe(
+        `JSON pointer did not select a value in ${missingPointer}`,
+      );
       expect(errorMessage(error)).not.toContain("s3cr3t");
     }
+  });
+
+  it("accepts primitive JSON roots while rejecting non-string selections", () => {
+    const cases = [
+      ["number", JSON.stringify(42)],
+      ["boolean", JSON.stringify(true)],
+      ["null", JSON.stringify(null)],
+    ] as const;
+
+    for (const [name, content] of cases) {
+      const file = tempSecretFile(content, `${name}.json`);
+      expect(() => interpolateString(`{path:${file}|json:}`)).toThrow(
+        `JSON pointer must select a string in ${file}`,
+      );
+    }
+  });
+
+  it("resolves a JSON string root through an empty pointer", () => {
+    const file = tempSecretFile(JSON.stringify("root-secret"), "root.json");
+
+    expect(interpolateString(`{path:${file}|json:}`)).toBe("root-secret");
+  });
+
+  it("accepts every JSON primitive while selecting a nested string", () => {
+    const file = tempSecretFile(
+      JSON.stringify({
+        selected: "nested-secret",
+        number: 42,
+        boolean: true,
+        nothing: null,
+      }),
+      "primitives.json",
+    );
+
+    expect(interpolateString(`{path:${file}|json:/selected}`)).toBe(
+      "nested-secret",
+    );
   });
 });
 
@@ -266,6 +387,14 @@ describe("interpolateString — escaping", () => {
 
   it("a lone { that starts no recognized token passes through unchanged", () => {
     expect(interpolateString("just a { brace")).toBe("just a { brace");
+  });
+});
+
+describe("InstanceConfigError", () => {
+  it("sets its error name", () => {
+    expect(new InstanceConfigError("invalid config").name).toBe(
+      "InstanceConfigError",
+    );
   });
 });
 
