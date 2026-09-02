@@ -21,13 +21,13 @@ describe('MemoryModule registration', () => {
 describe('MemoryService', () => {
   it('resolves a missing row to the same default as an explicit opt-out', async () => {
     const runAs = vi.fn().mockResolvedValue(undefined);
-    const module = await Test.createTestingModule({
+    const moduleRef = await Test.createTestingModule({
       providers: [
         MemoryService,
         { provide: TenantDbService, useValue: { runAs } },
       ],
     }).compile();
-    const service = module.get(MemoryService);
+    const service = moduleRef.get(MemoryService);
 
     await expect(service.getForOwner('owner')).resolves.toEqual({
       shareRecentChats: false,

@@ -1,8 +1,9 @@
 /**
- * Shared e2e test helpers. The session-cookie format, the AI SDK SSE event
- * shape, and the fake streaming model client are protocol facts each spec used
- * to restate — keep them in one place so a change (cookie name, stream event
- * schema, fake behavior) can't silently miss a copy.
+ * Shared e2e test helpers. The session-cookie format and the AI SDK SSE event
+ * shape are protocol facts each spec used to restate — keep them in one place
+ * so a change (cookie name, stream event schema) can't silently miss a copy.
+ * The fake streaming model client lives in `./fake-streaming-model-client`
+ * (re-exported below) so each file stays under the size trip-wire.
  */
 
 import { expect } from 'vitest';
@@ -10,31 +11,15 @@ import { expect } from 'vitest';
 import { isContextItemPart } from '../chats/context-item';
 import { isTemporalPayload } from '../chats/context-item-producers';
 import type request from 'supertest';
-import type {
-  LanguageModelV3StreamPart,
-  LanguageModelV3Usage,
-} from '@ai-sdk/provider';
-import {
-  streamText as sdkStreamText,
-  type LanguageModelUsage,
-  type ModelMessage,
-} from 'ai';
-import { MockLanguageModelV3 } from 'ai/test';
+import type { ModelMessage } from 'ai';
 
-import { TITLE_SYSTEM_PROMPT } from '../titles/title';
-import {
-  MissingModelCredentialError,
-  type ModelClient,
-  type ModelStreamInput,
-} from '../models/model-client';
-import type { ModelReasoning, TokenPrice } from '../models/model-catalog';
-import {
-  ModelNotAvailableError,
-  resolveEffortSelection,
-  type ModelSelectionValidator,
-} from '../models/models.service';
-import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import { isRecord, isString, type UnknownRecord } from '../unknown-record';
+
+export {
+  FakeStreamingModelClient,
+  FakeModelsService,
+  type FakeTurn,
+} from './fake-streaming-model-client';
 
 /**
  * Asserts a register (or any auth) response body carries `user.id` as a
@@ -71,7 +56,7 @@ export const cookieOf = (res: request.Response): string => {
  * @param body - The SSE payload to parse
  * @returns The parsed JSON values from each `data: ` event, excluding `[DONE]`
  */
-export function parseSseEvents(body: string): unknown[] {
+export function parseSseEvents(body: string): Array<unknown> {
   // SAFETY: JSON.parse returns any; the final .map's assertion to unknown
   // forces callers to narrow before use rather than silently inheriting any.
   return (
@@ -108,370 +93,6 @@ export function streamedText(body: string): string {
     .join('');
 }
 
-export type FakeTurn = {
-  messages: ModelMessage[];
-  abortSignal?: AbortSignal;
-  aborted: boolean;
-};
-
-function toProviderUsage(usage: LanguageModelUsage): LanguageModelV3Usage {
-  return {
-    inputTokens: {
-      total: usage.inputTokens,
-      noCache: usage.inputTokenDetails.noCacheTokens,
-      cacheRead: usage.inputTokenDetails.cacheReadTokens,
-      cacheWrite: usage.inputTokenDetails.cacheWriteTokens,
-    },
-    outputTokens: {
-      total: usage.outputTokens,
-      text: usage.outputTokenDetails.textTokens,
-      reasoning: usage.outputTokenDetails.reasoningTokens,
-    },
-  };
-}
-
-const PROVIDER_ZERO_USAGE: LanguageModelV3Usage = {
-  inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
-  outputTokens: { total: 0, text: 0, reasoning: 0 },
-};
-
-export class FakeStreamingModelClient {
-  readonly turns: FakeTurn[] = [];
-  // Title-generation calls (#78) are tracked separately: they are async post-turn
-  // work, so counting them in `turns` would make every chat-turn assertion racy.
-  readonly titleTurns: ModelMessage[][] = [];
-  titleResponse: string | Promise<string> = 'Generated Title';
-  readonly model = 'system:openai:gpt-5.4-mini';
-  readonly provider = 'openai';
-  readonly contextWindowTokens = 128_000;
-  // Mirrors the formerly-hardcoded gpt-5.4-mini catalog pricing so cost
-  // assertions built against this fake keep exercising the real cost
-  // calculation path (providers-and-models-as-code, #167).
-  pricing: TokenPrice | undefined = {
-    inputUsdPer1M: 0.75,
-    cachedInputUsdPer1M: 0.075,
-    outputUsdPer1M: 4.5,
-  };
-  // Per-model compaction override (#167): unset by default (falls back to
-  // contextWindowTokens x ratio); a spec that wants cheap/aggressive
-  // compaction sets this directly instead of the removed
-  // COMPACTION_TOKEN_THRESHOLD env var.
-  compactionThresholdTokens: number | undefined;
-  responses: string[] = ['fake assistant'];
-  usage: LanguageModelUsage = {
-    inputTokens: 3,
-    inputTokenDetails: {
-      noCacheTokens: 1,
-      cacheReadTokens: 2,
-      cacheWriteTokens: 0,
-    },
-    cachedInputTokens: 2,
-    outputTokens: 5,
-    outputTokenDetails: { textTokens: 4, reasoningTokens: 1 },
-    totalTokens: 8,
-    reasoningTokens: 1,
-  };
-  delayMs = 0;
-  onFinishCalls = 0;
-
-  streamText(input: ModelStreamInput): ReturnType<typeof sdkStreamText> {
-    if (input.system === TITLE_SYSTEM_PROMPT) {
-      this.titleTurns.push(input.messages);
-      const titleResponse = this.titleResponse;
-      return sdkStreamText({
-        model: new MockLanguageModelV3({
-          provider: 'fake',
-          modelId: this.model,
-          doStream: ({ abortSignal }) =>
-            Promise.resolve({
-              stream: new ReadableStream<LanguageModelV3StreamPart>({
-                start(controller) {
-                  const onAbort = () => {
-                    controller.error(new DOMException('Aborted', 'AbortError'));
-                  };
-                  if (abortSignal?.aborted) {
-                    onAbort();
-                    return;
-                  }
-                  abortSignal?.addEventListener('abort', onAbort, {
-                    once: true,
-                  });
-
-                  void Promise.resolve(titleResponse)
-                    .then((title) => {
-                      if (abortSignal?.aborted) {
-                        return;
-                      }
-                      controller.enqueue({
-                        type: 'stream-start',
-                        warnings: [],
-                      });
-                      controller.enqueue({ type: 'text-start', id: 'title' });
-                      controller.enqueue({
-                        type: 'text-delta',
-                        id: 'title',
-                        delta: title,
-                      });
-                      controller.enqueue({ type: 'text-end', id: 'title' });
-                      controller.enqueue({
-                        type: 'finish',
-                        finishReason: { unified: 'stop', raw: undefined },
-                        usage: PROVIDER_ZERO_USAGE,
-                      });
-                      controller.close();
-                    })
-                    .catch((error: unknown) => {
-                      if (!abortSignal?.aborted) {
-                        controller.error(error);
-                      }
-                    })
-                    .finally(() => {
-                      abortSignal?.removeEventListener('abort', onAbort);
-                    });
-                },
-              }),
-            }),
-        }),
-        messages: input.messages,
-        system: input.system,
-        abortSignal: input.abortSignal,
-      });
-    }
-
-    const response =
-      this.responses[this.turns.length] ?? this.responses[0] ?? '';
-    const delayMs = this.delayMs;
-    const usage = this.usage;
-    const turn: FakeTurn = {
-      messages: input.messages,
-      abortSignal: input.abortSignal,
-      aborted: false,
-    };
-    this.turns.push(turn);
-    let abortSettlement = Promise.resolve();
-    let abortSettlementError: { error: unknown } | undefined;
-    const waitForAbortSettlement = async () => {
-      await abortSettlement;
-      if (abortSettlementError) {
-        throw abortSettlementError.error;
-      }
-    };
-    const model = new MockLanguageModelV3({
-      provider: 'fake',
-      modelId: this.model,
-      doStream: ({ abortSignal }) =>
-        Promise.resolve({
-          stream: new ReadableStream<LanguageModelV3StreamPart>({
-            async start(controller) {
-              let delayTimer: ReturnType<typeof setTimeout> | undefined;
-              let unblock: () => void = () => undefined;
-              const onAbort = () => {
-                turn.aborted = true;
-                if (delayTimer) {
-                  clearTimeout(delayTimer);
-                }
-                controller.error(new DOMException('Aborted', 'AbortError'));
-                unblock();
-              };
-              if (abortSignal?.aborted) {
-                onAbort();
-                return;
-              }
-              abortSignal?.addEventListener('abort', onAbort, { once: true });
-
-              try {
-                if (delayMs > 0) {
-                  await new Promise<void>((resolve) => {
-                    unblock = resolve;
-                    delayTimer = setTimeout(resolve, delayMs);
-                  });
-                }
-                if (abortSignal?.aborted) {
-                  return;
-                }
-                controller.enqueue({ type: 'stream-start', warnings: [] });
-                controller.enqueue({ type: 'text-start', id: 'answer' });
-                if (response.length > 0) {
-                  controller.enqueue({
-                    type: 'text-delta',
-                    id: 'answer',
-                    delta: response,
-                  });
-                }
-                controller.enqueue({ type: 'text-end', id: 'answer' });
-                controller.enqueue({
-                  type: 'finish',
-                  finishReason: { unified: 'stop', raw: undefined },
-                  usage: toProviderUsage(usage),
-                });
-                controller.close();
-              } catch (error) {
-                controller.error(error);
-              } finally {
-                abortSignal?.removeEventListener('abort', onAbort);
-              }
-            },
-          }),
-        }),
-    });
-    const toolOptions: Pick<ModelStreamInput, 'tools' | 'toolChoice'> = {};
-    if (input.tools) {
-      toolOptions.tools = input.tools;
-      if (input.toolChoice !== undefined) {
-        toolOptions.toolChoice = input.toolChoice;
-      }
-    }
-    const result = sdkStreamText({
-      model,
-      messages: input.messages,
-      system: input.system,
-      abortSignal: input.abortSignal,
-      ...toolOptions,
-      onChunk: ({ chunk }) => {
-        if (chunk.type === 'text-delta') {
-          input.onTextDelta?.(chunk.text);
-        } else if (chunk.type === 'reasoning-delta') {
-          input.onReasoningDelta?.(chunk.text);
-        }
-      },
-      onError: (event) => {
-        if (!input.abortSignal?.aborted) {
-          return input.onError?.(event);
-        }
-      },
-      onAbort: () => {
-        abortSettlement = Promise.resolve(
-          input.onError?.({
-            error: input.abortSignal?.reason ?? new Error('aborted'),
-          }),
-        ).catch((error: unknown) => {
-          abortSettlementError = { error };
-        });
-      },
-      onFinish: async ({ text, usage: actualUsage, finishReason }) => {
-        this.onFinishCalls += 1;
-        await input.onFinish?.({
-          text,
-          usage: actualUsage,
-          finishReason,
-        });
-      },
-    });
-
-    return wrapStreamTextResult(result, {
-      consumeStream: (target) => ({
-        value: async (...args: Parameters<typeof target.consumeStream>) => {
-          await target.consumeStream(...args);
-          await waitForAbortSettlement();
-        },
-      }),
-      text: (target) => ({
-        value: (async () => {
-          try {
-            return await target.text;
-          } finally {
-            await waitForAbortSettlement();
-          }
-        })(),
-      }),
-    });
-  }
-}
-
-/**
- * `implements ModelSelectionValidator` is load-bearing, not decoration: this
- * double is injected by Nest override, which is not structurally typechecked,
- * so a method added to the narrow contract would otherwise surface as a 500 in
- * the HTTP-boundary suites instead of a compile error here.
- */
-export class FakeModelsService implements ModelSelectionValidator {
-  credential: string | null = 'sk-test';
-  readonly client = new FakeStreamingModelClient();
-  readonly createClientCalls: unknown[] = [];
-
-  resolveModelCredential(userId: string): string {
-    if (!this.credential) {
-      throw new MissingModelCredentialError(userId);
-    }
-
-    return this.credential;
-  }
-
-  /** Per-model reasoning vocabulary an HTTP-boundary test declares before sending. */
-  private readonly reasoning = new Map<string, ModelReasoning>();
-
-  registerReasoning(modelId: string, reasoning: ModelReasoning): void {
-    this.reasoning.set(modelId, reasoning);
-  }
-
-  validateModelSelection(modelId: string) {
-    if (!this.isAvailable(modelId)) {
-      throw new ModelNotAvailableError(modelId);
-    }
-    const reasoning = this.reasoning.get(modelId);
-    return {
-      id: modelId,
-      source: 'system' as const,
-      contextWindowTokens: 128_000,
-      provider: 'openai',
-      providerModelId: 'test-provider-model',
-      systemPromptTemplate: `Test prompt for ${modelId}`,
-      systemPromptSource: 'project_default' as const,
-      ...(reasoning !== undefined && { reasoning }),
-    };
-  }
-
-  /**
-   * Delegates to the production resolver rather than restating its rules, so
-   * the HTTP-boundary suites cannot pass while the real API rejects or accepts
-   * a different set of levels.
-   */
-  resolveEffortSelection(
-    model: Parameters<typeof resolveEffortSelection>[0],
-    requested: string | undefined,
-  ): string | undefined {
-    return resolveEffortSelection(model, requested);
-  }
-
-  resolveTitleModelConfig() {
-    return {
-      id: 'system:openai:gpt-5.4-nano',
-      source: 'system',
-      provider: 'openai',
-      providerModelId: 'gpt-5.4-nano',
-    };
-  }
-
-  createClient(modelId: string): ModelClient {
-    this.createClientCalls.push({ modelId });
-    const client = this.client;
-
-    return {
-      get model() {
-        return modelId;
-      },
-      provider: client.provider,
-      contextWindowTokens: client.contextWindowTokens,
-      ...(client.pricing !== undefined && { pricing: client.pricing }),
-      ...(client.compactionThresholdTokens !== undefined && {
-        compactionThresholdTokens: client.compactionThresholdTokens,
-      }),
-      streamText: (input) => client.streamText(input),
-    } satisfies ModelClient;
-  }
-
-  private isAvailable(modelId: string): boolean {
-    return [
-      'system:openai:gpt-5.5',
-      'system:openai:gpt-5.4',
-      'system:openai:gpt-5.4-mini',
-      'system:openai:gpt-5.4-nano',
-      'system:openai:gpt-4o',
-      'system:openai:gpt-4o-mini',
-    ].includes(modelId);
-  }
-}
-
 /**
  * Poll until `poll` returns a defined value or the timeout elapses. The shared
  * copy — integration/e2e suites poll for async outcomes (consumed jobs,
@@ -502,7 +123,7 @@ export async function waitFor<T>(
  * Strip it here and assert it with `expectTemporalRow` where it is the point,
  * rather than restating a matcher for it in every spec.
  */
-export function withoutTemporalRow<T>(parts: readonly T[]): T[] {
+export function withoutTemporalRow<T>(parts: ReadonlyArray<T>): Array<T> {
   return parts.filter(
     (part) => !(isContextItemPart(part) && part.data.producer === 'temporal'),
   );
@@ -510,7 +131,7 @@ export function withoutTemporalRow<T>(parts: readonly T[]): T[] {
 
 /** Assert the turn carries exactly one well-formed temporal row. */
 export function expectTemporalRow(
-  parts: readonly unknown[],
+  parts: ReadonlyArray<unknown>,
   runId?: string,
 ): void {
   const rows = parts
@@ -526,8 +147,8 @@ export function expectTemporalRow(
 }
 
 function parseMessagePartAssertions(
-  parts: readonly unknown[],
-): UnknownRecord[] {
+  parts: ReadonlyArray<unknown>,
+): Array<UnknownRecord> {
   return parts.map((part) => {
     if (!isRecord(part)) {
       throw new TypeError('Expected a message part object');
@@ -550,8 +171,8 @@ function withoutContextText(part: UnknownRecord): UnknownRecord {
  * turns are stamped at all.
  */
 export function expectMessageParts(
-  parts: readonly unknown[],
-  expected: readonly unknown[],
+  parts: ReadonlyArray<unknown>,
+  expected: ReadonlyArray<unknown>,
   runId?: string,
 ): void {
   const actualParts = parseMessagePartAssertions(withoutTemporalRow(parts));
@@ -561,7 +182,9 @@ export function expectMessageParts(
 }
 
 /** Text of each content block, so a message's blocks can be asserted apart. */
-export function contentBlockTexts(content: ModelMessage['content']): string[] {
+export function contentBlockTexts(
+  content: ModelMessage['content'],
+): Array<string> {
   if (isString(content)) return [content];
   return content.map((block) =>
     isRecord(block) && isString(block['text']) ? block['text'] : '',

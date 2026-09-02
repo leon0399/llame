@@ -8,7 +8,7 @@ import {
 
 type Migration = { name: string; sql: string };
 
-function readMigrations(): Migration[] {
+function readMigrations(): Array<Migration> {
   const migrationsDirectory = join(__dirname, 'migrations');
   return readdirSync(migrationsDirectory)
     .filter((name) => name.endsWith('.sql'))

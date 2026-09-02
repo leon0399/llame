@@ -28,8 +28,9 @@
  *   to a non-owner — no new cross-user access path
  * - deleting a project unfiles its chats (ON DELETE SET NULL), never destroys them
  *
- * NOTE: this file uses `any` for the postgres.js client, loaded dynamically so the
- * module does not connect at import time when TEST_DATABASE_URL is absent. Tests
+ * NOTE: this file's postgres.js client is loaded dynamically (`require`) so the
+ * module does not connect at import time when TEST_DATABASE_URL is absent; only
+ * its type comes from a static, erased `import type`. Tests
  * operate at the raw-SQL/RLS level (mirroring the first describe block of
  * chats-rls.integration.test.ts) — there is no separate app-layer describe block
  * here because ProjectsService/ChatsService are thin `TenantDbService.runAs`
@@ -38,7 +39,8 @@
  * RLS boundary that isn't covered by proving the policies directly.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+import { type Sql } from 'postgres';
+
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
@@ -46,7 +48,7 @@
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
-type SqlClient = any;
+type SqlClient = Sql;
 
 describeIfDb('RLS integration — projects tenancy (projects-foundation)', () => {
   let sql: SqlClient;
@@ -59,7 +61,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
    * `SET LOCAL` (plain `SET LOCAL x = $1` cannot take a bind parameter). Mirrors
    * chats-rls.integration.test.ts's asUser exactly.
    */
-  const asUser = (userId: string, fn: (tx: SqlClient) => Promise<any>) =>
+  const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
       return fn(tx);
@@ -67,7 +69,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
 
   beforeAll(async () => {
     // Dynamic import to avoid connecting at module load time.
-    const postgres = require('postgres');
+    const postgres = await import('postgres');
     const connect = postgres.default ?? postgres;
     // Local test databases (docker) have no TLS; only require it if the URL asks.
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
@@ -119,7 +121,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
         (tx) =>
           tx`SELECT id FROM projects WHERE id IN (${p1}, ${p2}) ORDER BY id`,
       );
-      expect(aRows.map((r: { id: string }) => r.id).sort()).toEqual(
+      expect(aRows.map((r) => r.id).sort((a, b) => a.localeCompare(b))).toEqual(
         [p1, p2].sort(),
       );
 

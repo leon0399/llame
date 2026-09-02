@@ -91,12 +91,12 @@ export type EnqueueFailure = {
  *  rejection must not short-circuit the batch and swallow the other 19
  *  outcomes in it. */
 async function enqueueBounded(
-  rows: readonly OutstandingRow[],
+  rows: ReadonlyArray<OutstandingRow>,
   enqueueOne: (chatId: string, ownerUserId: string) => Promise<string | null>,
 ): Promise<{
   succeeded: number;
   coalesced: number;
-  failures: EnqueueFailure[];
+  failures: Array<EnqueueFailure>;
 }> {
   const CONCURRENCY = 20;
   let succeeded = 0;
@@ -106,7 +106,7 @@ async function enqueueBounded(
   // report only what actually enqueued, and would make a re-run of an
   // already-queued corpus claim it queued everything a second time.
   let coalesced = 0;
-  const failures: EnqueueFailure[] = [];
+  const failures: Array<EnqueueFailure> = [];
   for (let i = 0; i < rows.length; i += CONCURRENCY) {
     const batch = rows.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
@@ -143,7 +143,7 @@ export type BackfillResult = {
   coalesced: number;
   /** Chats whose enqueue failed; empty on a fully successful run. The
    *  caller must treat any non-empty result as a failed command. */
-  failures: EnqueueFailure[];
+  failures: Array<EnqueueFailure>;
 };
 
 /**

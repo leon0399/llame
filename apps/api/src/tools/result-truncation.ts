@@ -49,50 +49,52 @@ type CappedValue =
   | boolean
   | null
   | undefined
-  | CappedValue[]
+  | Array<CappedValue>
   | { [key: string]: CappedValue };
+
+/** The part of `capRecord`/`capValues`' recursion that never changes per
+ * call — only `path` does, so it stays a separate argument. */
+interface CapContext {
+  readonly limit: number;
+  readonly lists: Array<ShortenedList>;
+  readonly keepAllEntries: boolean;
+}
 
 function capRecord(
   value: UnknownRecord,
-  limit: number,
-  lists: ShortenedList[],
+  ctx: CapContext,
   path: string,
-  keepAllEntries: boolean,
 ): { [key: string]: CappedValue } {
   const entries = Object.entries(value);
   return Object.fromEntries(
-    (keepAllEntries ? entries : entries.slice(0, limit)).map(([key, entry]) => [
-      key,
-      capValues(entry, limit, lists, path === '' ? key : `${path}.${key}`),
-    ]),
+    (ctx.keepAllEntries ? entries : entries.slice(0, ctx.limit)).map(
+      ([key, entry]) => [
+        key,
+        capValues(entry, ctx, path === '' ? key : `${path}.${key}`),
+      ],
+    ),
   );
 }
 
-function capValues(
-  value: unknown,
-  limit: number,
-  lists: ShortenedList[],
-  path = '',
-  keepAllEntries = false,
-): CappedValue {
+function capValues(value: unknown, ctx: CapContext, path = ''): CappedValue {
   if (isString(value)) {
-    return cutStringAtCodePointBoundary(value, limit);
+    return cutStringAtCodePointBoundary(value, ctx.limit);
   }
   if (Array.isArray(value)) {
-    const kept = value.slice(0, limit);
+    const kept = value.slice(0, ctx.limit);
     if (kept.length < value.length) {
-      lists.push({
+      ctx.lists.push({
         path: path === '' ? 'the result' : path,
         kept: kept.length,
         total: value.length,
       });
     }
     return kept.map((entry, index) =>
-      capValues(entry, limit, lists, `${path}[${index}]`),
+      capValues(entry, ctx, `${path}[${index}]`),
     );
   }
   if (isRecord(value)) {
-    return capRecord(value, limit, lists, path, keepAllEntries);
+    return capRecord(value, ctx, path);
   }
   // Numbers, booleans, null, and undefined are already shorter than any
   // useful limit. Anything else (symbol, function, bigint) is not a shape a
@@ -115,7 +117,7 @@ function capValues(
  * Name the biggest shortened lists, then summarize the rest — a payload of
  * many small lists would otherwise spend the whole cap on its own marker.
  */
-function shortenedListPhrase(lists: readonly ShortenedList[]): string {
+function shortenedListPhrase(lists: ReadonlyArray<ShortenedList>): string {
   if (lists.length === 0) return '';
   const ranked = [...lists].sort(
     (left, right) => right.total - right.kept - (left.total - left.kept),
@@ -141,7 +143,7 @@ function omittedFieldPhrase(
 
 function truncationNotice(
   omittedChars: number,
-  lists: readonly ShortenedList[],
+  lists: ReadonlyArray<ShortenedList>,
   omittedFields: number,
   totalFields: number,
 ): string {
@@ -177,49 +179,10 @@ export function truncateOversizedResult(result: ToolResult): ToolResult {
     throw new TypeError('Malformed oversized tool result projection.');
   }
   const { status: _status, ...payload } = parsed;
-
-  const totalFields = Object.keys(payload).length;
-
-  const build = (limit: number, keepAllFields: boolean): ToolResult => {
-    const lists: ShortenedList[] = [];
-    const capped = capRecord(payload, limit, lists, '', keepAllFields);
-    const omittedChars =
-      json.length - JSON.stringify({ status: 'success', ...capped }).length;
-    return {
-      status: 'success',
-      ...capped,
-      [TRUNCATED_FIELD]: true,
-      [NOTICE_FIELD]: truncationNotice(
-        omittedChars,
-        lists,
-        totalFields - Object.keys(capped).length,
-        totalFields,
-      ),
-    };
-  };
-
-  // The serialized length rises with `limit` (a larger limit only ever keeps
-  // more payload, while the notice's own length changes by a few characters as
-  // the omitted count falls and lists stop being shortened), so the largest
-  // fitting limit is a binary search — measured against the real serialization
-  // rather than computed from a budget. Only a fitting candidate is ever
-  // accepted, so the cap holds even where that rise is not strictly monotone;
-  // at worst the search settles one step short of the largest fitting limit.
-  const search = (keepAllFields: boolean): ToolResult => {
-    let low = 0;
-    let high = json.length;
-    let best = build(0, keepAllFields);
-    while (low <= high) {
-      const mid = Math.floor((low + high) / 2);
-      const candidate = build(mid, keepAllFields);
-      if (JSON.stringify(candidate).length <= RESULT_TRUNCATE_CHARS) {
-        best = candidate;
-        low = mid + 1;
-      } else {
-        high = mid - 1;
-      }
-    }
-    return best;
+  const source: TruncationSource = {
+    payload,
+    totalFields: Object.keys(payload).length,
+    json,
   };
 
   // First pass keeps every top-level field, which is the shape guarantee. Its
@@ -229,8 +192,70 @@ export function truncateOversizedResult(result: ToolResult): ToolResult {
   // out of a provider request — so a second pass drops trailing fields too, and
   // the marker says how many. That pass always fits: its own floor is the
   // marker alone.
-  const preserved = search(true);
+  const preserved = searchLargestFittingLimit(source, true);
   return JSON.stringify(preserved).length <= RESULT_TRUNCATE_CHARS
     ? preserved
-    : search(false);
+    : searchLargestFittingLimit(source, false);
+}
+
+/** The part of a truncation pass that never changes across the binary
+ * search's candidate limits. */
+interface TruncationSource {
+  readonly payload: UnknownRecord;
+  readonly totalFields: number;
+  readonly json: string;
+}
+
+function buildTruncatedResult(
+  source: TruncationSource,
+  limit: number,
+  keepAllFields: boolean,
+): ToolResult {
+  const lists: Array<ShortenedList> = [];
+  const capped = capRecord(
+    source.payload,
+    { limit, lists, keepAllEntries: keepAllFields },
+    '',
+  );
+  const omittedChars =
+    source.json.length -
+    JSON.stringify({ status: 'success', ...capped }).length;
+  return {
+    status: 'success',
+    ...capped,
+    [TRUNCATED_FIELD]: true,
+    [NOTICE_FIELD]: truncationNotice(
+      omittedChars,
+      lists,
+      source.totalFields - Object.keys(capped).length,
+      source.totalFields,
+    ),
+  };
+}
+
+// The serialized length rises with `limit` (a larger limit only ever keeps
+// more payload, while the notice's own length changes by a few characters as
+// the omitted count falls and lists stop being shortened), so the largest
+// fitting limit is a binary search — measured against the real serialization
+// rather than computed from a budget. Only a fitting candidate is ever
+// accepted, so the cap holds even where that rise is not strictly monotone;
+// at worst the search settles one step short of the largest fitting limit.
+function searchLargestFittingLimit(
+  source: TruncationSource,
+  keepAllFields: boolean,
+): ToolResult {
+  let low = 0;
+  let high = source.json.length;
+  let best = buildTruncatedResult(source, 0, keepAllFields);
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = buildTruncatedResult(source, mid, keepAllFields);
+    if (JSON.stringify(candidate).length <= RESULT_TRUNCATE_CHARS) {
+      best = candidate;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return best;
 }

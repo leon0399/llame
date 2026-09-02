@@ -17,8 +17,8 @@ export type ConversationLogicalLine = {
  */
 export function scanConversationLogicalLines(
   text: string,
-): ConversationLogicalLine[] {
-  const lines: ConversationLogicalLine[] = [];
+): Array<ConversationLogicalLine> {
+  const lines: Array<ConversationLogicalLine> = [];
   let lineStart = 0;
   let line = 0;
 

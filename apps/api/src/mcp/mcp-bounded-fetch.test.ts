@@ -7,7 +7,7 @@ import {
 } from './mcp-bounded-fetch';
 
 function responseFromChunks(
-  chunks: readonly Uint8Array[],
+  chunks: ReadonlyArray<Uint8Array>,
   init: ResponseInit = {},
   onCancel = vi.fn(),
   keepOpen = false,
@@ -56,7 +56,7 @@ const requestBodyCases = [
 
 describe('MCP byte-bounded fetch', () => {
   it('forces redirect error and captures the session before returning the response', async () => {
-    const seen: RequestInit[] = [];
+    const seen: Array<RequestInit> = [];
     let session: string | null = null;
     const boundedFetch = createMcpBoundedFetch({
       fetch: (_input, init) => {

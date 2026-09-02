@@ -30,7 +30,7 @@ export type EvalCategory =
 export interface EvalQuery {
   query: string;
   category: EvalCategory;
-  expect: string[];
+  expect: Array<string>;
 }
 
 // Oversized-fixture filler (task 1.2): repeated to push the message text to
@@ -49,7 +49,7 @@ export const OVERSIZED_TRANSCRIPT_TEXT =
   'The final action item was to retire the legacy invoicing service and ' +
   'cut over to project Nightjar-7 before the end of Q3.';
 
-export const EVAL_FIXTURES: EvalFixture[] = [
+export const EVAL_FIXTURES: Array<EvalFixture> = [
   {
     key: 'ts-generics',
     title: 'TypeScript generics deep dive',
@@ -142,7 +142,7 @@ export const EVAL_FIXTURES: EvalFixture[] = [
   },
 ];
 
-export const EVAL_QUERIES: EvalQuery[] = [
+export const EVAL_QUERIES: Array<EvalQuery> = [
   // exact-title (floor)
   {
     query: 'TypeScript generics deep dive',

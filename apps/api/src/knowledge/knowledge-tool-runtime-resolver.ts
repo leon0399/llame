@@ -51,7 +51,7 @@ export class KnowledgeToolRuntimeResolver implements KnowledgeToolResolver {
       name: row.name,
       createdAt: row.createdAt,
     }));
-    const last = spaces[spaces.length - 1];
+    const last = spaces.at(-1);
     const page: KnowledgeToolSpacePage = { spaces };
     if (rows.length > KNOWLEDGE_SPACE_MAX_LIMIT && last !== undefined) {
       return {

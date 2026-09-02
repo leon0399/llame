@@ -16,70 +16,66 @@
 
 import {
   CONTEXT_ITEM_TAG,
-  createContextItemPart,
   isContextItemPart,
-  renderContextItem,
   type AuthoredContextItemPart,
   type ContextItemForm,
   type ContextItemPart,
 } from './context-item';
-import { compareCodePoints } from '../canonical-json';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import {
   formatTemporalAnchor,
   isIanaTimeZone,
 } from '../prompts/temporal-anchor';
 import { type RecencyDigestEntry } from '../db/schema';
-import { isToolId } from '../tools/tool-id';
-import {
-  parseToolAvailabilityManifest,
-  TOOL_UNAVAILABLE_REASON_LABELS,
-  TOOL_UNAVAILABLE_REASONS,
-  type ToolAvailabilityEntry,
-  type ToolAvailabilityManifest,
-  type ToolAvailabilityManifestV1,
-  type ToolUnavailableReason,
-} from '../tools/turn-tool-catalog';
 import {
   isBoolean,
   isNumber,
-  isRecord,
   isString,
   type UnknownRecord,
 } from '../unknown-record';
+import {
+  createRenderedContextItem,
+  isExactRecord,
+} from './context-item-shared';
+import {
+  createToolAvailabilityItem,
+  deriveToolAvailabilityPayload,
+  isToolAvailabilityPayload,
+  RECOVERY_REASON_BY_UNAVAILABLE_REASON,
+  TOOL_RECOVERY_REASON_LABELS,
+  TOOL_RECOVERY_REASONS,
+} from './tool-availability-context-item';
 
-function isExactRecord(
-  value: unknown,
-  expectedKeys: readonly string[],
-): value is UnknownRecord {
-  return (
-    isRecord(value) &&
-    Object.keys(value).sort(compareCodePoints).join('\0') ===
-      [...expectedKeys].sort(compareCodePoints).join('\0')
-  );
-}
+// Re-exported: this producer used to live inline here; every existing
+// importer of it still resolves through this module.
+export {
+  createToolAvailabilityItem,
+  deriveToolAvailabilityPayload,
+  isToolAvailabilityPayload,
+  RECOVERY_REASON_BY_UNAVAILABLE_REASON,
+  TOOL_RECOVERY_REASON_LABELS,
+  TOOL_RECOVERY_REASONS,
+};
 
 /* ------------------------------------------------------------------ *
  * effective-context-change
  * ------------------------------------------------------------------ */
 
 /**
- * Causes that change a run's effective context. Closed, and **one cause per
- * item**: when several occur on the same turn each is its own item, because a
- * notice that enumerates dimensions is nearly always a single word and every
- * future dimension would need enumeration support.
+ * A model change, the one cause of an effective-context change with a shipped
+ * detector.
  *
- * `model` is the only member with a shipped detector. The remaining snapshot
- * inputs — an operator prompt reload, a personalization edit — are disclosed
- * separately (#466), because they cannot be inferred from a hash: `promptHash`
- * also moves on a routine digest re-bake and on every temporal-anchor refresh,
- * so only the binder knows why it minted a new snapshot.
+ * The cause set is closed and carries **one cause per item**: when several
+ * occur on the same turn each becomes its own item, because a notice that
+ * enumerates dimensions is nearly always a single word and every future
+ * dimension would need enumeration support.
+ *
+ * The remaining snapshot inputs — an operator prompt reload, a personalization
+ * edit — are disclosed separately (#466), because they cannot be inferred from
+ * a hash: `promptHash` also moves on a routine digest re-bake and on every
+ * temporal-anchor refresh, so only the binder knows why it minted a new
+ * snapshot.
  */
-export const EFFECTIVE_CONTEXT_CHANGE_CAUSES = ['model'] as const;
-
-export type EffectiveContextChangeCause =
-  (typeof EFFECTIVE_CONTEXT_CHANGE_CAUSES)[number];
-
 export interface ModelChangePayload extends UnknownRecord {
   readonly cause: 'model';
   readonly fromModelId: string;
@@ -148,315 +144,13 @@ function renderModelChange(payload: ModelChangePayload): string {
 }
 
 /* ------------------------------------------------------------------ *
- * tool-availability
- * ------------------------------------------------------------------ */
-
-export const TOOL_RECOVERY_REASONS = [
-  'source_reconnected',
-  'protocol_supported',
-  'discovery_succeeded',
-  'tool_restored',
-  'declaration_accepted',
-  'name_collision_resolved',
-  // Legacy decode/recovery only; current candidates never author its source reason.
-  'knowledge_space_configured',
-  'knowledge_space_restored',
-] as const;
-
-export type ToolRecoveryReason = (typeof TOOL_RECOVERY_REASONS)[number];
-
-export const TOOL_RECOVERY_REASON_LABELS = {
-  source_reconnected: 'server reconnected',
-  protocol_supported: 'protocol supported',
-  discovery_succeeded: 'tool discovery succeeded',
-  tool_restored: 'tool restored',
-  declaration_accepted: 'tool declaration accepted',
-  name_collision_resolved: 'tool name collision resolved',
-  knowledge_space_configured: 'Knowledge Space configured',
-  knowledge_space_restored: 'Knowledge Space restored',
-} satisfies Readonly<Record<ToolRecoveryReason, string>>;
-
-export const RECOVERY_REASON_BY_UNAVAILABLE_REASON = {
-  source_connecting: 'source_reconnected',
-  source_disconnected: 'source_reconnected',
-  protocol_unsupported: 'protocol_supported',
-  discovery_failed: 'discovery_succeeded',
-  tool_missing: 'tool_restored',
-  declaration_refused: 'declaration_accepted',
-  name_collision: 'name_collision_resolved',
-  knowledge_space_not_configured: 'knowledge_space_configured',
-  knowledge_space_unavailable: 'knowledge_space_restored',
-} satisfies Readonly<Record<ToolUnavailableReason, ToolRecoveryReason>>;
-
-export type UnavailableTransition = {
-  readonly id: string;
-  readonly reason: ToolUnavailableReason;
-};
-
-export type RecoveryTransition = {
-  readonly id: string;
-  readonly reason: ToolRecoveryReason;
-};
-
-export interface ToolAvailabilityPayload extends UnknownRecord {
-  readonly kind: 'initial' | 'delta';
-  readonly added: readonly string[];
-  readonly removed: readonly string[];
-  readonly unavailable: readonly UnavailableTransition[];
-  readonly becameUnavailable: readonly UnavailableTransition[];
-  readonly nowAvailable: readonly RecoveryTransition[];
-}
-
-function isSortedToolIdArray(value: unknown): value is string[] {
-  if (!Array.isArray(value)) return false;
-  let previous: string | undefined;
-  for (const id of value) {
-    if (
-      !isString(id) ||
-      !isToolId(id) ||
-      (previous !== undefined && compareCodePoints(previous, id) >= 0)
-    ) {
-      return false;
-    }
-    previous = id;
-  }
-  return true;
-}
-
-function isReasonEntries<TReason extends string>(
-  value: unknown,
-  reasons: readonly TReason[],
-): value is Array<{ id: string; reason: TReason }> {
-  if (!Array.isArray(value)) return false;
-  let previous: string | undefined;
-  for (const entry of value) {
-    if (
-      !isExactRecord(entry, ['id', 'reason']) ||
-      !isString(entry['id']) ||
-      !isToolId(entry['id']) ||
-      !isString(entry['reason']) ||
-      !reasons.some((reason) => reason === entry['reason']) ||
-      (previous !== undefined && compareCodePoints(previous, entry['id']) >= 0)
-    ) {
-      return false;
-    }
-    previous = entry['id'];
-  }
-  return true;
-}
-
-export function isToolAvailabilityPayload(
-  value: unknown,
-): value is ToolAvailabilityPayload {
-  if (
-    !isExactRecord(value, [
-      'added',
-      'becameUnavailable',
-      'kind',
-      'nowAvailable',
-      'removed',
-      'unavailable',
-    ])
-  ) {
-    return false;
-  }
-  if (
-    (value['kind'] !== 'initial' && value['kind'] !== 'delta') ||
-    !isSortedToolIdArray(value['added']) ||
-    !isSortedToolIdArray(value['removed']) ||
-    !isReasonEntries(value['unavailable'], TOOL_UNAVAILABLE_REASONS) ||
-    !isReasonEntries(value['becameUnavailable'], TOOL_UNAVAILABLE_REASONS) ||
-    !isReasonEntries(value['nowAvailable'], TOOL_RECOVERY_REASONS)
-  ) {
-    return false;
-  }
-
-  // An initial disclosure epoch has no prior manifest to diff against, so it
-  // can only state what is currently unavailable.
-  if (
-    value['kind'] === 'initial' &&
-    (value['added'].length > 0 ||
-      value['removed'].length > 0 ||
-      value['becameUnavailable'].length > 0 ||
-      value['nowAvailable'].length > 0)
-  ) {
-    return false;
-  }
-
-  const allIds = [
-    ...value['added'],
-    ...value['removed'],
-    ...value['unavailable'].map(({ id }) => id),
-    ...value['becameUnavailable'].map(({ id }) => id),
-    ...value['nowAvailable'].map(({ id }) => id),
-  ];
-  return allIds.length > 0 && new Set(allIds).size === allIds.length;
-}
-
-export function createToolAvailabilityItem(input: {
-  readonly runId: string;
-  readonly payload: ToolAvailabilityPayload;
-}): AuthoredContextItemPart {
-  if (!isToolAvailabilityPayload(input.payload)) {
-    throw new TypeError('Invalid server-authored tool availability metadata');
-  }
-  return createRenderedContextItem({
-    producer: 'tool-availability',
-    form: 'notice',
-    runId: input.runId,
-    payload: input.payload,
-    body: renderToolAvailability(input.payload),
-  });
-}
-
-function entriesById(
-  manifest: ToolAvailabilityManifestV1,
-): ReadonlyMap<string, ToolAvailabilityEntry> {
-  return new Map(manifest.entries.map((entry) => [entry.id, entry]));
-}
-
-/**
- * Derive durable semantic metadata from immutable Run manifests, or `null`
- * when nothing changed — an unchanged outage emits no item, including while
- * the outage persists.
- *
- * Omitting the previous manifest starts a fresh disclosure epoch; a v0
- * manifest is also initial, because historical availability was never
- * observed. Compaction is what starts the next epoch, per the rail's single
- * re-baseline boundary.
- */
-export function deriveToolAvailabilityPayload(input: {
-  readonly current: ToolAvailabilityManifestV1;
-  readonly previous?: ToolAvailabilityManifest;
-}): ToolAvailabilityPayload | null {
-  const current = parseToolAvailabilityManifest(input.current);
-  if (current.version !== 1) {
-    throw new TypeError('Current tool availability must be observed');
-  }
-  const previous =
-    input.previous === undefined
-      ? undefined
-      : parseToolAvailabilityManifest(input.previous);
-
-  if (previous === undefined || previous.version === 0) {
-    const unavailable = current.entries.flatMap((entry) =>
-      entry.state === 'unavailable'
-        ? [{ id: entry.id, reason: entry.reason }]
-        : [],
-    );
-    if (unavailable.length === 0) return null;
-    return {
-      kind: 'initial',
-      added: [],
-      removed: [],
-      unavailable,
-      becameUnavailable: [],
-      nowAvailable: [],
-    };
-  }
-
-  const before = entriesById(previous);
-  const after = entriesById(current);
-  const ids = [...new Set([...before.keys(), ...after.keys()])].sort(
-    compareCodePoints,
-  );
-  const added: string[] = [];
-  const removed: string[] = [];
-  const unavailable: UnavailableTransition[] = [];
-  const becameUnavailable: UnavailableTransition[] = [];
-  const nowAvailable: RecoveryTransition[] = [];
-
-  for (const id of ids) {
-    const prior = before.get(id);
-    const next = after.get(id);
-    if (!prior && next?.state === 'available') {
-      added.push(id);
-    } else if (!prior && next?.state === 'unavailable') {
-      unavailable.push({ id, reason: next.reason });
-    } else if (prior && !next) {
-      removed.push(id);
-    } else if (prior?.state === 'available' && next?.state === 'unavailable') {
-      becameUnavailable.push({ id, reason: next.reason });
-    } else if (prior?.state === 'unavailable' && next?.state === 'available') {
-      nowAvailable.push({
-        id,
-        reason: RECOVERY_REASON_BY_UNAVAILABLE_REASON[prior.reason],
-      });
-    }
-  }
-
-  if (
-    added.length === 0 &&
-    removed.length === 0 &&
-    unavailable.length === 0 &&
-    becameUnavailable.length === 0 &&
-    nowAvailable.length === 0
-  ) {
-    return null;
-  }
-
-  return {
-    kind: 'delta',
-    added,
-    removed,
-    unavailable,
-    becameUnavailable,
-    nowAvailable,
-  };
-}
-
-function renderIds(ids: readonly string[]): string[] {
-  return ids.map((id) => `- \`${id}\``);
-}
-
-function renderReasons<TReason extends string>(
-  entries: readonly { id: string; reason: TReason }[],
-  labels: Readonly<Record<TReason, string>>,
-): string[] {
-  return entries.map(({ id, reason }) => `- \`${id}\`: "${labels[reason]}"`);
-}
-
-function renderToolAvailability(payload: ToolAvailabilityPayload): string {
-  const lines = [
-    payload.kind === 'initial'
-      ? 'Some eligible tools are unavailable for this turn:'
-      : 'The available tools were changed since the last turn:',
-  ];
-  const groups: Array<[string, string[]]> = [
-    ['Added tools:', renderIds(payload.added)],
-    ['Removed tools:', renderIds(payload.removed)],
-    [
-      'Unavailable tools:',
-      renderReasons(payload.unavailable, TOOL_UNAVAILABLE_REASON_LABELS),
-    ],
-    [
-      'Became unavailable:',
-      renderReasons(payload.becameUnavailable, TOOL_UNAVAILABLE_REASON_LABELS),
-    ],
-    [
-      'Now available:',
-      renderReasons(payload.nowAvailable, TOOL_RECOVERY_REASON_LABELS),
-    ],
-  ];
-  for (const [heading, entries] of groups) {
-    if (entries.length === 0) continue;
-    lines.push('', heading, ...entries);
-  }
-  lines.push(
-    '',
-    'Do not simulate removed or unavailable tools or invent their results.',
-  );
-  return lines.join('\n');
-}
-
-/* ------------------------------------------------------------------ *
  * recency-digest
  * ------------------------------------------------------------------ */
 
 type RecencyDigestDeltaEntry = RecencyDigestEntry & { pinned: boolean };
 
 export interface RecencyDigestDeltaPayload extends UnknownRecord {
-  readonly entries: readonly RecencyDigestDeltaEntry[];
+  readonly entries: ReadonlyArray<RecencyDigestDeltaEntry>;
   readonly pinChanges: ReadonlyArray<{
     readonly title: string;
     readonly pinned: boolean;
@@ -729,17 +423,6 @@ export const COMPACTION_CHECKPOINT_FORM: ContextItemForm = 'checkpoint';
 /** The checkpoint's envelope opening, for callers matching on the prefix. */
 export const COMPACTION_CHECKPOINT_ENVELOPE_PREFIX = `<${CONTEXT_ITEM_TAG} producer="compaction" form="${COMPACTION_CHECKPOINT_FORM}">`;
 
-/** Does this part carry a tool-availability transition? */
-export function isToolAvailabilityItem(
-  value: unknown,
-): value is ContextItemPart {
-  return (
-    isContextItemPart(value) &&
-    value.data.producer === 'tool-availability' &&
-    isToolAvailabilityPayload(value.data.payload)
-  );
-}
-
 /** Does this part carry a recency-digest delta or supersession? */
 export function isRecencyDigestItem(value: unknown): value is ContextItemPart {
   if (!isContextItemPart(value) || value.data.producer !== 'recency-digest') {
@@ -749,28 +432,4 @@ export function isRecencyDigestItem(value: unknown): value is ContextItemPart {
     value.data.form === 'snapshot' ||
     isRecencyDigestDeltaPayload(value.data.payload)
   );
-}
-
-function createRenderedContextItem(input: {
-  readonly producer: Parameters<typeof createContextItemPart>[0]['producer'];
-  readonly form?: ContextItemForm;
-  readonly runId: string;
-  readonly payload: UnknownRecord;
-  readonly body: string;
-}): AuthoredContextItemPart {
-  const text = renderContextItem({
-    producer: input.producer,
-    form: input.form,
-    body: input.body,
-  });
-  if (text === null) {
-    throw new TypeError('Invalid server-authored context item producer');
-  }
-  return createContextItemPart({
-    producer: input.producer,
-    ...(input.form !== undefined && { form: input.form }),
-    runId: input.runId,
-    payload: input.payload,
-    text,
-  });
 }

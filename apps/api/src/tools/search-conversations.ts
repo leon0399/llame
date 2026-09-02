@@ -49,7 +49,7 @@ export type SearchConversationsCanonicalResult =
 export type SearchConversationsCanonicalSuccess = {
   status: 'success';
   notice: string;
-  results: SearchConversationsCanonicalResult[];
+  results: Array<SearchConversationsCanonicalResult>;
 };
 
 const inputSchema = z
@@ -128,9 +128,9 @@ async function canonicalSuccess(
   tx: Db,
   ownerUserId: string,
   query: string,
-  rows: readonly HybridSearchResult[],
+  rows: ReadonlyArray<HybridSearchResult>,
 ): Promise<SearchConversationsCanonicalSuccess> {
-  const results: SearchConversationsCanonicalResult[] = [];
+  const results: Array<SearchConversationsCanonicalResult> = [];
   for (const row of rows) {
     const updatedAt = toIsoString(row.updatedAt);
     if (row.bestDocumentId === null) {

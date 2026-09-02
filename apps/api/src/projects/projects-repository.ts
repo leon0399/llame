@@ -35,7 +35,7 @@ export class ProjectsRepository {
       pinned?: 'only' | 'with' | 'exclude';
       archived?: 'only' | 'with';
     } = {},
-  ): Promise<Project[]> {
+  ): Promise<Array<Project>> {
     const conditions = [eq(projects.ownerUserId, ownerUserId)];
 
     if (filter.archived === 'only') {
@@ -44,21 +44,20 @@ export class ProjectsRepository {
       conditions.push(isNull(projects.archivedAt));
     }
 
+    // SAFETY: 'project' is a member of PinItemType ('chat' | 'project');
+    // eq()'s inferred column-comparison parameter widens the literal to
+    // string in this position, so this pins it back to the enum type.
+    const pinnedByOwner = and(
+      eq(pins.userId, ownerUserId),
+      eq(pins.itemType, 'project' as PinItemType),
+      eq(pins.itemId, projects.id),
+    );
+
     if (filter.pinned === 'exclude') {
       const pinSubquery = this.db
         .select({ itemId: pins.itemId })
         .from(pins)
-        .where(
-          and(
-            eq(pins.userId, ownerUserId),
-            // SAFETY: 'project' is a member of PinItemType
-            // ('chat' | 'project'); eq()'s inferred column-comparison
-            // parameter widens the literal to string in this position, so
-            // this pins it back to the enum type.
-            eq(pins.itemType, 'project' as PinItemType),
-            eq(pins.itemId, projects.id),
-          ),
-        );
+        .where(pinnedByOwner);
       conditions.push(not(exists(pinSubquery)));
     }
 
@@ -66,15 +65,7 @@ export class ProjectsRepository {
       return this.db
         .select(getTableColumns(projects))
         .from(projects)
-        .innerJoin(
-          pins,
-          and(
-            eq(pins.userId, ownerUserId),
-            // SAFETY: 'project' is a member of PinItemType.
-            eq(pins.itemType, 'project' as PinItemType),
-            eq(pins.itemId, projects.id),
-          ),
-        )
+        .innerJoin(pins, pinnedByOwner)
         .where(and(...conditions))
         .orderBy(asc(pins.position), pins.itemId);
     }

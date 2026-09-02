@@ -53,7 +53,9 @@ export class PinsController {
     schema: { type: 'array', items: PINNED_ITEM_RESPONSE_SCHEMA },
   })
   @ApiUnauthorizedResponse()
-  async listPins(@CurrentUser() userId: string): Promise<PinnedItemResponse[]> {
+  async listPins(
+    @CurrentUser() userId: string,
+  ): Promise<Array<PinnedItemResponse>> {
     const rows = await this.pinsService.listPins(userId);
     return rows.map(toPinnedItemResponse);
   }
@@ -74,7 +76,7 @@ export class PinsController {
   async reorderPins(
     @CurrentUser() userId: string,
     @Body() body: ReorderPinsDto,
-  ): Promise<PinnedItemResponse[]> {
+  ): Promise<Array<PinnedItemResponse>> {
     const rows = await this.pinsService.reorderPins(userId, body.items);
     return rows.map(toPinnedItemResponse);
   }

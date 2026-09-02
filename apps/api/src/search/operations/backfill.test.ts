@@ -25,7 +25,7 @@ import {
 
 type Row = { chat_id: string; owner_user_id: string };
 
-function fakeTenantDb(rows: Row[]): CoverageQueryRunner {
+function fakeTenantDb(rows: Array<Row>): CoverageQueryRunner {
   return { runAsPublic: (fn) => fn({ execute: () => Promise.resolve(rows) }) };
 }
 
@@ -35,7 +35,7 @@ describe('runBackfill', () => {
   // a re-run of an already-queued corpus claim it queued everything again,
   // contradicting this module's "reports only what actually enqueued" promise.
   it('reports a coalesced enqueue separately from a new one', async () => {
-    const rows: Row[] = [
+    const rows: Array<Row> = [
       { chat_id: 'fresh', owner_user_id: 'u1' },
       { chat_id: 'already', owner_user_id: 'u2' },
     ];
@@ -56,7 +56,7 @@ describe('runBackfill', () => {
   });
 
   it('enqueues one job per row the coverage query returns', async () => {
-    const rows: Row[] = [
+    const rows: Array<Row> = [
       { chat_id: 'c1', owner_user_id: 'u1' },
       { chat_id: 'c2', owner_user_id: 'u2' },
     ];
@@ -90,7 +90,7 @@ describe('runBackfill', () => {
   });
 
   it('enqueues every row across a batch larger than the internal concurrency window', async () => {
-    const rows: Row[] = Array.from({ length: 45 }, (_, i) => ({
+    const rows: Array<Row> = Array.from({ length: 45 }, (_, i) => ({
       chat_id: `c${i}`,
       owner_user_id: `u${i}`,
     }));
@@ -114,7 +114,7 @@ describe('runBackfill', () => {
   });
 
   it('counts only the enqueues that actually succeeded when one rejects — never the row count', async () => {
-    const rows: Row[] = [
+    const rows: Array<Row> = [
       { chat_id: 'c1', owner_user_id: 'u1' },
       { chat_id: 'c2', owner_user_id: 'u2' },
     ];
@@ -140,7 +140,7 @@ describe('runBackfill', () => {
     // All 3 rows land in the SAME 20-wide batch — proves Promise.allSettled
     // (not Promise.all, which would short-circuit and lose the other two
     // results entirely) is what's actually driving the batch.
-    const rows: Row[] = [
+    const rows: Array<Row> = [
       { chat_id: 'c1', owner_user_id: 'u1' },
       { chat_id: 'c2', owner_user_id: 'u2' },
       { chat_id: 'c3', owner_user_id: 'u3' },
@@ -166,7 +166,7 @@ describe('runBackfill', () => {
   });
 
   it('a non-Error rejection is still reported with a readable message', async () => {
-    const rows: Row[] = [{ chat_id: 'c1', owner_user_id: 'u1' }];
+    const rows: Array<Row> = [{ chat_id: 'c1', owner_user_id: 'u1' }];
     const enqueueChatEmbedStrict = vi.fn().mockRejectedValue('plain string');
 
     const { enqueued, failures } = await runBackfill(

@@ -23,7 +23,7 @@ export class ProjectsService {
       pinned?: 'only' | 'with' | 'exclude';
       archived?: 'only' | 'with';
     } = {},
-  ): Promise<Project[]> {
+  ): Promise<Array<Project>> {
     return this.tenantDb.runAs(ownerUserId, (tx) =>
       new ProjectsRepository(tx).listForUser(ownerUserId, filter),
     );

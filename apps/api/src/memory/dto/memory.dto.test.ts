@@ -1,4 +1,8 @@
-import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
+import {
+  ArgumentMetadata,
+  BadRequestException,
+  ValidationPipe,
+} from '@nestjs/common';
 
 import {
   MemoryResponse,
@@ -27,10 +31,10 @@ describe('UpdateMemoryDto', () => {
     ).resolves.toMatchObject({ shareRecentChats: false });
     await expect(
       pipe.transform({ shareRecentChats: null }, metadata),
-    ).rejects.toThrow();
+    ).rejects.toThrow(BadRequestException);
     await expect(
       pipe.transform({ shareRecentChats: 'yes' }, metadata),
-    ).rejects.toThrow();
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('rejects a client-supplied user id', async () => {
@@ -39,7 +43,7 @@ describe('UpdateMemoryDto', () => {
         { shareRecentChats: true, userId: 'someone-else' },
         metadata,
       ),
-    ).rejects.toThrow();
+    ).rejects.toThrow(BadRequestException);
   });
 });
 

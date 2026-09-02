@@ -51,70 +51,92 @@ export function encodeKnowledgeSearchCursor(
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
 }
 
+/** The exact key set a payload must have — `knowledgeSpaceId` only when the
+ *  decoded object carries it, since its absence and presence are both valid
+ *  cursor shapes (unscoped vs. space-scoped search). */
+function cursorPayloadKeySet(hasSelector: boolean): Array<string> {
+  const keys = [
+    'offset',
+    'path',
+    'query',
+    'spaceCreatedAt',
+    'spaceId',
+    'version',
+  ];
+  if (hasSelector) keys.push('knowledgeSpaceId');
+  return keys.sort();
+}
+
+function requireCursorString(value: unknown): string {
+  if (!isString(value)) throw new KnowledgeSearchCursorError();
+  return value;
+}
+
+/**
+ * Exact-key-set shape validation for the decoded JSON payload — fails closed
+ * on any unexpected, missing, or mistyped field, `knowledgeSpaceId` only
+ * required when present. Kept separate from cursor construction below: this
+ * is "is the untrusted payload well-formed", not yet "is it a valid cursor".
+ */
+function parseCursorPayload(decoded: unknown): KnowledgeSearchCursorPayload {
+  if (!isRecord(decoded)) throw new KnowledgeSearchCursorError();
+  const hasSelector = Object.hasOwn(decoded, 'knowledgeSpaceId');
+  const keys = Object.keys(decoded).sort();
+  const expectedKeys = cursorPayloadKeySet(hasSelector);
+  if (
+    keys.length !== expectedKeys.length ||
+    keys.some((key, index) => key !== expectedKeys[index])
+  ) {
+    throw new KnowledgeSearchCursorError();
+  }
+  const knowledgeSpaceId = hasSelector
+    ? requireCursorString(decoded.knowledgeSpaceId)
+    : undefined;
+  if (
+    decoded.version !== 1 ||
+    !isString(decoded.query) ||
+    !isString(decoded.spaceCreatedAt) ||
+    !isString(decoded.spaceId) ||
+    !isString(decoded.path) ||
+    !isNumber(decoded.offset)
+  ) {
+    throw new KnowledgeSearchCursorError();
+  }
+  return {
+    version: 1,
+    query: decoded.query,
+    knowledgeSpaceId,
+    spaceCreatedAt: decoded.spaceCreatedAt,
+    spaceId: decoded.spaceId,
+    path: decoded.path,
+    offset: decoded.offset,
+  };
+}
+
 export function decodeKnowledgeSearchCursor(
   value: string,
 ): KnowledgeSearchCursor {
   if (
     value.length === 0 ||
-    value.length > 4_096 ||
+    value.length > 4096 ||
     !BASE64URL_PATTERN.test(value)
   ) {
     throw new KnowledgeSearchCursorError();
   }
 
   try {
-    const payload = Buffer.from(value, 'base64url').toString('utf8');
-    const decoded: unknown = JSON.parse(payload);
-    if (!isRecord(decoded)) throw new KnowledgeSearchCursorError();
-    const keys = Object.keys(decoded).sort();
-    const expectedKeys = [
-      'offset',
-      'path',
-      'query',
-      'spaceCreatedAt',
-      'spaceId',
-      'version',
-    ];
-    const hasSelector = Object.hasOwn(decoded, 'knowledgeSpaceId');
-    if (hasSelector) expectedKeys.push('knowledgeSpaceId');
-    expectedKeys.sort();
-    if (
-      keys.length !== expectedKeys.length ||
-      keys.some((key, index) => key !== expectedKeys[index])
-    ) {
-      throw new KnowledgeSearchCursorError();
-    }
-    let knowledgeSpaceId: string | undefined;
-    if (hasSelector) {
-      const candidate = decoded.knowledgeSpaceId;
-      if (!isString(candidate)) throw new KnowledgeSearchCursorError();
-      knowledgeSpaceId = candidate;
-    }
-    if (
-      decoded.version !== 1 ||
-      !isString(decoded.query) ||
-      !isString(decoded.spaceCreatedAt) ||
-      !isString(decoded.spaceId) ||
-      !isString(decoded.path) ||
-      !isNumber(decoded.offset)
-    ) {
-      throw new KnowledgeSearchCursorError();
-    }
-    const query = decoded.query;
-    const spaceCreatedAt = decoded.spaceCreatedAt;
-    const spaceId = decoded.spaceId;
-    const path = decoded.path;
-    const offset = decoded.offset;
+    const payloadJson = Buffer.from(value, 'base64url').toString('utf8');
+    const payload = parseCursorPayload(JSON.parse(payloadJson));
     const cursor: KnowledgeSearchCursor = {
       version: 1,
-      query,
-      knowledgeSpaceId,
-      spaceCreatedAt: new Date(spaceCreatedAt),
-      spaceId,
-      path,
-      offset,
+      query: payload.query,
+      knowledgeSpaceId: payload.knowledgeSpaceId,
+      spaceCreatedAt: new Date(payload.spaceCreatedAt),
+      spaceId: payload.spaceId,
+      path: payload.path,
+      offset: payload.offset,
     };
-    if (cursor.spaceCreatedAt.toISOString() !== spaceCreatedAt) {
+    if (cursor.spaceCreatedAt.toISOString() !== payload.spaceCreatedAt) {
       throw new KnowledgeSearchCursorError();
     }
     validateCursor(cursor);

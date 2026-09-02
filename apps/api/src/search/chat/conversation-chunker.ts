@@ -40,7 +40,7 @@ export const CHUNK_ANCHOR_MAX_CHARS = 400;
 export interface ChunkerMessage {
   id: string;
   role: string;
-  parts: unknown[];
+  parts: Array<unknown>;
   usage?: unknown;
   createdAt: Date;
 }
@@ -102,21 +102,32 @@ function messageToBlocks(
   message: ChunkerMessage,
   text: string,
   anchorSource: string | null,
-): MessageBlock[] {
+): Array<MessageBlock> {
   const prefix = `[${message.role}] `;
-  if (prefix.length + text.length <= CHUNK_MAX_CHARS) {
-    return [
-      {
-        messageId: message.id,
-        createdAt: message.createdAt,
-        startOffset: 0,
-        endOffsetExclusive: text.length,
-        content: `${prefix}${text}`,
-        lexicalContent: text,
-      },
-    ];
-  }
+  return prefix.length + text.length <= CHUNK_MAX_CHARS
+    ? [
+        {
+          messageId: message.id,
+          createdAt: message.createdAt,
+          startOffset: 0,
+          endOffsetExclusive: text.length,
+          content: `${prefix}${text}`,
+          lexicalContent: text,
+        },
+      ]
+    : sliceOversizedMessage(message, text, prefix, anchorSource);
+}
 
+/** The oversized branch of `messageToBlocks`: splits `text` into budget-sized,
+ *  boundary-cut slices covering it exactly once each. Every continuation
+ *  slice (not the first) carries an anchor in `content` only —
+ *  `lexicalContent` never contains it, matching the `[role]` marker rule. */
+function sliceOversizedMessage(
+  message: ChunkerMessage,
+  text: string,
+  prefix: string,
+  anchorSource: string | null,
+): Array<MessageBlock> {
   const anchor = anchorSource === null ? '' : formatAnchor(anchorSource);
   const firstMax = CHUNK_MAX_CHARS - prefix.length;
   // The continuation budget is the first-slice budget minus what the anchor
@@ -124,7 +135,7 @@ function messageToBlocks(
   // same `prefix`, so its content budget is smaller by exactly that much.
   const continuationMax = firstMax - anchor.length;
 
-  const blocks: MessageBlock[] = [];
+  const blocks: Array<MessageBlock> = [];
   // A cursor into `text` rather than a shrinking `remaining` string: slicing
   // off the consumed head on every iteration would re-copy the whole
   // unconsumed tail each time (O(text.length) per iteration), which is
@@ -157,8 +168,10 @@ function messageToBlocks(
  * Rule (spec): no anchor for an oversized user message, no preceding user
  * message, or a message's first slice.
  */
-function buildBlocks(messages: readonly ChunkerMessage[]): MessageBlock[] {
-  const blocks: MessageBlock[] = [];
+function buildBlocks(
+  messages: ReadonlyArray<ChunkerMessage>,
+): Array<MessageBlock> {
+  const blocks: Array<MessageBlock> = [];
   let precedingUserText: string | null = null;
 
   for (const message of messages) {
@@ -181,8 +194,8 @@ function buildBlocks(messages: readonly ChunkerMessage[]): MessageBlock[] {
  * no-op-upsert path depends on it). Messages ordered by `seq` upstream.
  */
 export function chunkConversation(
-  messages: readonly ChunkerMessage[],
-): ConversationChunk[] {
+  messages: ReadonlyArray<ChunkerMessage>,
+): Array<ConversationChunk> {
   const blocks = buildBlocks(messages);
 
   const groups = chunkByCharBudget(blocks, (b) => b.content.length, {
@@ -195,8 +208,11 @@ export function chunkConversation(
     const normalizedContent = normalizeForSearch(
       group.map((b) => b.lexicalContent).join('\n\n'),
     );
-    const first = group[0];
-    const last = group[group.length - 1];
+    const [first] = group;
+    const last = group.at(-1);
+    if (first === undefined || last === undefined) {
+      throw new Error('chunkByCharBudget emitted an empty group');
+    }
     return {
       chunkOrdinal,
       firstMessageId: first.messageId,

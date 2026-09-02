@@ -105,7 +105,7 @@ export class TitleService {
     // literal role, so this states the intended literal explicitly.
     const messages = [
       { role: 'user', content: titleUserPrompt(userText) },
-    ] as AiModelMessage[];
+    ] as Array<AiModelMessage>;
     // One deadline for the whole attempt: the chat loop awaits titling before
     // the stream closes, so a stalled model call must not hold the turn open.
     const abortSignal = AbortSignal.timeout(TITLE_GENERATION_TIMEOUT_MS);

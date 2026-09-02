@@ -22,12 +22,11 @@ import {
 } from './conversation-source-coordinates';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 
-export const CONVERSATION_READ_MAX_LINES = 2_000;
+export const CONVERSATION_READ_MAX_LINES = 2000;
 export const CONVERSATION_READ_RESULT_MAX_CODE_UNITS = 15_000;
 
 export { CONVERSATION_HISTORY_NOTICE };
 export { scanConversationLogicalLines };
-export type { ConversationLogicalLine };
 
 export const conversationReadInputSchema = z
   .object({
@@ -148,33 +147,50 @@ export function renderConversationRead(
 
   const availableLines = lines.length - offset;
   if (availableLines === 0) {
-    return buildResult(source, lines, offset, 0);
+    return buildResult({ source, offset }, lines, 0);
   }
 
-  const requestedLineCount = Math.min(
+  return findFittingConversationRead({
+    source,
+    lines,
+    offset,
     availableLines,
-    input.limit ?? CONVERSATION_READ_MAX_LINES,
-    CONVERSATION_READ_MAX_LINES,
-  );
-  const selected = lines.slice(offset, offset + requestedLineCount);
+    requestedLineCount: Math.min(
+      availableLines,
+      input.limit ?? CONVERSATION_READ_MAX_LINES,
+      CONVERSATION_READ_MAX_LINES,
+    ),
+    requestedLimit: input.limit,
+  });
+}
+
+/** Fixed facts of one `renderConversationRead` call: what to render, from
+ * where, and how much was asked for vs. is actually available. */
+interface ConversationReadWindow {
+  readonly source: ConversationMessageLookup;
+  readonly lines: ReadonlyArray<ConversationLogicalLine>;
+  readonly offset: number;
+  readonly availableLines: number;
+  readonly requestedLineCount: number;
+  readonly requestedLimit: number | undefined;
+}
+
+/** Finds the largest line count (up to `window.requestedLineCount`) whose
+ * rendered result fits the serialized-size bound, binary-searching down from
+ * the full request when it doesn't fit outright. */
+function findFittingConversationRead(
+  window: ConversationReadWindow,
+): ConversationReadResult {
+  const { source, offset, availableLines, requestedLineCount } = window;
+  const selected = window.lines.slice(offset, offset + requestedLineCount);
 
   const buildCandidate = (lineCount: number) => {
     const hasRemaining = availableLines > lineCount;
-    const cutReason = resolveCutReason(
-      input.limit,
-      availableLines,
-      requestedLineCount,
-      lineCount,
-      hasRemaining,
-    );
-    const result = buildResult(
-      source,
-      selected,
-      offset,
-      lineCount,
+    const cutReason = resolveCutReason(window, lineCount, hasRemaining);
+    const result = buildResult({ source, offset }, selected, lineCount, {
       hasRemaining,
       cutReason,
-    );
+    });
     return { result, fits: fitsSerializedBounds(result) };
   };
 
@@ -223,17 +239,18 @@ export function selectLargestConversationReadPrefix(
 }
 
 function resolveCutReason(
-  requestedLimit: number | undefined,
-  availableLines: number,
-  requestedLineCount: number,
+  window: Pick<
+    ConversationReadWindow,
+    'availableLines' | 'requestedLineCount' | 'requestedLimit'
+  >,
   lineCount: number,
   hasRemaining: boolean,
 ): ConversationReadSuccess['cutReason'] {
-  if (!hasRemaining || lineCount === requestedLineCount) {
+  if (!hasRemaining || lineCount === window.requestedLineCount) {
     if (
-      requestedLimit === undefined &&
-      lineCount === requestedLineCount &&
-      availableLines > CONVERSATION_READ_MAX_LINES
+      window.requestedLimit === undefined &&
+      lineCount === window.requestedLineCount &&
+      window.availableLines > CONVERSATION_READ_MAX_LINES
     ) {
       return 'line_limit';
     }
@@ -243,13 +260,16 @@ function resolveCutReason(
 }
 
 function buildResult(
-  source: ConversationMessageLookup,
-  lines: readonly ConversationLogicalLine[],
-  offset: number,
+  position: { source: ConversationMessageLookup; offset: number },
+  lines: ReadonlyArray<ConversationLogicalLine>,
   lineCount: number,
-  hasRemaining = false,
-  cutReason?: ConversationReadSuccess['cutReason'],
+  outcome: {
+    hasRemaining?: boolean;
+    cutReason?: ConversationReadSuccess['cutReason'];
+  } = {},
 ): ConversationReadSuccess {
+  const { source, offset } = position;
+  const { hasRemaining = false, cutReason } = outcome;
   const result: ConversationReadSuccess = {
     status: 'success',
     chatId: source.chatId,

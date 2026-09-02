@@ -470,7 +470,7 @@ describeIfDb(
             await lock`select id from chats where id = ${seed.chatId} for update`;
           expect(held).toHaveLength(1);
           const [{ pid }] = await lock<
-            { pid: number }[]
+            Array<{ pid: number }>
           >`select pg_backend_pid() as pid`;
 
           await dispatchRun({

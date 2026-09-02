@@ -21,7 +21,7 @@ import * as schema from '../db/schema';
 
 type LoggedQuery = {
   sql: string;
-  params: unknown[];
+  params: Array<unknown>;
 };
 
 // Use Drizzle's native mock database and its public logger boundary. Queries are
@@ -29,7 +29,7 @@ type LoggedQuery = {
 // execution. This keeps these unit tests focused on SQL shape without forging a
 // Db-compatible fluent builder.
 function makeMockDb() {
-  const queries: LoggedQuery[] = [];
+  const queries: Array<LoggedQuery> = [];
   const db: Db = drizzle.mock({
     schema,
     logger: {
@@ -43,17 +43,20 @@ function makeMockDb() {
 }
 
 function queryContains(
-  queries: LoggedQuery[],
+  queries: Array<LoggedQuery>,
   value: string | number,
 ): boolean {
   return queries.some((query) => query.params.includes(value));
 }
 
-function querySqlContains(queries: LoggedQuery[], fragment: string): boolean {
+function querySqlContains(
+  queries: Array<LoggedQuery>,
+  fragment: string,
+): boolean {
   return queries.some((query) => query.sql.includes(fragment));
 }
 
-function lastQuery(queries: LoggedQuery[]): LoggedQuery {
+function lastQuery(queries: Array<LoggedQuery>): LoggedQuery {
   const query = queries.at(-1);
   if (!query) {
     throw new Error('expected a logged database query');
@@ -61,12 +64,12 @@ function lastQuery(queries: LoggedQuery[]): LoggedQuery {
   return query;
 }
 
-function updateSetSql(queries: LoggedQuery[]): string {
+function updateSetSql(queries: Array<LoggedQuery>): string {
   const sql = lastQuery(queries).sql;
   return sql.slice(sql.indexOf(' set ') + 5, sql.indexOf(' where '));
 }
 
-function whereSql(queries: LoggedQuery[]): string {
+function whereSql(queries: Array<LoggedQuery>): string {
   const sql = lastQuery(queries).sql;
   const start = sql.indexOf(' where ');
   const end = sql.indexOf(' returning ');

@@ -2,7 +2,6 @@ import { InferSelectModel } from 'drizzle-orm';
 import {
   boolean,
   index,
-  timestamp,
   pgTable,
   text,
   primaryKey,
@@ -10,6 +9,8 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+
+import { timestamptz } from '../columns';
 
 type AdapterAccountType =
   | 'oauth'
@@ -24,7 +25,7 @@ export const users = pgTable('users', {
     .$defaultFn(() => crypto.randomUUID()),
   name: text('name'),
   email: text('email').unique(),
-  emailVerified: timestamp('email_verified', { mode: 'date' }),
+  emailVerified: timestamptz('email_verified', { mode: 'date' }),
   image: text('image'),
   password: text('password'),
 });
@@ -67,16 +68,14 @@ export const sessions = pgTable(
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    expires: timestamp('expires', {
+    expires: timestamptz('expires', {
       mode: 'date',
-      withTimezone: true,
     }).notNull(),
-    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+    createdAt: timestamptz('created_at', { mode: 'date' })
       .notNull()
       .defaultNow(),
-    lastSeenAt: timestamp('last_seen_at', {
+    lastSeenAt: timestamptz('last_seen_at', {
       mode: 'date',
-      withTimezone: true,
     })
       .notNull()
       .defaultNow(),
@@ -102,7 +101,7 @@ export const verificationTokens = pgTable(
   {
     identifier: text('identifier').notNull(),
     token: text('token').notNull(),
-    expires: timestamp('expires', { mode: 'date' }).notNull(),
+    expires: timestamptz('expires', { mode: 'date' }).notNull(),
   },
   (verificationToken) => [
     {

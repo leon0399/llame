@@ -85,7 +85,7 @@ ${boundedText}
 export const MAX_TITLE_LENGTH = 80;
 
 /** Hard cap on the user text sent to the title model — title generation is cheap metadata. */
-export const TITLE_INPUT_MAX_CHARS = 1_000;
+export const TITLE_INPUT_MAX_CHARS = 1000;
 
 /**
  * Deadline for the whole titling attempt (structured call + text fallback).
@@ -106,7 +106,7 @@ export function sanitizeTitle(raw: string): string {
     .replace(/^\s*title\s*:\s*/i, '')
     .replace(/^[#*"'\s]+/, '')
     .replace(/[#*"'\s]+$/, '')
-    .replace(/\s+/g, ' ')
+    .replaceAll(/\s+/g, ' ')
     .trim();
 
   return cleaned.slice(0, MAX_TITLE_LENGTH).trim();

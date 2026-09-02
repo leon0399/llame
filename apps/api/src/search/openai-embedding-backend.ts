@@ -86,9 +86,9 @@ export function classifyEmbeddingFailure(
  * concretely, and never retried at the same content.
  */
 function isValidVector(
-  vector: readonly number[] | undefined,
+  vector: ReadonlyArray<number> | undefined,
   dimensions: number,
-): vector is readonly number[] {
+): vector is ReadonlyArray<number> {
   return (
     vector !== undefined &&
     vector.length === dimensions &&
@@ -105,7 +105,7 @@ function isValidVector(
  * non-sensitive local values.
  */
 function describeInvalidVector(
-  vector: readonly number[] | undefined,
+  vector: ReadonlyArray<number> | undefined,
   dimensions: number,
 ): string {
   if (vector === undefined) {
@@ -220,6 +220,80 @@ const DEFAULT_DEPENDENCIES: OpenAIEmbeddingBackendDependencies = {
 };
 
 /**
+ * Embeds one already-batchSize-bounded chunk and pairs each result back to
+ * its document. Fails the WHOLE chunk closed (empty result, no throw) on any
+ * length mismatch: the OpenAI-compatible /embeddings endpoint carries no
+ * per-item id, so a response whose count differs from what was sent cannot be
+ * safely paired at all — guessing a partial alignment risks writing one
+ * document's vector onto another's row (design D7). Every document in the
+ * chunk is simply absent from the result (task 5.6's "unmatched results
+ * discarded") rather than persisted incorrectly. Throws instead — out of the
+ * whole `embed()` call, not just this chunk — on an invalid vector: a
+ * dimensions mismatch is a property of the whole call, so continuing to check
+ * the rest of this chunk (or later chunks) would only reproduce the same
+ * rejection. The caller's batch IS the persist unit (trap 6), so this reaches
+ * processBatch's catch and tombstones every outstanding document in the batch
+ * with this one concrete reason.
+ */
+async function embedChunk(
+  model: ReturnType<OpenAIProvider['textEmbeddingModel']>,
+  chunk: ReadonlyArray<EmbeddingDocumentInput>,
+  prefix: string | undefined,
+  config: Pick<OpenAIEmbeddingBackendConfig, 'dimensions'>,
+): Promise<Array<EmbeddingResult>> {
+  const values = chunk.map((doc) =>
+    prefix ? prefix + doc.content : doc.content,
+  );
+
+  let embeddings: ReadonlyArray<ReadonlyArray<number>>;
+  try {
+    // maxRetries: 0 — retry is the caller's job (a pg-boss queue policy,
+    // design D5); the SDK's own internal retry would multiply attempts on
+    // top of it.
+    ({ embeddings } = await embedMany({ model, values, maxRetries: 0 }));
+  } catch (error) {
+    throw classifyEmbeddingFailure(error);
+  }
+  if (embeddings.length !== chunk.length) return [];
+
+  const results: Array<EmbeddingResult> = [];
+  for (let i = 0; i < chunk.length; i++) {
+    const vector = embeddings[i];
+    if (!isValidVector(vector, config.dimensions)) {
+      // Terminal: see isValidVector's doc comment.
+      throw new EmbeddingBackendError(
+        describeInvalidVector(vector, config.dimensions),
+        true,
+      );
+    }
+    results.push({
+      documentId: chunk[i].documentId,
+      contentHash: chunk[i].contentHash,
+      embedding: vector,
+    });
+  }
+  return results;
+}
+
+/**
+ * Schema validation (embeddingModels[].batchSize: minimum 1) keeps a
+ * non-positive `batchSize` out of reach through the normal config path, but
+ * `createOpenAIEmbeddingBackend` is also callable directly (design D8/D15)
+ * with no such guarantee — a non-positive batchSize would otherwise never
+ * advance `start` in `embed()`'s chunk loop and hang forever instead of
+ * failing.
+ */
+function resolveBatchSize(configuredBatchSize: number | undefined): number {
+  const batchSize = configuredBatchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE;
+  if (batchSize < 1) {
+    throw new RangeError(
+      `createOpenAIEmbeddingBackend: batchSize must be >= 1, got ${batchSize}`,
+    );
+  }
+  return batchSize;
+}
+
+/**
  * Builds an `EmbeddingBackend` for OpenAI or any OpenAI-compatible endpoint
  * (Ollama, a local server, ...), reusing an existing `providers[]` connection
  * exactly as `models/openai-model-client.ts` builds its client — same
@@ -237,23 +311,13 @@ export function createOpenAIEmbeddingBackend(
     fetch: wrapFetchWithOrderVerification(dependencies.fetch ?? fetch),
   });
   const model = openai.textEmbeddingModel(config.providerModelId);
-  const batchSize = config.batchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE;
-  // Schema validation (embeddingModels[].batchSize: minimum 1) keeps this
-  // out of reach through the normal config path, but this function is also
-  // callable directly (design D8/D15) with no such guarantee — a non-positive
-  // batchSize would otherwise never advance `start` in embed()'s chunk loop
-  // below and hang forever instead of failing.
-  if (batchSize < 1) {
-    throw new RangeError(
-      `createOpenAIEmbeddingBackend: batchSize must be >= 1, got ${batchSize}`,
-    );
-  }
+  const batchSize = resolveBatchSize(config.batchSize);
 
   async function embed(
-    documents: readonly EmbeddingDocumentInput[],
+    documents: ReadonlyArray<EmbeddingDocumentInput>,
     prefix: string | undefined,
-  ): Promise<EmbeddingResult[]> {
-    const results: EmbeddingResult[] = [];
+  ): Promise<Array<EmbeddingResult>> {
+    const results: Array<EmbeddingResult> = [];
     // Chunk ourselves so the configured batchSize is what actually reaches
     // the provider and is observable, rather than relying on embedMany's own
     // internal splitting (design D5). In practice a caller already sizes its
@@ -261,54 +325,7 @@ export function createOpenAIEmbeddingBackend(
     // a time); this loop is defense-in-depth for a caller that passes more.
     for (let start = 0; start < documents.length; start += batchSize) {
       const chunk = documents.slice(start, start + batchSize);
-      const values = chunk.map((doc) =>
-        prefix ? prefix + doc.content : doc.content,
-      );
-
-      let embeddings: readonly (readonly number[])[];
-      try {
-        // maxRetries: 0 — retry is the caller's job (a pg-boss queue policy,
-        // design D5); the SDK's own internal retry would multiply attempts
-        // on top of it.
-        ({ embeddings } = await embedMany({
-          model,
-          values,
-          maxRetries: 0,
-        }));
-      } catch (error) {
-        throw classifyEmbeddingFailure(error);
-      }
-
-      // Fail this chunk closed on any length mismatch: the OpenAI-compatible
-      // /embeddings endpoint carries no per-item id, so a response whose
-      // count differs from what was sent cannot be safely paired at all —
-      // guessing a partial alignment risks writing one document's vector
-      // onto another's row (design D7). Every document in the chunk is
-      // simply absent from the result (task 5.6's "unmatched results
-      // discarded") rather than persisted incorrectly.
-      if (embeddings.length !== chunk.length) continue;
-
-      for (let i = 0; i < chunk.length; i++) {
-        const vector = embeddings[i];
-        if (!isValidVector(vector, config.dimensions)) {
-          // Terminal: see isValidVector's doc comment. Throws out of embed()
-          // entirely (not just this chunk) — a dimensions mismatch is a
-          // property of the whole call, so continuing to check the rest of
-          // this chunk (or later chunks) would only reproduce the same
-          // rejection. The caller's batch IS the persist unit (trap 6), so
-          // this reaches processBatch's catch and tombstones every
-          // outstanding document in the batch with this one concrete reason.
-          throw new EmbeddingBackendError(
-            describeInvalidVector(vector, config.dimensions),
-            true,
-          );
-        }
-        results.push({
-          documentId: chunk[i].documentId,
-          contentHash: chunk[i].contentHash,
-          embedding: vector,
-        });
-      }
+      results.push(...(await embedChunk(model, chunk, prefix, config)));
     }
     return results;
   }

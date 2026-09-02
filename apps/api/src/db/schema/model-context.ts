@@ -5,10 +5,11 @@ import {
   pgPolicy,
   pgTable,
   text,
-  timestamp,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+
+import { timestamptz } from '../columns';
 
 import { users } from './auth';
 import { type ToolAvailabilityManifest } from '../../tools/turn-tool-catalog';
@@ -49,11 +50,9 @@ export const modelContextSnapshots = pgTable(
       .$type<ToolAvailabilityManifest>()
       .notNull(),
     toolDeclarations: jsonb('tool_declarations')
-      .$type<ModelToolDeclaration[]>()
+      .$type<Array<ModelToolDeclaration>>()
       .notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [
     // Composite target for runs(snapshot_id, user_id): a run can bind only a

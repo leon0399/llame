@@ -184,7 +184,7 @@ export class ContextReceiptResponse {
   systemPrompt!: string;
 
   @ApiProperty({ type: () => [ContextReceiptToolResponse] })
-  tools!: ContextReceiptToolResponse[];
+  tools!: Array<ContextReceiptToolResponse>;
 
   @ApiProperty()
   availabilityHash!: string;
@@ -220,6 +220,33 @@ export function toRunResponse(run: Run): RunResponse {
   };
 }
 
+/** Maps a parsed manifest to its owner-receipt egress shape. */
+function toToolAvailabilityResponse(
+  availability: ReturnType<typeof parseToolAvailabilityManifest>,
+): ContextReceiptToolAvailabilityResponse {
+  if (availability.version === 0) {
+    return { version: 0, state: 'unobserved' };
+  }
+  return {
+    version: 1,
+    entries: availability.entries.map((entry) =>
+      entry.state === 'available'
+        ? {
+            id: entry.id,
+            state: 'available',
+            declarationHash: entry.declarationHash,
+            label: 'available',
+          }
+        : {
+            id: entry.id,
+            state: 'unavailable',
+            reason: entry.reason,
+            label: TOOL_UNAVAILABLE_REASON_LABELS[entry.reason],
+          },
+    ),
+  };
+}
+
 /** Explicit owner receipt allowlist: never serialize the raw run/snapshot. */
 export function toContextReceiptResponse(
   run: Run,
@@ -243,27 +270,7 @@ export function toContextReceiptResponse(
       }),
     ),
     availabilityHash: snapshot.availabilityHash,
-    toolAvailability:
-      availability.version === 0
-        ? { version: 0, state: 'unobserved' }
-        : {
-            version: 1,
-            entries: availability.entries.map((entry) =>
-              entry.state === 'available'
-                ? {
-                    id: entry.id,
-                    state: 'available',
-                    declarationHash: entry.declarationHash,
-                    label: 'available',
-                  }
-                : {
-                    id: entry.id,
-                    state: 'unavailable',
-                    reason: entry.reason,
-                    label: TOOL_UNAVAILABLE_REASON_LABELS[entry.reason],
-                  },
-            ),
-          },
+    toolAvailability: toToolAvailabilityResponse(availability),
     contentHash: snapshot.contentHash,
     createdAt: snapshot.createdAt,
   };

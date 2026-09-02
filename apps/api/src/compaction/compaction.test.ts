@@ -60,7 +60,9 @@ function contentText(content: unknown): string {
     .join('\n\n');
 }
 
-function replacementText(record: { parts: unknown[] } | undefined): string {
+function replacementText(
+  record: { parts: Array<unknown> } | undefined,
+): string {
   const part = record?.parts[0];
   if (!isRecord(part) || !isString(part.text)) {
     throw new Error('Expected a replacement text part');
@@ -68,10 +70,10 @@ function replacementText(record: { parts: unknown[] } | undefined): string {
   return part.text;
 }
 
-function replacementHistory(checkpoint: string): {
+function replacementHistory(checkpoint: string): Array<{
   role: 'user';
   parts: [{ type: 'text'; text: string }];
-}[] {
+}> {
   return [
     {
       role: 'user',
@@ -113,12 +115,12 @@ describe('estimateContextTokens', () => {
 
     expect(
       estimateContextTokens([assistant, recent], undefined),
-    ).toBeGreaterThan(1_000);
+    ).toBeGreaterThan(1000);
     expect(
       planCompaction({
         history: [assistant, recent],
         previousSummary: undefined,
-        thresholdTokens: 1_000,
+        thresholdTokens: 1000,
         keepRecentMessages: 1,
       }),
     ).not.toBeNull();
@@ -276,7 +278,7 @@ describe('planCompaction', () => {
     const plan = planCompaction({
       history,
       previousSummary: undefined,
-      thresholdTokens: 1_000,
+      thresholdTokens: 1000,
       keepRecentMessages: 1,
     });
 
@@ -290,9 +292,9 @@ describe('planCompaction', () => {
     const plan = planCompaction({
       history,
       previousSummary: undefined,
-      thresholdTokens: 1_000,
+      thresholdTokens: 1000,
       keepRecentMessages: 1,
-      measuredContextTokens: 5_000,
+      measuredContextTokens: 5000,
     });
 
     expect(plan).not.toBeNull();
@@ -309,7 +311,7 @@ describe('planCompaction', () => {
     const plan = planCompaction({
       history,
       previousSummary: undefined,
-      thresholdTokens: 1_000,
+      thresholdTokens: 1000,
       keepRecentMessages: 1,
       measuredContextTokens: 10,
     });
@@ -360,8 +362,8 @@ describe('planCompaction', () => {
     // History alone is tiny; a large prior summary pushes it over.
     const plan = planCompaction({
       history,
-      previousSummary: 's'.repeat(4_000),
-      previousReplacementHistory: replacementHistory('s'.repeat(4_000)),
+      previousSummary: 's'.repeat(4000),
+      previousReplacementHistory: replacementHistory('s'.repeat(4000)),
       thresholdTokens: 500,
       keepRecentMessages: 1,
     });
@@ -394,7 +396,7 @@ describe('buildCompactionRequest', () => {
       'plan a trip to Japan',
     );
     expect(request.messages[1].role).toBe('assistant');
-    const last = request.messages[request.messages.length - 1];
+    const last = request.messages.at(-1);
     expect(last).toEqual({ role: 'user', content: COMPACTION_INSTRUCTION });
   });
 

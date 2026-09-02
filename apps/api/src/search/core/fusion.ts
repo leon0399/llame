@@ -118,39 +118,49 @@ export interface HybridSearchConfig {
  * each returned chat; a title-only match has a NULL snippet. Returns a drizzle
  * `SQL` ready for `db.execute`.
  */
-export function buildHybridSearchQuery(config: HybridSearchConfig): SQL {
-  assertScopePredicate(config.scope.document);
-  assertScopePredicate(config.scope.parent);
-
+/**
+ * The qualified column references and derived score expressions the query
+ * assembly below interpolates, resolved once from the caller's column NAMES
+ * (`config.document`/`config.parent`) so `buildHybridSearchQuery` itself
+ * reads as pure query assembly.
+ */
+function resolveQueryRefs(config: HybridSearchConfig) {
   const d = config.document;
   const c = config.parent;
   const k = config.rrfK;
-  const [w1, w2, w3] = config.groupTopNWeights;
 
-  // Per-leg RRF term (weight / (k + rank)) as double precision.
-  const term = (weight: number, rank: SQL) =>
-    sql`${weight}::double precision / (${k}::double precision + ${rank})`;
-
-  const dGroup = col('d', d.groupId);
-  const dId = col('d', d.id);
-  const dFts = col('d', d.fts);
-  const dNorm = col('d', d.normalized);
-  const dContent = col('d', d.content);
-  const cId = col('c', c.id);
   const cTitle = col('c', c.title);
-  const cRecency = col('c', c.recency);
-  const dTable = sql`${sql.identifier(d.table)} d`;
-  const cTable = sql`${sql.identifier(c.table)} c`;
+  return {
+    k,
+    groupTopNWeights: config.groupTopNWeights,
+    // Per-leg RRF term (weight / (k + rank)) as double precision.
+    term: (weight: number, rank: SQL) =>
+      sql`${weight}::double precision / (${k}::double precision + ${rank})`,
+    dGroup: col('d', d.groupId),
+    dId: col('d', d.id),
+    dFts: col('d', d.fts),
+    dNorm: col('d', d.normalized),
+    dContent: col('d', d.content),
+    cId: col('c', c.id),
+    cTitle,
+    cRecency: col('c', c.recency),
+    dTable: sql`${sql.identifier(d.table)} d`,
+    cTable: sql`${sql.identifier(c.table)} c`,
+    titleScore: sql`GREATEST(word_similarity(q.raw, lower(${cTitle})), (${cTitle} ILIKE q.like_pat)::int::double precision)`,
+  };
+}
 
-  const titleScore = sql`GREATEST(word_similarity(q.raw, lower(${cTitle})), (${cTitle} ILIKE q.like_pat)::int::double precision)`;
+type QueryRefs = ReturnType<typeof resolveQueryRefs>;
 
+/**
+ * The two document-side ranked candidate legs: `fts_c` (full-text) and
+ * `trgm_c` (fuzzy/substring). Each materializes its score ONCE (referenced by
+ * both the window rank and the LIMIT ordering) instead of re-evaluating the
+ * ranking function.
+ */
+function buildDocumentScoreLegs(config: HybridSearchConfig, refs: QueryRefs) {
+  const { dGroup, dId, dFts, dNorm, dTable } = refs;
   return sql`
-    WITH q AS (
-      SELECT
-        websearch_to_tsquery('simple', ${config.query}) AS tsq,
-        ${config.query}::text AS raw,
-        ${config.likePattern}::text AS like_pat
-    ),
     -- Each leg materializes its score ONCE (referenced by both the window rank
     -- and the LIMIT ordering) instead of re-evaluating the ranking function.
     fts_c AS (
@@ -182,7 +192,20 @@ export function buildHybridSearchQuery(config: HybridSearchConfig): SQL {
         ORDER BY score DESC, doc_id
         LIMIT ${config.limits.trgm}
       ) s
-    ),
+    )
+  `;
+}
+
+/**
+ * RRF-fuses `fts_c`/`trgm_c` into one per-document score, ranks documents
+ * within their parent group, then rolls the top 3 up to the parent with
+ * `groupTopNWeights` — the document side of the search, from raw legs to one
+ * `content_score`/`best_doc_id` row per group.
+ */
+function buildDocumentRollup(config: HybridSearchConfig, refs: QueryRefs) {
+  const { term, groupTopNWeights } = refs;
+  const [w1, w2, w3] = groupTopNWeights;
+  return sql`
     doc_fused AS (
       SELECT group_id, doc_id, sum(t) AS doc_score FROM (
         SELECT group_id, doc_id, ${term(config.weights.fts, sql`rank`)} AS t FROM fts_c
@@ -203,7 +226,14 @@ export function buildHybridSearchQuery(config: HybridSearchConfig): SQL {
                        ELSE 0 END) AS content_score,
         (array_agg(doc_id ORDER BY doc_score DESC, doc_id))[1] AS best_doc_id
       FROM doc_ranked WHERE drank <= 3 GROUP BY group_id
-    ),
+    )
+  `;
+}
+
+/** The parent (title) leg: one ranked candidate over `chats.title` itself. */
+function buildTitleLeg(config: HybridSearchConfig, refs: QueryRefs) {
+  const { cId, cTitle, cTable, titleScore } = refs;
+  return sql`
     title_c AS (
       SELECT group_id,
         row_number() OVER (ORDER BY score DESC, group_id) AS rank
@@ -215,7 +245,19 @@ export function buildHybridSearchQuery(config: HybridSearchConfig): SQL {
         ORDER BY score DESC, ${cId}
         LIMIT ${config.limits.title}
       ) s
-    ),
+    )
+  `;
+}
+
+/**
+ * `fused` RRF-combines the document rollup's `content_score` with the title
+ * leg, then `ranked` applies the final order + LIMIT on cheap columns BEFORE
+ * the costly `ts_headline` — the parent-level fusion-and-cap phase, run after
+ * both `group_content` and `title_c` exist.
+ */
+function buildFusedRanked(config: HybridSearchConfig, refs: QueryRefs) {
+  const { term, cId, cTitle, cRecency, cTable } = refs;
+  return sql`
     -- Score-only fusion (no foreign-key payload routed through the aggregate).
     fused AS (
       SELECT group_id, sum(t) AS score FROM (
@@ -232,6 +274,27 @@ export function buildHybridSearchQuery(config: HybridSearchConfig): SQL {
       ORDER BY f.score DESC, ${cRecency} DESC, ${cId}
       LIMIT ${config.limit}
     )
+  `;
+}
+
+export function buildHybridSearchQuery(config: HybridSearchConfig): SQL {
+  assertScopePredicate(config.scope.document);
+  assertScopePredicate(config.scope.parent);
+
+  const refs = resolveQueryRefs(config);
+  const { dContent, dId, dTable } = refs;
+
+  return sql`
+    WITH q AS (
+      SELECT
+        websearch_to_tsquery('simple', ${config.query}) AS tsq,
+        ${config.query}::text AS raw,
+        ${config.likePattern}::text AS like_pat
+    ),
+    ${buildDocumentScoreLegs(config, refs)},
+    ${buildDocumentRollup(config, refs)},
+    ${buildTitleLeg(config, refs)},
+    ${buildFusedRanked(config, refs)}
     SELECT r.group_id AS id, r.title, r.score,
       CASE WHEN gc.best_doc_id IS NOT NULL
         THEN ts_headline('simple', ${dContent}, q.tsq, 'StartSel=, StopSel=, MaxFragments=2, MinWords=8, MaxWords=28')

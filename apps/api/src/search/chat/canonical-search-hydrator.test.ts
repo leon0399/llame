@@ -292,7 +292,7 @@ describe('hydrateCanonicalSearchRows', () => {
     );
 
     expect(result?.messages[0]).toMatchObject({
-      messageSeq: 9007199254740990,
+      messageSeq: 9_007_199_254_740_990,
       sourceStart: 7,
       sourceEndExclusive: 9,
     });

@@ -1,6 +1,7 @@
 import {
   decodeKnowledgeSpaceCursor,
   encodeKnowledgeSpaceCursor,
+  KnowledgeSpaceCursorError,
 } from './knowledge-space.cursor';
 
 const cursorValue = {
@@ -35,6 +36,8 @@ describe('Knowledge Space cursor', () => {
       }),
     ).toString('base64url'),
   ])('rejects malformed cursor %j', (encoded) => {
-    expect(() => decodeKnowledgeSpaceCursor(encoded)).toThrow();
+    expect(() => decodeKnowledgeSpaceCursor(encoded)).toThrow(
+      KnowledgeSpaceCursorError,
+    );
   });
 });

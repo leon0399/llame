@@ -66,7 +66,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 class FakeModelsService implements ModelSelectionValidator {
   readonly client = new FakeStreamingModelClient();
-  readonly createClientCalls: unknown[] = [];
+  readonly createClientCalls: Array<unknown> = [];
 
   constructor() {
     this.client.responses = ['worker answer'];
@@ -186,7 +186,7 @@ d('queue-executed runs behind the stream bridge', () => {
     const runs = await tenantDb.runAs(userId, (tx) =>
       new RunsRepository(tx).findByChatId(chatId, userId),
     );
-    return runs[runs.length - 1];
+    return runs.at(-1);
   }
 
   it('streams the turn through the queue + bridge in the UI-message protocol', async () => {
@@ -230,6 +230,7 @@ d('queue-executed runs behind the stream bridge', () => {
 
     // The turn persisted end-to-end through the queue.
     const run = await latestRun(chatId);
+    if (run === undefined) expect.unreachable('expected a persisted run');
     expect(run.status).toBe('completed');
     expect(run.modelId).toBe('system:openai:gpt-5.4-mini');
     expect(models.createClientCalls).toContainEqual(
@@ -250,7 +251,7 @@ d('queue-executed runs behind the stream bridge', () => {
   });
 
   it('PATCH {status: cancelled} stops an executing run mid-flight (#48)', async () => {
-    models.client.delayMs = 2_500;
+    models.client.delayMs = 2500;
     const chatId = crypto.randomUUID();
 
     // Don't await: in worker mode the response streams until the run is
@@ -438,7 +439,7 @@ d('queue-executed runs behind the stream bridge', () => {
   // it to completion. Nothing to resume → 204; cross-tenant/unknown → 204
   // (indistinguishable — no existence leak).
   it('GET /chats/:id/stream resumes the active run after a disconnect', async () => {
-    models.client.delayMs = 2_000;
+    models.client.delayMs = 2000;
     const chatId = crypto.randomUUID();
 
     const pending = request(http)
@@ -509,7 +510,7 @@ d('queue-executed runs behind the stream bridge', () => {
   });
 
   it('a client disconnect mid-run does not kill the run (durability, #48)', async () => {
-    models.client.delayMs = 1_500;
+    models.client.delayMs = 1500;
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
 

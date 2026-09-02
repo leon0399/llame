@@ -33,7 +33,7 @@ export type CanonicalJsonValue =
   | boolean
   | null
   | undefined
-  | CanonicalJsonValue[]
+  | Array<CanonicalJsonValue>
   | { [key: string]: CanonicalJsonValue };
 
 export function canonicalize(

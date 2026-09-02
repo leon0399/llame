@@ -19,6 +19,7 @@ import {
   SEARCH_SWEEP_BATCH,
   SEARCH_SWEEP_CRON,
   SEARCH_SWEEP_QUEUE,
+  type SearchReindexJob,
 } from './reindex-queues';
 import { isFunctionOwnedByBypassRlsRole } from './discovery-provisioning';
 import { findEmbeddingBinding } from './embedding-binding-ledger';
@@ -36,7 +37,7 @@ type SweepRow = { chat_id: string; owner_user_id: string };
  * across the batch carries no meaning.
  */
 async function enqueueRowsBounded(
-  rows: readonly SweepRow[],
+  rows: ReadonlyArray<SweepRow>,
   enqueueOne: (chatId: string, ownerUserId: string) => Promise<void>,
 ): Promise<void> {
   const CONCURRENCY = 20;
@@ -124,47 +125,49 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
     // Rethrow preserves pg-boss's retry → dead-letter semantics.
     await this.queue.consume(
       SEARCH_REINDEX_QUEUE,
-      async (job) => {
-        try {
-          await this.indexService.reindexChat(job.chatId, job.ownerUserId);
-          // chat-search-embeddings design D5: this is the second of the
-          // three enqueue sites — the reindex worker itself, after its own
-          // rebuild succeeds. Best-effort + off-by-default; see the dispatch
-          // service's own contract.
-          void this.embedDispatch.enqueueChatEmbed(job.chatId, job.ownerUserId);
-        } catch (error) {
-          this.logger.error(
-            `Reindex failed for chat ${job.chatId}`,
-            error instanceof Error ? error.stack : String(error),
-          );
-          throw error;
-        }
-      },
+      (job) => this.handleReindexJob(job),
       { pollingIntervalSeconds: 1, concurrency },
     );
     // Sweep stays at the group's fixed internal concurrency (1) — it's a
     // `stately`-policy queue anyway (one queued + one running tick).
-    await this.queue.consume(
-      SEARCH_SWEEP_QUEUE,
-      async () => {
-        try {
-          await this.runSweep();
-        } catch (error) {
-          this.logger.error(
-            'Search staleness sweep failed',
-            error instanceof Error ? error.stack : String(error),
-          );
-          throw error;
-        }
-      },
-      { pollingIntervalSeconds: 5 },
-    );
+    await this.queue.consume(SEARCH_SWEEP_QUEUE, () => this.handleSweepTick(), {
+      pollingIntervalSeconds: 5,
+    });
     await this.queue.schedule(SEARCH_SWEEP_QUEUE, SEARCH_SWEEP_CRON, {});
     // Backfill promptly on deploy instead of waiting for the first cron tick.
     await this.queue.enqueue(SEARCH_SWEEP_QUEUE, {});
     this.logger.log(
       `Consuming '${SEARCH_REINDEX_QUEUE.name}' (concurrency ${concurrency}) + '${SEARCH_SWEEP_QUEUE.name}' (sweep '${SEARCH_SWEEP_CRON}')`,
     );
+  }
+
+  private async handleReindexJob(job: SearchReindexJob): Promise<void> {
+    try {
+      await this.indexService.reindexChat(job.chatId, job.ownerUserId);
+      // chat-search-embeddings design D5: this is the second of the three
+      // enqueue sites — the reindex worker itself, after its own rebuild
+      // succeeds. Best-effort + off-by-default; see the dispatch service's
+      // own contract.
+      void this.embedDispatch.enqueueChatEmbed(job.chatId, job.ownerUserId);
+    } catch (error) {
+      this.logger.error(
+        `Reindex failed for chat ${job.chatId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw error;
+    }
+  }
+
+  private async handleSweepTick(): Promise<void> {
+    try {
+      await this.runSweep();
+    } catch (error) {
+      this.logger.error(
+        'Search staleness sweep failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw error;
+    }
   }
 
   /**

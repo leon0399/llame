@@ -6,7 +6,7 @@ import { ModelConfigurationError } from './models.service';
 describe('ModelsController', () => {
   // Held by reference so the copy assertion below has the catalog's own array
   // to compare against.
-  const catalogTags: string[] = ['flagship'];
+  const catalogTags: Array<string> = ['flagship'];
   const catalogReasoning = {
     effortLevels: [{ value: 'low', label: 'Low' }],
     defaultEffort: 'low',
@@ -108,7 +108,7 @@ describe('ModelsController', () => {
       throw new Error('expected controller to throw');
     } catch (error) {
       if (!(error instanceof HttpException)) {
-        throw new Error('Expected an HttpException');
+        throw new Error('Expected an HttpException', { cause: error });
       }
       expect(error.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
       expect(error.getResponse()).toEqual({

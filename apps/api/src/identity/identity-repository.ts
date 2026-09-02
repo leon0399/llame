@@ -168,7 +168,7 @@ export class OrgUnitsRepository {
    * ordering scheme.
    */
   private async lockTreeRoots(
-    ids: string[],
+    ids: Array<string>,
   ): Promise<Map<string, OrgUnit | undefined>> {
     const lockedRoots = new Set<string>();
     for (;;) {
@@ -208,12 +208,12 @@ export class OrgUnitsRepository {
    * Every org unit VISIBLE to the caller — no explicit filter: `org_units_select`
    * (member-on-path OR creator) scopes it. Path-ordered (parents before children).
    */
-  async listVisible(): Promise<OrgUnit[]> {
+  async listVisible(): Promise<Array<OrgUnit>> {
     return this.db.select().from(orgUnits).orderBy(asc(orgUnits.path));
   }
 
   /** A unit and its whole subtree, path-ordered (parents before children). */
-  async findSubtree(unit: Pick<OrgUnit, 'path'>): Promise<OrgUnit[]> {
+  async findSubtree(unit: Pick<OrgUnit, 'path'>): Promise<Array<OrgUnit>> {
     return this.db
       .select()
       .from(orgUnits)
@@ -282,26 +282,7 @@ export class OrgUnitsRepository {
     const oldPrefix = locked.path;
     const newPrefix = childPath(lockedNewParent.path, locked.id);
 
-    await this.db
-      .update(orgUnits)
-      .set({
-        // Prefix rewrite. substr(text, int) — NOT `substring(x from y)`: with
-        // a bind parameter the latter resolves to the POSIX-REGEX form
-        // (substring(text from text)), silently yielding NULL. The RLS
-        // WITH CHECK caught exactly that during #44 development.
-        path: sql`${newPrefix} || substr(${orgUnits.path}, ${oldPrefix.length + 1}::int)`,
-        updatedAt: new Date(),
-      })
-      .where(
-        or(eq(orgUnits.path, oldPrefix), like(orgUnits.path, `${oldPrefix}/%`)),
-      );
-
-    const [updated] = await this.db
-      .update(orgUnits)
-      .set({ parentId: lockedNewParent.id, updatedAt: new Date() })
-      .where(eq(orgUnits.id, locked.id))
-      .returning();
-    return updated;
+    return this.rebaseSubtree(locked, oldPrefix, newPrefix, lockedNewParent.id);
   }
 
   /**
@@ -322,9 +303,32 @@ export class OrgUnitsRepository {
     const oldPrefix = locked.path;
     const newPrefix = locked.id;
 
+    return this.rebaseSubtree(locked, oldPrefix, newPrefix, null);
+  }
+
+  /**
+   * Rewrite a subtree's `path` prefix from `oldPrefix` to `newPrefix` and set
+   * its root's `parentId`, in the two-step shape `move`/`moveToRoot` share:
+   * a prefix rewrite over every row under `oldPrefix`, then the root's own
+   * parent pointer. Both callers already hold the tree-root lock; this only
+   * assembles the writes. Keeping the substr() bind-parameter form below in
+   * one place matters — the POSIX-REGEX `substring(x from y)` spelling
+   * silently yields NULL instead of failing loudly, so a duplicated rewrite
+   * is a duplicated chance to regress it (#44).
+   */
+  private async rebaseSubtree(
+    locked: Pick<OrgUnit, 'id'>,
+    oldPrefix: string,
+    newPrefix: string,
+    newParentId: string | null,
+  ): Promise<OrgUnit | undefined> {
     await this.db
       .update(orgUnits)
       .set({
+        // Prefix rewrite. substr(text, int) — NOT `substring(x from y)`: with
+        // a bind parameter the latter resolves to the POSIX-REGEX form
+        // (substring(text from text)), silently yielding NULL. The RLS
+        // WITH CHECK caught exactly that during #44 development.
         path: sql`${newPrefix} || substr(${orgUnits.path}, ${oldPrefix.length + 1}::int)`,
         updatedAt: new Date(),
       })
@@ -334,7 +338,7 @@ export class OrgUnitsRepository {
 
     const [updated] = await this.db
       .update(orgUnits)
-      .set({ parentId: null, updatedAt: new Date() })
+      .set({ parentId: newParentId, updatedAt: new Date() })
       .where(eq(orgUnits.id, locked.id))
       .returning();
     return updated;
@@ -398,8 +402,8 @@ export class MembershipsRepository {
   /** The user's memberships attached to any of the given units. */
   async findByUserOnUnits(
     userId: string,
-    orgUnitIds: string[],
-  ): Promise<Membership[]> {
+    orgUnitIds: Array<string>,
+  ): Promise<Array<Membership>> {
     if (orgUnitIds.length === 0) {
       return [];
     }
@@ -414,7 +418,7 @@ export class MembershipsRepository {
       );
   }
 
-  async listByUser(userId: string): Promise<Membership[]> {
+  async listByUser(userId: string): Promise<Array<Membership>> {
     return this.db
       .select()
       .from(memberships)
@@ -423,7 +427,7 @@ export class MembershipsRepository {
   }
 
   /** The roster of a single unit — visibility (member-on-path) is RLS's job, not this query's. */
-  async listByUnit(orgUnitId: string): Promise<Membership[]> {
+  async listByUnit(orgUnitId: string): Promise<Array<Membership>> {
     return this.db
       .select()
       .from(memberships)
@@ -494,7 +498,7 @@ export class MembershipsRepository {
    */
   async summarize(
     userId: string,
-    orgUnitIds: string[],
+    orgUnitIds: Array<string>,
   ): Promise<Map<string, MembershipSummary>> {
     const result = new Map<string, MembershipSummary>();
     if (orgUnitIds.length === 0) {
@@ -556,6 +560,10 @@ export class MembershipsRepository {
   }
 }
 
+/**
+ * @public — built alongside the rest of the org/membership governance, which
+ * has no HTTP surface yet. Unwired rather than unused.
+ */
 export class ExternalIdentitiesRepository {
   constructor(private readonly db: Db) {}
 
@@ -572,7 +580,7 @@ export class ExternalIdentitiesRepository {
     return created;
   }
 
-  async listByUser(userId: string): Promise<ExternalIdentity[]> {
+  async listByUser(userId: string): Promise<Array<ExternalIdentity>> {
     return this.db
       .select()
       .from(externalIdentities)

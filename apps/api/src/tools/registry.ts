@@ -13,7 +13,7 @@ import { type Tool } from './types';
 import { isString } from '../unknown-record';
 
 /** Every tool the harness knows about (design D2: in-code registry). */
-export const TOOLS: readonly Tool[] = [
+export const TOOLS: ReadonlyArray<Tool> = [
   searchConversationsTool,
   conversationReadTool,
   knowledgeSearchTool,
@@ -53,7 +53,7 @@ function isClassifiedTool(
  * function rather than a hand-copy that could silently drift from it.
  */
 export function buildRegistry(
-  tools: readonly ToolRegistrationCandidate[],
+  tools: ReadonlyArray<ToolRegistrationCandidate>,
 ): ReadonlyMap<string, Tool> {
   const registry = new Map<string, Tool>();
   for (const tool of tools) {
@@ -103,7 +103,7 @@ export function unregisterTestOnlyTool(id: string): void {
 }
 
 /** Every registered tool id — instance-config boot validation reads this. */
-export function getRegisteredToolIds(): readonly string[] {
+export function getRegisteredToolIds(): ReadonlyArray<string> {
   return [...TOOL_REGISTRY.keys()];
 }
 
@@ -117,9 +117,9 @@ export function getRegisteredToolIds(): readonly string[] {
  * run-execution.service.ts's `experimental_repairToolCall` handling.
  */
 export function resolveAdvertisedTools(
-  allowed: ReadonlySet<string> | readonly string[],
+  allowed: ReadonlySet<string> | ReadonlyArray<string>,
   candidates: Iterable<Tool> = TOOL_REGISTRY.values(),
-): Tool[] {
+): Array<Tool> {
   const allowedRules = Array.isArray(allowed) ? allowed : [...allowed];
   return [...candidates].filter(
     (tool) =>

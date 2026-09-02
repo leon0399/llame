@@ -1,3 +1,5 @@
+import { ZodError } from 'zod';
+
 import {
   KNOWLEDGE_CONTENT_NOTICE,
   knowledgeReadTool,
@@ -86,7 +88,7 @@ function context(
 }
 
 function multiSpaceContext(
-  spaces: readonly KnowledgeToolSpaceReference[],
+  spaces: ReadonlyArray<KnowledgeToolSpaceReference>,
   bindings: ReadonlyMap<string, KnowledgeFilesystemBinding>,
   adapters: ReadonlyMap<string, KnowledgeFilesystemAdapterPort>,
 ): ToolContext {
@@ -130,13 +132,13 @@ describe('Knowledge tool declarations', () => {
       }
       expect(() => {
         schema.parse({ ownerId: 'other-owner' });
-      }).toThrow();
+      }).toThrow(ZodError);
       expect(() => {
         schema.parse({ root: '/etc' });
-      }).toThrow();
+      }).toThrow(ZodError);
       expect(() => {
         schema.parse({ knowledgeSpaceId: binding.id });
-      }).toThrow();
+      }).toThrow(ZodError);
     }
   });
 
@@ -150,16 +152,16 @@ describe('Knowledge tool declarations', () => {
     }).not.toThrow();
     expect(() => {
       schema.parse({ query: '😀'.repeat(201) });
-    }).toThrow();
+    }).toThrow(ZodError);
     expect(() => {
       schema.parse({ query: '', limit: 5 });
-    }).toThrow();
+    }).toThrow(ZodError);
     expect(() => {
       schema.parse({ query: 'x', limit: 1.5 });
-    }).toThrow();
+    }).toThrow(ZodError);
     expect(() => {
       schema.parse({ query: 'x', limit: 11 });
-    }).toThrow();
+    }).toThrow(ZodError);
     expect(schema.parse({ query: 'x', knowledgeSpaceId: binding.id })).toEqual({
       query: 'x',
       limit: 5,
@@ -172,10 +174,10 @@ describe('Knowledge tool declarations', () => {
     });
     expect(() => {
       schema.parse({ query: 'x', cursor: 1 });
-    }).toThrow();
+    }).toThrow(ZodError);
     expect(() => {
       schema.parse({ query: 'x', cursor: 'x', extra: true });
-    }).toThrow();
+    }).toThrow(ZodError);
   });
 
   it('requires exactly one read path', () => {
@@ -185,10 +187,10 @@ describe('Knowledge tool declarations', () => {
     }
     expect(() => {
       schema.parse({ path: 'notes/a.md' });
-    }).toThrow();
+    }).toThrow(ZodError);
     expect(() => {
       schema.parse({ path: 'notes/a.md', root: '/srv' });
-    }).toThrow();
+    }).toThrow(ZodError);
     expect(
       schema.parse({ path: 'notes/a.md', knowledgeSpaceId: binding.id }),
     ).toEqual({ path: 'notes/a.md', knowledgeSpaceId: binding.id });
@@ -204,20 +206,20 @@ describe('Knowledge tool declarations', () => {
         path: 'notes/a.md',
         knowledgeSpaceId: binding.id,
         offset: 0,
-        limit: 2_000,
+        limit: 2000,
       }),
     ).toEqual({
       path: 'notes/a.md',
       knowledgeSpaceId: binding.id,
       offset: 0,
-      limit: 2_000,
+      limit: 2000,
     });
     for (const invalid of [
       { offset: -1 },
       { offset: 1.5 },
       { offset: Number.MAX_SAFE_INTEGER + 1 },
       { limit: 0 },
-      { limit: 2_001 },
+      { limit: 2001 },
       { limit: 1.5 },
       { limit: Number.MAX_SAFE_INTEGER + 1 },
     ]) {
@@ -227,7 +229,7 @@ describe('Knowledge tool declarations', () => {
           knowledgeSpaceId: binding.id,
           ...invalid,
         });
-      }).toThrow();
+      }).toThrow(ZodError);
     }
   });
 });
@@ -286,7 +288,7 @@ describe('knowledge_search cursor continuation', () => {
       ]),
     );
 
-    const pages: ToolResult[] = [];
+    const pages: Array<ToolResult> = [];
     let cursor: string | undefined;
     for (let page = 0; page < 4; page += 1) {
       const result =
@@ -923,7 +925,7 @@ describe('knowledge_search', () => {
       name: bindingB.name!,
       createdAt: new Date('2026-08-23T12:01:00.000Z'),
     };
-    const budgets: unknown[] = [];
+    const budgets: Array<unknown> = [];
     const adapterA = fakeAdapter({
       search: vi.fn(
         (
@@ -1432,7 +1434,7 @@ describe('knowledge_read', () => {
       read: vi.fn(() =>
         Promise.resolve({
           path: 'notes/a.md',
-          content: '😀'.repeat(6_000),
+          content: '😀'.repeat(6000),
           offset: 0,
           lineCount: 1,
         }),

@@ -22,7 +22,7 @@ export type KnowledgeToolCandidateResolverInput = {
   readonly tx: Db;
   /** Trusted authenticated owner identity from the accepted Run. */
   readonly ownerUserId: string;
-  readonly allowedToolRules: readonly string[];
+  readonly allowedToolRules: ReadonlyArray<string>;
   /** Testable/static code-owned inventory; defaults to the immutable registry. */
   readonly codeOwnedTools?: Iterable<Tool>;
 };
@@ -46,7 +46,7 @@ export class KnowledgeToolCandidateResolver {
 
   resolve(
     input: KnowledgeToolCandidateResolverInput,
-  ): Promise<TurnToolCandidate[]> {
+  ): Promise<Array<TurnToolCandidate>> {
     const tools = [...(input.codeOwnedTools ?? TOOL_REGISTRY.values())];
     const shouldResolveOwner = tools.some(
       (tool) =>

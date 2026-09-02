@@ -77,7 +77,7 @@ export function getTrustProxySetting(
 
 export function getAllowedWebOrigins(
   env: NodeJS.ProcessEnv = process.env,
-): string[] {
+): Array<string> {
   const configured = env.WEB_ORIGIN?.split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);

@@ -105,8 +105,8 @@ describe('assertBindingConsistent — redefinition', () => {
         binding(),
       );
       expect.unreachable('expected throw');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       expect(message).not.toContain('text-embedding-3-large');
       expect(message).not.toContain('text-embedding-3-small');
     }

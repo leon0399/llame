@@ -19,14 +19,12 @@
  */
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { expectMessageParts } from '../testing/support';
 import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 import { ConflictException } from '@nestjs/common';
 
 import { eq } from 'drizzle-orm';
@@ -77,7 +75,7 @@ import { renderConversationCheckpoint } from './context-builder';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = Sql;
 
 function compactionReplacementHistory(
   summary: string,
@@ -108,10 +106,10 @@ describeIfDb(
     let db: Db;
     let tenantDb: TenantDbService;
     let userId: string;
-    let dispatchCalls: RunJob[];
+    let dispatchCalls: Array<RunJob>;
     let chatLoop: ChatLoopService;
     let systemPrompt: string;
-    let allowedTools: string[];
+    let allowedTools: Array<string>;
 
     type AvailabilityState =
       | { id: string; state: 'available' }
@@ -122,10 +120,10 @@ describeIfDb(
         };
 
     function availabilityContext(
-      states: readonly AvailabilityState[],
+      states: ReadonlyArray<AvailabilityState>,
       key: string,
     ): EffectiveContextSnapshotInput {
-      const toolDeclarations: ModelToolDeclaration[] = states.flatMap(
+      const toolDeclarations: Array<ModelToolDeclaration> = states.flatMap(
         (state) =>
           state.state === 'available'
             ? [
@@ -183,7 +181,7 @@ describeIfDb(
       userMessage: {
         id: string;
         seq: number;
-        parts: unknown[];
+        parts: Array<unknown>;
       };
     };
 
@@ -221,7 +219,7 @@ describeIfDb(
     };
 
     const availabilityPart = (
-      parts: readonly unknown[],
+      parts: ReadonlyArray<unknown>,
     ): ContextItemPart | undefined =>
       parts.find(
         (part): part is ContextItemPart =>
@@ -245,7 +243,7 @@ describeIfDb(
       );
 
     beforeAll(async () => {
-      const postgres = require('postgres');
+      const postgres = await import('postgres');
       const connect = postgres.default ?? postgres;
       const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
       sql = connect(TEST_DB_URL!, { ssl, max: 5 });

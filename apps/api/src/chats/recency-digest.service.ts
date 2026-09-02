@@ -5,7 +5,11 @@ import {
   type RecencyDigestBaseline as StoredRecencyDigestBaseline,
   type RecencyDigestToldEntry,
 } from '../db/schema';
-import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
+import {
+  TenantDbService,
+  type Db,
+  type TenantRunner,
+} from '../db/tenant-db.service';
 import { isTextPart } from './context-builder';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 
@@ -13,7 +17,7 @@ export const RECENCY_DIGEST_LIST_LIMIT = 10;
 export const RECENCY_DIGEST_EXCERPT_MAX_CODE_POINTS = 200;
 
 type DigestSourceMessage = {
-  parts: readonly unknown[];
+  parts: ReadonlyArray<unknown>;
 };
 
 /**
@@ -73,8 +77,8 @@ export function toDigestEntry(
  * claim to cover what ships.
  */
 export function buildRecencyDigestBaseline(input: {
-  pinned: readonly StoredRecencyDigestBaseline['pinned'][number][];
-  recent: readonly StoredRecencyDigestBaseline['pinned'][number][];
+  pinned: ReadonlyArray<StoredRecencyDigestBaseline['pinned'][number]>;
+  recent: ReadonlyArray<StoredRecencyDigestBaseline['pinned'][number]>;
   pinnedTotal: number;
   recentTotal: number;
   compiledOn: Date;
@@ -93,9 +97,9 @@ export function buildRecencyDigestBaseline(input: {
 /** Narrow resolver used by the chat turn, never by a public/shared read path. */
 export type RecencyDigestResolution = {
   baseline: RecencyDigestBaseline;
-  told: RecencyDigestToldEntry[];
+  told: Array<RecencyDigestToldEntry>;
   /** Candidate identity and rendered entry are one record, never parallel arrays. */
-  candidates: readonly RecencyDigestCandidate[];
+  candidates: ReadonlyArray<RecencyDigestCandidate>;
 };
 
 export type RecencyDigestResolver = Pick<
@@ -106,7 +110,7 @@ export type RecencyDigestResolver = Pick<
 export type RecencyDigestDelta = {
   entries: Array<RecencyDigestBaseline['pinned'][number] & { pinned: boolean }>;
   pinChanges: Array<{ title: string; pinned: boolean }>;
-  told: RecencyDigestToldEntry[];
+  told: Array<RecencyDigestToldEntry>;
 };
 
 /**
@@ -116,7 +120,7 @@ export type RecencyDigestDelta = {
  */
 export function deriveRecencyDigestDelta(input: {
   candidate: RecencyDigestResolution;
-  told: readonly RecencyDigestToldEntry[];
+  told: ReadonlyArray<RecencyDigestToldEntry>;
   pinnedChatIds: ReadonlySet<string>;
 }): RecencyDigestDelta | null {
   const toldByChatId = new Map(
@@ -181,85 +185,140 @@ export class RecencyDigestService {
     // exists to surface.
     return this.tenantDb.runAs(
       ownerUserId,
-      async (tx) => {
-        const chats = new ChatsRepository(tx);
-        const messages = new MessagesRepository(tx);
-        const [pinned, recent, pinnedTotal, recentTotal] = await Promise.all([
-          chats.findByOwner(ownerUserId, {
-            pinned: 'only',
-            limit: RECENCY_DIGEST_LIST_LIMIT,
-            excludeId: currentChatId,
-            titledOnly: true,
-          }),
-          chats.findByOwner(ownerUserId, {
-            pinned: 'exclude',
-            limit: RECENCY_DIGEST_LIST_LIMIT,
-            excludeId: currentChatId,
-            titledOnly: true,
-          }),
-          chats.countByOwner(ownerUserId, {
-            pinned: 'only',
-            excludeId: currentChatId,
-            titledOnly: true,
-          }),
-          // 'exclude', not 'with': the recent list is drawn from eligible chats
-          // that are NOT pinned, and a denominator must describe the population
-          // its list comes from.
-          chats.countByOwner(ownerUserId, {
-            pinned: 'exclude',
-            excludeId: currentChatId,
-            titledOnly: true,
-          }),
-        ]);
-        // Two set-scoped queries for every candidate, not one pair per chat.
-        const candidateIds = [...pinned, ...recent].map(({ id }) => id);
-        const [firstUserMessages, counts] = await Promise.all([
-          messages.findEarliestUserMessagePerChat(candidateIds, ownerUserId),
-          messages.countPerChat(candidateIds, ownerUserId),
-        ]);
-        const firstUserByChat = new Map(
-          firstUserMessages.map((message) => [message.chatId, message]),
-        );
-        const hydrate = (chat: Chat): DigestSourceChat => ({
-          ...chat,
-          firstUserMessage: firstUserByChat.get(chat.id),
-          messageCount: counts.get(chat.id) ?? 0,
-        });
-        const hydratedPinned = pinned.map(hydrate);
-        const hydratedRecent = recent.map(hydrate);
-        const toCandidate = (chat: DigestSourceChat, pinned: boolean) => ({
-          chatId: chat.id,
-          pinned,
-          entry: toDigestEntry(chat),
-        });
-        // Kept as two named lists rather than one merged array re-split by the
-        // `pinned` flag we just assigned: the partition is already known here,
-        // and the same entry objects feed both the baseline and the candidates,
-        // so the two cannot disagree.
-        const pinnedCandidates = hydratedPinned.map((chat) =>
-          toCandidate(chat, true),
-        );
-        const recentCandidates = hydratedRecent.map((chat) =>
-          toCandidate(chat, false),
-        );
-        const candidates = [...pinnedCandidates, ...recentCandidates];
-        return {
-          baseline: buildRecencyDigestBaseline({
-            pinned: pinnedCandidates.map(({ entry }) => entry),
-            recent: recentCandidates.map(({ entry }) => entry),
-            pinnedTotal,
-            recentTotal,
-            compiledOn: new Date(),
-          }),
-          told: candidates.map(({ chatId, pinned, entry }) => ({
-            chatId,
-            pinned,
-            title: entry.title,
-          })),
-          candidates,
-        };
-      },
+      (tx) =>
+        this.resolveCandidateInTransaction(tx, ownerUserId, currentChatId),
       { isolationLevel: 'repeatable read' },
     );
+  }
+
+  /** The pinned/recent candidate lists and their population counts, one round-trip each. */
+  private async fetchDigestCandidateLists(
+    chats: ChatsRepository,
+    ownerUserId: string,
+    currentChatId: string,
+  ): Promise<{
+    pinned: Array<Chat>;
+    recent: Array<Chat>;
+    pinnedTotal: number;
+    recentTotal: number;
+  }> {
+    const [pinned, recent, pinnedTotal, recentTotal] = await Promise.all([
+      chats.findByOwner(ownerUserId, {
+        pinned: 'only',
+        limit: RECENCY_DIGEST_LIST_LIMIT,
+        excludeId: currentChatId,
+        titledOnly: true,
+      }),
+      chats.findByOwner(ownerUserId, {
+        pinned: 'exclude',
+        limit: RECENCY_DIGEST_LIST_LIMIT,
+        excludeId: currentChatId,
+        titledOnly: true,
+      }),
+      chats.countByOwner(ownerUserId, {
+        pinned: 'only',
+        excludeId: currentChatId,
+        titledOnly: true,
+      }),
+      // 'exclude', not 'with': the recent list is drawn from eligible chats
+      // that are NOT pinned, and a denominator must describe the population
+      // its list comes from.
+      chats.countByOwner(ownerUserId, {
+        pinned: 'exclude',
+        excludeId: currentChatId,
+        titledOnly: true,
+      }),
+    ]);
+    return { pinned, recent, pinnedTotal, recentTotal };
+  }
+
+  /** Two set-scoped queries for every candidate, not one pair per chat. */
+  private async hydrateDigestChats(
+    messages: MessagesRepository,
+    chats: ReadonlyArray<Chat>,
+    ownerUserId: string,
+  ): Promise<Array<DigestSourceChat>> {
+    const candidateIds = chats.map(({ id }) => id);
+    const [firstUserMessages, counts] = await Promise.all([
+      messages.findEarliestUserMessagePerChat(candidateIds, ownerUserId),
+      messages.countPerChat(candidateIds, ownerUserId),
+    ]);
+    const firstUserByChat = new Map(
+      firstUserMessages.map((message) => [message.chatId, message]),
+    );
+    return chats.map(
+      (chat): DigestSourceChat => ({
+        ...chat,
+        firstUserMessage: firstUserByChat.get(chat.id),
+        messageCount: counts.get(chat.id) ?? 0,
+      }),
+    );
+  }
+
+  /**
+   * Kept as two named lists rather than one merged array re-split by the
+   * `pinned` flag assigned here: the partition is already known by the
+   * caller, and the same entry objects feed both the baseline and the
+   * candidates, so the two cannot disagree.
+   */
+  private buildDigestCandidates(
+    hydratedPinned: ReadonlyArray<DigestSourceChat>,
+    hydratedRecent: ReadonlyArray<DigestSourceChat>,
+  ) {
+    const toCandidate = (
+      chat: DigestSourceChat,
+      pinned: boolean,
+    ): RecencyDigestCandidate => ({
+      chatId: chat.id,
+      pinned,
+      entry: toDigestEntry(chat),
+    });
+    const pinnedCandidates = hydratedPinned.map((chat) =>
+      toCandidate(chat, true),
+    );
+    const recentCandidates = hydratedRecent.map((chat) =>
+      toCandidate(chat, false),
+    );
+    return {
+      pinnedCandidates,
+      recentCandidates,
+      candidates: [...pinnedCandidates, ...recentCandidates],
+    };
+  }
+
+  private async resolveCandidateInTransaction(
+    tx: Db,
+    ownerUserId: string,
+    currentChatId: string,
+  ): Promise<RecencyDigestResolution> {
+    const chats = new ChatsRepository(tx);
+    const messages = new MessagesRepository(tx);
+    const { pinned, recent, pinnedTotal, recentTotal } =
+      await this.fetchDigestCandidateLists(chats, ownerUserId, currentChatId);
+
+    const hydrated = await this.hydrateDigestChats(
+      messages,
+      [...pinned, ...recent],
+      ownerUserId,
+    );
+    const hydratedPinned = hydrated.slice(0, pinned.length);
+    const hydratedRecent = hydrated.slice(pinned.length);
+    const { pinnedCandidates, recentCandidates, candidates } =
+      this.buildDigestCandidates(hydratedPinned, hydratedRecent);
+    return {
+      baseline: buildRecencyDigestBaseline({
+        pinned: pinnedCandidates.map(({ entry }) => entry),
+        recent: recentCandidates.map(({ entry }) => entry),
+        pinnedTotal,
+        recentTotal,
+        compiledOn: new Date(),
+      }),
+      told: candidates.map(({ chatId, pinned, entry }) => ({
+        chatId,
+        pinned,
+        title: entry.title,
+      })),
+      candidates,
+    };
   }
 }

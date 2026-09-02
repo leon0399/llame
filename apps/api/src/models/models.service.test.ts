@@ -46,7 +46,7 @@ const DEFAULT_PROVIDER: ProviderConfig = {
 // Reproduces the formerly-hardcoded ACTIVE_SYSTEM_MODEL_IDS catalog exactly,
 // as config entries — the shipped llame.config.json.example carries the same
 // data (providers-and-models-as-code, #167).
-const CATALOG: SystemModelCatalogEntry[] = [
+const CATALOG: Array<SystemModelCatalogEntry> = [
   {
     id: 'system:openai:gpt-5.5',
     source: 'system',
@@ -117,8 +117,8 @@ const CATALOG: SystemModelCatalogEntry[] = [
 function createService(overrides: {
   defaultModelId?: string | null;
   titleGenerationModelId?: string | null;
-  models?: SystemModelCatalogEntry[];
-  providers?: ProviderConfig[];
+  models?: Array<SystemModelCatalogEntry>;
+  providers?: Array<ProviderConfig>;
 }): ModelsService {
   const instanceConfig: InstanceConfigReader = {
     config: {
@@ -176,7 +176,9 @@ describe('ModelsService', () => {
         throw new Error('expected getAvailableModels to throw');
       } catch (error) {
         if (!(error instanceof ModelConfigurationError)) {
-          throw new Error('Expected a ModelConfigurationError');
+          throw new Error('Expected a ModelConfigurationError', {
+            cause: error,
+          });
         }
         expect(error.code).toBe('model_configuration_invalid');
         expect(error.statusCode).toBe(503);

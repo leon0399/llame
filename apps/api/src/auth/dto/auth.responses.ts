@@ -41,7 +41,7 @@ export class AuthTokenResponse {
 
 export class SessionsResponse {
   @ApiProperty({ type: () => [SessionResponse] })
-  sessions!: SessionResponse[];
+  sessions!: Array<SessionResponse>;
 }
 
 export class SessionRevocationResponse {

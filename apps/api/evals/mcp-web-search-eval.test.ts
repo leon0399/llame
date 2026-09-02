@@ -39,7 +39,7 @@ type LiveEvalConfig = {
 };
 
 type CapturedConsole = {
-  readonly values: readonly unknown[];
+  readonly values: ReadonlyArray<unknown>;
   readonly restore: () => void;
 };
 
@@ -131,8 +131,8 @@ function assertCredentialAbsent(value: unknown, credential: string): void {
 }
 
 function captureConsole(): CapturedConsole {
-  const values: unknown[] = [];
-  const capture = (...args: unknown[]) => {
+  const values: Array<unknown> = [];
+  const capture = (...args: Array<unknown>) => {
     values.push(args);
   };
   const spies = [
@@ -151,7 +151,7 @@ function captureConsole(): CapturedConsole {
 }
 
 function findTool(
-  tools: readonly McpDiscoveredTool[],
+  tools: ReadonlyArray<McpDiscoveredTool>,
   configuredName: string,
 ): McpDiscoveredTool {
   const tool = tools.find(

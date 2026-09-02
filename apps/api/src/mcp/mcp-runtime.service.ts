@@ -23,6 +23,13 @@ import {
   type TurnToolCandidate,
 } from '../tools/turn-tool-catalog';
 import { type Tool } from '../tools/types';
+import {
+  frozenRuntimeDefinition,
+  isStdio,
+  type McpRuntimeServerDefinition,
+} from './mcp-runtime-definition';
+
+export { type McpRuntimeServerDefinition } from './mcp-runtime-definition';
 
 const REFRESH_BASE_MS = 60 * 60 * 1000;
 const REFRESH_JITTER_MS = REFRESH_BASE_MS * 0.2;
@@ -46,76 +53,6 @@ export const STDIO_MAX_FAST_ATTEMPTS = 5;
  * cycling through the ladder cannot keep earning a fresh one.
  */
 export const STDIO_STABLE_AFTER_MS = 60_000;
-
-export type McpRuntimeRemoteDefinition = Readonly<{
-  transport?: 'http';
-  url: string;
-  headers?: Readonly<Record<string, string>>;
-  fetch?: typeof globalThis.fetch;
-}>;
-
-export type McpRuntimeStdioDefinition = Readonly<{
-  transport: 'stdio';
-  command: string;
-  args?: readonly string[];
-  env?: Readonly<Record<string, string>>;
-  cwd?: string;
-  protectedValues?: readonly string[];
-}>;
-
-export type McpRuntimeServerDefinition =
-  | McpRuntimeRemoteDefinition
-  | McpRuntimeStdioDefinition;
-
-const isStdio = (
-  definition: McpRuntimeServerDefinition,
-): definition is McpRuntimeStdioDefinition => definition.transport === 'stdio';
-
-type MutableStdioDefinition = {
-  transport: 'stdio';
-  command: string;
-  args?: readonly string[];
-  env?: Readonly<Record<string, string>>;
-  cwd?: string;
-  protectedValues?: readonly string[];
-};
-
-type MutableRemoteDefinition = {
-  url: string;
-  headers?: Readonly<Record<string, string>>;
-  fetch?: typeof globalThis.fetch;
-};
-
-function frozenRuntimeDefinition(
-  definition: McpRuntimeServerDefinition,
-): McpRuntimeServerDefinition {
-  if (isStdio(definition)) {
-    const stdio: MutableStdioDefinition = {
-      transport: 'stdio',
-      command: definition.command,
-    };
-    if (definition.args !== undefined) {
-      stdio.args = Object.freeze([...definition.args]);
-    }
-    if (definition.env !== undefined) {
-      stdio.env = Object.freeze({ ...definition.env });
-    }
-    if (definition.cwd !== undefined) stdio.cwd = definition.cwd;
-    if (definition.protectedValues !== undefined) {
-      stdio.protectedValues = Object.freeze([...definition.protectedValues]);
-    }
-    return Object.freeze(stdio);
-  }
-
-  const remote: MutableRemoteDefinition = {
-    url: definition.url,
-  };
-  if (definition.headers !== undefined) {
-    remote.headers = Object.freeze({ ...definition.headers });
-  }
-  if (definition.fetch !== undefined) remote.fetch = definition.fetch;
-  return Object.freeze(remote);
-}
 
 export type McpRuntimeClient = Pick<McpServerClient, 'discover' | 'close'>;
 
@@ -168,6 +105,15 @@ const EMPTY_CATALOG: RuntimeCatalog = Object.freeze({
   entries: new Map(),
 });
 
+/** The connected session `buildCatalog`/`createExecutor` build a catalog
+ * entry's executor against — the three facts an in-flight tool call
+ * re-checks are still current before it runs. */
+type ConnectionContext = Readonly<{
+  record: ServerRecord;
+  generation: number;
+  client: McpRuntimeClient;
+}>;
+
 function clampRandom(value: number): number {
   if (!Number.isFinite(value) || value <= 0) return 0;
   if (value >= 1) return 1;
@@ -181,7 +127,7 @@ function closeWithoutWaiting(client: McpRuntimeClient): void {
 export class McpRuntimeService
   implements OnModuleInit, OnModuleDestroy, DynamicToolExecutorResolver
 {
-  private readonly records: readonly ServerRecord[];
+  private readonly records: ReadonlyArray<ServerRecord>;
   private readonly clientFactory: McpRuntimeClientFactory;
   private readonly random: () => number;
   private readonly now: () => number;
@@ -224,8 +170,8 @@ export class McpRuntimeService
     }
   }
 
-  snapshotCandidates(): readonly TurnToolCandidate[] {
-    const candidates: TurnToolCandidate[] = [];
+  snapshotCandidates(): ReadonlyArray<TurnToolCandidate> {
+    const candidates: Array<TurnToolCandidate> = [];
     for (const record of this.records) {
       if (record.state === 'ready') {
         for (const entry of record.catalog.entries.values()) {
@@ -309,42 +255,59 @@ export class McpRuntimeService
     this.trackOperation(this.connectAndDiscover(record, operation));
   }
 
+  /**
+   * Connects `operation`'s client, or resolves `undefined` when it was
+   * already fully handled (the operation went stale, or the disconnect
+   * callback fired before this client was assigned) — never itself throws
+   * after a client is assigned, so the caller's `client` stays accurate for
+   * its own catch-block cleanup.
+   */
+  private async establishConnection(
+    record: ServerRecord,
+    operation: RuntimeOperation,
+  ): Promise<McpRuntimeClient | undefined> {
+    let callbackClient: McpRuntimeClient | undefined;
+    let pendingDisconnect = false;
+    const config: McpServerClientConfig | McpStdioServerClientConfig = {
+      serverId: record.serverId,
+      ...record.definition,
+      ...(isStdio(record.definition) && {
+        onDiagnostic: (text: string) =>
+          this.logger.warn(`[${record.serverId}] ${text}`),
+      }),
+      signal: operation.controller.signal,
+      onDisconnect: () => {
+        if (callbackClient !== undefined) {
+          this.handleDisconnect(record, operation.generation, callbackClient);
+        } else {
+          pendingDisconnect = true;
+        }
+      },
+    };
+    const client = await this.clientFactory(config);
+    callbackClient = client;
+    operation.client = client;
+    if (!this.isCurrentOperation(record, operation)) {
+      closeWithoutWaiting(client);
+      return undefined;
+    }
+    record.client = client;
+    if (pendingDisconnect) {
+      this.handleDisconnect(record, operation.generation, client);
+      return undefined;
+    }
+    return client;
+  }
+
   private async connectAndDiscover(
     record: ServerRecord,
     operation: RuntimeOperation,
   ): Promise<void> {
     let client: McpRuntimeClient | undefined;
     try {
-      let callbackClient: McpRuntimeClient | undefined;
-      let pendingDisconnect = false;
-      const config: McpServerClientConfig | McpStdioServerClientConfig = {
-        serverId: record.serverId,
-        ...record.definition,
-        ...(isStdio(record.definition) && {
-          onDiagnostic: (text: string) =>
-            this.logger.warn(`[${record.serverId}] ${text}`),
-        }),
-        signal: operation.controller.signal,
-        onDisconnect: () => {
-          if (callbackClient !== undefined) {
-            this.handleDisconnect(record, operation.generation, callbackClient);
-          } else {
-            pendingDisconnect = true;
-          }
-        },
-      };
-      client = await this.clientFactory(config);
-      callbackClient = client;
-      operation.client = client;
-      if (!this.isCurrentOperation(record, operation)) {
-        closeWithoutWaiting(client);
-        return;
-      }
-      record.client = client;
-      if (pendingDisconnect) {
-        this.handleDisconnect(record, operation.generation, client);
-        return;
-      }
+      client = await this.establishConnection(record, operation);
+      if (client === undefined) return;
+
       const result = await client.discover({
         signal: operation.controller.signal,
       });
@@ -353,9 +316,7 @@ export class McpRuntimeService
         return;
       }
       const catalog = this.buildCatalog(
-        record,
-        operation.generation,
-        client,
+        { record, generation: operation.generation, client },
         result,
       );
       record.catalog = catalog;
@@ -424,9 +385,7 @@ export class McpRuntimeService
       });
       if (!this.isCurrentClient(record, operation.generation, client)) return;
       const catalog = this.buildCatalog(
-        record,
-        operation.generation,
-        client,
+        { record, generation: operation.generation, client },
         result,
       );
       if (!this.isCurrentClient(record, operation.generation, client)) return;
@@ -448,9 +407,7 @@ export class McpRuntimeService
   }
 
   private buildCatalog(
-    record: ServerRecord,
-    generation: number,
-    client: McpRuntimeClient,
+    connection: ConnectionContext,
     result: McpDiscoveryResult,
   ): RuntimeCatalog {
     const entries = new Map<string, RuntimeCatalogEntry>();
@@ -469,9 +426,7 @@ export class McpRuntimeService
         Object.freeze({
           declarationHash,
           executor: this.createExecutor(
-            record,
-            generation,
-            client,
+            connection,
             discovered,
             declarationHash,
           ),
@@ -482,12 +437,11 @@ export class McpRuntimeService
   }
 
   private createExecutor(
-    record: ServerRecord,
-    generation: number,
-    client: McpRuntimeClient,
+    connection: ConnectionContext,
     discovered: McpDiscoveredTool,
     declarationHash: string,
   ): Tool {
+    const { record, generation, client } = connection;
     const definition = discovered.definition;
     const executor: Tool = {
       id: definition.id,

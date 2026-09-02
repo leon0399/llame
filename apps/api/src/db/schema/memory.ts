@@ -1,11 +1,7 @@
 import { InferSelectModel, sql } from 'drizzle-orm';
-import {
-  boolean,
-  pgPolicy,
-  pgTable,
-  text,
-  timestamp,
-} from 'drizzle-orm/pg-core';
+import { boolean, pgPolicy, pgTable, text } from 'drizzle-orm/pg-core';
+
+import { timestamptz } from '../columns';
 import { users } from './auth';
 
 // One owner-scoped memory-settings row per user. Absence is the natural
@@ -26,12 +22,8 @@ export const memorySettings = pgTable(
       .primaryKey()
       .references(() => users.id, { onDelete: 'cascade' }),
     shareRecentChats: boolean('share_recent_chats').notNull().default(false),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
   () => [
     // No public-read branch: a shared chat or empty identity must never expose

@@ -111,7 +111,7 @@ export class SessionsRepository {
   async listForUser(
     userId: string,
     idleTtlMs: number,
-  ): Promise<SessionRecord[]> {
+  ): Promise<Array<SessionRecord>> {
     const now = Date.now();
     return this.db
       .select()

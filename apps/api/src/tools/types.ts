@@ -23,7 +23,7 @@ export type KnowledgeToolSpaceReference = {
 };
 
 export type KnowledgeToolSpacePage = {
-  readonly spaces: readonly KnowledgeToolSpaceReference[];
+  readonly spaces: ReadonlyArray<KnowledgeToolSpaceReference>;
   readonly nextCursor?: KnowledgeSpaceCursor;
 };
 

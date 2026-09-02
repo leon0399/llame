@@ -95,7 +95,7 @@ describe('BASELINE.md matches dataset.ts (counts only, not scores)', () => {
   });
 
   it('records the same per-category query count as EVAL_QUERIES', () => {
-    const violations: string[] = [];
+    const violations: Array<string> = [];
     for (const [category, actualN] of actualCategoryCounts) {
       const recordedN = recordedCategoryCounts.get(category);
       if (recordedN !== actualN) {

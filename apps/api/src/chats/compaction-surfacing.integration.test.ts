@@ -17,12 +17,8 @@
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 
@@ -40,7 +36,7 @@ import { renderConversationCheckpoint } from './context-builder';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = Sql;
 
 function compactionReplacementHistory(
   summary: string,
@@ -69,7 +65,7 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
   };
 
   beforeAll(async () => {
-    const postgres = require('postgres');
+    const postgres = await import('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 5 });
@@ -200,10 +196,10 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
           summary: 'with usage',
           replacementHistory: compactionReplacementHistory('with usage'),
           usage: {
-            inputTokens: 71400,
+            inputTokens: 71_400,
             cachedInputTokens: 0,
             outputTokens: 1280,
-            totalTokens: 72680,
+            totalTokens: 72_680,
             modelId: 'system:openai:gpt-4o',
             latencyMs: 500,
             finishReason: 'stop',
@@ -248,7 +244,7 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
 
     it('selects the latest compaction applicable to a target-ended history window', async () => {
       const chat = await newChat(a);
-      const messages: Message[] = [];
+      const messages: Array<Message> = [];
       for (let i = 0; i < 25; i++) {
         messages.push(await addMessage(chat, a));
       }

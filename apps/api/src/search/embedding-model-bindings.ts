@@ -79,7 +79,7 @@ export function assertBindingConsistent(
  * Issues no lookup at all when `models` is empty (off-by-default contract).
  */
 export async function assertDeclaredBindingsConsistent(
-  models: readonly EmbeddingModelCatalogEntry[],
+  models: ReadonlyArray<EmbeddingModelCatalogEntry>,
   ledger: EmbeddingBindingLookup,
 ): Promise<void> {
   for (const model of models) {

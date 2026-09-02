@@ -11,7 +11,13 @@
  */
 
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { chats, pins, projects, type PinItemType } from '../db/schema';
+import {
+  chats,
+  pins,
+  projects,
+  type Pin,
+  type PinItemType,
+} from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 export { type Db } from '../db/tenant-db.service';
 
@@ -50,9 +56,9 @@ function pinKey(itemType: PinItemType, itemId: string): string {
 
 /** Validate a full-set reorder and plan collision-free temporary/final writes. */
 export function planPinReorder(
-  existing: readonly PositionedPinOrderItem[],
-  ordered: readonly PinOrderItem[],
-): PositionedPinOrderItem[] {
+  existing: ReadonlyArray<PositionedPinOrderItem>,
+  ordered: ReadonlyArray<PinOrderItem>,
+): Array<PositionedPinOrderItem> {
   if (ordered.length !== existing.length) {
     throw new PinReorderMismatchError();
   }
@@ -89,7 +95,7 @@ export class PinsRepository {
    * each hydrated with its item's card. A pin whose item does not hydrate under
    * RLS (deleted / inaccessible) is omitted.
    */
-  async listWithCards(userId: string): Promise<PinnedRow[]> {
+  async listWithCards(userId: string): Promise<Array<PinnedRow>> {
     const rows = await this.db
       .select()
       .from(pins)
@@ -98,77 +104,92 @@ export class PinsRepository {
 
     if (rows.length === 0) return [];
 
-    const chatIds = rows
-      .filter((r) => r.itemType === 'chat')
-      .map((r) => r.itemId);
-    const projectIds = rows
-      .filter((r) => r.itemType === 'project')
-      .map((r) => r.itemId);
-
     // Batched, RLS-scoped card reads: 2 queries regardless of pin count.
-    const chatCards = chatIds.length
-      ? await this.db
-          .select({
-            id: chats.id,
-            title: chats.title,
-            archivedAt: chats.archivedAt,
-          })
-          .from(chats)
-          .where(inArray(chats.id, chatIds))
-      : [];
-    const projectCards = projectIds.length
-      ? await this.db
-          .select({
-            id: projects.id,
-            name: projects.name,
-            archivedAt: projects.archivedAt,
-          })
-          .from(projects)
-          .where(inArray(projects.id, projectIds))
-      : [];
-
-    const chatTitle = new Map(chatCards.map((c) => [c.id, c.title]));
-    const chatArchivedAt = new Map(chatCards.map((c) => [c.id, c.archivedAt]));
-    const projectName = new Map(projectCards.map((p) => [p.id, p.name]));
-    const projectArchivedAt = new Map(
-      projectCards.map((p) => [p.id, p.archivedAt]),
+    const chatCardById = await this.chatCardsById(
+      rows.filter((r) => r.itemType === 'chat').map((r) => r.itemId),
+    );
+    const projectCardById = await this.projectCardsById(
+      rows.filter((r) => r.itemType === 'project').map((r) => r.itemId),
     );
 
-    const result: PinnedRow[] = [];
-    for (const row of rows) {
-      switch (row.itemType) {
-        case 'chat': {
-          if (!chatTitle.has(row.itemId)) continue; // dropped: not hydratable
-          result.push({
+    return rows
+      .map((row) => this.hydratePinRow(row, chatCardById, projectCardById))
+      .filter((row) => row !== undefined);
+  }
+
+  /** Hydrates one pin row with its item's card. undefined when the item does
+   * not hydrate under RLS (dropped, not merely omitted from the result). */
+  private hydratePinRow(
+    row: Pick<Pin, 'itemType' | 'itemId' | 'pinnedAt'>,
+    chatCardById: Awaited<ReturnType<PinsRepository['chatCardsById']>>,
+    projectCardById: Awaited<ReturnType<PinsRepository['projectCardsById']>>,
+  ): PinnedRow | undefined {
+    switch (row.itemType) {
+      case 'chat': {
+        const card = chatCardById.get(row.itemId);
+        return (
+          card && {
             itemType: 'chat',
             itemId: row.itemId,
             pinnedAt: row.pinnedAt,
-            title: chatTitle.get(row.itemId) ?? null,
-            archivedAt: chatArchivedAt.get(row.itemId) ?? null,
-          });
-          break;
-        }
-        case 'project': {
-          const name = projectName.get(row.itemId);
-          if (name === undefined) continue; // dropped: not hydratable
-          result.push({
+            ...card,
+          }
+        );
+      }
+      case 'project': {
+        const card = projectCardById.get(row.itemId);
+        return (
+          card && {
             itemType: 'project',
             itemId: row.itemId,
             pinnedAt: row.pinnedAt,
-            name,
-            archivedAt: projectArchivedAt.get(row.itemId) ?? null,
-          });
-          break;
-        }
-        default: {
-          // Exhaustiveness guard: a new PinItemType forces a compile error
-          // until its hydration branch is added.
-          const _exhaustive: never = row.itemType;
-          throw new Error(`Unhandled pin item type: ${String(_exhaustive)}`);
-        }
+            ...card,
+          }
+        );
+      }
+      default: {
+        // Exhaustiveness guard: a new PinItemType forces a compile error
+        // until its hydration branch is added.
+        const _exhaustive: never = row.itemType;
+        throw new Error(`Unhandled pin item type: ${String(_exhaustive)}`);
       }
     }
-    return result;
+  }
+
+  /** Chat cards for `ids`, keyed by chat id. */
+  private async chatCardsById(
+    ids: ReadonlyArray<string>,
+  ): Promise<Map<string, { title: string | null; archivedAt: Date | null }>> {
+    if (ids.length === 0) return new Map();
+    const cards = await this.db
+      .select({
+        id: chats.id,
+        title: chats.title,
+        archivedAt: chats.archivedAt,
+      })
+      .from(chats)
+      .where(inArray(chats.id, ids));
+    return new Map(
+      cards.map((c) => [c.id, { title: c.title, archivedAt: c.archivedAt }]),
+    );
+  }
+
+  /** Project cards for `ids`, keyed by project id. */
+  private async projectCardsById(
+    ids: ReadonlyArray<string>,
+  ): Promise<Map<string, { name: string; archivedAt: Date | null }>> {
+    if (ids.length === 0) return new Map();
+    const cards = await this.db
+      .select({
+        id: projects.id,
+        name: projects.name,
+        archivedAt: projects.archivedAt,
+      })
+      .from(projects)
+      .where(inArray(projects.id, ids));
+    return new Map(
+      cards.map((p) => [p.id, { name: p.name, archivedAt: p.archivedAt }]),
+    );
   }
 
   /**
@@ -231,8 +252,8 @@ export class PinsRepository {
    */
   async reorder(
     userId: string,
-    ordered: readonly PinOrderItem[],
-  ): Promise<PinnedRow[]> {
+    ordered: ReadonlyArray<PinOrderItem>,
+  ): Promise<Array<PinnedRow>> {
     const existing = await this.db
       .select({
         itemType: pins.itemType,
@@ -275,7 +296,7 @@ export class PinsRepository {
    * RLS session — the same drop rule as `listWithCards`.
    */
   private async hydratablePinKeys(
-    rows: readonly PinOrderItem[],
+    rows: ReadonlyArray<PinOrderItem>,
   ): Promise<Set<string>> {
     if (rows.length === 0) return new Set();
 
@@ -325,42 +346,14 @@ export class PinsRepository {
 
     switch (itemType) {
       case 'chat': {
-        const [card] = await this.db
-          .select({
-            id: chats.id,
-            title: chats.title,
-            archivedAt: chats.archivedAt,
-          })
-          .from(chats)
-          .where(eq(chats.id, itemId))
-          .limit(1);
+        const card = (await this.chatCardsById([itemId])).get(itemId);
         if (!card) return undefined;
-        return {
-          itemType: 'chat',
-          itemId,
-          pinnedAt: pin.pinnedAt,
-          title: card.title,
-          archivedAt: card.archivedAt,
-        };
+        return { itemType, itemId, pinnedAt: pin.pinnedAt, ...card };
       }
       case 'project': {
-        const [card] = await this.db
-          .select({
-            id: projects.id,
-            name: projects.name,
-            archivedAt: projects.archivedAt,
-          })
-          .from(projects)
-          .where(eq(projects.id, itemId))
-          .limit(1);
+        const card = (await this.projectCardsById([itemId])).get(itemId);
         if (!card) return undefined;
-        return {
-          itemType: 'project',
-          itemId,
-          pinnedAt: pin.pinnedAt,
-          name: card.name,
-          archivedAt: card.archivedAt,
-        };
+        return { itemType, itemId, pinnedAt: pin.pinnedAt, ...card };
       }
       default: {
         // Exhaustiveness guard: a new PinItemType forces a compile error until

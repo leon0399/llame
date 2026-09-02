@@ -7,13 +7,9 @@
  * reindex writer, and that direct projection reads/writes remain tenant-owned.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
+import postgres from 'postgres';
 import { z } from 'zod';
 
 import * as schema from '../db/schema';
@@ -26,7 +22,7 @@ import { SearchIndexService } from './search-index.service';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const TEST_UNPRIVILEGED_DB_URL = process.env['TEST_UNPRIVILEGED_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = ReturnType<typeof postgres>;
 const STALE_DISCOVERY_LIMIT = 1_000_000;
 
 describeIfDb('search projection locator coverage and RLS', () => {
@@ -40,7 +36,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
 
   async function seedChat(
     ownerUserId: string,
-    parts: unknown[],
+    parts: Array<unknown>,
     title = 'Projection coverage',
   ): Promise<string> {
     const chatId = crypto.randomUUID();
@@ -107,10 +103,8 @@ describeIfDb('search projection locator coverage and RLS', () => {
       .then((rows) => [...rows].map((row) => row.chat_id));
 
   beforeAll(async () => {
-    const postgres = require('postgres');
-    const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-    sqlClient = connect(TEST_DB_URL!, { ssl, max: 5 });
+    sqlClient = postgres(TEST_DB_URL!, { ssl, max: 5 });
     tenantDb = new TenantDbService(drizzle(sqlClient, { schema }));
     indexService = new SearchIndexService(tenantDb);
     ownerA = crypto.randomUUID();
@@ -128,7 +122,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
   });
 
   it('reindexes a giant multi-part message with complete locators on every current row', async () => {
-    const parts: unknown[] = [];
+    const parts: Array<unknown> = [];
     for (let index = 0; index < 8; index += 1) {
       parts.push(
         textPart(
@@ -138,16 +132,16 @@ describeIfDb('search projection locator coverage and RLS', () => {
               (_, word) => `line-${index}-${word}`,
             ).join(' '),
         ),
+        { type: 'reasoning', text: `hidden reasoning ${index}` },
+        {
+          type: 'tool-knowledge_search',
+          toolCallId: `tool-${index}`,
+          state: 'output-available',
+          input: { query: `hidden query ${index}` },
+          output: { status: 'success', results: [] },
+          outcome: 'success',
+        },
       );
-      parts.push({ type: 'reasoning', text: `hidden reasoning ${index}` });
-      parts.push({
-        type: 'tool-knowledge_search',
-        toolCallId: `tool-${index}`,
-        state: 'output-available',
-        input: { query: `hidden query ${index}` },
-        output: { status: 'success', results: [] },
-        outcome: 'success',
-      });
     }
     const chatId = await seedChat(ownerA, parts, 'Giant multi-part source');
 
@@ -694,12 +688,10 @@ describeIfDb('search projection locator coverage and RLS', () => {
     ]);
 
     if (!TEST_UNPRIVILEGED_DB_URL) return;
-    const postgres = require('postgres');
-    const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_UNPRIVILEGED_DB_URL)
       ? 'require'
       : false;
-    const unprivileged = connect(TEST_UNPRIVILEGED_DB_URL, { ssl, max: 1 });
+    const unprivileged = postgres(TEST_UNPRIVILEGED_DB_URL, { ssl, max: 1 });
     try {
       await expect(
         unprivileged.unsafe(

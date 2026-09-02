@@ -33,9 +33,9 @@ function config(searchAllowed: boolean) {
 async function buildService(
   searchAllowed: boolean,
   provisioned: boolean,
-  coverage: CoverageRow[] = [COVERAGE_ROW],
+  coverage: Array<CoverageRow> = [COVERAGE_ROW],
 ) {
-  const results: FakeRow[][] = [
+  const results: Array<Array<FakeRow>> = [
     provisioned ? [{ bypass: true }] : [{ bypass: false }],
     coverage,
   ];

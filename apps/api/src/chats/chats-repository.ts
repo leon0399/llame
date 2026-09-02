@@ -1,5 +1,9 @@
 /**
- * ChatsRepository and MessagesRepository — owner-scoped database access.
+ * ChatsRepository — owner-scoped database access to the `chats`/`pins`
+ * tables. Split from a single chats-repository.ts: MessagesRepository (the
+ * `messages` table) and CompactionsRepository + findLiveWindow (the
+ * `compactions` table) each moved to their own sibling file, re-exported
+ * below so this module stays every existing consumer's one import path.
  *
  * Every query filters by ownerUserId / chatId as defense-in-depth.
  * RLS is the primary isolation guarantee; these filters are the seatbelt.
@@ -18,33 +22,17 @@ import {
   eq,
   exists,
   getTableColumns,
-  gt,
   inArray,
   isNotNull,
   isNull,
-  lt,
-  lte,
-  max,
   not,
   sql,
+  type SQL,
 } from 'drizzle-orm';
-import {
-  type Chat,
-  type Compaction,
-  type CompactionReplacementMessage,
-  type Message,
-  type MessageRole,
-  chats,
-  compactions,
-  messages,
-  pins,
-  type PinItemType,
-} from '../db/schema';
+import { type Chat, chats, pins, type PinItemType } from '../db/schema';
 
 import { type Db } from '../db/tenant-db.service';
 export { type Db } from '../db/tenant-db.service';
-import { isString, type UnknownRecord } from '../unknown-record';
-import { parseCompactionReplacementHistory } from './compaction-replacement-history';
 import { isCompletedAssistantTurn } from './assistant-completion';
 export { isCompletedAssistantTurn };
 import {
@@ -54,73 +42,38 @@ import {
   type HybridSearchResult,
 } from '../search/core';
 
+export {
+  MessagesRepository,
+  type ConversationMessageLookup,
+} from './messages-repository';
+export {
+  CompactionsRepository,
+  findLiveWindow,
+} from './compactions-repository';
+
 const DEFAULT_CHAT_VISIBILITY = 'private';
 
 const SNIPPET_MAX = 160;
 
-// Fixed application budget, not operator configuration. Current writers are
-// bounded to assistant finalization/salvage after accepted-turn admission has
-// rejected or expired an active Run; eight attempts leaves a defensive retry
-// wave without permitting an unbounded transaction loop.
-const MESSAGE_SEQUENCE_INSERT_ATTEMPTS = 8;
-const MESSAGE_SEQUENCE_UNIQUE_INDEX = 'messages_chat_seq_unique_idx';
-
-type MessageInsert = typeof messages.$inferInsert;
-type MessageInsertWithoutSequence = Omit<MessageInsert, 'seq'>;
-
-export type ConversationMessageLookup = {
-  chatId: string;
-  seq: number;
-  role: 'user' | 'assistant';
-  parts: unknown[];
-  usage: unknown;
-  createdAt: Date;
-  previousMessageSeq?: number;
-  nextMessageSeq?: number;
+type ChatUpdatePatch = {
+  title?: string;
+  visibility?: 'private' | 'public';
+  projectId?: string | null;
+  archived?: boolean;
 };
 
-type ConversationMessageLookupRow = {
-  message_chat_id: string;
-  message_seq: string;
-  message_role: string;
-  message_parts: unknown;
-  message_usage: unknown;
-  message_created_at: Date | string;
-  previous_message_seq: string | null;
-  next_message_seq: string | null;
+type ChatOwnerFilter = {
+  projectId?: string;
+  pinned?: 'only' | 'with' | 'exclude';
+  archived?: 'only' | 'with';
+  limit?: number;
+  excludeId?: string;
+  titledOnly?: boolean;
 };
-
-function parseSafePositiveSequence(value: string | null): number | undefined {
-  if (value === null) return undefined;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
-}
-
-function isCauseChainLink(value: unknown): value is UnknownRecord {
-  return typeof value === 'object' && value !== null;
-}
-
-function isMessageSequenceUniqueViolation(error: unknown): boolean {
-  for (
-    let current = error;
-    isCauseChainLink(current);
-    current = current['cause']
-  ) {
-    const namesSequenceIndex =
-      (isString(current['constraint_name']) &&
-        current['constraint_name'] === MESSAGE_SEQUENCE_UNIQUE_INDEX) ||
-      (isString(current['message']) &&
-        current['message'].includes(MESSAGE_SEQUENCE_UNIQUE_INDEX));
-    if (current['code'] === '23505' && namesSequenceIndex) {
-      return true;
-    }
-  }
-  return false;
-}
 
 /** Collapse whitespace and clip a matching message to a short search snippet. */
 function truncateSnippet(text: string): string {
-  const clean = text.replace(/\s+/g, ' ').trim();
+  const clean = text.replaceAll(/\s+/g, ' ').trim();
   return clean.length > SNIPPET_MAX
     ? `${clean.slice(0, SNIPPET_MAX).trimEnd()}…`
     : clean;
@@ -137,18 +90,11 @@ export class ChatsRepository {
    * server-side WHERE (covered by chats_project_idx), never a client-side
    * pass over the full list.
    */
-  async findByOwner(
+  private buildOwnerFilterConditions(
     ownerUserId: string,
-    filter: {
-      projectId?: string;
-      pinned?: 'only' | 'with' | 'exclude';
-      archived?: 'only' | 'with';
-      limit?: number;
-      excludeId?: string;
-      titledOnly?: boolean;
-    } = {},
-  ): Promise<Chat[]> {
-    const conditions = [eq(chats.ownerUserId, ownerUserId)];
+    filter: ChatOwnerFilter,
+  ): Array<SQL> {
+    const conditions: Array<SQL> = [eq(chats.ownerUserId, ownerUserId)];
 
     if (filter.projectId !== undefined) {
       conditions.push(eq(chats.projectId, filter.projectId));
@@ -162,8 +108,7 @@ export class ChatsRepository {
       // Such a chat is untitled in substance, and admitting it would render a
       // blank entry and trip the digest part's stricter non-blank check, which
       // throws and aborts the whole send.
-      conditions.push(isNotNull(chats.title));
-      conditions.push(sql`btrim(${chats.title}) <> ''`);
+      conditions.push(isNotNull(chats.title), sql`btrim(${chats.title}) <> ''`);
     }
 
     // Archive filter: absent or 'with' besides default excluded; 'only' = archived.
@@ -180,6 +125,15 @@ export class ChatsRepository {
     if (pinCondition !== undefined) {
       conditions.push(pinCondition);
     }
+
+    return conditions;
+  }
+
+  async findByOwner(
+    ownerUserId: string,
+    filter: ChatOwnerFilter = {},
+  ): Promise<Array<Chat>> {
+    const conditions = this.buildOwnerFilterConditions(ownerUserId, filter);
 
     // Pinned-only lists follow owner pin rank; every other filter stays
     // updatedAt DESC (item-archive / add-pinned-items-reorder).
@@ -291,13 +245,14 @@ export class ChatsRepository {
   }
 
   /** Compaction starts a fresh epoch; unlike initialization it replaces both fields. */
-  async setRecencyDigest(
-    chatId: string,
-    ownerUserId: string,
-    baseline: NonNullable<Chat['recencyDigestBaseline']>,
-    told: NonNullable<Chat['recencyDigestTold']>,
-    rebakedFrom: string,
-  ): Promise<void> {
+  async setRecencyDigest(options: {
+    chatId: string;
+    ownerUserId: string;
+    baseline: NonNullable<Chat['recencyDigestBaseline']>;
+    told: NonNullable<Chat['recencyDigestTold']>;
+    rebakedFrom: string;
+  }): Promise<void> {
+    const { chatId, ownerUserId, baseline, told, rebakedFrom } = options;
     await this.db
       .update(chats)
       .set({
@@ -311,7 +266,7 @@ export class ChatsRepository {
   /** Pin membership for the accumulated told-set, never the capped rendering. */
   async findPinnedChatIds(
     ownerUserId: string,
-    chatIds: readonly string[],
+    chatIds: ReadonlyArray<string>,
   ): Promise<Set<string>> {
     if (chatIds.length === 0) return new Set();
     const rows = await this.db
@@ -367,26 +322,13 @@ export class ChatsRepository {
    * `ChatsService.searchChats` (web chat search) and the `search_conversations`
    * tool, which calls this SAME method (tool-calling D7 — one search path).
    */
-  async searchByOwner(
+  private buildChatSearchQuery(
     ownerUserId: string,
-    query: string,
+    normalizedQuery: string,
+    likePattern: string,
     limit: number,
-  ): Promise<HybridSearchResult[]> {
-    const trimmed = query.trim();
-    if (trimmed.length === 0) {
-      return [];
-    }
-    await this.db.execute(sql`SET LOCAL statement_timeout = 3000`);
-    // Normalize the query the SAME way the corpus was normalized (lowercase, NFKC,
-    // whitespace-collapse) BEFORE it reaches the trigram leg: `word_similarity` is
-    // case-sensitive, and `normalized_content` is always lowercased, so a raw-cased
-    // query would score near zero on the fuzzy leg. FTS ('simple') lowercases
-    // internally, so this is a no-op there. The LIKE pattern is escaped from the
-    // normalized form for the trigram leg's substring match.
-    const normalizedQuery = normalizeForSearch(trimmed);
-    const likePattern = `%${normalizedQuery.replace(/[\\%_]/g, '\\$&')}%`;
-
-    const search = buildHybridSearchQuery({
+  ) {
+    return buildHybridSearchQuery({
       query: normalizedQuery,
       likePattern,
       document: {
@@ -413,18 +355,49 @@ export class ChatsRepository {
       groupTopNWeights: [1, 0.25, 0.1],
       limit,
     });
+  }
+
+  private toHybridSearchResult(row: HybridSearchResult): HybridSearchResult {
+    return {
+      id: row.id,
+      title: row.title,
+      snippet:
+        row.snippet === null || row.snippet === undefined
+          ? null
+          : truncateSnippet(row.snippet),
+      updatedAt: row.updatedAt,
+      bestDocumentId: row.bestDocumentId,
+    };
+  }
+
+  async searchByOwner(
+    ownerUserId: string,
+    query: string,
+    limit: number,
+  ): Promise<Array<HybridSearchResult>> {
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      return [];
+    }
+    await this.db.execute(sql`SET LOCAL statement_timeout = 3000`);
+    // Normalize the query the SAME way the corpus was normalized (lowercase, NFKC,
+    // whitespace-collapse) BEFORE it reaches the trigram leg: `word_similarity` is
+    // case-sensitive, and `normalized_content` is always lowercased, so a raw-cased
+    // query would score near zero on the fuzzy leg. FTS ('simple') lowercases
+    // internally, so this is a no-op there. The LIKE pattern is escaped from the
+    // normalized form for the trigram leg's substring match.
+    const normalizedQuery = normalizeForSearch(trimmed);
+    const likePattern = `%${normalizedQuery.replaceAll(/[\\%_]/g, String.raw`\$&`)}%`;
+
+    const search = this.buildChatSearchQuery(
+      ownerUserId,
+      normalizedQuery,
+      likePattern,
+      limit,
+    );
 
     const rows = await this.db.execute<HybridSearchResult>(search);
-    return [...rows].map((r) => ({
-      id: r.id,
-      title: r.title,
-      snippet:
-        r.snippet === null || r.snippet === undefined
-          ? null
-          : truncateSnippet(r.snippet),
-      updatedAt: r.updatedAt,
-      bestDocumentId: r.bestDocumentId,
-    }));
+    return [...rows].map((r) => this.toHybridSearchResult(r));
   }
 
   /**
@@ -522,37 +495,34 @@ export class ChatsRepository {
    * foundation) — the caller maps that denial to a clean 4xx, not here.
    * Returns undefined if not found or not owned by this user.
    */
-  async update(
-    chatId: string,
-    ownerUserId: string,
-    patch: {
-      title?: string;
-      visibility?: 'private' | 'public';
-      projectId?: string | null;
-      archived?: boolean;
-    },
-  ): Promise<Chat | undefined> {
-    const current = await this.findById(chatId, ownerUserId);
-    if (!current) return undefined;
+  /**
+   * Archive guard (chat-project-archive): an archived resource rejects every
+   * write except pure unarchive (archived: false, no other fields) or pure
+   * re-archive (archived: true on already archived — idempotent no-op).
+   * Mixed unarchive-and-edit is rejected; the caller must unarchive first.
+   */
+  private assertUpdateArchiveGuard(
+    current: Chat,
+    patch: ChatUpdatePatch,
+  ): void {
+    if (current.archivedAt === null) return;
 
-    // Archive guard (chat-project-archive): an archived resource rejects every
-    // write except pure unarchive (archived: false, no other fields) or pure
-    // re-archive (archived: true on already archived — idempotent no-op).
-    // Mixed unarchive-and-edit is rejected; the caller must unarchive first.
     const hasContentFields =
       patch.title !== undefined ||
       patch.visibility !== undefined ||
       patch.projectId !== undefined;
+    const isPureUnarchive = patch.archived === false && !hasContentFields;
+    const isPureReArchive = patch.archived === true && !hasContentFields;
 
-    if (current.archivedAt !== null) {
-      const isPureUnarchive = patch.archived === false && !hasContentFields;
-      const isPureReArchive = patch.archived === true && !hasContentFields;
-
-      if (!isPureUnarchive && !isPureReArchive) {
-        assertNotArchived(current);
-      }
+    if (!isPureUnarchive && !isPureReArchive) {
+      assertNotArchived(current);
     }
+  }
 
+  private resolveUpdateFields(
+    current: Chat,
+    patch: ChatUpdatePatch,
+  ): Partial<typeof chats.$inferInsert> {
     const fields: Partial<typeof chats.$inferInsert> = {};
     if (patch.title !== undefined) fields.title = patch.title;
     if (patch.visibility !== undefined) fields.visibility = patch.visibility;
@@ -562,7 +532,20 @@ export class ChatsRepository {
     } else if (patch.archived === false) {
       fields.archivedAt = null;
     }
+    return fields;
+  }
 
+  async update(
+    chatId: string,
+    ownerUserId: string,
+    patch: ChatUpdatePatch,
+  ): Promise<Chat | undefined> {
+    const current = await this.findById(chatId, ownerUserId);
+    if (!current) return undefined;
+
+    this.assertUpdateArchiveGuard(current, patch);
+
+    const fields = this.resolveUpdateFields(current, patch);
     // Nothing to change: don't issue a no-op write (which would needlessly bump
     // updatedAt). Return the current row instead — still owner-scoped, so the caller
     // gets the chat on a match and undefined (→ 404) when it's absent / not owned.
@@ -643,727 +626,4 @@ export class ChatsRepository {
       .returning();
     return updated;
   }
-}
-
-export class MessagesRepository {
-  constructor(private readonly db: Db) {}
-
-  /**
-   * List a chat's messages oldest-first, ordered by `seq` (the monotonic
-   * insertion key — created_at ties for same-transaction writes).
-   *
-   * Owner-scoped as defense-in-depth: the inner join requires the chat to be owned
-   * by `ownerUserId`, so a caller that forgets the RLS-scoped transaction still
-   * cannot read another tenant's messages. RLS remains the primary guarantee.
-   */
-  async findByChatId(
-    chatId: string,
-    ownerUserId: string,
-    options?: { maxSeq?: number; sinceSeq?: number; limit?: number },
-  ): Promise<Message[]> {
-    const predicates = [
-      eq(messages.chatId, chatId),
-      eq(chats.ownerUserId, ownerUserId),
-    ];
-
-    if (options?.maxSeq !== undefined) {
-      predicates.push(lte(messages.seq, options.maxSeq));
-    }
-
-    // Exclusive lower bound: messages AFTER a compaction's uptoSeq (#57) — the
-    // superseded turns are represented by the summary, not read again.
-    if (options?.sinceSeq !== undefined) {
-      predicates.push(gt(messages.seq, options.sinceSeq));
-    }
-
-    const query = this.db
-      .select()
-      .from(messages)
-      .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(and(...predicates));
-
-    const rows =
-      options?.limit === undefined
-        ? await query.orderBy(asc(messages.seq))
-        : await query.orderBy(desc(messages.seq)).limit(options.limit);
-
-    const orderedRows =
-      options?.limit === undefined ? rows : [...rows].reverse();
-
-    return orderedRows.map((r) => r.messages);
-  }
-
-  /**
-   * Find a single message by id, scoped to a chat + owner (defense-in-depth).
-   * Returns undefined if not found, in a different chat, or not owned by this user.
-   */
-  async findById(
-    chatId: string,
-    ownerUserId: string,
-    messageId: string,
-  ): Promise<Message | undefined> {
-    const rows = await this.db
-      .select()
-      .from(messages)
-      .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(
-        and(
-          eq(messages.id, messageId),
-          eq(messages.chatId, chatId),
-          eq(chats.ownerUserId, ownerUserId),
-        ),
-      )
-      .limit(1);
-
-    return rows[0]?.messages;
-  }
-
-  /**
-   * Resolve one immutable conversation source and its nearest eligible
-   * neighbors in one statement. The owner predicate is repeated alongside the
-   * RLS join, while the current tenant identity guard prevents the public-share
-   * policy from turning an owner parameter into authority in runAsPublic.
-   */
-  async findConversationMessage(
-    chatId: string,
-    ownerUserId: string,
-    messageSeq: number,
-  ): Promise<ConversationMessageLookup | undefined> {
-    if (!ownerUserId.trim()) {
-      throw new Error(
-        'MessagesRepository.findConversationMessage requires a non-empty userId',
-      );
-    }
-    if (!Number.isSafeInteger(messageSeq) || messageSeq <= 0) {
-      return undefined;
-    }
-
-    // One statement gives target and neighbors one database snapshot. The CTE
-    // is intentionally message-scoped; no full-chat row set crosses the
-    // repository boundary.
-    const rows = await this.db.execute<ConversationMessageLookupRow>(sql`
-      WITH eligible AS (
-        SELECT
-          m.chat_id,
-          m.seq,
-          m.role,
-          m.parts,
-          m.usage,
-          m.created_at
-        FROM messages AS m
-        INNER JOIN chats AS c
-          ON c.id = m.chat_id
-        WHERE m.chat_id = ${chatId}
-          AND c.owner_user_id = ${ownerUserId}
-          AND current_setting('app.current_user_id', true) = ${ownerUserId}
-          AND (
-            m.role = 'user'
-            OR (
-              m.role = 'assistant'
-              AND (
-                m.usage IS NULL
-                OR jsonb_typeof(m.usage) <> 'object'
-                OR NOT (m.usage ? 'status')
-                OR m.usage ->> 'status' = 'completed'
-              )
-            )
-          )
-      ), target AS (
-        SELECT *
-        FROM eligible
-        WHERE seq = ${messageSeq}
-      )
-      SELECT
-        target.chat_id AS message_chat_id,
-        target.seq::text AS message_seq,
-        target.role AS message_role,
-        target.parts AS message_parts,
-        target.usage AS message_usage,
-        target.created_at AS message_created_at,
-        (
-          SELECT previous.seq::text
-          FROM eligible AS previous
-          WHERE previous.seq < target.seq
-          ORDER BY previous.seq DESC
-          LIMIT 1
-        ) AS previous_message_seq,
-        (
-          SELECT next_message.seq::text
-          FROM eligible AS next_message
-          WHERE next_message.seq > target.seq
-          ORDER BY next_message.seq ASC
-          LIMIT 1
-        ) AS next_message_seq
-      FROM target
-    `);
-
-    const row = [...rows][0];
-    if (
-      row === undefined ||
-      (row.message_role !== 'user' && row.message_role !== 'assistant') ||
-      !Array.isArray(row.message_parts)
-    ) {
-      return undefined;
-    }
-
-    const seq = parseSafePositiveSequence(row.message_seq);
-    if (seq === undefined) return undefined;
-
-    const previousMessageSeq = parseSafePositiveSequence(
-      row.previous_message_seq,
-    );
-    const nextMessageSeq = parseSafePositiveSequence(row.next_message_seq);
-    const createdAt =
-      row.message_created_at instanceof Date
-        ? row.message_created_at
-        : new Date(row.message_created_at);
-
-    const result: ConversationMessageLookup = {
-      chatId: row.message_chat_id,
-      seq,
-      role: row.message_role,
-      parts: row.message_parts,
-      usage: row.message_usage,
-      createdAt,
-    };
-    if (previousMessageSeq !== undefined) {
-      result.previousMessageSeq = previousMessageSeq;
-    }
-    if (nextMessageSeq !== undefined) {
-      result.nextMessageSeq = nextMessageSeq;
-    }
-    return result;
-  }
-
-  /**
-   * Bulk-insert pre-built message rows (each with a caller-assigned `id`, so
-   * `inReplyTo` can be remapped up front — no per-row RETURNING round-trip
-   * needed to learn a new id before the next row references it).
-   *
-   * Chunked into multi-row INSERTs (not one row per statement, not one
-   * INSERT for the whole batch): callers provide the new Chat's explicit
-   * one-based `seq` values in input order, while
-   * chunking keeps any one statement's parameter count well under Postgres's
-   * limit for arbitrarily large batches (a fork copies a conversation of any
-   * length, #143 — no upper bound). Chunks are awaited in order, not via
-   * `Promise.all`, so cross-chunk `seq` order is preserved too.
-   */
-  async createMany(
-    rows: {
-      id: string;
-      chatId: string;
-      seq: number;
-      role: MessageRole;
-      senderUserId: string | null;
-      parts: unknown[];
-      attachments: unknown[];
-      inReplyTo: string | null;
-    }[],
-  ): Promise<void> {
-    const CHUNK_SIZE = 500;
-    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-      await this.db.insert(messages).values(rows.slice(i, i + CHUNK_SIZE));
-    }
-  }
-
-  /**
-   * Latest message per owned chat (highest seq) — chat-list previews.
-   *
-   * Owner-scoped via the chats join, same defense-in-depth as findByChatId:
-   * RLS is the primary guarantee, the ownerUserId predicate is the seatbelt.
-   */
-  async findLatestPerOwnedChat(ownerUserId: string): Promise<Message[]> {
-    const rows = await this.db
-      .selectDistinctOn([messages.chatId])
-      .from(messages)
-      .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(eq(chats.ownerUserId, ownerUserId))
-      .orderBy(messages.chatId, desc(messages.seq));
-
-    return rows.map((r) => r.messages);
-  }
-
-  /**
-   * Earliest USER message per chat, for a bounded set of chats — the recency
-   * digest's excerpt source.
-   *
-   * One query for the whole set rather than one per chat. The digest reads a
-   * single message out of each candidate, so hydrating full histories would
-   * fetch every row of a long or compacted chat to use its first — and the
-   * `deltas` layer re-resolves these same capped views on every send, which
-   * would turn a per-chat cost into a per-send one.
-   *
-   * `asc(seq)` is the insertion order the capability specifies, and the `user`
-   * filter is in the predicate rather than applied afterwards: DISTINCT ON
-   * keeps the first row per partition, so filtering later would discard the
-   * chat entirely whenever its earliest message is not the owner's.
-   *
-   * Owner-scoped via the chats join, same defense-in-depth as findByChatId.
-   */
-  async findEarliestUserMessagePerChat(
-    chatIds: readonly string[],
-    ownerUserId: string,
-  ): Promise<Message[]> {
-    if (chatIds.length === 0) {
-      return [];
-    }
-    const rows = await this.db
-      .selectDistinctOn([messages.chatId])
-      .from(messages)
-      .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(
-        and(
-          eq(chats.ownerUserId, ownerUserId),
-          inArray(messages.chatId, [...chatIds]),
-          eq(messages.role, 'user'),
-        ),
-      )
-      .orderBy(messages.chatId, asc(messages.seq));
-
-    return rows.map((r) => r.messages);
-  }
-
-  /** Stored message count per chat for a bounded set, as one grouped query. */
-  async countPerChat(
-    chatIds: readonly string[],
-    ownerUserId: string,
-  ): Promise<Map<string, number>> {
-    if (chatIds.length === 0) {
-      return new Map();
-    }
-    const rows = await this.db
-      .select({ chatId: messages.chatId, value: count() })
-      .from(messages)
-      .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(
-        and(
-          eq(chats.ownerUserId, ownerUserId),
-          inArray(messages.chatId, [...chatIds]),
-        ),
-      )
-      .groupBy(messages.chatId);
-
-    return new Map(rows.map(({ chatId, value }) => [chatId, value]));
-  }
-
-  /**
-   * List a chat's messages with no owner scoping — for the public share view
-   * (run under `runAsPublic`, where `messages_public_read` scopes to public
-   * chats). The `chat_id` + `visibility = 'public'` join is a seatbelt so a
-   * bug (or a future call-site/policy change) can't return OTHER public
-   * chats' messages, or this chat's messages after it's gone private —
-   * mirrors findPublicById's own re-assertion; RLS remains the primary
-   * guarantee.
-   *
-   * Faithfulness is the product invariant here (same reasoning that removed
-   * the owner fork's message cap): the conversation is never truncated.
-   * Per-request cost on this unauthenticated, uncached (`no-store`) route is
-   * bounded the same way the owner history API bounds it — cursor pagination
-   * (`limit`/`maxSeq`), not a length cap. Mirrors findByChatId's exact
-   * options shape and desc+limit+reverse-for-a-window pattern; omitting
-   * `options` (the fork's read path) returns the WHOLE conversation
-   * ascending, same as findByChatId's own unlimited path.
-   */
-  async listPublicByChatId(
-    chatId: string,
-    options?: { maxSeq?: number; limit?: number },
-  ): Promise<Message[]> {
-    const predicates = [
-      eq(messages.chatId, chatId),
-      eq(chats.visibility, 'public'),
-      // Only the conversation is ever public — never a (future) system/tool
-      // row. Enforced at the query too (not just the DTO), matching the
-      // search path's guard, so a later tool-parts-persistence change can't
-      // silently leak internals into a shared link.
-      inArray(messages.role, ['user', 'assistant']),
-    ];
-
-    if (options?.maxSeq !== undefined) {
-      predicates.push(lte(messages.seq, options.maxSeq));
-    }
-
-    const query = this.db
-      .select()
-      .from(messages)
-      .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(and(...predicates));
-
-    const rows =
-      options?.limit === undefined
-        ? await query.orderBy(asc(messages.seq))
-        : await query.orderBy(desc(messages.seq)).limit(options.limit);
-
-    const orderedRows =
-      options?.limit === undefined ? rows : [...rows].reverse();
-
-    return orderedRows.map((r) => r.messages);
-  }
-
-  /**
-   * Find a user turn and its assistant reply, scoped to one owned chat.
-   * Used for client-message-id idempotency before any new write or model call.
-   */
-  async findTurnState(
-    chatId: string,
-    ownerUserId: string,
-    userMessageId: string,
-  ): Promise<{
-    userMessage?: Message;
-    assistantMessage?: Message;
-  }> {
-    const [userMessage] = (
-      await this.db
-        .select()
-        .from(messages)
-        .innerJoin(chats, eq(messages.chatId, chats.id))
-        .where(
-          and(
-            eq(messages.id, userMessageId),
-            eq(messages.chatId, chatId),
-            eq(messages.role, 'user'),
-            eq(chats.ownerUserId, ownerUserId),
-          ),
-        )
-        .limit(1)
-    ).map((r) => r.messages);
-
-    const [assistantMessage] = (
-      await this.db
-        .select()
-        .from(messages)
-        .innerJoin(chats, eq(messages.chatId, chats.id))
-        .where(
-          and(
-            eq(messages.chatId, chatId),
-            eq(messages.role, 'assistant'),
-            eq(messages.inReplyTo, userMessageId),
-            eq(chats.ownerUserId, ownerUserId),
-          ),
-        )
-        .orderBy(asc(messages.seq))
-        .limit(1)
-    ).map((r) => r.messages);
-
-    return { userMessage, assistantMessage };
-  }
-
-  /**
-   * Append a message to a chat.
-   *
-   * Write ownership is enforced by RLS: the `messages_owner` policy's check rejects
-   * an insert whose `chat_id` is not owned by the current `app.current_user_id`, and
-   * the `chat_id` FK guarantees the chat exists. (No app-layer owner pre-check here —
-   * it would be a redundant round-trip; the RLS WITH CHECK is atomic.)
-   */
-  async create(input: {
-    id?: string;
-    chatId: string;
-    role: MessageRole;
-    senderUserId?: string | null;
-    parts: unknown[];
-    attachments?: unknown[];
-    usage?: unknown;
-    inReplyTo?: string | null;
-  }): Promise<Message> {
-    const values: MessageInsertWithoutSequence = {
-      chatId: input.chatId,
-      role: input.role,
-      senderUserId: input.senderUserId ?? null,
-      parts: input.parts,
-      attachments: input.attachments ?? [],
-      usage: input.usage,
-      inReplyTo: input.inReplyTo ?? null,
-    };
-    if (input.id !== undefined) values.id = input.id;
-
-    const created = await this.insertWithChatSequence(
-      values,
-      async (tx, row) => {
-        const [inserted] = await tx.insert(messages).values(row).returning();
-        return inserted;
-      },
-    );
-    if (!created) {
-      throw new Error('Message insert returned no row');
-    }
-    return created;
-  }
-
-  async createUserMessageIfAbsent(input: {
-    id: string;
-    chatId: string;
-    senderUserId: string;
-    parts: unknown[];
-    attachments?: unknown[];
-  }): Promise<Message | undefined> {
-    return this.insertWithChatSequence(
-      {
-        id: input.id,
-        chatId: input.chatId,
-        role: 'user',
-        senderUserId: input.senderUserId,
-        parts: input.parts,
-        attachments: input.attachments ?? [],
-      },
-      async (tx, row) => {
-        const [created] = await tx
-          .insert(messages)
-          .values(row)
-          .onConflictDoNothing({ target: messages.id })
-          .returning();
-        return created;
-      },
-    );
-  }
-
-  async createAssistantReplyIfAbsent(input: {
-    chatId: string;
-    parts: unknown[];
-    usage?: unknown;
-    inReplyTo: string;
-  }): Promise<Message | undefined> {
-    return this.insertWithChatSequence(
-      {
-        chatId: input.chatId,
-        role: 'assistant',
-        senderUserId: null,
-        parts: input.parts,
-        attachments: [],
-        usage: input.usage,
-        inReplyTo: input.inReplyTo,
-      },
-      async (tx, row) => {
-        const [created] = await tx
-          .insert(messages)
-          .values(row)
-          .onConflictDoNothing({ target: messages.inReplyTo })
-          .returning();
-        return created;
-      },
-    );
-  }
-
-  private async insertWithChatSequence(
-    values: MessageInsertWithoutSequence,
-    insert: (tx: Db, row: MessageInsert) => Promise<Message | undefined>,
-  ): Promise<Message | undefined> {
-    let sequenceConflict: unknown;
-    for (
-      let attempt = 0;
-      attempt < MESSAGE_SEQUENCE_INSERT_ATTEMPTS;
-      attempt++
-    ) {
-      try {
-        return await this.db.transaction(async (tx) => {
-          const [current] = await tx
-            .select({ value: max(messages.seq) })
-            .from(messages)
-            .where(eq(messages.chatId, values.chatId));
-          const seq = (current?.value ?? 0) + 1;
-          if (!Number.isSafeInteger(seq) || seq <= 0) {
-            throw new Error(
-              `Chat ${values.chatId} exhausted safe message sequence values`,
-            );
-          }
-          return insert(tx, { ...values, seq });
-        });
-      } catch (error) {
-        if (!isMessageSequenceUniqueViolation(error)) {
-          throw error;
-        }
-        sequenceConflict = error;
-      }
-    }
-    throw sequenceConflict;
-  }
-
-  async updateAssistantReply(input: {
-    id: string;
-    chatId: string;
-    inReplyTo: string;
-    parts: unknown[];
-    usage?: unknown;
-  }): Promise<Message | undefined> {
-    const [updated] = await this.db
-      .update(messages)
-      .set({
-        parts: input.parts,
-        usage: input.usage,
-      })
-      .where(
-        and(
-          eq(messages.id, input.id),
-          eq(messages.chatId, input.chatId),
-          eq(messages.role, 'assistant'),
-          eq(messages.inReplyTo, input.inReplyTo),
-          // Atomic guard against a retry race: two overlapping retries of the same
-          // aborted/error turn can both pass the app-level isCompletedAssistantTurn check
-          // before either writes. Without this, a stale callback could overwrite (or revert
-          // to aborted) a reply another retry already marked completed. Re-check status in
-          // the WHERE so a row that became `completed` no longer matches → the loser updates
-          // 0 rows and returns undefined, leaving the completed answer intact.
-          // EXACTLY isCompletedAssistantTurn's semantics — the two layers must
-          // never disagree on what "completed" means. `->` (jsonb) vs `->>`
-          // (text) distinguishes the cases:
-          //   usage not an object / no 'status' key → `->` IS NULL   → immutable
-          //   {status: 'completed'}                 → text match     → immutable
-          //   {status: <anything else, incl. null>} → DISTINCT FROM  → retryable
-          sql`(${messages.usage} -> 'status') is not null and (${messages.usage} ->> 'status') is distinct from 'completed'`,
-        ),
-      )
-      .returning();
-
-    return updated;
-  }
-}
-
-export class CompactionsRepository {
-  constructor(private readonly db: Db) {}
-
-  /**
-   * Latest compaction for a chat (highest uptoSeq), optionally bounded by an
-   * inclusive maximum, or undefined when the chat has never compacted. The
-   * existing `beforeSeq` option remains an exclusive bound for callers walking
-   * to a compaction's parent. Owner-scoped as defense-in-depth, mirroring
-   * MessagesRepository: the join requires the chat to be owned by
-   * `ownerUserId`; RLS remains the primary guarantee.
-   */
-  async findLatestByChatId(
-    chatId: string,
-    ownerUserId: string,
-    options?: { beforeSeq?: number; maxSeq?: number },
-  ): Promise<Compaction | undefined> {
-    const predicates = [
-      eq(compactions.chatId, chatId),
-      eq(chats.ownerUserId, ownerUserId),
-    ];
-
-    if (options?.beforeSeq !== undefined) {
-      predicates.push(lt(compactions.uptoSeq, options.beforeSeq));
-    }
-    if (options?.maxSeq !== undefined) {
-      predicates.push(lte(compactions.uptoSeq, options.maxSeq));
-    }
-
-    const rows = await this.db
-      .select()
-      .from(compactions)
-      .innerJoin(chats, eq(compactions.chatId, chats.id))
-      .where(and(...predicates))
-      .orderBy(desc(compactions.uptoSeq))
-      .limit(1);
-
-    return rows.map((r) => r.compactions)[0];
-  }
-
-  /**
-   * Record a compaction (#57). Write ownership is enforced by RLS: the
-   * `compactions_owner` policy's implicit WITH CHECK rejects an insert whose
-   * chat_id is not owned by the current app.current_user_id.
-   */
-  async create(input: {
-    chatId: string;
-    uptoSeq: number;
-    parentId?: string | null;
-    summary: string;
-    replacementHistory: CompactionReplacementMessage[];
-    usage?: unknown;
-  }): Promise<Compaction> {
-    assertCompactionWrite(input.summary, input.replacementHistory);
-
-    const [created] = await this.db
-      .insert(compactions)
-      .values({
-        chatId: input.chatId,
-        uptoSeq: input.uptoSeq,
-        parentId: input.parentId ?? null,
-        summary: input.summary,
-        replacementHistory: input.replacementHistory,
-        usage: input.usage,
-      })
-      .returning();
-
-    return created;
-  }
-
-  /**
-   * Record a compaction only when no peer already owns the same chat/cutoff.
-   * Used by transition compaction after its model call, where duplicate job
-   * delivery may legitimately race on the unique cutoff.
-   */
-  async createIfCutoffAbsent(input: {
-    chatId: string;
-    uptoSeq: number;
-    parentId?: string | null;
-    summary: string;
-    replacementHistory: CompactionReplacementMessage[];
-    usage?: unknown;
-  }): Promise<Compaction | undefined> {
-    assertCompactionWrite(input.summary, input.replacementHistory);
-
-    const [created] = await this.db
-      .insert(compactions)
-      .values({
-        chatId: input.chatId,
-        uptoSeq: input.uptoSeq,
-        parentId: input.parentId ?? null,
-        summary: input.summary,
-        replacementHistory: input.replacementHistory,
-        usage: input.usage,
-      })
-      .onConflictDoNothing({
-        target: [compactions.chatId, compactions.uptoSeq],
-      })
-      .returning();
-
-    return created;
-  }
-}
-
-function assertCompactionWrite(
-  summary: string,
-  replacementHistory: unknown,
-): asserts replacementHistory is CompactionReplacementMessage[] {
-  if (summary.trim().length === 0) {
-    throw new Error('Compaction summary must be non-empty.');
-  }
-
-  if (parseCompactionReplacementHistory(replacementHistory) === null) {
-    throw new Error(
-      'Compaction replacement history must be a valid non-empty message sequence.',
-    );
-  }
-}
-
-/**
- * Load a chat's live context window (#57) in one place: the latest compaction
- * (optionally bounded to a turn) plus the messages after it. Shared by the chat
- * loop (bounded by the triggering turn's seq + message cap) and the compaction
- * service (unbounded) so the lineage read semantics cannot drift between them.
- */
-export async function findLiveWindow(
-  db: Db,
-  chatId: string,
-  ownerUserId: string,
-  options?: { maxSeq?: number },
-): Promise<{ compaction: Compaction | undefined; history: Message[] }> {
-  const compaction = await new CompactionsRepository(db).findLatestByChatId(
-    chatId,
-    ownerUserId,
-    options?.maxSeq !== undefined ? { beforeSeq: options.maxSeq } : undefined,
-  );
-
-  const historyOptions: NonNullable<
-    Parameters<InstanceType<typeof MessagesRepository>['findByChatId']>[2]
-  > = {};
-  if (options?.maxSeq !== undefined) historyOptions.maxSeq = options.maxSeq;
-  if (compaction) historyOptions.sinceSeq = compaction.uptoSeq;
-
-  const history = await new MessagesRepository(db).findByChatId(
-    chatId,
-    ownerUserId,
-    historyOptions,
-  );
-
-  return { compaction, history };
 }

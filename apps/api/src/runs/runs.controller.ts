@@ -186,78 +186,14 @@ export class RunsController {
     response.setHeader('connection', 'keep-alive');
     response.flushHeaders();
 
-    const startedAt = Date.now();
     // Resume cursor: a native EventSource auto-reconnect re-requests the SAME
     // URL (stale or absent after_sequence) but sends the last `id:` it saw in
     // the Last-Event-ID header (SSE spec) — so the header, when present and
     // valid, wins over the query parameter.
-    let cursor = lastEventId(request) ?? query.after_sequence ?? 0;
-    let terminalSeen = TERMINAL_STATUSES.has(run.status);
-    let sendDone = false;
-    const clientGone = () => response.writableEnded || request.destroyed;
-    const deadlineExceeded = () => Date.now() - startedAt > MAX_STREAM_MS;
+    const cursor = lastEventId(request) ?? query.after_sequence ?? 0;
 
     try {
-      for (;;) {
-        if (clientGone()) {
-          return;
-        }
-        if (deadlineExceeded()) {
-          break; // client reconnects with its cursor
-        }
-
-        const events = await this.tenantDb.runAs(userId, (tx) =>
-          new RunEventsRepository(tx).listByRunId(id, userId, {
-            afterSequence: cursor,
-          }),
-        );
-
-        for (const event of events) {
-          response.write(formatSseEvent(event));
-          cursor = event.sequence;
-        }
-
-        // Terminal check AFTER draining, so the tail is never cut off. The
-        // status is re-read each pass — the terminal event and status update
-        // land in one transaction, but ordering against our poll is not
-        // guaranteed, so the status row is the authority.
-        if (terminalSeen && events.length === 0) {
-          sendDone = true;
-          break;
-        }
-        if (clientGone()) {
-          return;
-        }
-        if (deadlineExceeded()) {
-          break; // client reconnects with its cursor
-        }
-
-        // Status re-read is gated on drained events by the RunEventType
-        // invariant (runs-repository.ts): terminal status transitions always
-        // append their run.<status> event in the same transaction, so a
-        // terminal run ALWAYS surfaces new events past any cursor — an idle
-        // poll can never be hiding a terminal transition.
-        if (!terminalSeen && events.length > 0) {
-          const current = await this.tenantDb.runAs(userId, (tx) =>
-            new RunsRepository(tx).findById(id, userId),
-          );
-          if (!current) {
-            break; // run deleted mid-stream (chat delete cascades) — close out
-          }
-          terminalSeen = TERMINAL_STATUSES.has(current.status);
-        }
-
-        if (events.length === 0) {
-          await sleep(EVENT_POLL_MS);
-          if (clientGone()) {
-            return;
-          }
-        }
-      }
-
-      if (sendDone) {
-        response.write('data: [DONE]\n\n');
-      }
+      await this.pumpRunEvents({ run, userId, request, response, cursor });
     } catch (error) {
       // Headers are long flushed — the exception filter can't respond on this
       // stream. Log and fall through to the finally, which closes it; the
@@ -268,6 +204,112 @@ export class RunsController {
       );
     } finally {
       response.end();
+    }
+  }
+
+  /**
+   * Re-checks a run's terminal status after new events drained. Status
+   * re-read is gated on drained events by the RunEventType invariant
+   * (runs-repository.ts): terminal status transitions always append their
+   * run.<status> event in the same transaction, so a terminal run ALWAYS
+   * surfaces new events past any cursor — an idle poll can never be hiding a
+   * terminal transition. Returns `undefined` if the run was deleted mid-stream
+   * (chat delete cascades) — the caller closes out.
+   */
+  private async refreshTerminalSeen(
+    runId: string,
+    userId: string,
+  ): Promise<boolean | undefined> {
+    const current = await this.tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).findById(runId, userId),
+    );
+    return current ? TERMINAL_STATUSES.has(current.status) : undefined;
+  }
+
+  /** Fetches events past `cursor` and writes each as an SSE frame. */
+  private async drainRunEvents(
+    runId: string,
+    userId: string,
+    cursor: number,
+    response: ExpressResponse,
+  ): Promise<{ cursor: number; count: number }> {
+    const events = await this.tenantDb.runAs(userId, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runId, userId, {
+        afterSequence: cursor,
+      }),
+    );
+    let nextCursor = cursor;
+    for (const event of events) {
+      response.write(formatSseEvent(event));
+      nextCursor = event.sequence;
+    }
+    return { cursor: nextCursor, count: events.length };
+  }
+
+  /**
+   * The event-poll loop backing `streamRunEvents`, split out so the caller's
+   * try/catch/finally isn't itself one more nesting level around every branch
+   * below.
+   */
+  private async pumpRunEvents(options: {
+    run: Run;
+    userId: string;
+    request: Request;
+    response: ExpressResponse;
+    cursor: number;
+  }): Promise<void> {
+    const { run, userId, request, response } = options;
+    const startedAt = Date.now();
+    let cursor = options.cursor;
+    let terminalSeen = TERMINAL_STATUSES.has(run.status);
+    let sendDone = false;
+    const clientGone = () => response.writableEnded || request.destroyed;
+    const deadlineExceeded = () => Date.now() - startedAt > MAX_STREAM_MS;
+
+    // Both bail conditions below just stop the loop: `sendDone` is only ever
+    // set right before its own break, so every other exit — gone client,
+    // deadline, or a run deleted mid-stream — leaves it false and the
+    // fallthrough `if (sendDone)` below is a no-op. A single `break` per
+    // check is therefore behaviorally identical to returning early.
+    for (;;) {
+      if (clientGone() || deadlineExceeded()) {
+        break; // gone: nothing left to send; deadline: client reconnects with its cursor
+      }
+
+      const drained = await this.drainRunEvents(
+        run.id,
+        userId,
+        cursor,
+        response,
+      );
+      cursor = drained.cursor;
+
+      // Terminal check AFTER draining, so the tail is never cut off. The
+      // status is re-read each pass — the terminal event and status update
+      // land in one transaction, but ordering against our poll is not
+      // guaranteed, so the status row is the authority.
+      if (terminalSeen && drained.count === 0) {
+        sendDone = true;
+        break;
+      }
+
+      if (!terminalSeen && drained.count > 0) {
+        const resolved = await this.refreshTerminalSeen(run.id, userId);
+        if (resolved === undefined) {
+          break;
+        }
+        terminalSeen = resolved;
+      }
+
+      // A gone or deadline-exceeded client naturally falls out on the next
+      // pass through the top-of-loop check above.
+      if (drained.count === 0) {
+        await sleep(EVENT_POLL_MS);
+      }
+    }
+
+    if (sendDone) {
+      response.write('data: [DONE]\n\n');
     }
   }
 

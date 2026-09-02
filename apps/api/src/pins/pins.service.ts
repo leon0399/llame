@@ -19,7 +19,7 @@ export class PinsService {
   constructor(private readonly tenantDb: TenantDbService) {}
 
   /** The caller's pinned items in owner rank order, hydrated. */
-  async listPins(userId: string): Promise<PinnedRow[]> {
+  async listPins(userId: string): Promise<Array<PinnedRow>> {
     return this.tenantDb.runAs(userId, (tx) =>
       new PinsRepository(tx).listWithCards(userId),
     );
@@ -32,17 +32,17 @@ export class PinsService {
    */
   async reorderPins(
     userId: string,
-    ordered: readonly PinOrderItem[],
-  ): Promise<PinnedRow[]> {
+    ordered: ReadonlyArray<PinOrderItem>,
+  ): Promise<Array<PinnedRow>> {
     try {
       return await this.tenantDb.runAs(userId, (tx) =>
         new PinsRepository(tx).reorder(userId, ordered),
       );
-    } catch (err) {
-      if (err instanceof PinReorderMismatchError) {
-        throw new BadRequestException(err.message);
+    } catch (error) {
+      if (error instanceof PinReorderMismatchError) {
+        throw new BadRequestException(error.message);
       }
-      throw err;
+      throw error;
     }
   }
 
@@ -61,34 +61,47 @@ export class PinsService {
     itemType: PinItemType,
     itemId: string,
   ): Promise<PinnedRow> {
-    let row: PinnedRow | undefined;
     try {
-      row = await this.insertPin(userId, itemType, itemId);
-    } catch (err) {
-      if (err instanceof HttpException) throw err;
-      const code = pgErrorCode(err);
-      // 42501 = RLS WITH CHECK denial (inaccessible item); 23503 = FK (defensive:
-      // item_id has no FK, only the server-derived user_id does).
-      if (code === '42501' || code === '23503') {
-        throw new NotFoundException(notFoundMessage(itemType));
-      }
-      if (code === '23505') {
-        try {
-          row = await this.insertPin(userId, itemType, itemId);
-        } catch (retryErr) {
-          if (retryErr instanceof HttpException) throw retryErr;
-          const retryCode = pgErrorCode(retryErr);
-          if (retryCode === '42501' || retryCode === '23503') {
-            throw new NotFoundException(notFoundMessage(itemType));
-          }
-          throw retryErr;
-        }
-      } else {
-        throw err;
-      }
+      return await this.attemptPin(userId, itemType, itemId);
+    } catch (error) {
+      if (!this.isRetryablePinRace(error, itemType)) throw error;
+      // A concurrent net-new pin raced on `pins_user_position_unique`
+      // (23505) — retry once; the peer has committed by now.
     }
+    try {
+      return await this.attemptPin(userId, itemType, itemId);
+    } catch (error) {
+      this.isRetryablePinRace(error, itemType); // maps 42501/23503, else falls through
+      throw error;
+    }
+  }
+
+  /** One insert attempt, hydrated. Throws the pin write's public 404 for a
+   * non-hydratable row (re-pin of a now-inaccessible item). */
+  private async attemptPin(
+    userId: string,
+    itemType: PinItemType,
+    itemId: string,
+  ): Promise<PinnedRow> {
+    const row = await this.insertPin(userId, itemType, itemId);
     if (!row) throw new NotFoundException(notFoundMessage(itemType));
     return row;
+  }
+
+  /**
+   * Maps an `attemptPin` failure to the pin write's public error contract:
+   * an `HttpException` passes through, 42501 (RLS WITH CHECK denial) and
+   * 23503 (FK; defensive, item_id has no FK of its own) become a clean 404.
+   * Returns `true` only for the one recoverable race (23505); the caller
+   * decides whether to retry, and anything else is rethrown unchanged.
+   */
+  private isRetryablePinRace(err: unknown, itemType: PinItemType): boolean {
+    if (err instanceof HttpException) throw err;
+    const code = pgErrorCode(err);
+    if (code === '42501' || code === '23503') {
+      throw new NotFoundException(notFoundMessage(itemType));
+    }
+    return code === '23505';
   }
 
   private insertPin(

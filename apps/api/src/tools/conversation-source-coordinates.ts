@@ -22,7 +22,7 @@ export const conversationSourceLimitSchema = z
   .number()
   .int()
   .min(1)
-  .max(2_000)
+  .max(2000)
   .refine(Number.isSafeInteger, {
     message: 'The read limit must be a safe integer.',
   });

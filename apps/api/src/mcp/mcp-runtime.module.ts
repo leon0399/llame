@@ -9,6 +9,7 @@ import {
   McpRuntimeService,
   type McpRuntimeServerDefinition,
 } from './mcp-runtime.service';
+import { type MutableStdioDefinition } from './mcp-runtime-definition';
 
 export const MCP_RUNTIME_SERVER_DEFINITIONS = Symbol(
   'MCP_RUNTIME_SERVER_DEFINITIONS',
@@ -17,15 +18,6 @@ export const MCP_RUNTIME_SERVER_DEFINITIONS = Symbol(
 export const EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS: Readonly<
   Record<string, McpRuntimeServerDefinition>
 > = Object.freeze({});
-
-type MutableStdioDefinition = {
-  transport: 'stdio';
-  command: string;
-  args?: readonly string[];
-  env?: Readonly<Record<string, string>>;
-  cwd?: string;
-  protectedValues?: readonly string[];
-};
 
 type MutableRemoteDefinition = {
   url: string;

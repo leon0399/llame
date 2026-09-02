@@ -1,4 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { ZodError } from 'zod';
 
 import {
   MessagesRepository,
@@ -93,7 +94,7 @@ describe('conversation_read input', () => {
     ['fractional offset', { offset: 1.5 }],
     ['unsafe offset', { offset: Number.MAX_SAFE_INTEGER + 1 }],
     ['zero limit', { limit: 0 }],
-    ['limit above maximum', { limit: 2_001 }],
+    ['limit above maximum', { limit: 2001 }],
     ['fractional limit', { limit: 1.5 }],
     ['unsafe limit', { limit: Number.MAX_SAFE_INTEGER + 1 }],
   ])('rejects %s before source resolution', (_name, invalid) => {
@@ -103,7 +104,7 @@ describe('conversation_read input', () => {
         messageSeq: 7,
         ...invalid,
       }),
-    ).toThrow();
+    ).toThrow(ZodError);
   });
 
   it('rejects invalid runtime input before calling the repository', async () => {
@@ -270,7 +271,7 @@ describe('conversation_read execution', () => {
   });
 
   it('requests the remainder by default and reports an output cut when the serialized bound wins', async () => {
-    const text = '\n'.repeat(2_001);
+    const text = '\n'.repeat(2001);
     const { db } = mockDb(lookup(text));
     const result = await executeConversationRead(db, OWNER_ID, {
       chatId: CHAT_ID,
@@ -279,7 +280,7 @@ describe('conversation_read execution', () => {
 
     expect(result.status).toBe('success');
     if (result.status !== 'success') return;
-    expect(result.lineCount).toBeLessThan(2_000);
+    expect(result.lineCount).toBeLessThan(2000);
     expect(result.nextOffset).toBe(result.lineCount);
     expect(result.cutReason).toBe('output_limit');
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(
@@ -289,7 +290,7 @@ describe('conversation_read execution', () => {
     const explicit = await executeConversationRead(db, OWNER_ID, {
       chatId: CHAT_ID,
       messageSeq: 7,
-      limit: 2_000,
+      limit: 2000,
     });
     expect(explicit.status).toBe('success');
     if (explicit.status !== 'success') return;
@@ -320,11 +321,11 @@ describe('conversation_read execution', () => {
 
   it('selects an output-limited prefix with logarithmic candidate measurements', () => {
     const renderedLines = Array.from(
-      { length: 2_000 },
+      { length: 2000 },
       (_, index) => `${index + 1}: ${'x'.repeat(50)}\n`,
     );
-    const measurements: number[] = [];
-    const selected = selectLargestConversationReadPrefix(2_000, (lineCount) => {
+    const measurements: Array<number> = [];
+    const selected = selectLargestConversationReadPrefix(2000, (lineCount) => {
       measurements.push(lineCount);
       const result: ConversationReadSuccess = {
         status: 'success',
@@ -411,7 +412,7 @@ describe('conversation_read execution', () => {
   });
 
   it('rejects a first logical line that cannot fit instead of clipping it', async () => {
-    const { db } = mockDb(lookup('😀'.repeat(8_000)));
+    const { db } = mockDb(lookup('😀'.repeat(8000)));
     await expect(
       executeConversationRead(db, OWNER_ID, {
         chatId: CHAT_ID,

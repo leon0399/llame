@@ -17,7 +17,6 @@
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
@@ -25,6 +24,7 @@
 
 import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -32,7 +32,7 @@ import { IdentityService } from './identity.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = Sql;
 
 describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
   let sql: SqlClient;
@@ -43,7 +43,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
   let stranger: string;
 
   beforeAll(async () => {
-    const postgres = require('postgres');
+    const postgres = await import('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 5 });
@@ -81,7 +81,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
   const idsOf = async (userId: string) =>
     (await identity.listOrgUnits(userId)).map((u) => u.id);
 
-  const asUser = (userId: string, fn: (tx: SqlClient) => Promise<any>) =>
+  const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
       return fn(tx);
@@ -176,9 +176,9 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       (tx) =>
         tx`SELECT user_id FROM memberships WHERE org_unit_id = ${unit.id}`,
     );
-    expect(roster.map((r: { user_id: string }) => r.user_id).sort()).toEqual(
-      [owner, member].sort(),
-    );
+    expect(
+      roster.map((r) => r.user_id).sort((a, b) => a.localeCompare(b)),
+    ).toEqual([owner, member].sort());
 
     const strangerView = await asUser(
       stranger,

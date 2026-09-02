@@ -8,10 +8,10 @@ import {
   planPinReorder,
 } from './pins-repository';
 
-type LoggedQuery = { sql: string; params: unknown[] };
+type LoggedQuery = { sql: string; params: Array<unknown> };
 
 function makeLoggedDb() {
-  const queries: LoggedQuery[] = [];
+  const queries: Array<LoggedQuery> = [];
   const db: Db = drizzle.mock({
     schema,
     logger: {
