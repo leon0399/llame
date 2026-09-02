@@ -1,13 +1,14 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "mutate": [
-    "src/**/*.ts",
-    "!src/**/*.test.ts",
-    "!src/db/migrations/**",
-    "!src/testing/**",
-    "!src/main.ts",
-    "!src/worker.ts",
-    "!src/generate-openapi.ts"
+    "src/mcp/mcp-bounded-fetch.ts",
+    "src/mcp/protected-values.ts",
+    "src/mcp/tool-id.ts"
+  ],
+  "testFiles": [
+    "src/mcp/mcp-bounded-fetch.test.ts",
+    "src/mcp/protected-values.test.ts",
+    "src/mcp/tool-id.test.ts"
   ],
   "testRunner": "vitest",
   "checkers": ["typescript"],

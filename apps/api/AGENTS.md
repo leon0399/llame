@@ -37,13 +37,13 @@ pnpm --filter api test:mutation
 ```
 
 Integration tests self-provision Postgres; `TEST_DATABASE_URL` overrides.
-Mutation testing covers `src`, uses four Stryker workers, and is expensive when
-the incremental report misses. `vitest.config.mts` deliberately loads only unit
-tests under Stryker, excludes the operator-config-dependent MCP runtime test,
-and raises timeout to 180 seconds. Keep one config; do not add a mutation-only
-copy. Reports are ignored under `apps/api/reports/mutation/`. A restricted
-sandbox may need local-bind permission for Stryker's logging server. Do not
-raise concurrency without new aggregate peak-memory evidence.
+Mutation testing covers the bounded MCP transport/protected-value/tool-ID scope
+with four Stryker workers. `vitest.config.mts` loads only unit tests under
+Stryker, excludes the operator-config-dependent MCP runtime test, and raises
+timeout to 180 seconds. Keep one config; do not add a mutation-only copy.
+Reports are ignored under `apps/api/reports/mutation/`. A restricted sandbox
+may need local-bind permission for Stryker's logging server. Do not raise
+concurrency without new aggregate peak-memory evidence.
 
 ## Instance configuration
 

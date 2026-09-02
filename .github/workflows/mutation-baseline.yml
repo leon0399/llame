@@ -19,7 +19,7 @@ jobs:
   refresh:
     name: Forced full mutation run
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 30
     concurrency:
       group: mutation-baseline
       cancel-in-progress: false
