@@ -1,6 +1,5 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  // Every rule lives in ../../.oxlintrc.json. This file adds only what is local.
   "extends": ["../../.oxlintrc.json"],
   "options": { "typeAware": true },
   "env": { "node": true, "vitest": true },

@@ -1,29 +1,19 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  // Every rule lives in ../../.oxlintrc.json. This file adds only what is local.
   "extends": ["../../.oxlintrc.json"],
   "options": { "typeAware": true },
   "env": { "node": true, "vitest": true },
   "ignorePatterns": ["dist/**", "src/db/migrations/**"],
   "overrides": [
     {
-      // NestJS dependency-injection constructors and decorated route
-      // handlers. Their parameter list IS the framework's injection
-      // signature: reducing it means merging unrelated dependencies behind
-      // one object purely to satisfy a count, which hides what a class
-      // actually depends on. A decorated handler's parameters are fixed by
-      // its @Param/@Body/@CurrentUser decorators and cannot move at all.
-      //
-      // A constructor at nine dependencies IS a god-service smell, and
-      // run-execution.service.ts is one. Splitting that service is the same
-      // design project as decomposing executeRun, recorded below.
+      // Nest DI and decorated handlers own these signatures.
       "files": [
+        "src/chats/chat-loop.service.ts",
         "src/runs/run-execution.service.ts",
         "src/runs/runs-worker.service.ts",
         "src/runs/runs.controller.ts",
-        "src/search/search-reindex.worker.ts",
         "src/search/search-embed.worker.ts",
-        "src/chats/chat-loop.service.ts",
+        "src/search/search-reindex.worker.ts",
         "src/tools/runner.ts"
       ],
       "rules": {
@@ -31,96 +21,59 @@
       }
     },
     {
-      // A fixed callback signature imposed by jsonc-parser's JSONVisitor
-      // interface. Changing it breaks the library contract.
+      // Required by jsonc-parser's JSONVisitor callback contract.
       "files": ["src/instance-config/config-loader.ts"],
       "rules": {
         "max-params": "off"
       }
     },
     {
-      // Irreducible execution cores. Each is one control flow whose steps
-      // cannot be separated without moving state across a boundary that is
-      // currently a single atomic region:
-      //
-      // - run-execution.service.ts: executeRun (574 lines) with onError,
-      //   onFinish and finishRun. Stream ordering, transaction boundaries,
-      //   cancellation and a documented worker-pickup TOCTOU. Reaching the
-      //   40-line limit is a redesign of the run-execution flow, not an
-      //   extraction — everything with a clean boundary has already been
-      //   extracted to assistant-transcript.ts. Its behaviour is covered by
-      //   five integration suites requiring Postgres, so the change cannot
-      //   be verified where this work was done.
-      // - compaction.service.ts: explicit ABBA lock-ordering avoidance,
-      //   integration-only coverage.
-      // - runs-worker.service.ts executeJob: TOCTOU job pickup and settle.
-      // - runs.controller.ts / run-stream-bridge.ts: SSE poll loops, already
-      //   stripped of everything extractable.
-      // - messages-repository.ts findConversationMessage: one raw-SQL CTE
-      //   fetching a target row and its neighbours in a single snapshot.
-      // - db/schema/identity.ts: RLS policy definitions whose cycle-avoidance
-      //   shape is load-bearing (src/db/AGENTS.md).
-      // - worker-harness.ts / scripted-model-client.ts: test-harness seeding
-      //   and a sequential fixture script, where the remaining stages are one
-      //   scenario rather than independent responsibilities.
-      //
-      // These are recorded, not hidden: the inventory with per-function line
-      // counts is in docs/code-quality-tracker.md.
+      // Cohesive execution, transaction, SQL, RLS, and fixture flows whose
+      // state cannot cross a helper boundary safely.
       "files": [
+        "src/chats/messages-repository.ts",
+        "src/compaction/compaction.service.ts",
+        "src/db/schema/identity.ts",
         "src/runs/run-execution.service.ts",
+        "src/runs/run-stream-bridge.ts",
         "src/runs/runs-worker.service.ts",
         "src/runs/runs.controller.ts",
-        "src/runs/run-stream-bridge.ts",
-        "src/runs/worker-harness.ts",
         "src/runs/scripted-model-client.ts",
-        "src/compaction/compaction.service.ts",
-        "src/chats/messages-repository.ts",
-        "src/db/schema/identity.ts"
+        "src/runs/worker-harness.ts"
       ],
       "rules": {
         "max-lines-per-function": "off"
       }
     },
     {
-      // File-length cases where every function-level violation was fixed and
-      // no honest module boundary remains. Splitting knowledge-tools.ts would
-      // cut across the owner-scoped fail-closed security surface;
-      // mcp-runtime.service.ts is a generation-counter reconnection state
-      // machine of timers and AbortControllers; mcp-server-client.ts would
-      // need currently-private error classes exported and shared connection
-      // state fragmented across files.
+      // Cohesive state and security modules with no stable split boundary.
       "files": [
-        "src/runs/run-execution.service.ts",
-        "src/mcp/mcp-server-client.ts",
-        "src/mcp/mcp-runtime.service.ts",
-        "src/knowledge/knowledge-tools.ts",
+        "src/instance-config/config-loader.ts",
         "src/instance-config/prompt-loader.ts",
-        "src/instance-config/config-loader.ts"
+        "src/knowledge/knowledge-tools.ts",
+        "src/mcp/mcp-runtime.service.ts",
+        "src/mcp/mcp-server-client.ts",
+        "src/runs/run-execution.service.ts"
       ],
       "rules": {
         "max-lines": "off"
       }
     },
     {
-      // A deliberately-fought-through variance escape, documented in
-      // queue.ts's own comment: a real `<T extends object>` breaks every
-      // test-mock shape under no-unsafe-type-assertion.
-      "files": ["src/queue/queue.ts", "src/queue/pgboss-queue.service.ts"],
+      // Queue variance escape is documented at the boundary in queue.ts.
+      "files": ["src/queue/pgboss-queue.service.ts", "src/queue/queue.ts"],
       "rules": {
         "typescript/no-explicit-any": "off"
       }
     },
     {
-      // Spawned as a bare `node` script by the stdio MCP client tests, so it
-      // must stay plain JS and sits outside the TS program. Type-aware rules
-      // have no types to work from and flag every read of its JSON-parsed
-      // config; correctness rules still apply.
+      // Plain JS child fixture; it is outside the TypeScript program.
       "files": ["src/mcp/mcp-stdio-test-fixture.mjs"],
       "rules": {
-        "typescript/no-unsafe-assignment": "off",
         "typescript/no-unsafe-argument": "off",
-        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-assignment": "off",
         "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
         "typescript/no-unsafe-return": "off"
       }
     }
