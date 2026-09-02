@@ -334,6 +334,36 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     expect(model.doStreamCalls).toHaveLength(3);
     expect(model.doStreamCalls[2]?.tools).toEqual([]);
   });
+
+  it('forwards text and reasoning chunks to their optional callbacks', async () => {
+    const model = scriptedModel([
+      providerResponse(
+        [
+          { type: 'reasoning-start', id: 'reasoning' },
+          { type: 'reasoning-delta', id: 'reasoning', delta: 'think' },
+          { type: 'reasoning-end', id: 'reasoning' },
+          { type: 'text-start', id: 'answer' },
+          { type: 'text-delta', id: 'answer', delta: 'done' },
+          { type: 'text-end', id: 'answer' },
+        ],
+        'stop',
+      ),
+    ]);
+    const client = buildClient(model);
+    const onTextDelta = vi.fn();
+    const onReasoningDelta = vi.fn();
+
+    await expect(
+      client.streamText({
+        messages,
+        onTextDelta,
+        onReasoningDelta,
+      }).text,
+    ).resolves.toBe('done');
+
+    expect(onTextDelta).toHaveBeenCalledWith('done');
+    expect(onReasoningDelta).toHaveBeenCalledWith('think');
+  });
 });
 
 describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal', () => {

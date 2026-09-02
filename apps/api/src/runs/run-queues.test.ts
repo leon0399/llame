@@ -1,4 +1,11 @@
-import { RUNS_QUEUE } from './run-queues';
+import {
+  heartbeatSeconds,
+  runTimeoutSeconds,
+  runsQueueDefinition,
+  RUNS_QUEUE,
+  stuckRunThresholdMs,
+} from './run-queues';
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 
 const validJob = {
   runId: 'run-1',
@@ -26,4 +33,25 @@ describe('RUNS_QUEUE payload parsing', () => {
       );
     },
   );
+});
+
+describe('runs queue timing definition', () => {
+  it('copies configured timeout and heartbeat values into the queue definition', () => {
+    const config = {
+      ...BUILT_IN_DEFAULTS,
+      runs: {
+        ...BUILT_IN_DEFAULTS.runs,
+        timeoutSeconds: 90,
+        heartbeatSeconds: 30,
+      },
+    };
+
+    expect(runTimeoutSeconds(config)).toBe(90);
+    expect(heartbeatSeconds(config)).toBe(30);
+    expect(stuckRunThresholdMs(config)).toBe(120_000);
+    expect(runsQueueDefinition(config)).toMatchObject({
+      name: RUNS_QUEUE.name,
+      options: { heartbeatSeconds: 30 },
+    });
+  });
 });

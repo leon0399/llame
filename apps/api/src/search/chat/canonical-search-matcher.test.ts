@@ -3,9 +3,14 @@ import type {
   CanonicalSearchMessage,
 } from './canonical-search-matcher';
 import {
+  evaluateCanonicalLinePredicates,
   matchCanonicalSearchPreview,
   scanCanonicalLogicalLines,
 } from './canonical-search-matcher';
+import { drizzle } from 'drizzle-orm/postgres-js';
+
+import * as schema from '../../db/schema';
+import type { Db } from '../../db/tenant-db.service';
 
 const timestamp = new Date('2026-08-27T12:00:00.000Z');
 
@@ -93,6 +98,21 @@ describe('scanCanonicalLogicalLines', () => {
       },
     ]);
     expect(scanCanonicalLogicalLines('')).toEqual([]);
+  });
+});
+
+describe('evaluateCanonicalLinePredicates', () => {
+  it('returns no matches without executing SQL for an empty query or candidate list', async () => {
+    const db: Db = drizzle.mock({ schema });
+    const execute = vi.spyOn(db, 'execute');
+
+    await expect(evaluateCanonicalLinePredicates(db, '', [])).resolves.toEqual(
+      new Set(),
+    );
+    await expect(
+      evaluateCanonicalLinePredicates(db, 'term', []),
+    ).resolves.toEqual(new Set());
+    expect(execute).not.toHaveBeenCalled();
   });
 });
 
@@ -431,5 +451,63 @@ describe('matchCanonicalSearchPreview', () => {
       ),
     ).resolves.toBeNull();
     expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it('returns null without evaluating a message whose source range is invalid', async () => {
+    const evaluate = vi.fn<CanonicalLinePredicateEvaluator>();
+
+    await expect(
+      matchCanonicalSearchPreview(
+        {
+          chatId: 'chat-1',
+          messages: [message(10, 'source', -1, 3)],
+        },
+        'source',
+        evaluate,
+      ),
+    ).resolves.toBeNull();
+
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it('skips an empty source intersection while evaluating later non-empty lines', async () => {
+    const calls: Array<{
+      normalizedQuery: string;
+      normalizedLines: ReadonlyArray<string>;
+    }> = [];
+    const text = '\nneedle';
+
+    await expect(
+      matchCanonicalSearchPreview(
+        { chatId: 'chat-1', messages: [message(10, text, 1)] },
+        'needle',
+        matchingLines(
+          (line, normalizedQuery) => line.includes(normalizedQuery),
+          calls,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      offset: 0,
+      limit: 2,
+      anchor: { line: 1, kind: 'exact' },
+    });
+
+    expect(calls[0]?.normalizedLines).toEqual(['needle']);
+  });
+
+  it('preserves input order when two messages have the same sequence', async () => {
+    const first = message(10, 'first term');
+    const second = message(10, 'second term');
+
+    await expect(
+      matchCanonicalSearchPreview(
+        { chatId: 'chat-1', messages: [first, second] },
+        'term',
+        matchingLines(() => true),
+      ),
+    ).resolves.toMatchObject({
+      message: { messageSeq: 10 },
+      lines: [{ text: 'first term' }],
+    });
   });
 });

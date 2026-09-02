@@ -908,6 +908,45 @@ describe('knowledge_search', () => {
     });
   });
 
+  it('maps an explicit-space adapter failure to an unavailable result', async () => {
+    const adapter = fakeAdapter({
+      search: vi.fn(() => Promise.reject(new Error('/private/knowledge/root'))),
+    });
+
+    await expect(
+      knowledgeSearchTool.execute(context(adapter), {
+        query: 'needle',
+        limit: 5,
+        knowledgeSpaceId: binding.id,
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_space_unavailable',
+      message: 'The Knowledge Space is unavailable.',
+    });
+  });
+
+  it('returns a closed limit error when an unscoped space exceeds its search budget', async () => {
+    const adapter = fakeAdapter({
+      search: vi.fn(() =>
+        Promise.reject(
+          new KnowledgeFilesystemError('knowledge_limit_exceeded'),
+        ),
+      ),
+    });
+
+    await expect(
+      knowledgeSearchTool.execute(context(adapter), {
+        query: 'needle',
+        limit: 5,
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_limit_exceeded',
+      message: 'The Knowledge operation exceeded its limit.',
+    });
+  });
+
   it('searches current spaces in page order under one shared budget', async () => {
     const spaceA: KnowledgeToolSpaceReference = {
       id: binding.id,
@@ -1318,6 +1357,34 @@ describe('knowledge_search', () => {
       message: 'The Knowledge Space is unavailable.',
     });
   });
+
+  it('returns the resolver unavailable result when no listed space can be inspected', async () => {
+    const listedSpace: KnowledgeToolSpaceReference = {
+      id: binding.id,
+      name: 'Unavailable',
+      createdAt: new Date(0),
+    };
+    const baseContext = multiSpaceContext([listedSpace], new Map(), new Map());
+    const toolContext: ToolContext = {
+      ...baseContext,
+      knowledgeResolver: {
+        ...baseContext.knowledgeResolver!,
+        resolveBindingForOwnerById: vi.fn(() =>
+          Promise.reject(
+            new KnowledgeFilesystemError('knowledge_space_unavailable'),
+          ),
+        ),
+      },
+    };
+
+    await expect(
+      knowledgeSearchTool.execute(toolContext, { query: 'term', limit: 5 }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_space_unavailable',
+      message: 'The Knowledge Space is unavailable.',
+    });
+  });
 });
 
 describe('knowledge_read', () => {
@@ -1364,6 +1431,33 @@ describe('knowledge_read', () => {
       notice: KNOWLEDGE_CONTENT_NOTICE,
     });
     expect(result).not.toHaveProperty('contentHash');
+  });
+
+  it('preserves the adapter cut reason when a bounded read continues', async () => {
+    const adapter = fakeAdapter({
+      read: vi.fn(() =>
+        Promise.resolve({
+          path: 'notes/a.md',
+          offset: 0,
+          lineCount: 2,
+          content: '1: first\n2: second',
+          nextOffset: 2,
+          cutReason: 'line_limit' as const,
+        }),
+      ),
+    });
+
+    await expect(
+      knowledgeReadTool.execute(context(adapter), {
+        knowledgeSpaceId: binding.id,
+        path: 'notes/a.md',
+        limit: 2,
+      }),
+    ).resolves.toMatchObject({
+      status: 'success',
+      nextOffset: 2,
+      cutReason: 'line_limit',
+    });
   });
 
   it('returns the closed range error from the adapter', async () => {
@@ -1539,6 +1633,19 @@ describe('Knowledge tool failure boundaries', () => {
         path: 'note.md',
       }),
     ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
+  });
+
+  it('rejects before listing spaces when the trusted signal is already aborted', async () => {
+    const abort = new AbortController();
+    abort.abort();
+    const toolContext = { ...context(), abortSignal: abort.signal };
+
+    await expect(
+      knowledgeSearchTool.execute(toolContext, { query: 'needle', limit: 5 }),
+    ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
+    expect(
+      toolContext.knowledgeResolver?.listForOwnerPage,
+    ).not.toHaveBeenCalled();
   });
 
   it('records parent abort and call timeout through the canonical runner outcomes', async () => {

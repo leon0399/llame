@@ -28,6 +28,12 @@ describe('Knowledge search cursor', () => {
     const malformed = [
       '',
       'not-base64!',
+      Buffer.from(JSON.stringify({ ...cursor, query: 1 })).toString(
+        'base64url',
+      ),
+      Buffer.from(JSON.stringify({ ...cursor, offset: '42' })).toString(
+        'base64url',
+      ),
       Buffer.from(JSON.stringify({ ...cursor, version: 2 })).toString(
         'base64url',
       ),
@@ -40,6 +46,21 @@ describe('Knowledge search cursor', () => {
       Buffer.from(JSON.stringify({ ...cursor, offset: -1 })).toString(
         'base64url',
       ),
+      Buffer.from(JSON.stringify({ ...cursor, path: '' })).toString(
+        'base64url',
+      ),
+      Buffer.from(JSON.stringify({ ...cursor, path: '/absolute.md' })).toString(
+        'base64url',
+      ),
+      Buffer.from(
+        JSON.stringify({ ...cursor, path: 'nested/../note.md' }),
+      ).toString('base64url'),
+      Buffer.from(
+        JSON.stringify({ ...cursor, path: 'nested\\note.md' }),
+      ).toString('base64url'),
+      Buffer.from(
+        JSON.stringify({ ...cursor, path: 'nested/\u0000note.md' }),
+      ).toString('base64url'),
     ];
 
     for (const value of malformed) {
@@ -83,5 +104,18 @@ describe('Knowledge search cursor', () => {
     expect(() =>
       assertKnowledgeSearchCursorBinding(expandingCursor, query, undefined),
     ).not.toThrow();
+  });
+
+  it('supports an unscoped cursor and rejects a non-canonical selector', () => {
+    const unscoped = { ...cursor, knowledgeSpaceId: undefined };
+    const encoded = encodeKnowledgeSearchCursor(unscoped);
+
+    expect(decodeKnowledgeSearchCursor(encoded)).toEqual(unscoped);
+    expect(() =>
+      encodeKnowledgeSearchCursor({
+        ...cursor,
+        knowledgeSpaceId: 'NOT-LOWERCASE',
+      }),
+    ).toThrow(KnowledgeSearchCursorError);
   });
 });
