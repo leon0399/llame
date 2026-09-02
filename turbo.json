@@ -14,10 +14,15 @@
     // tsconfig extends nothing shared) — the edge is cheap insurance so the
     // cached verdict stays honest the day one does.
     "lint": {
-      "dependsOn": ["transit", "//#lint:root"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/tools/oxlint/anti-slop/**"]
+      "dependsOn": ["transit"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/oxlint-plugin-anti-slop/**"
+      ]
     },
-    "//#lint:root": {},
+    "lint:fix": {
+      "cache": false
+    },
     // Transit node: a scriptless graph edge that folds a dependency's SOURCE
     // into a task's hash without forcing the dependency's task to run first.
     // Used by the cached lint/typecheck tasks so they run in parallel yet
@@ -40,9 +45,12 @@
     "test": {
       "cache": false
     },
+    "test:coverage": {
+      "cache": false
+    },
     // Storybook browser tests need Playwright browsers, so they stay out of
     // the plain `test` task (which CI runs without them).
-    "test:storybook": {
+    "test:component": {
       // Same reasoning as `test`: a gate must run.
       "cache": false
     },

@@ -40,6 +40,34 @@ function AppSidebarToggle() {
   );
 }
 
+function AppSidebarTopBar({
+  isMobile,
+  topActions,
+}: {
+  isMobile: boolean;
+  topActions?: React.ReactNode;
+}) {
+  return (
+    <>
+      {!isMobile && (
+        <div className={cn(topBarClasses, "border-sidebar-border p-2")}>
+          <AppSidebarToggle />
+        </div>
+      )}
+
+      {/* The separator closes the actions block — without topActions the
+          toggle bar's own border-b is already the divider (rendering both
+          doubles the hairline, e.g. on /admin). */}
+      {topActions && (
+        <>
+          <SidebarHeader>{topActions}</SidebarHeader>
+          <SidebarSeparator className="mx-0" />
+        </>
+      )}
+    </>
+  );
+}
+
 /**
  * The primary rail, shared by every route group ((chat) and (admin)) — D1's
  * shell extraction. This component owns only presentation-agnostic pieces
@@ -60,21 +88,7 @@ export function AppSidebar({
 
   return (
     <Sidebar collapsible="icon">
-      {!isMobile && (
-        <div className={cn(topBarClasses, "border-sidebar-border p-2")}>
-          <AppSidebarToggle />
-        </div>
-      )}
-
-      {/* The separator closes the actions block — without topActions the
-          toggle bar's own border-b is already the divider (rendering both
-          doubles the hairline, e.g. on /admin). */}
-      {topActions && (
-        <>
-          <SidebarHeader>{topActions}</SidebarHeader>
-          <SidebarSeparator className="mx-0" />
-        </>
-      )}
+      <AppSidebarTopBar isMobile={isMobile} topActions={topActions} />
 
       <SidebarContent>
         <AppSidebarNav />

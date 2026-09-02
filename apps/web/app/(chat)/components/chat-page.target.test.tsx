@@ -2,15 +2,28 @@
 
 /**
  * Container exception: this suite exercises the real ChatPage, React Query,
- * and chat history cache together while mocking the router, streaming hook,
- * model catalog, and generated HTTP boundary. The target hydration contract
- * cannot be proved by testing those pieces in isolation: the ordinary SSR
- * cache must coexist with a client-only target request without mounting the
+ * chat history cache, ActiveRunsProvider, and markdown renderer together
+ * while mocking only the router and the streaming hook (both external
+ * boundaries with no in-process seam). The target hydration contract cannot
+ * be proved by testing those pieces in isolation: the ordinary SSR cache
+ * must coexist with a client-only target request without mounting the
  * ordinary ChatSession first.
+ *
+ * GET /api/v1/chats/:id/messages, GET /api/v1/models, and GET /api/v1/me/runs
+ * all hit a stubbed globalThis.fetch, routed by pathname + the targetSeq
+ * search param — so a "no ordinary history fetched" assertion proves the
+ * real query never sent that request, not that a mock was never called.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  configure,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
 import { useRef } from "react";
@@ -23,6 +36,10 @@ import {
   it,
   vi,
 } from "vitest";
+import type { Mock } from "vitest";
+
+import type { ModelsResponse } from "@/lib/services/models/queries";
+import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
 
 type FinishArgs = {
   isAbort?: boolean;
@@ -30,34 +47,18 @@ type FinishArgs = {
   isError?: boolean;
 };
 
+// SAFETY: each assertion below only seeds a mutable slot's declared type for
+// later reassignment by the test/mocks (e.g. `capturedOnFinish` is set once
+// the mocked `useChat` captures its `onFinish` callback) — none narrows
+// untrusted external data.
 const mocks = vi.hoisted(() => ({
-  getChat: vi.fn(),
-  getChatMessages: vi.fn(),
-  listChats: vi.fn(),
   sendMessage: vi.fn(),
   resumeStream: vi.fn(),
   capturedOnError: undefined as (() => void) | undefined,
   capturedOnFinish: undefined as ((args: FinishArgs) => void) | undefined,
-  useChatCalls: [] as Array<{ messages?: UIMessage[]; resume?: boolean }>,
-  chatInstanceIds: [] as number[],
+  useChatCalls: [] as Array<{ messages?: Array<UIMessage>; resume?: boolean }>,
+  chatInstanceIds: [] as Array<number>,
   nextChatInstanceId: 0,
-  trackRun: vi.fn(),
-  untrackChat: vi.fn(),
-  modelsState: {
-    data: {
-      defaultModelId: "system:openai:gpt-5.4-mini",
-      models: [
-        {
-          id: "system:openai:gpt-5.4-mini",
-          source: "system" as const,
-          name: "GPT-5.4 mini",
-        },
-      ],
-    },
-    isPending: false,
-    isError: false,
-    isSuccess: true,
-  },
 }));
 
 const routerMock = { push: vi.fn(), replace: vi.fn() };
@@ -66,45 +67,9 @@ vi.mock("next/navigation", () => ({
   useRouter: () => routerMock,
 }));
 
-vi.mock("@/lib/api/generated/chats/chats", () => ({
-  getChat: mocks.getChat,
-  getChatMessages: mocks.getChatMessages,
-  listChats: mocks.listChats,
-}));
-
-vi.mock("@/lib/api/fetch", () => ({
-  authAwareFetch: vi.fn(),
-  buildApiUrl: (path: string) => `https://api.example.com${path}`,
-  createAuthenticatedBrowserFetch: () => vi.fn(),
-}));
-
-vi.mock("@/lib/services/models/queries", () => ({
-  hasModelId: (models: Array<{ id: string }>, modelId: string): boolean =>
-    models.some((model) => model.id === modelId),
-  modelDisplayName: (
-    modelId: string,
-    models?: Array<{ id: string; name?: string }>,
-  ): string => models?.find((model) => model.id === modelId)?.name ?? modelId,
-  useModelsQuery: () => mocks.modelsState,
-}));
-
-vi.mock("@workspace/ui/components/ai-elements/message-response", () => ({
-  MessageResponse: ({ children }: { children: string }) => children,
-}));
-
-vi.mock("@/contexts/active-runs-context", () => ({
-  useActiveRuns: () => ({
-    completedChats: new Set<string>(),
-    markChatSeen: vi.fn(),
-    registerViewedChat: vi.fn(() => () => {}),
-    trackRun: mocks.trackRun,
-    untrackChat: mocks.untrackChat,
-  }),
-}));
-
 vi.mock("@ai-sdk/react", () => ({
   useChat: (options: {
-    messages?: UIMessage[];
+    messages?: Array<UIMessage>;
     onError?: () => void;
     onFinish?: (args: FinishArgs) => void;
     resume?: boolean;
@@ -129,6 +94,7 @@ vi.mock("@ai-sdk/react", () => ({
   },
 }));
 
+import { ActiveRunsProvider } from "@/contexts/active-runs-context";
 import { ChatProvider } from "@/contexts/chat-context";
 import { rawChatMessage } from "@/lib/services/chat/message-fixtures";
 import { seedChatMessagesQueryData } from "@/lib/services/chat/queries";
@@ -137,6 +103,18 @@ import type { ChatMessagesResponse } from "@/lib/services/chat/history";
 import { ChatPage } from "./chat-page";
 
 const CHAT_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
+
+const MODELS_RESPONSE: ModelsResponse = {
+  defaultModelId: "system:openai:gpt-5.4-mini",
+  models: [
+    {
+      id: "system:openai:gpt-5.4-mini",
+      source: "system",
+      name: "GPT-5.4 mini",
+      contextWindowTokens: 400_000,
+    },
+  ],
+};
 
 function page(
   rows: Array<{ id: string; seq: number; text: string }>,
@@ -155,6 +133,42 @@ function page(
   };
 }
 
+let fetchMock: Mock<typeof fetch>;
+// Per-test-overridable handler for GET /api/v1/chats/:id/messages —
+// receives the request's targetSeq (undefined = the ordinary/latest fetch).
+let messagesHandler: (targetSeq: number | undefined) => Promise<Response>;
+
+function stubChatNetwork() {
+  fetchMock = stubFetch();
+  messagesHandler = () =>
+    Promise.resolve(jsonResponse<ChatMessagesResponse>(page([])));
+  fetchMock.mockImplementation(async (input) => {
+    const request = input instanceof Request ? input : new Request(input);
+    const { pathname, searchParams } = new URL(request.url);
+    if (pathname === "/api/v1/me/runs") return jsonResponse([]);
+    if (pathname === "/api/v1/models") return jsonResponse(MODELS_RESPONSE);
+    if (pathname === `/api/v1/chats/${CHAT_ID}/messages`) {
+      const targetSeq = searchParams.has("targetSeq")
+        ? Number(searchParams.get("targetSeq"))
+        : undefined;
+      return messagesHandler(targetSeq);
+    }
+    throw new Error(`unrouted fetch in test: ${request.method} ${pathname}`);
+  });
+}
+
+/** The stubbed-fetch requests sent to the chat messages endpoint, oldest
+ * first — the real analogue of the old mocks.getChatMessages.mock.calls. */
+function messagesRequests(): Array<Request> {
+  return fetchMock.mock.calls
+    .map(([req]) => req)
+    .filter(
+      (req): req is Request =>
+        req instanceof Request &&
+        new URL(req.url).pathname === `/api/v1/chats/${CHAT_ID}/messages`,
+    );
+}
+
 function renderChat(
   ordinaryPage: ChatMessagesResponse,
   options: {
@@ -171,19 +185,27 @@ function renderChat(
     queryClient,
     ...render(
       <QueryClientProvider client={queryClient}>
-        <ChatProvider>
-          <ChatPage
-            chatId={CHAT_ID}
-            initialChatExists={options.initialChatExists ?? true}
-            initialDraftPhase={options.initialDraftPhase ?? null}
-          />
-        </ChatProvider>
+        <ActiveRunsProvider>
+          <ChatProvider>
+            <ChatPage
+              chatId={CHAT_ID}
+              initialChatExists={options.initialChatExists ?? true}
+              initialDraftPhase={options.initialDraftPhase ?? null}
+            />
+          </ChatProvider>
+        </ActiveRunsProvider>
       </QueryClientProvider>,
     ),
   };
 }
 
 beforeAll(() => {
+  // MessageResponse is a next/dynamic, ssr:false chunk (chat-message-row.tsx's
+  // documented #187/#417 client-only-chunk gap): its text is absent from the
+  // first synchronous render, and the chunk-load delay is real (not fake-
+  // timer-controlled) — bump every waitFor/findBy in this file past the
+  // 1000ms default so a loaded worker doesn't turn that gap into a flake.
+  configure({ asyncUtilTimeout: 5000 });
   if (!Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
   }
@@ -201,7 +223,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  mocks.getChatMessages.mockReset();
+  stubChatNetwork();
   mocks.sendMessage.mockReset();
   mocks.resumeStream.mockReset();
   mocks.capturedOnError = undefined;
@@ -209,14 +231,14 @@ beforeEach(() => {
   mocks.useChatCalls.length = 0;
   mocks.chatInstanceIds.length = 0;
   mocks.nextChatInstanceId = 0;
-  mocks.trackRun.mockReset();
-  mocks.untrackChat.mockReset();
   window.history.replaceState(window.history.state, "", `/chat/${CHAT_ID}`);
 });
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  // NOT vi.unstubAllGlobals() — beforeAll's ResizeObserver stub must survive
+  // across tests; beforeEach's stubFetch() already replaces fetch fresh.
 });
 
 describe("ChatPage target hydration", () => {
@@ -226,14 +248,12 @@ describe("ChatPage target hydration", () => {
       { id: "older", seq: 701, text: "older target context" },
       { id: "target", seq: 900, text: "target answer" },
     ]);
-    mocks.getChatMessages.mockImplementation(
-      async (_chatId: string, params: { targetSeq?: number }) => {
-        if (params.targetSeq !== 900) {
-          throw new Error("ordinary history must not be fetched");
-        }
-        return targetPage;
-      },
-    );
+    messagesHandler = (targetSeq) =>
+      targetSeq === 900
+        ? Promise.resolve(jsonResponse<ChatMessagesResponse>(targetPage))
+        : // Ordinary history must not be fetched — a 500 here would fail the
+          // test the moment (if ever) that request is sent.
+          Promise.resolve(new Response(null, { status: 500 }));
     window.history.replaceState(
       window.history.state,
       "",
@@ -246,16 +266,15 @@ describe("ChatPage target hydration", () => {
     renderChat(ordinaryPage);
 
     await waitFor(() => {
-      expect(mocks.getChatMessages).toHaveBeenCalledWith(
-        CHAT_ID,
-        { limit: 100, targetSeq: 900 },
-        expect.anything(),
-        expect.any(Function),
-      );
+      const requests = messagesRequests();
+      expect(requests).toHaveLength(1);
+      const searchParams = new URL(requests[0]!.url).searchParams;
+      expect(searchParams.get("limit")).toBe("100");
+      expect(searchParams.get("targetSeq")).toBe("900");
       expect(screen.getByText("target answer")).toBeTruthy();
     });
 
-    expect(mocks.getChatMessages).toHaveBeenCalledTimes(1);
+    expect(messagesRequests()).toHaveLength(1);
     expect(screen.queryByText("newest")).toBeNull();
     expect(
       mocks.useChatCalls.some((call) =>
@@ -269,8 +288,7 @@ describe("ChatPage target hydration", () => {
   it.each([404, 500])(
     "shows a closed target state and no composer for terminal HTTP %s errors",
     async (status) => {
-      const error = Object.assign(new Error(`HTTP ${status}`), { status });
-      mocks.getChatMessages.mockRejectedValue(error);
+      messagesHandler = () => Promise.resolve(new Response(null, { status }));
       window.history.replaceState(
         window.history.state,
         "",
@@ -284,12 +302,11 @@ describe("ChatPage target hydration", () => {
           "Message unavailable",
         ),
       );
-      expect(mocks.getChatMessages).toHaveBeenCalledWith(
-        CHAT_ID,
-        { limit: 100, targetSeq: 900 },
-        expect.anything(),
-        expect.any(Function),
-      );
+      const requests = messagesRequests();
+      expect(requests).toHaveLength(1);
+      const searchParams = new URL(requests[0]!.url).searchParams;
+      expect(searchParams.get("limit")).toBe("100");
+      expect(searchParams.get("targetSeq")).toBe("900");
       expect(
         screen.queryByPlaceholderText("What would you like to know?"),
       ).toBe(null);
@@ -299,8 +316,8 @@ describe("ChatPage target hydration", () => {
   );
 
   it("keeps a valid target route closed for a nonexistent chat instead of opening a fresh draft", async () => {
-    const error = Object.assign(new Error("HTTP 404"), { status: 404 });
-    mocks.getChatMessages.mockRejectedValue(error);
+    messagesHandler = () =>
+      Promise.resolve(new Response(null, { status: 404 }));
     window.history.replaceState(
       window.history.state,
       "",
@@ -324,8 +341,8 @@ describe("ChatPage target hydration", () => {
   });
 
   it("returns to ordinary history when the target hash is cleared after an error", async () => {
-    const error = Object.assign(new Error("HTTP 404"), { status: 404 });
-    mocks.getChatMessages.mockRejectedValue(error);
+    messagesHandler = () =>
+      Promise.resolve(new Response(null, { status: 404 }));
     window.history.replaceState(
       window.history.state,
       "",
@@ -350,8 +367,8 @@ describe("ChatPage target hydration", () => {
 
     await waitFor(() => expect(screen.getByText("newest")).toBeTruthy());
     expect(
-      mocks.getChatMessages.mock.calls.every(
-        ([, params]) => params?.targetSeq === undefined,
+      messagesRequests().every(
+        (req) => !new URL(req.url).searchParams.has("targetSeq"),
       ),
     ).toBe(true);
     expect(
@@ -367,7 +384,8 @@ describe("ChatPage target hydration", () => {
       { id: "older", seq: 701, text: "older target context" },
       { id: "target", seq: 900, text: "target answer" },
     ]);
-    mocks.getChatMessages.mockResolvedValue(targetPage);
+    messagesHandler = () =>
+      Promise.resolve(jsonResponse<ChatMessagesResponse>(targetPage));
     mocks.sendMessage.mockReturnValue(new Promise<void>(() => {}));
     window.history.replaceState(
       window.history.state,
@@ -403,10 +421,12 @@ describe("ChatPage target hydration", () => {
       { id: "target", seq: 900, text: "target answer" },
       { id: "latest", seq: 1000, text: "latest durable answer" },
     ]);
-    mocks.getChatMessages.mockImplementation(
-      async (_chatId: string, params: { targetSeq?: number }) =>
-        params.targetSeq === 900 ? targetPage : latestPage,
-    );
+    messagesHandler = (targetSeq) =>
+      Promise.resolve(
+        jsonResponse<ChatMessagesResponse>(
+          targetSeq === 900 ? targetPage : latestPage,
+        ),
+      );
     mocks.sendMessage.mockResolvedValue(undefined);
     window.history.replaceState(
       window.history.state,
@@ -435,8 +455,8 @@ describe("ChatPage target hydration", () => {
     expect(window.location.hash).toBe("");
     expect(mocks.chatInstanceIds.length).toBeGreaterThan(targetSessionCount);
     expect(
-      mocks.getChatMessages.mock.calls.some(
-        ([, params]) => params?.targetSeq === undefined,
+      messagesRequests().some(
+        (req) => !new URL(req.url).searchParams.has("targetSeq"),
       ),
     ).toBe(true);
   });
@@ -447,7 +467,8 @@ describe("ChatPage target hydration", () => {
       { id: "older", seq: 701, text: "older target context" },
       { id: "target", seq: 900, text: "target answer" },
     ]);
-    mocks.getChatMessages.mockResolvedValue(targetPage);
+    messagesHandler = () =>
+      Promise.resolve(jsonResponse<ChatMessagesResponse>(targetPage));
     mocks.sendMessage.mockRejectedValue(new Error("send failed"));
     window.history.replaceState(
       window.history.state,
@@ -462,6 +483,8 @@ describe("ChatPage target hydration", () => {
     await user.type(input, "follow-up");
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
+    // SAFETY: the composer's textarea is the only element this placeholder
+    // resolves to.
     await waitFor(() =>
       expect((input as HTMLTextAreaElement).value).toBe("follow-up"),
     );
@@ -481,10 +504,12 @@ describe("ChatPage target hydration", () => {
       { id: "target", seq: 900, text: "target answer" },
       { id: "latest", seq: 1000, text: "latest after interruption" },
     ]);
-    mocks.getChatMessages.mockImplementation(
-      async (_chatId: string, params: { targetSeq?: number }) =>
-        params.targetSeq === 900 ? targetPage : latestPage,
-    );
+    messagesHandler = (targetSeq) =>
+      Promise.resolve(
+        jsonResponse<ChatMessagesResponse>(
+          targetSeq === 900 ? targetPage : latestPage,
+        ),
+      );
     mocks.sendMessage.mockReturnValue(new Promise<void>(() => {}));
     window.history.replaceState(
       window.history.state,
@@ -513,7 +538,14 @@ describe("ChatPage target hydration", () => {
     expect(window.location.hash).toBe("");
     expect(mocks.chatInstanceIds.length).toBeGreaterThan(targetSessionCount);
     expect(mocks.resumeStream).toHaveBeenCalled();
-    expect(mocks.untrackChat).not.toHaveBeenCalled();
+    // untrackChat was asserted "not called" here against a mocked context;
+    // dropped on conversion — the mocked useChat's status never becomes
+    // "streaming"/"submitted" (it is hardcoded "ready" throughout this
+    // suite), so useChatPresenceEffects's trackRun/untrackChat call site
+    // (use-chat-engine.ts) never fires in ANY test here, making that
+    // assertion vacuously true regardless of this branch's own behavior —
+    // a pre-existing gap in the original test, not something this
+    // conversion introduces or could meaningfully replace.
   });
 
   it.each([
@@ -531,10 +563,12 @@ describe("ChatPage target hydration", () => {
         { id: "target", seq: 900, text: "target answer" },
         { id: "latest", seq: 1000, text: "latest after finish" },
       ]);
-      mocks.getChatMessages.mockImplementation(
-        async (_chatId: string, params: { targetSeq?: number }) =>
-          params.targetSeq === 900 ? targetPage : latestPage,
-      );
+      messagesHandler = (targetSeq) =>
+        Promise.resolve(
+          jsonResponse<ChatMessagesResponse>(
+            targetSeq === 900 ? targetPage : latestPage,
+          ),
+        );
       mocks.sendMessage.mockReturnValue(new Promise<void>(() => {}));
       window.history.replaceState(
         window.history.state,
@@ -562,7 +596,10 @@ describe("ChatPage target hydration", () => {
       expect(window.location.search).toBe("?draft=sent");
       expect(window.location.hash).toBe("");
       expect(mocks.chatInstanceIds.length).toBeGreaterThan(targetSessionCount);
-      expect(mocks.untrackChat).not.toHaveBeenCalled();
+      // untrackChat "not called" dropped on conversion — see the identical
+      // note in the interruption test above; this suite's mocked useChat
+      // never reaches "streaming"/"submitted", so trackRun/untrackChat are
+      // never invoked here regardless.
     },
   );
 });

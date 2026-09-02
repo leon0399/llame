@@ -1,97 +1,81 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "options": {
-    "typeAware": true
-  },
-  "plugins": ["typescript", "unicorn", "oxc", "vitest"],
-  "jsPlugins": [
-    {
-      "name": "anti-slop",
-      "specifier": "../../tools/oxlint/anti-slop/index.ts"
-    }
-  ],
-  "categories": {
-    "correctness": "error"
-  },
-  "env": {
-    "node": true,
-    "vitest": true
-  },
+  "extends": ["../../.oxlintrc.json"],
+  "options": { "typeAware": true },
+  "env": { "node": true, "vitest": true },
   "ignorePatterns": ["dist/**", "src/db/migrations/**"],
   "overrides": [
     {
-      // Spawned as a bare `node` script by the stdio MCP client tests, so it
-      // must stay plain JS and sits outside the TS program. Type-aware rules
-      // have no types to work from and flag every read of its JSON-parsed
-      // config; correctness rules still apply, since this is hand-authored
-      // test infrastructure that will keep being edited.
+      // Nest DI and decorated handlers own these signatures.
+      "files": [
+        "src/chats/chat-loop.service.ts",
+        "src/runs/run-execution.service.ts",
+        "src/runs/runs-worker.service.ts",
+        "src/runs/runs.controller.ts",
+        "src/search/search-embed.worker.ts",
+        "src/search/search-reindex.worker.ts",
+        "src/tools/runner.ts"
+      ],
+      "rules": {
+        "max-params": "off"
+      }
+    },
+    {
+      // Required by jsonc-parser's JSONVisitor callback contract.
+      "files": ["src/instance-config/config-loader.ts"],
+      "rules": {
+        "max-params": "off"
+      }
+    },
+    {
+      // Cohesive execution, transaction, SQL, RLS, and fixture flows whose
+      // state cannot cross a helper boundary safely.
+      "files": [
+        "src/chats/messages-repository.ts",
+        "src/compaction/compaction.service.ts",
+        "src/db/schema/identity.ts",
+        "src/runs/run-execution.service.ts",
+        "src/runs/run-stream-bridge.ts",
+        "src/runs/runs-worker.service.ts",
+        "src/runs/runs.controller.ts",
+        "src/runs/scripted-model-client.ts",
+        "src/runs/worker-harness.ts"
+      ],
+      "rules": {
+        "max-lines-per-function": "off"
+      }
+    },
+    {
+      // Cohesive state and security modules with no stable split boundary.
+      "files": [
+        "src/instance-config/config-loader.ts",
+        "src/instance-config/prompt-loader.ts",
+        "src/knowledge/knowledge-tools.ts",
+        "src/mcp/mcp-runtime.service.ts",
+        "src/mcp/mcp-server-client.ts",
+        "src/runs/run-execution.service.ts"
+      ],
+      "rules": {
+        "max-lines": "off"
+      }
+    },
+    {
+      // Queue variance escape is documented at the boundary in queue.ts.
+      "files": ["src/queue/pgboss-queue.service.ts", "src/queue/queue.ts"],
+      "rules": {
+        "typescript/no-explicit-any": "off"
+      }
+    },
+    {
+      // Plain JS child fixture; it is outside the TypeScript program.
       "files": ["src/mcp/mcp-stdio-test-fixture.mjs"],
       "rules": {
-        "typescript/no-unsafe-assignment": "off",
         "typescript/no-unsafe-argument": "off",
-        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-assignment": "off",
         "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
         "typescript/no-unsafe-return": "off"
       }
     }
-  ],
-  "rules": {
-    "anti-slop/no-chained-type-assertions": "error",
-    "anti-slop/no-conditional-empty-object-spread": "error",
-    "anti-slop/no-known-value-widening": "error",
-    "anti-slop/no-module-mocking": "error",
-    "anti-slop/no-object-parameters": "error",
-    "anti-slop/no-reflect-apply": "error",
-    "anti-slop/no-reflect-get": "error",
-    "anti-slop/no-runtime-typeof": ["error", { "allowInTypeGuards": true }],
-    "anti-slop/no-shape-in-symbol-names": "error",
-    "anti-slop/no-unknown-parameters": [
-      "error",
-      { "allowWhenImmediatelyValidated": true, "allowErrorFamilyNames": true }
-    ],
-    "anti-slop/no-unknown-returns": "error",
-    "anti-slop/no-unknown-type-aliases": "error",
-    "anti-slop/no-unsafe-dictionary-type": "error",
-    "anti-slop/no-widen-then-assert": "error",
-    "anti-slop/require-safety-comment-for-type-assertion": "error",
-    "complexity": ["error", { "max": 35, "variant": "modified" }],
-    // Requires a type parameter on every `vi.fn()` — noisy against our test
-    // style, which relies on inference/assertion at the call site instead.
-    "vitest/require-mock-type-parameters": "off",
-    // Pre-existing test style predating the vitest plugin (expects inside
-    // rejects-catch blocks, shared beforeAll assertions, helper-asserting
-    // tests). Tightening these is follow-up cleanup, not part of the Jest →
-    // Vitest migration — flip one to "error" and fix its findings when
-    // touching the affected suites.
-    "vitest/no-conditional-expect": "off",
-    "vitest/no-standalone-expect": "off",
-    "vitest/require-to-throw-message": "off",
-    "vitest/expect-expect": "off",
-    "typescript/await-thenable": "error",
-    "typescript/no-array-delete": "error",
-    "typescript/no-base-to-string": "error",
-    "typescript/no-duplicate-type-constituents": "error",
-    "typescript/no-floating-promises": "warn",
-    "typescript/no-for-in-array": "error",
-    "typescript/no-implied-eval": "error",
-    "typescript/no-misused-promises": "error",
-    "typescript/no-redundant-type-constituents": "error",
-    "typescript/no-unnecessary-type-assertion": "error",
-    "typescript/no-unsafe-argument": "warn",
-    "typescript/no-unsafe-assignment": "error",
-    "typescript/no-unsafe-call": "error",
-    "typescript/no-unsafe-enum-comparison": "error",
-    "typescript/no-unsafe-member-access": "error",
-    "typescript/no-unsafe-return": "error",
-    "typescript/no-unsafe-type-assertion": "error",
-    "typescript/no-unsafe-unary-minus": "error",
-    "typescript/only-throw-error": "error",
-    "typescript/prefer-promise-reject-errors": "error",
-    "typescript/require-await": "error",
-    "typescript/restrict-plus-operands": "error",
-    "typescript/restrict-template-expressions": "error",
-    "typescript/unbound-method": "error",
-    "typescript/use-unknown-in-catch-callback-variable": "error",
-    "typescript/no-explicit-any": "off"
-  }
+  ]
 }

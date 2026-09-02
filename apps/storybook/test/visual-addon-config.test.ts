@@ -13,7 +13,7 @@ describe("storyproof addon configuration", () => {
     // the published `storyproof` package's `/preset` export is actually
     // installed and resolvable from apps/storybook by importing it directly.
     const preset = await import("storyproof/preset");
-    expect(typeof preset.managerEntries).toBe("function");
+    expect(preset.managerEntries).toBeTypeOf("function");
 
     const effectiveConfig = await loadMainConfig({
       configDir: path.join(storybookRoot, ".storybook"),

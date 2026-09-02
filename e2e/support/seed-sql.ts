@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
  * app's own responses — escape defensively anyway.
  */
 export function escapeSqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
+  return value.replaceAll("'", "''");
 }
 
 /**

@@ -7,6 +7,7 @@ export const SESSION_TOUCH_DEBOUNCE_MS = 60 * 1000;
 // Cookies must be Secure in production (#68), but a Secure cookie is dropped by
 // the browser over local HTTP — silently breaking the cookie auth path in dev. Fail
 // secure: Secure everywhere except an explicit NODE_ENV=development.
+// eslint-disable-next-line anti-slop/forbid-process-env-outside-env-ts -- NODE_ENV selects a runtime mode, not a configurable setting; it must be readable before any configuration file is located.
 export const SESSION_COOKIE_SECURE = process.env.NODE_ENV !== 'development';
 
 // Login/register throttle ceiling per client IP per minute (#68). Decorators
@@ -15,6 +16,7 @@ export const SESSION_COOKIE_SECURE = process.env.NODE_ENV !== 'development';
 // it (many parallel browser workers log in from one IP); production keeps the
 // strict default.
 export const AUTH_RATE_LIMIT_PER_MINUTE = (() => {
+  // eslint-disable-next-line anti-slop/forbid-process-env-outside-env-ts -- pending migration into llame.config.json: this is a product setting read as a bare env var, which skips schema validation and secret marking. Tracked in docs/research/lint/2026-08-31-stella-oxlint-plugins.md.
   const raw = Number(process.env.AUTH_RATE_LIMIT_PER_MINUTE);
   // Integer only: @nestjs/throttler expects a whole request count — a typo
   // like 10.5 falls back to the strict default instead of surprising limits.

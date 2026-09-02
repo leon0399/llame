@@ -134,7 +134,7 @@ test.describe("chat history pagination (#187)", () => {
           expect(
             drift,
             "prepend must not yank the reading position",
-          ).toBeLessThan(WHEEL_STEP + 2_000);
+          ).toBeLessThan(WHEEL_STEP + 2000);
           expect(drift).toBeGreaterThan(-WHEEL_STEP - 200);
         }
       }

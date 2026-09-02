@@ -14,11 +14,11 @@ const mathPlugin = createMathPlugin({ singleDollarTextMath: true });
 type MathNode = {
   type: string;
   value?: string;
-  children?: MathNode[];
+  children?: Array<MathNode>;
   data?: {
     hName: string;
-    hProperties?: { className: string[] };
-    hChildren: unknown[];
+    hProperties?: { className: Array<string> };
+    hChildren: Array<unknown>;
   };
   wasDisplayDelimited?: boolean;
   position?: { start: { offset?: number }; end: { offset?: number } };
@@ -80,8 +80,8 @@ const displayMathNode = (value: string): MathNode => ({
  * Returns `undefined` when the node holds no delimiters and should be left as
  * it is — including a delimiter still waiting for its closing half mid-stream.
  */
-const expandLatexDelimiters = (raw: string): MathNode[] | undefined => {
-  if (!raw.includes("\\(") && !raw.includes("\\[")) {
+const expandLatexDelimiters = (raw: string): Array<MathNode> | undefined => {
+  if (!raw.includes(String.raw`\(`) && !raw.includes(String.raw`\[`)) {
     return undefined;
   }
 
@@ -91,7 +91,7 @@ const expandLatexDelimiters = (raw: string): MathNode[] | undefined => {
     return undefined;
   }
 
-  const nodes: MathNode[] = [];
+  const nodes: Array<MathNode> = [];
   let cursor = 0;
 
   const pushText = (slice: string) => {
@@ -136,6 +136,40 @@ const isCurrencyPair = (node: MathNode, source: string): boolean => {
   return /^\s|\s$/.test(node.value ?? "") || /\d/.test(source.charAt(end));
 };
 
+/** What one `inlineMath` or `text` child rewrites to, and whether it changed. */
+type ChildRewrite = { nodes: Array<MathNode>; changed: boolean };
+
+const rewriteInlineMathChild = (
+  child: MathNode,
+  raw: string | undefined,
+  source: string,
+): ChildRewrite => {
+  // `$$…$$` written inline is display math, never a currency pair.
+  if (
+    raw === undefined ||
+    raw.startsWith("$$") ||
+    !isCurrencyPair(child, source)
+  ) {
+    return { nodes: [child], changed: false };
+  }
+
+  // Restore from the source rather than re-wrapping `value` in dollars, so
+  // the delimiters come back exactly as written — but decode it, since this
+  // is now prose: math content is raw, and a `&amp;` or `\&` inside it has to
+  // resolve the way the rest of the paragraph's text does.
+  return { nodes: [{ type: "text", value: decodeString(raw) }], changed: true };
+};
+
+const rewriteTextChild = (
+  child: MathNode,
+  raw: string | undefined,
+): ChildRewrite => {
+  const expanded = raw === undefined ? undefined : expandLatexDelimiters(raw);
+  return expanded
+    ? { nodes: expanded, changed: true }
+    : { nodes: [child], changed: false };
+};
+
 const rewriteMathNodes = (node: MathNode, source: string): void => {
   const children = node.children;
 
@@ -143,7 +177,7 @@ const rewriteMathNodes = (node: MathNode, source: string): void => {
     return;
   }
 
-  const rewritten: MathNode[] = [];
+  const rewritten: Array<MathNode> = [];
   let changed = false;
 
   for (const child of children) {
@@ -155,36 +189,16 @@ const rewriteMathNodes = (node: MathNode, source: string): void => {
         : source.slice(start, end);
 
     if (child.type === "inlineMath") {
-      // `$$…$$` written inline is display math, never a currency pair.
-      if (
-        raw === undefined ||
-        raw.startsWith("$$") ||
-        !isCurrencyPair(child, source)
-      ) {
-        rewritten.push(child);
-        continue;
-      }
-
-      // Restore from the source rather than re-wrapping `value` in dollars,
-      // so the delimiters come back exactly as written — but decode it, since
-      // this is now prose: math content is raw, and a `&amp;` or `\&` inside
-      // it has to resolve the way the rest of the paragraph's text does.
-      rewritten.push({ type: "text", value: decodeString(raw) });
-      changed = true;
+      const rewrite = rewriteInlineMathChild(child, raw, source);
+      rewritten.push(...rewrite.nodes);
+      changed ||= rewrite.changed;
       continue;
     }
 
     if (child.type === "text") {
-      const expanded =
-        raw === undefined ? undefined : expandLatexDelimiters(raw);
-
-      if (expanded) {
-        rewritten.push(...expanded);
-        changed = true;
-      } else {
-        rewritten.push(child);
-      }
-
+      const rewrite = rewriteTextChild(child, raw);
+      rewritten.push(...rewrite.nodes);
+      changed ||= rewrite.changed;
       continue;
     }
 
@@ -209,8 +223,12 @@ const rewriteMathNodes = (node: MathNode, source: string): void => {
   node.children = rewritten;
 };
 
+function hasStringValue(file: { value: unknown }): file is { value: string } {
+  return typeof file.value === "string";
+}
+
 const remarkRewriteMath = () => (tree: MathNode, file: { value: unknown }) => {
-  if (typeof file.value === "string") {
+  if (hasStringValue(file)) {
     rewriteMathNodes(tree, file.value);
   }
 };
@@ -250,6 +268,29 @@ const streamdownMermaid = createMermaidPlugin({
 const mermaidImageAttribute = /\bimg\s*:/i;
 const mermaidImageSource = /<\s*(?:img|image)\b|!\[[^\]]*\]\s*\(/i;
 
+type QuoteScanState = {
+  quote: '"' | "'" | "`" | undefined;
+  escaped: boolean;
+};
+
+// One character's worth of quoted-run tracking, factored out so the caller's
+// loop nesting stays shallow. Mirrors the original inline branching exactly.
+function advanceQuotedCharacter(
+  character: string,
+  state: QuoteScanState,
+): QuoteScanState {
+  if (state.escaped) {
+    return { ...state, escaped: false };
+  }
+  if (character === "\\") {
+    return { ...state, escaped: true };
+  }
+  if (character === state.quote) {
+    return { ...state, quote: undefined };
+  }
+  return state;
+}
+
 const hasMermaidImageAttribute = (source: string) => {
   let blockStart = source.indexOf("@{");
 
@@ -264,13 +305,10 @@ const hasMermaidImageAttribute = (source: string) => {
 
       if (quote) {
         unquotedAttributes += " ";
-        if (escaped) {
-          escaped = false;
-        } else if (character === "\\") {
-          escaped = true;
-        } else if (character === quote) {
-          quote = undefined;
-        }
+        ({ quote, escaped } = advanceQuotedCharacter(character, {
+          quote,
+          escaped,
+        }));
         continue;
       }
 
@@ -295,7 +333,7 @@ const hasMermaidImageAttribute = (source: string) => {
 };
 
 export const assertSafeMermaidSource = (source: string) => {
-  const sourceWithoutComments = source.replace(/^\s*%%(?!\{).*$/gm, "");
+  const sourceWithoutComments = source.replaceAll(/^\s*%%(?!\{).*$/gm, "");
   if (
     hasMermaidImageAttribute(sourceWithoutComments) ||
     mermaidImageSource.test(sourceWithoutComments)
@@ -321,7 +359,9 @@ const mermaid = {
 
 export const streamdownPlugins: PluginConfig = {
   // Streamdown and @streamdown/code resolve different Shiki minor versions.
-  // Their runtime plugin contract matches; only the language-name union differs.
+  // Their runtime plugin contract matches; only the language-name union
+  // differs. SAFETY: `code` implements CodeHighlighterPlugin's actual runtime
+  // shape, so this cast only bridges that nominal, version-local type gap.
   code: code as NonNullable<PluginConfig["code"]>,
   math,
   mermaid,

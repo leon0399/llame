@@ -1,20 +1,17 @@
 // @vitest-environment jsdom
 
 import * as React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
-const updateMemoryEndpoint = vi.hoisted(() => vi.fn());
-const authenticatedFetch = vi.hoisted(() => vi.fn());
-const createAuthenticatedBrowserFetch = vi.hoisted(() => vi.fn());
-
-vi.mock("../../api/generated/memory/memory", () => ({
-  updateMemory: updateMemoryEndpoint,
-}));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch,
-}));
 
 import {
   memoryMutationKeys,
@@ -23,8 +20,11 @@ import {
 } from "./mutations";
 import { memoryQueryKeys } from "./queries";
 import type { MemoryResponse } from "../../api/generated/models";
-
-createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
 
 const initial: MemoryResponse = { shareRecentChats: false };
 
@@ -45,33 +45,33 @@ function createQueryClient() {
   });
 }
 
+let fetchMock: Mock<typeof fetch>;
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
+
 afterEach(() => {
-  vi.clearAllMocks();
-  createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+  vi.unstubAllGlobals();
 });
 
 describe("memory mutation transport", () => {
   it("PATCHes the caller's memory through the generated authenticated endpoint", async () => {
     const input = { shareRecentChats: true };
-    const response = { shareRecentChats: true };
-    updateMemoryEndpoint.mockResolvedValue(response);
+    fetchMock.mockResolvedValue(jsonResponse(input));
 
-    await expect(updateMemory(input)).resolves.toEqual(response);
+    await expect(updateMemory(input)).resolves.toEqual(input);
 
-    expect(updateMemoryEndpoint).toHaveBeenCalledWith(
-      input,
-      undefined,
-      authenticatedFetch,
-    );
-    expect(createAuthenticatedBrowserFetch).toHaveBeenCalledWith(
-      globalThis.fetch,
-    );
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("PATCH");
+    expect(new URL(request.url).pathname).toBe("/api/v1/me/memory");
+    await expect(request.clone().json()).resolves.toEqual(input);
   });
 });
 
 describe("useUpdateMemoryMutation cache behavior", () => {
   it("cancels, snapshots, patches optimistically, and serializes memory updates", async () => {
-    updateMemoryEndpoint.mockReturnValue(new Promise(() => {}));
+    fetchMock.mockReturnValue(new Promise<Response>(() => {}));
     const queryClient = createQueryClient();
     const cancelQueries = vi.spyOn(queryClient, "cancelQueries");
     queryClient.setQueryData(memoryQueryKeys.mine(), initial);
@@ -101,8 +101,7 @@ describe("useUpdateMemoryMutation cache behavior", () => {
   });
 
   it("rolls back the snapshot and invalidates after a failed update", async () => {
-    const error = new Error("network down");
-    updateMemoryEndpoint.mockRejectedValue(error);
+    fetchMock.mockRejectedValue(new Error("network down"));
     const queryClient = createQueryClient();
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
     queryClient.setQueryData(memoryQueryKeys.mine(), initial);
@@ -121,7 +120,7 @@ describe("useUpdateMemoryMutation cache behavior", () => {
   });
 
   it("invalidates after a successful update", async () => {
-    updateMemoryEndpoint.mockResolvedValue({ shareRecentChats: true });
+    fetchMock.mockResolvedValue(jsonResponse({ shareRecentChats: true }));
     const queryClient = createQueryClient();
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
 

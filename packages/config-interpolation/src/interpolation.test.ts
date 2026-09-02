@@ -64,9 +64,9 @@ describe("interpolateString — {env:...}", () => {
     try {
       interpolateString("{env:IC_TEST_VAR}");
       expect.unreachable("expected throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(InterpolationError);
-      expect(interpolationErrorSource(err)).toEqual({
+    } catch (error) {
+      expect(error).toBeInstanceOf(InterpolationError);
+      expect(interpolationErrorSource(error)).toEqual({
         kind: "env",
         name: "IC_TEST_VAR",
       });
@@ -136,9 +136,9 @@ describe("interpolateString — {path:...}", () => {
     try {
       interpolateString(`{path:${missing}}`);
       expect.unreachable("expected throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(InterpolationError);
-      expect(interpolationErrorSource(err)).toEqual({
+    } catch (error) {
+      expect(error).toBeInstanceOf(InterpolationError);
+      expect(interpolationErrorSource(error)).toEqual({
         kind: "path",
         location: missing,
       });
@@ -189,13 +189,13 @@ describe("interpolateString — {path:...}", () => {
     try {
       interpolateString(`{path:${file}|json:/opencode}`);
       expect.unreachable("expected throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(InterpolationError);
-      expect(interpolationErrorSource(err)).toEqual({
+    } catch (error) {
+      expect(error).toBeInstanceOf(InterpolationError);
+      expect(interpolationErrorSource(error)).toEqual({
         kind: "path",
         location: file,
       });
-      expect(errorMessage(err)).not.toContain("s3cr3t");
+      expect(errorMessage(error)).not.toContain("s3cr3t");
     }
   });
 
@@ -209,17 +209,17 @@ describe("interpolateString — {path:...}", () => {
     try {
       interpolateString(`{path:${badJson}|json:/key}`);
       expect.unreachable("expected throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(InterpolationError);
-      expect(errorMessage(err)).not.toContain("not-json");
+    } catch (error) {
+      expect(error).toBeInstanceOf(InterpolationError);
+      expect(errorMessage(error)).not.toContain("not-json");
     }
 
     try {
       interpolateString(`{path:${missingPointer}|json:/missing}`);
       expect.unreachable("expected throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(InterpolationError);
-      expect(errorMessage(err)).not.toContain("s3cr3t");
+    } catch (error) {
+      expect(error).toBeInstanceOf(InterpolationError);
+      expect(errorMessage(error)).not.toContain("s3cr3t");
     }
   });
 });
@@ -243,8 +243,8 @@ describe("interpolateString — redaction", () => {
       // A sibling token resolves a secret; this one is missing and required.
       interpolateString("{env:IC_TEST_SECRET}{env:IC_TEST_VAR}");
       expect.unreachable("expected throw");
-    } catch (err) {
-      expect(errorMessage(err)).not.toContain("sk-should-never-appear");
+    } catch (error) {
+      expect(errorMessage(error)).not.toContain("sk-should-never-appear");
     }
   });
 });

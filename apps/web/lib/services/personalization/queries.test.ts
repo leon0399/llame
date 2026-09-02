@@ -1,29 +1,44 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-const getPersonalization = vi.hoisted(() => vi.fn());
-const authenticatedFetch = vi.hoisted(() => vi.fn());
-const createAuthenticatedBrowserFetch = vi.hoisted(() => vi.fn());
-const useQuery = vi.hoisted(() => vi.fn());
-
-vi.mock("../../api/generated/personalization/personalization", () => ({
-  getPersonalization,
-}));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch,
-}));
-vi.mock("@tanstack/react-query", () => ({ useQuery }));
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
 
 import {
   fetchPersonalization,
   personalizationQueryKeys,
   usePersonalizationQuery,
 } from "./queries";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
+import {
+  newTestQueryClient,
+  wrapperWithClient,
+} from "../../test-support/query-client";
 
-createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+// No module mocking: `stubFetch` replaces globalThis.fetch, so the generated
+// endpoint, the authenticated-fetch policy, URL construction and JSON parsing
+// all run for real. The previous version mocked the generated module, the
+// fetch policy AND `useQuery` itself, which meant the assertions only ever
+// echoed their own fixtures back.
+let fetchMock: Mock<typeof fetch>;
+
+const profile = {
+  preferredName: "Leo",
+  about: null,
+  responsePreferences: null,
+  enabled: true,
+  shareAccountIdentity: false,
+};
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
 
 afterEach(() => {
-  vi.clearAllMocks();
-  createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+  vi.unstubAllGlobals();
 });
 
 describe("personalization query keys", () => {
@@ -35,32 +50,32 @@ describe("personalization query keys", () => {
 
 describe("personalization query transport", () => {
   it("fetches the caller's profile through the generated authenticated endpoint", async () => {
-    const response = {
-      preferredName: "Leo",
-      about: null,
-      responsePreferences: null,
-      enabled: true,
-      shareAccountIdentity: false,
-    };
-    getPersonalization.mockResolvedValue(response);
+    fetchMock.mockResolvedValue(jsonResponse(profile));
 
-    await expect(fetchPersonalization()).resolves.toEqual(response);
+    await expect(fetchPersonalization()).resolves.toEqual(profile);
 
-    expect(getPersonalization).toHaveBeenCalledWith(
-      undefined,
-      authenticatedFetch,
-    );
-    expect(createAuthenticatedBrowserFetch).toHaveBeenCalledWith(
-      globalThis.fetch,
-    );
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("GET");
+    expect(new URL(request.url).pathname).toBe("/api/v1/me/personalization");
+    // The authenticated browser policy sends the session cookie.
+    expect(request.credentials).toBe("include");
   });
 
-  it("preserves the personalization query key and default query options", () => {
-    usePersonalizationQuery();
+  it("resolves the profile through the hook under its own query key", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(profile));
+    const queryClient = newTestQueryClient();
 
-    expect(useQuery).toHaveBeenCalledWith({
-      queryKey: personalizationQueryKeys.mine(),
-      queryFn: fetchPersonalization,
+    const { result } = renderHook(() => usePersonalizationQuery(), {
+      wrapper: wrapperWithClient(queryClient),
     });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+    expect(result.current.data).toEqual(profile);
+    // Cached under the factory's key, not merely requested with it.
+    expect(queryClient.getQueryData(personalizationQueryKeys.mine())).toEqual(
+      profile,
+    );
   });
 });

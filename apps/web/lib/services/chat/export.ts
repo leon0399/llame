@@ -1,4 +1,5 @@
 import { getChatMessages } from "../../api/generated/chats/chats";
+import type { GetChatMessagesParams } from "../../api/generated/models";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import {
   normalizeChatMessagesResponse,
@@ -12,29 +13,30 @@ import { chatToMarkdown, slugifyTitle } from "./chat-markdown";
 import { fetchModels } from "../models/queries";
 
 /** Fetch a chat's FULL message history (owner-scoped), paginating the cursor. */
-function fetchAllMessages(chatId: string): Promise<ChatMessageResponse[]> {
-  return paginateAllMessages((beforeSeq) =>
-    getChatMessages(
+function fetchAllMessages(chatId: string): Promise<Array<ChatMessageResponse>> {
+  return paginateAllMessages((beforeSeq) => {
+    const params: GetChatMessagesParams = { limit: CHAT_HISTORY_PAGE_SIZE };
+    if (beforeSeq !== undefined) {
+      params.beforeSeq = beforeSeq;
+    }
+    return getChatMessages(
       encodeURIComponent(chatId),
-      {
-        limit: CHAT_HISTORY_PAGE_SIZE,
-        ...(beforeSeq !== undefined ? { beforeSeq } : {}),
-      },
+      params,
       undefined,
       createAuthenticatedBrowserFetch(globalThis.fetch),
-    ).then(normalizeChatMessagesResponse),
-  );
+    ).then(normalizeChatMessagesResponse);
+  });
 }
 
 /** Trigger a browser download of a text file (SSR-guarded, object-URL revoked). */
 function downloadTextFile(filename: string, content: string): void {
-  if (typeof window === "undefined") return;
+  if (globalThis.window === undefined) return;
   const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
-  document.body.appendChild(anchor);
+  document.body.append(anchor);
   anchor.click();
   anchor.remove();
   // Revoking synchronously right after click() can race the browser's

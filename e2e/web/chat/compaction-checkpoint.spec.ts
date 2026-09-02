@@ -31,8 +31,8 @@ const ANSWER = "Mocked answer from the e2e model server.";
 const SEEDED_SUMMARY =
   "E2E-seeded summary: the user asked about the project roadmap and the assistant outlined next steps.";
 const SEEDED_USAGE = {
-  inputTokens: 71400,
-  outputTokens: 12800,
+  inputTokens: 71_400,
+  outputTokens: 12_800,
   modelId: "e2e-mock",
 };
 
@@ -86,13 +86,16 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
       messagesResponse.ok(),
       `GET messages failed with ${messagesResponse.status()}`,
     ).toBe(true);
+    // SAFETY: this is the api's own chat-messages endpoint (under test
+    // here), whose { messages: [...] } envelope is fixed by its own OpenAPI
+    // contract.
     const { messages } = (await messagesResponse.json()) as {
       messages: Array<{ seq: number }>;
     };
     expect(messages.length).toBeGreaterThan(0);
     const maxSeq = Math.max(...messages.map((m) => m.seq));
 
-    seedCompaction(chatId, maxSeq, SEEDED_SUMMARY, SEEDED_USAGE);
+    seedCompaction(chatId, maxSeq, SEEDED_SUMMARY, { usage: SEEDED_USAGE });
 
     // A real hard reload — the exact step Leo took where the Checkpoint
     // failed to appear despite the endpoint returning the compaction.
@@ -126,7 +129,7 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
         await checkpoint.click();
       }
       await expect(page.getByText("Compaction result")).toBeVisible({
-        timeout: 2_000,
+        timeout: 2000,
       });
     }).toPass({ timeout: 15_000 });
     await expect(

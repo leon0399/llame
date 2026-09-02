@@ -21,15 +21,69 @@ const TITLE_MAX = 200;
 
 type Chat = { id: string; title: string };
 
-export function RenameChatDialog({
-  chat,
-  open,
-  onOpenChange,
+type RenameChatFieldProps = {
+  title: string;
+  onTitleChange: (title: string) => void;
+  onSubmit: () => void;
+};
+
+/** Split out from `RenameChatDialog` so that component composes only markup,
+ *  not this field's own key-handling. */
+function RenameChatField({
+  title,
+  onTitleChange,
+  onSubmit,
+}: RenameChatFieldProps) {
+  return (
+    <Input
+      value={title}
+      onChange={(e) => onTitleChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onSubmit();
+        }
+      }}
+      maxLength={TITLE_MAX}
+      aria-label="Chat title"
+      // Deliberate: WAI-ARIA dialog pattern moves focus into the modal on
+      // open; this is the dialog's primary field.
+      // oxlint-disable-next-line jsx-a11y/no-autofocus
+      autoFocus
+    />
+  );
+}
+
+function RenameChatDialogFooter({
+  onCancel,
+  onSubmit,
+  submitDisabled,
 }: {
+  onCancel: () => void;
+  onSubmit: () => void;
+  submitDisabled: boolean;
+}) {
+  return (
+    <DialogFooter>
+      <Button variant="outline" onClick={onCancel}>
+        Cancel
+      </Button>
+      <Button onClick={onSubmit} disabled={submitDisabled}>
+        Save
+      </Button>
+    </DialogFooter>
+  );
+}
+
+type RenameChatDialogProps = {
   chat: Chat;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}) {
+};
+
+/** The field state and submit mutation — split out from `RenameChatDialog`
+ *  so that component composes only markup. */
+function useRenameChatSubmit(chat: Chat, open: boolean, onSaved: () => void) {
   const rename = useRenameChat();
   const [title, setTitle] = useState(chat.title);
 
@@ -41,14 +95,25 @@ export function RenameChatDialog({
   const submit = () => {
     const next = title.trim();
     if (!next || next === chat.title) {
-      onOpenChange(false);
+      onSaved();
       return;
     }
-    rename.mutate(
-      { id: chat.id, title: next },
-      { onSuccess: () => onOpenChange(false) },
-    );
+    rename.mutate({ id: chat.id, title: next }, { onSuccess: onSaved });
   };
+
+  return { title, setTitle, submit, isPending: rename.isPending };
+}
+
+export function RenameChatDialog({
+  chat,
+  open,
+  onOpenChange,
+}: RenameChatDialogProps) {
+  const { title, setTitle, submit, isPending } = useRenameChatSubmit(
+    chat,
+    open,
+    () => onOpenChange(false),
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -56,30 +121,16 @@ export function RenameChatDialog({
         <DialogHeader>
           <DialogTitle>Rename chat</DialogTitle>
         </DialogHeader>
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          maxLength={TITLE_MAX}
-          aria-label="Chat title"
-          // Deliberate: WAI-ARIA dialog pattern moves focus into the modal
-          // on open; this is the dialog's primary field.
-          // oxlint-disable-next-line jsx-a11y/no-autofocus
-          autoFocus
+        <RenameChatField
+          title={title}
+          onTitleChange={setTitle}
+          onSubmit={submit}
         />
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={!title.trim() || rename.isPending}>
-            Save
-          </Button>
-        </DialogFooter>
+        <RenameChatDialogFooter
+          onCancel={() => onOpenChange(false)}
+          onSubmit={submit}
+          submitDisabled={!title.trim() || isPending}
+        />
       </DialogContent>
     </Dialog>
   );

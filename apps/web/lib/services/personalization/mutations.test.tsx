@@ -1,20 +1,8 @@
 // @vitest-environment jsdom
 
-import * as React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
-const updatePersonalizationEndpoint = vi.hoisted(() => vi.fn());
-const authenticatedFetch = vi.hoisted(() => vi.fn());
-const createAuthenticatedBrowserFetch = vi.hoisted(() => vi.fn());
-
-vi.mock("../../api/generated/personalization/personalization", () => ({
-  updatePersonalization: updatePersonalizationEndpoint,
-}));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch,
-}));
 
 import {
   personalizationMutationKeys,
@@ -23,8 +11,22 @@ import {
 } from "./mutations";
 import { personalizationQueryKeys } from "./queries";
 import type { Personalization } from "./types";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
+import {
+  newTestQueryClient,
+  wrapperWithClient,
+} from "../../test-support/query-client";
 
-createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+// No module mocking: `stubFetch` replaces globalThis.fetch, so the generated
+// endpoint, the authenticated-fetch policy, URL construction, the request body
+// and JSON parsing all run for real. Controlling resolution timing still works
+// — a never-settling or rejecting fetch drives the same cache paths the
+// endpoint mock used to.
+let fetchMock: Mock<typeof fetch>;
 
 const initial: Personalization = {
   preferredName: null,
@@ -34,26 +36,12 @@ const initial: Personalization = {
   shareAccountIdentity: false,
 };
 
-function wrapper(queryClient: QueryClient) {
-  return function Wrapper({ children }: { children: React.ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    );
-  };
-}
-
-function createQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
-}
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
 
 afterEach(() => {
-  vi.clearAllMocks();
-  createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+  vi.unstubAllGlobals();
 });
 
 describe("personalization mutation transport", () => {
@@ -65,30 +53,29 @@ describe("personalization mutation transport", () => {
       enabled: false,
     };
     const response = { ...initial, ...input };
-    updatePersonalizationEndpoint.mockResolvedValue(response);
+    fetchMock.mockResolvedValue(jsonResponse(response));
 
     await expect(updatePersonalization(input)).resolves.toEqual(response);
 
-    expect(updatePersonalizationEndpoint).toHaveBeenCalledWith(
-      input,
-      undefined,
-      authenticatedFetch,
-    );
-    expect(createAuthenticatedBrowserFetch).toHaveBeenCalledWith(
-      globalThis.fetch,
-    );
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("PATCH");
+    expect(new URL(request.url).pathname).toBe("/api/v1/me/personalization");
+    expect(request.credentials).toBe("include");
+    await expect(request.json()).resolves.toEqual(input);
   });
 });
 
 describe("useUpdatePersonalizationMutation cache behavior", () => {
   it("cancels, snapshots, patches optimistically, and serializes profile updates", async () => {
-    updatePersonalizationEndpoint.mockReturnValue(new Promise(() => {}));
-    const queryClient = createQueryClient();
+    // Never settles: holds the mutation in flight so the optimistic patch is
+    // observable before any response arrives.
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    const queryClient = newTestQueryClient();
     const cancelQueries = vi.spyOn(queryClient, "cancelQueries");
     queryClient.setQueryData(personalizationQueryKeys.mine(), initial);
 
     const { result } = renderHook(() => useUpdatePersonalizationMutation(), {
-      wrapper: wrapper(queryClient),
+      wrapper: wrapperWithClient(queryClient),
     });
     result.current.mutate({ enabled: false });
 
@@ -112,14 +99,13 @@ describe("useUpdatePersonalizationMutation cache behavior", () => {
   });
 
   it("rolls back the snapshot and invalidates after a failed update", async () => {
-    const error = new Error("network down");
-    updatePersonalizationEndpoint.mockRejectedValue(error);
-    const queryClient = createQueryClient();
+    fetchMock.mockRejectedValue(new Error("network down"));
+    const queryClient = newTestQueryClient();
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
     queryClient.setQueryData(personalizationQueryKeys.mine(), initial);
 
     const { result } = renderHook(() => useUpdatePersonalizationMutation(), {
-      wrapper: wrapper(queryClient),
+      wrapper: wrapperWithClient(queryClient),
     });
     result.current.mutate({ about: "Changed" });
 
@@ -134,15 +120,12 @@ describe("useUpdatePersonalizationMutation cache behavior", () => {
   });
 
   it("invalidates after a successful update", async () => {
-    updatePersonalizationEndpoint.mockResolvedValue({
-      ...initial,
-      enabled: false,
-    });
-    const queryClient = createQueryClient();
+    fetchMock.mockResolvedValue(jsonResponse({ ...initial, enabled: false }));
+    const queryClient = newTestQueryClient();
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
 
     const { result } = renderHook(() => useUpdatePersonalizationMutation(), {
-      wrapper: wrapper(queryClient),
+      wrapper: wrapperWithClient(queryClient),
     });
     result.current.mutate({ enabled: false });
 

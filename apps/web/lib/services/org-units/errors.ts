@@ -30,28 +30,74 @@ export class OrgUnitsApiError extends Error {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+/** The two fields this module reads off an unparsed API error's `info`. */
+type ApiErrorInfoFields = { message?: unknown; code?: unknown };
+
+function isRecord(value: unknown): value is ApiErrorInfoFields {
   return typeof value === "object" && value !== null;
 }
 
-function readApiError(error: unknown): { message?: string; code?: string } {
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function readApiError(error: unknown) {
   const info = getApiErrorInfo(error);
-  if (!isRecord(info)) return {};
+  if (!isRecord(info)) return { message: undefined, code: undefined };
 
   const message = info.message;
-  const messageText =
-    typeof message === "string"
-      ? message
-      : Array.isArray(message)
-        ? message
-            .filter((value): value is string => typeof value === "string")
-            .join(" ")
-        : undefined;
+  const messageText = isString(message)
+    ? message
+    : Array.isArray(message)
+      ? message.filter(isString).join(" ")
+      : undefined;
 
   return {
     message: messageText || undefined,
-    code: typeof info.code === "string" ? info.code : undefined,
+    code: isString(info.code) ? info.code : undefined,
   };
+}
+
+const UNKNOWN_MESSAGE = "Something went wrong. Please try again.";
+
+/**
+ * Disambiguate a 409 by the body's machine-readable `code`
+ * (identity.service.ts's ORG_UNITS_ERROR_CODES: LAST_OWNER /
+ * DUPLICATE_MEMBERSHIP / HAS_CHILDREN / CONCURRENT_TREE_CHANGE). The feature
+ * owns the resulting UI copy; server-provided text is only used for the
+ * documented validation detail.
+ */
+function classifyConflict(
+  code: string | undefined,
+  apiMessage: string | undefined,
+): OrgUnitsApiError {
+  if (code === "LAST_OWNER") {
+    return new OrgUnitsApiError(
+      409,
+      "last-owner",
+      "You’re the last owner here — transfer ownership first. Use the role control next to another member to make them owner, then try again.",
+    );
+  }
+  if (code === "DUPLICATE_MEMBERSHIP") {
+    return new OrgUnitsApiError(
+      409,
+      "duplicate-membership",
+      "Already a member.",
+    );
+  }
+  // Not a race: the unit genuinely has children — retrying can't succeed.
+  if (code === "HAS_CHILDREN") {
+    return new OrgUnitsApiError(
+      409,
+      "validation",
+      apiMessage ?? "This unit has child units — delete them first.",
+    );
+  }
+  return new OrgUnitsApiError(
+    409,
+    "concurrent-change",
+    "The tree changed — refreshed, try again.",
+  );
 }
 
 /**
@@ -63,31 +109,19 @@ function readApiError(error: unknown): { message?: string; code?: string } {
  * - 403 → "forbidden" — never re-implement authorization locally; explain
  *   the missing role instead.
  * - 404 → "not-found" — no existence leak in copy.
- * - 409 → disambiguated by the body's machine-readable `code`
- *   (identity.service.ts's ORG_UNITS_ERROR_CODES: LAST_OWNER /
- *   DUPLICATE_MEMBERSHIP / HAS_CHILDREN / CONCURRENT_TREE_CHANGE). The
- *   feature owns the resulting UI copy; server-provided text is only used for
- *   the documented validation detail.
+ * - 409 → see `classifyConflict`.
  * - 422 → move-into-own-subtree validation.
  */
 export async function classifyOrgUnitsError(
   error: unknown,
 ): Promise<OrgUnitsApiError> {
   if (!isApiError(error)) {
-    return new OrgUnitsApiError(
-      0,
-      "unknown",
-      "Something went wrong. Please try again.",
-    );
+    return new OrgUnitsApiError(0, "unknown", UNKNOWN_MESSAGE);
   }
 
   const status = getApiErrorStatus(error);
   if (status === undefined) {
-    return new OrgUnitsApiError(
-      0,
-      "unknown",
-      "Something went wrong. Please try again.",
-    );
+    return new OrgUnitsApiError(0, "unknown", UNKNOWN_MESSAGE);
   }
 
   const { message: apiMessage, code } = readApiError(error);
@@ -103,33 +137,7 @@ export async function classifyOrgUnitsError(
     return new OrgUnitsApiError(404, "not-found", "Not found.");
   }
   if (status === 409) {
-    if (code === "LAST_OWNER") {
-      return new OrgUnitsApiError(
-        409,
-        "last-owner",
-        "You’re the last owner here — transfer ownership first. Use the role control next to another member to make them owner, then try again.",
-      );
-    }
-    if (code === "DUPLICATE_MEMBERSHIP") {
-      return new OrgUnitsApiError(
-        409,
-        "duplicate-membership",
-        "Already a member.",
-      );
-    }
-    // Not a race: the unit genuinely has children — retrying can't succeed.
-    if (code === "HAS_CHILDREN") {
-      return new OrgUnitsApiError(
-        409,
-        "validation",
-        apiMessage ?? "This unit has child units — delete them first.",
-      );
-    }
-    return new OrgUnitsApiError(
-      409,
-      "concurrent-change",
-      "The tree changed — refreshed, try again.",
-    );
+    return classifyConflict(code, apiMessage);
   }
   if (status === 422) {
     return new OrgUnitsApiError(
@@ -138,11 +146,7 @@ export async function classifyOrgUnitsError(
       apiMessage ?? "That move isn’t allowed.",
     );
   }
-  return new OrgUnitsApiError(
-    status,
-    "unknown",
-    "Something went wrong. Please try again.",
-  );
+  return new OrgUnitsApiError(status, "unknown", UNKNOWN_MESSAGE);
 }
 
 /** Wrap an org-units API call so failures reject with a classified `OrgUnitsApiError`. */

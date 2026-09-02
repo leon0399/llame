@@ -28,6 +28,147 @@ import {
 // authenticated chat list's convention.
 const UNTITLED_CHAT_LABEL = "Untitled chat";
 
+async function fetchAllSharedMessages(
+  id: string,
+): Promise<{ title: string | null; messages: Array<SharedChatMessage> }> {
+  let title: string | null = null;
+  const messages = await paginateAllMessages<SharedChatMessage>(
+    (beforeSeq) => {
+      const options: Parameters<typeof fetchSharedChat>[1] = {
+        limit: CHAT_HISTORY_PAGE_SIZE,
+      };
+      if (beforeSeq !== undefined) options.beforeSeq = beforeSeq;
+      return fetchSharedChat(id, options).then((page) => {
+        title = page.title;
+        return page;
+      });
+    },
+    // Uncapped walk: faithfulness is the invariant for a share (see the
+    // api-side removal of the message cap) — per-request cost is already
+    // bounded by the page size, so the OWNER page's 20-page safety valve
+    // must not silently truncate the shared conversation on top of that.
+    Infinity,
+  );
+  return { title, messages };
+}
+
+function ShareForkOrLoginButton({
+  isAuthenticated,
+  loginHref,
+  forkPending,
+  onFork,
+}: {
+  isAuthenticated: boolean;
+  loginHref: string;
+  forkPending: boolean;
+  onFork: () => void;
+}) {
+  if (isAuthenticated) {
+    return (
+      <Button size="sm" disabled={forkPending} onClick={onFork}>
+        {forkPending ? "Forking…" : "Fork to continue"}
+      </Button>
+    );
+  }
+  return (
+    <a
+      href={loginHref}
+      className={buttonVariants({ variant: "outline", size: "sm" })}
+    >
+      Log in to continue
+    </a>
+  );
+}
+
+function ShareChatHeader({
+  title,
+  meLoading,
+  isAuthenticated,
+  loginHref,
+  forkPending,
+  onFork,
+}: {
+  title: string | null;
+  meLoading: boolean;
+  isAuthenticated: boolean;
+  loginHref: string;
+  forkPending: boolean;
+  onFork: () => void;
+}) {
+  return (
+    <header className="flex items-center justify-between gap-4 border-b pb-4">
+      <div>
+        <h1 className="text-xl font-semibold">
+          {title ?? UNTITLED_CHAT_LABEL}
+        </h1>
+        <p className="text-muted-foreground mt-1 text-xs">
+          Shared conversation · read-only
+        </p>
+      </div>
+      {!meLoading && (
+        <ShareForkOrLoginButton
+          isAuthenticated={isAuthenticated}
+          loginHref={loginHref}
+          forkPending={forkPending}
+          onFork={onFork}
+        />
+      )}
+    </header>
+  );
+}
+
+function SharedChatStatus({
+  isLoading,
+  hasError,
+}: {
+  isLoading: boolean;
+  hasError: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <main className="mx-auto max-w-3xl px-4 py-16 text-center">
+        <p className="text-muted-foreground text-sm">Loading…</p>
+      </main>
+    );
+  }
+  if (hasError) {
+    return (
+      <main className="mx-auto max-w-3xl px-4 py-16 text-center">
+        <h1 className="text-lg font-medium">This chat isn’t available</h1>
+        <p className="text-muted-foreground mt-2 text-sm">
+          The link may be wrong, or the chat is no longer shared.
+        </p>
+      </main>
+    );
+  }
+  return null;
+}
+
+function SharedMessageList({
+  messages,
+}: {
+  messages: Array<SharedChatMessage>;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      {messages.map((message) => {
+        const text = message.parts
+          .filter((p) => p.type === "text")
+          .map((p) => p.text)
+          .join("\n\n");
+        if (!text) return null;
+        return (
+          <Message key={message.id} from={message.role}>
+            <MessageContent>
+              <MessageResponse>{text}</MessageResponse>
+            </MessageContent>
+          </Message>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * Public read-only share view. No session (middleware allows /shared/*); the
  * api's @Public endpoint + runAsPublic RLS is the boundary. Renders only the
@@ -47,25 +188,7 @@ export default function SharedChatPage({
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["shared", id],
-    queryFn: async () => {
-      let title: string | null = null;
-      const messages = await paginateAllMessages<SharedChatMessage>(
-        (beforeSeq) =>
-          fetchSharedChat(id, {
-            limit: CHAT_HISTORY_PAGE_SIZE,
-            ...(beforeSeq !== undefined ? { beforeSeq } : {}),
-          }).then((page) => {
-            title = page.title;
-            return page;
-          }),
-        // Uncapped walk: faithfulness is the invariant for a share (see the
-        // api-side removal of the message cap) — per-request cost is already
-        // bounded by the page size, so the OWNER page's 20-page safety valve
-        // must not silently truncate the shared conversation on top of that.
-        Infinity,
-      );
-      return { title, messages };
-    },
+    queryFn: () => fetchAllSharedMessages(id),
     retry: false,
   });
 
@@ -75,22 +198,9 @@ export default function SharedChatPage({
   const { data: me, isLoading: meLoading } = useMeOptional();
   const forkMutation = useForkSharedChat();
 
-  if (isLoading) {
+  if (isLoading || isError || !data) {
     return (
-      <main className="mx-auto max-w-3xl px-4 py-16 text-center">
-        <p className="text-muted-foreground text-sm">Loading…</p>
-      </main>
-    );
-  }
-
-  if (isError || !data) {
-    return (
-      <main className="mx-auto max-w-3xl px-4 py-16 text-center">
-        <h1 className="text-lg font-medium">This chat isn’t available</h1>
-        <p className="text-muted-foreground mt-2 text-sm">
-          The link may be wrong, or the chat is no longer shared.
-        </p>
-      </main>
+      <SharedChatStatus isLoading={isLoading} hasError={isError || !data} />
     );
   }
 
@@ -98,53 +208,19 @@ export default function SharedChatPage({
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-8">
-      <header className="flex items-center justify-between gap-4 border-b pb-4">
-        <div>
-          <h1 className="text-xl font-semibold">
-            {data.title ?? UNTITLED_CHAT_LABEL}
-          </h1>
-          <p className="text-muted-foreground mt-1 text-xs">
-            Shared conversation · read-only
-          </p>
-        </div>
-        {!meLoading &&
-          (me ? (
-            <Button
-              size="sm"
-              disabled={forkMutation.isPending}
-              onClick={() =>
-                forkMutation.mutate(id, {
-                  onSuccess: (forked) => router.push(`/chat/${forked.id}`),
-                })
-              }
-            >
-              {forkMutation.isPending ? "Forking…" : "Fork to continue"}
-            </Button>
-          ) : (
-            <a
-              href={loginHref}
-              className={buttonVariants({ variant: "outline", size: "sm" })}
-            >
-              Log in to continue
-            </a>
-          ))}
-      </header>
-      <div className="flex flex-col gap-4">
-        {data.messages.map((message) => {
-          const text = message.parts
-            .filter((p) => p.type === "text")
-            .map((p) => p.text)
-            .join("\n\n");
-          if (!text) return null;
-          return (
-            <Message key={message.id} from={message.role}>
-              <MessageContent>
-                <MessageResponse>{text}</MessageResponse>
-              </MessageContent>
-            </Message>
-          );
-        })}
-      </div>
+      <ShareChatHeader
+        title={data.title}
+        meLoading={meLoading}
+        isAuthenticated={Boolean(me)}
+        loginHref={loginHref}
+        forkPending={forkMutation.isPending}
+        onFork={() =>
+          forkMutation.mutate(id, {
+            onSuccess: (forked) => router.push(`/chat/${forked.id}`),
+          })
+        }
+      />
+      <SharedMessageList messages={data.messages} />
     </main>
   );
 }

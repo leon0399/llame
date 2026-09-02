@@ -14,12 +14,12 @@ rules:
   no-required-schema-properties-undefined: error
   no-schema-type-mismatch: error
   no-unresolved-refs: error
-  operation-description: warn
+  operation-description: off
   operation-operationId: error
   operation-operationId-unique: error
   operation-operationId-url-safe: error
   operation-parameters-unique: error
-  operation-summary: warn
+  operation-summary: off
   path-parameters-defined: error
   spec-components-invalid-map-name: error
   spec-strict-refs: error

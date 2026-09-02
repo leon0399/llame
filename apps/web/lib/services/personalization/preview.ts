@@ -25,14 +25,19 @@ import type { Personalization } from "./types";
  * in `apps/api/src/instance-config/prompt-loader.ts`.
  */
 
-const ESCAPES: Record<string, string> = {
+const ESCAPES = {
   "&": "&amp;",
   "<": "&lt;",
   ">": "&gt;",
-};
+} satisfies Record<string, string>;
 
 const escapeStrict = (value: string) =>
-  value.replace(/[&<>]/g, (character) => ESCAPES[character] ?? character);
+  value.replaceAll(/[&<>]/g, (character) => {
+    // SAFETY: the regex this replaces on only ever matches "&", "<", or
+    // ">" — exactly `ESCAPES`'s keys — so this narrows the match to one
+    // guaranteed to be present.
+    return ESCAPES[character as keyof typeof ESCAPES] ?? character;
+  });
 
 /**
  * The single omission rule, mirroring the loader's: trim, and treat a value
@@ -65,6 +70,9 @@ export type PersonalizationPreview = {
   empty: boolean;
 };
 
+const rendered = (entry: [string, string | undefined]) =>
+  entry[1] !== undefined;
+
 export function buildPersonalizationPreview(
   personalization: Personalization,
   account: PreviewAccount | undefined,
@@ -93,9 +101,6 @@ export function buildPersonalizationPreview(
       projectValue(personalization.responsePreferences, sanitizeAuthoredText),
     ],
   ];
-
-  const rendered = (entry: [string, string | undefined]) =>
-    entry[1] !== undefined;
 
   // Each conditional in the template is Handlebars-standalone, so a rendered
   // entry contributes its own line and an absent one contributes nothing. The

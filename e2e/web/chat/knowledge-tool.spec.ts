@@ -22,6 +22,7 @@ import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import {
   expect,
   expectProtectedShell,
+  hasStableId,
   loginViaUi,
   revokeKnowledgeSpaceFixtureAccess,
   test,
@@ -66,8 +67,8 @@ async function provisionKnowledgeSpace(
       `Knowledge provisioning failed: ${response.status()} ${await response.text()}`,
     );
   }
-  const body = (await response.json()) as { id?: unknown };
-  if (typeof body.id !== "string") {
+  const body: unknown = await response.json();
+  if (!hasStableId(body)) {
     throw new Error("Knowledge provisioning returned no stable ID");
   }
   return {
@@ -144,8 +145,11 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       { headers: { Authorization: `Bearer ${account.token}` } },
     );
     expect(listResponse.ok()).toBe(true);
+    // SAFETY: this is the api's own knowledge-spaces list endpoint (under
+    // test here), whose paginated-collection response shape is fixed by its
+    // own OpenAPI contract.
     const collection = (await listResponse.json()) as {
-      items: KnowledgeSpaceResponse[];
+      items: Array<KnowledgeSpaceResponse>;
       nextCursor: string | null;
     };
     expect(collection.items).toEqual(
@@ -183,7 +187,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
         `${apiUrl}/api/v1/knowledge-spaces/${second.id}`,
         {
           headers: { Authorization: `Bearer ${freshAccount.token}` },
-          ...(method === "patch" ? { data: { name: "Stolen" } } : {}),
+          data: method === "patch" ? { name: "Stolen" } : undefined,
         },
       );
       expect(response.status()).toBe(404);
@@ -406,10 +410,10 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       account,
       "Ranged acceptance",
     );
-    const longNote = Array.from({ length: 2_005 }, (_, index) => {
+    const longNote = Array.from({ length: 2005 }, (_, index) => {
       if (index === 2) return `${pagedQuery} first passage`;
-      if (index === 1_102) return `${pagedQuery} second passage`;
-      if (index === 2_002) return `${pagedQuery} final passage`;
+      if (index === 1102) return `${pagedQuery} second passage`;
+      if (index === 2002) return `${pagedQuery} final passage`;
       return "x";
     }).join("\n");
     writeNote(rangedSpace, longNotePath, `${longNote}\n`);
@@ -573,10 +577,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       baseURL:
         process.env.NEXT_PUBLIC_WEB_URL ??
         `http://localhost:${process.env.E2E_WEB_PORT ?? "4300"}`,
-      locale:
-        typeof testInfo.project.use.locale === "string"
-          ? testInfo.project.use.locale
-          : undefined,
+      locale: testInfo.project.use.locale,
     });
     const freshPage = await context.newPage();
     try {

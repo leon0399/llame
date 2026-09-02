@@ -35,10 +35,10 @@ export const CHAT_HISTORY_MAX_PAGES = 20;
  * reintroduce truncation one layer up).
  */
 export async function paginateAllMessages<T extends { seq: number }>(
-  fetchPage: (beforeSeq: number | undefined) => Promise<{ messages: T[] }>,
+  fetchPage: (beforeSeq: number | undefined) => Promise<{ messages: Array<T> }>,
   maxPages: number = CHAT_HISTORY_MAX_PAGES,
-): Promise<T[]> {
-  const all: T[] = [];
+): Promise<Array<T>> {
+  const all: Array<T> = [];
   let beforeSeq: number | undefined;
 
   for (let page = 0; page < maxPages; page++) {

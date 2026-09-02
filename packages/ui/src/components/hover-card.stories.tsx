@@ -47,7 +47,7 @@ async function findVisibleHoverCard() {
       }
       const styles = window.getComputedStyle(hoverCard);
       expect(styles.animationName).not.toBe("none");
-      expect(parseFloat(styles.animationDuration)).toBeGreaterThan(0);
+      expect(Number.parseFloat(styles.animationDuration)).toBeGreaterThan(0);
     },
     // The default open delay leaves little headroom under the
     // testing-library default (1000ms) once browser rendering is factored

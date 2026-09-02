@@ -1,23 +1,35 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
 
-const getMemory = vi.hoisted(() => vi.fn());
-const authenticatedFetch = vi.hoisted(() => vi.fn());
-const createAuthenticatedBrowserFetch = vi.hoisted(() => vi.fn());
-const useQuery = vi.hoisted(() => vi.fn());
-
-vi.mock("../../api/generated/memory/memory", () => ({ getMemory }));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch,
-}));
-vi.mock("@tanstack/react-query", () => ({ useQuery }));
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
 
 import { fetchMemory, memoryQueryKeys, useMemoryQuery } from "./queries";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
+import {
+  newTestQueryClient,
+  wrapperWithClient,
+} from "../../test-support/query-client";
 
-createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+let fetchMock: Mock<typeof fetch>;
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
 
 afterEach(() => {
-  vi.clearAllMocks();
-  createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+  vi.unstubAllGlobals();
 });
 
 describe("memory query keys", () => {
@@ -30,22 +42,26 @@ describe("memory query keys", () => {
 describe("memory query transport", () => {
   it("fetches the caller's memory through the generated authenticated endpoint", async () => {
     const response = { shareRecentChats: false };
-    getMemory.mockResolvedValue(response);
+    fetchMock.mockResolvedValue(jsonResponse(response));
 
     await expect(fetchMemory()).resolves.toEqual(response);
 
-    expect(getMemory).toHaveBeenCalledWith(undefined, authenticatedFetch);
-    expect(createAuthenticatedBrowserFetch).toHaveBeenCalledWith(
-      globalThis.fetch,
-    );
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("GET");
+    expect(new URL(request.url).pathname).toBe("/api/v1/me/memory");
+    expect(request.credentials).toBe("include");
   });
 
-  it("preserves the memory query key and default query options", () => {
-    useMemoryQuery();
+  it("surfaces the caller's memory under the memoryQueryKeys.mine() key", async () => {
+    const response = { shareRecentChats: true };
+    fetchMock.mockResolvedValue(jsonResponse(response));
+    const queryClient = newTestQueryClient();
 
-    expect(useQuery).toHaveBeenCalledWith({
-      queryKey: memoryQueryKeys.mine(),
-      queryFn: fetchMemory,
+    const { result } = renderHook(() => useMemoryQuery(), {
+      wrapper: wrapperWithClient(queryClient),
     });
+
+    await waitFor(() => expect(result.current.data).toEqual(response));
+    expect(queryClient.getQueryData(memoryQueryKeys.mine())).toEqual(response);
   });
 });

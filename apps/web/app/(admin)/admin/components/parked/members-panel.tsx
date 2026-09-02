@@ -11,16 +11,6 @@
 
 import { useState } from "react";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@workspace/ui/components/alert-dialog";
 import { Button } from "@workspace/ui/components/button";
 import {
   Card,
@@ -50,9 +40,55 @@ import type {
 import { isGrantableRole } from "@/lib/services/org-units/types";
 
 import { ApiErrorMessage } from "../../organizations/components/api-error-message";
+import {
+  ConfirmOwnerGrantDialog,
+  MembershipRowDialogs,
+} from "./member-confirm-dialogs";
 import { RolePicker, roleLabel } from "./role-picker";
 
-function GrantMembershipForm({ orgUnitId }: { orgUnitId: string }) {
+function GrantMembershipRow({
+  userId,
+  onUserIdChange,
+  role,
+  onRoleChange,
+  onSubmit,
+  submitDisabled,
+}: {
+  userId: string;
+  onUserIdChange: (userId: string) => void;
+  role: GrantableRole;
+  onRoleChange: (role: GrantableRole) => void;
+  onSubmit: () => void;
+  submitDisabled: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+      <div className="flex-1 space-y-1">
+        <Label htmlFor="grant-user-id">User ID</Label>
+        <Input
+          id="grant-user-id"
+          value={userId}
+          onChange={(e) => onUserIdChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onSubmit();
+            }
+          }}
+          placeholder="User id"
+        />
+      </div>
+      <RolePicker value={role} onChange={onRoleChange} />
+      <Button onClick={onSubmit} disabled={submitDisabled}>
+        Grant
+      </Button>
+    </div>
+  );
+}
+
+/** The form's field state and dual immediate/confirm-first submit — split
+ *  out so `GrantMembershipForm` composes only markup. */
+function useGrantMembershipForm(orgUnitId: string) {
   const [userId, setUserId] = useState("");
   const [role, setRole] = useState<GrantableRole>("member");
   const [confirmOwnerGrant, setConfirmOwnerGrant] = useState(false);
@@ -67,9 +103,6 @@ function GrantMembershipForm({ orgUnitId }: { orgUnitId: string }) {
     );
   };
 
-  // Grant/transfer `owner` is ownership-affecting — confirm before sending
-  // (spec: "Destructive/ownership-affecting actions… require an explicit
-  // confirmation naming the consequence").
   const handleSubmit = () => {
     if (!userId.trim()) return;
     if (role === "owner") {
@@ -79,69 +112,133 @@ function GrantMembershipForm({ orgUnitId }: { orgUnitId: string }) {
     submit();
   };
 
+  return {
+    userId,
+    setUserId,
+    role,
+    setRole,
+    grant,
+    confirmOwnerGrant,
+    setConfirmOwnerGrant,
+    submit,
+    handleSubmit,
+  };
+}
+
+function GrantMembershipForm({ orgUnitId }: { orgUnitId: string }) {
+  const {
+    userId,
+    setUserId,
+    role,
+    setRole,
+    grant,
+    confirmOwnerGrant,
+    setConfirmOwnerGrant,
+    submit,
+    handleSubmit,
+  } = useGrantMembershipForm(orgUnitId);
+
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-        <div className="flex-1 space-y-1">
-          <Label htmlFor="grant-user-id">User ID</Label>
-          <Input
-            id="grant-user-id"
-            value={userId}
-            onChange={(e) => setUserId(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleSubmit();
-              }
-            }}
-            placeholder="User id"
-          />
-        </div>
-        <RolePicker value={role} onChange={setRole} />
-        <Button
-          onClick={handleSubmit}
-          disabled={!userId.trim() || grant.isPending}
-        >
-          Grant
-        </Button>
-      </div>
+      <GrantMembershipRow
+        userId={userId}
+        onUserIdChange={setUserId}
+        role={role}
+        onRoleChange={setRole}
+        onSubmit={handleSubmit}
+        submitDisabled={!userId.trim() || grant.isPending}
+      />
       <ApiErrorMessage error={grant.error} />
 
-      <AlertDialog open={confirmOwnerGrant} onOpenChange={setConfirmOwnerGrant}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Grant ownership?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This makes “{userId}” a co-owner of this unit, with full control
-              including the ability to delete it.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                submit();
-                setConfirmOwnerGrant(false);
-              }}
-            >
-              Grant ownership
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmOwnerGrantDialog
+        open={confirmOwnerGrant}
+        onOpenChange={setConfirmOwnerGrant}
+        userId={userId}
+        onConfirm={() => {
+          submit();
+          setConfirmOwnerGrant(false);
+        }}
+      />
     </div>
   );
 }
 
-function MembershipRow({
+/** The role control — a live `RolePicker`, or a disabled label when the
+ *  role isn't settable (service_account, D3: no picker to cast it into). */
+function MembershipRoleControl({
   membership,
-  orgUnitId,
-  isSelf,
+  onChange,
+  disabled,
 }: {
+  membership: MembershipResponse;
+  onChange: (role: GrantableRole) => void;
+  disabled: boolean;
+}) {
+  if (!isGrantableRole(membership.role)) {
+    return (
+      <Button variant="outline" size="sm" disabled>
+        {roleLabel(membership.role)}
+      </Button>
+    );
+  }
+  return (
+    <RolePicker
+      value={membership.role}
+      onChange={onChange}
+      disabled={disabled}
+    />
+  );
+}
+
+type MembershipRowProps = {
   membership: MembershipResponse;
   orgUnitId: string;
   isSelf: boolean;
+};
+
+function MembershipRowSummary({
+  membership,
+  isSelf,
+  onChangeRole,
+  changeRolePending,
+  onRequestRevoke,
+}: {
+  membership: MembershipResponse;
+  isSelf: boolean;
+  onChangeRole: (role: GrantableRole) => void;
+  changeRolePending: boolean;
+  onRequestRevoke: () => void;
 }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex min-w-0 flex-col">
+        <span className="truncate text-sm font-medium">
+          {membership.userId}
+          {isSelf && (
+            <span className="ml-1.5 text-muted-foreground">(you)</span>
+          )}
+        </span>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <MembershipRoleControl
+          membership={membership}
+          onChange={onChangeRole}
+          disabled={changeRolePending}
+        />
+        <Button variant="ghost" size="sm" onClick={onRequestRevoke}>
+          {isSelf ? "Leave" : "Revoke"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** The row's mutations, confirm-dialog open state, and role-change gating —
+ *  split out so `MembershipRow` composes only markup. */
+function useMembershipRowState(
+  membership: MembershipResponse,
+  orgUnitId: string,
+) {
   const changeRole = useChangeMembershipRole();
   const revoke = useRevokeMembership();
   const [confirmOwnerRole, setConfirmOwnerRole] = useState(false);
@@ -157,129 +254,100 @@ function MembershipRow({
     changeRole.mutate({ orgUnitId, userId: membership.userId, role });
   };
 
+  return {
+    changeRole,
+    revoke,
+    confirmOwnerRole,
+    setConfirmOwnerRole,
+    confirmRevoke,
+    setConfirmRevoke,
+    applyRole,
+  };
+}
+
+function MembershipRow({ membership, orgUnitId, isSelf }: MembershipRowProps) {
+  const {
+    changeRole,
+    revoke,
+    confirmOwnerRole,
+    setConfirmOwnerRole,
+    confirmRevoke,
+    setConfirmRevoke,
+    applyRole,
+  } = useMembershipRowState(membership, orgUnitId);
+
   return (
     <div
       className="flex flex-col gap-1 py-2"
       data-testid={`membership-row-${membership.userId}`}
     >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-col">
-          <span className="truncate text-sm font-medium">
-            {membership.userId}
-            {isSelf && (
-              <span className="ml-1.5 text-muted-foreground">(you)</span>
-            )}
-          </span>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {isGrantableRole(membership.role) ? (
-            <RolePicker
-              value={membership.role}
-              onChange={applyRole}
-              disabled={changeRole.isPending}
-            />
-          ) : (
-            // service_account is not a settable role (D3) — no picker to
-            // cast it into.
-            <Button variant="outline" size="sm" disabled>
-              {roleLabel(membership.role)}
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setConfirmRevoke(true)}
-          >
-            {isSelf ? "Leave" : "Revoke"}
-          </Button>
-        </div>
-      </div>
+      <MembershipRowSummary
+        membership={membership}
+        isSelf={isSelf}
+        onChangeRole={applyRole}
+        changeRolePending={changeRole.isPending}
+        onRequestRevoke={() => setConfirmRevoke(true)}
+      />
       {/* The owner-role change has its own confirmation dialog (below) that
           surfaces changeRole.error inline; every other role change applies
           immediately, so its error must be shown here instead or it's never
           seen. */}
       {!confirmOwnerRole && <ApiErrorMessage error={changeRole.error} />}
 
-      <AlertDialog
-        open={confirmOwnerRole}
-        onOpenChange={(open) => {
-          setConfirmOwnerRole(open);
-          // Clear a previous attempt's error both on open (so reopening
-          // doesn't flash stale copy before this attempt has even run) and
-          // on close (so cancelling out of a failed owner-grant attempt
-          // doesn't leak that error into the row's own ApiErrorMessage,
-          // which would then read as if the last NON-owner change failed).
-          changeRole.reset();
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Make owner?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This grants full control of this unit, including deletion, to{" "}
-              {membership.userId}.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <ApiErrorMessage error={changeRole.error} />
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                // Radix closes AlertDialog.Action on click unless prevented —
-                // this dialog must stay open on failure so ApiErrorMessage
-                // above can show it; only onSuccess below closes it.
-                e.preventDefault();
-                changeRole.mutate(
-                  { orgUnitId, userId: membership.userId, role: "owner" },
-                  { onSuccess: () => setConfirmOwnerRole(false) },
-                );
-              }}
-            >
-              Make owner
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <MembershipRowDialogs
+        membership={membership}
+        orgUnitId={orgUnitId}
+        isSelf={isSelf}
+        confirmOwnerRole={confirmOwnerRole}
+        onConfirmOwnerRoleChange={setConfirmOwnerRole}
+        changeRole={changeRole}
+        confirmRevoke={confirmRevoke}
+        onConfirmRevokeChange={setConfirmRevoke}
+        revoke={revoke}
+      />
+    </div>
+  );
+}
 
-      <AlertDialog
-        open={confirmRevoke}
-        onOpenChange={(open) => {
-          setConfirmRevoke(open);
-          if (open) revoke.reset();
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {isSelf ? "Leave this unit?" : `Revoke ${membership.userId}?`}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {isSelf
-                ? "You’ll lose your role and access here. An admin or owner can re-add you later."
-                : `This removes ${membership.userId}'s role and access on this unit.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <ApiErrorMessage error={revoke.error} />
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                // Radix closes AlertDialog.Action on click unless prevented —
-                // this dialog must stay open on failure so ApiErrorMessage
-                // above can show it; only onSuccess below closes it.
-                e.preventDefault();
-                revoke.mutate(
-                  { orgUnitId, userId: membership.userId },
-                  { onSuccess: () => setConfirmRevoke(false) },
-                );
-              }}
-              className="bg-destructive text-white hover:bg-destructive/90"
-            >
-              {isSelf ? "Leave" : "Revoke"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+function myRoleDescription(
+  myRoleQuery: ReturnType<typeof useMyEffectiveRoleQuery>,
+  viaUnit: OrgUnitResponse | undefined,
+): string {
+  if (myRoleQuery.isLoading) return "Loading your role…";
+  if (!myRoleQuery.data) return "You have no role on this unit.";
+  const inherited = myRoleQuery.data.inherited
+    ? ` (inherited from ${viaUnit?.name ?? "an ancestor"})`
+    : "";
+  return `Your role here: ${roleLabel(myRoleQuery.data.role)}${inherited}`;
+}
+
+function MembershipRoster({
+  membershipsQuery,
+  orgUnitId,
+  myUserId,
+}: {
+  membershipsQuery: ReturnType<typeof useMembershipsQuery>;
+  orgUnitId: string;
+  myUserId: string | undefined;
+}) {
+  return (
+    <div className="divide-y">
+      {membershipsQuery.isLoading && (
+        <p className="text-sm text-muted-foreground">Loading roster…</p>
+      )}
+      {!membershipsQuery.isLoading && membershipsQuery.data?.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No members visible here yet.
+        </p>
+      )}
+      {membershipsQuery.data?.map((membership) => (
+        <MembershipRow
+          key={membership.id}
+          membership={membership}
+          orgUnitId={orgUnitId}
+          isSelf={membership.userId === myUserId}
+        />
+      ))}
     </div>
   );
 }
@@ -294,7 +362,7 @@ export function MembersPanel({
   units,
 }: {
   orgUnitId: string;
-  units: OrgUnitResponse[];
+  units: Array<OrgUnitResponse>;
 }) {
   const { data: me } = useMe();
   const unit = units.find((candidate) => candidate.id === orgUnitId);
@@ -310,39 +378,16 @@ export function MembersPanel({
       <CardHeader>
         <CardTitle>Members{unit ? ` — ${unit.name}` : ""}</CardTitle>
         <CardDescription>
-          {myRoleQuery.isLoading
-            ? "Loading your role…"
-            : myRoleQuery.data
-              ? `Your role here: ${roleLabel(myRoleQuery.data.role)}${
-                  myRoleQuery.data.inherited
-                    ? ` (inherited from ${viaUnit?.name ?? "an ancestor"})`
-                    : ""
-                }`
-              : "You have no role on this unit."}
+          {myRoleDescription(myRoleQuery, viaUnit)}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <GrantMembershipForm orgUnitId={orgUnitId} />
-
-        <div className="divide-y">
-          {membershipsQuery.isLoading && (
-            <p className="text-sm text-muted-foreground">Loading roster…</p>
-          )}
-          {!membershipsQuery.isLoading &&
-            membershipsQuery.data?.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                No members visible here yet.
-              </p>
-            )}
-          {membershipsQuery.data?.map((membership) => (
-            <MembershipRow
-              key={membership.id}
-              membership={membership}
-              orgUnitId={orgUnitId}
-              isSelf={membership.userId === me?.id}
-            />
-          ))}
-        </div>
+        <MembershipRoster
+          membershipsQuery={membershipsQuery}
+          orgUnitId={orgUnitId}
+          myUserId={me?.id}
+        />
       </CardContent>
     </Card>
   );

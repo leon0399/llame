@@ -1,11 +1,10 @@
 import { spawnSync, type SpawnSyncOptions } from "node:child_process";
 import fs from "node:fs";
 import { createServer, type Server } from "node:http";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const repoRoot = resolve(import.meta.dirname, "../..");
 const rlsFunctionOwnerSqlPath = resolve(
   repoRoot,
   "docker/postgres/rls-function-owner.sql",
@@ -43,7 +42,7 @@ process.once("SIGTERM", requestShutdown);
 
 function run(
   command: string,
-  args: string[],
+  args: Array<string>,
   options: SpawnSyncOptions = {},
 ): void {
   const result = spawnSync(command, args, {
@@ -58,7 +57,11 @@ function run(
   }
 }
 
-function runWithInput(command: string, args: string[], input: string): void {
+function runWithInput(
+  command: string,
+  args: Array<string>,
+  input: string,
+): void {
   run(command, args, {
     input,
     stdio: ["pipe", "inherit", "inherit"],
@@ -276,7 +279,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
+try {
+  await main();
+} catch (error: unknown) {
   console.error(error);
   process.exit(1);
-});
+}

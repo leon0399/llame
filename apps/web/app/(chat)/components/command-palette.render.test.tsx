@@ -17,36 +17,84 @@
  * appearing/clearing once there's a query. Mirrors chat-item.test.tsx's
  * render-test harness. The existing command-palette.test.ts only
  * covers the pure `isPaletteToggle` matcher — this covers the dialog wiring.
+ *
+ * useChatsQuery/useChatSearchQuery and useDebouncedValue run for real here —
+ * GET /api/v1/chats and GET /api/v1/chats/search hit a stubbed
+ * globalThis.fetch, routed by pathname, and the search assertions wait out
+ * the real 300ms debounce via findByText rather than assuming a synchronous
+ * query. Only next/navigation (no in-process seam) is mocked.
  */
 
 import * as React from "react";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { Mock } from "vitest";
+
+import type {
+  ChatListItemResponse,
+  ChatSearchResultResponse,
+} from "@/lib/api/generated/models";
+import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
 
 const routerPushMock = vi.fn();
-const useChatSearchQueryMock = vi.fn();
-const useChatsQueryMock = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPushMock }),
 }));
 
-vi.mock("@/lib/hooks/use-debounced-value", () => ({
-  // No real timers in this test — drive the query hook straight off input.
-  useDebouncedValue: (value: string) => value,
-}));
-
-vi.mock("@/lib/services/chat/search", () => ({
-  MIN_SEARCH_LENGTH: 2,
-  useChatSearchQuery: (q: string) => useChatSearchQueryMock(q),
-}));
-
-vi.mock("@/lib/services/chat/queries", () => ({
-  useChatsQuery: () => useChatsQueryMock(),
-}));
-
 import { CommandPaletteProvider, useCommandPalette } from "./command-palette";
+
+function chatListItemFixture(
+  overrides: Pick<ChatListItemResponse, "id" | "title"> &
+    Partial<ChatListItemResponse>,
+): ChatListItemResponse {
+  return {
+    ownerUserId: "user-1",
+    visibility: "private",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    projectId: null,
+    lastMessage: null,
+    ...overrides,
+  };
+}
+
+let fetchMock: Mock<typeof fetch>;
+// Per-test-overridable handlers for the two endpoints the palette queries.
+let chatsHandler: () => Promise<Response>;
+let searchHandler: (q: string) => Promise<Response>;
+
+function stubPaletteNetwork() {
+  fetchMock = stubFetch();
+  chatsHandler = () =>
+    Promise.resolve(jsonResponse<Array<ChatListItemResponse>>([]));
+  searchHandler = () =>
+    Promise.resolve(
+      jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
+        results: [],
+      }),
+    );
+  fetchMock.mockImplementation(async (input) => {
+    const request = input instanceof Request ? input : new Request(input);
+    const { pathname, searchParams } = new URL(request.url);
+    if (pathname === "/api/v1/chats/search") {
+      return searchHandler(searchParams.get("q") ?? "");
+    }
+    if (pathname === "/api/v1/chats") return chatsHandler();
+    throw new Error(`unrouted fetch in test: ${request.method} ${pathname}`);
+  });
+}
 
 beforeAll(() => {
   // jsdom doesn't implement the Pointer Events capture API Base UI's Dialog
@@ -81,10 +129,15 @@ beforeAll(() => {
   }
 });
 
+beforeEach(() => {
+  stubPaletteNetwork();
+});
+
 afterEach(() => {
   routerPushMock.mockReset();
-  useChatSearchQueryMock.mockReset();
-  useChatsQueryMock.mockReset();
+  // NOT vi.unstubAllGlobals() — beforeAll's ResizeObserver/pointer-capture
+  // stubs must survive across tests; beforeEach's stubFetch() already
+  // replaces fetch fresh each test.
   cleanup();
 });
 
@@ -98,10 +151,15 @@ function Trigger() {
 }
 
 function renderPalette() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <CommandPaletteProvider>
-      <Trigger />
-    </CommandPaletteProvider>,
+    <QueryClientProvider client={queryClient}>
+      <CommandPaletteProvider>
+        <Trigger />
+      </CommandPaletteProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -115,13 +173,47 @@ async function waitForDeferredAction() {
   await new Promise((resolve) => setTimeout(resolve, 250));
 }
 
+describe("useCommandPalette", () => {
+  it("throws when called outside a CommandPaletteProvider", () => {
+    // React logs its own error-boundary console.error for this — silence it,
+    // it's the assertion, not a leak.
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    expect(() => render(<Trigger />)).toThrow(
+      "useCommandPalette must be used within CommandPaletteProvider",
+    );
+    consoleError.mockRestore();
+  });
+});
+
+describe("CommandPaletteProvider — ⌘K / Ctrl+K shortcut", () => {
+  it("opens the palette on Ctrl+K and does not react to a held-repeat", async () => {
+    renderPalette();
+    expect(
+      screen.queryByPlaceholderText("Search chats, projects, memories…"),
+    ).toBeNull();
+
+    fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+
+    expect(
+      await screen.findByPlaceholderText("Search chats, projects, memories…"),
+    ).toBeTruthy();
+  });
+
+  it("ignores a repeat keydown (a held chord) so it does not flicker the toggle", () => {
+    renderPalette();
+
+    fireEvent.keyDown(document, { key: "k", ctrlKey: true, repeat: true });
+
+    expect(
+      screen.queryByPlaceholderText("Search chats, projects, memories…"),
+    ).toBeNull();
+  });
+});
+
 describe("CommandPaletteProvider — design-matching visual pass", () => {
   it("shows Actions and an Esc hint while idle", async () => {
-    useChatSearchQueryMock.mockReturnValue({
-      data: undefined,
-      isFetching: false,
-    });
-    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
     const user = userEvent.setup();
     renderPalette();
 
@@ -132,37 +224,29 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
   });
 
   it("shows recent chats on open with no input typed, with the same lastMessage excerpt as the chat list", async () => {
-    useChatSearchQueryMock.mockReturnValue({
-      data: undefined,
-      isFetching: false,
-    });
-    useChatsQueryMock.mockReturnValue({
-      data: {
-        pages: [
-          [
-            {
-              id: "chat-1",
-              title: "Recent chat",
-              lastMessage: "how's it going",
-            },
-          ],
-        ],
-      },
-    });
+    chatsHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<ChatListItemResponse>>([
+          chatListItemFixture({
+            id: "chat-1",
+            title: "Recent chat",
+            lastMessage: "how's it going",
+          }),
+        ]),
+      );
     const user = userEvent.setup();
     renderPalette();
 
     await user.click(screen.getByRole("button", { name: "Search" }));
 
-    expect(screen.getByText("Recent chat")).toBeTruthy();
+    expect(await screen.findByText("Recent chat")).toBeTruthy();
     expect(screen.getByText("how's it going")).toBeTruthy();
   });
 
   it("keeps Actions searchable past MIN_SEARCH_LENGTH — typing 'sett' still finds and runs Settings", async () => {
-    // Content search runs in parallel once searching; keep it empty so the
-    // assertion is purely about Actions surviving cmdk's own fuzzy filter.
-    useChatSearchQueryMock.mockReturnValue({ data: [], isFetching: false });
-    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    // Content search runs in parallel once searching (default empty
+    // searchHandler) so the assertion is purely about Actions surviving
+    // cmdk's own fuzzy filter.
     const user = userEvent.setup();
     renderPalette();
 
@@ -179,18 +263,19 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
   });
 
   it("renders grouped chat results with a Chat kind badge and navigates + closes on select", async () => {
-    useChatSearchQueryMock.mockReturnValue({
-      data: [
-        {
-          id: "chat-1",
-          title: "My chat",
-          snippet: "hello world",
-          updatedAt: "",
-        },
-      ],
-      isFetching: false,
-    });
-    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    searchHandler = () =>
+      Promise.resolve(
+        jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
+          results: [
+            {
+              id: "chat-1",
+              title: "My chat",
+              snippet: "hello world",
+              updatedAt: "",
+            },
+          ],
+        }),
+      );
     const user = userEvent.setup();
     renderPalette();
 
@@ -220,18 +305,19 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
   });
 
   it("keeps the query and results after closing via a selection, so reopening lands on the same search", async () => {
-    useChatSearchQueryMock.mockReturnValue({
-      data: [
-        {
-          id: "chat-1",
-          title: "My chat",
-          snippet: "hello world",
-          updatedAt: "",
-        },
-      ],
-      isFetching: false,
-    });
-    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    searchHandler = () =>
+      Promise.resolve(
+        jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
+          results: [
+            {
+              id: "chat-1",
+              title: "My chat",
+              snippet: "hello world",
+              updatedAt: "",
+            },
+          ],
+        }),
+      );
     const user = userEvent.setup();
     renderPalette();
 
@@ -247,6 +333,9 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
     // land right back on the same query/results to try the next one.
     await user.click(screen.getByRole("button", { name: "Search" }));
 
+    // SAFETY: this placeholder is only ever rendered on the palette's
+    // search `<input>`, so the query result is always an `HTMLInputElement`
+    // — `getByPlaceholderText` itself only types its result as `HTMLElement`.
     expect(
       (
         screen.getByPlaceholderText(
@@ -257,15 +346,44 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
     expect(screen.getByText("My chat")).toBeTruthy();
   });
 
+  it("New Chat action navigates home", async () => {
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.click(screen.getByText("New chat"));
+    await waitForDeferredAction();
+
+    expect(routerPushMock).toHaveBeenCalledWith("/");
+  });
+
+  it("selecting a recent chat navigates to it", async () => {
+    chatsHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<ChatListItemResponse>>([
+          chatListItemFixture({ id: "chat-1", title: "Recent chat" }),
+        ]),
+      );
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.click(await screen.findByText("Recent chat"));
+    await waitForDeferredAction();
+
+    expect(routerPushMock).toHaveBeenCalledWith("/chat/chat-1");
+  });
+
   it("shows a clear button once there's a query, and clears it on click", async () => {
-    useChatSearchQueryMock.mockReturnValue({ data: [], isFetching: false });
-    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
     const user = userEvent.setup();
     renderPalette();
 
     await user.click(screen.getByRole("button", { name: "Search" }));
     expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
 
+    // SAFETY: this placeholder is only ever rendered on the palette's
+    // search `<input>`, so the query result is always an `HTMLInputElement`
+    // — `getByPlaceholderText` itself only types its result as `HTMLElement`.
     const input = screen.getByPlaceholderText(
       "Search chats, projects, memories…",
     ) as HTMLInputElement;
@@ -294,18 +412,19 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
  */
 describe("CommandPaletteProvider — #171 server-result filtering", () => {
   it("surfaces a content-only match (query absent from title/snippet — cmdk's own filter would score this 0 and hide it)", async () => {
-    useChatSearchQueryMock.mockReturnValue({
-      data: [
-        {
-          id: "chat-1",
-          title: "Meeting Notes",
-          snippet: "budget discussion",
-          updatedAt: "",
-        },
-      ],
-      isFetching: false,
-    });
-    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    searchHandler = () =>
+      Promise.resolve(
+        jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
+          results: [
+            {
+              id: "chat-1",
+              title: "Meeting Notes",
+              snippet: "budget discussion",
+              updatedAt: "",
+            },
+          ],
+        }),
+      );
     const user = userEvent.setup();
     renderPalette();
 
@@ -321,18 +440,19 @@ describe("CommandPaletteProvider — #171 server-result filtering", () => {
   });
 
   it("surfaces a content-only match with a Cyrillic query (case- and script-insensitive end-to-end)", async () => {
-    useChatSearchQueryMock.mockReturnValue({
-      data: [
-        {
-          id: "chat-1",
-          title: "Заметки о встрече",
-          snippet: "обсуждение бюджета",
-          updatedAt: "",
-        },
-      ],
-      isFetching: false,
-    });
-    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    searchHandler = () =>
+      Promise.resolve(
+        jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
+          results: [
+            {
+              id: "chat-1",
+              title: "Заметки о встрече",
+              snippet: "обсуждение бюджета",
+              updatedAt: "",
+            },
+          ],
+        }),
+      );
     const user = userEvent.setup();
     renderPalette();
 
@@ -347,18 +467,19 @@ describe("CommandPaletteProvider — #171 server-result filtering", () => {
   });
 
   it("surfaces an exact chat title typed in all-lowercase via the server-results path", async () => {
-    useChatSearchQueryMock.mockReturnValue({
-      data: [
-        {
-          id: "chat-1",
-          title: "Redis Migration Notes",
-          snippet: null,
-          updatedAt: "",
-        },
-      ],
-      isFetching: false,
-    });
-    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    searchHandler = () =>
+      Promise.resolve(
+        jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
+          results: [
+            {
+              id: "chat-1",
+              title: "Redis Migration Notes",
+              snippet: null,
+              updatedAt: "",
+            },
+          ],
+        }),
+      );
     const user = userEvent.setup();
     renderPalette();
 
@@ -372,18 +493,19 @@ describe("CommandPaletteProvider — #171 server-result filtering", () => {
   });
 
   it("surfaces a Cyrillic chat title typed in all-lowercase via the server-results path", async () => {
-    useChatSearchQueryMock.mockReturnValue({
-      data: [
-        {
-          id: "chat-1",
-          title: "Тестовый Чат",
-          snippet: null,
-          updatedAt: "",
-        },
-      ],
-      isFetching: false,
-    });
-    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    searchHandler = () =>
+      Promise.resolve(
+        jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
+          results: [
+            {
+              id: "chat-1",
+              title: "Тестовый Чат",
+              snippet: null,
+              updatedAt: "",
+            },
+          ],
+        }),
+      );
     const user = userEvent.setup();
     renderPalette();
 
@@ -402,24 +524,25 @@ describe("CommandPaletteProvider — #171 server-result filtering", () => {
     // buried, non-adjacent match — verified directly against cmdk's
     // `defaultFilter`). The server intentionally returns them in the
     // OPPOSITE order; a re-ranking client would flip them back.
-    useChatSearchQueryMock.mockReturnValue({
-      data: [
-        {
-          id: "chat-b",
-          title: "Database AB Migration",
-          snippet: null,
-          updatedAt: "",
-        },
-        {
-          id: "chat-a",
-          title: "Ab Testing Plan",
-          snippet: null,
-          updatedAt: "",
-        },
-      ],
-      isFetching: false,
-    });
-    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    searchHandler = () =>
+      Promise.resolve(
+        jsonResponse<{ results: Array<ChatSearchResultResponse> }>({
+          results: [
+            {
+              id: "chat-b",
+              title: "Database AB Migration",
+              snippet: null,
+              updatedAt: "",
+            },
+            {
+              id: "chat-a",
+              title: "Ab Testing Plan",
+              snippet: null,
+              updatedAt: "",
+            },
+          ],
+        }),
+      );
     const user = userEvent.setup();
     renderPalette();
 
@@ -440,20 +563,13 @@ describe("CommandPaletteProvider — #171 server-result filtering", () => {
   });
 
   it("still hides an unrelated recent chat while keeping Actions and a matching recent chat (below MIN_SEARCH_LENGTH, cmdk's own filter still applies)", async () => {
-    useChatSearchQueryMock.mockReturnValue({
-      data: undefined,
-      isFetching: false,
-    });
-    useChatsQueryMock.mockReturnValue({
-      data: {
-        pages: [
-          [
-            { id: "chat-1", title: "Recent Match", lastMessage: null },
-            { id: "chat-2", title: "Totally Different", lastMessage: null },
-          ],
-        ],
-      },
-    });
+    chatsHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<ChatListItemResponse>>([
+          chatListItemFixture({ id: "chat-1", title: "Recent Match" }),
+          chatListItemFixture({ id: "chat-2", title: "Totally Different" }),
+        ]),
+      );
     const user = userEvent.setup();
     renderPalette();
 

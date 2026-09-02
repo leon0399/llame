@@ -25,7 +25,7 @@ export type ChatSearchResult = {
 export async function searchChats(
   q: string,
   signal?: AbortSignal,
-): Promise<ChatSearchResult[]> {
+): Promise<Array<ChatSearchResult>> {
   const { results } = await searchChatsEndpoint(
     { q },
     signal === undefined ? undefined : { signal },

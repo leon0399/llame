@@ -28,7 +28,7 @@ import { getListPinsUrl, listPins, unpinItem } from "./generated/pins/pins";
 
 const generatedRoot = join(import.meta.dirname, "generated");
 
-function generatedTypeScriptFiles(directory: string): string[] {
+function generatedTypeScriptFiles(directory: string): Array<string> {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     return entry.isDirectory()
@@ -39,15 +39,15 @@ function generatedTypeScriptFiles(directory: string): string[] {
   });
 }
 
-function generatedEndpointTypeScriptFiles(directory: string): string[] {
+function generatedEndpointTypeScriptFiles(directory: string): Array<string> {
   return generatedTypeScriptFiles(directory).filter((file) => {
     const source = readFileSync(file, "utf8");
     return /export const \w+ = async \(/.test(source);
   });
 }
 
-function generatedImportSpecifiers(source: string): string[] {
-  const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+function generatedImportSpecifiers(source: string): Array<string> {
+  const code = source.replaceAll(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
   const fromImports = code.matchAll(
     /(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?[\s\S]*?\sfrom\s*["']([^"']+)["']/g,
   );
@@ -266,7 +266,7 @@ describe("generated API contract", () => {
     );
     expect(source).not.toMatch(/(?:NEXT_PUBLIC|process\.env)/);
 
-    const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+    const code = source.replaceAll(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
     expect(code).not.toMatch(
       /\b(?:window|document|navigator|localStorage|sessionStorage)\b/,
     );
@@ -362,7 +362,7 @@ describe("generated API contract", () => {
     );
     for (const source of endpointSources) {
       expect(source).toMatch(
-        /options: RequestInit \| undefined,\n  fetchFn: typeof globalThis\.fetch/,
+        /options: RequestInit \| undefined,\n {2}fetchFn: typeof globalThis\.fetch/,
       );
       expect(source).not.toMatch(/fetchFn\?: typeof globalThis\.fetch/);
     }
@@ -400,7 +400,10 @@ describe("generated API contract", () => {
 
     try {
       await expect(
-        Reflect.apply(listPins, undefined, [undefined, undefined]),
+        (async () => {
+          // @ts-expect-error Generated endpoints require the runtime Fetch policy.
+          return listPins(undefined, undefined);
+        })(),
       ).rejects.toThrow(TypeError);
       expect(globalFetch).not.toHaveBeenCalled();
     } finally {

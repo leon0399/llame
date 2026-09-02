@@ -8,10 +8,18 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
 } from "react";
 
 import { useRouter } from "next/navigation";
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useQueries,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 
 import { toast } from "@workspace/ui/components/sonner";
 
@@ -31,6 +39,8 @@ import {
 const POLL_MS = 4000;
 
 type TrackedRun = { chatId: string; title: string };
+type ActiveEntry = readonly [string, TrackedRun];
+type ToastOptions = NonNullable<Parameters<typeof toast>[1]>;
 
 type ActiveRunsContextValue = {
   trackRun: (runId: string, chatId: string, title: string) => void;
@@ -51,12 +61,20 @@ type ActiveRunsContextValue = {
 
 const ActiveRunsContext = createContext<ActiveRunsContextValue | null>(null);
 
+function hasWindow(): boolean {
+  return "window" in globalThis;
+}
+
+function hasNotificationApi(): boolean {
+  return "Notification" in globalThis;
+}
+
 /** Fire a desktop notification — ONLY in a secure context where it's granted
  *  and the tab is hidden (redundant when visible). No-op otherwise. */
 function desktopNotify(title: string, body: string, onClick: () => void) {
   if (
-    typeof window === "undefined" ||
-    typeof Notification === "undefined" ||
+    !hasWindow() ||
+    !hasNotificationApi() ||
     Notification.permission !== "granted" ||
     !document.hidden
   ) {
@@ -74,89 +92,148 @@ function desktopNotify(title: string, body: string, onClick: () => void) {
   }
 }
 
-export function ActiveRunsProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const router = useRouter();
-  const queryClient = useQueryClient();
+function showRunNotification(
+  kind: "completed" | "failed",
+  title: string,
+  handlers: { onView: () => void },
+): void {
+  // Offer to enable desktop alerts (user gesture) only when unset.
+  const canEnable =
+    hasNotificationApi() && Notification.permission === "default";
+  const opts: ToastOptions = {
+    action: { label: "View", onClick: handlers.onView },
+  };
+  if (canEnable) {
+    opts.cancel = {
+      label: "Enable alerts",
+      onClick: () =>
+        void Notification.requestPermission().then((perm) => {
+          if (perm === "granted") {
+            toast.success("Desktop alerts enabled");
+          }
+        }),
+    };
+  }
+  if (kind === "failed") {
+    toast.error(`Run failed — ${title}`, opts);
+  } else {
+    toast(`Reply ready — ${title}`, opts);
+  }
+  desktopNotify(
+    kind === "failed" ? "Run failed" : "Reply ready",
+    title,
+    handlers.onView,
+  );
+}
+
+function dropRun(
+  prev: Map<string, TrackedRun>,
+  runId: string,
+): Map<string, TrackedRun> {
+  if (!prev.has(runId)) return prev;
+  const next = new Map(prev);
+  next.delete(runId);
+  return next;
+}
+
+function addTrackedRun(
+  prev: Map<string, TrackedRun>,
+  runId: string,
+  chatId: string,
+  title: string,
+): Map<string, TrackedRun> {
+  if (prev.get(runId)?.chatId === chatId) return prev; // idempotent
+  return new Map(prev).set(runId, { chatId, title });
+}
+
+function removeChatRuns(
+  prev: Map<string, TrackedRun>,
+  chatId: string,
+): Map<string, TrackedRun> {
+  let changed = false;
+  const next = new Map(prev);
+  for (const [runId, meta] of prev) {
+    if (meta.chatId === chatId) {
+      next.delete(runId);
+      changed = true;
+    }
+  }
+  return changed ? next : prev;
+}
+
+function clearSeenChat(prev: Set<string>, chatId: string): Set<string> {
+  if (!prev.has(chatId)) return prev;
+  const next = new Set(prev);
+  next.delete(chatId);
+  return next;
+}
+
+/** Tracked-run state plus its mutators — the part of the provider that owns
+ *  `active`/`completedChats` and needs no knowledge of polling or rehydration. */
+function useTrackedRuns() {
   const [active, setActive] = useState<Map<string, TrackedRun>>(new Map());
   const [completedChats, setCompletedChats] = useState<Set<string>>(new Set());
-
-  // Refs so the notify effect reads the current mounted chat/router without
-  // needing them in its dependency array. URL-derived presence is insufficient:
-  // a newly-created chat is already visible while its route is still `/`.
   const viewedChatIdRef = useRef<string | null>(null);
-  const routerRef = useRef(router);
-  routerRef.current = router;
 
   const registerViewedChat = useCallback((chatId: string) => {
     viewedChatIdRef.current = chatId;
     return () => {
-      if (viewedChatIdRef.current === chatId) {
-        viewedChatIdRef.current = null;
-      }
+      if (viewedChatIdRef.current === chatId) viewedChatIdRef.current = null;
     };
   }, []);
 
-  const drop = useCallback((runId: string) => {
-    setActive((prev) => {
-      if (!prev.has(runId)) return prev;
-      const next = new Map(prev);
-      next.delete(runId);
-      return next;
-    });
-  }, []);
-
+  const drop = useCallback(
+    (runId: string) => setActive((prev) => dropRun(prev, runId)),
+    [],
+  );
   const trackRun = useCallback(
-    (runId: string, chatId: string, title: string) => {
-      setActive((prev) => {
-        if (prev.get(runId)?.chatId === chatId) return prev; // idempotent
-        return new Map(prev).set(runId, { chatId, title });
-      });
-    },
+    (runId: string, chatId: string, title: string) =>
+      setActive((prev) => addTrackedRun(prev, runId, chatId, title)),
+    [],
+  );
+  const untrackChat = useCallback(
+    (chatId: string) => setActive((prev) => removeChatRuns(prev, chatId)),
+    [],
+  );
+  const markChatSeen = useCallback(
+    (chatId: string) =>
+      setCompletedChats((prev) => clearSeenChat(prev, chatId)),
     [],
   );
 
-  const untrackChat = useCallback((chatId: string) => {
-    setActive((prev) => {
-      let changed = false;
-      const next = new Map(prev);
-      for (const [runId, meta] of prev) {
-        if (meta.chatId === chatId) {
-          next.delete(runId);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, []);
+  return {
+    active,
+    completedChats,
+    setCompletedChats,
+    viewedChatIdRef,
+    registerViewedChat,
+    trackRun,
+    untrackChat,
+    markChatSeen,
+    drop,
+  };
+}
 
-  const markChatSeen = useCallback((chatId: string) => {
-    setCompletedChats((prev) => {
-      if (!prev.has(chatId)) return prev;
-      const next = new Set(prev);
-      next.delete(chatId);
-      return next;
-    });
-  }, []);
-
-  // Re-hydrate in-flight runs on mount — a page reload wipes the in-memory
-  // tracker, so "send a message, walk away, get notified" would otherwise break
-  // on refresh. staleTime: 0 + refetchOnMount: "always" (the useMe() precedent,
-  // apps/web/AGENTS.md) force a FRESH server read every time this query is
-  // newly observed. That alone isn't sufficient, though: `data` is returned
-  // synchronously from whatever's already cached (React Query's normal
-  // stale-while-revalidate contract) BEFORE the forced refetch resolves — if
-  // this provider previously mounted, unmounted (e.g. navigating out of the
-  // (chat) route group), and remounted within the query's gcTime, `data`
-  // could briefly be THAT OLDER mount's snapshot. Re-tracking a run from it
-  // is otherwise idempotent, but this provider's own `handledRunIds`/
-  // `completedChats` are fresh per-mount state with no memory of a
-  // notification already fired for that run in the earlier mount — so acting
-  // on the stale snapshot could double-notify. `isFetchedAfterMount` gates on
-  // THIS mount's own fetch having actually resolved, not a leftover cache hit.
+/**
+ * Re-hydrate in-flight runs on mount — a page reload wipes the in-memory
+ * tracker, so "send a message, walk away, get notified" would otherwise break
+ * on refresh. staleTime: 0 + refetchOnMount: "always" (the useMe() precedent,
+ * apps/web/AGENTS.md) force a FRESH server read every time this query is
+ * newly observed. That alone isn't sufficient, though: `data` is returned
+ * synchronously from whatever's already cached (React Query's normal
+ * stale-while-revalidate contract) BEFORE the forced refetch resolves — if
+ * this provider previously mounted, unmounted (e.g. navigating out of the
+ * (chat) route group), and remounted within the query's gcTime, `data`
+ * could briefly be THAT OLDER mount's snapshot. Re-tracking a run from it
+ * is otherwise idempotent, but this provider's own `handledRunIds`/
+ * `completedChats` are fresh per-mount state with no memory of a
+ * notification already fired for that run in the earlier mount — so acting
+ * on the stale snapshot could double-notify. `isFetchedAfterMount` gates on
+ * THIS mount's own fetch having actually resolved, not a leftover cache hit.
+ */
+function useRehydrateActiveRuns(
+  trackRun: (runId: string, chatId: string, title: string) => void,
+): void {
   const { data: rehydratedRuns, isFetchedAfterMount } = useQuery({
     queryKey: activeRunsQueryKeys.list(),
     queryFn: fetchActiveRuns,
@@ -171,16 +248,17 @@ export function ActiveRunsProvider({
       trackRun(runId, chatId, title);
     }
   }, [isFetchedAfterMount, rehydratedRuns, trackRun]);
+}
 
-  // Poll every tracked run until it reaches a terminal status. One query per
-  // run (queued/dropped as `active` changes), each on its own POLL_MS
-  // interval that self-stops once its data is terminal (or the run is gone) —
-  // `refetchIntervalInBackground: true` is required here (not React Query's
-  // default): the whole point of this feature is noticing completion while
-  // the tab is backgrounded, so polling must NOT pause on blur/hidden the way
-  // refetchInterval does by default.
-  const activeEntries = useMemo(() => [...active.entries()], [active]);
-  const runQueries = useQueries({
+// Poll every tracked run until it reaches a terminal status. One query per
+// run (queued/dropped as `active` changes), each on its own POLL_MS
+// interval that self-stops once its data is terminal (or the run is gone) —
+// `refetchIntervalInBackground: true` is required here (not React Query's
+// default): the whole point of this feature is noticing completion while
+// the tab is backgrounded, so polling must NOT pause on blur/hidden the way
+// refetchInterval does by default.
+function useActiveRunQueries(activeEntries: ReadonlyArray<ActiveEntry>) {
+  return useQueries({
     queries: activeEntries.map(([runId]) => ({
       queryKey: activeRunsQueryKeys.run(runId),
       queryFn: () => fetchRun(runId),
@@ -194,6 +272,91 @@ export function ActiveRunsProvider({
       refetchIntervalInBackground: true,
     })),
   });
+}
+
+type TerminalRunHandlerDeps = {
+  handledRunIds: MutableRefObject<Set<string>>;
+  drop: (runId: string) => void;
+  queryClient: QueryClient;
+  setCompletedChats: Dispatch<SetStateAction<Set<string>>>;
+  viewedChatIdRef: MutableRefObject<string | null>;
+  routerRef: MutableRefObject<ReturnType<typeof useRouter>>;
+};
+
+function handleTerminalRun(
+  runId: string,
+  meta: TrackedRun,
+  run: Run | null | undefined,
+  deps: TerminalRunHandlerDeps,
+): void {
+  const {
+    handledRunIds,
+    drop,
+    queryClient,
+    setCompletedChats,
+    viewedChatIdRef,
+    routerRef,
+  } = deps;
+  if (handledRunIds.current.has(runId)) return;
+  if (run === undefined) return; // still loading / errored — keep waiting
+  if (run === null) {
+    handledRunIds.current.add(runId);
+    drop(runId); // 404: gone (e.g. chat deleted)
+    return;
+  }
+  if (!isTerminalRunStatus(run.status)) return;
+  handledRunIds.current.add(runId);
+  const res = resolveTerminalRun(run.status, {
+    viewingThisChat: viewedChatIdRef.current === meta.chatId,
+    tabHidden: "document" in globalThis ? document.hidden : false,
+  });
+  drop(runId);
+  // Unconditional: a run can reach terminal without the client ever seeing
+  // it live (#132 review), so this keeps the chat's cache correct even when
+  // nobody's watching (cheap — React Query only marks it stale here).
+  void queryClient.invalidateQueries({
+    queryKey: chatQueryKeys.messages(meta.chatId),
+  });
+  notifyTerminalRun(res, meta, setCompletedChats, routerRef);
+}
+
+function notifyTerminalRun(
+  res: ReturnType<typeof resolveTerminalRun>,
+  meta: TrackedRun,
+  setCompletedChats: Dispatch<SetStateAction<Set<string>>>,
+  routerRef: MutableRefObject<ReturnType<typeof useRouter>>,
+): void {
+  if (res.badge) {
+    setCompletedChats((prev) =>
+      prev.has(meta.chatId) ? prev : new Set(prev).add(meta.chatId),
+    );
+  }
+  if (res.toast) {
+    showRunNotification(res.toast, meta.title, {
+      onView: () => routerRef.current.push(`/chat/${meta.chatId}`),
+    });
+  }
+}
+
+/** Polls every tracked run and fires the completion/failure toast + badge +
+ *  cache-invalidation side effects once each one reaches a terminal status. */
+function useRunCompletionEffects(params: {
+  activeEntries: ReadonlyArray<ActiveEntry>;
+  drop: (runId: string) => void;
+  queryClient: QueryClient;
+  viewedChatIdRef: MutableRefObject<string | null>;
+  routerRef: MutableRefObject<ReturnType<typeof useRouter>>;
+  setCompletedChats: Dispatch<SetStateAction<Set<string>>>;
+}): void {
+  const {
+    activeEntries,
+    drop,
+    queryClient,
+    viewedChatIdRef,
+    routerRef,
+    setCompletedChats,
+  } = params;
+  const runQueries = useActiveRunQueries(activeEntries);
 
   // Guards against firing a completion notification more than once for the
   // same run: `runQueries` is a NEW array every render (React Query's own
@@ -203,88 +366,63 @@ export function ActiveRunsProvider({
   const handledRunIds = useRef(new Set<string>());
 
   useEffect(() => {
-    const notify = (
-      kind: "completed" | "failed",
-      chatId: string,
-      title: string,
-    ) => {
-      const open = () => routerRef.current.push(`/chat/${chatId}`);
-      // Offer to enable desktop alerts (user gesture) only when unset.
-      const canEnable =
-        typeof Notification !== "undefined" &&
-        Notification.permission === "default";
-      const opts = {
-        action: { label: "View", onClick: open },
-        ...(canEnable
-          ? {
-              cancel: {
-                label: "Enable alerts",
-                onClick: () =>
-                  void Notification.requestPermission().then((perm) => {
-                    if (perm === "granted") {
-                      toast.success("Desktop alerts enabled");
-                    }
-                  }),
-              },
-            }
-          : {}),
-      };
-      if (kind === "failed") {
-        toast.error(`Run failed — ${title}`, opts);
-      } else {
-        toast(`Reply ready — ${title}`, opts);
-      }
-      desktopNotify(
-        kind === "failed" ? "Run failed" : "Reply ready",
-        title,
-        open,
-      );
-    };
-
     activeEntries.forEach(([runId, meta], index) => {
-      if (handledRunIds.current.has(runId)) return;
-      const run = runQueries[index]?.data;
-      if (run === undefined) return; // still loading / errored — keep waiting
-      if (run === null) {
-        handledRunIds.current.add(runId);
-        drop(runId); // 404: gone (e.g. chat deleted)
-        return;
-      }
-      if (!isTerminalRunStatus(run.status)) return;
-      handledRunIds.current.add(runId);
-      const viewing = viewedChatIdRef.current === meta.chatId;
-      const res = resolveTerminalRun(run.status, {
-        viewingThisChat: viewing,
-        tabHidden: typeof document !== "undefined" ? document.hidden : false,
+      handleTerminalRun(runId, meta, runQueries[index]?.data, {
+        handledRunIds,
+        drop,
+        queryClient,
+        setCompletedChats,
+        viewedChatIdRef,
+        routerRef,
       });
-      drop(runId);
-      // Unconditional, regardless of the toast/badge decision above: a run
-      // reaching terminal can complete without the client ever seeing it live
-      // (e.g. a transient stream error kept the run tracked instead of
-      // untracking it — #132 review — so no further onFinish ever fires for
-      // it). Invalidating here means the chat's content matches the true
-      // server state whether the tab is open on it right now or the next
-      // time it's opened; cheap when nobody's watching (React Query only
-      // marks it stale, no refetch without a mounted observer).
-      void queryClient.invalidateQueries({
-        queryKey: chatQueryKeys.messages(meta.chatId),
-      });
-      if (res.badge) {
-        setCompletedChats((prev) => {
-          if (prev.has(meta.chatId)) return prev; // no-op update, no re-render
-          return new Set(prev).add(meta.chatId);
-        });
-      }
-      if (res.toast) notify(res.toast, meta.chatId, meta.title);
     });
-  }, [activeEntries, runQueries, drop, queryClient]);
+  }, [
+    activeEntries,
+    runQueries,
+    drop,
+    queryClient,
+    setCompletedChats,
+    viewedChatIdRef,
+    routerRef,
+  ]);
+}
 
+/** Stable ref to the latest router, so effects can read it without depending
+ *  on the router identity itself. */
+function useRouterRef(): MutableRefObject<ReturnType<typeof useRouter>> {
+  const router = useRouter();
+  const routerRef = useRef(router);
+  routerRef.current = router;
+  return routerRef;
+}
+
+/** The active-run entries plus the derived set of chats with an active run. */
+function useActiveEntries(active: Map<string, TrackedRun>) {
+  const activeEntries = useMemo(() => [...active.entries()], [active]);
   const activeChatIds = useMemo(
     () => new Set(activeEntries.map(([, meta]) => meta.chatId)),
     [activeEntries],
   );
+  return { activeEntries, activeChatIds };
+}
 
-  const value = useMemo(
+function useContextValue(params: {
+  trackRun: ActiveRunsContextValue["trackRun"];
+  untrackChat: ActiveRunsContextValue["untrackChat"];
+  registerViewedChat: ActiveRunsContextValue["registerViewedChat"];
+  completedChats: ReadonlySet<string>;
+  markChatSeen: ActiveRunsContextValue["markChatSeen"];
+  activeChatIds: ReadonlySet<string>;
+}): ActiveRunsContextValue {
+  const {
+    trackRun,
+    untrackChat,
+    registerViewedChat,
+    completedChats,
+    markChatSeen,
+    activeChatIds,
+  } = params;
+  return useMemo(
     () => ({
       trackRun,
       untrackChat,
@@ -302,6 +440,47 @@ export function ActiveRunsProvider({
       activeChatIds,
     ],
   );
+}
+
+type ActiveRunsProviderProps = { children: React.ReactNode };
+
+export function ActiveRunsProvider({ children }: ActiveRunsProviderProps) {
+  const routerRef = useRouterRef();
+  const queryClient = useQueryClient();
+
+  const {
+    active,
+    completedChats,
+    setCompletedChats,
+    viewedChatIdRef,
+    registerViewedChat,
+    trackRun,
+    untrackChat,
+    markChatSeen,
+    drop,
+  } = useTrackedRuns();
+
+  useRehydrateActiveRuns(trackRun);
+
+  const { activeEntries, activeChatIds } = useActiveEntries(active);
+
+  useRunCompletionEffects({
+    activeEntries,
+    drop,
+    queryClient,
+    viewedChatIdRef,
+    routerRef,
+    setCompletedChats,
+  });
+
+  const value = useContextValue({
+    trackRun,
+    untrackChat,
+    registerViewedChat,
+    completedChats,
+    markChatSeen,
+    activeChatIds,
+  });
 
   return (
     <ActiveRunsContext.Provider value={value}>

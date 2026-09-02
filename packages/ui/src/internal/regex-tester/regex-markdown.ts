@@ -15,24 +15,28 @@ import { REGEX_TOKEN_TAG } from "#regex-tester/token";
  */
 
 /** `allowedTags` entry that lets `<regex-token>` survive rehype-sanitize. */
-export const regexTokenAllowedTags = { [REGEX_TOKEN_TAG]: [] as string[] };
+export const regexTokenAllowedTags = { [REGEX_TOKEN_TAG]: [] };
+
+/** hast attribute value shapes (hast-util-to-jsx-runtime's `Properties` contract). */
+type HastPropertyValue = boolean | number | string;
 
 type HastNode =
   | { type: "text"; value: string }
+  | { type: "root"; children: Array<HastNode> }
   | {
       type: "element";
       tagName: string;
-      properties: Record<string, unknown>;
-      children: HastNode[];
+      properties: Record<string, HastPropertyValue | Array<HastPropertyValue>>;
+      children: Array<HastNode>;
     };
 
 type MdNode = {
   type: string;
   value?: string;
-  children?: MdNode[];
+  children?: Array<MdNode>;
   data?: {
     hName?: string;
-    hChildren?: HastNode[];
+    hChildren?: Array<HastNode>;
   };
   position?: { start: { offset?: number }; end: { offset?: number } };
 };
@@ -113,7 +117,7 @@ const isRewritable = (candidate: RegexCandidate): boolean =>
  * Detection must see the source, not `value`: CommonMark resolves escapes
  * while parsing (`\.` becomes `.`), which would silently alter a pattern.
  */
-const splitTextNode = (raw: string): MdNode[] | undefined => {
+const splitTextNode = (raw: string): Array<MdNode> | undefined => {
   const candidates = findRegexCandidates(raw).filter(isRewritable);
 
   if (candidates.length === 0) {
@@ -168,14 +172,12 @@ const innerStart = (node: MdNode): number | undefined =>
 
 /** Last content offset, descending past wrapper delimiters (e.g. `*`). */
 const innerEnd = (node: MdNode): number | undefined => {
-  const children = node.children;
-  return children && children.length > 0
-    ? innerEnd(children[children.length - 1])
-    : nodeSpan(node)?.end;
+  const last = node.children?.at(-1);
+  return last === undefined ? nodeSpan(node)?.end : innerEnd(last);
 };
 
 /** Source spans of every `text` descendant, in document order. */
-const collectTextSpans = (node: MdNode, out: Span[]): void => {
+const collectTextSpans = (node: MdNode, out: Array<Span>): void => {
   if (node.type === "text") {
     const span = nodeSpan(node);
 
@@ -200,7 +202,11 @@ const collectTextSpans = (node: MdNode, out: Span[]): void => {
  * pair, a `` ` `` — and re-emitting it would surface delimiters the author
  * never typed as literal ones while losing the structure they did.
  */
-const isTextOnly = (from: number, to: number, textSpans: Span[]): boolean => {
+const isTextOnly = (
+  from: number,
+  to: number,
+  textSpans: Array<Span>,
+): boolean => {
   let cursor = from;
 
   for (const span of textSpans) {
@@ -228,7 +234,7 @@ const isTextOnly = (from: number, to: number, textSpans: Span[]): boolean => {
  * protected descendant has no position (synthesized, e.g. by the math
  * rewrite) — its span is unknowable, so the source-level pass must not run.
  */
-const collectProtectedSpans = (node: MdNode, out: Span[]): boolean => {
+const collectProtectedSpans = (node: MdNode, out: Array<Span>): boolean => {
   for (const child of node.children ?? []) {
     if (PROTECTED_TYPES.has(child.type)) {
       const span = nodeSpan(child);
@@ -261,6 +267,184 @@ const rewriteInlineCodeDeep = (node: MdNode): void => {
 };
 
 /**
+ * Drains children off the front of `queue` that end at or before `boundary`,
+ * moving each into `rebuilt` unchanged. Returns `false` when a child's
+ * position is unknown — the whole source-level rewrite must then bail.
+ */
+function drainQueueBefore(
+  queue: Array<MdNode>,
+  rebuilt: Array<MdNode>,
+  boundary: number,
+): boolean {
+  while (queue.length > 0) {
+    const span = nodeSpan(queue[0]);
+
+    if (!span) {
+      return false;
+    }
+
+    if (span.end > boundary) {
+      break;
+    }
+
+    // SAFETY: the enclosing `while (queue.length > 0)` just checked this,
+    // so `shift()` cannot return undefined here.
+    rebuilt.push(queue.shift() as MdNode);
+  }
+
+  return true;
+}
+
+type OverlappingRun = {
+  run: Array<MdNode>;
+  runStart?: number;
+  runEnd?: number;
+};
+
+/**
+ * Collects (and removes from `queue`) the run of children starting before
+ * `boundary`. The kept prefix/suffix use the run's *inner* text bounds, not
+ * the node bounds: a partially-overlapped emphasis node's source includes
+ * its `*`/`_` delimiters (one of which may even be synthetic, appended by
+ * remend to close the emphasis the literal itself opened mid-stream), and
+ * those must not resurface as literal text. Returns `null` when a child's
+ * position is unknown — the whole source-level rewrite must then bail.
+ */
+function collectOverlappingRun(
+  queue: Array<MdNode>,
+  boundary: number,
+): OverlappingRun | null {
+  const run: Array<MdNode> = [];
+  let runStart: number | undefined;
+  let runEnd: number | undefined;
+
+  while (queue.length > 0) {
+    const node = queue[0];
+    const span = nodeSpan(node);
+    const start = innerStart(node);
+    const end = innerEnd(node);
+
+    if (!span || start === undefined || end === undefined) {
+      return null;
+    }
+
+    if (span.start >= boundary) {
+      break;
+    }
+
+    runStart ??= start;
+    runEnd = end;
+    // SAFETY: the enclosing `while (queue.length > 0)` just checked this,
+    // so `shift()` cannot return undefined here.
+    run.push(queue.shift() as MdNode);
+  }
+
+  return { run, runStart, runEnd };
+}
+
+type FlattenRunArgs = {
+  candidate: RegexCandidate;
+  run: Array<MdNode>;
+  runStart: number;
+  runEnd: number;
+  rebuilt: Array<MdNode>;
+  queue: Array<MdNode>;
+  source: string;
+};
+
+/**
+ * Folds an overlapping run into surrounding text + a token when it's safe to
+ * (the source around the literal is entirely text — see the inline
+ * `isTextOnly` rationale), otherwise keeps the run's nodes untouched. Any
+ * remainder after the candidate is requeued as a positioned text node so the
+ * next candidate can re-split it.
+ */
+function flattenRun({
+  candidate,
+  run,
+  runStart,
+  runEnd,
+  rebuilt,
+  queue,
+  source,
+}: FlattenRunArgs): void {
+  // Only flatten when the source we would re-emit around the literal is
+  // entirely text. A run can hold markup the literal had nothing to do with
+  // — `A /p*q/ mid *word*pair* end.` parses as one emphasis (opened by the
+  // literal's own `*`) wrapping a second, nested one — and flattening that
+  // would print the nested delimiters as literal asterisks while dropping
+  // the outer closing one. Leaving the candidate alone costs an underline;
+  // rewriting it would silently change what the message says.
+  const textSpans: Array<Span> = [];
+
+  for (const node of run) {
+    collectTextSpans(node, textSpans);
+  }
+
+  if (
+    !isTextOnly(runStart, candidate.start, textSpans) ||
+    !isTextOnly(candidate.end, runEnd, textSpans)
+  ) {
+    rebuilt.push(...run);
+    return;
+  }
+
+  if (runStart < candidate.start) {
+    rebuilt.push({
+      type: "text",
+      value: decodeString(source.slice(runStart, candidate.start)),
+    });
+  }
+
+  rebuilt.push(regexTokenNode(candidate.source));
+
+  if (candidate.end < runEnd) {
+    // The remainder may hold further candidates — requeue it as a
+    // positioned text node so the next iteration re-splits it.
+    queue.unshift({
+      type: "text",
+      value: decodeString(source.slice(candidate.end, runEnd)),
+      position: {
+        start: { offset: candidate.end },
+        end: { offset: runEnd },
+      },
+    });
+  }
+}
+
+/**
+ * Applies one candidate to the queued children: drains the unaffected
+ * prefix, collects the run it overlaps, and flattens that run when safe.
+ * Returns `false` when a child's position is unknown, propagating the
+ * source-level rewrite's bail-to-per-node-scan signal.
+ */
+function applyCandidateToQueue(
+  candidate: RegexCandidate,
+  queue: Array<MdNode>,
+  rebuilt: Array<MdNode>,
+  source: string,
+): boolean {
+  if (!drainQueueBefore(queue, rebuilt, candidate.start)) {
+    return false;
+  }
+
+  const collected = collectOverlappingRun(queue, candidate.end);
+
+  if (collected === null) {
+    return false;
+  }
+
+  const { run, runStart, runEnd } = collected;
+
+  if (run.length === 0 || runStart === undefined || runEnd === undefined) {
+    return true;
+  }
+
+  flattenRun({ candidate, run, runStart, runEnd, rebuilt, queue, source });
+  return true;
+}
+
+/**
  * Source-level rewrite of one phrasing container. Candidates come from the
  * container's raw source; each one replaces the run of children it overlaps
  * with plain text + a token. Flattening that run is intentional — when a
@@ -283,7 +467,7 @@ const rewritePhrasingFromSource = (node: MdNode, source: string): boolean => {
     return true;
   }
 
-  const protectedSpans: Span[] = [];
+  const protectedSpans: Array<Span> = [];
 
   if (!collectProtectedSpans(node, protectedSpans)) {
     return false;
@@ -309,98 +493,11 @@ const rewritePhrasingFromSource = (node: MdNode, source: string): boolean => {
   }
 
   const queue = [...(node.children ?? [])];
-  const rebuilt: MdNode[] = [];
+  const rebuilt: Array<MdNode> = [];
 
   for (const candidate of candidates) {
-    // Keep children that end before the candidate starts.
-    while (queue.length > 0) {
-      const span = nodeSpan(queue[0]);
-
-      if (!span) {
-        return false;
-      }
-
-      if (span.end > candidate.start) {
-        break;
-      }
-
-      rebuilt.push(queue.shift() as MdNode);
-    }
-
-    // Collect the run of children the candidate overlaps. The kept
-    // prefix/suffix use the run's *inner* text bounds, not the node bounds:
-    // a partially-overlapped emphasis node's source includes its `*`/`_`
-    // delimiters (one of which may even be synthetic, appended by remend to
-    // close the emphasis the literal itself opened mid-stream), and those
-    // must not resurface as literal text.
-    const run: MdNode[] = [];
-    let runStart: number | undefined;
-    let runEnd: number | undefined;
-
-    while (queue.length > 0) {
-      const node = queue[0];
-      const span = nodeSpan(node);
-      const start = innerStart(node);
-      const end = innerEnd(node);
-
-      if (!span || start === undefined || end === undefined) {
-        return false;
-      }
-
-      if (span.start >= candidate.end) {
-        break;
-      }
-
-      runStart ??= start;
-      runEnd = end;
-      run.push(queue.shift() as MdNode);
-    }
-
-    if (run.length === 0 || runStart === undefined || runEnd === undefined) {
-      continue;
-    }
-
-    // Only flatten when the source we would re-emit around the literal is
-    // entirely text. A run can hold markup the literal had nothing to do with
-    // — `A /p*q/ mid *word*pair* end.` parses as one emphasis (opened by the
-    // literal's own `*`) wrapping a second, nested one — and flattening that
-    // would print the nested delimiters as literal asterisks while dropping
-    // the outer closing one. Leaving the candidate alone costs an underline;
-    // rewriting it would silently change what the message says.
-    const textSpans: Span[] = [];
-
-    for (const node of run) {
-      collectTextSpans(node, textSpans);
-    }
-
-    if (
-      !isTextOnly(runStart, candidate.start, textSpans) ||
-      !isTextOnly(candidate.end, runEnd, textSpans)
-    ) {
-      rebuilt.push(...run);
-      continue;
-    }
-
-    if (runStart < candidate.start) {
-      rebuilt.push({
-        type: "text",
-        value: decodeString(source.slice(runStart, candidate.start)),
-      });
-    }
-
-    rebuilt.push(regexTokenNode(candidate.source));
-
-    if (candidate.end < runEnd) {
-      // The remainder may hold further candidates — requeue it as a
-      // positioned text node so the next iteration re-splits it.
-      queue.unshift({
-        type: "text",
-        value: decodeString(source.slice(candidate.end, runEnd)),
-        position: {
-          start: { offset: candidate.end },
-          end: { offset: runEnd },
-        },
-      });
+    if (!applyCandidateToQueue(candidate, queue, rebuilt, source)) {
+      return false;
     }
   }
 
@@ -420,7 +517,7 @@ const rewriteChildrenByValue = (node: MdNode): void => {
     return;
   }
 
-  const rewritten: MdNode[] = [];
+  const rewritten: Array<MdNode> = [];
   let changed = false;
 
   for (const child of children) {
@@ -473,6 +570,10 @@ const rewriteRegexNodes = (node: MdNode, source: string): void => {
   }
 };
 
+function hasStringValue(file: { value: unknown }): file is { value: string } {
+  return typeof file.value === "string";
+}
+
 /**
  * Remark plugin: underlines regex literals in prose and inline code by
  * wrapping them in `<regex-token>` elements. Appended via Streamdown's
@@ -480,7 +581,7 @@ const rewriteRegexNodes = (node: MdNode, source: string): void => {
  */
 export const remarkRegexTokens =
   () => (tree: MdNode, file: { value: unknown }) => {
-    if (typeof file.value === "string" && file.value.includes("/")) {
+    if (hasStringValue(file) && file.value.includes("/")) {
       rewriteRegexNodes(tree, file.value);
     }
   };
@@ -507,17 +608,12 @@ const HAST_SKIPPED_TAGS = new Set([
 ]);
 
 const rewriteHastNode = (node: HastNode): void => {
-  if (node.type !== "element" && !("children" in node)) {
+  if (node.type === "text") {
     return;
   }
 
-  const children = (node as { children?: HastNode[] }).children;
-
-  if (!children) {
-    return;
-  }
-
-  const rewritten: HastNode[] = [];
+  const children = node.children;
+  const rewritten: Array<HastNode> = [];
   let changed = false;
 
   for (const child of children) {
@@ -553,7 +649,7 @@ const rewriteHastNode = (node: HastNode): void => {
   }
 
   if (changed) {
-    (node as { children?: HastNode[] }).children = rewritten;
+    node.children = rewritten;
   }
 };
 

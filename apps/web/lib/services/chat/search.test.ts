@@ -1,41 +1,55 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-const { searchChatsEndpoint } = vi.hoisted(() => ({
-  searchChatsEndpoint: vi.fn(),
-}));
-
-vi.mock("../../api/generated/chats/chats", () => ({
-  searchChats: searchChatsEndpoint,
-}));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch: () => vi.fn(),
-}));
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 
 import { chatSearchQueryKey, searchChats } from "./search";
 import { chatQueryKeys } from "./queries";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
 
-afterEach(() => searchChatsEndpoint.mockReset());
+let fetchMock: Mock<typeof fetch>;
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("searchChats", () => {
   it("GETs /chats/search with the q param and forwards the abort signal", async () => {
-    searchChatsEndpoint.mockResolvedValue({
-      results: [{ id: "1", title: "x", snippet: null }],
-    });
-    const signal = new AbortController().signal;
-    const results = await searchChats("hello world", signal);
-
-    expect(searchChatsEndpoint).toHaveBeenCalledWith(
-      { q: "hello world" },
-      { signal },
-      expect.any(Function),
+    fetchMock.mockResolvedValue(
+      jsonResponse({ results: [{ id: "1", title: "x", snippet: null }] }),
     );
+    const controller = new AbortController();
+    const results = await searchChats("hello world", controller.signal);
+
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("GET");
+    expect(new URL(request.url).pathname).toBe("/api/v1/chats/search");
+    expect(new URL(request.url).searchParams.get("q")).toBe("hello world");
+    expect(request.signal.aborted).toBe(false);
+    controller.abort();
+    expect(request.signal.aborted).toBe(true);
     expect(results).toHaveLength(1);
   });
 
   it("passes through a null title (untitled chat matched by content)", async () => {
-    searchChatsEndpoint.mockResolvedValue({
-      results: [{ id: "2", title: null, snippet: "matched text" }],
-    });
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        results: [{ id: "2", title: null, snippet: "matched text" }],
+      }),
+    );
     const results = await searchChats("matched");
     expect(results[0]?.title).toBeNull();
   });

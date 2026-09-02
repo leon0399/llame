@@ -21,8 +21,8 @@ function formatTokenCount(value: number): string {
   if (rounded >= 1_000_000) {
     return `${trimTrailingZero((rounded / 1_000_000).toFixed(1))}M`;
   }
-  if (rounded >= 1_000) {
-    return `${trimTrailingZero((rounded / 1_000).toFixed(1))}k`;
+  if (rounded >= 1000) {
+    return `${trimTrailingZero((rounded / 1000).toFixed(1))}k`;
   }
   return String(rounded);
 }
@@ -33,6 +33,109 @@ function trimTrailingZero(value: string): string {
 
 function pluralize(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/** The chip's and the expanded card's meta strings — each falls back to a
+ *  relative timestamp independently when its own stats aren't available
+ *  (see the component doc). Split out as a pure derivation from the markup
+ *  that renders it. */
+function deriveCompactionMeta(
+  stats: CompactionStats,
+  relativeTime: string,
+  models: ReadonlyArray<AvailableModel> | undefined,
+) {
+  const hasTokenStats =
+    stats.beforeTokens !== null && stats.afterTokens !== null;
+
+  const chipMeta = (() => {
+    if (stats.absorbedMessageCount === null) return relativeTime;
+    const messageCount = pluralize(stats.absorbedMessageCount, "message");
+    if (!hasTokenStats) return messageCount;
+    // Non-null assertions guarded by hasTokenStats above.
+    const saved = stats.beforeTokens! - stats.afterTokens!;
+    return `${messageCount} · saved ${formatTokenCount(saved)} tokens`;
+  })();
+
+  const cardMeta = hasTokenStats
+    ? `${formatTokenCount(stats.beforeTokens!)} → ${formatTokenCount(stats.afterTokens!)} tokens${
+        stats.modelId ? ` · ${modelDisplayName(stats.modelId, models)}` : ""
+      }`
+    : relativeTime;
+
+  return { chipMeta, cardMeta };
+}
+
+/** The collapsed pill chip + its toggle — split out from
+ *  `CompactionBoundary` so that component composes only state and layout. */
+function CompactionChevron({ open }: { open: boolean }) {
+  const Icon = open ? ChevronDownIcon : ChevronRightIcon;
+  return (
+    <Icon aria-hidden="true" className="size-[15px] text-muted-foreground" />
+  );
+}
+
+function CompactionChip({
+  open,
+  onToggle,
+  chipMeta,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  chipMeta: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <Separator className="flex-1" />
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className={cn(
+          "inline-flex shrink-0 items-center gap-2 rounded-full border border-border",
+          "bg-background px-3 py-1.5 text-foreground shadow-xs transition-colors",
+          "hover:bg-accent",
+        )}
+      >
+        <LayersIcon
+          aria-hidden="true"
+          className="size-[15px] text-muted-foreground"
+        />
+        <span className="text-sm font-medium">Context compacted</span>
+        <span className="text-xs text-muted-foreground">{chipMeta}</span>
+        <CompactionChevron open={open} />
+      </button>
+      <Separator className="flex-1" />
+    </div>
+  );
+}
+
+/** The expanded result card — read-only, plaintext summary (see the
+ *  component doc on why it must never render as markdown). */
+function CompactionResultCard({
+  summary,
+  cardMeta,
+}: {
+  summary: string;
+  cardMeta: string;
+}) {
+  return (
+    <div className="mt-2.5 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
+        <span className="text-[0.82rem] font-semibold">Compaction result</span>
+        <span className="ml-auto font-mono text-xs text-muted-foreground">
+          {cardMeta}
+        </span>
+      </div>
+      <div className="px-3.5 py-3 text-sm leading-relaxed whitespace-pre-wrap">
+        {summary}
+      </div>
+      <div className="px-3.5 pb-3 text-xs leading-relaxed text-muted-foreground">
+        This summary replaces the compacted messages in the model&apos;s
+        context. The full transcript is preserved and still searchable — nothing
+        is hidden.
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -67,85 +170,26 @@ export function CompactionBoundary({
   summary: string;
   createdAt: string;
   stats: CompactionStats;
-  models?: readonly AvailableModel[];
+  models?: ReadonlyArray<AvailableModel>;
 }) {
   const [open, setOpen] = useState(false);
   const relativeTime = formatDistanceToNowStrict(new Date(createdAt), {
     addSuffix: true,
   });
-
-  const hasTokenStats =
-    stats.beforeTokens !== null && stats.afterTokens !== null;
-
-  const chipMeta = (() => {
-    if (stats.absorbedMessageCount === null) return relativeTime;
-    const messageCount = pluralize(stats.absorbedMessageCount, "message");
-    if (!hasTokenStats) return messageCount;
-    // Non-null assertions guarded by hasTokenStats above.
-    const saved = stats.beforeTokens! - stats.afterTokens!;
-    return `${messageCount} · saved ${formatTokenCount(saved)} tokens`;
-  })();
-
-  const cardMeta = hasTokenStats
-    ? `${formatTokenCount(stats.beforeTokens!)} → ${formatTokenCount(stats.afterTokens!)} tokens${
-        stats.modelId ? ` · ${modelDisplayName(stats.modelId, models)}` : ""
-      }`
-    : relativeTime;
+  const { chipMeta, cardMeta } = deriveCompactionMeta(
+    stats,
+    relativeTime,
+    models,
+  );
 
   return (
     <div className="w-full">
-      <div className="flex items-center gap-3">
-        <Separator className="flex-1" />
-        <button
-          type="button"
-          onClick={() => setOpen((current) => !current)}
-          aria-expanded={open}
-          className={cn(
-            "inline-flex shrink-0 items-center gap-2 rounded-full border border-border",
-            "bg-background px-3 py-1.5 text-foreground shadow-xs transition-colors",
-            "hover:bg-accent",
-          )}
-        >
-          <LayersIcon
-            aria-hidden="true"
-            className="size-[15px] text-muted-foreground"
-          />
-          <span className="text-sm font-medium">Context compacted</span>
-          <span className="text-xs text-muted-foreground">{chipMeta}</span>
-          {open ? (
-            <ChevronDownIcon
-              aria-hidden="true"
-              className="size-[15px] text-muted-foreground"
-            />
-          ) : (
-            <ChevronRightIcon
-              aria-hidden="true"
-              className="size-[15px] text-muted-foreground"
-            />
-          )}
-        </button>
-        <Separator className="flex-1" />
-      </div>
-      {open && (
-        <div className="mt-2.5 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-          <div className="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
-            <span className="text-[0.82rem] font-semibold">
-              Compaction result
-            </span>
-            <span className="ml-auto font-mono text-xs text-muted-foreground">
-              {cardMeta}
-            </span>
-          </div>
-          <div className="px-3.5 py-3 text-sm leading-relaxed whitespace-pre-wrap">
-            {summary}
-          </div>
-          <div className="px-3.5 pb-3 text-xs leading-relaxed text-muted-foreground">
-            This summary replaces the compacted messages in the model&apos;s
-            context. The full transcript is preserved and still searchable —
-            nothing is hidden.
-          </div>
-        </div>
-      )}
+      <CompactionChip
+        open={open}
+        onToggle={() => setOpen((current) => !current)}
+        chipMeta={chipMeta}
+      />
+      {open && <CompactionResultCard summary={summary} cardMeta={cardMeta} />}
     </div>
   );
 }

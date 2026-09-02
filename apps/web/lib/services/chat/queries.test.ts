@@ -1,20 +1,19 @@
+// jsdom (not the workspace default "node") — useChatsQuery/useChatQuery below
+// render real hooks through @testing-library/react.
+// @vitest-environment jsdom
 import { QueryClient } from "@tanstack/react-query";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
 import { messageSeqFromMetadata, type ChatMessagesResponse } from "./history";
 import { rawChatMessage } from "./message-fixtures";
-
-const { getChatMessages, listChats } = vi.hoisted(() => ({
-  getChatMessages: vi.fn(),
-  listChats: vi.fn(),
-}));
-
-vi.mock("../../api/generated/chats/chats", () => ({
-  getChatMessages,
-  listChats,
-}));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch: () => vi.fn(),
-}));
 
 import {
   type ChatResponse,
@@ -26,19 +25,34 @@ import {
   olderPageParam,
   seedChatMessagesQueryData,
   toChatHistory,
+  useChatQuery,
+  useChatsQuery,
 } from "./queries";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
+import {
+  newTestQueryClient,
+  wrapperWithClient,
+} from "../../test-support/query-client";
 
 function generatedApiError(
   status: number,
 ): Error & { status: number; info: unknown } {
-  const error = new Error(`HTTP ${status}`) as Error & {
-    status: number;
-    info: unknown;
-  };
-  error.status = status;
-  error.info = {};
-  return error;
+  return Object.assign(new Error(`HTTP ${status}`), { status, info: {} });
 }
+
+let fetchMock: Mock<typeof fetch>;
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("groupChatsByTimePeriod", () => {
   it("groups chats by updatedAt from the api response shape", () => {
@@ -90,13 +104,41 @@ describe("groupChatsByTimePeriod", () => {
       "older",
     ]);
   });
+
+  it("buckets yesterday, last month, and older separately from today/last week", () => {
+    const now = new Date();
+    const chat = (id: string, updatedAt: Date): ChatResponse => ({
+      id,
+      title: id,
+      visibility: "private",
+      createdAt: updatedAt.toISOString(),
+      updatedAt: updatedAt.toISOString(),
+      lastMessage: null,
+      projectId: null,
+      archivedAt: null,
+    });
+    const daysAgo = (n: number) =>
+      new Date(now.getTime() - 60_000 * 60 * 24 * n);
+
+    const grouped = groupChatsByTimePeriod([
+      chat("yesterday", daysAgo(1)),
+      chat("three-weeks", daysAgo(21)), // > 7 days, <= 30 days: LAST_MONTH
+      chat("ancient", daysAgo(90)), // > 30 days: OLDER
+    ]);
+
+    expect(grouped[ChatGroupPeriod.YESTERDAY]?.map((c) => c.id)).toEqual([
+      "yesterday",
+    ]);
+    expect(grouped[ChatGroupPeriod.LAST_MONTH]?.map((c) => c.id)).toEqual([
+      "three-weeks",
+    ]);
+    expect(grouped[ChatGroupPeriod.OLDER]?.map((c) => c.id)).toEqual([
+      "ancient",
+    ]);
+  });
 });
 
 describe("chat message query options", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it("uses resource-path query keys for chat lists and messages", () => {
     expect(chatQueryKeys.all).toEqual(["chats"]);
     expect(chatQueryKeys.lists()).toEqual(["chats", "list"]);
@@ -107,13 +149,9 @@ describe("chat message query options", () => {
       "chat-1",
       "messages",
     ]);
-    expect(chatQueryKeys.targetMessages("chat-1", 9007199254740991)).toEqual([
-      "chats",
-      "chat-1",
-      "messages",
-      "target",
-      9007199254740991,
-    ]);
+    expect(
+      chatQueryKeys.targetMessages("chat-1", 9_007_199_254_740_991),
+    ).toEqual(["chats", "chat-1", "messages", "target", 9_007_199_254_740_991]);
     expect(JSON.stringify(chatQueryKeys.targetMessages("chat-1", 42))).toBe(
       '["chats","chat-1","messages","target",42]',
     );
@@ -168,7 +206,7 @@ describe("chat message query options", () => {
     });
 
     const retry = options.retry;
-    if (typeof retry !== "function") {
+    if (!(retry instanceof Function)) {
       throw new Error("sent-draft recovery must expose a retry predicate");
     }
 
@@ -202,81 +240,87 @@ describe("chat message query options", () => {
   );
 
   it("derives the chat message request from the query function context", async () => {
-    getChatMessages.mockResolvedValue({ messages: [], compaction: null });
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ messages: [], compaction: null }),
+    );
 
     const options = chatMessagesQueryOptions("closed-over-chat");
-    const queryFn = options.queryFn as (context: {
-      queryKey: ReturnType<typeof chatQueryKeys.messages>;
-      pageParam: number | null;
-      signal?: AbortSignal;
-    }) => Promise<ChatMessagesResponse>;
+    if (options.queryFn === undefined) {
+      throw new Error("expected a real queryFn");
+    }
+    const queryFn = options.queryFn;
     const abortController = new AbortController();
+    const queryClient = new QueryClient();
 
     await queryFn({
       queryKey: chatQueryKeys.messages("query-key-chat"),
       pageParam: null,
+      direction: "backward",
       signal: abortController.signal,
+      client: queryClient,
+      meta: undefined,
     });
 
-    expect(getChatMessages).toHaveBeenCalledWith(
-      "query-key-chat",
-      { limit: 100 },
-      { signal: abortController.signal },
-      expect.any(Function),
+    let request = requestFromCall(fetchMock);
+    expect(new URL(request.url).pathname).toBe(
+      "/api/v1/chats/query-key-chat/messages",
     );
+    expect(new URL(request.url).searchParams.get("limit")).toBe("100");
+    expect(new URL(request.url).searchParams.has("beforeSeq")).toBe(false);
 
     await queryFn({
       queryKey: chatQueryKeys.messages("query-key-chat"),
       pageParam: 250,
+      direction: "backward",
       signal: abortController.signal,
+      client: queryClient,
+      meta: undefined,
     });
 
-    expect(getChatMessages).toHaveBeenLastCalledWith(
-      "query-key-chat",
-      { limit: 100, beforeSeq: 250 },
-      { signal: abortController.signal },
-      expect.any(Function),
-    );
+    request = requestFromCall(fetchMock, 1);
+    expect(new URL(request.url).searchParams.get("beforeSeq")).toBe("250");
   });
 
   it("requests a target window on page zero and uses only beforeSeq afterwards", async () => {
-    getChatMessages.mockResolvedValue({ messages: [], compaction: null });
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ messages: [], compaction: null }),
+    );
 
     const options = chatMessagesQueryOptions("closed-over-chat", {
       targetSeq: 700,
     });
-    const queryFn = options.queryFn as (context: {
-      queryKey: ReturnType<typeof chatQueryKeys.targetMessages>;
-      pageParam: number | null;
-      signal?: AbortSignal;
-    }) => Promise<ChatMessagesResponse>;
+    if (options.queryFn === undefined) {
+      throw new Error("expected a real queryFn");
+    }
+    const queryFn = options.queryFn;
     const abortController = new AbortController();
+    const queryClient = new QueryClient();
 
     await queryFn({
       queryKey: chatQueryKeys.targetMessages("query-key-chat", 900),
       pageParam: null,
+      direction: "backward",
       signal: abortController.signal,
+      client: queryClient,
+      meta: undefined,
     });
 
-    expect(getChatMessages).toHaveBeenCalledWith(
-      "query-key-chat",
-      { limit: 100, targetSeq: 900 },
-      { signal: abortController.signal },
-      expect.any(Function),
-    );
+    let request = requestFromCall(fetchMock);
+    expect(new URL(request.url).searchParams.get("targetSeq")).toBe("900");
+    expect(new URL(request.url).searchParams.has("beforeSeq")).toBe(false);
 
     await queryFn({
       queryKey: chatQueryKeys.targetMessages("query-key-chat", 900),
       pageParam: 701,
+      direction: "backward",
       signal: abortController.signal,
+      client: queryClient,
+      meta: undefined,
     });
 
-    expect(getChatMessages).toHaveBeenLastCalledWith(
-      "query-key-chat",
-      { limit: 100, beforeSeq: 701 },
-      { signal: abortController.signal },
-      expect.any(Function),
-    );
+    request = requestFromCall(fetchMock, 1);
+    expect(new URL(request.url).searchParams.get("beforeSeq")).toBe("701");
+    expect(new URL(request.url).searchParams.has("targetSeq")).toBe(false);
   });
 
   it("overwrites stale chat message cache with the SSR-provided newest page", () => {
@@ -299,7 +343,7 @@ describe("chat message query options", () => {
 });
 
 function messagesPage(
-  rows: { id: string; seq: number; text: string }[],
+  rows: Array<{ id: string; seq: number; text: string }>,
 ): ChatMessagesResponse {
   return {
     messages: rows.map(({ id, seq, text }) =>
@@ -424,5 +468,64 @@ describe("toChatHistory", () => {
       ),
     ).toEqual([701, 900]);
     expect(history.compaction).toBe(targetPage.compaction);
+  });
+});
+
+describe("useChatsQuery", () => {
+  it("sends the filters as query params and derives hasData from the pages", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([{ id: "c1", title: "Chat", visibility: "private" }]),
+    );
+    const queryClient = newTestQueryClient();
+
+    const { result } = renderHook(() => useChatsQuery({ projectId: "p1" }), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const request = requestFromCall(fetchMock);
+    expect(new URL(request.url).searchParams.get("projectId")).toBe("p1");
+    expect(result.current.hasData).toBe(true);
+  });
+
+  it("hasData is false when every loaded page is empty", async () => {
+    fetchMock.mockResolvedValue(jsonResponse([]));
+    const queryClient = newTestQueryClient();
+
+    const { result } = renderHook(() => useChatsQuery(), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.hasData).toBe(false);
+  });
+});
+
+describe("useChatQuery", () => {
+  it("fetches the chat under its exact detail key", async () => {
+    const chat = { id: "c1", title: "Chat", visibility: "private" };
+    fetchMock.mockResolvedValue(jsonResponse(chat));
+    const queryClient = newTestQueryClient();
+
+    const { result } = renderHook(() => useChatQuery("c1"), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(chat);
+    const request = requestFromCall(fetchMock);
+    expect(new URL(request.url).pathname).toBe("/api/v1/chats/c1");
+    expect(queryClient.getQueryData(chatQueryKeys.detail("c1"))).toEqual(chat);
+  });
+
+  it("stays disabled for an empty chatId (the draft/new-chat case)", () => {
+    const queryClient = newTestQueryClient();
+
+    const { result } = renderHook(() => useChatQuery(""), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

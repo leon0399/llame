@@ -39,9 +39,7 @@ const processEnv: Record<string, string> = Object.fromEntries(
   ),
 );
 
-function webServerEnv(
-  overrides: Record<string, string>,
-): Record<string, string> {
+function webServerEnv(overrides: Record<string, string>) {
   return {
     ...processEnv,
     // Node >=21 derives navigator.language from the process locale; with LANG

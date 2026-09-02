@@ -54,21 +54,18 @@ function safeInternalPath(raw: string | null): Route {
   ) {
     return "/";
   }
+  // SAFETY: the checks above confirmed `raw` is a same-origin relative
+  // path (starts with a single `/`, not `//` or `/\`) — exactly what
+  // `Route`'s typedRoutes contract requires.
   return raw as Route;
 }
 
-export function LoginForm() {
+/** The submit flow's state and side effects (session cache seed, redirect,
+ *  error mapping) — kept out of `LoginForm` so it composes only markup. */
+function useLoginSubmit(form: ReturnType<typeof useForm<LoginFormValues>>) {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
   const queryClient = useQueryClient();
-
-  const form = useForm<LoginFormValues>({
-    resolver: zodResolver(loginSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-    },
-  });
 
   async function onSubmit(data: LoginFormValues) {
     setIsLoading(true);
@@ -99,6 +96,92 @@ export function LoginForm() {
     }
   }
 
+  return { isLoading, onSubmit };
+}
+
+function EmailField({
+  control,
+}: {
+  control: ReturnType<typeof useForm<LoginFormValues>>["control"];
+}) {
+  return (
+    <FormField
+      control={control}
+      name="email"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Email</FormLabel>
+          <FormControl>
+            <Input type="email" placeholder="johndoe@gmail.com" {...field} />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
+}
+
+function PasswordField({
+  control,
+}: {
+  control: ReturnType<typeof useForm<LoginFormValues>>["control"];
+}) {
+  return (
+    <FormField
+      control={control}
+      name="password"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Password</FormLabel>
+          <FormControl>
+            <Input type="password" placeholder="*****" {...field} />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
+}
+
+/** The form's actual field set — kept separate from the `Card` chrome around
+ *  it in `LoginForm`, so each stays a legible, single-purpose piece. */
+function LoginFormFields({
+  form,
+  isLoading,
+  onSubmit,
+}: {
+  form: ReturnType<typeof useForm<LoginFormValues>>;
+  isLoading: boolean;
+  onSubmit: (data: LoginFormValues) => void;
+}) {
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <EmailField control={form.control} />
+        <PasswordField control={form.control} />
+        {form.formState.errors.root && (
+          <div className="text-sm text-destructive">
+            {form.formState.errors.root.message}
+          </div>
+        )}
+        <Button type="submit" className="w-full" disabled={isLoading}>
+          {isLoading ? "Signing in..." : "Sign In"}
+        </Button>
+      </form>
+    </Form>
+  );
+}
+
+export function LoginForm() {
+  const form = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+    },
+  });
+  const { isLoading, onSubmit } = useLoginSubmit(form);
+
   return (
     <Card className="w-full max-w-sm">
       <CardHeader>
@@ -108,48 +191,11 @@ export function LoginForm() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="email"
-                      placeholder="johndoe@gmail.com"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Password</FormLabel>
-                  <FormControl>
-                    <Input type="password" placeholder="*****" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            {form.formState.errors.root && (
-              <div className="text-sm text-destructive">
-                {form.formState.errors.root.message}
-              </div>
-            )}
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Signing in..." : "Sign In"}
-            </Button>
-          </form>
-        </Form>
+        <LoginFormFields
+          form={form}
+          isLoading={isLoading}
+          onSubmit={onSubmit}
+        />
       </CardContent>
     </Card>
   );

@@ -74,9 +74,65 @@ const CLOSER_INTENT = /^<\s*\//u;
 const escapeAngles = (token: string) =>
   token.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
+/**
+ * The markup-ish token starting at `lt`. A token runs to the next `>`, unless
+ * another `<` starts first — then the fragment is unterminated and the next
+ * `<` begins its own token.
+ */
+function nextToken(value: string, lt: number) {
+  const gt = value.indexOf(">", lt + 1);
+  const nextLt = value.indexOf("<", lt + 1);
+  const complete = gt !== -1 && (nextLt === -1 || gt < nextLt);
+  const end = complete ? gt + 1 : nextLt === -1 ? value.length : nextLt;
+  return { token: value.slice(lt, end), end, complete };
+}
+
+/**
+ * Decide what one token emits, and update the open-tag stack. This is the
+ * whole security decision: a value may never close a tag it did not open
+ * within that same value, and may never emit a reserved delimiter name as a
+ * tag at all. `stack` is mutated, exactly as it was when this lived inline.
+ */
+function emitToken(
+  token: string,
+  complete: boolean,
+  stack: Array<string>,
+): string {
+  const reserved = RESERVED_INTENT.exec(token);
+  if (reserved !== null && RESERVED_TAG_NAMES.has(reserved[1].toLowerCase())) {
+    return escapeAngles(token);
+  }
+
+  const closer = complete ? CLOSER.exec(token) : null;
+  if (closer !== null) {
+    const name = closer[1].toLowerCase();
+    const opened = stack.lastIndexOf(name);
+    if (opened !== -1 && !RESERVED_TAG_NAMES.has(name)) {
+      stack.length = opened;
+      return token;
+    }
+    return escapeAngles(token);
+  }
+
+  const opener = complete ? OPENER.exec(token) : null;
+  if (opener !== null) {
+    if (!token.endsWith("/>")) {
+      stack.push(opener[1].toLowerCase());
+    }
+    return token;
+  }
+
+  if (CLOSER_INTENT.test(token)) {
+    return escapeAngles(token);
+  }
+  // Prose or an unterminated opener fragment, neither of which can close
+  // anything.
+  return token;
+}
+
 export function sanitizeAuthoredText(value: string): string {
-  const out: string[] = [];
-  const stack: string[] = [];
+  const out: Array<string> = [];
+  const stack: Array<string> = [];
   let index = 0;
 
   while (index < value.length) {
@@ -87,54 +143,9 @@ export function sanitizeAuthoredText(value: string): string {
     }
     out.push(value.slice(index, lt));
 
-    // A token runs to the next `>`, unless another `<` starts first — then the
-    // fragment is unterminated and the next `<` begins its own token.
-    const gt = value.indexOf(">", lt + 1);
-    const nextLt = value.indexOf("<", lt + 1);
-    const complete = gt !== -1 && (nextLt === -1 || gt < nextLt);
-    const end = complete ? gt + 1 : nextLt === -1 ? value.length : nextLt;
-    const token = value.slice(lt, end);
+    const { token, end, complete } = nextToken(value, lt);
     index = end;
-
-    const reserved = RESERVED_INTENT.exec(token);
-    if (
-      reserved !== null &&
-      RESERVED_TAG_NAMES.has(reserved[1].toLowerCase())
-    ) {
-      out.push(escapeAngles(token));
-      continue;
-    }
-
-    const closer = complete ? CLOSER.exec(token) : null;
-    if (closer !== null) {
-      const name = closer[1].toLowerCase();
-      const opened = stack.lastIndexOf(name);
-      if (opened !== -1 && !RESERVED_TAG_NAMES.has(name)) {
-        stack.length = opened;
-        out.push(token);
-      } else {
-        out.push(escapeAngles(token));
-      }
-      continue;
-    }
-
-    const opener = complete ? OPENER.exec(token) : null;
-    if (opener !== null) {
-      const name = opener[1].toLowerCase();
-      if (!token.endsWith("/>")) {
-        stack.push(name);
-      }
-      out.push(token);
-      continue;
-    }
-
-    if (CLOSER_INTENT.test(token)) {
-      out.push(escapeAngles(token));
-      continue;
-    }
-    // Prose or an unterminated opener fragment, neither of which can close
-    // anything.
-    out.push(token);
+    out.push(emitToken(token, complete, stack));
   }
 
   return out.join("");

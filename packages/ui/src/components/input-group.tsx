@@ -79,6 +79,10 @@ function InputGroupAddon({
       data-align={align}
       className={cn(inputGroupAddonVariants({ align }), className)}
       onClick={(e) => {
+        // SAFETY: a click's `target` is `EventTarget` because DOM events can
+        // fire on non-Element targets in general, but this handler only ever
+        // observes clicks bubbling from within the rendered `<div>` subtree
+        // below, whose nodes are always Elements.
         if ((e.target as HTMLElement).closest("button")) {
           return;
         }

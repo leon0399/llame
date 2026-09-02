@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
+    "lint:fix": "oxlint --deny-warnings --fix",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsgo --noEmit"
@@ -16,7 +17,7 @@
     "@streamdown/code": "1.1.1",
     "@streamdown/math": "1.0.2",
     "@streamdown/mermaid": "1.0.2",
-    "@tailwindcss/typography": "^0.5.16",
+    "@tailwindcss/typography": "catalog:",
     "ai": "catalog:",
     "class-variance-authority": "catalog:",
     "cmdk": "^1.1.1",
@@ -43,7 +44,7 @@
   },
   "devDependencies": {
     "@storybook/nextjs-vite": "catalog:",
-    "@tailwindcss/postcss": "^4.1.0",
+    "@tailwindcss/postcss": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
@@ -51,6 +52,7 @@
     "@workspace/config-typescript": "workspace:*",
     "next": "catalog:",
     "oxlint": "catalog:",
+    "postcss-load-config": "6.0.1",
     "storybook": "catalog:",
     "tailwindcss": "^4.1.0",
     "typescript": "catalog:",

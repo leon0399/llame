@@ -47,6 +47,9 @@ minimumReleaseAgeExclude:
   # a third party whose release needs a detection window. Remove this
   # exclusion once a version has been on the registry past the cooldown.
   - storyproof
+  - "@barney-media/crap-typescript-core@0.5.1"
+  - fast-xml-parser@5.11.1
+  - "@barney-media/crap-typescript@0.5.1"
 
 # One shared version per dependency used by 2+ workspaces — reference with
 # "catalog:" in package.json. Single edit point, no cross-package drift.
@@ -66,6 +69,8 @@ catalog:
   # and reports zero tests. Bump both entries in the same change.
   "@playwright/test": 1.55.1
   playwright: 1.55.1
+  "@tailwindcss/postcss": ^4.3.2
+  "@tailwindcss/typography": ^0.5.16
   # Node floor is 22.19 (engines); .node-version pins 22.23.1 for development.
   "@types/node": ^22
   "@types/react": ^19
@@ -90,6 +95,11 @@ catalog:
   storybook: ^10.5.0
   tsx: ^4.20.3
   typescript: 5.7.3
+  # Exact, not a range: vitest warns and may misbehave when the
+  # coverage provider's version differs from its own, and vitest
+  # itself is lockfile-pinned at 4.1.10.
+  "@vitest/coverage-v8": 4.1.10
+  "@barney-media/crap-typescript": 0.5.1
   vitest: ^4.1.10
   zod: ^3.25.76
 
@@ -97,7 +107,6 @@ catalog:
 # Packages not listed are blocked from running install scripts. Every entry
 # below is a reviewed decision; false entries match the pre-migration blocks.
 allowBuilds:
-  "@ast-grep/cli": true # selects the pinned platform binary from its optional dependencies
   esbuild: true
   # testcontainers → dockerode. Native compiles are optional; the JS
   # fallback is enough for the local Docker socket integration tests use.

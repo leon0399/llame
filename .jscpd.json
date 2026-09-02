@@ -1,0 +1,28 @@
+{
+  "pattern": "**/*.{ts,tsx}",
+  "path": ["apps", "packages"],
+  "minLines": 10,
+  "minTokens": 70,
+  "threshold": 0.25,
+  "reporters": ["consoleFull"],
+  "absolute": true,
+  "gitignore": true,
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/.next/**",
+    "**/storybook-static/**",
+    "**/coverage/**",
+    "**/db/migrations/**",
+    "**/lib/api/generated/**",
+    "**/oxlint-plugin-anti-slop/vendor/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.stories.tsx",
+    "**/__mocks__/**",
+    "**/testing/**",
+    "**/evals/**",
+    "**/e2e/**"
+  ]
+}

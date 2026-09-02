@@ -46,7 +46,7 @@ import {
 } from "@/lib/services/models/queries";
 import { effortDisplayLabel } from "@/lib/services/models/effort";
 
-type TurnUsage = {
+export type TurnUsage = {
   inputTokens?: number;
   cachedInputTokens?: number;
   outputTokens?: number;
@@ -59,29 +59,60 @@ type TurnUsage = {
   status?: string;
 };
 
-function num(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+/** Non-null-object guard; the object's actual shape is unknown to this file. */
+function isPlainObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
+}
+
+function num(value: unknown): number | undefined {
+  if (!isFiniteNumber(value)) return undefined;
+  return value;
+}
+
+/** The subset of `metadata.usage`'s fields this file reads, still unvalidated. */
+type RawTurnUsage = {
+  inputTokens?: unknown;
+  cachedInputTokens?: unknown;
+  outputTokens?: unknown;
+  totalTokens?: unknown;
+  reasoningTokens?: unknown;
+  modelId?: unknown;
+  effort?: unknown;
+  latencyMs?: unknown;
+  costUsd?: unknown;
+  status?: unknown;
+};
 
 /** Parse the opaque `metadata.usage` into the known telemetry fields. */
 export function parseTurnUsage(metadata: unknown): TurnUsage | null {
-  if (typeof metadata !== "object" || metadata === null) return null;
+  if (!isPlainObject(metadata)) return null;
+  // SAFETY: `isPlainObject` only proves `metadata` is a non-null object; the
+  // `usage` property may be absent or any shape, which the `isPlainObject`
+  // check right below re-validates before anything reads through it.
   const usage = (metadata as { usage?: unknown }).usage;
-  if (typeof usage !== "object" || usage === null) return null;
-  const u = usage as Record<string, unknown>;
+  if (!isPlainObject(usage)) return null;
+  // SAFETY: `RawTurnUsage` only names the fields read below, each still
+  // `unknown` and independently guarded (`num`/`isString`) before use.
+  const u = usage as RawTurnUsage;
   return {
     inputTokens: num(u.inputTokens),
     cachedInputTokens: num(u.cachedInputTokens),
     outputTokens: num(u.outputTokens),
     totalTokens: num(u.totalTokens),
     reasoningTokens: num(u.reasoningTokens),
-    modelId: typeof u.modelId === "string" ? u.modelId : undefined,
-    effort: typeof u.effort === "string" ? u.effort : undefined,
+    modelId: isString(u.modelId) ? u.modelId : undefined,
+    effort: isString(u.effort) ? u.effort : undefined,
     latencyMs: num(u.latencyMs),
     costUsd: u.costUsd === null ? null : num(u.costUsd),
-    status: typeof u.status === "string" ? u.status : undefined,
+    status: isString(u.status) ? u.status : undefined,
   };
 }
 
@@ -101,8 +132,8 @@ function fmtTokens(n: number): string {
   if (rounded >= 1_000_000) {
     return `${trimTrailingZero((rounded / 1_000_000).toFixed(1))}M`;
   }
-  if (rounded >= 1_000) {
-    return `${trimTrailingZero((rounded / 1_000).toFixed(1))}k`;
+  if (rounded >= 1000) {
+    return `${trimTrailingZero((rounded / 1000).toFixed(1))}k`;
   }
   return String(rounded);
 }
@@ -139,7 +170,108 @@ export function usageStatusLabel(status: string | undefined): string | null {
 }
 
 export type UsageRow = { label: string; value: string };
-export type UsageSection = { header: string; rows: UsageRow[] };
+export type UsageSection = { header: string; rows: Array<UsageRow> };
+
+/** Derived display values shared by the badge text and the Cost & model section. */
+type UsageDisplayContext = {
+  modelName: string | undefined;
+  effortDisplay: string | undefined;
+  hasTokens: boolean;
+};
+
+function buildBadgeText(
+  usage: TurnUsage,
+  label: string | null,
+  ctx: UsageDisplayContext,
+): string | null {
+  if (usage.modelId) {
+    // The design's badge shape: "model · effort · total time" — tokens/cost
+    // live only in the hover breakdown, not inline. Effort sits between the
+    // two because it qualifies the model, not the timing, and drops out
+    // entirely for a turn that carried none rather than showing a placeholder.
+    return [
+      label,
+      ctx.modelName,
+      ctx.effortDisplay ?? null,
+      usage.latencyMs !== undefined ? formatLatency(usage.latencyMs) : null,
+    ]
+      .filter((part): part is string => Boolean(part))
+      .join(" · ");
+  }
+  if (ctx.hasTokens) {
+    // A turn persisted before model tracking existed — degrade to the
+    // token-only shape rather than showing nothing.
+    // SAFETY: `hasTokens` is `totalTokens !== undefined && totalTokens !== 0`.
+    return [label, `${fmtTokens(usage.totalTokens as number)} tokens`]
+      .filter((part): part is string => Boolean(part))
+      .join(" · ");
+  }
+  return null;
+}
+
+// Performance section — only "Total" is available today; see the file header
+// for the First token / Speed / Chunks gap.
+function buildPerformanceSection(usage: TurnUsage): UsageSection | null {
+  if (usage.latencyMs === undefined) return null;
+  return {
+    header: "Performance",
+    rows: [{ label: "Total", value: formatLatency(usage.latencyMs) }],
+  };
+}
+
+function buildTokenSection(usage: TurnUsage): UsageSection | null {
+  const rows: Array<UsageRow> = [];
+  if (usage.inputTokens !== undefined) {
+    rows.push({ label: "Input", value: fmtTokens(usage.inputTokens) });
+  }
+  if (usage.cachedInputTokens !== undefined) {
+    rows.push({
+      label: "of which cached",
+      value: fmtTokens(usage.cachedInputTokens),
+    });
+  }
+  if (usage.outputTokens !== undefined) {
+    rows.push({ label: "Output", value: fmtTokens(usage.outputTokens) });
+  }
+  if (usage.outputTokens !== undefined || usage.reasoningTokens !== undefined) {
+    // Always shown once we have real turn data (defaulting to 0 for a
+    // non-reasoning model), matching the design's consistent 4-row Tokens
+    // column rather than omitting the row for the common non-reasoning case.
+    rows.push({
+      label: "Reasoning",
+      value: fmtTokens(usage.reasoningTokens ?? 0),
+    });
+  }
+  return rows.length > 0 ? { header: "Tokens", rows } : null;
+}
+
+function buildCostSection(
+  usage: TurnUsage,
+  ctx: UsageDisplayContext,
+): UsageSection | null {
+  const rows: Array<UsageRow> = [];
+  if (usage.modelId) {
+    rows.push({ label: "Model", value: ctx.modelName ?? usage.modelId });
+  }
+  // Indented beneath Model the way "of which cached" sits beneath Input: it
+  // qualifies the row above rather than standing as a peer fact.
+  if (ctx.effortDisplay !== undefined) {
+    rows.push({ label: "at effort", value: ctx.effortDisplay });
+  }
+  if (ctx.hasTokens) {
+    // SAFETY: `hasTokens` is `totalTokens !== undefined && totalTokens !== 0`.
+    rows.push({
+      label: "Total tokens",
+      value: fmtTokens(usage.totalTokens as number),
+    });
+  }
+  // Omitted entirely when cost is unknown (an unpriced model) — never a fake
+  // "$0.00".
+  if (usage.costUsd !== undefined && usage.costUsd !== null) {
+    rows.push({ label: "Est. cost", value: formatCost(usage.costUsd) });
+  }
+  return rows.length > 0 ? { header: "Cost & model", rows } : null;
+}
 
 /**
  * The visible badge `text` + the hover card's column `sections` for a turn, or
@@ -148,112 +280,34 @@ export type UsageSection = { header: string; rows: UsageRow[] };
  */
 export function buildUsageLine(
   usage: TurnUsage | null,
-  models?: readonly AvailableModel[],
-): { text: string; sections: UsageSection[] } | null {
+  models?: ReadonlyArray<AvailableModel>,
+): { text: string; sections: Array<UsageSection> } | null {
   if (!usage) return null;
 
-  const label = usageStatusLabel(usage.status);
-  const hasTokens = usage.totalTokens !== undefined && usage.totalTokens !== 0;
-  const modelName =
-    usage.modelId !== undefined
-      ? modelDisplayName(usage.modelId, models)
-      : undefined;
-  const effortDisplay =
-    usage.effort !== undefined
-      ? effortDisplayLabel(
-          models?.find((model) => model.id === usage.modelId)?.reasoning
-            ?.effortLevels,
-          usage.effort,
-        )
-      : undefined;
+  const ctx: UsageDisplayContext = {
+    modelName:
+      usage.modelId !== undefined
+        ? modelDisplayName(usage.modelId, models)
+        : undefined,
+    effortDisplay:
+      usage.effort !== undefined
+        ? effortDisplayLabel(
+            models?.find((model) => model.id === usage.modelId)?.reasoning
+              ?.effortLevels,
+            usage.effort,
+          )
+        : undefined,
+    hasTokens: usage.totalTokens !== undefined && usage.totalTokens !== 0,
+  };
 
-  let text: string;
-  if (usage.modelId) {
-    // The design's badge shape: "model · effort · total time" — tokens/cost
-    // live only in the hover breakdown, not inline. Effort sits between the
-    // two because it qualifies the model, not the timing, and drops out
-    // entirely for a turn that carried none rather than showing a placeholder.
-    text = [
-      label,
-      modelName,
-      effortDisplay ?? null,
-      usage.latencyMs !== undefined ? formatLatency(usage.latencyMs) : null,
-    ]
-      .filter((part): part is string => Boolean(part))
-      .join(" · ");
-  } else if (hasTokens) {
-    // A turn persisted before model tracking existed — degrade to the
-    // token-only shape rather than showing nothing.
-    text = [label, `${fmtTokens(usage.totalTokens as number)} tokens`]
-      .filter((part): part is string => Boolean(part))
-      .join(" · ");
-  } else {
-    return null;
-  }
+  const text = buildBadgeText(usage, usageStatusLabel(usage.status), ctx);
+  if (text === null) return null;
 
-  const sections: UsageSection[] = [];
-
-  // Performance — only "Total" is available today; see the file header for
-  // the First token / Speed / Chunks gap.
-  if (usage.latencyMs !== undefined) {
-    sections.push({
-      header: "Performance",
-      rows: [{ label: "Total", value: formatLatency(usage.latencyMs) }],
-    });
-  }
-
-  const tokenRows: UsageRow[] = [];
-  if (usage.inputTokens !== undefined) {
-    tokenRows.push({ label: "Input", value: fmtTokens(usage.inputTokens) });
-  }
-  if (usage.cachedInputTokens !== undefined) {
-    tokenRows.push({
-      label: "of which cached",
-      value: fmtTokens(usage.cachedInputTokens),
-    });
-  }
-  if (usage.outputTokens !== undefined) {
-    tokenRows.push({ label: "Output", value: fmtTokens(usage.outputTokens) });
-  }
-  if (usage.outputTokens !== undefined || usage.reasoningTokens !== undefined) {
-    // Always shown once we have real turn data (defaulting to 0 for a
-    // non-reasoning model), matching the design's consistent 4-row Tokens
-    // column rather than omitting the row for the common non-reasoning case.
-    tokenRows.push({
-      label: "Reasoning",
-      value: fmtTokens(usage.reasoningTokens ?? 0),
-    });
-  }
-  if (tokenRows.length > 0) {
-    sections.push({ header: "Tokens", rows: tokenRows });
-  }
-
-  const costRows: UsageRow[] = [];
-  if (usage.modelId) {
-    costRows.push({
-      label: "Model",
-      value: modelName ?? usage.modelId,
-    });
-  }
-  // Indented beneath Model the way "of which cached" sits beneath Input: it
-  // qualifies the row above rather than standing as a peer fact.
-  if (effortDisplay !== undefined) {
-    costRows.push({ label: "at effort", value: effortDisplay });
-  }
-  if (hasTokens) {
-    costRows.push({
-      label: "Total tokens",
-      value: fmtTokens(usage.totalTokens as number),
-    });
-  }
-  // Omitted entirely when cost is unknown (an unpriced model) — never a fake
-  // "$0.00".
-  if (usage.costUsd !== undefined && usage.costUsd !== null) {
-    costRows.push({ label: "Est. cost", value: formatCost(usage.costUsd) });
-  }
-  if (costRows.length > 0) {
-    sections.push({ header: "Cost & model", rows: costRows });
-  }
+  const sections = [
+    buildPerformanceSection(usage),
+    buildTokenSection(usage),
+    buildCostSection(usage, ctx),
+  ].filter((section): section is UsageSection => section !== null);
 
   return { text, sections };
 }
@@ -264,12 +318,36 @@ export function buildUsageLine(
 const badgeTypographyClassName =
   "text-muted-foreground -ml-[0.45rem] mt-1 inline-flex w-fit items-center gap-[0.3rem] rounded-md px-[0.45rem] py-[0.2rem] font-mono text-[0.72rem]";
 
+/** One Performance/Tokens/Cost & model column of the hover card's breakdown. */
+function UsageSectionColumn({ section }: { section: UsageSection }) {
+  return (
+    <div className="flex min-w-[7rem] flex-col gap-[0.32rem]">
+      <div className="text-[0.66rem] font-semibold tracking-wider text-muted-foreground uppercase">
+        {section.header}
+      </div>
+      {section.rows.map((row) => (
+        <div
+          key={row.label}
+          className={cn(
+            "flex items-center justify-between gap-[1.1rem] text-xs",
+            (row.label === "of which cached" || row.label === "at effort") &&
+              "pl-[0.85rem]",
+          )}
+        >
+          <span className="text-muted-foreground">{row.label}</span>
+          <b className="font-mono font-medium text-foreground">{row.value}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function MessageUsage({
   metadata,
   models,
 }: {
   metadata: unknown;
-  models?: readonly AvailableModel[];
+  models?: ReadonlyArray<AvailableModel>;
 }) {
   const line = buildUsageLine(parseTurnUsage(metadata), models);
   // `sections` is never empty once `text` is non-null: a known model always
@@ -310,30 +388,7 @@ export function MessageUsage({
         className="flex w-fit max-w-none flex-nowrap gap-[1.9rem] p-[0.8rem]"
       >
         {line.sections.map((section) => (
-          <div
-            key={section.header}
-            className="flex min-w-[7rem] flex-col gap-[0.32rem]"
-          >
-            <div className="text-[0.66rem] font-semibold tracking-wider text-muted-foreground uppercase">
-              {section.header}
-            </div>
-            {section.rows.map((row) => (
-              <div
-                key={row.label}
-                className={cn(
-                  "flex items-center justify-between gap-[1.1rem] text-xs",
-                  (row.label === "of which cached" ||
-                    row.label === "at effort") &&
-                    "pl-[0.85rem]",
-                )}
-              >
-                <span className="text-muted-foreground">{row.label}</span>
-                <b className="font-mono font-medium text-foreground">
-                  {row.value}
-                </b>
-              </div>
-            ))}
-          </div>
+          <UsageSectionColumn key={section.header} section={section} />
         ))}
       </HoverCardContent>
     </HoverCard>

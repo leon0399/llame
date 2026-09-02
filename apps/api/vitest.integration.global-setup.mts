@@ -40,9 +40,12 @@ function sqlFile(relativePath: string): string {
  * PUBLIC cannot execute privileged functions. Every client it opens is closed
  * on the way out, including when a step throws.
  */
-async function provision(
-  superuserUri: string,
-): Promise<{ appUrl: string; unprivilegedUrl: string }> {
+/**
+ * Cluster-level superuser work: the two login roles and the test database.
+ * Separate from the rest because it runs on a DIFFERENT connection, before
+ * `llame_test` exists to connect to.
+ */
+async function createRolesAndDatabase(superuserUri: string): Promise<void> {
   const asSuperuser = postgres(superuserUri, { max: 1 });
   try {
     await asSuperuser.unsafe(
@@ -55,12 +58,22 @@ async function provision(
   } finally {
     await asSuperuser.end();
   }
+}
 
-  const url = new URL(superuserUri);
-  url.pathname = '/llame_test';
-  const appUrl = `postgres://app:app@${url.host}/llame_test`;
-
-  const superuserOnTestDb = postgres(url.href, { max: 1 });
+/**
+ * Everything inside the test database, in the order the privilege model
+ * requires: superuser-only extensions and schema ownership first, then the
+ * migrations AS `app` (the non-superuser role production uses), then
+ * superuser again for the one ALTER FUNCTION ... OWNER TO app_rls that `app`
+ * must never be able to perform itself. The alternation between the two
+ * connections is the reason this reads as one sequence — see
+ * src/db/AGENTS.md's "app_rls (BYPASSRLS)".
+ */
+async function prepareTestDatabase(
+  superuserOnTestDbUri: string,
+  appUrl: string,
+): Promise<void> {
+  const superuserOnTestDb = postgres(superuserOnTestDbUri, { max: 1 });
   try {
     await superuserOnTestDb.unsafe(
       sqlFile('../../docker/postgres/initdb/02-app-rls-role.sql'),
@@ -98,6 +111,18 @@ async function provision(
   } finally {
     await superuserOnTestDb.end();
   }
+}
+
+async function provision(
+  superuserUri: string,
+): Promise<{ appUrl: string; unprivilegedUrl: string }> {
+  await createRolesAndDatabase(superuserUri);
+
+  const url = new URL(superuserUri);
+  url.pathname = '/llame_test';
+  const appUrl = `postgres://app:app@${url.host}/llame_test`;
+
+  await prepareTestDatabase(url.href, appUrl);
 
   const unprivilegedUrl = new URL(url.href);
   unprivilegedUrl.username = 'llame_test_unprivileged';
@@ -114,7 +139,7 @@ async function provision(
 async function dropRunSchemas(url: string, prefix: string): Promise<void> {
   const sql = postgres(url, { max: 1 });
   try {
-    const schemas = await sql<{ nspname: string }[]>`
+    const schemas = await sql<Array<{ nspname: string }>>`
       SELECT nspname FROM pg_namespace WHERE nspname LIKE ${prefix + '%'}
     `;
     for (const { nspname } of schemas) {

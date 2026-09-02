@@ -14,4 +14,40 @@ export default defineConfig({
   // Forcing the automatic runtime here means component source files under
   // test don't need an unused `import React` added just for vitest.
   esbuild: { jsx: "automatic" },
+  test: {
+    coverage: {
+      provider: "v8",
+      // Write the report even when a test fails: the metric targets in
+      // docs/code-quality-targets.md need a number from every run, and a
+      // single unrelated failure otherwise yields none at all.
+      reportOnFailure: true,
+      reporter: ["text-summary", "json"],
+      reportsDirectory: "./coverage",
+      // Ratchet, not an allowance (web measured 88.6% lines): raise these when coverage
+      // rises, never lower one to admit a regression. The 85% target
+      // lives in docs/code-quality-targets.md.
+      thresholds: { lines: 88, statements: 86 },
+      // Product source only: generated clients, migrations, vendored
+      // code, and the test scaffolding itself are not what the 85%
+      // target is about.
+      include: [
+        "app/**/*.{ts,tsx}",
+        "lib/**/*.{ts,tsx}",
+        "components/**/*.{ts,tsx}",
+        "contexts/**/*.{ts,tsx}",
+        "hooks/**/*.{ts,tsx}",
+        "utils/**/*.{ts,tsx}",
+      ],
+      exclude: [
+        "**/*.test.*",
+        "**/*.spec.*",
+        "**/*.stories.tsx",
+        "**/__mocks__/**",
+        "**/testing/**",
+        "**/db/migrations/**",
+        "**/lib/api/generated/**",
+        "**/vendor/**",
+      ],
+    },
+  },
 });

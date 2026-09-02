@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { isServer } from "@tanstack/react-query";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { Button } from "@workspace/ui/components/button";
@@ -23,6 +24,112 @@ type ShareableChat = {
   visibility: "private" | "public";
 };
 
+function useShareChatDialog(chat: ShareableChat, open: boolean) {
+  const setVisibility = useSetChatVisibility();
+  const [copied, setCopied] = useState(false);
+  // While the toggle mutation is in flight, reflect its target value instead
+  // of the (stale, pre-refetch) `chat.visibility` prop — otherwise the switch
+  // visually snaps back/stays put until the chat-list query settles.
+  const isPublic = setVisibility.isPending
+    ? setVisibility.variables?.visibility === "public"
+    : chat.visibility === "public";
+  const link = isServer
+    ? `/shared/${chat.id}`
+    : `${window.location.origin}/shared/${chat.id}`;
+
+  // A stale "copied" checkmark from a previous link must not survive into a
+  // reopened dialog or a different chat's share link.
+  useEffect(() => {
+    if (open) {
+      setCopied(false);
+    }
+  }, [open, chat.id]);
+
+  const toggleVisibility = (next: boolean) =>
+    setVisibility.mutate({
+      id: chat.id,
+      visibility: next ? "public" : "private",
+    });
+
+  const copyLink = async () => {
+    if (await copyText(link)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  };
+
+  return {
+    isPublic,
+    isPending: setVisibility.isPending,
+    link,
+    copied,
+    toggleVisibility,
+    copyLink,
+  };
+}
+
+function PublicVisibilityToggle({
+  isPublic,
+  isPending,
+  onToggle,
+}: {
+  isPublic: boolean;
+  isPending: boolean;
+  onToggle: (next: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">Public link</p>
+        <p className="text-muted-foreground text-xs">
+          Anyone with the link can view this chat (read-only). Your thinking and
+          other chats stay private.
+        </p>
+      </div>
+      <Switch
+        checked={isPublic}
+        disabled={isPending}
+        aria-label="Share publicly"
+        onCheckedChange={onToggle}
+      />
+    </div>
+  );
+}
+
+function ShareLinkRow({
+  link,
+  copied,
+  onCopy,
+}: {
+  link: string;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="flex gap-2">
+      <Input
+        readOnly
+        value={link}
+        aria-label="Share link"
+        className="text-xs"
+        onFocus={(e) => e.target.select()}
+      />
+      <Button
+        size="sm"
+        variant="outline"
+        aria-label="Copy link"
+        onClick={onCopy}
+      >
+        {copied ? (
+          <CheckIcon className="size-4" />
+        ) : (
+          <CopyIcon className="size-4" />
+        )}
+      </Button>
+    </div>
+  );
+}
+
 /**
  * Toggle a chat public/private + copy its read-only share link. The chat
  * dropdown's "Share" action opens this (see chat-list.tsx). Toggling is
@@ -39,26 +146,8 @@ export function ShareChatDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const setVisibility = useSetChatVisibility();
-  const [copied, setCopied] = useState(false);
-  // While the toggle mutation is in flight, reflect its target value instead
-  // of the (stale, pre-refetch) `chat.visibility` prop — otherwise the switch
-  // visually snaps back/stays put until the chat-list query settles.
-  const isPublic = setVisibility.isPending
-    ? setVisibility.variables?.visibility === "public"
-    : chat.visibility === "public";
-  const link =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/shared/${chat.id}`
-      : `/shared/${chat.id}`;
-
-  // A stale "copied" checkmark from a previous link must not survive into a
-  // reopened dialog or a different chat's share link.
-  useEffect(() => {
-    if (open) {
-      setCopied(false);
-    }
-  }, [open, chat.id]);
+  const { isPublic, isPending, link, copied, toggleVisibility, copyLink } =
+    useShareChatDialog(chat, open);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -66,53 +155,13 @@ export function ShareChatDialog({
         <DialogHeader>
           <DialogTitle>Share chat</DialogTitle>
         </DialogHeader>
-        <div className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-sm font-medium">Public link</p>
-            <p className="text-muted-foreground text-xs">
-              Anyone with the link can view this chat (read-only). Your thinking
-              and other chats stay private.
-            </p>
-          </div>
-          <Switch
-            checked={isPublic}
-            disabled={setVisibility.isPending}
-            aria-label="Share publicly"
-            onCheckedChange={(next) =>
-              setVisibility.mutate({
-                id: chat.id,
-                visibility: next ? "public" : "private",
-              })
-            }
-          />
-        </div>
+        <PublicVisibilityToggle
+          isPublic={isPublic}
+          isPending={isPending}
+          onToggle={toggleVisibility}
+        />
         {isPublic && (
-          <div className="flex gap-2">
-            <Input
-              readOnly
-              value={link}
-              aria-label="Share link"
-              className="text-xs"
-              onFocus={(e) => e.target.select()}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              aria-label="Copy link"
-              onClick={async () => {
-                if (await copyText(link)) {
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1500);
-                }
-              }}
-            >
-              {copied ? (
-                <CheckIcon className="size-4" />
-              ) : (
-                <CopyIcon className="size-4" />
-              )}
-            </Button>
-          </div>
+          <ShareLinkRow link={link} copied={copied} onCopy={copyLink} />
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

@@ -36,6 +36,8 @@ test.describe("anonymous auth flows", () => {
 
     const reloadGuard = `invalid-login-${test.info().parallelIndex}`;
     await page.evaluate((value) => {
+      // SAFETY: this only declares the property this test writes on the next
+      // line; it doesn't change window's actual runtime shape.
       (
         window as Window & { __invalidLoginReloadGuard?: string }
       ).__invalidLoginReloadGuard = value;
@@ -57,6 +59,8 @@ test.describe("anonymous auth flows", () => {
     await expect
       .poll(() =>
         page.evaluate(
+          // SAFETY: reads back the same test-owned property the guard above
+          // wrote onto window; declares it, doesn't assert an external shape.
           () =>
             (window as Window & { __invalidLoginReloadGuard?: string })
               .__invalidLoginReloadGuard ?? null,
@@ -81,7 +85,7 @@ test.describe("anonymous auth flows", () => {
   for (const callbackUrl of [
     "https://evil.example/path",
     "//evil.example/path",
-    "/\\evil.example",
+    String.raw`/\evil.example`,
   ]) {
     test(`blocks open redirect callbackUrl ${callbackUrl}`, async ({
       page,
