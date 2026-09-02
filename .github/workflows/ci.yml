@@ -122,7 +122,7 @@ jobs:
   mutation:
     name: Mutation testing
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 360
     needs: [typecheck, unit]
     # Shares this group with mutation-baseline.yml so only one trusted baseline
     # writer runs at a time. PRs use a per-ref group and cancel stale revisions.
@@ -142,8 +142,9 @@ jobs:
       - uses: ./.github/actions/stryker-baseline
         id: baseline
 
-      # A missing compatible cache is safe: Stryker performs a cold full run.
-      # Its mandatory dry run stops before mutants when API unit tests are red.
+      # A cache miss runs every non-static mutant. Static mutants are excluded
+      # because Stryker cannot assign them per-test coverage and they dominated
+      # cold-run time. The mandatory dry run still gates mutant execution.
       - run: pnpm --filter api test:mutation --incremental
 
       # PRs never publish. A successful push to master is the merge-time writer;
