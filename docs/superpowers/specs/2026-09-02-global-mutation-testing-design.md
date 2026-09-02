@@ -85,18 +85,21 @@ Every fingerprint includes `pnpm-lock.yaml`, root `package.json`,
 `.node-version`, setup/baseline actions, and the workspace's package, Stryker,
 Vitest, and TypeScript configs. Additional inputs are exact:
 
-| Workspace     | External inputs                                         |
-| ------------- | ------------------------------------------------------- |
-| API           | `openapi.json`, config-interpolation package and source |
-| web           | generated API client, UI package/source/types           |
-| Storybook     | `.storybook`, UI package/source/styles                  |
-| interpolation | none                                                    |
-| anti-slop     | registry script and package root entrypoint             |
-| UI            | component registry and ambient type declarations        |
+| Workspace     | External inputs                                                            |
+| ------------- | -------------------------------------------------------------------------- |
+| API           | schema, prompt, eval, fixture, example, test-support, interpolation inputs |
+| web           | generated API client, UI package/source/types                              |
+| Storybook     | `.storybook`, UI package/source/styles                                     |
+| interpolation | none                                                                       |
+| anti-slop     | registry script and package root entrypoint                                |
+| UI            | component registry and ambient type declarations                           |
 
-API search-eval baselines are excluded because eval tests are outside the unit
-project. Source and unit-test files stay out of the fingerprint because Stryker
-diffs them inside the incremental report.
+The API external-input hash covers `openapi.json`,
+`src/instance-config/llame.config.schema.json`, `src/prompts/chat-default.md`,
+`src/search/chat/eval/BASELINE.md`, `src/search/chat/eval/dataset.ts`,
+`src/mcp/**/*.mjs`, `src/testing/**`, `llame.config.json.example`, and the
+config-interpolation package and source. Source and unit-test files stay out of
+the fingerprint because Stryker diffs them inside the incremental report.
 
 The scheduled workflow uses the same matrix and forces every configured mutant.
 Pull requests reuse the latest compatible baseline and rerun affected mutants.
