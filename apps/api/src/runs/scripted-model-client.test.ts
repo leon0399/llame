@@ -66,6 +66,71 @@ describe('ScriptedModelsService', () => {
   });
 
   it.each([
+    ['uses the default text', {}, 'ok', ['ok']],
+    ['allows an empty completion', { text: '' }, '', []],
+  ] as const)('%s', async (_name, options, expected, deltas) => {
+    const service = new ScriptedModelsService();
+    service.register('complete', { kind: 'complete', ...options });
+    const observedDeltas: Array<string> = [];
+    const finishes: Array<unknown> = [];
+
+    await expect(
+      service.createClient('complete').streamText({
+        messages,
+        onTextDelta: (text) => observedDeltas.push(text),
+        onFinish: (event) => {
+          finishes.push(event);
+        },
+      }).text,
+    ).resolves.toBe(expected);
+    expect(observedDeltas).toEqual(deltas);
+    expect(finishes).toEqual([
+      expect.objectContaining({ text: expected, finishReason: 'stop' }),
+    ]);
+  });
+
+  it('completes after a configured delay when it is not aborted', async () => {
+    vi.useFakeTimers();
+    try {
+      const service = new ScriptedModelsService();
+      service.register('delayed', {
+        kind: 'complete',
+        text: 'later',
+        delayMs: 1000,
+      });
+      const finishes: Array<unknown> = [];
+      const result = service.createClient('delayed').streamText({
+        messages,
+        onFinish: (event) => {
+          finishes.push(event);
+        },
+      });
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(finishes).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(result.text).resolves.toBe('later');
+      expect(finishes).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a stream whose signal was already aborted', async () => {
+    const service = new ScriptedModelsService();
+    service.register('hang', { kind: 'hang' });
+    const abort = new AbortController();
+    abort.abort('already cancelled');
+
+    await expect(
+      service.createClient('hang').streamText({
+        messages,
+        abortSignal: abort.signal,
+      }).text,
+    ).rejects.toThrow(/Aborted|cancelled/iu);
+  });
+
+  it.each([
     ['missing behavior', 'missing', undefined],
     ['infrastructure failure', 'infra', { kind: 'infra-throw' as const }],
   ] as const)('fails closed for %s', (name, modelId, behavior) => {
@@ -77,6 +142,17 @@ describe('ScriptedModelsService', () => {
         ? /no behavior registered/
         : /simulated infra failure/,
     );
+  });
+
+  it('uses a custom infrastructure failure and records the attempted model', () => {
+    const service = new ScriptedModelsService();
+    service.register('infra', {
+      kind: 'infra-throw',
+      message: 'fixture exploded',
+    });
+
+    expect(() => service.createClient('infra')).toThrow('fixture exploded');
+    expect(service.createClientCalls).toEqual([{ modelId: 'infra' }]);
   });
 
   it('uses the configured provider-error message and exposes title/reasoning selections', async () => {
@@ -134,6 +210,22 @@ describe('ScriptedModelsService', () => {
     expect(service.streamCalls).toEqual([
       { modelId: 'recall', effort: undefined },
     ]);
+  });
+
+  it('uses the default recall answer after one read', async () => {
+    const service = new ScriptedModelsService();
+    service.register('recall-default', {
+      kind: 'conversation-recall',
+      query: 'needle',
+    });
+
+    await expect(
+      service.createClient('recall-default').streamText({
+        messages,
+        tools: recallTools(),
+        maxSteps: 3,
+      }).text,
+    ).resolves.toBe('The source was read.');
   });
 
   it('finishes after an empty search result without requesting a read', async () => {

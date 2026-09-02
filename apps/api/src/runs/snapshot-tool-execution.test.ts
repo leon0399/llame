@@ -132,6 +132,52 @@ describe('resolveBoundExecutableTools — JSON-Schema tools', () => {
       resolveBoundExecutableTools([declaration], registry),
     ).rejects.toThrow('no longer matches');
   });
+
+  it('rejects a registered writable tool before comparing its declaration', async () => {
+    const tool = makeTool({ classification: 'write_low_risk' });
+    const declaration = await makeDeclaration(tool);
+
+    await expect(
+      resolveBoundExecutableTools([declaration], new Map([[tool.id, tool]])),
+    ).rejects.toThrow('no longer read-only');
+  });
+
+  it('rejects a registered tool whose JSON-Schema dialect is unsupported', async () => {
+    const tool = makeJsonSchemaTool({
+      $schema: 'https://schemas.example.invalid/unknown',
+      type: 'object',
+    });
+    const declaration = await makeDeclaration(tool);
+
+    await expect(
+      resolveBoundExecutableTools([declaration], new Map([[tool.id, tool]])),
+    ).rejects.toThrow('unsupported schema dialect');
+  });
+});
+
+describe('resolveBoundExecutableTools — declaration validation', () => {
+  it.each([['empty id', makeTool({ id: '' })]])(
+    'rejects a declaration with an %s',
+    async (_case, tool) => {
+      const declaration = await makeDeclaration(tool);
+
+      await expect(
+        resolveBoundExecutableTools([declaration], new Map()),
+      ).rejects.toThrow('invalid tool declaration');
+    },
+  );
+
+  it('rejects duplicate declarations before rebinding the second entry', async () => {
+    const tool = makeTool();
+    const declaration = await makeDeclaration(tool);
+
+    await expect(
+      resolveBoundExecutableTools(
+        [declaration, declaration],
+        new Map([[tool.id, tool]]),
+      ),
+    ).rejects.toThrow(`duplicate tool id "${tool.id}"`);
+  });
 });
 
 describe('resolveBoundExecutableTools — dynamic tools', () => {
@@ -222,6 +268,49 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
       }),
     ).rejects.toThrow('has no registered executor');
   });
+
+  it('keeps an unknown id Run-fatal when no dynamic resolver is installed', async () => {
+    const tool = makeTool({ id: 'mcp__missing__search' });
+    const declaration = await makeDeclaration(tool);
+
+    await expect(
+      resolveBoundExecutableTools([declaration], new Map()),
+    ).rejects.toThrow('has no registered executor');
+  });
+
+  it.each([
+    ['executor id drift', { id: 'mcp__other__search' }],
+    [
+      'executor classification drift',
+      { classification: 'write_low_risk' as const },
+    ],
+  ])(
+    'binds an unavailable executor when the dynamic %s',
+    async (_case, executorOverrides) => {
+      const tool = makeTool({ id: 'mcp__web__search' });
+      const declaration = await makeDeclaration(tool);
+      const resolver = {
+        resolveDynamicTool: () => ({
+          state: 'available' as const,
+          declarationHash: hashToolDeclaration(declaration),
+          executor: makeTool({ id: tool.id, ...executorOverrides }),
+        }),
+      };
+
+      const [bound] = await resolveBoundExecutableTools(
+        [declaration],
+        new Map(),
+        resolver,
+      );
+      expect(bound.executor.id).toBe(declaration.id);
+      expect(
+        await bound.executor.execute(
+          { userId: 'user-1', chatId: 'chat-1', tenantDb: fakeTenantDb },
+          { query: 'llame' },
+        ),
+      ).toMatchObject({ status: 'error', type: 'not_available' });
+    },
+  );
 
   it('keeps a code-owned declaration mismatch Run-fatal even with a dynamic resolver', async () => {
     const snapshotted = makeTool();

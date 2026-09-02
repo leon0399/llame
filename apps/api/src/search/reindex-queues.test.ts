@@ -20,18 +20,20 @@ describe('SEARCH_REINDEX_QUEUE.parse', () => {
   });
 
   it('rejects a non-object payload', () => {
-    expect(() => SEARCH_REINDEX_QUEUE.parse?.('nope')).toThrow(TypeError);
+    expect(() => SEARCH_REINDEX_QUEUE.parse?.('nope')).toThrow(
+      "Malformed 'search-reindex' job: payload is not an object",
+    );
   });
 
   it('rejects a payload missing chatId', () => {
     expect(() => SEARCH_REINDEX_QUEUE.parse?.({ ownerUserId: 'u1' })).toThrow(
-      /chatId/,
+      "Malformed 'search-reindex' job: expected non-empty string 'chatId'",
     );
   });
 
   it('rejects a payload missing ownerUserId', () => {
     expect(() => SEARCH_REINDEX_QUEUE.parse?.({ chatId: 'c1' })).toThrow(
-      /ownerUserId/,
+      "Malformed 'search-reindex' job: expected non-empty string 'ownerUserId'",
     );
   });
 });
@@ -51,18 +53,20 @@ describe('SEARCH_EMBED_QUEUE.parse', () => {
   });
 
   it('rejects a non-object payload', () => {
-    expect(() => SEARCH_EMBED_QUEUE.parse?.(42)).toThrow(TypeError);
+    expect(() => SEARCH_EMBED_QUEUE.parse?.(42)).toThrow(
+      "Malformed 'search-embed' job: payload is not an object",
+    );
   });
 
   it('rejects a payload missing chatId', () => {
     expect(() => SEARCH_EMBED_QUEUE.parse?.({ ownerUserId: 'u1' })).toThrow(
-      /chatId/,
+      "Malformed 'search-embed' job: expected non-empty string 'chatId'",
     );
   });
 
   it('rejects a payload missing ownerUserId', () => {
     expect(() => SEARCH_EMBED_QUEUE.parse?.({ chatId: 'c1' })).toThrow(
-      /ownerUserId/,
+      "Malformed 'search-embed' job: expected non-empty string 'ownerUserId'",
     );
   });
 

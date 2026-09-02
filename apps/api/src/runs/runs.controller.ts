@@ -23,7 +23,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import type { Request, Response as ExpressResponse } from 'express';
+import type { Request } from 'express';
 
 import { CurrentUser } from '../auth/auth-context';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
@@ -51,6 +51,17 @@ const TERMINAL_STATUSES: ReadonlySet<Run['status']> = new Set([
   'cancelled',
   'expired',
 ]);
+
+type RunEventRequest = Pick<Request, 'headers' | 'destroyed'>;
+
+type RunEventResponse = {
+  readonly writableEnded: boolean;
+  status(code: number): void;
+  setHeader(name: string, value: string): void;
+  flushHeaders(): void;
+  write(chunk: string): void;
+  end(): void;
+};
 
 /**
  * Run read surface (#48/#49, SPEC §9.4) — the durable run row and its
@@ -174,8 +185,8 @@ export class RunsController {
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: ListRunEventsQuery,
-    @Req() request: Request,
-    @Res() response: ExpressResponse,
+    @Req() request: RunEventRequest,
+    @Res() response: RunEventResponse,
   ): Promise<void> {
     // 404 (including cross-tenant) is decided BEFORE headers are sent.
     const run = await this.findOwnedRun(id, userId);
@@ -231,7 +242,7 @@ export class RunsController {
     runId: string,
     userId: string,
     cursor: number,
-    response: ExpressResponse,
+    response: RunEventResponse,
   ): Promise<{ cursor: number; count: number }> {
     const events = await this.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, userId, {
@@ -254,8 +265,8 @@ export class RunsController {
   private async pumpRunEvents(options: {
     run: Run;
     userId: string;
-    request: Request;
-    response: ExpressResponse;
+    request: RunEventRequest;
+    response: RunEventResponse;
     cursor: number;
   }): Promise<void> {
     const { run, userId, request, response } = options;
@@ -326,7 +337,7 @@ export class RunsController {
 }
 
 /** The SSE Last-Event-ID request header, parsed to a usable cursor. */
-function lastEventId(request: Request): number | undefined {
+function lastEventId(request: RunEventRequest): number | undefined {
   const raw = request.headers['last-event-id'];
   const value = Array.isArray(raw) ? raw[0] : raw;
   // Blank counts as absent: Number('') coerces to 0, which would override a

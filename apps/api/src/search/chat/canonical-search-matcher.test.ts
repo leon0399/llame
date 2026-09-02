@@ -7,7 +7,9 @@ import {
   matchCanonicalSearchPreview,
   scanCanonicalLogicalLines,
 } from './canonical-search-matcher';
+import { is, SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { PgDialect } from 'drizzle-orm/pg-core';
 
 import * as schema from '../../db/schema';
 import type { Db } from '../../db/tenant-db.service';
@@ -114,9 +116,84 @@ describe('evaluateCanonicalLinePredicates', () => {
     ).resolves.toEqual(new Set());
     expect(execute).not.toHaveBeenCalled();
   });
+
+  it('executes one owner-scoped predicate and keeps only safe candidate ids', async () => {
+    const db: Db = drizzle.mock({ schema });
+    const execute = vi.spyOn(db, 'execute').mockResolvedValue(
+      Object.assign(
+        [
+          { line_id: 1 },
+          { line_id: '2' },
+          { line_id: '3' },
+          { line_id: '9007199254740992' },
+          { line_id: 'not-a-number' },
+        ],
+        {
+          columns: [],
+          count: 5,
+          command: 'SELECT',
+          statement: { name: '', string: '', types: [], columns: [] },
+          state: { status: 'I', pid: 0, secret: 0 },
+        },
+      ),
+    );
+
+    await expect(
+      evaluateCanonicalLinePredicates(db, String.raw`a\\b%_`, [
+        { id: 1, normalizedText: 'first' },
+        { id: 2, normalizedText: 'second' },
+      ]),
+    ).resolves.toEqual(new Set([1, 2]));
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    const statement = execute.mock.calls[0]?.[0];
+    if (!is(statement, SQL)) throw new Error('expected a SQL statement');
+    const query = new PgDialect().sqlToQuery(statement);
+    expect(query.sql).toContain('ILIKE');
+    expect(query.params).toContain(String.raw`a\\b%_`);
+    const slash = String.fromCharCode(92);
+    expect(query.params).toContain(
+      '%a' + slash.repeat(4) + 'b' + slash + '%' + slash + '_%',
+    );
+  });
 });
 
 describe('matchCanonicalSearchPreview', () => {
+  it('returns null when the evaluator finds no candidate lines', async () => {
+    const evaluate = matchingLines(() => false);
+
+    await expect(
+      matchCanonicalSearchPreview(
+        { chatId: 'chat-1', messages: [message(10, 'source')] },
+        'source',
+        evaluate,
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it('rejects non-finite and fractional source coordinates before evaluation', async () => {
+    const evaluate = vi.fn<CanonicalLinePredicateEvaluator>();
+
+    for (const sourceRange of [
+      [Number.NaN, 3],
+      [0, Number.POSITIVE_INFINITY],
+      [0.5, 3],
+    ] as const) {
+      await expect(
+        matchCanonicalSearchPreview(
+          {
+            chatId: 'chat-1',
+            messages: [message(10, 'source', sourceRange[0], sourceRange[1])],
+          },
+          'source',
+          evaluate,
+        ),
+      ).resolves.toBeNull();
+    }
+
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['exact', 'Needle', 'needle'],
     ['case-only', 'NEEDLE', 'needle'],
@@ -209,6 +286,58 @@ describe('matchCanonicalSearchPreview', () => {
       line: 1,
       startOffset: start,
       endOffsetExclusive: start + 'Ｆｏｏ   bar'.length,
+      kind: 'exact',
+    });
+  });
+
+  it('maps a combining-mark normalization back to one raw source span', async () => {
+    const text = 'before\ne\u0301lan\nafter';
+    const start = text.indexOf('e\u0301');
+    const result = await matchCanonicalSearchPreview(
+      { chatId: 'chat-1', messages: [message(10, text)] },
+      'élan',
+      matchingLines((line, normalizedQuery) => line.includes(normalizedQuery)),
+    );
+
+    expect(result?.anchor).toEqual({
+      line: 1,
+      startOffset: start,
+      endOffsetExclusive: start + 'e\u0301lan'.length,
+      kind: 'exact',
+    });
+  });
+
+  it('keeps an astral combining mark inside one raw mapping fragment', async () => {
+    const mark = '\u{1D165}';
+    const text = `before\na${mark}b\nafter`;
+    const start = text.indexOf(`a${mark}`);
+    const result = await matchCanonicalSearchPreview(
+      { chatId: 'chat-1', messages: [message(10, text)] },
+      `a${mark}`,
+      matchingLines((line, normalizedQuery) => line.includes(normalizedQuery)),
+    );
+
+    expect(result?.anchor).toEqual({
+      line: 1,
+      startOffset: start,
+      endOffsetExclusive: start + `a${mark}`.length,
+      kind: 'exact',
+    });
+  });
+
+  it('maps a collapsed whitespace match after trimming the raw line edges', async () => {
+    const text = 'before\n  Alpha   Beta  \nafter';
+    const start = text.indexOf('Alpha');
+    const result = await matchCanonicalSearchPreview(
+      { chatId: 'chat-1', messages: [message(10, text)] },
+      'alpha beta',
+      matchingLines((line, normalizedQuery) => line.includes(normalizedQuery)),
+    );
+
+    expect(result?.anchor).toEqual({
+      line: 1,
+      startOffset: start,
+      endOffsetExclusive: start + 'Alpha   Beta'.length,
       kind: 'exact',
     });
   });
@@ -383,6 +512,27 @@ describe('matchCanonicalSearchPreview', () => {
         { line: 2, text: 'needle' },
         { line: 3, text: 'far' },
       ],
+    });
+  });
+
+  it('starts a separate passage after a gap and selects the earliest offset on a sequence tie', async () => {
+    const result = await matchCanonicalSearchPreview(
+      {
+        chatId: 'chat-1',
+        messages: [
+          message(10, 'far\nline\nline\nneedle'),
+          message(10, 'needle'),
+        ],
+      },
+      'needle',
+      matchingLines((line, normalizedQuery) => line.includes(normalizedQuery)),
+    );
+
+    expect(result).toMatchObject({
+      message: { messageSeq: 10 },
+      offset: 0,
+      limit: 1,
+      lines: [{ line: 0, text: 'needle' }],
     });
   });
 
