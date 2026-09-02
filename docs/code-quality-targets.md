@@ -33,8 +33,8 @@ available.
 Coverage commands regenerate Istanbul data and run function-level CRAP over the
 same paths. API currently peaks at CRAP 42 with seven functions above 25. Web
 and config interpolation are below 25; all three scripts enforce 42 until the
-shared ceiling can move down. Stryker covers all API product source, restores
-an incremental PR baseline, and rebuilds it weekly from `master`.
+shared ceiling can move down. Stryker covers API and config interpolation
+through package-owned tasks, with weekly baseline refreshes.
 
 ```bash
 pnpm lint

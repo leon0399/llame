@@ -47,23 +47,18 @@ the constant.
 
 ## Mutation testing
 
-API mutation complements coverage; it covers product source and unit tests, not
-Postgres/browser/E2E paths.
+Mutation covers API and config-interpolation business logic. Web/UI, tooling,
+browser, integration, and E2E behavior stay in their existing gates.
 
 ```bash
 pnpm test:mutation:dry
 pnpm test:mutation
 ```
 
-Stryker uses four workers and pinned
-`@stryker-mutator/vitest-runner@9.6.1`; the installed runner keeps each Vitest
-worker single-threaded. Reverify concurrency and memory on upgrade. Native HTML
-and JSON reports live under ignored `apps/api/reports/mutation/`; do not add a
-wrapper/reporter.
-
-CI restores `apps/api/reports/stryker-incremental.json` through the shared
-baseline action. PRs restore only; successful `master` pushes publish; weekly
-forced runs replace the baseline. Writers share one concurrency group.
+Root commands run package-owned Stryker tasks serially. CI runs them as a
+per-workspace matrix and caches incremental reports by workspace and trust
+class. Static mutants are ignored because Vitest provides per-test coverage.
+Reports live under ignored workspace `reports/` directories.
 
 ## CI mapping
 

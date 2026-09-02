@@ -120,14 +120,28 @@ jobs:
       - run: pnpm --filter api test:coverage
 
   mutation:
-    name: Mutation testing
+    name: Mutation testing (${{ matrix.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: ${{ matrix.timeout }}
     needs: [typecheck, unit]
-    # Shares this group with mutation-baseline.yml so only one trusted baseline
-    # writer runs at a time. PRs use a per-ref group and cancel stale revisions.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: API
+            package: api
+            path: apps/api
+            slug: api
+            timeout: 360
+            external: apps/api/{openapi.json,nest-cli.json,llame.config.json.example,src/instance-config/llame.config.schema.json,src/prompts/chat-default.md,src/search/chat/eval/BASELINE.md,src/search/chat/eval/dataset.ts,src/mcp/**/*.mjs,src/testing/**,src/db/migrations/**/*.sql,src/db/migrations/meta/**/*.json}
+            dependency: packages/config-interpolation/{package.json,src/**}
+          - name: Config interpolation
+            package: "@workspace/config-interpolation"
+            path: packages/config-interpolation
+            slug: config-interpolation
+            timeout: 60
     concurrency:
-      group: ${{ github.event_name == 'pull_request' && format('mutation-pr-{0}', github.ref) || 'mutation-baseline' }}
+      group: ${{ github.event_name == 'pull_request' && format('mutation-pr-{0}-{1}', github.event.pull_request.number, matrix.slug) || format('mutation-trusted-{0}', matrix.slug) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -141,28 +155,28 @@ jobs:
       # them; the action fingerprints inputs its incremental differ cannot see.
       - uses: ./.github/actions/stryker-baseline
         id: baseline
+        with:
+          workspace: ${{ matrix.path }}
+          external-pattern: ${{ matrix.external || '' }}
+          external-pattern-2: ${{ matrix.dependency || '' }}
 
-      # A cache miss runs the bounded high-value scope in full. Static mutants
-      # are excluded because Stryker cannot assign them per-test coverage.
-      - run: pnpm --filter api test:mutation --incremental
+      - run: pnpm --filter "${{ matrix.package }}" test:mutation --incremental
 
-      # PRs never publish. A successful push to master is the merge-time writer;
-      # the schedule-only forced writer lives in mutation-baseline.yml.
       - name: Save refreshed mutation baseline
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: always() && !cancelled()
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: apps/api/reports/stryker-incremental.json
-          key: ${{ steps.baseline.outputs.prefix }}${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ matrix.path }}/reports/stryker-incremental.json
+          key: ${{ steps.baseline.outputs.prefix }}${{ steps.baseline.outputs.trust }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload mutation report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: mutation-report
+          name: mutation-report-${{ matrix.slug }}
           path: |
-            apps/api/reports/mutation/
-            !apps/api/reports/stryker-incremental.json
+            ${{ matrix.path }}/reports/mutation/
+            !${{ matrix.path }}/reports/stryker-incremental.json
           retention-days: 14
           if-no-files-found: warn
 

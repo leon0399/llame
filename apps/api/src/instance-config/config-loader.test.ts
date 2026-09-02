@@ -19,7 +19,10 @@ const TEST_ANCHOR: TemporalAnchor = {
   systemTime: '2000-01-01 00:00+00:00',
   systemTimezone: 'UTC',
 };
-import { loadInstanceConfig, resolveConfigPath } from './config-loader';
+import {
+  loadInstanceConfig as loadInstanceConfigFromPath,
+  resolveConfigPath,
+} from './config-loader';
 import { BUILT_IN_DEFAULTS } from './llame-config';
 
 /** Narrows a `catch`-clause `unknown` to its message without a cast; fails the test loudly if the caught value is not an `Error`. */
@@ -41,24 +44,25 @@ const ENV_KEYS = [
 ] as const;
 
 let originalEnv: Record<string, string | undefined>;
-let originalCwd: string;
 let tmpDir: string;
+
+function loadInstanceConfig(env: NodeJS.ProcessEnv = process.env) {
+  return loadInstanceConfigFromPath({
+    ...env,
+    LLAME_CONFIG_PATH:
+      env.LLAME_CONFIG_PATH ?? path.join(tmpDir, 'llame.config.json'),
+  });
+}
 
 beforeEach(() => {
   originalEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
   for (const k of ENV_KEYS) delete process.env[k];
 
-  // The config file (and the schema) resolve relative to cwd, same as
-  // .env.local — chdir into a scratch dir per test so LLAME_CONFIG_PATH can
-  // stay relative like an operator would write it, and so "file absent"
-  // tests don't accidentally pick up a stray llame.config.json.
-  originalCwd = process.cwd();
   tmpDir = mkdtempSync(path.join(tmpdir(), 'llame-instance-config-'));
-  process.chdir(tmpDir);
+  process.env.LLAME_CONFIG_PATH = path.join(tmpDir, 'llame.config.json');
 });
 
 afterEach(() => {
-  process.chdir(originalCwd);
   for (const k of ENV_KEYS) {
     if (originalEnv[k] === undefined) delete process.env[k];
     else process.env[k] = originalEnv[k];
@@ -105,12 +109,14 @@ function renderFirstModel(): string {
 
 describe('resolveConfigPath', () => {
   it('defaults to llame.config.json in the runtime cwd', () => {
-    expect(resolveConfigPath({})).toBe(path.join(tmpDir, 'llame.config.json'));
+    expect(resolveConfigPath({})).toBe(
+      path.join(process.cwd(), 'llame.config.json'),
+    );
   });
 
   it('LLAME_CONFIG_PATH overrides the default location', () => {
     expect(resolveConfigPath({ LLAME_CONFIG_PATH: 'custom.json' })).toBe(
-      path.join(tmpDir, 'custom.json'),
+      path.join(process.cwd(), 'custom.json'),
     );
   });
 });
@@ -195,7 +201,7 @@ describe('loadInstanceConfig — file presence', () => {
       `{ "defaults": { "modelId": "from-override" }, ${modelFixtureJson('from-override')} }`,
       'somewhere-else.json',
     );
-    process.env.LLAME_CONFIG_PATH = 'somewhere-else.json';
+    process.env.LLAME_CONFIG_PATH = path.join(tmpDir, 'somewhere-else.json');
     expect(loadInstanceConfig().defaults.modelId).toBe('from-override');
   });
 
@@ -208,6 +214,22 @@ describe('loadInstanceConfig — file presence', () => {
     expect(loadInstanceConfig().defaults.modelId).toBe(
       'system:openai:gpt-5.4-mini',
     );
+  });
+
+  it('rejects a top-level JSON array instead of coercing it to a config object', () => {
+    writeConfig('[]');
+
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /top-level value must be a JSON object/,
+    );
+  });
+
+  it('maps a non-ENOENT config read failure to a path-scoped error', () => {
+    process.env.LLAME_CONFIG_PATH = tmpDir;
+
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(tmpDir);
   });
 });
 
@@ -317,6 +339,14 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
     expect(() => loadInstanceConfig()).toThrow(/http\.trustProxy/);
     expect(() => loadInstanceConfig()).toThrow(/IC_LOADER_REQUIRED_VAR/);
+  });
+
+  it('rejects an empty token resolution on a required numeric setting', () => {
+    writeConfig('{ "runs": { "timeoutSeconds": "{env:EMPTY_TIMEOUT:-}" } }');
+
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/runs\.timeoutSeconds/);
+    expect(() => loadInstanceConfig()).toThrow(/empty value/);
   });
 
   it('embeds a token within a string-typed setting', () => {

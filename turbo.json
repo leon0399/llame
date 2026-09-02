@@ -48,6 +48,12 @@
     "test:coverage": {
       "cache": false
     },
+    "test:mutation": {
+      "cache": false
+    },
+    "test:mutation:dry": {
+      "cache": false
+    },
     // Storybook browser tests need Playwright browsers, so they stay out of
     // the plain `test` task (which CI runs without them).
     "test:component": {
