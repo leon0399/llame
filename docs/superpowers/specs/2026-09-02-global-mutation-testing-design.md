@@ -98,8 +98,10 @@ The API external-input hash covers `openapi.json`,
 `src/instance-config/llame.config.schema.json`, `src/prompts/chat-default.md`,
 `src/search/chat/eval/BASELINE.md`, `src/search/chat/eval/dataset.ts`,
 `src/mcp/**/*.mjs`, `src/testing/**`, `llame.config.json.example`, and the
-config-interpolation package and source. Source and unit-test files stay out of
-the fingerprint because Stryker diffs them inside the incremental report.
+config-interpolation package and source. It also covers `nest-cli.json`,
+`src/db/migrations/**/*.sql`, and `src/db/migrations/meta/**/*.json`. Source and
+unit-test files stay out of the fingerprint because Stryker diffs them inside
+the incremental report.
 
 The scheduled workflow uses the same matrix and forces every configured mutant.
 Pull requests reuse the latest compatible baseline and rerun affected mutants.
