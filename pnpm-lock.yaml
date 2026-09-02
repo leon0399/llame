@@ -149,6 +149,9 @@ importers:
       ts-complex:
         specifier: 1.0.0
         version: 1.0.0
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.12
       turbo:
         specifier: ^2.10.4
         version: 2.10.4

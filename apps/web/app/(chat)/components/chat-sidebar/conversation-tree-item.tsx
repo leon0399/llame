@@ -41,7 +41,7 @@ function ConversationItemLabel({
     <div className="flex items-center gap-2 min-w-0">
       <div className="text-xs text-muted-foreground min-w-0">
         <div className="font-medium text-sidebar-foreground">{typeLabel}</div>
-        <div className="text-muted-foreground truncate">{preview}</div>
+        <div className="truncate text-sidebar-foreground">{preview}</div>
       </div>
     </div>
   );
@@ -66,8 +66,8 @@ function conversationItemClassName({
     isSelected
       ? "bg-sidebar-accent border-primary"
       : "hover:bg-sidebar-accent/50 border-transparent",
-    !isVisible && "opacity-30",
-    node.archived && "opacity-50",
+    !isVisible && "opacity-60",
+    node.archived && "opacity-70",
   );
 }
 

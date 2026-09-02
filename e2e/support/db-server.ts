@@ -1,10 +1,12 @@
 import { spawnSync, type SpawnSyncOptions } from "node:child_process";
 import fs from "node:fs";
 import { createServer, type Server } from "node:http";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = resolve(import.meta.dirname, "../..");
+// oxlint-disable-next-line unicorn/prefer-import-meta-properties -- Root is CommonJS; tsx cannot transform import.meta.dirname here.
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const rlsFunctionOwnerSqlPath = resolve(
   repoRoot,
   "docker/postgres/rls-function-owner.sql",
@@ -279,9 +281,8 @@ async function main(): Promise<void> {
   }
 }
 
-try {
-  await main();
-} catch (error: unknown) {
+// oxlint-disable-next-line unicorn/prefer-top-level-await -- Root is CommonJS; tsx rejects top-level await in this entrypoint.
+main().catch((error: unknown) => {
   console.error(error);
   process.exit(1);
-}
+});

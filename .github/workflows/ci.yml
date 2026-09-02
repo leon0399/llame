@@ -3,7 +3,7 @@
 #   typecheck ─┐
 #   unit ──────┼─→ build ───────────┐
 #              ├─→ integration ─────┴─→ browser-e2e
-#              └─→ storybook        (component tests, real browser)
+#              └─→ component        (Storybook, real browser)
 #
 # One job per concern, so a red X names what broke instead of hiding inside a
 # grab-bag. Cheap gates run first and unconditionally; each expensive layer
@@ -68,7 +68,13 @@ jobs:
 
       # Strictly dependency-free by construction: DB-backed suites are their
       # own `test:integration` task, evals are opt-in behind RUN_MODEL_EVALS.
-      - run: pnpm exec turbo run test
+      - run: pnpm test:metrics
+
+      - run: pnpm exec turbo run test --filter='!api' --filter='!web' --filter='!@workspace/config-interpolation'
+
+      # Coverage and function-level CRAP replace the plain test command for
+      # these workspaces, so the suite runs once and both thresholds gate CI.
+      - run: pnpm exec turbo run test:coverage --filter=web --filter=@workspace/config-interpolation
 
   build:
     name: Build
@@ -109,9 +115,11 @@ jobs:
       # migrations — the worst-case single-role self-hosted deployment, so a
       # green RLS suite proves FORCE constrains even the table owner. Needs
       # host Docker, hence no container image for this job.
-      - run: pnpm --filter api test:integration
+      # Runs unit + integration once, then enforces coverage and function-level
+      # CRAP from the fresh Istanbul report.
+      - run: pnpm --filter api test:coverage
 
-  storybook:
+  component:
     name: Component tests (Storybook)
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -157,7 +165,7 @@ jobs:
           restore-keys: |
             turbo-storybook-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.github/workflows/ci.yml') }}-
 
-      - run: pnpm exec turbo run test:storybook build --filter=storybook
+      - run: pnpm exec turbo run test:component build --filter=storybook
 
   browser-e2e:
     name: Product e2e (Playwright)

@@ -57,9 +57,8 @@ async function main(): Promise<void> {
   });
 }
 
-try {
-  await main();
-} catch (error: unknown) {
+// oxlint-disable-next-line unicorn/prefer-top-level-await -- Root is CommonJS; tsx rejects top-level await in this entrypoint.
+main().catch((error: unknown) => {
   console.error(error);
   process.exit(1);
-}
+});

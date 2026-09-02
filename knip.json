@@ -11,6 +11,7 @@
         "e2e/support/run-after-ready.ts"
       ],
       "project": ["e2e/**/*.ts"],
+      "ignoreDependencies": ["tsx"],
       "ignoreBinaries": ["psql"]
     },
     "apps/api": {
