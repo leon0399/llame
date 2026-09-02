@@ -13,6 +13,7 @@ map a function unambiguously; ten API functions currently report that visible
 | Lines per file             |                      `<800` | Oxlint uses stricter 500        |
 | Line coverage              |                     `>=85%` | Vitest V8 thresholds            |
 | CRAP                       | goal `<=25`; ceiling `<=42` | `@barney-media/crap-typescript` |
+| Killed mutants             |                     `>=80%` | Stryker aggregate/package check |
 | Dead code                  |                         `0` | Knip                            |
 | Duplication                |                    `<0.25%` | jscpd                           |
 | `any` / unparsed `unknown` |                         `0` | Oxlint and anti-slop            |
@@ -32,7 +33,8 @@ Storybook gates UI behavior until browser coverage is available.
 Coverage commands regenerate Istanbul data and run function-level CRAP over the
 same paths. API currently peaks at CRAP 42 with seven functions above 25. Web
 and config interpolation are below 25; all three scripts enforce 42 until the
-shared ceiling can move down.
+shared ceiling can move down. Stryker covers API and config interpolation
+through package-owned tasks, with weekly baseline refreshes.
 
 ```bash
 pnpm lint
@@ -45,6 +47,8 @@ pnpm lint:complexity
 pnpm test
 pnpm test:metrics
 pnpm test:coverage
+pnpm test:mutation
+pnpm test:mutation:check
 ```
 
 Before deleting a Knip finding, search package scripts and path-based entrypoint

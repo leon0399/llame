@@ -4,8 +4,6 @@
     "src/**/*.ts",
     "!src/**/*.test.ts",
     "!src/testing/**",
-    "!src/instance-config/config-loader.ts",
-    "!src/instance-config/knowledge-config.ts",
     "!src/mcp/mcp-runtime.module.ts"
   ],
   "testRunner": "vitest",

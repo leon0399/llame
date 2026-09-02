@@ -1,7 +1,12 @@
 import {
   hydrateCanonicalSearchRows,
+  hydrateCanonicalSearchCandidate,
   type CanonicalHydrationRow,
 } from './canonical-search-hydrator';
+import { drizzle } from 'drizzle-orm/postgres-js';
+
+import * as schema from '../../db/schema';
+import type { Db } from '../../db/tenant-db.service';
 
 const CHAT_ID = '11111111-1111-4111-8111-111111111111';
 const FIRST_MESSAGE_ID = '22222222-2222-4222-8222-222222222222';
@@ -305,6 +310,13 @@ describe('hydrateCanonicalSearchRows', () => {
     ['end offset past source', { last_message_text_offset_exclusive: 999 }],
     ['unsafe sequence', { message_seq: '9007199254740992' }],
     ['message out of interval', { message_seq: '3' }],
+    ['zero sequence', { message_seq: '0' }],
+    ['negative sequence', { message_seq: '-1' }],
+    ['fractional sequence', { message_seq: '7.5' }],
+    ['non-numeric sequence', { message_seq: 'not-a-sequence' }],
+    ['fractional start offset', { first_message_text_offset: 1.5 }],
+    ['infinite end offset', { last_message_text_offset_exclusive: Infinity }],
+    ['NaN start offset', { first_message_text_offset: Number.NaN }],
   ])('returns a closed miss for %s', (_name, overrides) => {
     expect(
       hydrateCanonicalSearchRows([row(overrides)], {
@@ -352,5 +364,154 @@ describe('hydrateCanonicalSearchRows', () => {
         { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
       ),
     ).toBeNull();
+  });
+
+  it('rejects any repeated boundary metadata that disagrees with the first row', () => {
+    const secondRow = (overrides: Partial<CanonicalHydrationRow>) =>
+      row({
+        message_id: LAST_MESSAGE_ID,
+        message_seq: '11',
+        message_role: 'assistant',
+        message_usage: { status: 'completed' },
+        ...overrides,
+      });
+
+    for (const overrides of [
+      { first_message_id: EMPTY_MESSAGE_ID },
+      { last_message_id: EMPTY_MESSAGE_ID },
+      { first_seq: '8' },
+      { last_seq: '12' },
+      { first_message_text_offset: 6 },
+      { last_message_text_offset_exclusive: 9 },
+    ]) {
+      expect(
+        hydrateCanonicalSearchRows([row(), secondRow(overrides)], {
+          chatId: CHAT_ID,
+          bestDocumentId: DOCUMENT_ID,
+        }),
+      ).toBeNull();
+    }
+  });
+
+  it('rejects boundary shape combinations that cannot represent one projection span', () => {
+    expect(
+      hydrateCanonicalSearchRows(
+        [
+          row({
+            first_message_id: FIRST_MESSAGE_ID,
+            last_message_id: FIRST_MESSAGE_ID,
+            first_seq: '7',
+            last_seq: '8',
+          }),
+          row({
+            message_id: LAST_MESSAGE_ID,
+            message_seq: '8',
+            first_message_id: FIRST_MESSAGE_ID,
+            last_message_id: FIRST_MESSAGE_ID,
+            first_seq: '7',
+            last_seq: '8',
+          }),
+        ],
+        { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
+      ),
+    ).toBeNull();
+
+    expect(
+      hydrateCanonicalSearchRows([row({ first_seq: '11', last_seq: '7' })], {
+        chatId: CHAT_ID,
+        bestDocumentId: DOCUMENT_ID,
+      }),
+    ).toBeNull();
+
+    expect(
+      hydrateCanonicalSearchRows(
+        [
+          row(),
+          row({
+            message_id: LAST_MESSAGE_ID,
+            message_seq: '11',
+            message_chat_id: EMPTY_MESSAGE_ID,
+          }),
+        ],
+        { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
+      ),
+    ).toBeNull();
+  });
+
+  it('rejects invalid source timestamps at the source boundary', () => {
+    expect(
+      hydrateCanonicalSearchRows([row({ message_created_at: 'not-a-date' })], {
+        chatId: CHAT_ID,
+        bestDocumentId: DOCUMENT_ID,
+      }),
+    ).toBeNull();
+  });
+
+  it('returns a closed miss for an empty row set or absent winning document', () => {
+    expect(
+      hydrateCanonicalSearchRows([], {
+        chatId: CHAT_ID,
+        bestDocumentId: DOCUMENT_ID,
+      }),
+    ).toBeNull();
+    expect(
+      hydrateCanonicalSearchRows([row()], {
+        chatId: CHAT_ID,
+        bestDocumentId: null,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe('hydrateCanonicalSearchCandidate', () => {
+  it.each([
+    ['empty owner', '   ', { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID }],
+    [
+      'invalid chat id',
+      'owner-A',
+      { chatId: 'chat-1', bestDocumentId: DOCUMENT_ID },
+    ],
+    [
+      'missing document id',
+      'owner-A',
+      { chatId: CHAT_ID, bestDocumentId: null },
+    ],
+    [
+      'invalid document id',
+      'owner-A',
+      { chatId: CHAT_ID, bestDocumentId: 'document-1' },
+    ],
+  ])(
+    'rejects %s before opening the transaction query',
+    async (_name, owner, candidate) => {
+      const tx: Db = drizzle.mock({ schema });
+      const execute = vi.spyOn(tx, 'execute');
+
+      await expect(
+        hydrateCanonicalSearchCandidate(tx, owner, candidate),
+      ).resolves.toBeNull();
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
+
+  it('executes one query for a valid owner and UUID candidate', async () => {
+    const tx: Db = drizzle.mock({ schema });
+    const execute = vi.spyOn(tx, 'execute').mockResolvedValue(
+      Object.assign([], {
+        columns: [],
+        count: 0,
+        command: 'SELECT',
+        statement: { name: '', string: '', types: [], columns: [] },
+        state: { status: 'I', pid: 0, secret: 0 },
+      }),
+    );
+
+    await expect(
+      hydrateCanonicalSearchCandidate(tx, 'owner-A', {
+        chatId: CHAT_ID,
+        bestDocumentId: DOCUMENT_ID,
+      }),
+    ).resolves.toBeNull();
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 });

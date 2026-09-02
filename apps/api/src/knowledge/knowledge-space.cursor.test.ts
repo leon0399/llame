@@ -20,9 +20,17 @@ describe('Knowledge Space cursor', () => {
   it.each([
     '',
     'not-base64url=',
+    'e30',
     Buffer.from('{"createdAt":"2026-08-23T12:34:56.789Z"}').toString(
       'base64url',
     ),
+    Buffer.from(
+      JSON.stringify({
+        createdAt: cursorValue.createdAt.toISOString(),
+        id: cursorValue.id,
+        extra: true,
+      }),
+    ).toString('base64url'),
     Buffer.from(
       JSON.stringify({
         createdAt: 'not-a-date',
@@ -33,6 +41,18 @@ describe('Knowledge Space cursor', () => {
       JSON.stringify({
         createdAt: cursorValue.createdAt.toISOString(),
         id: 'not-a-uuid',
+      }),
+    ).toString('base64url'),
+    Buffer.from(
+      JSON.stringify({
+        createdAt: cursorValue.createdAt.toISOString(),
+        id: cursorValue.id.toUpperCase(),
+      }),
+    ).toString('base64url'),
+    Buffer.from(
+      JSON.stringify({
+        createdAt: '2026-08-23T12:34:56Z',
+        id: cursorValue.id,
       }),
     ).toString('base64url'),
   ])('rejects malformed cursor %j', (encoded) => {

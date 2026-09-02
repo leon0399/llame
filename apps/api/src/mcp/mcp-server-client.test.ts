@@ -168,6 +168,29 @@ function byId(
 }
 
 describe('McpServerClient', () => {
+  it('keeps control-plane error messages and dispositions safe and stable', () => {
+    expect(new McpDiscoveryLimitError('pages')).toMatchObject({
+      name: 'McpDiscoveryLimitError',
+      message: 'MCP discovery exceeded a fixed resource limit.',
+      limit: 'pages',
+      disposition: 'reconnect',
+      stage: 'discovery',
+    });
+    expect(new McpProtocolUnsupportedError()).toMatchObject({
+      name: 'McpProtocolUnsupportedError',
+      message: 'The MCP server negotiated an unsupported protocol version.',
+      disposition: 'reconnect',
+      stage: 'initialize',
+    });
+    expect(new McpServerOperationError('initialize', 'network')).toMatchObject({
+      name: 'McpServerOperationError',
+      message: 'MCP initialize failed.',
+      stage: 'initialize',
+      kind: 'network',
+      disposition: 'reconnect',
+    });
+  });
+
   it('reports successful inbound GET-SSE EOF only after connection completes', async () => {
     const fixture = await createMcpTestFixture({
       $get: [{ kind: 'sse', events: [] }],
@@ -1139,6 +1162,74 @@ describe('McpServerClient', () => {
     }
   });
 
+  it('rejects an overlapping discovery attempt before issuing a second list request', async () => {
+    const { fixture, client } = await connectFixture({
+      listResponses: [
+        {
+          ...jsonRpcResult(1, { tools: [tool('lookup')] }),
+          delayMs: 100,
+        },
+      ],
+    });
+
+    try {
+      const first = client.discover();
+      await vi.waitFor(() => {
+        expect(
+          fixture
+            .requestSummaries()
+            .filter(({ rpcMethod }) => rpcMethod === 'tools/list'),
+        ).toHaveLength(1);
+      });
+      await expect(client.discover()).rejects.toThrow(
+        'MCP discovery is already in progress.',
+      );
+      const firstResult = await first;
+      expect(firstResult.tools).toHaveLength(1);
+      expect(firstResult.refused).toEqual([]);
+      expect(
+        fixture
+          .requestSummaries()
+          .filter(({ rpcMethod }) => rpcMethod === 'tools/list'),
+      ).toHaveLength(1);
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
+  it('classifies caller cancellation of an in-flight discovery as a safe control-plane failure', async () => {
+    const { fixture, client } = await connectFixture({
+      listResponses: [
+        {
+          ...jsonRpcResult(1, { tools: [tool('lookup')] }),
+          delayMs: 1000,
+        },
+      ],
+    });
+    const controller = new AbortController();
+
+    try {
+      const discovery = client.discover({ signal: controller.signal });
+      await vi.waitFor(() => {
+        expect(
+          fixture
+            .requestSummaries()
+            .filter(({ rpcMethod }) => rpcMethod === 'tools/list'),
+        ).toHaveLength(1);
+      });
+      controller.abort(new Error('caller cancellation detail'));
+
+      await expect(discovery).rejects.toMatchObject({
+        name: 'McpServerOperationError',
+        stage: 'discovery',
+        kind: 'cancelled',
+        disposition: 'reconnect',
+      } satisfies Partial<McpServerOperationError>);
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
   it('rejects a page containing more than 256 tools', async () => {
     const { fixture, client } = await connectFixture({
       listResponses: [
@@ -1224,6 +1315,94 @@ describe('McpServerClient', () => {
           reason: 'schema_too_deep',
         },
       ]);
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
+  it('accepts a declaration whose schema reaches the depth-64 boundary', async () => {
+    type DeepSchema =
+      | { readonly type: 'string' }
+      | { readonly type: 'array'; readonly items: Record<string, never> }
+      | {
+          readonly type: 'object';
+          readonly properties: { readonly nested: DeepSchema };
+        };
+    let schema: DeepSchema = { type: 'array', items: {} };
+    for (let depth = 0; depth < 31; depth += 1) {
+      schema = { type: 'object', properties: { nested: schema } };
+    }
+    const { fixture, client } = await connectFixture({
+      listResponses: [
+        jsonRpcResult(1, {
+          tools: [tool('depth_boundary', { inputSchema: schema })],
+        }),
+      ],
+    });
+
+    try {
+      const result = await client.discover();
+      expect(result.refused).toEqual([]);
+      expect(result.tools).toHaveLength(1);
+      expect(result.tools[0]?.definition.remoteName).toBe('depth_boundary');
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
+  it('walks array-valued schema branches while admitting a valid tool', async () => {
+    const { fixture, client } = await connectFixture({
+      listResponses: [
+        jsonRpcResult(1, {
+          tools: [
+            tool('array_schema', {
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  values: { type: 'array', items: { type: 'string' } },
+                },
+              },
+            }),
+          ],
+        }),
+      ],
+    });
+
+    try {
+      const result = await client.discover();
+      expect(result.refused).toEqual([]);
+      expect(result.tools).toHaveLength(1);
+      expect(result.tools[0]?.definition.remoteName).toBe('array_schema');
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
+  it('classifies malformed POST-SSE payloads as a reconnecting call failure', async () => {
+    const { fixture, client } = await connectFixture({
+      listResponses: [jsonRpcResult(1, { tools: [tool('lookup')] })],
+      callResponses: [
+        {
+          kind: 'sse',
+          events: [{ data: '{malformed-json', rawData: true }],
+        },
+      ],
+    });
+
+    try {
+      const catalog = await client.discover();
+      const outcome = await byId(catalog.tools, 'mcp__web__lookup').execute(
+        {},
+        { toolCallId: 'call', messages: [], abortSignal: undefined },
+      );
+      expect(outcome).toEqual({
+        disposition: 'reconnect',
+        result: {
+          status: 'error',
+          type: 'execution_failed',
+          message: 'The remote tool failed to execute.',
+        },
+      });
     } finally {
       await cleanup({ client, fixture });
     }

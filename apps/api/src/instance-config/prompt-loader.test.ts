@@ -126,6 +126,46 @@ describe('model prompt file loading', () => {
   });
 
   it.each([
+    ['permission denied', 'EPERM', 'prompt file is unreadable'],
+    ['other read failure', 'EIO', 'failed to read prompt file'],
+  ] as const)(
+    'maps a %s default read failure to a safe config error',
+    (_case, code, expected) => {
+      const access: PromptFileAccess = {
+        isFile: () => true,
+        readFile: () => {
+          throw Object.assign(new Error('private-host-detail'), { code });
+        },
+      };
+
+      expect(() => loader(access).resolve({ id: 'private-model' })).toThrow(
+        expected,
+      );
+      expect(() => loader(access).resolve({ id: 'private-model' })).not.toThrow(
+        /private-host-detail/,
+      );
+    },
+  );
+
+  it('maps an isFile failure to a safe config error', () => {
+    const access: PromptFileAccess = {
+      isFile: () => {
+        throw Object.assign(new Error('private-stat-detail'), {
+          code: 'EACCES',
+        });
+      },
+      readFile: () => 'unused',
+    };
+
+    expect(() => loader(access).resolve({ id: 'private-model' })).toThrow(
+      'prompt file is unreadable',
+    );
+    expect(() => loader(access).resolve({ id: 'private-model' })).not.toThrow(
+      /private-stat-detail/,
+    );
+  });
+
+  it.each([
     ['missing', false, () => 'unused'],
     ['empty', true, () => ' \r\n\t'],
   ] as const)(
@@ -233,6 +273,17 @@ describe('model prompt rendering', () => {
     expect(renderFor({ id: 'model-id' })).toBe('before after');
   });
 
+  it('renders the always-present temporal anchor paths with strict escaping', () => {
+    writeFileSync(
+      defaultPromptPath,
+      '{{context.systemTime}} @ {{context.systemTimezone}}',
+    );
+
+    expect(
+      renderResolved(loader().resolve({ id: 'model-id' }), { id: 'model-id' }),
+    ).toBe('2026-08-19 16:36+02:00 @ Europe/Madrid');
+  });
+
   it('escapes only markup characters, leaving prose punctuation intact', () => {
     writeFileSync(defaultPromptPath, 'name <b>{{model.name}}</b>');
 
@@ -319,6 +370,28 @@ describe('model prompt rendering', () => {
     expect(() => loader().resolve({ id: 'model-id' })).toThrow(
       'helper invocation',
     );
+  });
+
+  it('rejects an unknown block helper at boot', () => {
+    writeFileSync(defaultPromptPath, 'x {{#lookup model.id}}y{{/lookup}}');
+
+    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+      'unsupported prompt construct "lookup"',
+    );
+  });
+
+  it('rejects data paths as collection subjects', () => {
+    writeFileSync(defaultPromptPath, 'x {{#each @index}}y{{/each}}');
+
+    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+      'unsupported prompt construct',
+    );
+  });
+
+  it('accepts an empty conditional arm when surrounding literal content remains', () => {
+    writeFileSync(defaultPromptPath, 'before{{#if model.id}}{{/if}}after');
+
+    expect(renderFor({ id: 'model-id' })).toBe('beforeafter');
   });
 
   it('fails a template whose only content is expressions and whitespace', () => {

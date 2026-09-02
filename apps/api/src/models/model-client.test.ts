@@ -196,6 +196,41 @@ describe('ModelClient', () => {
     });
   });
 
+  it('exposes configured pricing and compaction metadata on the model client', () => {
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.chat',
+      modelId: 'gpt-test',
+    });
+    const openaiProvider = Object.assign(
+      vi.fn(() => providerModel),
+      { chat: vi.fn(() => providerModel) },
+    );
+    createOpenAIMock.mockReturnValue(openaiProvider);
+    streamTextMock.mockReturnValue({});
+
+    const pricing = {
+      inputUsdPer1M: 1,
+      cachedInputUsdPer1M: 0.25,
+      outputUsdPer1M: 4,
+    };
+    const client = createOpenAIModelClient(
+      {
+        credential: 'sk-user-supplied',
+        providerModelId: 'gpt-test',
+        modelId: 'system:openai:gpt-test',
+        contextWindowTokens: 128_000,
+        pricing,
+        compactionThresholdTokens: 64_000,
+      },
+      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+    );
+
+    expect(client).toMatchObject({
+      pricing,
+      compactionThresholdTokens: 64_000,
+    });
+  });
+
   it('uses native Responses with an automatic displayable reasoning summary when configured for native OpenAI', () => {
     const providerModel = new MockLanguageModelV3({
       provider: 'openai.responses',

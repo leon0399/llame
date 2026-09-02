@@ -32,8 +32,8 @@ committed OpenAPI document.
 
 The mutation commands cover API product source with unit tests and the
 TypeScript checker. CI runs stable source-file shards and aggregates their JSON
-reports. Reports are ignored under `reports/`. Restricted sandboxes may need
-local-bind permission for Stryker.
+reports before enforcing MSI. Reports are ignored under `reports/`. Restricted
+sandboxes may need local-bind permission for Stryker.
 
 ## Documentation
 

@@ -798,6 +798,134 @@ describe('knowledge_search cursor continuation', () => {
     });
     expect(search).not.toHaveBeenCalled();
   });
+
+  it('filters explicit-space matches after a cursor and requests one lookahead', async () => {
+    const search = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
+      Promise.resolve([
+        { path: 'a.md', offset: 0, limit: 1, excerpt: 'before' },
+        { path: 'a.md', offset: 1, limit: 1, excerpt: 'after' },
+        { path: 'b.md', offset: 0, limit: 1, excerpt: 'later' },
+      ]),
+    );
+    const cursor = encodeKnowledgeSearchCursor({
+      version: 1,
+      query: 'needle',
+      knowledgeSpaceId: binding.id,
+      spaceCreatedAt: new Date(0),
+      spaceId: binding.id,
+      path: 'a.md',
+      offset: 0,
+    });
+
+    const result = await knowledgeSearchTool.execute(
+      context(fakeAdapter({ search })),
+      {
+        query: 'needle',
+        limit: 1,
+        knowledgeSpaceId: binding.id,
+        cursor,
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      results: [{ path: 'a.md', offset: 1 }],
+    });
+    expect(result).toHaveProperty('nextCursor');
+    expect(search).toHaveBeenCalledWith(
+      'needle',
+      1,
+      expect.objectContaining({
+        maxResults: 2,
+        after: { path: 'a.md', offset: 0 },
+      }),
+    );
+  });
+
+  it('orders unscoped continuation by date, stable ID, path, and offset', async () => {
+    const before: KnowledgeFilesystemBinding = {
+      ...binding,
+      id: '5f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
+      name: 'Before',
+      directory: '/srv/knowledge/5f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
+    };
+    const after: KnowledgeFilesystemBinding = {
+      ...binding,
+      id: '7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
+      name: 'After',
+      directory: '/srv/knowledge/7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
+    };
+    const createdAt = new Date(0);
+    const anchorSearch = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
+      Promise.resolve([
+        { path: 'a.md', offset: 0, limit: 1, excerpt: 'anchor' },
+        { path: 'a.md', offset: 1, limit: 1, excerpt: 'anchor later' },
+        { path: 'b.md', offset: 0, limit: 1, excerpt: 'anchor path later' },
+      ]),
+    );
+    const afterSearch = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
+      Promise.resolve([
+        { path: 'c.md', offset: 0, limit: 1, excerpt: 'after' },
+      ]),
+    );
+    const beforeSearch = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
+      Promise.resolve([
+        { path: 'before.md', offset: 0, limit: 1, excerpt: 'before' },
+      ]),
+    );
+    const spaces = [
+      { id: before.id, name: 'Before', createdAt },
+      { id: binding.id, name: 'Anchor', createdAt },
+      { id: after.id, name: 'After', createdAt },
+    ];
+    const toolContext = multiSpaceContext(
+      spaces,
+      new Map([
+        [before.id, before],
+        [binding.id, binding],
+        [after.id, after],
+      ]),
+      new Map([
+        [before.id, fakeAdapter({ search: beforeSearch })],
+        [binding.id, fakeAdapter({ search: anchorSearch })],
+        [after.id, fakeAdapter({ search: afterSearch })],
+      ]),
+    );
+    const cursor = encodeKnowledgeSearchCursor({
+      version: 1,
+      query: 'needle',
+      spaceCreatedAt: createdAt,
+      spaceId: binding.id,
+      path: 'a.md',
+      offset: 0,
+    });
+
+    const result = await knowledgeSearchTool.execute(toolContext, {
+      query: 'needle',
+      limit: 5,
+      cursor,
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      results: [
+        { knowledgeSpaceId: binding.id, path: 'a.md', offset: 1 },
+        { knowledgeSpaceId: binding.id, path: 'b.md', offset: 0 },
+        { knowledgeSpaceId: after.id, path: 'c.md', offset: 0 },
+      ],
+    });
+    expect(beforeSearch).not.toHaveBeenCalled();
+    expect(anchorSearch).toHaveBeenCalledWith(
+      'needle',
+      5,
+      expect.objectContaining({ after: { path: 'a.md', offset: 0 } }),
+    );
+    expect(afterSearch).toHaveBeenCalledWith(
+      'needle',
+      5,
+      expect.objectContaining({ after: undefined }),
+    );
+  });
 });
 
 describe('knowledge_search', () => {
@@ -905,6 +1033,45 @@ describe('knowledge_search', () => {
       status: 'error',
       type: 'knowledge_limit_exceeded',
       message: 'The Knowledge operation exceeded its result limit.',
+    });
+  });
+
+  it('maps an explicit-space adapter failure to an unavailable result', async () => {
+    const adapter = fakeAdapter({
+      search: vi.fn(() => Promise.reject(new Error('/private/knowledge/root'))),
+    });
+
+    await expect(
+      knowledgeSearchTool.execute(context(adapter), {
+        query: 'needle',
+        limit: 5,
+        knowledgeSpaceId: binding.id,
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_space_unavailable',
+      message: 'The Knowledge Space is unavailable.',
+    });
+  });
+
+  it('returns a closed limit error when an unscoped space exceeds its search budget', async () => {
+    const adapter = fakeAdapter({
+      search: vi.fn(() =>
+        Promise.reject(
+          new KnowledgeFilesystemError('knowledge_limit_exceeded'),
+        ),
+      ),
+    });
+
+    await expect(
+      knowledgeSearchTool.execute(context(adapter), {
+        query: 'needle',
+        limit: 5,
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_limit_exceeded',
+      message: 'The Knowledge operation exceeded its limit.',
     });
   });
 
@@ -1318,6 +1485,51 @@ describe('knowledge_search', () => {
       message: 'The Knowledge Space is unavailable.',
     });
   });
+
+  it('returns the resolver unavailable result when no listed space can be inspected', async () => {
+    const listedSpace: KnowledgeToolSpaceReference = {
+      id: binding.id,
+      name: 'Unavailable',
+      createdAt: new Date(0),
+    };
+    const baseContext = multiSpaceContext([listedSpace], new Map(), new Map());
+    const toolContext: ToolContext = {
+      ...baseContext,
+      knowledgeResolver: {
+        ...baseContext.knowledgeResolver!,
+        resolveBindingForOwnerById: vi.fn(() =>
+          Promise.reject(
+            new KnowledgeFilesystemError('knowledge_space_unavailable'),
+          ),
+        ),
+      },
+    };
+
+    await expect(
+      knowledgeSearchTool.execute(toolContext, { query: 'term', limit: 5 }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_space_unavailable',
+      message: 'The Knowledge Space is unavailable.',
+    });
+  });
+
+  it('returns a bounded unavailable warning for an unscoped generic adapter failure', async () => {
+    const adapter = fakeAdapter({
+      search: vi.fn(() => Promise.reject(new Error('/private/knowledge/root'))),
+    });
+
+    await expect(
+      knowledgeSearchTool.execute(context(adapter), {
+        query: 'term',
+        limit: 5,
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_space_unavailable',
+      message: 'The Knowledge Space is unavailable.',
+    });
+  });
 });
 
 describe('knowledge_read', () => {
@@ -1364,6 +1576,33 @@ describe('knowledge_read', () => {
       notice: KNOWLEDGE_CONTENT_NOTICE,
     });
     expect(result).not.toHaveProperty('contentHash');
+  });
+
+  it('preserves the adapter cut reason when a bounded read continues', async () => {
+    const adapter = fakeAdapter({
+      read: vi.fn(() =>
+        Promise.resolve({
+          path: 'notes/a.md',
+          offset: 0,
+          lineCount: 2,
+          content: '1: first\n2: second',
+          nextOffset: 2,
+          cutReason: 'line_limit' as const,
+        }),
+      ),
+    });
+
+    await expect(
+      knowledgeReadTool.execute(context(adapter), {
+        knowledgeSpaceId: binding.id,
+        path: 'notes/a.md',
+        limit: 2,
+      }),
+    ).resolves.toMatchObject({
+      status: 'success',
+      nextOffset: 2,
+      cutReason: 'line_limit',
+    });
   });
 
   it('returns the closed range error from the adapter', async () => {
@@ -1539,6 +1778,19 @@ describe('Knowledge tool failure boundaries', () => {
         path: 'note.md',
       }),
     ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
+  });
+
+  it('rejects before listing spaces when the trusted signal is already aborted', async () => {
+    const abort = new AbortController();
+    abort.abort();
+    const toolContext = { ...context(), abortSignal: abort.signal };
+
+    await expect(
+      knowledgeSearchTool.execute(toolContext, { query: 'needle', limit: 5 }),
+    ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
+    expect(
+      toolContext.knowledgeResolver?.listForOwnerPage,
+    ).not.toHaveBeenCalled();
   });
 
   it('records parent abort and call timeout through the canonical runner outcomes', async () => {

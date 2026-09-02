@@ -38,6 +38,7 @@
     "test:integration": "vitest run --project integration",
     "test:mutation": "pnpm --filter @workspace/config-interpolation build && stryker run",
     "test:mutation:aggregate": "node ../../scripts/mutation-sharding.mjs aggregate",
+    "test:mutation:check": "node ../../scripts/mutation-sharding.mjs aggregate --threshold 80 --expected-shards 8 reports/mutation-shards/*/mutation.json",
     "test:mutation:dry": "pnpm --filter @workspace/config-interpolation build && stryker run --dryRunOnly",
     "test:mutation:shard": "pnpm --filter @workspace/config-interpolation build && node ../../scripts/mutation-sharding.mjs run",
     "test:mutation:tooling": "node --test ../../scripts/mutation-sharding.test.mjs",

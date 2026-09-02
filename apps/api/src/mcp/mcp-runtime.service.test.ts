@@ -106,6 +106,124 @@ afterEach(() => {
 });
 
 describe('McpRuntimeService', () => {
+  it('initializes once even when lifecycle hooks are repeated', async () => {
+    const client = fakeClient();
+    const clientFactory = vi.fn<McpRuntimeClientFactory>(() =>
+      Promise.resolve(client),
+    );
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory,
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    runtime.onModuleInit();
+    expect(clientFactory).toHaveBeenCalledOnce();
+
+    await runtime.onModuleDestroy();
+    runtime.onModuleInit();
+    expect(clientFactory).toHaveBeenCalledOnce();
+  });
+
+  it('clamps a non-finite refresh jitter to the earliest refresh', async () => {
+    vi.useFakeTimers();
+    const client = fakeClient(vi.fn(() => Promise.resolve(emptyDiscovery())));
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+      random: () => Number.POSITIVE_INFINITY,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    expect(client.discover).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(48 * MINUTE_MS);
+    await flushAsync();
+    expect(client.discover).toHaveBeenCalledTimes(2);
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('reconnects when a tool executor reports a reconnect disposition', async () => {
+    const discovered: McpDiscoveredTool = {
+      ...discoveredTool('web', 'reconnect'),
+      execute: vi.fn(() =>
+        Promise.resolve({
+          disposition: 'reconnect' as const,
+          result: {
+            status: 'error' as const,
+            type: 'execution_failed',
+            message: 'remote session ended',
+          },
+        }),
+      ),
+    };
+    const client = fakeClient(
+      vi.fn(() => Promise.resolve(discovery(discovered))),
+    );
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+      random: () => 0,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    const resolution = runtime.resolveDynamicTool('mcp__web__reconnect');
+    if (resolution.state !== 'available') {
+      throw new Error('expected the dynamic tool to be available');
+    }
+
+    await expect(
+      resolution.executor.execute(
+        {
+          userId: 'user-1',
+          chatId: 'chat-1',
+          tenantDb: fakeTenantDb,
+          toolCallId: 'call-1',
+        },
+        { query: 'evidence' },
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'execution_failed',
+      message: 'remote session ended',
+    });
+    expect(client.close).toHaveBeenCalledOnce();
+    expect(runtime.resolveDynamicTool('mcp__web__reconnect')).toEqual({
+      state: 'unavailable',
+    });
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('returns unavailable for a canonical tool removed by refresh', async () => {
+    vi.useFakeTimers();
+    const client = fakeClient(
+      vi
+        .fn<McpRuntimeClient['discover']>()
+        .mockResolvedValueOnce(discovery(discoveredTool('web', 'lookup')))
+        .mockResolvedValueOnce(emptyDiscovery()),
+    );
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+      random: () => 0,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    expect(runtime.resolveDynamicTool('mcp__web__lookup').state).toBe(
+      'available',
+    );
+
+    await vi.advanceTimersByTimeAsync(48 * MINUTE_MS);
+    expect(runtime.resolveDynamicTool('mcp__web__lookup')).toEqual({
+      state: 'unavailable',
+    });
+
+    await runtime.onModuleDestroy();
+  });
+
   it('projects the complete admitted inventory without permission input or synthetic offline identities', async () => {
     const client = fakeClient(
       vi.fn(() =>

@@ -3,6 +3,7 @@ import { toolTerminationMessage } from './tool-settlement';
  * Run-event → UI-chunk translator unit tests (#50) — pure state machine.
  */
 
+import { ConfigService } from '@nestjs/config';
 import { parseJsonEventStream } from '@ai-sdk/provider-utils';
 import {
   readUIMessageStream,
@@ -10,8 +11,54 @@ import {
   type UIMessage,
   type UIMessageChunk,
 } from 'ai';
+import { afterEach, vi } from 'vitest';
+import { drizzle } from 'drizzle-orm/postgres-js';
 
-import { createRunEventTranslator } from './run-stream-bridge';
+import * as schema from '../db/schema';
+import { TenantDbService, type Db } from '../db/tenant-db.service';
+import { RunEventsRepository, RunsRepository } from './runs-repository';
+import {
+  createRunEventTranslator,
+  RunStreamBridgeService,
+} from './run-stream-bridge';
+import type { RunEvent } from '../db/schema/chats';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+const RUN_ID = '00000000-0000-4000-8000-000000000001';
+
+function runEvent(
+  sequence: number,
+  eventType: string,
+  payload: RunEvent['payload'],
+): RunEvent {
+  return {
+    sequence,
+    runId: RUN_ID,
+    eventType,
+    payload,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+  };
+}
+
+function bridgeFixture(configValues: Record<string, string> = {}) {
+  const db: Db = drizzle.mock({ schema });
+  const tenantDb = new TenantDbService({
+    transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
+  });
+  vi.spyOn(tenantDb, 'runAs').mockImplementation(
+    async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+      callback(db),
+  );
+  const config = new ConfigService(configValues);
+  return {
+    bridge: new RunStreamBridgeService(tenantDb, config),
+    tenantDb,
+    config,
+  };
+}
 
 describe('createRunEventTranslator', () => {
   it('emits prelude lazily, then deltas, then text-end + finish on completion', () => {
@@ -587,5 +634,106 @@ describe('createRunEventTranslator', () => {
     expect(
       t.translate({ eventType: 'run.step_cap_reached', payload: {} }),
     ).toEqual([]);
+  });
+});
+
+describe('RunStreamBridgeService', () => {
+  it('replays terminal run events as a complete UI-message stream', async () => {
+    const events = [
+      runEvent(1, 'model.delta', { text: 'answer' }),
+      runEvent(2, 'run.completed', null),
+    ];
+    const listByRunId = vi
+      .spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValue(events);
+    const { bridge } = bridgeFixture();
+
+    const response = bridge.createUiMessageStreamResponse({
+      runId: RUN_ID,
+      userId: 'user-1',
+    });
+    const body = await response.text();
+
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    expect(response.headers.get('x-vercel-ai-ui-message-stream')).toBe('v1');
+    expect(body).toContain('"type":"start"');
+    expect(body).toContain('"type":"text-delta"');
+    expect(body).toContain('"delta":"answer"');
+    expect(body).toContain('"type":"finish"');
+    expect(body).toContain('data: [DONE]\n\n');
+    expect(listByRunId).toHaveBeenCalledWith(RUN_ID, 'user-1', {
+      afterSequence: 0,
+    });
+  });
+
+  it('stops when the run is terminal but has no terminal event', async () => {
+    const listByRunId = vi
+      .spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValue([]);
+    const findById = vi
+      .spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValue({
+        id: RUN_ID,
+        chatId: '00000000-0000-4000-8000-000000000002',
+        messageId: null,
+        userId: 'user-1',
+        modelId: 'model-1',
+        modelContextSnapshotId: null,
+        status: 'completed',
+        workerId: null,
+        cancelRequestedAt: null,
+        error: null,
+        contextItems: null,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        startedAt: null,
+        finishedAt: null,
+        effort: null,
+      });
+    const { bridge } = bridgeFixture();
+
+    const response = bridge.createUiMessageStreamResponse({
+      runId: RUN_ID,
+      userId: 'user-1',
+    });
+
+    await expect(response.text()).resolves.toBe('');
+    expect(listByRunId).toHaveBeenCalledOnce();
+    expect(findById).toHaveBeenCalledWith(RUN_ID, 'user-1');
+  });
+
+  it('emits an explicit error when the configured stream window expires', async () => {
+    vi.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValue(1002);
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
+    const { bridge } = bridgeFixture({ RUN_STREAM_MAX_MS: '1' });
+
+    const response = bridge.createUiMessageStreamResponse({
+      runId: RUN_ID,
+      userId: 'user-1',
+    });
+    const body = await response.text();
+
+    expect(body).toContain(
+      'Stream window elapsed; the run is still executing. Reload to see the result.',
+    );
+    expect(body).not.toContain('data: [DONE]');
+  });
+
+  it('closes without output when the client aborts before polling', async () => {
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
+    const controller = new AbortController();
+    controller.abort();
+    const { bridge } = bridgeFixture();
+
+    const response = bridge.createUiMessageStreamResponse({
+      runId: RUN_ID,
+      userId: 'user-1',
+      abortSignal: controller.signal,
+    });
+
+    await expect(response.text()).resolves.toBe('');
   });
 });

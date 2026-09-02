@@ -13,9 +13,9 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import {
   ChatsRepository,
   CompactionsRepository,
-  MessagesRepository,
   type Db,
 } from './chats-repository';
+import { MessagesRepository } from './messages-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import * as schema from '../db/schema';
 

@@ -8,6 +8,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   analysis, and mutation commands now run through package scripts and CI.
 - **Mutation testing**: API mutation runs are sharded in CI and aggregated into
   one report; config interpolation has its own package task.
+- **Mutation coverage**: CI enforces 80% MSI for API and config-interpolation
+  business logic.
 
 # 2026-08-28
 
