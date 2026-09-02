@@ -68,7 +68,13 @@ jobs:
 
       # Strictly dependency-free by construction: DB-backed suites are their
       # own `test:integration` task, evals are opt-in behind RUN_MODEL_EVALS.
-      - run: pnpm exec turbo run test
+      - run: pnpm test:metrics
+
+      - run: pnpm exec turbo run test --filter='!api' --filter='!web' --filter='!@workspace/config-interpolation'
+
+      # Coverage and function-level CRAP replace the plain test command for
+      # these workspaces, so the suite runs once and both thresholds gate CI.
+      - run: pnpm exec turbo run test:coverage --filter=web --filter=@workspace/config-interpolation
 
   build:
     name: Build
@@ -109,7 +115,9 @@ jobs:
       # migrations — the worst-case single-role self-hosted deployment, so a
       # green RLS suite proves FORCE constrains even the table owner. Needs
       # host Docker, hence no container image for this job.
-      - run: pnpm --filter api test:integration
+      # Runs unit + integration once, then enforces coverage and function-level
+      # CRAP from the fresh Istanbul report.
+      - run: pnpm --filter api test:coverage
 
   component:
     name: Component tests (Storybook)
