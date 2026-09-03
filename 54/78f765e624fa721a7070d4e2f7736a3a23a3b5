@@ -1,0 +1,28 @@
+CODING_STANDARDS.md
+  37b5209b237ecb13 12-13,18-20
+  28b3b7d2259bc30e 139
+CONTRIBUTING.md
+  e9a2d8ec013ebeaa 131-135
+docs/scaling.md
+  37b5209b237ecb13 284-289,302-303
+docs/testing.md
+  28b3b7d2259bc30e 69-81
+.coderabbit.yaml
+  28b3b7d2259bc30e 7,9-15,18-24,30-55,59-73,76-90,92-101,103-116,124-129
+  37b5209b237ecb13 25-28,132-133
+apps/api/AGENTS.md
+  37b5209b237ecb13 144,291-293,381
+apps/api/src/db/migrations/20260825115153_naive_the_executioner.sql
+  37b5209b237ecb13 5-10
+REVIEW_GUIDE.md
+  37b5209b237ecb13 161-163
+  28b3b7d2259bc30e 1-8,10,13-56,58-95,97-133,135-142,146-160,164-195,198-206,210-275,278-285
+apps/api/src/db/AGENTS.md
+  37b5209b237ecb13 31-32,65-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "5478f765e624fa721a7070d4e2f7736a3a23a3b5",
+  "prompts": {}
+}
