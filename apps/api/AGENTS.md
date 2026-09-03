@@ -124,9 +124,10 @@ model, revision, dimensions, metric, and prefixes cannot be redefined. To move
 a corpus: declare a new ID, repoint, backfill, verify coverage, remove the old
 entry, then prune.
 
-`search:*` commands fail closed, including when RLS helpers are unprovisioned.
-`search:backfill` only enqueues; it never calls a provider. Removing an embedding
-model does not delete vectors; use `search:prune` explicitly.
+`search:backfill`, `search:coverage`, and `search:projection-coverage` fail
+closed when RLS discovery helpers are unprovisioned. `search:retry-failed` and
+`search:prune` use owner-scoped writes. Backfill only enqueues; it never calls a
+provider. Removing an embedding model does not delete vectors; prune explicitly.
 `search_conversations` always returns canonical results; HTTP admission and
 every `runs` consumer enforce projection coverage. `conversation_read` is
 independently allowlisted. See [the runbook](../../docs/conversation-recall.md)

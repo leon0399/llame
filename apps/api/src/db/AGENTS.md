@@ -22,7 +22,8 @@ Postgres must include pgvector and `pg_trgm`; stock Postgres is insufficient.
 Edit `src/db/schema/`, then run `pnpm db:generate` and
 `pnpm --filter api db:check`. After a rebase, no schema changes proves schema
 sync; `db:check` validates migrations, journal, and snapshots. Never hand-edit
-generated SQL or the journal without the documented exception below.
+generated metadata snapshots. Manual SQL needs its header rationale; journal
+edits are limited to P4 ordering repair.
 
 ## Migration traps
 
@@ -41,7 +42,8 @@ ALTER TABLE "x" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 P3 - Cross-tenant discovery functions are `SECURITY DEFINER`, owned after
 provisioning by `app_rls` (`BYPASSRLS`), and return only identifiers,
 timestamps, or counts. Never `CREATE OR REPLACE` them from a later `app`
-migration; add a sibling function, then reprovision.
+migration. Add the sibling plus its ownership/execute grants to
+`docker/postgres/rls-function-owner.sql`, then reprovision.
 
 P4 - Journal `when`, not filename, determines order. New migrations use
 timestamp prefixes. After parallel rebases, keep both journal rows, make `idx`

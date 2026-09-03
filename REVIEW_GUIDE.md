@@ -64,10 +64,11 @@ path and failure.
   closest `AGENTS.md` commands and traps.
 - Shared primitives live in `packages/ui`; app compositions in the app.
 - Never edit generated clients or OpenAPI output by hand.
-- APIs use resources and standard verbs, validated DTOs, and explicit response
-  allowlists. Defaults are durable contracts; provider data sharing defaults
-  off and states retroactivity plus non-erasability together. Config errors fail
-  boot with the bad path.
+- APIs use resources and standard verbs. Structured bodies/queries use DTOs;
+  scalar route parameters use pipes. JSON responses use explicit allowlists;
+  streams document their transport contract. Defaults are durable contracts;
+  provider data sharing defaults off and states retroactivity plus
+  non-erasability together. Config errors fail boot with the bad path.
 - Unimplemented UI is a visible disabled placeholder, never hidden or clickable
   without behavior. Do not add noisy per-request or per-token logs.
 - TypeScript remains the only web/API/worker language.

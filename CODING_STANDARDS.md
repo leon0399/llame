@@ -6,6 +6,8 @@ The correct change is the smallest one that fully solves the current task.
 
 - Touch only files and behavior required by the task. Nearby debt is a note.
 - Add no unrequested feature, option, fallback, or cleanup.
+- Required tenant isolation, fail-closed authorization, durability, and
+  transaction safety are part of every task.
 - Match local style and boundaries. Do not extend a known violation or launch an
   unrelated cleanup.
 - Delete prohibited speculative structure when the task already touches it and
