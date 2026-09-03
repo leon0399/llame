@@ -1,0 +1,30 @@
+CONTRIBUTING.md
+  e9a2d8ec013ebeaa 131-135
+apps/api/AGENTS.md
+  37b5209b237ecb13 144,291-293,381
+packages/ui/src/components/sidebar.stories.tsx
+  37b5209b237ecb13 130
+.coderabbit.yaml
+  37b5209b237ecb13 25-28,132-133
+  28b3b7d2259bc30e 7,9-15,18-24,30-55,59-73,76-90,92-101,103-116,124-129
+apps/api/src/db/AGENTS.md
+  37b5209b237ecb13 31-32,65-67
+apps/api/src/db/migrations/20260825115153_naive_the_executioner.sql
+  37b5209b237ecb13 5-10
+docs/testing.md
+  28b3b7d2259bc30e 69-81
+docs/scaling.md
+  37b5209b237ecb13 284-289,302-303
+CODING_STANDARDS.md
+  28b3b7d2259bc30e 139
+  37b5209b237ecb13 12-13,18-20
+REVIEW_GUIDE.md
+  28b3b7d2259bc30e 1-8,10,13-56,58-95,97-133,135-142,146-160,164-195,198-206,210-275,278-285
+  37b5209b237ecb13 161-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "e41e8b95fac3bbb14c967825b9748d458695a0e0",
+  "prompts": {}
+}
