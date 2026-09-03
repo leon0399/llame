@@ -30,19 +30,10 @@ The integration suite provisions its own PostgreSQL container unless
 `TEST_DATABASE_URL` is supplied. The workspace-scoped build regenerates the
 committed OpenAPI document.
 
-The two mutation commands are a bounded, foreground-only diagnostic for the
-three pure MCP utilities and their direct unit tests. They are not a coverage
-substitute or a CI gate. Stryker uses one worker; the repository pins
-`@stryker-mutator/vitest-runner@9.6.1` in the package and lockfile, and its
-installed 9.6.1 source forces one Vitest worker through `maxThreads`,
-`maxWorkers`, and `maxConcurrency`. Do not raise concurrency without new
-peak-memory evidence; reverify those options and peak memory before upgrading
-the runner. The native clear-text summary is printed by the run,
-while HTML and JSON reports are written under the ignored
-`apps/api/reports/mutation/` directory. In a restricted sandbox, the full run
-may need permission for Stryker's local bind; see [API agent instructions](./AGENTS.md)
-and [testing guidance](../../docs/testing.md) for the execution caveat. Keep
-the native configuration—no bespoke wrapper, reporter, or checker.
+The mutation commands cover API product source with unit tests and the
+TypeScript checker. CI runs stable source-file shards and aggregates their JSON
+reports. Reports are ignored under `reports/`. Restricted sandboxes may need
+local-bind permission for Stryker.
 
 ## Documentation
 

@@ -1,20 +1,25 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "mutate": [
-    "src/mcp/tool-id.ts",
-    "src/mcp/protected-values.ts",
-    "src/mcp/mcp-bounded-fetch.ts"
-  ],
-  "testFiles": [
-    "src/mcp/tool-id.test.ts",
-    "src/mcp/protected-values.test.ts",
-    "src/mcp/mcp-bounded-fetch.test.ts"
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "!src/testing/**",
+    "!src/instance-config/config-loader.ts",
+    "!src/instance-config/knowledge-config.ts",
+    "!src/mcp/mcp-runtime.module.ts"
   ],
   "testRunner": "vitest",
-  "plugins": ["@stryker-mutator/vitest-runner"],
+  "checkers": ["typescript"],
+  "plugins": [
+    "@stryker-mutator/typescript-checker",
+    "@stryker-mutator/vitest-runner"
+  ],
   "vitest": {
-    "configFile": "vitest.config.mts"
+    "configFile": "vitest.mutation.config.mts",
+    "related": false
   },
+  "allowEmpty": false,
+  "coverageAnalysis": "perTest",
   "reporters": ["clear-text", "html", "json"],
   "htmlReporter": {
     "fileName": "reports/mutation/mutation.html"
@@ -22,11 +27,12 @@
   "jsonReporter": {
     "fileName": "reports/mutation/mutation.json"
   },
-  "concurrency": 1,
+  "concurrency": 4,
+  "ignoreStatic": true,
   "thresholds": {
     "high": 80,
     "low": 60,
     "break": null
   },
-  "dryRunTimeoutMinutes": 2
+  "dryRunTimeoutMinutes": 20
 }

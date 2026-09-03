@@ -12,9 +12,14 @@
     "lint:fix": "oxlint --deny-warnings --fix",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage && crap-typescript --threshold 42 --format none src",
+    "test:mutation": "stryker run",
+    "test:mutation:dry": "stryker run --dryRunOnly",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/typescript-checker": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
     "@barney-media/crap-typescript": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",

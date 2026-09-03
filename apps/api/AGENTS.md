@@ -37,9 +37,9 @@ pnpm --filter api test:mutation
 ```
 
 Integration tests self-provision Postgres; `TEST_DATABASE_URL` overrides.
-Mutation testing is the existing three-file MCP diagnostic. Reports are ignored
-under `apps/api/reports/mutation/`; a restricted sandbox may need local-bind
-permission for Stryker's logging server.
+Mutation testing covers API source with unit tests and the TypeScript checker.
+CI partitions source files into stable shards; reports are ignored under
+`reports/`. Restricted sandboxes may need local-bind permission for Stryker.
 
 ## Instance configuration
 

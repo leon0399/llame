@@ -51,6 +51,8 @@ pnpm install
 pnpm dev
 pnpm lint
 pnpm format
+pnpm test:mutation
+pnpm test:mutation:dry
 pnpm test:e2e
 pnpm test:e2e:ui
 pnpm test:e2e:headed
