@@ -299,9 +299,9 @@ FROM compactions;
 
 Stop and investigate if either count is non-zero. Stop compatible workers only
 after both counts are zero, then apply the migration and matching application
-revision together. Rollback reverses the order: stop new authoring, drain Runs
-accepted by the new revision while compatible workers remain available, stop
-workers, and only then roll back schema and binaries.
+revision together. After the first `replacement_history` write, recover through
+a forward fix or restore a pre-migration snapshot and discard later writes. Do
+not remove replacement history without an approved retention policy.
 
 ## Process-local MCP clients
 

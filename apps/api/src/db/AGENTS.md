@@ -27,7 +27,8 @@ pins `pgvector/pgvector:pg17` by digest; `db:migrate` fails outright on stock
 Edit `src/db/schema/`, then run `pnpm db:generate` and
 `pnpm --filter api db:check`. A no-schema-changes result proves the schema is in
 sync; `db:check` validates the migrations, journal, and snapshot chain. Never
-hand-edit generated output without a reason in the migration's SQL header.
+hand-edit generated SQL without a reason in the migration's SQL header. Journal
+edits are limited to the P4 rebase procedure and record ordering only.
 
 ## The four migration patterns
 
