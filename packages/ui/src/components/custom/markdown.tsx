@@ -27,7 +27,7 @@ export type MarkdownProps = {
   components?: Partial<Components>;
 };
 
-function parseMarkdownIntoBlocks(markdown: string): string[] {
+function parseMarkdownIntoBlocks(markdown: string): Array<string> {
   const tokens = marked.lexer(markdown);
   return tokens.map((token) => token.raw);
 }
@@ -59,10 +59,16 @@ const INITIAL_COMPONENTS: Partial<Components> = {
     }
 
     const language = extractLanguage(className);
+    // SAFETY: markdown doesn't support nested inline content inside a
+    // fenced code block, so react-markdown's `code` AST node children are
+    // always literal text at runtime — `Components['code']`'s prop type
+    // only widens to ReactNode for structural compatibility with every
+    // override.
+    const code = children as string;
 
     return (
       <CodeBlock className={className}>
-        <CodeBlockCode code={children as string} language={language} />
+        <CodeBlockCode code={code} language={language} />
       </CodeBlock>
     );
   },

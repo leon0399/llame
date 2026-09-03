@@ -107,7 +107,7 @@ export const Fallback: Story = {
  * one means overriding the radius on all of them, not just the Root. Upstream
  * doesn't document this variant as a separate example.
  *
- * TODO: add a `shape="round" | "square"` prop to `Avatar` that toggles the
+ * A `shape="round" | "square"` prop on `Avatar` would replace this, toggling the
  * radius across the Root, its `after:` ring, and the Image/Fallback together,
  * so consumers stop hand-overriding `rounded-*` on every part. The same
  * pattern already appears in `app-sidebar-user.tsx` (which currently squares

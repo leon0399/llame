@@ -25,6 +25,110 @@ import type { ProjectResponse } from "@/lib/services/project/types";
 // same Dialog+Input / AlertDialog shapes, no new visual language.
 const NAME_MAX = 200;
 
+function NameEntryInput({
+  name,
+  onNameChange,
+  onSubmit,
+  placeholder,
+}: {
+  name: string;
+  onNameChange: (name: string) => void;
+  onSubmit: () => void;
+  placeholder?: string;
+}) {
+  return (
+    <Input
+      value={name}
+      onChange={(e) => onNameChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onSubmit();
+        }
+      }}
+      maxLength={NAME_MAX}
+      placeholder={placeholder}
+      aria-label="Project name"
+      // Deliberate: WAI-ARIA dialog pattern moves focus into the modal on
+      // open; this is the dialog's primary field.
+      // oxlint-disable-next-line jsx-a11y/no-autofocus
+      autoFocus
+    />
+  );
+}
+
+function NameEntryDialogFooter({
+  onCancel,
+  onSubmit,
+  submitLabel,
+  submitDisabled,
+}: {
+  onCancel: () => void;
+  onSubmit: () => void;
+  submitLabel: string;
+  submitDisabled: boolean;
+}) {
+  return (
+    <DialogFooter>
+      <Button variant="outline" onClick={onCancel}>
+        Cancel
+      </Button>
+      <Button onClick={onSubmit} disabled={submitDisabled}>
+        {submitLabel}
+      </Button>
+    </DialogFooter>
+  );
+}
+
+/** The Dialog+Input+Cancel/Submit shape `NewProjectDialog` and
+ *  `RenameProjectDialog` both need — split out so each owns only its own
+ *  submit logic, not a second copy of this markup. */
+type NameEntryDialogProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  name: string;
+  onNameChange: (name: string) => void;
+  onSubmit: () => void;
+  submitLabel: string;
+  submitDisabled: boolean;
+  placeholder?: string;
+};
+
+function NameEntryDialog({
+  open,
+  onOpenChange,
+  title,
+  name,
+  onNameChange,
+  onSubmit,
+  submitLabel,
+  submitDisabled,
+  placeholder,
+}: NameEntryDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <NameEntryInput
+          name={name}
+          onNameChange={onNameChange}
+          onSubmit={onSubmit}
+          placeholder={placeholder}
+        />
+        <NameEntryDialogFooter
+          onCancel={() => onOpenChange(false)}
+          onSubmit={onSubmit}
+          submitLabel={submitLabel}
+          submitDisabled={submitDisabled}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function NewProjectDialog({
   open,
   onOpenChange,
@@ -57,38 +161,17 @@ export function NewProjectDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>New project</DialogTitle>
-        </DialogHeader>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          maxLength={NAME_MAX}
-          placeholder="Project name"
-          aria-label="Project name"
-          // Deliberate: WAI-ARIA dialog pattern moves focus into the modal
-          // on open; this is the dialog's primary field.
-          // oxlint-disable-next-line jsx-a11y/no-autofocus
-          autoFocus
-        />
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={!name.trim() || create.isPending}>
-            Create
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <NameEntryDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New project"
+      name={name}
+      onNameChange={setName}
+      onSubmit={submit}
+      submitLabel="Create"
+      submitDisabled={!name.trim() || create.isPending}
+      placeholder="Project name"
+    />
   );
 }
 
@@ -160,37 +243,16 @@ export function RenameProjectDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Rename project</DialogTitle>
-        </DialogHeader>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          maxLength={NAME_MAX}
-          aria-label="Project name"
-          // Deliberate: WAI-ARIA dialog pattern moves focus into the modal
-          // on open; this is the dialog's primary field.
-          // oxlint-disable-next-line jsx-a11y/no-autofocus
-          autoFocus
-        />
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={!name.trim() || rename.isPending}>
-            Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <NameEntryDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Rename project"
+      name={name}
+      onNameChange={setName}
+      onSubmit={submit}
+      submitLabel="Save"
+      submitDisabled={!name.trim() || rename.isPending}
+    />
   );
 }
 

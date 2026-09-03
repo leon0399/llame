@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import { chatToMarkdown, slugifyTitle } from "./chat-markdown";
+import type { ChatMessageResponse } from "./history";
 
-// Minimal ChatMessageResponse-shaped fixtures (only the fields the renderer reads).
-const msg = (over: Record<string, unknown>) =>
-  ({
+// Minimal ChatMessageResponse-shaped fixtures (only the fields the renderer
+// reads). `parts` stays `unknown[]`, not `UIMessage["parts"]`: these fixtures
+// deliberately include non-standard/internal part shapes to prove the
+// renderer ignores anything that isn't `text`/`reasoning` — matching
+// `partsText`'s own `parts: unknown` signature in chat-markdown.ts.
+type MsgOverrides = Omit<Partial<ChatMessageResponse>, "parts"> & {
+  parts?: Array<unknown>;
+};
+
+const msg = (over: MsgOverrides) => {
+  const base = {
     id: "m",
     chatId: "c",
     seq: 1,
@@ -14,7 +23,13 @@ const msg = (over: Record<string, unknown>) =>
     inReplyTo: null,
     createdAt: "2026-07-03T00:00:00Z",
     ...over,
-  }) as never;
+  };
+  // SAFETY: every call site in this file supplies `role` and `parts`
+  // through `over` — the two `ChatMessageResponse` fields this base literal
+  // omits — but `Partial<ChatMessageResponse>` can't prove that statically
+  // since every field there is optional.
+  return base as never;
+};
 
 describe("chatToMarkdown", () => {
   it("renders user + assistant turns with headings and text", () => {

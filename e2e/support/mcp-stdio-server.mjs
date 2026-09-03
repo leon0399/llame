@@ -81,7 +81,7 @@ process.stdin.on("data", (chunk) => {
       send({
         jsonrpc: "2.0",
         id: message.id,
-        error: { code: -32601, message: "Method not found" },
+        error: { code: -32_601, message: "Method not found" },
       });
     }
   }

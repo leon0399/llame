@@ -26,7 +26,7 @@ describe("copyText", () => {
     vi.stubGlobal("navigator", {});
     vi.stubGlobal("document", {
       createElement: () => textarea,
-      body: { appendChild: vi.fn() },
+      body: { append: vi.fn() },
       execCommand: vi.fn().mockReturnValue(true),
     });
 
@@ -40,7 +40,7 @@ describe("copyText", () => {
     vi.stubGlobal("navigator", {});
     vi.stubGlobal("document", {
       createElement: () => textarea,
-      body: { appendChild: vi.fn() },
+      body: { append: vi.fn() },
       execCommand: vi.fn(() => {
         throw new Error("blocked");
       }),

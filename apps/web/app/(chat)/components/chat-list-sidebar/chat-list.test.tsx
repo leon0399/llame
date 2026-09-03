@@ -10,84 +10,38 @@
  * server-driven queries:
  *   1. Pinned section — useChatsQuery({ pinned: "only" })
  *   2. All   section  — useChatsQuery({ pinned: "exclude" })
- * Both are backed by mock data separately.
+ *
+ * useChatsQuery, useProjects, usePins, and the real ActiveRunsProvider all
+ * run for real against a stubbed globalThis.fetch, routed by pathname (+ the
+ * pinned search param for GET /api/v1/chats). useForkChat/useSetChatArchive
+ * are real too but never invoked (no mutation is triggered by these render-
+ * only tests), so no route is needed for them. Only next/navigation (no
+ * in-process seam) is mocked.
  */
 
 import * as React from "react";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { Mock } from "vitest";
 import { SidebarProvider } from "@workspace/ui/components/sidebar";
 
-type MockChatsState = {
-  pinnedOnly: { pages: unknown[][] } | undefined;
-  pinnedExclude: { pages: unknown[][] } | undefined;
-  isLoading: boolean;
-};
-let mockChats: MockChatsState = {
-  pinnedOnly: undefined,
-  pinnedExclude: undefined,
-  isLoading: false,
-};
-vi.mock("@/lib/services/chat/queries", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/lib/services/chat/queries")>();
-  return {
-    ...actual,
-    useChatsQuery: (filters?: { pinned?: string }) => {
-      const isPinned = filters?.pinned === "only";
-      const data = isPinned ? mockChats.pinnedOnly : mockChats.pinnedExclude;
-      return {
-        data,
-        isLoading: mockChats.isLoading,
-        hasData: (data?.pages.flat().length ?? 0) > 0,
-      };
-    },
-  };
-});
+import type {
+  ChatListItemResponse,
+  ProjectResponse,
+} from "@/lib/api/generated/models";
+import { ActiveRunsProvider } from "@/contexts/active-runs-context";
+import type { PinnedItem } from "@/lib/services/pins/types";
+import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
 
-type MockProjectsState = {
-  data: unknown[] | undefined;
-  isLoading: boolean;
-};
-let mockProjects: MockProjectsState = {
-  data: undefined,
-  isLoading: false,
-};
-vi.mock("@/lib/services/project/queries", () => ({
-  useProjects: () => mockProjects,
-}));
-
-// Pins is the sole source of pin state (design D5) — isolate from the real
-// network-backed usePins() so this "pure time-grouped list" suite never
-// depends on pin data; selectPinnedChatMap stays real (pure function).
-type MockPinsState = { data: unknown[] | undefined };
-let mockPins: MockPinsState = { data: undefined };
-vi.mock("@/lib/services/pins/queries", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/lib/services/pins/queries")>();
-  return { ...actual, usePins: () => mockPins };
-});
-
-// ChatItem reads this context for its unread/processing badge — isolate
-// from ActiveRunsProvider's real polling, same convention as chat-item.test.tsx.
-vi.mock("@/contexts/active-runs-context", () => ({
-  useActiveRuns: () => ({
-    completedChats: new Set<string>(),
-    activeChatIds: new Set<string>(),
-  }),
-}));
-vi.mock("@/lib/services/chat/fork", () => ({
-  useForkChat: () => ({ mutate: vi.fn(), isPending: false }),
-}));
-vi.mock("@/lib/services/chat/management", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/lib/services/chat/management")>();
-  return {
-    ...actual,
-    useSetChatArchive: () => ({ mutate: vi.fn(), isPending: false }),
-  };
-});
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
   useRouter: () => ({ push: vi.fn() }),
@@ -130,23 +84,62 @@ beforeAll(() => {
   }
 });
 
+let fetchMock: Mock<typeof fetch>;
+// Per-test-overridable handlers for the four endpoints the rail queries.
+// Left unresolved by default where a test needs a "still loading" state.
+let pinnedOnlyHandler: () => Promise<Response>;
+let pinnedExcludeHandler: () => Promise<Response>;
+let projectsHandler: () => Promise<Response>;
+let pinsHandler: () => Promise<Response>;
+
+function stubChatListNetwork() {
+  fetchMock = stubFetch();
+  pinnedOnlyHandler = () =>
+    Promise.resolve(jsonResponse<Array<ChatListItemResponse>>([]));
+  pinnedExcludeHandler = () =>
+    Promise.resolve(jsonResponse<Array<ChatListItemResponse>>([]));
+  projectsHandler = () =>
+    Promise.resolve(jsonResponse<Array<ProjectResponse>>([]));
+  pinsHandler = () => Promise.resolve(jsonResponse<Array<PinnedItem>>([]));
+  fetchMock.mockImplementation(async (input) => {
+    const request = input instanceof Request ? input : new Request(input);
+    const { pathname, searchParams } = new URL(request.url);
+    if (pathname === "/api/v1/me/runs") return jsonResponse([]);
+    if (pathname === "/api/v1/projects") return projectsHandler();
+    if (pathname === "/api/v1/pins") return pinsHandler();
+    if (pathname === "/api/v1/chats") {
+      return searchParams.get("pinned") === "only"
+        ? pinnedOnlyHandler()
+        : pinnedExcludeHandler();
+    }
+    throw new Error(`unrouted fetch in test: ${request.method} ${pathname}`);
+  });
+}
+
 function renderChatList() {
-  const queryClient = new QueryClient();
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
     <QueryClientProvider client={queryClient}>
-      <SidebarProvider>
-        <ChatList />
-      </SidebarProvider>
+      <ActiveRunsProvider>
+        <SidebarProvider>
+          <ChatList />
+        </SidebarProvider>
+      </ActiveRunsProvider>
     </QueryClientProvider>,
   );
 }
 
-function makeChat(overrides: Partial<Record<string, unknown>> = {}) {
+function makeChat(
+  overrides: Partial<ChatListItemResponse> = {},
+): ChatListItemResponse {
   return {
     id: "chat-1",
+    ownerUserId: "u1",
     title: "Filed chat",
     lastMessage: null,
-    visibility: "private" as const,
+    visibility: "private",
     projectId: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -155,38 +148,38 @@ function makeChat(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+beforeEach(() => {
+  stubChatListNetwork();
+});
+
 afterEach(() => {
-  mockChats = {
-    pinnedOnly: undefined,
-    pinnedExclude: undefined,
-    isLoading: false,
-  };
-  mockProjects = { data: undefined, isLoading: false };
-  mockPins = { data: undefined };
+  // NOT vi.unstubAllGlobals() — beforeAll's pointer-capture/scrollIntoView
+  // stubs must survive across tests; beforeEach's stubFetch() already
+  // replaces fetch fresh each test.
   cleanup();
 });
 
 describe("ChatList — pure time-grouped list (no project grouping)", () => {
   it("renders a filed chat in the time-grouped All section, with no project group header", async () => {
-    mockChats = {
-      pinnedOnly: { pages: [[]] },
-      pinnedExclude: {
-        pages: [[makeChat({ id: "c1", projectId: "p1" })]],
-      },
-      isLoading: false,
-    };
-    mockProjects = {
-      data: [
-        {
-          id: "p1",
-          ownerUserId: "u1",
-          name: "Acme",
-          createdAt: "",
-          updatedAt: "",
-        },
-      ],
-      isLoading: false,
-    };
+    pinnedExcludeHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<ChatListItemResponse>>([
+          makeChat({ id: "c1", projectId: "p1" }),
+        ]),
+      );
+    projectsHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<ProjectResponse>>([
+          {
+            id: "p1",
+            ownerUserId: "u1",
+            name: "Acme",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            archivedAt: null,
+          },
+        ]),
+      );
 
     renderChatList();
 
@@ -197,14 +190,14 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
   });
 
   it("renders a filed chat even when the projects query errored", async () => {
-    mockChats = {
-      pinnedOnly: { pages: [[]] },
-      pinnedExclude: {
-        pages: [[makeChat({ id: "c1", projectId: "missing-project" })]],
-      },
-      isLoading: false,
-    };
-    mockProjects = { data: undefined, isLoading: false };
+    pinnedExcludeHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<ChatListItemResponse>>([
+          makeChat({ id: "c1", projectId: "missing-project" }),
+        ]),
+      );
+    projectsHandler = () =>
+      Promise.resolve(new Response(null, { status: 500 }));
 
     renderChatList();
 
@@ -212,14 +205,14 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
   });
 
   it("does not wait for the projects query to render chats", async () => {
-    mockChats = {
-      pinnedOnly: { pages: [[]] },
-      pinnedExclude: {
-        pages: [[makeChat({ id: "c1", projectId: null })]],
-      },
-      isLoading: false,
-    };
-    mockProjects = { data: undefined, isLoading: true };
+    pinnedExcludeHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<ChatListItemResponse>>([
+          makeChat({ id: "c1", projectId: null }),
+        ]),
+      );
+    // Still loading — never resolves within this test.
+    projectsHandler = () => new Promise<Response>(() => {});
 
     renderChatList();
 
@@ -227,12 +220,9 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
   });
 
   it("shows the loading skeleton while chats load", () => {
-    mockChats = {
-      pinnedOnly: undefined,
-      pinnedExclude: undefined,
-      isLoading: true,
-    };
-    mockProjects = { data: undefined, isLoading: false };
+    // Still loading — never resolves within this test.
+    pinnedOnlyHandler = () => new Promise<Response>(() => {});
+    pinnedExcludeHandler = () => new Promise<Response>(() => {});
 
     renderChatList();
 
@@ -242,15 +232,18 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
 
 describe("ChatList — Pinned section driven by server query (design D5)", () => {
   it("renders a Pinned group above time-grouped All when pinned-only data is non-empty", async () => {
-    mockChats = {
-      pinnedOnly: {
-        pages: [[makeChat({ id: "c1", title: "Pinned chat" })]],
-      },
-      pinnedExclude: {
-        pages: [[makeChat({ id: "c2", title: "Unpinned chat" })]],
-      },
-      isLoading: false,
-    };
+    pinnedOnlyHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<ChatListItemResponse>>([
+          makeChat({ id: "c1", title: "Pinned chat" }),
+        ]),
+      );
+    pinnedExcludeHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<ChatListItemResponse>>([
+          makeChat({ id: "c2", title: "Unpinned chat" }),
+        ]),
+      );
 
     renderChatList();
 
@@ -261,13 +254,12 @@ describe("ChatList — Pinned section driven by server query (design D5)", () =>
   });
 
   it("shows no Pinned group when the pinned-only query returns empty", async () => {
-    mockChats = {
-      pinnedOnly: { pages: [[]] },
-      pinnedExclude: {
-        pages: [[makeChat({ id: "c1", title: "Lonely chat" })]],
-      },
-      isLoading: false,
-    };
+    pinnedExcludeHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<ChatListItemResponse>>([
+          makeChat({ id: "c1", title: "Lonely chat" }),
+        ]),
+      );
 
     renderChatList();
 
@@ -276,12 +268,6 @@ describe("ChatList — Pinned section driven by server query (design D5)", () =>
   });
 
   it("shows empty-state when both queries return no data", async () => {
-    mockChats = {
-      pinnedOnly: { pages: [[]] },
-      pinnedExclude: { pages: [[]] },
-      isLoading: false,
-    };
-
     renderChatList();
 
     expect(

@@ -3,7 +3,7 @@
 #   typecheck ─┐
 #   unit ──────┼─→ build ───────────┐
 #              ├─→ integration ─────┴─→ browser-e2e
-#              └─→ storybook        (component tests, real browser)
+#              └─→ component        (Storybook, real browser)
 #
 # One job per concern, so a red X names what broke instead of hiding inside a
 # grab-bag. Cheap gates run first and unconditionally; each expensive layer
@@ -111,7 +111,7 @@ jobs:
       # host Docker, hence no container image for this job.
       - run: pnpm --filter api test:integration
 
-  storybook:
+  component:
     name: Component tests (Storybook)
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -157,7 +157,7 @@ jobs:
           restore-keys: |
             turbo-storybook-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.github/workflows/ci.yml') }}-
 
-      - run: pnpm exec turbo run test:storybook build --filter=storybook
+      - run: pnpm exec turbo run test:component build --filter=storybook
 
   browser-e2e:
     name: Product e2e (Playwright)

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 export function detectPrimaryModifier(): "⌘" | "Ctrl" {
-  if (typeof navigator === "undefined") return "Ctrl";
+  if (!("navigator" in globalThis)) return "Ctrl";
 
   if (navigator.userAgentData?.platform) {
     if (/mac/i.test(navigator.userAgentData.platform)) return "⌘";

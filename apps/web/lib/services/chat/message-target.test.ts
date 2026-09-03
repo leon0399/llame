@@ -15,7 +15,7 @@ import { parseMessageTargetHash, useMessageTarget } from "./message-target";
 describe("parseMessageTargetHash", () => {
   it.each([
     ["#msg-1", 1],
-    ["#msg-9007199254740991", 9007199254740991],
+    ["#msg-9007199254740991", 9_007_199_254_740_991],
   ])("accepts %s as sequence %s", (hash, expected) => {
     expect(parseMessageTargetHash(hash)).toBe(expected);
   });

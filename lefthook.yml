@@ -1,53 +1,72 @@
-# Git hooks (lefthook). Installed automatically by the root `prepare` script
-# on `pnpm install`; disable for a single commit with `LEFTHOOK=0 git commit`
-# or `git commit -n`.
-#
-# Each job runs only when staged files match its glob, and jobs run in
-# parallel — a typical commit gates in well under a second (oxlint lints a
-# whole workspace in ~0.1–0.5s). Lint jobs are check-only (no --fix): a hook
-# must never mutate files behind the committer's back.
+# Installed by the root `prepare` script. Hooks never mutate files.
 
 pre-commit:
   parallel: true
   jobs:
-    - name: api lint (oxlint, type-aware)
+    - name: api lint
       glob: "{apps/api/**/*.ts,apps/api/.oxlintrc.json}"
       run: pnpm --filter api lint
 
-    - name: root lint (oxlint)
-      glob: "{e2e/**/*.{ts,tsx,js,mjs},playwright.config.ts,.oxlintrc.json,package.json,tools/oxlint/anti-slop/**/*.{ts,json}}"
-      run: pnpm lint:root
-
-    # Constructor-decorator placement (#286). The same native ast-grep command
-    # runs in CI; no diff scope, baseline, allowlist, or bespoke wrapper.
-    - name: ast-grep structural rules
-      run: pnpm lint:ast-grep
-
-    - name: markdownlint
-      glob: "{**/*.md,.markdownlint-cli2.jsonc}"
-      run: pnpm lint:markdown
-
-    - name: web lint (oxlint)
+    - name: web lint
       glob: "{apps/web/**/*.{ts,tsx,js,mjs},apps/web/.oxlintrc.json}"
       run: pnpm --filter web lint
 
-    - name: ui lint (oxlint)
+    - name: ui lint
       glob: "{packages/ui/**/*.{ts,tsx,js,mjs,cjs},packages/ui/.oxlintrc.json}"
       run: pnpm --filter @workspace/ui lint
 
-    - name: storybook lint (oxlint)
+    - name: storybook lint
       glob: "{apps/storybook/**/*.{ts,tsx,js,mjs,cjs},apps/storybook/.oxlintrc.json}"
       run: pnpm --filter storybook lint
 
-    # Repo-wide, matching CI's `format:check` (which now checks the whole repo
-    # via the root .prettierignore). Staged files only, so it stays instant.
-    # `files` narrows to files that still exist (#173): `{staged_files}` includes
-    # deletions, and `prettier --check <missing-path>` exits 2 — blocking any
-    # commit that deletes a covered file AND masking real drift in survivors.
-    # The glob restricts to prettier-parseable extensions (never .sql — passing
-    # an unparseable file to `prettier --check` explicitly exits 2); prettier's
-    # own .prettierignore still skips any staged generated/vendored path.
-    - name: format (prettier)
+    - name: config interpolation lint
+      glob: "{packages/config-interpolation/**/*.{ts,js,mjs},packages/config-interpolation/.oxlintrc.json}"
+      run: pnpm --filter @workspace/config-interpolation lint
+
+    - name: code lint
+      glob: "{e2e/**/*.{ts,tsx,js,mjs},playwright.config.ts,.oxlintrc.json,turbo.json,package.json}"
+      run: pnpm lint:code
+
+    - name: OpenAPI lint
+      glob: "{apps/api/openapi.json,apps/api/redocly.yaml}"
+      run: pnpm lint:openapi
+
+    - name: dead-code lint
+      glob: "{knip.json,package.json,apps/*/package.json,packages/*/package.json}"
+      run: pnpm lint:dead-code
+
+    - name: duplication lint
+      glob: ".jscpd.json"
+      run: pnpm lint:duplicates
+
+    - name: complexity lint
+      glob: "{scripts/quality-metrics.mjs,scripts/quality-metrics.test.mjs}"
+      run: pnpm lint:complexity && pnpm test:metrics
+
+    - name: lint plugin
+      glob: "packages/oxlint-plugin-anti-slop/**/*.{ts,mjs,json}"
+      run: pnpm --filter @workspace/oxlint-plugin-anti-slop lint && pnpm --filter @workspace/oxlint-plugin-anti-slop typecheck && pnpm --filter @workspace/oxlint-plugin-anti-slop test
+
+    - name: markdown lint
+      glob: "{**/*.md,.markdownlint-cli2.jsonc}"
+      run: pnpm lint:markdown
+
+    - name: format
       glob: "*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,md,mdx,json,jsonc,css,scss,yaml,yml,html}"
       files: git diff --name-only --cached --diff-filter=ACMR
-      run: pnpm exec prettier --check --cache --no-error-on-unmatched-pattern {files}
+      run: pnpm exec prettier --check --no-error-on-unmatched-pattern {files}
+
+pre-push:
+  parallel: false
+  jobs:
+    - name: format
+      run: pnpm format:check
+
+    - name: lint
+      run: pnpm lint
+
+    - name: typecheck
+      run: pnpm typecheck
+
+    - name: test
+      run: pnpm test

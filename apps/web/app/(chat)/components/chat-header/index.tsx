@@ -20,7 +20,15 @@ const UNTITLED_CHAT_LABEL = "New chat";
 /** Tab title when no chat is open — root layout has no metadata title. */
 const DEFAULT_DOCUMENT_TITLE = "llame";
 
-export function PureChatHeader({ className }: ChatHeaderProps) {
+/** null = not on a chat route; undefined = on a chat but title not resolved
+ *  yet (do not fake "New chat"); string = known display title. */
+function isResolvedTitle(title: string | null | undefined): title is string {
+  return typeof title === "string";
+}
+
+/** Resolves the active chat's title from the sidebar list caches, falling
+ *  back to a direct fetch for archived-unpinned chats those caches drop. */
+function useResolvedChatTitle(): string | null | undefined {
   const pathname = usePathname();
   const chatId = pathname.startsWith("/chat/")
     ? pathname.split("/")[2]
@@ -53,34 +61,41 @@ export function PureChatHeader({ className }: ChatHeaderProps) {
 
   const chat = chatFromList ?? chatFromFetch;
 
-  // null = not on a chat route; undefined = on a chat but title not resolved
-  // yet (do not fake "New chat"); string = known display title.
-  const settledTitle: string | null | undefined = !chatId
+  return !chatId
     ? null
     : chat === undefined
       ? undefined
       : (chat.title ?? UNTITLED_CHAT_LABEL);
+}
 
-  const target = typeof settledTitle === "string" ? settledTitle : "";
-  const display = useTypewriter(target, {
-    enabled: typeof settledTitle === "string",
-  });
-
+/** Keeps the tab title in sync with the resolved chat title, and restores the
+ *  default when this header unmounts (e.g. navigating to /admin). */
+function useDocumentTitleSync(settledTitle: string | null | undefined): void {
   useEffect(() => {
     if (settledTitle === null) {
       document.title = DEFAULT_DOCUMENT_TITLE;
-    } else if (typeof settledTitle === "string") {
+    } else if (isResolvedTitle(settledTitle)) {
       document.title = settledTitle;
     }
   }, [settledTitle]);
 
-  // Leaving the chat layout (e.g. /admin) unmounts this header; without a
-  // cleanup the previous chat title would stick on the tab.
   useEffect(() => {
     return () => {
       document.title = DEFAULT_DOCUMENT_TITLE;
     };
   }, []);
+}
+
+export function ChatHeader({ className }: ChatHeaderProps) {
+  const pathname = usePathname();
+  const settledTitle = useResolvedChatTitle();
+
+  const target = isResolvedTitle(settledTitle) ? settledTitle : "";
+  const display = useTypewriter(target, {
+    enabled: isResolvedTitle(settledTitle),
+  });
+
+  useDocumentTitleSync(settledTitle);
 
   // The /projects pages render their own header (project title + trigger);
   // stacking this bar above it would double the chrome.
@@ -95,7 +110,7 @@ export function PureChatHeader({ className }: ChatHeaderProps) {
       {/* Mobile-only: opens the sidebar sheet; the desktop rail has its own toggle. */}
       <SidebarTrigger className="md:hidden" />
 
-      {typeof settledTitle === "string" ? (
+      {isResolvedTitle(settledTitle) ? (
         <span className="max-w-[60ch] truncate pl-1 text-sm font-semibold">
           {display}
         </span>
@@ -103,5 +118,3 @@ export function PureChatHeader({ className }: ChatHeaderProps) {
     </header>
   );
 }
-
-export const ChatHeader = PureChatHeader;

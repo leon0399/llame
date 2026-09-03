@@ -1,70 +1,93 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 
-const { updateChat, deleteChatEndpoint } = vi.hoisted(() => ({
-  updateChat: vi.fn(),
-  deleteChatEndpoint: vi.fn(),
-}));
+import {
+  deleteChat,
+  renameChat,
+  setChatArchive,
+  setChatVisibility,
+} from "./management";
+import {
+  emptyResponse,
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
 
-vi.mock("../../api/generated/chats/chats", () => ({
-  updateChat,
-  deleteChat: deleteChatEndpoint,
-}));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch: () => vi.fn(),
-}));
+let fetchMock: Mock<typeof fetch>;
 
-import { deleteChat, renameChat, setChatVisibility } from "./management";
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
 
 afterEach(() => {
-  updateChat.mockReset();
-  deleteChatEndpoint.mockReset();
+  vi.unstubAllGlobals();
 });
 
 describe("renameChat", () => {
   it("PATCHes /chats/:id with the new title", async () => {
-    updateChat.mockResolvedValue(undefined);
+    fetchMock.mockResolvedValue(emptyResponse());
     await renameChat("c1", "New title");
-    expect(updateChat).toHaveBeenCalledWith(
-      "c1",
-      { title: "New title" },
-      undefined,
-      expect.any(Function),
-    );
+
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("PATCH");
+    expect(new URL(request.url).pathname).toBe("/api/v1/chats/c1");
+    await expect(request.clone().json()).resolves.toEqual({
+      title: "New title",
+    });
   });
 });
 
 describe("setChatVisibility", () => {
   it("PATCHes /chats/:id with the visibility", async () => {
-    updateChat.mockResolvedValue(undefined);
+    fetchMock.mockResolvedValue(emptyResponse());
     await setChatVisibility("c1", "public");
-    expect(updateChat).toHaveBeenCalledWith(
-      "c1",
-      { visibility: "public" },
-      undefined,
-      expect.any(Function),
-    );
+
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("PATCH");
+    expect(new URL(request.url).pathname).toBe("/api/v1/chats/c1");
+    await expect(request.clone().json()).resolves.toEqual({
+      visibility: "public",
+    });
+  });
+});
+
+describe("setChatArchive", () => {
+  it("PATCHes /chats/:id with the archived flag", async () => {
+    fetchMock.mockResolvedValue(emptyResponse());
+    await setChatArchive("c1", true);
+
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("PATCH");
+    expect(new URL(request.url).pathname).toBe("/api/v1/chats/c1");
+    await expect(request.clone().json()).resolves.toEqual({ archived: true });
   });
 });
 
 describe("deleteChat", () => {
   it("DELETEs /chats/:id", async () => {
-    deleteChatEndpoint.mockResolvedValue(undefined);
+    fetchMock.mockResolvedValue(emptyResponse());
     await deleteChat("c1");
-    expect(deleteChatEndpoint).toHaveBeenCalledWith(
-      "c1",
-      undefined,
-      expect.any(Function),
-    );
+
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("DELETE");
+    expect(new URL(request.url).pathname).toBe("/api/v1/chats/c1");
   });
 
   it("swallows a 404 (already deleted) as success", async () => {
-    deleteChatEndpoint.mockRejectedValue({ status: 404, info: {} });
+    fetchMock.mockResolvedValue(jsonResponse({}, 404));
     await expect(deleteChat("gone")).resolves.toBeUndefined();
   });
 
   it("rethrows non-404 errors", async () => {
-    const error = { status: 500, info: {} };
-    deleteChatEndpoint.mockRejectedValue(error);
-    await expect(deleteChat("c1")).rejects.toBe(error);
+    fetchMock.mockResolvedValue(jsonResponse({}, 500));
+    await expect(deleteChat("c1")).rejects.toMatchObject({ status: 500 });
   });
 });

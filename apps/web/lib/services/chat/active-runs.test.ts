@@ -1,67 +1,84 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 
-// Hoisted so the vi.mock factories (also hoisted) can close over them.
-const { getRun, listActiveRuns, fetchWithAuth } = vi.hoisted(() => ({
-  getRun: vi.fn(),
-  listActiveRuns: vi.fn(),
-  fetchWithAuth: vi.fn(),
-}));
+import {
+  activeRunsToTrackArgs,
+  fetchActiveRuns,
+  fetchRun,
+  type ActiveRun,
+} from "./active-runs";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
 
-vi.mock("../../api/generated/runs/runs", () => ({ getRun }));
-vi.mock("../../api/generated/me/me", () => ({ listActiveRuns }));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch: () => fetchWithAuth,
-}));
+// Real generated endpoints + the real authenticated-fetch policy run
+// unmocked; only the actual network boundary (globalThis.fetch, the seam
+// documented in lib/api/CLAUDE.md) is stubbed with a real Response.
+let fetchMock: Mock<typeof fetch>;
 
-import { activeRunsToTrackArgs, fetchRun, type ActiveRun } from "./active-runs";
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
 
 afterEach(() => {
-  getRun.mockReset();
-  listActiveRuns.mockReset();
+  vi.unstubAllGlobals();
 });
 
 describe("fetchRun", () => {
   it("GETs the run and returns it", async () => {
-    getRun.mockResolvedValue({ id: "run-1", status: "running_model" });
-    const run = await fetchRun("run-1");
-    expect(getRun).toHaveBeenCalledWith(
-      "run-1",
-      undefined,
-      expect.any(Function),
+    fetchMock.mockResolvedValue(
+      jsonResponse({ id: "run-1", status: "running_model" }),
     );
+
+    const run = await fetchRun("run-1");
+
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("GET");
+    expect(new URL(request.url).pathname).toBe("/api/v1/runs/run-1");
     expect(run).toEqual({ id: "run-1", status: "running_model" });
   });
 
   it("returns null on 404 (run gone — e.g. chat deleted)", async () => {
-    getRun.mockRejectedValue({ status: 404, info: { message: "gone" } });
+    fetchMock.mockResolvedValue(jsonResponse({ message: "gone" }, 404));
     await expect(fetchRun("gone")).resolves.toBeNull();
   });
 
   it("propagates non-404 errors", async () => {
-    const error = { status: 500, info: { message: "down" } };
-    getRun.mockRejectedValue(error);
-    await expect(fetchRun("run-x")).rejects.toBe(error);
+    fetchMock.mockResolvedValue(jsonResponse({ message: "down" }, 500));
+    await expect(fetchRun("run-x")).rejects.toMatchObject({
+      status: 500,
+      info: { message: "down" },
+    });
   });
 
   it("uses the generated me binding for active runs", async () => {
-    listActiveRuns.mockResolvedValue([
-      {
-        runId: "run-1",
-        chatId: "chat-1",
-        chatTitle: "Chat",
-        status: "running_model",
-        createdAt: "2026-07-03T00:00:00.000Z",
-      },
-    ]);
-
-    await expect(
-      (await import("./active-runs")).fetchActiveRuns(),
-    ).resolves.toHaveLength(1);
-    expect(listActiveRuns).toHaveBeenCalledWith(
-      { status: "active" },
-      undefined,
-      expect.any(Function),
+    fetchMock.mockResolvedValue(
+      jsonResponse([
+        {
+          runId: "run-1",
+          chatId: "chat-1",
+          chatTitle: "Chat",
+          status: "running_model",
+          createdAt: "2026-07-03T00:00:00.000Z",
+        },
+      ]),
     );
+
+    await expect(fetchActiveRuns()).resolves.toHaveLength(1);
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("GET");
+    expect(
+      `${new URL(request.url).pathname}${new URL(request.url).search}`,
+    ).toBe("/api/v1/me/runs?status=active");
   });
 });
 

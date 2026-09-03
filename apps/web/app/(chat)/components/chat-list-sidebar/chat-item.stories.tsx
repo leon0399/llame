@@ -48,7 +48,7 @@ const UNTITLED_CHAT_LABEL = "New chat";
 const LONG_TITLE =
   "Migrating the billing service off the legacy scheduler without downtime";
 
-const projects: ProjectResponse[] = [
+const projects: Array<ProjectResponse> = [
   {
     id: "p1",
     ownerUserId: "u1",
@@ -275,7 +275,7 @@ export const TitleArrives: Story = {
     // 1200ms — comfortably past testing-library's 1s default.
     await expect(canvas.getByText(UNTITLED_CHAT_LABEL)).toBeInTheDocument();
     await expect(
-      await canvas.findByText(LONG_TITLE, undefined, { timeout: 5_000 }),
+      await canvas.findByText(LONG_TITLE, undefined, { timeout: 5000 }),
     ).toBeInTheDocument();
   },
 };

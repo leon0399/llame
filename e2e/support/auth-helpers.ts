@@ -34,6 +34,8 @@ export async function registerAccount(
     );
   }
 
+  // SAFETY: this is the register endpoint's own documented response shape;
+  // both fields used below are checked for presence before use.
   const body = (await response.json()) as {
     token?: string;
     user?: { id?: string };

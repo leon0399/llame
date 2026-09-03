@@ -11,8 +11,10 @@
 
 import {
   expect,
+  hasStableId,
   test,
   type APIRequestContext,
+  type APIResponse,
   type Page,
 } from "../../support/fixtures";
 
@@ -42,12 +44,28 @@ function isApiMessage(value: unknown): value is ApiMessage {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
-  const record = value as Record<string, unknown>;
   return (
-    typeof record.seq === "number" &&
-    typeof record.role === "string" &&
-    Array.isArray(record.parts)
+    "seq" in value &&
+    typeof value.seq === "number" &&
+    "role" in value &&
+    typeof value.role === "string" &&
+    "parts" in value &&
+    Array.isArray(value.parts)
   );
+}
+
+function isTextPart(part: {
+  type?: unknown;
+  text?: unknown;
+}): part is { type: "text"; text: string } {
+  return part.type === "text" && typeof part.text === "string";
+}
+
+async function readMessages(response: APIResponse): Promise<Array<ApiMessage>> {
+  // SAFETY: this is the api's own chat-messages endpoint (under test here),
+  // whose { messages: [...] } envelope is fixed by its own OpenAPI contract.
+  const body = (await response.json()) as { messages?: unknown };
+  return Array.isArray(body.messages) ? body.messages.filter(isApiMessage) : [];
 }
 
 async function messageContaining(
@@ -63,16 +81,10 @@ async function messageContaining(
     },
   );
   expect(response.ok()).toBe(true);
-  const body = (await response.json()) as { messages?: unknown };
-  const messages = Array.isArray(body.messages)
-    ? body.messages.filter(isApiMessage)
-    : [];
+  const messages = await readMessages(response);
   const source = messages.find((message) =>
     message.parts.some(
-      (part) =>
-        part.type === "text" &&
-        typeof part.text === "string" &&
-        part.text.includes(marker),
+      (part) => isTextPart(part) && part.text.includes(marker),
     ),
   );
   if (!source) throw new Error(`Owner API did not return message: ${marker}`);
@@ -198,8 +210,8 @@ test.describe("conversation provenance (browser, full stack)", () => {
       },
     );
     expect(forkResponse.status()).toBe(201);
-    const forkBody = (await forkResponse.json()) as { id?: unknown };
-    if (typeof forkBody.id !== "string") {
+    const forkBody: unknown = await forkResponse.json();
+    if (!hasStableId(forkBody)) {
       throw new Error("Fork response did not contain a Chat id");
     }
     const forkMessagesResponse = await request.get(
@@ -207,12 +219,7 @@ test.describe("conversation provenance (browser, full stack)", () => {
       { headers: { Authorization: `Bearer ${account.token}` } },
     );
     expect(forkMessagesResponse.ok()).toBe(true);
-    const forkMessagesBody = (await forkMessagesResponse.json()) as {
-      messages?: unknown;
-    };
-    const forkMessages = Array.isArray(forkMessagesBody.messages)
-      ? forkMessagesBody.messages.filter(isApiMessage)
-      : [];
+    const forkMessages = await readMessages(forkMessagesResponse);
     expect(forkMessages.map((message) => message.seq)).toEqual([1, 2]);
 
     const foreignChatId = crypto.randomUUID();

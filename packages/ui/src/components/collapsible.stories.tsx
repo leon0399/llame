@@ -214,9 +214,11 @@ export const ProductDetails: Story = {
   },
 };
 
-type FileTreeItem = { name: string } | { name: string; items: FileTreeItem[] };
+type FileTreeItem =
+  | { name: string }
+  | { name: string; items: Array<FileTreeItem> };
 
-const fileTree: FileTreeItem[] = [
+const fileTree: Array<FileTreeItem> = [
   {
     name: "components",
     items: [

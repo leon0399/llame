@@ -15,10 +15,7 @@ const useModelsQuery = vi.mocked(modelQueries.useModelsQuery, {
   partial: true,
 });
 
-const CATALOG: {
-  defaultModelId: string;
-  models: AvailableModel[];
-} = {
+const CATALOG = {
   defaultModelId: "system:openai:model-two",
   models: [
     {
@@ -34,7 +31,7 @@ const CATALOG: {
       contextWindowTokens: 400_000,
     },
   ],
-};
+} satisfies { defaultModelId: string; models: Array<AvailableModel> };
 
 const meta = {
   component: ModelSelector,

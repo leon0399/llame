@@ -8,6 +8,10 @@ import {
 import type { ChatMessageResponse } from "./history";
 
 // A message with just the fields the paginator reads (seq); id encodes order.
+// SAFETY: this fixture deliberately omits every other required
+// `ChatMessageResponse` field — the paginator under test reads only `seq`
+// (see `paginate-messages.ts`) — so `as never` opts out of the full-shape
+// check for a value that is intentionally partial.
 const m = (seq: number): ChatMessageResponse =>
   ({ id: `m${seq}`, seq }) as never;
 
@@ -32,7 +36,7 @@ describe("paginateAllMessages", () => {
       .mockResolvedValueOnce({ messages: page(50, 50) });
     const all = await paginateAllMessages(fetchPage);
     expect(all[0].seq).toBe(1); // oldest first
-    expect(all[all.length - 1].seq).toBe(200); // newest last
+    expect(all.at(-1)?.seq).toBe(200); // newest last
     expect(all).toHaveLength(CHAT_HISTORY_PAGE_SIZE + 50);
     // second call fetched strictly older than the oldest of page 1 (seq 101).
     expect(fetchPage).toHaveBeenNthCalledWith(2, 101);

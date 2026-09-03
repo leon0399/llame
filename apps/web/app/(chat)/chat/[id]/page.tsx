@@ -14,7 +14,7 @@ import {
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ draft?: string | string[] }>;
+  searchParams: Promise<{ draft?: string | Array<string> }>;
 };
 
 export default async function Page({ params, searchParams }: PageProps) {
@@ -35,6 +35,9 @@ export default async function Page({ params, searchParams }: PageProps) {
       {/* Streams ahead of the transcript markup so the SSR paint is pinned
           to the newest message from the first frame — React cannot scroll
           until it hydrates (see prehydration-pin.ts). */}
+      {/* safe-html: PREHYDRATION_PIN_SCRIPT is a module-level constant string
+          literal in lib/services/chat/prehydration-pin.ts. It interpolates
+          nothing — no chat id, no message, no parameter. */}
       <script dangerouslySetInnerHTML={{ __html: PREHYDRATION_PIN_SCRIPT }} />
       <ChatPage
         chatId={id}

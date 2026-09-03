@@ -12,6 +12,7 @@ import {
   formatCost,
   parseTurnUsage,
   usageStatusLabel,
+  type TurnUsage,
 } from "./message-usage";
 
 const MODELS = [
@@ -158,7 +159,7 @@ describe("formatCost", () => {
 });
 
 describe("buildUsageLine", () => {
-  const line = (usage: Record<string, unknown>) =>
+  const line = (usage: Partial<TurnUsage>) =>
     buildUsageLine(parseTurnUsage({ usage }), MODELS);
 
   it("shows model and total time, not tokens/cost, in the visible text", () => {

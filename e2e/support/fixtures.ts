@@ -37,6 +37,15 @@ const knowledgeApiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
 
+export function hasStableId(value: unknown): value is { id: string } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "id" in value &&
+    typeof value.id === "string"
+  );
+}
+
 export function revokeKnowledgeSpaceFixtureAccess(
   ownerUserId: string,
   knowledgeSpaceId: string,
@@ -84,11 +93,11 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
   // the page keeps rendering and only the assertions notice — #260 (a double
   // resumeStream race throwing on every mid-run reload) logged silently in CI
   // for weeks because nothing asserted on page errors.
-  page: async ({ page }, use) => {
-    const pageErrors: Error[] = [];
+  page: async ({ page }, provide) => {
+    const pageErrors: Array<Error> = [];
     page.on("pageerror", (error) => pageErrors.push(error));
 
-    await use(page);
+    await provide(page);
 
     if (pageErrors.length > 0) {
       throw new Error(
@@ -99,15 +108,16 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
     }
   },
 
-  account: async ({ workerAccount }, use) => {
-    await use(workerAccount);
+  account: async ({ workerAccount }, provide) => {
+    await provide(workerAccount);
   },
 
-  freshAccount: async ({}, use) => {
+  // oxlint-disable-next-line eslint/no-empty-pattern -- Playwright statically requires fixture callbacks to destructure their first parameter.
+  freshAccount: async ({}, provide) => {
     const request = await playwrightRequest.newContext();
 
     try {
-      await use(
+      await provide(
         await registerAccount(
           request,
           `fresh-${test.info().retry}`,
@@ -119,14 +129,16 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
     }
   },
 
-  storageState: ({ workerStorageState }, use) => use(workerStorageState),
+  storageState: ({ workerStorageState }, provide) =>
+    provide(workerStorageState),
 
   workerAccount: [
-    async ({}, use) => {
+    // oxlint-disable-next-line eslint/no-empty-pattern -- Playwright statically requires fixture callbacks to destructure their first parameter.
+    async ({}, provide) => {
       const request = await playwrightRequest.newContext();
 
       try {
-        await use(
+        await provide(
           await registerAccount(
             request,
             `worker-${test.info().parallelIndex}`,
@@ -141,19 +153,20 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
   ],
 
   knowledgeRoot: [
-    async ({}, use) => {
+    // oxlint-disable-next-line eslint/no-empty-pattern -- Playwright statically requires fixture callbacks to destructure their first parameter.
+    async ({}, provide) => {
       const root = process.env.E2E_KNOWLEDGE_ROOT;
       if (!root) {
         throw new Error("E2E_KNOWLEDGE_ROOT is required for Knowledge tests");
       }
       fs.mkdirSync(root, { recursive: true });
-      await use(root);
+      await provide(root);
     },
     { scope: "worker" },
   ],
 
   workerKnowledgeSpace: [
-    async ({ workerAccount, knowledgeRoot }, use) => {
+    async ({ workerAccount, knowledgeRoot }, provide) => {
       const request = await playwrightRequest.newContext();
 
       try {
@@ -169,14 +182,14 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
             `Failed to provision the worker Knowledge Space: ${response.status()} ${await response.text()}`,
           );
         }
-        const body = (await response.json()) as { id?: unknown };
-        if (typeof body.id !== "string") {
+        const body: unknown = await response.json();
+        if (!hasStableId(body)) {
           throw new Error(
             "Worker Knowledge provisioning returned no stable ID",
           );
         }
 
-        await use({
+        await provide({
           id: body.id,
           directory: path.join(knowledgeRoot, body.id),
         });
@@ -188,7 +201,7 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
   ],
 
   workerStorageState: [
-    async ({ browser, workerAccount }, use) => {
+    async ({ browser, workerAccount }, provide) => {
       // Keyed by the ACCOUNT, not the worker slot. `parallelIndex` names a
       // slot and is reused when a worker restarts — and a retry always
       // restarts one — while `workerAccount` registers a fresh user per
@@ -205,14 +218,8 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
         fs.mkdirSync(path.dirname(fileName), { recursive: true });
 
         const page = await browser.newPage({
-          baseURL:
-            typeof playwrightConfig.use?.baseURL === "string"
-              ? playwrightConfig.use.baseURL
-              : undefined,
-          locale:
-            typeof playwrightConfig.use?.locale === "string"
-              ? playwrightConfig.use.locale
-              : undefined,
+          baseURL: playwrightConfig.use?.baseURL,
+          locale: playwrightConfig.use?.locale,
           storageState: undefined,
         });
 
@@ -226,7 +233,7 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
         }
       }
 
-      await use(fileName);
+      await provide(fileName);
     },
     { scope: "worker" },
   ],

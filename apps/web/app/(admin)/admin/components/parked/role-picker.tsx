@@ -21,7 +21,7 @@ import {
   type OrgRole,
 } from "@/lib/services/org-units/types";
 
-export const ROLE_LABELS: Record<OrgRole, string> = {
+export const ROLE_LABELS = {
   owner: "Owner",
   admin: "Admin",
   maintainer: "Maintainer",
@@ -29,9 +29,11 @@ export const ROLE_LABELS: Record<OrgRole, string> = {
   viewer: "Viewer",
   guest: "Guest",
   service_account: "Service account",
-};
+} satisfies Record<OrgRole, string>;
 
 export function roleLabel(role: string): string {
+  // SAFETY: an unrecognized `role` indexes to `undefined`, not a crash — the
+  // `?? role` fallback below covers that case, so the cast is sound either way.
   return ROLE_LABELS[role as OrgRole] ?? role;
 }
 
@@ -59,6 +61,8 @@ export function RolePicker({
       <DropdownMenuContent align="end">
         <DropdownMenuRadioGroup
           value={value}
+          // SAFETY: every DropdownMenuRadioItem below is rendered from
+          // GRANTABLE_ROLES, so `next` can only be one of those role strings.
           onValueChange={(next) => onChange(next as GrantableRole)}
         >
           {GRANTABLE_ROLES.map((role) => (

@@ -33,6 +33,9 @@ type FormFieldContextValue<
   name: TName;
 };
 
+// SAFETY: this placeholder is never read as-is — every consumer of
+// FormFieldContext is a Form* subcomponent rendered inside a <FormField>,
+// whose Provider below always supplies the real `{ name }` before render.
 const FormFieldContext = React.createContext<FormFieldContextValue>(
   {} as FormFieldContextValue,
 );
@@ -93,6 +96,9 @@ type FormItemContextValue = {
   id: string;
 };
 
+// SAFETY: this placeholder is never read as-is — every consumer of
+// FormItemContext is a Form* subcomponent rendered inside a <FormItem>,
+// whose Provider below always supplies the real `{ id }` before render.
 const FormItemContext = React.createContext<FormItemContextValue>(
   {} as FormItemContextValue,
 );
@@ -157,9 +163,7 @@ function FormControl({
 
   // The wrapped control is passed as a child (Radix-`Slot` ergonomics); route
   // it to Base UI's `render` so the field wiring merges onto that element.
-  const resolvedRender = React.isValidElement(children)
-    ? (children as React.ReactElement)
-    : render;
+  const resolvedRender = React.isValidElement(children) ? children : render;
 
   return useRender({
     render: resolvedRender,

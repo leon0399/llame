@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
+// oxlint-disable-next-line unicorn/prefer-import-meta-properties -- Root is CommonJS; tsx cannot transform import.meta.dirname here.
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const rlsFunctionOwnerSqlPath = resolve(
   repoRoot,
@@ -43,7 +44,7 @@ process.once("SIGTERM", requestShutdown);
 
 function run(
   command: string,
-  args: string[],
+  args: Array<string>,
   options: SpawnSyncOptions = {},
 ): void {
   const result = spawnSync(command, args, {
@@ -58,7 +59,11 @@ function run(
   }
 }
 
-function runWithInput(command: string, args: string[], input: string): void {
+function runWithInput(
+  command: string,
+  args: Array<string>,
+  input: string,
+): void {
   run(command, args, {
     input,
     stdio: ["pipe", "inherit", "inherit"],
@@ -276,6 +281,7 @@ async function main(): Promise<void> {
   }
 }
 
+// oxlint-disable-next-line unicorn/prefer-top-level-await -- Root is CommonJS; tsx rejects top-level await in this entrypoint.
 main().catch((error: unknown) => {
   console.error(error);
   process.exit(1);

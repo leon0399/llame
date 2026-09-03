@@ -2,13 +2,20 @@
 
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { CheckIcon, RegexIcon } from "lucide-react";
-import type { KeyboardEvent, MouseEvent, ReactNode, UIEvent } from "react";
+import type {
+  KeyboardEvent,
+  MouseEvent,
+  ReactNode,
+  RefObject,
+  UIEvent,
+} from "react";
 import { Children, isValidElement, useMemo, useRef, useState } from "react";
 
 import {
   evaluateRegex,
   parseWholeRegexLiteral,
   splitBySpans,
+  type RegexEvaluation,
 } from "@workspace/ui/lib/regex-detect";
 import { cn } from "@workspace/ui/lib/utils";
 import { REGEX_TOKEN_ATTRIBUTE, isRegexTokenValue } from "#regex-tester/token";
@@ -21,11 +28,15 @@ import { REGEX_TOKEN_ATTRIBUTE, isRegexTokenValue } from "#regex-tester/token";
  * it, which morphs into a live tester input, matching Linear's interaction.
  */
 
+function isTextChild(child: ReactNode): child is string | number {
+  return typeof child === "string" || typeof child === "number";
+}
+
 const extractText = (children: ReactNode): string => {
   let text = "";
 
   for (const child of Children.toArray(children)) {
-    if (typeof child === "string" || typeof child === "number") {
+    if (isTextChild(child)) {
       text += child;
     } else if (isValidElement<{ children?: ReactNode }>(child)) {
       text += extractText(child.props.children);
@@ -51,9 +62,7 @@ const activateOnEnterOrSpace = (event: KeyboardEvent<HTMLElement>) => {
  * enough to wrap renders as a centered slab instead of flowing inline like
  * the surrounding prose.
  */
-export const RegexProseToken = ({
-  children,
-}: Record<string, unknown> & { children?: ReactNode }) => {
+export const RegexProseToken = ({ children }: { children?: ReactNode }) => {
   const text = extractText(children);
 
   // Whitelisting `<regex-token>` through sanitize also lets a model *write*
@@ -97,16 +106,109 @@ interface RegexTesterPanelProps {
   flags: string;
 }
 
-const RegexTesterPanel = ({ pattern, flags }: RegexTesterPanelProps) => {
-  const [input, setInput] = useState("");
-  const underlayRef = useRef<HTMLDivElement>(null);
+type MatchSegment = { text: string; matched: boolean };
 
-  const result = useMemo(
-    () => evaluateRegex(pattern, flags, input),
-    [pattern, flags, input],
+/**
+ * Mirror of the input's text, purely for the highlight backgrounds: its
+ * glyphs are transparent and sit exactly under the input's, so the marks
+ * read as highlights inside the input itself.
+ */
+function MatchHighlightUnderlay({
+  segments,
+  underlayRef,
+}: {
+  segments: Array<MatchSegment>;
+  underlayRef: RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <div
+      ref={underlayRef}
+      aria-hidden
+      className="pointer-events-none absolute inset-0 overflow-x-hidden rounded-t-lg py-2 pr-9 pl-3 text-sm whitespace-pre"
+    >
+      {segments.map((segment, index) =>
+        segment.matched ? (
+          <mark
+            key={index}
+            // Achromatic, like a text selection (DESIGN.md §10: the
+            // interface stays monochrome, only content and the chart ramp
+            // carry color). Match state is already carried by the check
+            // icon and the "Match" label, so no meaning rests on hue.
+            className="rounded-[3px] bg-foreground/15 text-transparent dark:bg-foreground/25"
+          >
+            {segment.text}
+          </mark>
+        ) : (
+          <span key={index} className="text-transparent">
+            {segment.text}
+          </span>
+        ),
+      )}
+    </div>
   );
+}
 
-  const segments = useMemo(
+/** The "Match"/"No match" summary below the tester input, listing every value on a match. */
+function MatchResultSummary({ result }: { result: RegexEvaluation | null }) {
+  if (!result) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-live="polite"
+      className="flex flex-col gap-1 border-t border-border px-3 py-2 text-sm"
+    >
+      {result.matched ? (
+        <>
+          <span className="text-muted-foreground">Match</span>
+          {result.values.map((value, index) => (
+            <span key={index} className="truncate">
+              {value}
+            </span>
+          ))}
+        </>
+      ) : (
+        <span className="text-muted-foreground">No match</span>
+      )}
+    </div>
+  );
+}
+
+function MatchInput({
+  value,
+  onChange,
+  onScroll,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onScroll: (event: UIEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <input
+      // The tester exists only after an explicit user action; focus follows
+      // that action, as in the reference interaction.
+      // oxlint-disable-next-line jsx-a11y/no-autofocus
+      autoFocus
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      onScroll={onScroll}
+      placeholder="Enter text to match…"
+      aria-label="Text to match"
+      maxLength={1000}
+      spellCheck={false}
+      // Borderless like the reference, but focus still has to be visible
+      // (DESIGN.md §6) — the input is autofocused, so without a ring a
+      // keyboard user has no indication of where typing goes. Inset, so the
+      // ring reads inside the popup's own rounded edge.
+      className="relative w-full rounded-t-lg bg-transparent py-2 pr-9 pl-3 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset placeholder:text-muted-foreground"
+    />
+  );
+}
+
+/** Splits `input` around `result`'s match ranges for the highlight underlay. */
+function useMatchSegments(input: string, result: RegexEvaluation | null) {
+  return useMemo(
     () =>
       result
         ? splitBySpans(
@@ -121,6 +223,18 @@ const RegexTesterPanel = ({ pattern, flags }: RegexTesterPanelProps) => {
         : [],
     [result, input],
   );
+}
+
+const RegexTesterPanel = ({ pattern, flags }: RegexTesterPanelProps) => {
+  const [input, setInput] = useState("");
+  const underlayRef = useRef<HTMLDivElement>(null);
+
+  const result = useMemo(
+    () => evaluateRegex(pattern, flags, input),
+    [pattern, flags, input],
+  );
+
+  const segments = useMatchSegments(input, result);
 
   const syncScroll = (event: UIEvent<HTMLInputElement>) => {
     if (underlayRef.current) {
@@ -131,51 +245,8 @@ const RegexTesterPanel = ({ pattern, flags }: RegexTesterPanelProps) => {
   return (
     <div className="w-80">
       <div className="relative">
-        {/* Mirror of the input's text, purely for the highlight backgrounds:
-            its glyphs are transparent and sit exactly under the input's, so
-            the green marks read as highlights inside the input itself. */}
-        <div
-          ref={underlayRef}
-          aria-hidden
-          className="pointer-events-none absolute inset-0 overflow-x-hidden rounded-t-lg py-2 pr-9 pl-3 text-sm whitespace-pre"
-        >
-          {segments.map((segment, index) =>
-            segment.matched ? (
-              <mark
-                key={index}
-                // Achromatic, like a text selection (DESIGN.md §10: the
-                // interface stays monochrome, only content and the chart ramp
-                // carry color). Match state is already carried by the check
-                // icon and the "Match" label, so no meaning rests on hue.
-                className="rounded-[3px] bg-foreground/15 text-transparent dark:bg-foreground/25"
-              >
-                {segment.text}
-              </mark>
-            ) : (
-              <span key={index} className="text-transparent">
-                {segment.text}
-              </span>
-            ),
-          )}
-        </div>
-        <input
-          // The tester exists only after an explicit user action; focus
-          // follows that action, as in the reference interaction.
-          // oxlint-disable-next-line jsx-a11y/no-autofocus
-          autoFocus
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onScroll={syncScroll}
-          placeholder="Enter text to match…"
-          aria-label="Text to match"
-          maxLength={1000}
-          spellCheck={false}
-          // Borderless like the reference, but focus still has to be visible
-          // (DESIGN.md §6) — the input is autofocused, so without a ring a
-          // keyboard user has no indication of where typing goes. Inset, so
-          // the ring reads inside the popup's own rounded edge.
-          className="relative w-full rounded-t-lg bg-transparent py-2 pr-9 pl-3 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset placeholder:text-muted-foreground"
-        />
+        <MatchHighlightUnderlay segments={segments} underlayRef={underlayRef} />
+        <MatchInput value={input} onChange={setInput} onScroll={syncScroll} />
         {result?.matched ? (
           <CheckIcon
             aria-hidden
@@ -183,25 +254,7 @@ const RegexTesterPanel = ({ pattern, flags }: RegexTesterPanelProps) => {
           />
         ) : null}
       </div>
-      {result ? (
-        <div
-          aria-live="polite"
-          className="flex flex-col gap-1 border-t border-border px-3 py-2 text-sm"
-        >
-          {result.matched ? (
-            <>
-              <span className="text-muted-foreground">Match</span>
-              {result.values.map((value, index) => (
-                <span key={index} className="truncate">
-                  {value}
-                </span>
-              ))}
-            </>
-          ) : (
-            <span className="text-muted-foreground">No match</span>
-          )}
-        </div>
-      ) : null}
+      <MatchResultSummary result={result} />
     </div>
   );
 };
@@ -216,6 +269,171 @@ export type RegexTesterOverlayResolver = (
   anchor: HTMLElement,
 ) => HTMLElement | undefined;
 
+/**
+ * Owns the click-to-target state machine: which token (if any) is active,
+ * whether the popover is open, and which stage it shows. Derives
+ * `activeTarget` from `target` rather than syncing it through an effect —
+ * Streamdown re-renders a block on every tick until it is complete, so a
+ * token clicked mid-stream can have its DOM node replaced underneath us,
+ * leaving the popover anchored to a detached element that measures as a
+ * zero-size box at the origin. This provider re-renders with the message
+ * content, so the stale anchor is gone from the same render that replaced
+ * it.
+ */
+/**
+ * Resolves the clicked `[data-regex-token]` descendant (if any) into a new
+ * target, re-validating the attribute since it is DOM state, not trusted.
+ */
+function resolveClickTarget(
+  event: MouseEvent<HTMLDivElement>,
+  resolveOverlayContainer: RegexTesterOverlayResolver,
+): RegexTesterTarget | null {
+  const element =
+    event.target instanceof Element
+      ? event.target.closest(`[${REGEX_TOKEN_ATTRIBUTE}]`)
+      : null;
+
+  if (!(element instanceof HTMLElement)) {
+    return null;
+  }
+
+  const rawValue = element.getAttribute(REGEX_TOKEN_ATTRIBUTE);
+  const candidate = isRegexTokenValue(rawValue)
+    ? parseWholeRegexLiteral(rawValue)
+    : null;
+
+  if (!candidate) {
+    return null;
+  }
+
+  return {
+    anchor: element,
+    pattern: candidate.pattern,
+    flags: candidate.flags,
+    container: resolveOverlayContainer(element),
+  };
+}
+
+function useRegexTesterState(
+  resolveOverlayContainer: RegexTesterOverlayResolver,
+) {
+  const [target, setTarget] = useState<RegexTesterTarget | null>(null);
+  const [open, setOpen] = useState(false);
+  const [stage, setStage] = useState<"menu" | "tester">("menu");
+
+  const activeTarget = target?.anchor.isConnected ? target : null;
+
+  const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+    const nextTarget = resolveClickTarget(event, resolveOverlayContainer);
+
+    if (!nextTarget) {
+      return;
+    }
+
+    setStage("menu");
+    setOpen(true);
+    setTarget(nextTarget);
+  };
+
+  // Closing drops the anchor immediately. Deferring it to
+  // `onOpenChangeComplete` so the exit animation could play was tried and
+  // reverted: the callback did not arrive, leaving an invisible popup
+  // mounted on a stale anchor. There is no exit animation for the same
+  // reason — see the popup's className below.
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+
+    if (!nextOpen) {
+      setTarget(null);
+    }
+  };
+
+  return {
+    activeTarget,
+    open,
+    stage,
+    handleClick,
+    handleOpenChange,
+    startTest: () => setStage("tester"),
+  };
+}
+
+function RegexTesterMenu({ onSelectTest }: { onSelectTest: () => void }) {
+  return (
+    <div role="menu" aria-label="Regex actions" className="p-1">
+      <button
+        type="button"
+        role="menuitem"
+        // Focus follows the click that opened the menu.
+        // oxlint-disable-next-line jsx-a11y/no-autofocus
+        autoFocus
+        onClick={onSelectTest}
+        className={menuItemClassName}
+      >
+        <RegexIcon aria-hidden className="size-4 text-muted-foreground" />
+        Test regex
+      </button>
+    </div>
+  );
+}
+
+type RegexTesterOverlayProps = {
+  activeTarget: RegexTesterTarget;
+  open: boolean;
+  stage: "menu" | "tester";
+  onOpenChange: (open: boolean) => void;
+  onSelectTest: () => void;
+};
+
+/** The floating menu/tester popover, anchored to whichever token was clicked. */
+function RegexTesterOverlay({
+  activeTarget,
+  open,
+  stage,
+  onOpenChange,
+  onSelectTest,
+}: RegexTesterOverlayProps) {
+  return (
+    <PopoverPrimitive.Root open={open} onOpenChange={onOpenChange}>
+      <PopoverPrimitive.Portal container={activeTarget.container}>
+        <PopoverPrimitive.Positioner
+          anchor={activeTarget.anchor}
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          className="isolate z-50"
+        >
+          <PopoverPrimitive.Popup
+            aria-label="Regex tester"
+            // When portaled into a fullscreen overlay, the popup sits
+            // beside the overlay's content wrapper — without this, every
+            // click inside it reaches the overlay root's own
+            // click-to-close handler and exits fullscreen.
+            onClick={(event) => event.stopPropagation()}
+            className={cn(
+              "z-50 origin-(--transform-origin) rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden duration-100",
+              // Enter only. The popup is unmounted the moment it closes
+              // (see `useRegexTesterState`'s `handleOpenChange`), so
+              // `data-closed:*` exit utilities would never match — they were
+              // dead code.
+              "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2",
+            )}
+          >
+            {stage === "menu" ? (
+              <RegexTesterMenu onSelectTest={onSelectTest} />
+            ) : (
+              <RegexTesterPanel
+                pattern={activeTarget.pattern}
+                flags={activeTarget.flags}
+              />
+            )}
+          </PopoverPrimitive.Popup>
+        </PopoverPrimitive.Positioner>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
+  );
+}
+
 export const RegexTesterProvider = ({
   children,
   resolveOverlayContainer,
@@ -223,47 +441,14 @@ export const RegexTesterProvider = ({
   children: ReactNode;
   resolveOverlayContainer: RegexTesterOverlayResolver;
 }) => {
-  const [target, setTarget] = useState<RegexTesterTarget | null>(null);
-  const [open, setOpen] = useState(false);
-  const [stage, setStage] = useState<"menu" | "tester">("menu");
-
-  // Streamdown re-renders a block on every tick until it is complete, so a
-  // token clicked mid-stream can have its DOM node replaced underneath us,
-  // leaving the popover anchored to a detached element that measures as a
-  // zero-size box at the origin. Derived rather than synced through an
-  // effect: this provider re-renders with the message content, so the stale
-  // anchor is gone from the same render that replaced it.
-  const activeTarget = target?.anchor.isConnected ? target : null;
-
-  const handleClick = (event: MouseEvent<HTMLDivElement>) => {
-    const element =
-      event.target instanceof Element
-        ? event.target.closest(`[${REGEX_TOKEN_ATTRIBUTE}]`)
-        : null;
-
-    if (!(element instanceof HTMLElement)) {
-      return;
-    }
-
-    // The attribute is DOM state, so it is re-validated rather than trusted.
-    const rawValue = element.getAttribute(REGEX_TOKEN_ATTRIBUTE);
-    const candidate = isRegexTokenValue(rawValue)
-      ? parseWholeRegexLiteral(rawValue)
-      : null;
-
-    if (!candidate) {
-      return;
-    }
-
-    setStage("menu");
-    setOpen(true);
-    setTarget({
-      anchor: element,
-      pattern: candidate.pattern,
-      flags: candidate.flags,
-      container: resolveOverlayContainer(element),
-    });
-  };
+  const {
+    activeTarget,
+    open,
+    stage,
+    handleClick,
+    handleOpenChange,
+    startTest,
+  } = useRegexTesterState(resolveOverlayContainer);
 
   return (
     // Delegation only — interaction and keyboard semantics live on the token
@@ -275,72 +460,13 @@ export const RegexTesterProvider = ({
     <div style={{ display: "contents" }} onClickCapture={handleClick}>
       {children}
       {activeTarget ? (
-        <PopoverPrimitive.Root
+        <RegexTesterOverlay
+          activeTarget={activeTarget}
           open={open}
-          // Closing drops the anchor immediately. Deferring it to
-          // `onOpenChangeComplete` so the exit animation could play was tried
-          // and reverted: the callback did not arrive, leaving an invisible
-          // popup mounted on a stale anchor. There is no exit animation for
-          // the same reason — see the popup's className.
-          onOpenChange={(nextOpen) => {
-            setOpen(nextOpen);
-
-            if (!nextOpen) {
-              setTarget(null);
-            }
-          }}
-        >
-          <PopoverPrimitive.Portal container={activeTarget.container}>
-            <PopoverPrimitive.Positioner
-              anchor={activeTarget.anchor}
-              side="bottom"
-              align="start"
-              sideOffset={6}
-              className="isolate z-50"
-            >
-              <PopoverPrimitive.Popup
-                aria-label="Regex tester"
-                // When portaled into a fullscreen overlay, the popup sits
-                // beside the overlay's content wrapper — without this, every
-                // click inside it reaches the overlay root's own
-                // click-to-close handler and exits fullscreen.
-                onClick={(event) => event.stopPropagation()}
-                className={cn(
-                  "z-50 origin-(--transform-origin) rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden duration-100",
-                  // Enter only. The popup is unmounted the moment it closes
-                  // (see `onOpenChange` above), so `data-closed:*` exit
-                  // utilities would never match — they were dead code.
-                  "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2",
-                )}
-              >
-                {stage === "menu" ? (
-                  <div role="menu" aria-label="Regex actions" className="p-1">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      // Focus follows the click that opened the menu.
-                      // oxlint-disable-next-line jsx-a11y/no-autofocus
-                      autoFocus
-                      onClick={() => setStage("tester")}
-                      className={menuItemClassName}
-                    >
-                      <RegexIcon
-                        aria-hidden
-                        className="size-4 text-muted-foreground"
-                      />
-                      Test regex
-                    </button>
-                  </div>
-                ) : (
-                  <RegexTesterPanel
-                    pattern={activeTarget.pattern}
-                    flags={activeTarget.flags}
-                  />
-                )}
-              </PopoverPrimitive.Popup>
-            </PopoverPrimitive.Positioner>
-          </PopoverPrimitive.Portal>
-        </PopoverPrimitive.Root>
+          stage={stage}
+          onOpenChange={handleOpenChange}
+          onSelectTest={startTest}
+        />
       ) : null}
     </div>
   );

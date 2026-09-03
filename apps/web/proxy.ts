@@ -44,5 +44,6 @@ export function proxy(req: NextRequest) {
 // redirected to /login. Proxy always runs on the Node.js runtime (Next 16),
 // so the former `runtime` option is gone.
 export const config = {
+  // oxlint-disable-next-line unicorn/prefer-string-raw -- Next statically parses this export and rejects tagged templates.
   matcher: ["/((?!api|trpc|_next|.+\\.[\\w]+$).*)", "/"],
 };

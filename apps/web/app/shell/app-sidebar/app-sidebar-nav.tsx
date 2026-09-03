@@ -38,7 +38,7 @@ type NavItem = {
   desktopOnly?: boolean;
 };
 
-const NAV_ITEMS: NavItem[] = [
+const NAV_ITEMS: Array<NavItem> = [
   { label: "Dashboard", icon: LayoutDashboardIcon, comingSoon: true },
   { label: "Chats", icon: MessagesSquareIcon, href: "/" },
   // desktopOnly: the /projects list/create UI lives in the desktop-only
@@ -49,6 +49,42 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Email", icon: MailIcon, comingSoon: true },
   { label: "Brain", icon: BrainIcon, comingSoon: true },
 ];
+
+function NavMenuRow({
+  item,
+  isActive,
+  isMobile,
+}: {
+  item: NavItem;
+  isActive: boolean;
+  isMobile: boolean;
+}) {
+  if (item.href && !(item.desktopOnly && isMobile)) {
+    return (
+      <SidebarMenuButton
+        render={<Link href={item.href} />}
+        isActive={isActive}
+        tooltip={item.label}
+      >
+        <item.icon />
+        <span>{item.label}</span>
+      </SidebarMenuButton>
+    );
+  }
+  return (
+    <DisabledMenuButton
+      tooltip={
+        item.desktopOnly
+          ? `${item.label} — on desktop for now`
+          : `${item.label} — coming soon`
+      }
+    >
+      <item.icon />
+      <span className="flex flex-1 items-center truncate">{item.label}</span>
+      {item.comingSoon && <SoonChip />}
+    </DisabledMenuButton>
+  );
+}
 
 export function AppSidebarNav() {
   const pathname = usePathname();
@@ -65,30 +101,11 @@ export function AppSidebarNav() {
         <SidebarMenu>
           {NAV_ITEMS.map((item) => (
             <SidebarMenuItem key={item.label}>
-              {item.href && !(item.desktopOnly && isMobile) ? (
-                <SidebarMenuButton
-                  render={<Link href={item.href} />}
-                  isActive={isItemActive(item.href)}
-                  tooltip={item.label}
-                >
-                  <item.icon />
-                  <span>{item.label}</span>
-                </SidebarMenuButton>
-              ) : (
-                <DisabledMenuButton
-                  tooltip={
-                    item.desktopOnly
-                      ? `${item.label} — on desktop for now`
-                      : `${item.label} — coming soon`
-                  }
-                >
-                  <item.icon />
-                  <span className="flex flex-1 items-center truncate">
-                    {item.label}
-                  </span>
-                  {item.comingSoon && <SoonChip />}
-                </DisabledMenuButton>
-              )}
+              <NavMenuRow
+                item={item}
+                isActive={!!item.href && isItemActive(item.href)}
+                isMobile={isMobile}
+              />
             </SidebarMenuItem>
           ))}
         </SidebarMenu>

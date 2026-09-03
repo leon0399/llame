@@ -17,7 +17,7 @@ export const modelQueryKeys = {
 export const fetchModels = fn().mockName("fetchModels");
 
 type MockedModelsQuery = {
-  data: { defaultModelId: string; models: AvailableModel[] } | undefined;
+  data: { defaultModelId: string; models: Array<AvailableModel> } | undefined;
   isError: boolean;
   isPending: boolean;
 };
@@ -32,13 +32,13 @@ export const useModelsQuery = fn(
 
 export function modelDisplayName(
   modelId: string,
-  models?: readonly AvailableModel[],
+  models?: ReadonlyArray<AvailableModel>,
 ): string {
   return models?.find((model) => model.id === modelId)?.name ?? modelId;
 }
 
 export function hasModelId(
-  models: readonly AvailableModel[],
+  models: ReadonlyArray<AvailableModel>,
   modelId: string | undefined,
 ): boolean {
   return modelId !== undefined && models.some((model) => model.id === modelId);

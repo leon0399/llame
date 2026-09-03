@@ -5,6 +5,26 @@ interface UseAutoResizeTextareaOptions {
   maxHeight?: number; // optional max height in px
 }
 
+function applyAutoResize(
+  textarea: HTMLTextAreaElement,
+  minHeight: number | undefined,
+  maxHeight: number | undefined,
+): void {
+  textarea.style.height = "auto";
+
+  let scrollHeight = textarea.scrollHeight;
+
+  if (minHeight !== undefined) {
+    scrollHeight = Math.max(scrollHeight, minHeight);
+  }
+
+  if (maxHeight !== undefined) {
+    scrollHeight = Math.min(scrollHeight, maxHeight);
+  }
+
+  textarea.style.height = `${scrollHeight}px`;
+}
+
 export function useAutoResizeTextarea({
   minHeight,
   maxHeight,
@@ -15,22 +35,7 @@ export function useAutoResizeTextarea({
   const resize = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return;
-
-    ta.style.height = "auto";
-
-    let scrollHeight = ta.scrollHeight;
-
-    // Apply minHeight if defined
-    if (typeof minHeight === "number") {
-      scrollHeight = Math.max(scrollHeight, minHeight);
-    }
-
-    // Apply maxHeight if defined
-    if (typeof maxHeight === "number") {
-      scrollHeight = Math.min(scrollHeight, maxHeight);
-    }
-
-    ta.style.height = `${scrollHeight}px`;
+    applyAutoResize(ta, minHeight, maxHeight);
   }, [minHeight, maxHeight]);
 
   const scheduleResize = useCallback(() => {

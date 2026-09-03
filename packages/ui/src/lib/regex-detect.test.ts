@@ -13,7 +13,7 @@ describe("findRegexCandidates", () => {
   });
 
   it("captures flags and offsets", () => {
-    const [candidate] = findRegexCandidates("use /\\s+/gi to split");
+    const [candidate] = findRegexCandidates(String.raw`use /\s+/gi to split`);
     expect(candidate).toMatchObject({
       source: "/\\s+/gi",
       pattern: "\\s+",
@@ -24,17 +24,21 @@ describe("findRegexCandidates", () => {
   });
 
   it("finds a literal inside code", () => {
-    expect(sources('input.replace(/\\s+/g, " ")')).toEqual(["/\\s+/g"]);
+    expect(sources(String.raw`input.replace(/\s+/g, " ")`)).toEqual([
+      String.raw`/\s+/g`,
+    ]);
   });
 
   it("keeps a slash inside a character class", () => {
-    expect(sources("const SEP = /[/\\\\]+/g;")).toEqual(["/[/\\\\]+/g"]);
+    expect(sources(String.raw`const SEP = /[/\\]+/g;`)).toEqual([
+      String.raw`/[/\\]+/g`,
+    ]);
   });
 
   it("finds several literals on separate lines", () => {
     expect(
       sources("a /^\\d+$/ b\nconst SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;"),
-    ).toEqual(["/^\\d+$/", "/^[a-z0-9]+(?:-[a-z0-9]+)*$/"]);
+    ).toEqual([String.raw`/^\d+$/`, "/^[a-z0-9]+(?:-[a-z0-9]+)*$/"]);
   });
 
   it("leaves division alone", () => {

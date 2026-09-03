@@ -19,15 +19,16 @@ export const fetchMemory = fn().mockName("fetchMemory");
 export const refetchMemory = fn().mockName("refetchMemory");
 
 export const useMemoryQuery = fn(
-  (): {
-    data: MemoryResponse | undefined;
-    isPending: boolean;
-    isError: boolean;
-    refetch: typeof refetchMemory;
-  } => ({
-    data: undefined,
-    isPending: true,
-    isError: false,
-    refetch: refetchMemory,
-  }),
+  () =>
+    ({
+      data: undefined,
+      isPending: true,
+      isError: false,
+      refetch: refetchMemory,
+    }) satisfies {
+      data: MemoryResponse | undefined;
+      isPending: boolean;
+      isError: boolean;
+      refetch: typeof refetchMemory;
+    },
 ).mockName("useMemoryQuery");

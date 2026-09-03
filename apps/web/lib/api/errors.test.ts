@@ -3,7 +3,7 @@ import { getApiErrorInfo, getApiErrorStatus, isApiError } from "./errors";
 
 describe("API error helpers", () => {
   it("recognizes status-bearing errors with unknown info", () => {
-    const error: unknown = {
+    const error = {
       status: 409,
       info: { code: "name_taken", detail: "Already used" },
     };

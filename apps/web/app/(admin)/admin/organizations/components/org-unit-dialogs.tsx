@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Building2Icon } from "lucide-react";
 
 import {
   AlertDialog,
@@ -24,7 +23,6 @@ import {
 } from "@workspace/ui/components/dialog";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
-import { cn } from "@workspace/ui/lib/utils";
 
 import {
   useCreateChildOrg,
@@ -38,14 +36,108 @@ import type {
 } from "@/lib/services/org-units/types";
 
 import { ApiErrorMessage } from "./api-error-message";
+import { descendantIdsOf } from "./org-tree-utils";
 import {
-  CHILD_ORG_UNIT_TYPES,
-  descendantIdsOf,
-  ORG_UNIT_TYPE_META,
-  visibleAncestorChain,
-} from "./org-tree-utils";
+  MoveTargetList,
+  OrgDialogFooter,
+  OrgUnitTypePicker,
+} from "./org-unit-dialog-parts";
 
 const DEFAULT_CHILD_TYPE: OrgUnitType = "group";
+
+function CreateOrgUnitNameField({
+  name,
+  onNameChange,
+  onSubmit,
+}: {
+  name: string;
+  onNameChange: (name: string) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="org-unit-name" className="text-[0.8rem]">
+        Name
+      </Label>
+      <Input
+        id="org-unit-name"
+        value={name}
+        onChange={(e) => onNameChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onSubmit();
+          }
+        }}
+        className="px-[0.65rem] text-[0.9rem] md:text-[0.9rem]"
+        // Deliberate: WAI-ARIA dialog pattern moves focus into the modal on
+        // open; this is the dialog's primary field.
+        // oxlint-disable-next-line jsx-a11y/no-autofocus
+        autoFocus
+      />
+    </div>
+  );
+}
+
+function CreateOrgUnitHeader({ parent }: { parent?: OrgUnitResponse }) {
+  return (
+    <DialogHeader className="gap-[0.35rem]">
+      <DialogTitle className="text-base">
+        {parent ? `New unit under “${parent.name}”` : "New organization"}
+      </DialogTitle>
+      <DialogDescription className="text-[0.83rem] leading-[1.45]">
+        {parent
+          ? "Create a child unit nested under this one. Members and roles inherit down from the parent."
+          : "An organization is the top-level container for your teams, chats, and members."}
+      </DialogDescription>
+    </DialogHeader>
+  );
+}
+
+/** The form's state, reset-on-close, and dual create-root/create-child
+ *  submit — split out so `CreateOrgUnitDialog` composes only markup. */
+function useCreateOrgUnitForm(
+  parent: OrgUnitResponse | undefined,
+  onOpenChange: (open: boolean) => void,
+) {
+  const [name, setName] = useState("");
+  const [type, setType] = useState<OrgUnitType>(DEFAULT_CHILD_TYPE);
+  const createRoot = useCreateRootOrg();
+  const createChild = useCreateChildOrg();
+  const mutation = parent ? createChild : createRoot;
+
+  const reset = () => {
+    setName("");
+    setType(DEFAULT_CHILD_TYPE);
+  };
+
+  const submit = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const onSuccess = () => {
+      reset();
+      onOpenChange(false);
+    };
+    if (parent) {
+      createChild.mutate(
+        { parentId: parent.id, name: trimmed, type },
+        { onSuccess },
+      );
+    } else {
+      createRoot.mutate({ name: trimmed }, { onSuccess });
+    }
+  };
+
+  const onDialogOpenChange = (next: boolean) => {
+    if (!next) reset();
+    // Clear a previous attempt's error so reopening doesn't flash stale copy
+    // before this attempt has even run.
+    if (next) mutation.reset();
+    onOpenChange(next);
+  };
+
+  return { name, setName, type, setType, mutation, submit, onDialogOpenChange };
+}
 
 /**
  * Create a root organization (no `parent`) or a child unit under it
@@ -61,123 +153,95 @@ export function CreateOrgUnitDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [name, setName] = useState("");
-  const [type, setType] = useState<OrgUnitType>(DEFAULT_CHILD_TYPE);
-  const createRoot = useCreateRootOrg();
-  const createChild = useCreateChildOrg();
-  const mutation = parent ? createChild : createRoot;
-
-  const submit = () => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    const onSuccess = () => {
-      setName("");
-      setType(DEFAULT_CHILD_TYPE);
-      onOpenChange(false);
-    };
-    if (parent) {
-      createChild.mutate(
-        { parentId: parent.id, name: trimmed, type },
-        { onSuccess },
-      );
-    } else {
-      createRoot.mutate({ name: trimmed }, { onSuccess });
-    }
-  };
+  const { name, setName, type, setType, mutation, submit, onDialogOpenChange } =
+    useCreateOrgUnitForm(parent, onOpenChange);
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) {
-          setName("");
-          setType(DEFAULT_CHILD_TYPE);
-        }
-        // Clear a previous attempt's error so reopening doesn't flash stale
-        // copy before this attempt has even run.
-        if (next) mutation.reset();
-        onOpenChange(next);
-      }}
-    >
+    <Dialog open={open} onOpenChange={onDialogOpenChange}>
       <DialogContent className="top-[15vh] translate-y-0 px-[1.2rem] sm:max-w-[26rem]">
-        <DialogHeader className="gap-[0.35rem]">
-          <DialogTitle className="text-base">
-            {parent ? `New unit under “${parent.name}”` : "New organization"}
-          </DialogTitle>
-          <DialogDescription className="text-[0.83rem] leading-[1.45]">
-            {parent
-              ? "Create a child unit nested under this one. Members and roles inherit down from the parent."
-              : "An organization is the top-level container for your teams, chats, and members."}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-2">
-          <Label htmlFor="org-unit-name" className="text-[0.8rem]">
-            Name
-          </Label>
-          <Input
-            id="org-unit-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                submit();
-              }
-            }}
-            className="px-[0.65rem] text-[0.9rem] md:text-[0.9rem]"
-            // Deliberate: WAI-ARIA dialog pattern moves focus into the modal
-            // on open; this is the dialog's primary field.
-            // oxlint-disable-next-line jsx-a11y/no-autofocus
-            autoFocus
-          />
-        </div>
-        {parent && (
-          <fieldset className="m-0 space-y-2 border-0 p-0">
-            <legend className="text-[0.8rem] font-medium">Type</legend>
-            <div className="grid grid-cols-3 gap-[0.35rem]">
-              {CHILD_ORG_UNIT_TYPES.map((candidateType) => {
-                const meta = ORG_UNIT_TYPE_META[candidateType];
-                const Icon = meta.icon;
-                const selected = type === candidateType;
-                return (
-                  <button
-                    key={candidateType}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => setType(candidateType)}
-                    className={cn(
-                      "flex flex-col items-center gap-[0.3rem] rounded-md border px-[0.3rem] py-[0.55rem] text-[0.71rem] text-muted-foreground transition-colors hover:bg-accent",
-                      selected &&
-                        "border-foreground/35 bg-accent text-foreground",
-                    )}
-                  >
-                    <Icon className="size-[17px]" />
-                    <span>{meta.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </fieldset>
-        )}
+        <CreateOrgUnitHeader parent={parent} />
+        <CreateOrgUnitNameField
+          name={name}
+          onNameChange={setName}
+          onSubmit={submit}
+        />
+        {parent && <OrgUnitTypePicker type={type} onTypeChange={setType} />}
         <ApiErrorMessage error={mutation.error} />
-        <DialogFooter>
-          <Button
-            variant="outline"
-            className="text-[0.86rem]"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            className="text-[0.86rem]"
-            onClick={submit}
-            disabled={!name.trim() || mutation.isPending}
-          >
-            Create
-          </Button>
-        </DialogFooter>
+        <OrgDialogFooter
+          onCancel={() => onOpenChange(false)}
+          onSubmit={submit}
+          submitLabel="Create"
+          submitDisabled={!name.trim() || mutation.isPending}
+        />
       </DialogContent>
     </Dialog>
+  );
+}
+
+function RenameOrgUnitField({
+  name,
+  onNameChange,
+  onSubmit,
+}: {
+  name: string;
+  onNameChange: (name: string) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <Input
+      value={name}
+      onChange={(e) => onNameChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onSubmit();
+        }
+      }}
+      className="px-[0.65rem] text-[0.9rem] md:text-[0.9rem]"
+      aria-label="Name"
+      // Deliberate: WAI-ARIA dialog pattern moves focus into the modal on
+      // open; this is the dialog's primary field.
+      // oxlint-disable-next-line jsx-a11y/no-autofocus
+      autoFocus
+    />
+  );
+}
+
+/** The rename dialog's body — split out of `RenameOrgUnitDialog` as its own
+ *  self-contained region. */
+function RenameOrgUnitDialogBody({
+  unit,
+  name,
+  onNameChange,
+  submit,
+  update,
+  onOpenChange,
+}: {
+  unit: OrgUnitResponse;
+  name: string;
+  onNameChange: (name: string) => void;
+  submit: () => void;
+  update: ReturnType<typeof useUpdateOrgUnit>;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <DialogContent className="top-[15vh] translate-y-0 px-[1.2rem] sm:max-w-[26rem]">
+      <DialogHeader>
+        <DialogTitle className="text-base">Rename “{unit.name}”</DialogTitle>
+      </DialogHeader>
+      <RenameOrgUnitField
+        name={name}
+        onNameChange={onNameChange}
+        onSubmit={submit}
+      />
+      <ApiErrorMessage error={update.error} />
+      <OrgDialogFooter
+        onCancel={() => onOpenChange(false)}
+        onSubmit={submit}
+        submitLabel="Save"
+        submitDisabled={!name.trim() || update.isPending}
+      />
+    </DialogContent>
   );
 }
 
@@ -207,45 +271,50 @@ export function RenameOrgUnitDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-[15vh] translate-y-0 px-[1.2rem] sm:max-w-[26rem]">
-        <DialogHeader>
-          <DialogTitle className="text-base">Rename “{unit.name}”</DialogTitle>
-        </DialogHeader>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          className="px-[0.65rem] text-[0.9rem] md:text-[0.9rem]"
-          aria-label="Name"
-          // Deliberate: WAI-ARIA dialog pattern moves focus into the modal
-          // on open; this is the dialog's primary field.
-          // oxlint-disable-next-line jsx-a11y/no-autofocus
-          autoFocus
-        />
-        <ApiErrorMessage error={update.error} />
-        <DialogFooter>
-          <Button
-            variant="outline"
-            className="text-[0.86rem]"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            className="text-[0.86rem]"
-            onClick={submit}
-            disabled={!name.trim() || update.isPending}
-          >
-            Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
+      <RenameOrgUnitDialogBody
+        unit={unit}
+        name={name}
+        onNameChange={setName}
+        submit={submit}
+        update={update}
+        onOpenChange={onOpenChange}
+      />
     </Dialog>
+  );
+}
+
+/** The candidate parent list (units minus the unit's own subtree) and its id
+ *  lookup — split out from `MoveOrgUnitDialog` as a pure derivation. */
+function useMoveTargets(unit: OrgUnitResponse, units: Array<OrgUnitResponse>) {
+  const unitsById = useMemo(
+    () => new Map(units.map((u) => [u.id, u])),
+    [units],
+  );
+  const candidates = useMemo(() => {
+    const blocked = descendantIdsOf(unit.id, units);
+    blocked.add(unit.id);
+    return units.filter((candidate) => !blocked.has(candidate.id));
+  }, [unit.id, units]);
+
+  return { unitsById, candidates };
+}
+
+type MoveOrgUnitDialogProps = {
+  unit: OrgUnitResponse;
+  units: Array<OrgUnitResponse>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+};
+
+function MoveOrgUnitHeader({ unit }: { unit: OrgUnitResponse }) {
+  return (
+    <DialogHeader className="gap-[0.35rem]">
+      <DialogTitle className="text-base">Move “{unit.name}”</DialogTitle>
+      <DialogDescription className="text-[0.83rem] leading-[1.45]">
+        Choose a new parent, or make it a root organization. A unit can’t move
+        into its own subtree.
+      </DialogDescription>
+    </DialogHeader>
   );
 }
 
@@ -263,23 +332,10 @@ export function MoveOrgUnitDialog({
   units,
   open,
   onOpenChange,
-}: {
-  unit: OrgUnitResponse;
-  units: OrgUnitResponse[];
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+}: MoveOrgUnitDialogProps) {
   const [parentId, setParentId] = useState<string | null>(unit.parentId);
   const update = useUpdateOrgUnit();
-  const unitsById = useMemo(
-    () => new Map(units.map((u) => [u.id, u])),
-    [units],
-  );
-  const candidates = useMemo(() => {
-    const blocked = descendantIdsOf(unit.id, units);
-    blocked.add(unit.id);
-    return units.filter((candidate) => !blocked.has(candidate.id));
-  }, [unit.id, units]);
+  const { unitsById, candidates } = useMoveTargets(unit, units);
 
   const submit = () => {
     if (parentId === unit.parentId) {
@@ -295,76 +351,20 @@ export function MoveOrgUnitDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="top-[15vh] translate-y-0 px-[1.2rem] sm:max-w-[26rem]">
-        <DialogHeader className="gap-[0.35rem]">
-          <DialogTitle className="text-base">Move “{unit.name}”</DialogTitle>
-          <DialogDescription className="text-[0.83rem] leading-[1.45]">
-            Choose a new parent, or make it a root organization. A unit can’t
-            move into its own subtree.
-          </DialogDescription>
-        </DialogHeader>
-        {/* Custom picker, not a native <select>: rows need icon + depth-indented
-            truncated names that <option> can't render. role=listbox/option
-            with aria-selected is the correct ARIA pattern for this shape. */}
-        <div
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- see comment above
-          role="listbox"
-          aria-label="New parent"
-          className="flex max-h-60 flex-col gap-px overflow-y-auto rounded-md border p-1"
-        >
-          <button
-            type="button"
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- see comment above
-            role="option"
-            aria-selected={parentId === null}
-            onClick={() => setParentId(null)}
-            className={cn(
-              "flex items-center gap-2 rounded-sm px-2 py-[0.42rem] text-left text-[0.84rem] hover:bg-accent",
-              parentId === null && "bg-accent",
-            )}
-          >
-            <Building2Icon className="size-[15px] shrink-0 text-muted-foreground" />
-            — Make root organization —
-          </button>
-          {candidates.map((candidate) => {
-            const depth = visibleAncestorChain(candidate, unitsById).length - 1;
-            const Icon = ORG_UNIT_TYPE_META[candidate.type].icon;
-            return (
-              <button
-                key={candidate.id}
-                type="button"
-                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- see comment above the listbox container
-                role="option"
-                aria-selected={parentId === candidate.id}
-                onClick={() => setParentId(candidate.id)}
-                style={{ paddingLeft: `${0.5 + depth * 0.85}rem` }}
-                className={cn(
-                  "flex items-center gap-2 truncate rounded-sm py-[0.42rem] pr-2 text-left text-[0.84rem] hover:bg-accent",
-                  parentId === candidate.id && "bg-accent",
-                )}
-              >
-                <Icon className="size-[15px] shrink-0 text-muted-foreground" />
-                <span className="truncate">{candidate.name}</span>
-              </button>
-            );
-          })}
-        </div>
+        <MoveOrgUnitHeader unit={unit} />
+        <MoveTargetList
+          candidates={candidates}
+          unitsById={unitsById}
+          parentId={parentId}
+          onParentIdChange={setParentId}
+        />
         <ApiErrorMessage error={update.error} />
-        <DialogFooter>
-          <Button
-            variant="outline"
-            className="text-[0.86rem]"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            className="text-[0.86rem]"
-            onClick={submit}
-            disabled={update.isPending || parentId === unit.parentId}
-          >
-            Move
-          </Button>
-        </DialogFooter>
+        <OrgDialogFooter
+          onCancel={() => onOpenChange(false)}
+          onSubmit={submit}
+          submitLabel="Move"
+          submitDisabled={update.isPending || parentId === unit.parentId}
+        />
       </DialogContent>
     </Dialog>
   );

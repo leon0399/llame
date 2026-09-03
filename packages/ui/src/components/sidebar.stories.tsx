@@ -127,7 +127,7 @@ import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 //   in a `<Collapsible>` *without* rendering onto it, so Base UI's default
 //   `<div>` root lands as a direct, non-`<li>` child of `SidebarMenu`'s
 //   `<ul>` — a real `list`/`listitem` axe violation under our stricter a11y
-//   gate, not a false positive (caught by `test:storybook`).
+//   gate, not a false positive (caught by `test:component`).
 //   `sidebar-demo.tsx`'s own `NavMain` already does this correctly
 //   (`<Collapsible render={<SidebarMenuItem />}>`), so we add the same
 //   `render` here to match it, the minimal a11y-gate fix.

@@ -12,11 +12,26 @@ import { Badge } from "@workspace/ui/components/badge";
  */
 export type CapNoticeData = { stepsUsed: number; maxSteps: number };
 
-function readNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
+
+function readNumber(value: unknown): number | undefined {
+  if (!isFiniteNumber(value)) return undefined;
+  return value;
+}
+
+/** Non-null-object guard; the object's actual shape is unknown to this file. */
+function isPlainObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
+}
+
+/** The subset of a `data-cap-notice` part's fields this file reads, still unvalidated. */
+type RawCapNoticePart = {
+  data?: unknown;
+  stepsUsed?: unknown;
+  maxSteps?: unknown;
+};
 
 /**
  * Extracts `{ stepsUsed, maxSteps }` from a `data-cap-notice` part. Reads
@@ -28,12 +43,18 @@ function readNumber(value: unknown): number | undefined {
  * `null` (render nothing) only when neither shape yields both numbers.
  */
 export function parseCapNoticePart(part: unknown): CapNoticeData | null {
-  if (typeof part !== "object" || part === null) return null;
-  const record = part as Record<string, unknown>;
-  const nested =
-    typeof record.data === "object" && record.data !== null
-      ? (record.data as Record<string, unknown>)
-      : undefined;
+  if (!isPlainObject(part)) return null;
+  // SAFETY: `RawCapNoticePart` only names the fields read below, each still
+  // `unknown` and independently guarded (`readNumber`/`isPlainObject`).
+  const record = part as RawCapNoticePart;
+
+  let nested: { stepsUsed?: unknown; maxSteps?: unknown } | undefined;
+  if (isPlainObject(record.data)) {
+    // SAFETY: `isPlainObject` proves `record.data` is a non-null object only;
+    // `stepsUsed`/`maxSteps` stay `unknown` and are guarded by `readNumber`.
+    nested = record.data as { stepsUsed?: unknown; maxSteps?: unknown };
+  }
+
   const stepsUsed = readNumber(nested?.stepsUsed ?? record.stepsUsed);
   const maxSteps = readNumber(nested?.maxSteps ?? record.maxSteps);
   if (stepsUsed === undefined || maxSteps === undefined) return null;

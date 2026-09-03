@@ -6,6 +6,9 @@ import { withRegexTokens } from "./regex-code-highlighter.js";
 type CodeHighlighter = NonNullable<PluginConfig["code"]>;
 type HighlightResult = NonNullable<ReturnType<CodeHighlighter["highlight"]>>;
 
+// SAFETY: `language` and `themes` are valid BundledLanguage/theme-pair
+// members; the cast only narrows past inference widening the literal
+// `"typescript"` to `string` and the two-theme array to `string[]`.
 const options = {
   code: "",
   language: "typescript",
@@ -54,15 +57,20 @@ describe("withRegexTokens", () => {
     const marked = actual?.tokens[0].filter(
       (token) => token.htmlAttrs?.["data-regex-token"],
     );
-    expect(marked?.map((token) => token.content).join("")).toBe("/\\d+/g");
+    expect(marked?.map((token) => token.content).join("")).toBe(
+      String.raw`/\d+/g`,
+    );
     expect(marked).toHaveLength(2);
     expect(
       marked?.every(
-        (token) => token.htmlAttrs?.["data-regex-token"] === "/\\d+/g",
+        (token) => token.htmlAttrs?.["data-regex-token"] === String.raw`/\d+/g`,
       ),
     ).toBe(true);
     expect(marked?.[0]).toMatchObject({
-      htmlAttrs: { class: "token keyword", "data-regex-token": "/\\d+/g" },
+      htmlAttrs: {
+        class: "token keyword",
+        "data-regex-token": String.raw`/\d+/g`,
+      },
       htmlStyle: {
         color: "red",
         background: "black",
@@ -77,13 +85,13 @@ describe("withRegexTokens", () => {
     expect(marked?.[1]).toMatchObject({
       htmlAttrs: {
         class: "token punctuation",
-        "data-regex-token": "/\\d+/g",
+        "data-regex-token": String.raw`/\d+/g`,
       },
       htmlStyle: { color: "blue" },
       offset: 18,
     });
     expect(actual?.tokens[0].map((token) => token.content).join("")).toBe(
-      "const value = /\\d+/g;",
+      String.raw`const value = /\d+/g;`,
     );
   });
 
@@ -106,7 +114,7 @@ describe("withRegexTokens", () => {
     });
     expect(callbackResult?.tokens[0][1]).toMatchObject({
       content: "/\\d+/",
-      htmlAttrs: { "data-regex-token": "/\\d+/" },
+      htmlAttrs: { "data-regex-token": String.raw`/\d+/` },
     });
   });
 

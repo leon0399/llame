@@ -8,20 +8,40 @@
  * (available in non-secure contexts), falling back to `Math.random` only if `crypto`
  * is entirely absent.
  */
+// A deliberately loose shape (unlike lib.dom's `Crypto`, which declares both
+// methods required): the whole point of these guards is the real-world case
+// where the global object exists but a method doesn't — e.g. `randomUUID` is
+// absent outside secure contexts — which lib.dom's own type doesn't model.
+type MinimalCrypto = {
+  randomUUID?: () => string;
+  getRandomValues?: (array: Uint8Array) => Uint8Array;
+};
+
+function supportsRandomUUID(
+  value: MinimalCrypto | undefined,
+): value is { randomUUID: () => string } {
+  return value !== undefined && typeof value.randomUUID === "function";
+}
+
+function supportsGetRandomValues(
+  value: MinimalCrypto | undefined,
+): value is { getRandomValues: (array: Uint8Array) => Uint8Array } {
+  return value !== undefined && typeof value.getRandomValues === "function";
+}
+
 export function safeRandomUUID(): string {
-  if (
-    typeof crypto !== "undefined" &&
-    typeof crypto.randomUUID === "function"
-  ) {
-    return crypto.randomUUID();
+  // `globalThis.crypto` is a property read (safe even when absent), unlike
+  // the bare `crypto` identifier — reading that directly in a context where
+  // it was never declared throws a ReferenceError instead of evaluating to
+  // `undefined`.
+  const cryptoRef: MinimalCrypto | undefined = globalThis.crypto;
+  if (supportsRandomUUID(cryptoRef)) {
+    return cryptoRef.randomUUID();
   }
 
   const bytes = new Uint8Array(16);
-  if (
-    typeof crypto !== "undefined" &&
-    typeof crypto.getRandomValues === "function"
-  ) {
-    crypto.getRandomValues(bytes);
+  if (supportsGetRandomValues(cryptoRef)) {
+    cryptoRef.getRandomValues(bytes);
   } else {
     for (let i = 0; i < bytes.length; i++) {
       bytes[i] = Math.floor(Math.random() * 256);

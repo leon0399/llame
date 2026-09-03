@@ -27,7 +27,7 @@ export const orgUnitsQueryKeys = {
     [...orgUnitsQueryKeys.detail(orgUnitId), "me"] as const,
 };
 
-export async function fetchOrgUnits(): Promise<OrgUnitResponse[]> {
+export async function fetchOrgUnits(): Promise<Array<OrgUnitResponse>> {
   return withOrgUnitsErrors(() =>
     listOrgUnits(undefined, createAuthenticatedBrowserFetch(globalThis.fetch)),
   );
@@ -43,7 +43,7 @@ export function useOrgUnitsQuery() {
 
 export async function fetchMemberships(
   orgUnitId: string,
-): Promise<MembershipResponse[]> {
+): Promise<Array<MembershipResponse>> {
   return withOrgUnitsErrors(() =>
     listOrgUnitMemberships(
       orgUnitId,

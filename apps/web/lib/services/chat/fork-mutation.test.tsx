@@ -3,24 +3,21 @@
 /** useForkChat hook coverage: a failed fork must toast, not fail silently. */
 
 import * as React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
-const { forkChatEndpoint } = vi.hoisted(() => ({ forkChatEndpoint: vi.fn() }));
-const toastError = vi.hoisted(() => vi.fn());
-
-vi.mock("../../api/generated/chats/chats", () => ({
-  forkChat: forkChatEndpoint,
-}));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch: () => vi.fn(),
-}));
-vi.mock("@workspace/ui/components/sonner", () => ({
-  toast: { error: toastError },
-}));
+import { toast } from "@workspace/ui/components/sonner";
 
 import { useForkChat } from "./fork";
+import { stubFetch } from "../../test-support/fetch-stub";
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const queryClient = new QueryClient({
@@ -31,20 +28,30 @@ function wrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
+let fetchMock: Mock<typeof fetch>;
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
+
 afterEach(() => {
-  forkChatEndpoint.mockReset();
-  toastError.mockReset();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("useForkChat", () => {
   it("toasts on failure instead of failing silently", async () => {
-    forkChatEndpoint.mockRejectedValue(new Error("network down"));
+    fetchMock.mockRejectedValue(new Error("network down"));
+    // `toast` is sonner's own real export (re-exported by
+    // @workspace/ui/components/sonner) -- spying on its method observes the
+    // real call without swapping the module underneath the hook.
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "");
     const { result } = renderHook(() => useForkChat(), { wrapper });
 
     result.current.mutate({ chatId: "chat-1", fromMessageId: "msg-1" });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(toastError).toHaveBeenCalledWith(
+    expect(toastErrorSpy).toHaveBeenCalledWith(
       "Couldn't fork the chat. Nothing was created.",
     );
   });

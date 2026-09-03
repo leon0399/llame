@@ -8,27 +8,22 @@
  */
 
 import * as React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
-const { forkSharedChatEndpoint } = vi.hoisted(() => ({
-  forkSharedChatEndpoint: vi.fn(),
-}));
-const toastError = vi.hoisted(() => vi.fn());
-
-vi.mock("../../api/generated/chats/chats", () => ({
-  forkSharedChat: forkSharedChatEndpoint,
-}));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch: () => vi.fn(),
-}));
-vi.mock("@workspace/ui/components/sonner", () => ({
-  toast: { error: toastError },
-}));
+import { toast } from "@workspace/ui/components/sonner";
 
 import { chatQueryKeys } from "./queries";
 import { useForkSharedChat } from "./shared";
+import { jsonResponse, stubFetch } from "../../test-support/fetch-stub";
 
 function makeWrapper(queryClient: QueryClient) {
   return function wrapper({ children }: { children: React.ReactNode }) {
@@ -38,14 +33,21 @@ function makeWrapper(queryClient: QueryClient) {
   };
 }
 
+let fetchMock: Mock<typeof fetch>;
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
+
 afterEach(() => {
-  forkSharedChatEndpoint.mockReset();
-  toastError.mockReset();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("useForkSharedChat", () => {
   it("toasts on failure instead of failing silently", async () => {
-    forkSharedChatEndpoint.mockRejectedValue(new Error("network down"));
+    fetchMock.mockRejectedValue(new Error("network down"));
+    const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "");
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -59,13 +61,13 @@ describe("useForkSharedChat", () => {
     result.current.mutate("shared-chat-1");
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(toastError).toHaveBeenCalledWith(
+    expect(toastErrorSpy).toHaveBeenCalledWith(
       "Couldn't fork this chat. Nothing was created.",
     );
   });
 
   it("invalidates the chat list on success, so the new chat appears without a refresh", async () => {
-    forkSharedChatEndpoint.mockResolvedValue({ id: "new-chat" });
+    fetchMock.mockResolvedValue(jsonResponse({ id: "new-chat" }));
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },

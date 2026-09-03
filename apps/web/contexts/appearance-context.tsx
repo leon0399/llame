@@ -56,6 +56,20 @@ export function useAppearance() {
   return useContext(AppearanceContext);
 }
 
+/** Applies the CSS variable for whichever font option is currently selected. */
+function useApplyFontCssVar(
+  cssVarName: string,
+  options: ReadonlyArray<{ value: string; cssVar: string }>,
+  selected: string,
+) {
+  useEffect(() => {
+    const option = options.find((o) => o.value === selected);
+    if (option) {
+      document.documentElement.style.setProperty(cssVarName, option.cssVar);
+    }
+  }, [cssVarName, options, selected]);
+}
+
 export function AppearanceProvider({ children }: { children: ReactNode }) {
   const { theme, setTheme } = useTheme();
   const [fontSize, setFontSize] = useState<FontSize>("medium");
@@ -69,27 +83,8 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   );
 
   // Apply font changes to Tailwind CSS variables
-  useEffect(() => {
-    const fontOption = fontStyleOptions.find((f) => f.value === fontStyle);
-    if (fontOption) {
-      document.documentElement.style.setProperty(
-        "--font-sans",
-        fontOption.cssVar,
-      );
-    }
-  }, [fontStyle]);
-
-  useEffect(() => {
-    const monoFontOption = monoFontStyleOptions.find(
-      (f) => f.value === monoFontStyle,
-    );
-    if (monoFontOption) {
-      document.documentElement.style.setProperty(
-        "--font-mono",
-        monoFontOption.cssVar,
-      );
-    }
-  }, [monoFontStyle]);
+  useApplyFontCssVar("--font-sans", fontStyleOptions, fontStyle);
+  useApplyFontCssVar("--font-mono", monoFontStyleOptions, monoFontStyle);
 
   return (
     <AppearanceContext.Provider

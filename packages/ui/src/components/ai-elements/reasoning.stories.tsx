@@ -9,7 +9,7 @@ const REASONING_TEXT =
 
 const REASONING_MATH_TEXT =
   "Rest energy is $E = mc^2$, and the Pythagorean identity is \\(a^2 + b^2 = c^2\\). Summing the first n integers:\n\n" +
-  "$$\\sum_{k=1}^{n} k = \\frac{n(n+1)}{2}$$";
+  String.raw`$$\sum_{k=1}^{n} k = \frac{n(n+1)}{2}$$`;
 
 // `Reasoning`'s props extend `ComponentProps<typeof Collapsible>`, whose
 // props reference Radix's non-exported `CollapsibleProps` — an inferred

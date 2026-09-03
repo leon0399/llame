@@ -187,8 +187,8 @@ export const HtmlBlockLiterals: Story = {
     // another and its activation would fight the disclosure toggle.
     await waitFor(() =>
       expect(sources()).toEqual([
-        "/\\b(?:GET|POST)\\b/",
-        "/^\\s*$/",
+        String.raw`/\b(?:GET|POST)\b/`,
+        String.raw`/^\s*$/`,
         "/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i",
       ]),
     );
@@ -427,6 +427,8 @@ export const TestRegexFlow: Story = {
     await userEvent.type(input, "my-slug");
 
     const matchLabel = await body.findByText("Match");
+    // SAFETY: `parentElement` is only null for a detached/root node; this
+    // label is always rendered inside the tester's match-list container.
     const results = within(matchLabel.parentElement as HTMLElement);
     await expect(results.getByText("my-slug")).toBeVisible();
     await waitFor(() => {
@@ -467,6 +469,8 @@ export const GlobalFlagMatches: Story = {
     await userEvent.type(input, "a1 b22");
 
     const matchLabel = await body.findByText("Match");
+    // SAFETY: `parentElement` is only null for a detached/root node; this
+    // label is always rendered inside the tester's match-list container.
     const results = within(matchLabel.parentElement as HTMLElement);
     await expect(results.getByText("1")).toBeVisible();
     await expect(results.getByText("22")).toBeVisible();

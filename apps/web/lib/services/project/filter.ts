@@ -6,9 +6,9 @@ import type { ProjectResponse } from "./types";
  * e.g. accent-insensitive compare, lands in both at once).
  */
 export function filterProjectsByName(
-  projects: ProjectResponse[],
+  projects: Array<ProjectResponse>,
   query: string,
-): ProjectResponse[] {
+): Array<ProjectResponse> {
   const filterQuery = query.trim().toLowerCase();
   if (filterQuery === "") return projects;
   return projects.filter((project) =>

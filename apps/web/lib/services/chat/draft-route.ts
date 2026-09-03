@@ -1,7 +1,7 @@
 export type DraftPhase = "fresh" | "sent";
 
 export function draftPhaseFromSearchParam(
-  value: string | string[] | undefined,
+  value: string | Array<string> | undefined,
 ): DraftPhase | null {
   if (value === "fresh" || value === "sent") {
     return value;

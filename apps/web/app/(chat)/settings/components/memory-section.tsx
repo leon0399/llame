@@ -21,6 +21,72 @@ import { Switch } from "@workspace/ui/components/switch";
 import { useUpdateMemoryMutation } from "@/lib/services/memory/mutations";
 import { useMemoryQuery } from "@/lib/services/memory/queries";
 
+// `Alert` rather than a styled span: it carries `role="alert"`, so a failure
+// arriving after the skeleton has already rendered is announced. A plain
+// element appearing asynchronously is silent to a screen reader — the reader
+// has moved on, and nothing tells it that the region changed or that a retry
+// became available.
+function MemoryLoadErrorAlert({ onRetry }: { onRetry: () => void }) {
+  return (
+    <Alert variant="destructive">
+      <AlertTitle>Could not load your memory settings.</AlertTitle>
+      <AlertAction>
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          Try again
+        </Button>
+      </AlertAction>
+    </Alert>
+  );
+}
+
+function ShareRecentChatsToggle({
+  shareRecentChats,
+  onToggle,
+  saveError,
+}: {
+  shareRecentChats: boolean;
+  onToggle: (checked: boolean) => void;
+  saveError: boolean;
+}) {
+  return (
+    <>
+      <Field orientation="horizontal">
+        <FieldContent>
+          <FieldLabel htmlFor="memory-share-recent-chats">
+            Share my recent chats
+          </FieldLabel>
+          {/* Two lines. What is sent, where it goes, and the default — the
+              facts needed to answer the switch in front of you. The rest of
+              the consent contract (enabling reaches chats you already have,
+              disabling does not unshare them, deleting a chat does not erase
+              it from prompts already sent) is in README.md, where it can be
+              read as prose instead of crowding a toggle nobody will read
+              past. */}
+          <FieldDescription>
+            Sends titles and opening excerpts from your other chats to this
+            instance&apos;s model provider, which may be a third party. Off by
+            default.
+          </FieldDescription>
+        </FieldContent>
+        <Switch
+          id="memory-share-recent-chats"
+          checked={shareRecentChats}
+          onCheckedChange={onToggle}
+        />
+      </Field>
+      {/* Same defect, same fix. A save failure appears asynchronously too, so
+          it needs the alert role for the same reason — an owner who just
+          toggled a privacy switch and heard nothing has no way to know the
+          setting did not take. */}
+      {saveError ? (
+        <Alert variant="destructive">
+          <AlertTitle>Could not save. Try again.</AlertTitle>
+        </Alert>
+      ) : null}
+    </>
+  );
+}
+
 /**
  * MemorySection is the owner's control over whether the assistant is told what
  * else they have been working on. It is deliberately its own card rather than a
@@ -61,63 +127,15 @@ export function MemorySection() {
             could not reach the control at all. A privacy setting must not
             become unreachable because a GET failed. */}
         {isError && !data ? (
-          // `Alert` rather than a styled span: it carries `role="alert"`, so a
-          // failure arriving after the skeleton has already rendered is
-          // announced. A plain element appearing asynchronously is silent to a
-          // screen reader — the reader has moved on, and nothing tells it that
-          // the region changed or that a retry became available.
-          <Alert variant="destructive">
-            <AlertTitle>Could not load your memory settings.</AlertTitle>
-            <AlertAction>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void refetch()}
-              >
-                Try again
-              </Button>
-            </AlertAction>
-          </Alert>
+          <MemoryLoadErrorAlert onRetry={() => void refetch()} />
         ) : isPending || !data ? (
           <Skeleton className="h-16 w-full" />
         ) : (
-          <>
-            <Field orientation="horizontal">
-              <FieldContent>
-                <FieldLabel htmlFor="memory-share-recent-chats">
-                  Share my recent chats
-                </FieldLabel>
-                {/* Two lines. What is sent, where it goes, and the default —
-                    the facts needed to answer the switch in front of you.
-                    The rest of the consent contract (enabling reaches chats you
-                    already have, disabling does not unshare them, deleting a
-                    chat does not erase it from prompts already sent) is in
-                    README.md, where it can be read as prose instead of
-                    crowding a toggle nobody will read past. */}
-                <FieldDescription>
-                  Sends titles and opening excerpts from your other chats to
-                  this instance&apos;s model provider, which may be a third
-                  party. Off by default.
-                </FieldDescription>
-              </FieldContent>
-              <Switch
-                id="memory-share-recent-chats"
-                checked={data.shareRecentChats}
-                onCheckedChange={(checked) =>
-                  update.mutate({ shareRecentChats: checked })
-                }
-              />
-            </Field>
-            {/* Same defect, same fix. A save failure appears asynchronously
-                too, so it needs the alert role for the same reason — an owner
-                who just toggled a privacy switch and heard nothing has no way
-                to know the setting did not take. */}
-            {update.isError ? (
-              <Alert variant="destructive">
-                <AlertTitle>Could not save. Try again.</AlertTitle>
-              </Alert>
-            ) : null}
-          </>
+          <ShareRecentChatsToggle
+            shareRecentChats={data.shareRecentChats}
+            onToggle={(checked) => update.mutate({ shareRecentChats: checked })}
+            saveError={update.isError}
+          />
         )}
       </CardContent>
     </Card>

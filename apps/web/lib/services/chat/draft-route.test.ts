@@ -9,7 +9,7 @@ import {
 
 const CHAT_ID = "chat-123";
 const draftPhaseCases: Array<
-  [string | string[] | undefined, DraftPhase | null]
+  [string | Array<string> | undefined, DraftPhase | null]
 > = [
   ["fresh", "fresh"],
   ["sent", "sent"],

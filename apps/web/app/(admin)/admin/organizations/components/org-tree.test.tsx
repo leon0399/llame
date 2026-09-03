@@ -11,50 +11,56 @@
  */
 
 import * as React from "react";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   cleanup,
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 
 import type { OrgUnitResponse } from "@/lib/services/org-units/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { Mock } from "vitest";
+import {
+  emptyResponse,
+  requestFromCall,
+  stubFetch,
+} from "@/lib/test-support/fetch-stub";
 
-const createRootMutate = vi.fn();
-const createChildMutate = vi.fn();
-const updateMutate = vi.fn();
-const deleteMutate = vi.fn();
+// No hook mocking: the real mutation hooks run against a stubbed
+// globalThis.fetch, so a delete that reaches the network is proved by the
+// request it sends rather than by a spy the test wired up itself.
+let fetchMock: Mock<typeof fetch>;
+let queryClient: QueryClient;
 
-vi.mock("@/lib/services/org-units/mutations", () => ({
-  useCreateRootOrg: () => ({
-    mutate: createRootMutate,
-    isPending: false,
-    error: null,
-    reset: vi.fn(),
-  }),
-  useCreateChildOrg: () => ({
-    mutate: createChildMutate,
-    isPending: false,
-    error: null,
-    reset: vi.fn(),
-  }),
-  useUpdateOrgUnit: () => ({
-    mutate: updateMutate,
-    isPending: false,
-    error: null,
-    reset: vi.fn(),
-  }),
-  useDeleteOrgUnit: () => ({
-    mutate: deleteMutate,
-    isPending: false,
-    error: null,
-    reset: vi.fn(),
-  }),
-}));
+function renderTree(units: Array<OrgUnitResponse>) {
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <OrgUnitsTree units={units} />
+    </QueryClientProvider>,
+  );
+}
 
 import { OrgUnitsTree } from "./org-tree";
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+  fetchMock.mockResolvedValue(emptyResponse());
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+});
 
 beforeAll(() => {
   // jsdom doesn't implement the Pointer Events capture API Base UI's
@@ -75,10 +81,7 @@ beforeAll(() => {
 
 afterEach(() => {
   cleanup();
-  createRootMutate.mockReset();
-  createChildMutate.mockReset();
-  updateMutate.mockReset();
-  deleteMutate.mockReset();
+  vi.unstubAllGlobals();
 });
 
 function unit(
@@ -143,7 +146,7 @@ const fixtureUnits = [acme, teamA, deptB, teamC, homeLab];
 
 describe("OrgUnitsTree — rows", () => {
   it("renders every unit as a treeitem with role badge only where a direct role exists", () => {
-    render(<OrgUnitsTree units={fixtureUnits} />);
+    renderTree(fixtureUnits);
 
     const acmeRow = screen.getByTestId("org-unit-row-org1");
     expect(within(acmeRow).getByText("owner")).toBeTruthy();
@@ -157,7 +160,7 @@ describe("OrgUnitsTree — rows", () => {
   });
 
   it("collapsing a node with children hides its subtree; expanding restores it", () => {
-    render(<OrgUnitsTree units={fixtureUnits} />);
+    renderTree(fixtureUnits);
 
     expect(screen.getByTestId("org-unit-row-teamC")).toBeTruthy();
 
@@ -169,7 +172,7 @@ describe("OrgUnitsTree — rows", () => {
   });
 
   it("Enter selects the focused ROW but never hijacks a child button's keydown", () => {
-    render(<OrgUnitsTree units={fixtureUnits} />);
+    renderTree(fixtureUnits);
 
     // Row itself focused: Enter selects it (footer breadcrumb follows).
     const teamARow = screen.getByTestId("org-unit-row-teamA");
@@ -188,7 +191,7 @@ describe("OrgUnitsTree — rows", () => {
 
 describe("OrgUnitsTree — leaf-first delete", () => {
   it("clicking delete on a non-leaf opens the explainer and sends no mutation", () => {
-    render(<OrgUnitsTree units={fixtureUnits} />);
+    renderTree(fixtureUnits);
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Dept B" }));
 
@@ -199,11 +202,12 @@ describe("OrgUnitsTree — leaf-first delete", () => {
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Got it" }));
-    expect(deleteMutate).not.toHaveBeenCalled();
+    // The blocked path must not reach the network at all.
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("clicking delete on a leaf opens a named confirmation and sends the mutation on confirm", () => {
-    render(<OrgUnitsTree units={fixtureUnits} />);
+  it("clicking delete on a leaf opens a named confirmation and sends the mutation on confirm", async () => {
+    renderTree(fixtureUnits);
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Team A" }));
 
@@ -213,16 +217,64 @@ describe("OrgUnitsTree — leaf-first delete", () => {
     expect(screen.getByText(/removes every membership/i)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    expect(deleteMutate).toHaveBeenCalledWith(
-      "teamA",
-      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    // The mutation dispatches asynchronously; wait for the request itself
+    // rather than for a spy that was never the thing under test.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("DELETE");
+    expect(new URL(request.url).pathname).toBe("/api/v1/org-units/teamA");
+  });
+});
+
+describe("OrgUnitsTree — toolbar", () => {
+  it("Collapse all / Expand all toggles every collapsible row at once", () => {
+    renderTree(fixtureUnits);
+
+    expect(screen.getByTestId("org-unit-row-teamC")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(screen.queryByTestId("org-unit-row-teamA")).toBeNull();
+    expect(screen.queryByTestId("org-unit-row-teamC")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(screen.getByTestId("org-unit-row-teamA")).toBeTruthy();
+    expect(screen.getByTestId("org-unit-row-teamC")).toBeTruthy();
+  });
+});
+
+describe("OrgUnitsTree — add child / rename", () => {
+  it("Add child opens the create dialog scoped to that parent and expands its row", () => {
+    renderTree(fixtureUnits);
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Dept B" }));
+    expect(screen.queryByTestId("org-unit-row-teamC")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add child unit to Dept B" }),
     );
+
+    expect(
+      screen.getByRole("heading", { name: "New unit under “Dept B”" }),
+    ).toBeTruthy();
+    // The parent row is expanded so the unit the dialog will create is
+    // visible once it lands, rather than hidden behind a collapsed chevron.
+    expect(screen.getByTestId("org-unit-row-teamC")).toBeTruthy();
+  });
+
+  it("Rename opens the rename dialog for that unit", () => {
+    renderTree(fixtureUnits);
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename Team A" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Rename “Team A”" }),
+    ).toBeTruthy();
   });
 });
 
 describe("OrgUnitsTree — move picker", () => {
   it("excludes the unit and its descendants, offers make-root, keeps unrelated units", () => {
-    render(<OrgUnitsTree units={fixtureUnits} />);
+    renderTree(fixtureUnits);
 
     fireEvent.click(screen.getByRole("button", { name: "Move Dept B" }));
 
@@ -240,13 +292,13 @@ describe("OrgUnitsTree — move picker", () => {
 
 describe("OrgUnitsTree — selected-unit footer", () => {
   it("shows the direct role for a unit with its own membership", () => {
-    render(<OrgUnitsTree units={fixtureUnits} />);
+    renderTree(fixtureUnits);
     fireEvent.click(screen.getByTestId("org-unit-row-org1"));
     expect(screen.getByText("Your role here: owner · direct")).toBeTruthy();
   });
 
   it("shows the inherited role and its source for a unit with no direct role", () => {
-    render(<OrgUnitsTree units={fixtureUnits} />);
+    renderTree(fixtureUnits);
     fireEvent.click(screen.getByTestId("org-unit-row-teamC"));
     expect(
       screen.getByText("Your role here: owner · inherited from Acme"),
@@ -254,7 +306,7 @@ describe("OrgUnitsTree — selected-unit footer", () => {
   });
 
   it("shows the no-role copy when neither the unit nor any ancestor has a role", () => {
-    render(<OrgUnitsTree units={fixtureUnits} />);
+    renderTree(fixtureUnits);
     fireEvent.click(screen.getByTestId("org-unit-row-org2"));
     expect(
       screen.getByText("You have no direct role on this unit."),
@@ -262,8 +314,9 @@ describe("OrgUnitsTree — selected-unit footer", () => {
   });
 
   it("renders the Manage members button disabled", () => {
-    render(<OrgUnitsTree units={fixtureUnits} />);
+    renderTree(fixtureUnits);
     fireEvent.click(screen.getByTestId("org-unit-row-org1"));
+    // SAFETY: queried by role "button", so the element is a real <button>.
     const button = screen.getByRole("button", {
       name: /manage members/i,
     }) as HTMLButtonElement;
@@ -273,7 +326,7 @@ describe("OrgUnitsTree — selected-unit footer", () => {
 
 describe("OrgUnitsTree — empty state", () => {
   it("shows the first-run empty state when there are no units", () => {
-    render(<OrgUnitsTree units={[]} />);
+    renderTree([]);
     expect(screen.getByText("No organizations yet")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Create organization" }),

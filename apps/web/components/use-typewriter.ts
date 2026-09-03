@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from "react";
 
 // Read from the platform rather than a motion library: `apps/web` declares
 // framer-motion but imports it nowhere, and this needs one boolean. The rest
@@ -31,7 +37,7 @@ const step = (rate: { PER_CHAR_MS: number; TOTAL_MS: number }, chars: number) =>
   Math.min(rate.PER_CHAR_MS, rate.TOTAL_MS / Math.max(chars, 1));
 
 /** Code-point characters — never UTF-16 code units (emoji surrogates). */
-const charsOf = (value: string): string[] => Array.from(value);
+const charsOf = (value: string): Array<string> => Array.from(value);
 
 /** How many leading code points `a` and `b` share. */
 export function sharedPrefixLength(a: string, b: string): number {
@@ -41,6 +47,102 @@ export function sharedPrefixLength(a: string, b: string): number {
   let i = 0;
   while (i < limit && left[i] === right[i]) i += 1;
   return i;
+}
+
+type TypewriterPhase = "delete" | "type";
+type TypewriterFrame = {
+  text: string;
+  phase: TypewriterPhase;
+  delayMs: number;
+};
+
+/**
+ * Pure: the next frame toward `target` given the current `display` and
+ * `phase`, or `null` once nothing is left to animate. Deletion completing
+ * and typing starting can happen within the same frame — mirrors the
+ * original inline state machine's fall-through, just without the mutation.
+ */
+function nextTypewriterFrame(
+  display: string,
+  target: string,
+  phase: TypewriterPhase,
+): TypewriterFrame | null {
+  const currentChars = charsOf(display);
+  const goalChars = charsOf(target);
+  const prefixLen = sharedPrefixLength(display, target);
+
+  if (phase === "delete" && currentChars.length > prefixLen) {
+    return {
+      text: currentChars.slice(0, -1).join(""),
+      phase: "delete",
+      delayMs: step(DELETE, currentChars.length - prefixLen),
+    };
+  }
+
+  if (currentChars.length < goalChars.length) {
+    return {
+      text: goalChars.slice(0, currentChars.length + 1).join(""),
+      phase: "type",
+      delayMs: step(TYPE, goalChars.length - prefixLen),
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Drives one retype run toward `target`, or settles immediately when
+ * animation is off/unnecessary. Returns the effect's cleanup, or `undefined`
+ * when nothing was scheduled.
+ */
+function runTypewriterAnimation(
+  target: string,
+  previous: string,
+  animates: boolean,
+  refs: {
+    targetRef: RefObject<string>;
+    displayRef: RefObject<string>;
+    setDisplay: (value: string) => void;
+  },
+): (() => void) | undefined {
+  const { targetRef, displayRef, setDisplay } = refs;
+  targetRef.current = target;
+
+  const settle = () => {
+    displayRef.current = target;
+    setDisplay(target);
+  };
+
+  // Nothing to replace on the first value, and nothing to animate for a
+  // re-render that did not change the title.
+  if (!animates || target === previous) {
+    if (displayRef.current !== target) settle();
+    return undefined;
+  }
+
+  let timer: ReturnType<typeof setTimeout>;
+  // Explicit, because "shorter than the goal" cannot tell deleting from
+  // typing — mid-delete the text is shorter too, and the two branches would
+  // hand off to each other forever.
+  let phase: TypewriterPhase = "delete";
+
+  // Re-reads `targetRef` each tick: a title arriving mid-run redirects this
+  // chain rather than starting a competing one.
+  const tick = () => {
+    const frame = nextTypewriterFrame(
+      displayRef.current,
+      targetRef.current,
+      phase,
+    );
+    if (!frame) return;
+    displayRef.current = frame.text;
+    setDisplay(frame.text);
+    phase = frame.phase;
+    timer = setTimeout(tick, frame.delayMs);
+  };
+
+  tick();
+  return () => clearTimeout(timer);
 }
 
 /**
@@ -74,64 +176,15 @@ export function useTypewriter(
   const targetRef = useRef(target);
   const displayRef = useRef(target);
 
-  useEffect(() => {
-    const previous = targetRef.current;
-    targetRef.current = target;
-
-    const settle = () => {
-      displayRef.current = target;
-      setDisplay(target);
-    };
-
-    // Nothing to replace on the first value, and nothing to animate for a
-    // re-render that did not change the title.
-    if (!animates || target === previous) {
-      if (displayRef.current !== target) settle();
-      return;
-    }
-
-    let timer: ReturnType<typeof setTimeout>;
-    // Explicit, because "shorter than the goal" cannot tell deleting from
-    // typing — mid-delete the text is shorter too, and the two branches would
-    // hand off to each other forever.
-    let phase: "delete" | "type" = "delete";
-
-    const write = (next: string) => {
-      displayRef.current = next;
-      setDisplay(next);
-    };
-
-    const tick = () => {
-      const currentChars = charsOf(displayRef.current);
-      // Re-read the goal each tick: a title arriving mid-run redirects this
-      // chain rather than starting a competing one.
-      const goalChars = charsOf(targetRef.current);
-      const prefixLen = sharedPrefixLength(
-        displayRef.current,
-        targetRef.current,
-      );
-
-      if (phase === "delete") {
-        if (currentChars.length > prefixLen) {
-          write(currentChars.slice(0, -1).join(""));
-          timer = setTimeout(
-            tick,
-            step(DELETE, currentChars.length - prefixLen),
-          );
-          return;
-        }
-        phase = "type";
-      }
-
-      if (currentChars.length < goalChars.length) {
-        write(goalChars.slice(0, currentChars.length + 1).join(""));
-        timer = setTimeout(tick, step(TYPE, goalChars.length - prefixLen));
-      }
-    };
-
-    tick();
-    return () => clearTimeout(timer);
-  }, [target, animates]);
+  useEffect(
+    () =>
+      runTypewriterAnimation(target, targetRef.current, animates, {
+        targetRef,
+        displayRef,
+        setDisplay,
+      }),
+    [target, animates],
+  );
 
   return display;
 }

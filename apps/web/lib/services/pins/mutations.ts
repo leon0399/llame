@@ -95,17 +95,20 @@ export function usePinItem() {
     mutationFn: (vars: PinVariables) => pinItem(vars.itemType, vars.itemId),
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: pinQueryKeys.list() });
-      const previous = queryClient.getQueryData<PinnedItem[]>(
+      const previous = queryClient.getQueryData<Array<PinnedItem>>(
         pinQueryKeys.list(),
       );
       const optimisticPin = toOptimisticPinnedItem(vars);
-      queryClient.setQueryData<PinnedItem[]>(pinQueryKeys.list(), (old) => {
-        const withoutExisting = (old ?? []).filter(
-          (pin) =>
-            !(pin.itemType === vars.itemType && pin.itemId === vars.itemId),
-        );
-        return [optimisticPin, ...withoutExisting];
-      });
+      queryClient.setQueryData<Array<PinnedItem>>(
+        pinQueryKeys.list(),
+        (old) => {
+          const withoutExisting = (old ?? []).filter(
+            (pin) =>
+              !(pin.itemType === vars.itemType && pin.itemId === vars.itemId),
+          );
+          return [optimisticPin, ...withoutExisting];
+        },
+      );
       return { previous };
     },
     onError: (_error, vars, context) => {
@@ -154,10 +157,10 @@ export function useUnpinItem() {
     mutationFn: (vars: UnpinVariables) => unpinItem(vars.itemType, vars.itemId),
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: pinQueryKeys.list() });
-      const previous = queryClient.getQueryData<PinnedItem[]>(
+      const previous = queryClient.getQueryData<Array<PinnedItem>>(
         pinQueryKeys.list(),
       );
-      queryClient.setQueryData<PinnedItem[]>(pinQueryKeys.list(), (old) =>
+      queryClient.setQueryData<Array<PinnedItem>>(pinQueryKeys.list(), (old) =>
         (old ?? []).filter(
           (pin) =>
             !(pin.itemType === vars.itemType && pin.itemId === vars.itemId),
@@ -183,7 +186,9 @@ export function useUnpinItem() {
   });
 }
 
-export async function reorderPins(items: PinnedItem[]): Promise<PinnedItem[]> {
+export async function reorderPins(
+  items: Array<PinnedItem>,
+): Promise<Array<PinnedItem>> {
   return reorderPinsEndpoint(
     {
       items: items.map((pin) => ({
@@ -215,13 +220,13 @@ export function useReorderPins() {
   return useMutation({
     mutationKey: pinMutationKeys.reorder(),
     scope: { id: "pins-reorder" },
-    mutationFn: (items: PinnedItem[]) => reorderPins(items),
+    mutationFn: (items: Array<PinnedItem>) => reorderPins(items),
     onMutate: async (items) => {
       await queryClient.cancelQueries({ queryKey: pinQueryKeys.list() });
-      const previous = queryClient.getQueryData<PinnedItem[]>(
+      const previous = queryClient.getQueryData<Array<PinnedItem>>(
         pinQueryKeys.list(),
       );
-      queryClient.setQueryData<PinnedItem[]>(pinQueryKeys.list(), items);
+      queryClient.setQueryData<Array<PinnedItem>>(pinQueryKeys.list(), items);
       return { previous };
     },
     onError: (_error, _items, context) => {

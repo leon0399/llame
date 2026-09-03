@@ -10,7 +10,7 @@ components in `packages/ui/src`** — this package owns only the runtime
 ```bash
 pnpm --filter storybook dev              # storybook dev on :6006 (also part of root `pnpm dev`)
 pnpm --filter storybook build            # storybook build → storybook-static/
-pnpm --filter storybook test:storybook   # vitest browser-mode story tests (needs Playwright chromium)
+pnpm --filter storybook test:component   # vitest browser-mode story tests (needs Playwright chromium)
 pnpm --filter storybook test             # node-only guard tests (safe for `turbo run test`)
 pnpm --filter storybook lint / typecheck
 ```
@@ -36,9 +36,9 @@ pnpm --filter storybook lint / typecheck
 - **Turbo hashing is deliberately asymmetric**: `packages/ui/turbo.json` excludes
   stories from `build`/`transit` inputs (story edits must not rebuild web), and
   this package's `turbo.json` folds them back in via `$TURBO_ROOT$` inputs for
-  `build` and `test:storybook`. Touch those inputs together or caching goes
+  `build` and `test:component`. Touch those inputs together or caching goes
   silently wrong in one direction.
-- `test:storybook` is a separate task from `test` because it needs Playwright
+- `test:component` is a separate task from `test` because it needs Playwright
   browsers; CI runs it in its own job. Keep browser-dependent tests out of the
   plain `test` script.
 - Storybook builds against Next's compiler (`@storybook/nextjs-vite`), so this

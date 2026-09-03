@@ -73,10 +73,76 @@ const findClosingSlash = (line: string, bodyStart: number): number => {
   return -1;
 };
 
+type SlashMatch = { candidate: RegexCandidate; nextIndex: number };
+
+/**
+ * Attempts to read one regex literal starting at the `/` found at index `i`
+ * of `line`. Returns `null` when the position is blocked (division-like
+ * context), the literal never closes, or the body doesn't pass the
+ * plausibility/compile gate — every case where the caller should simply
+ * advance past this `/` and keep scanning.
+ */
+function matchRegexLiteralAt(
+  line: string,
+  i: number,
+  lineOffset: number,
+): SlashMatch | null {
+  const before = i === 0 ? "" : line[i - 1];
+
+  if (before && BLOCKING_PREFIX.test(before)) {
+    return null;
+  }
+
+  const close = findClosingSlash(line, i + 1);
+
+  // An unclosed opener here doesn't rule out a literal starting later on
+  // this line — an unclosed `[` may have swallowed a slash a later scan
+  // reads differently.
+  if (close === -1) {
+    return null;
+  }
+
+  const body = line.slice(i + 1, close);
+
+  let flagsEnd = close + 1;
+
+  while (flagsEnd < line.length && FLAG_CHARS.has(line[flagsEnd])) {
+    flagsEnd += 1;
+  }
+
+  // Duplicate or conflicting flags (`gg`, `uv`) need no check of their
+  // own — `new RegExp` throws on them, so `compiles` rejects those runs.
+  const flags = line.slice(close + 1, flagsEnd);
+  const after = flagsEnd < line.length ? line[flagsEnd] : "";
+
+  const plausible =
+    body.length > 0 &&
+    !/^\s|\s$/.test(body) &&
+    STRONG_METACHAR.test(body) &&
+    // A word char right after the flags means this run was never a flags
+    // list at all (`/path/to`), so the "literal" is a coincidence.
+    !(after && WORD_CHAR.test(after));
+
+  if (!plausible || !compiles(body, flags)) {
+    return null;
+  }
+
+  return {
+    candidate: {
+      start: lineOffset + i,
+      end: lineOffset + flagsEnd,
+      source: line.slice(i, flagsEnd),
+      pattern: body,
+      flags,
+    },
+    nextIndex: flagsEnd,
+  };
+}
+
 const scanLine = (
   line: string,
   lineOffset: number,
-  out: RegexCandidate[],
+  out: Array<RegexCandidate>,
 ): void => {
   let i = 0;
 
@@ -86,52 +152,11 @@ const scanLine = (
       continue;
     }
 
-    const before = i === 0 ? "" : line[i - 1];
+    const match = matchRegexLiteralAt(line, i, lineOffset);
 
-    if (before && BLOCKING_PREFIX.test(before)) {
-      i += 1;
-      continue;
-    }
-
-    const close = findClosingSlash(line, i + 1);
-
-    if (close === -1) {
-      // This opener never closes, but a later one still can — an unclosed
-      // `[` here may have swallowed a slash a later scan reads differently.
-      i += 1;
-      continue;
-    }
-
-    const body = line.slice(i + 1, close);
-
-    let flagsEnd = close + 1;
-
-    while (flagsEnd < line.length && FLAG_CHARS.has(line[flagsEnd])) {
-      flagsEnd += 1;
-    }
-
-    // Duplicate or conflicting flags (`gg`, `uv`) need no check of their
-    // own — `new RegExp` throws on them, so `compiles` rejects those runs.
-    const flags = line.slice(close + 1, flagsEnd);
-    const after = flagsEnd < line.length ? line[flagsEnd] : "";
-
-    const plausible =
-      body.length > 0 &&
-      !/^\s|\s$/.test(body) &&
-      STRONG_METACHAR.test(body) &&
-      // A word char right after the flags means this run was never a flags
-      // list at all (`/path/to`), so the "literal" is a coincidence.
-      !(after && WORD_CHAR.test(after));
-
-    if (plausible && compiles(body, flags)) {
-      out.push({
-        start: lineOffset + i,
-        end: lineOffset + flagsEnd,
-        source: line.slice(i, flagsEnd),
-        pattern: body,
-        flags,
-      });
-      i = flagsEnd;
+    if (match) {
+      out.push(match.candidate);
+      i = match.nextIndex;
       continue;
     }
 
@@ -175,11 +200,11 @@ export const parseWholeRegexLiteral = (text: string): RegexCandidate | null => {
  */
 export const splitBySpans = <Span extends { start: number; end: number }, T>(
   text: string,
-  spans: Span[],
+  spans: Array<Span>,
   mapPlain: (slice: string) => T,
   mapSpan: (span: Span) => T,
-): T[] => {
-  const out: T[] = [];
+): Array<T> => {
+  const out: Array<T> = [];
   let cursor = 0;
 
   for (const span of spans) {
@@ -202,7 +227,7 @@ export interface RegexEvaluation {
   /** Matched spans within the input, sorted, non-overlapping. */
   ranges: Array<{ start: number; end: number }>;
   /** The matched substrings, one per range. */
-  values: string[];
+  values: Array<string>;
 }
 
 const MAX_MATCHES = 50;
@@ -230,7 +255,7 @@ export const evaluateRegex = (
   }
 
   const ranges: RegexEvaluation["ranges"] = [];
-  const values: string[] = [];
+  const values: Array<string> = [];
 
   if (regex.global) {
     for (const match of input.matchAll(regex)) {
@@ -259,8 +284,8 @@ export const evaluateRegex = (
  * Finds every plausible regex literal in `text`. Literals never span lines;
  * offsets are relative to the start of `text`.
  */
-export const findRegexCandidates = (text: string): RegexCandidate[] => {
-  const out: RegexCandidate[] = [];
+export const findRegexCandidates = (text: string): Array<RegexCandidate> => {
+  const out: Array<RegexCandidate> = [];
   let lineOffset = 0;
 
   for (const line of text.split("\n")) {

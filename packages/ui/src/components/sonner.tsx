@@ -23,6 +23,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
 
   return (
     <Sonner
+      // SAFETY: next-themes' `theme` is a free string for custom theme
+      // names generally, but no consumer of this Toaster configures a
+      // `themes` list beyond the next-themes default (`light`/`dark`) plus
+      // the always-valid `system` fallback, matching Sonner's narrower union.
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
       icons={{
@@ -33,6 +37,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
         loading: <Loader2Icon className="size-4 animate-spin" />,
       }}
       style={
+        // SAFETY: `--normal-*`/`--border-radius` are CSS custom properties;
+        // valid inline style keys at runtime, but CSSProperties's type
+        // doesn't model arbitrary custom properties, so this asserts past
+        // that gap only.
         {
           "--normal-bg": "var(--popover)",
           "--normal-text": "var(--popover-foreground)",

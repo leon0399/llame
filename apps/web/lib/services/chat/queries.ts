@@ -15,6 +15,7 @@ import {
 import type {
   ChatListItemResponse,
   ChatResponse as ApiChatResponse,
+  GetChatMessagesParams,
   ListChatsParams,
 } from "../../api/generated/models";
 import { getApiErrorStatus } from "../../api/errors";
@@ -113,29 +114,18 @@ export const fetchChats = (
   context?: QueryFunctionContext<ChatsInfiniteQueryKey>,
 ) => {
   const filters = context?.queryKey[3];
-  const searchParams: Record<string, string> = {};
-  if (filters?.projectId !== undefined)
-    searchParams.projectId = filters.projectId;
-  if (filters?.pinned !== undefined) searchParams.pinned = filters.pinned;
-  if (filters?.archived !== undefined) searchParams.archived = filters.archived;
-  const params: ListChatsParams | undefined =
-    Object.keys(searchParams).length > 0
-      ? {
-          ...(searchParams.projectId
-            ? { projectId: searchParams.projectId }
-            : {}),
-          ...(searchParams.pinned
-            ? { pinned: searchParams.pinned as ListChatsParams["pinned"] }
-            : {}),
-          ...(searchParams.archived
-            ? {
-                archived: searchParams.archived as ListChatsParams["archived"],
-              }
-            : {}),
-        }
-      : undefined;
+  const params: ListChatsParams = {};
+  if (filters?.projectId !== undefined) {
+    params.projectId = filters.projectId;
+  }
+  if (filters?.pinned !== undefined) {
+    params.pinned = filters.pinned;
+  }
+  if (filters?.archived !== undefined) {
+    params.archived = filters.archived;
+  }
   return listChats(
-    params,
+    Object.keys(params).length > 0 ? params : undefined,
     context?.signal === undefined ? undefined : { signal: context.signal },
     createAuthenticatedBrowserFetch(globalThis.fetch),
   );
@@ -145,6 +135,7 @@ export const fetchChats = (
 // `beforeSeq`), a number = strictly-older-than-that-seq. `null` rather than
 // `undefined` so the SSR-seeded page param survives dehydration verbatim.
 type ChatMessagesPageParam = number | null;
+const INITIAL_MESSAGES_PAGE_PARAM: ChatMessagesPageParam = null;
 
 // One page of history, newest window first. Compaction (#57) arrives
 // EMBEDDED in the messages response (#136 — folded from a separate
@@ -157,22 +148,22 @@ const fetchChatMessagesPage = async ({
 }: QueryFunctionContext<
   ChatMessagesQueryKey,
   ChatMessagesPageParam
->): Promise<ChatMessagesResponse> =>
-  normalizeChatMessagesResponse(
+>): Promise<ChatMessagesResponse> => {
+  const params: GetChatMessagesParams = { limit: CHAT_HISTORY_PAGE_SIZE };
+  if (pageParam !== null) {
+    params.beforeSeq = pageParam;
+  } else if (mode === "target" && targetSeq !== undefined) {
+    params.targetSeq = targetSeq;
+  }
+  return normalizeChatMessagesResponse(
     await getChatMessages(
       encodeURIComponent(chatId),
-      {
-        limit: CHAT_HISTORY_PAGE_SIZE,
-        ...(typeof pageParam === "number"
-          ? { beforeSeq: pageParam }
-          : mode === "target" && targetSeq !== undefined
-            ? { targetSeq }
-            : {}),
-      },
+      params,
       { signal },
       createAuthenticatedBrowserFetch(globalThis.fetch),
     ),
   );
+};
 
 /**
  * The `beforeSeq` cursor for the page after `lastPage`, or `undefined` when
@@ -184,7 +175,7 @@ const fetchChatMessagesPage = async ({
  * already holds the chat's first message.
  */
 export function olderPageParam(
-  lastPage: { messages: { seq: number }[] },
+  lastPage: { messages: Array<{ seq: number }> },
   lastPageParam: ChatMessagesPageParam,
 ): number | undefined {
   if (lastPage.messages.length < CHAT_HISTORY_PAGE_SIZE) return undefined;
@@ -211,10 +202,10 @@ export function olderPageParam(
 export function toChatHistory(
   data: InfiniteData<ChatMessagesResponse, ChatMessagesPageParam>,
 ): ChatHistory {
-  const pages: ChatMessagesResponse["messages"][] = [];
+  const pages: Array<ChatMessagesResponse["messages"]> = [];
   for (const page of data.pages) {
-    const previousOldest = pages[pages.length - 1]?.[0]?.seq;
-    const pageNewest = page.messages[page.messages.length - 1]?.seq;
+    const previousOldest = pages.at(-1)?.[0]?.seq;
+    const pageNewest = page.messages.at(-1)?.seq;
     if (
       previousOldest !== undefined &&
       pageNewest !== undefined &&
@@ -256,20 +247,40 @@ export function chatMessagesQueryOptions(
       ? chatQueryKeys.messages(chatId)
       : chatQueryKeys.targetMessages(chatId, targetSeq);
 
+  // A `retry: undefined` key (instead of omitting it) still shadows the
+  // QueryClient's own `retry` default: TanStack merges defaults and
+  // per-query options with a plain object spread, and an explicit
+  // `undefined` value is a present key, so it wins over the default and
+  // falls through to the library's OWN retry default (3 attempts) rather
+  // than the client's. Building two separate calls below (instead of one
+  // object literal with a conditional `retry` key, or a shared variable —
+  // which would lose `infiniteQueryOptions`'s contextual parameter
+  // inference) is what actually omits the key when this isn't a draft
+  // recovery, letting the QueryClient's configured default apply.
+  if (recoverSentDraft) {
+    return infiniteQueryOptions({
+      queryKey,
+      queryFn: fetchChatMessagesPage,
+      initialPageParam: INITIAL_MESSAGES_PAGE_PARAM,
+      getNextPageParam: (lastPage, _allPages, lastPageParam) =>
+        olderPageParam(lastPage, lastPageParam),
+      select: toChatHistory,
+      // `error: Error` (not `unknown`) matches TanStack's own `DefaultError`
+      // generic — the type both branches must agree on so this function's
+      // two `infiniteQueryOptions` calls unify into one consistent return
+      // type instead of an unusable union.
+      retry: (failureCount: number, error: Error) =>
+        failureCount < SENT_DRAFT_RECOVERY_RETRY_COUNT &&
+        isChatHistoryMissing(error),
+    });
+  }
   return infiniteQueryOptions({
     queryKey,
     queryFn: fetchChatMessagesPage,
-    initialPageParam: null as ChatMessagesPageParam,
+    initialPageParam: INITIAL_MESSAGES_PAGE_PARAM,
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
       olderPageParam(lastPage, lastPageParam),
     select: toChatHistory,
-    ...(recoverSentDraft
-      ? {
-          retry: (failureCount: number, error: unknown) =>
-            failureCount < SENT_DRAFT_RECOVERY_RETRY_COUNT &&
-            isChatHistoryMissing(error),
-        }
-      : {}),
   });
 }
 
@@ -350,7 +361,7 @@ export enum ChatGroupPeriod {
 }
 
 type GroupedChats = {
-  [key in ChatGroupPeriod]?: ChatResponse[];
+  [key in ChatGroupPeriod]?: Array<ChatResponse>;
 };
 
 /**
@@ -358,10 +369,13 @@ type GroupedChats = {
  * section is a separate server query — so this function only groups by time
  * period.
  */
-export function groupChatsByTimePeriod(chats: ChatResponse[]): GroupedChats {
+export function groupChatsByTimePeriod(
+  chats: Array<ChatResponse>,
+): GroupedChats {
   const now = new Date();
   const oneWeekAgo = subWeeks(now, 1);
   const oneMonthAgo = subMonths(now, 1);
+  const initialGroups: GroupedChats = {};
 
   return chats.reduce((groups, chat) => {
     const chatDate = new Date(chat.updatedAt);
@@ -387,5 +401,5 @@ export function groupChatsByTimePeriod(chats: ChatResponse[]): GroupedChats {
     }
 
     return groups;
-  }, {} as GroupedChats);
+  }, initialGroups);
 }

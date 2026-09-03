@@ -14,7 +14,7 @@ import {
 
 export async function getFontStyleFromCookies(): Promise<FontStyle> {
   const cookieStore = await cookies();
-  const fontStyle = cookieStore.get(FONT_STYLE_COOKIE)?.value as FontStyle;
+  const fontStyle = cookieStore.get(FONT_STYLE_COOKIE)?.value;
 
   // Validate that the font style is valid
   if (
@@ -29,8 +29,7 @@ export async function getFontStyleFromCookies(): Promise<FontStyle> {
 
 export async function getMonoFontStyleFromCookies(): Promise<MonoFontStyle> {
   const cookieStore = await cookies();
-  const monoFontStyle = cookieStore.get(MONO_FONT_STYLE_COOKIE)
-    ?.value as MonoFontStyle;
+  const monoFontStyle = cookieStore.get(MONO_FONT_STYLE_COOKIE)?.value;
 
   // Validate that the mono font style is valid
   if (

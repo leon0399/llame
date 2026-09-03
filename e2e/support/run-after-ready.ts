@@ -15,7 +15,11 @@ async function waitForUrl(): Promise<void> {
     try {
       const response = await fetch(url);
       if (response.ok) return;
-    } catch {}
+    } catch {
+      // Expected while the service is still starting: a refused connection or
+      // a DNS miss is the normal pre-ready state, not a failure to report. The
+      // loop's own timeout is what turns a genuinely dead service into an error.
+    }
 
     await sleep(500);
   }
@@ -53,6 +57,7 @@ async function main(): Promise<void> {
   });
 }
 
+// oxlint-disable-next-line unicorn/prefer-top-level-await -- Root is CommonJS; tsx rejects top-level await in this entrypoint.
 main().catch((error: unknown) => {
   console.error(error);
   process.exit(1);

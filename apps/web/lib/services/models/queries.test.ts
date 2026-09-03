@@ -1,15 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
 
-const listModels = vi.hoisted(() => vi.fn());
-const authenticatedFetch = vi.hoisted(() => vi.fn());
-const createAuthenticatedBrowserFetch = vi.hoisted(() => vi.fn());
-const useQuery = vi.hoisted(() => vi.fn());
-
-vi.mock("../../api/generated/models/models", () => ({ listModels }));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch,
-}));
-vi.mock("@tanstack/react-query", () => ({ useQuery }));
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
 
 import {
   fetchModels,
@@ -19,12 +19,24 @@ import {
   useModelsQuery,
 } from "./queries";
 import type { AvailableModel } from "./queries";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
+import {
+  newTestQueryClient,
+  wrapperWithClient,
+} from "../../test-support/query-client";
 
-createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+let fetchMock: Mock<typeof fetch>;
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
 
 afterEach(() => {
-  vi.clearAllMocks();
-  createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+  vi.unstubAllGlobals();
 });
 
 const model: AvailableModel = {
@@ -48,26 +60,35 @@ describe("fetchModels", () => {
       defaultModelId: model.id,
       models: [model],
     };
-    listModels.mockResolvedValue(response);
+    fetchMock.mockResolvedValue(jsonResponse(response));
 
     await expect(fetchModels()).resolves.toEqual(response);
 
-    expect(listModels).toHaveBeenCalledWith(undefined, authenticatedFetch);
-    expect(createAuthenticatedBrowserFetch).toHaveBeenCalledWith(
-      globalThis.fetch,
-    );
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("GET");
+    expect(new URL(request.url).pathname).toBe("/api/v1/models");
+    expect(request.credentials).toBe("include");
   });
 });
 
 describe("useModelsQuery", () => {
-  it("preserves the model query key and one-minute stale time", () => {
-    useModelsQuery();
+  it("surfaces the models envelope under modelQueryKeys.all", async () => {
+    const response = { defaultModelId: model.id, models: [model] };
+    fetchMock.mockResolvedValue(jsonResponse(response));
+    const queryClient = newTestQueryClient();
 
-    expect(useQuery).toHaveBeenCalledWith({
-      queryKey: modelQueryKeys.all,
-      queryFn: fetchModels,
-      staleTime: 60_000,
+    const { result, unmount } = renderHook(() => useModelsQuery(), {
+      wrapper: wrapperWithClient(queryClient),
     });
+    await waitFor(() => expect(result.current.data).toEqual(response));
+    expect(queryClient.getQueryData(modelQueryKeys.all)).toEqual(response);
+
+    // staleTime: 60_000 — a remount within the window must not refetch.
+    unmount();
+    renderHook(() => useModelsQuery(), {
+      wrapper: wrapperWithClient(queryClient),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

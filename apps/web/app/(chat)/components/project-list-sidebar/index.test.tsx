@@ -5,51 +5,35 @@
  * pinning replaces the "Pin — coming soon" disabled placeholder) and the
  * two-server-query Pinned/All projects grouping (mirroring ChatList's
  * architecture — retires bug #204 by construction).
+ *
+ * usePinItem/useUnpinItem, useProjectsQuery, and useSetProjectArchive run for
+ * real against a stubbed globalThis.fetch routed by pathname (GET
+ * /api/v1/projects, PUT/DELETE /api/v1/pins/project/:id) — a "Pin" click is
+ * proved by the real PUT request AND the real optimistic write into the pins
+ * query cache (the synthesized {id, name, archivedAt} card), not an echoed
+ * mock-call assertion. Only next/navigation (no in-process seam) is mocked.
  */
 
 import * as React from "react";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { Mock } from "vitest";
 import { SidebarProvider } from "@workspace/ui/components/sidebar";
 
-const pinMutateMock = vi.fn();
-const unpinMutateMock = vi.fn();
-
-vi.mock("@/lib/services/pins/mutations", () => ({
-  usePinItem: () => ({ mutate: pinMutateMock, isPending: false }),
-  useUnpinItem: () => ({ mutate: unpinMutateMock, isPending: false }),
-}));
-
-type MockProjectsState = {
-  pinnedOnly: unknown[] | undefined;
-  pinnedExclude: unknown[] | undefined;
-  isLoading: boolean;
-};
-let mockProjects: MockProjectsState = {
-  pinnedOnly: undefined,
-  pinnedExclude: undefined,
-  isLoading: false,
-};
-vi.mock("@/lib/services/project/queries", () => ({
-  useProjectsQuery: (filters?: { pinned?: string }) => {
-    const isPinned = filters?.pinned === "only";
-    const data = isPinned
-      ? mockProjects.pinnedOnly
-      : mockProjects.pinnedExclude;
-    return { data, isLoading: mockProjects.isLoading };
-  },
-}));
-
-vi.mock("@/lib/services/project/mutations", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/lib/services/project/mutations")>();
-  return {
-    ...actual,
-    useSetProjectArchive: () => ({ mutate: vi.fn(), isPending: false }),
-  };
-});
+import type { ProjectResponse } from "@/lib/api/generated/models";
+import { pinQueryKeys } from "@/lib/services/pins/queries";
+import type { PinnedItem } from "@/lib/services/pins/types";
+import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/projects",
@@ -106,7 +90,7 @@ beforeAll(() => {
   }
 });
 
-function project(overrides: Partial<Record<string, unknown>> = {}) {
+function project(overrides: Partial<ProjectResponse> = {}): ProjectResponse {
   return {
     id: "p1",
     ownerUserId: "u1",
@@ -118,74 +102,132 @@ function project(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-function renderSidebar() {
-  const queryClient = new QueryClient();
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <SidebarProvider>
-        <ProjectListSidebar />
-      </SidebarProvider>
-    </QueryClientProvider>,
-  );
+let fetchMock: Mock<typeof fetch>;
+// Per-test-overridable buckets for the sidebar's two server-driven project
+// queries (?pinned=only vs ?pinned=exclude).
+let pinnedOnlyProjects: Array<ProjectResponse>;
+let pinnedExcludeProjects: Array<ProjectResponse>;
+
+function stubProjectsNetwork() {
+  fetchMock = stubFetch();
+  pinnedOnlyProjects = [];
+  pinnedExcludeProjects = [];
+  fetchMock.mockImplementation(async (input) => {
+    const request = input instanceof Request ? input : new Request(input);
+    const { pathname, searchParams } = new URL(request.url);
+    if (pathname === "/api/v1/projects") {
+      return jsonResponse<Array<ProjectResponse>>(
+        searchParams.get("pinned") === "only"
+          ? pinnedOnlyProjects
+          : pinnedExcludeProjects,
+      );
+    }
+    const pinMatch = /^\/api\/v1\/pins\/project\/(.+)$/.exec(pathname);
+    if (pinMatch && request.method === "PUT") {
+      const itemId = pinMatch[1]!;
+      return jsonResponse({
+        itemType: "project",
+        itemId,
+        pinnedAt: "2026-01-01T00:00:00.000Z",
+        item: { id: itemId, name: "Acme", archivedAt: null },
+      });
+    }
+    if (pinMatch && request.method === "DELETE") {
+      return new Response(null, { status: 204 });
+    }
+    throw new Error(`unrouted fetch in test: ${request.method} ${pathname}`);
+  });
 }
 
-afterEach(() => {
-  pinMutateMock.mockReset();
-  unpinMutateMock.mockReset();
-  mockProjects = {
-    pinnedOnly: undefined,
-    pinnedExclude: undefined,
-    isLoading: false,
+/** Wait for and return the first stubbed-fetch Request sent with `method` —
+ * distinguishes the pin/unpin mutation from the two list GETs already in
+ * flight from mount. */
+async function findRequestByMethod(
+  mock: Mock<typeof fetch>,
+  method: string,
+): Promise<Request> {
+  await waitFor(() =>
+    expect(
+      mock.mock.calls.some(
+        ([req]) => req instanceof Request && req.method === method,
+      ),
+    ).toBe(true),
+  );
+  return mock.mock.calls
+    .map(([req]) => req)
+    .find(
+      (req): req is Request => req instanceof Request && req.method === method,
+    )!;
+}
+
+function renderSidebar() {
+  const queryClient = new QueryClient();
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <SidebarProvider>
+          <ProjectListSidebar />
+        </SidebarProvider>
+      </QueryClientProvider>,
+    ),
   };
+}
+
+beforeEach(() => {
+  stubProjectsNetwork();
+});
+
+afterEach(() => {
+  // NOT vi.unstubAllGlobals() — beforeAll's ResizeObserver/pointer-capture
+  // stubs must survive across tests; beforeEach's stubFetch() already
+  // replaces fetch fresh each test.
   cleanup();
 });
 
 describe("ProjectListSidebar — pin toggle (unified /api/v1/pins resource)", () => {
   it("unpinned project: clicking Pin pins it with a synthesized {id, name} card", async () => {
-    mockProjects = {
-      pinnedOnly: [],
-      pinnedExclude: [project({ id: "p1", name: "Acme" })],
-      isLoading: false,
-    };
+    pinnedExcludeProjects = [project({ id: "p1", name: "Acme" })];
     const user = userEvent.setup();
-    renderSidebar();
+    const { queryClient } = renderSidebar();
 
     await user.click(await screen.findByRole("button", { name: "Pin" }));
 
-    expect(pinMutateMock).toHaveBeenCalledWith({
-      itemType: "project",
-      itemId: "p1",
-      card: { id: "p1", name: "Acme", archivedAt: null },
-    });
-    expect(unpinMutateMock).not.toHaveBeenCalled();
+    // The optimistic write real usePinItem's onMutate makes into the pins
+    // cache, synthesizing the card from the row the owner clicked on.
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<Array<PinnedItem>>(pinQueryKeys.list()),
+      ).toMatchObject([
+        {
+          itemType: "project",
+          itemId: "p1",
+          item: { id: "p1", name: "Acme", archivedAt: null },
+        },
+      ]),
+    );
+    // The two GET /api/v1/projects list requests from mount are already in
+    // flight — find the pin PUT specifically, by method.
+    const pinRequest = await findRequestByMethod(fetchMock, "PUT");
+    expect(new URL(pinRequest.url).pathname).toBe("/api/v1/pins/project/p1");
   });
 
   it("pinned project: clicking Unpin unpins it", async () => {
-    mockProjects = {
-      pinnedOnly: [project({ id: "p1", name: "Acme" })],
-      pinnedExclude: [],
-      isLoading: false,
-    };
+    pinnedOnlyProjects = [project({ id: "p1", name: "Acme" })];
     const user = userEvent.setup();
     renderSidebar();
 
     await user.click(await screen.findByRole("button", { name: "Unpin" }));
 
-    expect(unpinMutateMock).toHaveBeenCalledWith({
-      itemType: "project",
-      itemId: "p1",
-    });
-    expect(pinMutateMock).not.toHaveBeenCalled();
+    const unpinRequest = await findRequestByMethod(fetchMock, "DELETE");
+    expect(new URL(unpinRequest.url).pathname).toBe("/api/v1/pins/project/p1");
   });
 });
 
 describe("ProjectListSidebar — Pinned / All projects grouping (two-server-query)", () => {
   it("splits into a Pinned group and an All projects group with separate server queries", async () => {
-    mockProjects = {
-      pinnedOnly: [project({ id: "p1", name: "Pinned project" })],
-      pinnedExclude: [project({ id: "p2", name: "Plain project" })],
-      isLoading: false,
-    };
+    pinnedOnlyProjects = [project({ id: "p1", name: "Pinned project" })];
+    pinnedExcludeProjects = [project({ id: "p2", name: "Plain project" })];
 
     renderSidebar();
 
@@ -196,11 +238,7 @@ describe("ProjectListSidebar — Pinned / All projects grouping (two-server-quer
   });
 
   it("shows no Pinned group and no 'All projects' label when nothing is pinned", async () => {
-    mockProjects = {
-      pinnedOnly: [],
-      pinnedExclude: [project({ id: "p1", name: "Plain project" })],
-      isLoading: false,
-    };
+    pinnedExcludeProjects = [project({ id: "p1", name: "Plain project" })];
 
     renderSidebar();
 

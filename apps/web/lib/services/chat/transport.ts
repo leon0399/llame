@@ -28,9 +28,7 @@ export function buildChatStreamUrl(chatId: string): string {
  * api's stream-resume endpoint, which replays the chat's active run as a
  * UI-message stream (or 204 → the SDK resolves null and the chat stays idle).
  */
-export function prepareReconnectToStreamRequest({ id }: { id: string }): {
-  api: string;
-} {
+export function prepareReconnectToStreamRequest({ id }: { id: string }) {
   return { api: buildChatStreamUrl(id) };
 }
 
@@ -38,13 +36,7 @@ export function prepareSendMessagesRequest({
   messages,
   modelId,
   effort,
-}: PrepareSendMessagesOptions): {
-  body: {
-    modelId: string;
-    effort?: string;
-    message: { id: string; parts: UIMessage["parts"] };
-  };
-} {
+}: PrepareSendMessagesOptions) {
   const lastMessage = messages.at(-1);
   if (!lastMessage) {
     throw new Error("Cannot send an empty chat request");

@@ -1,15 +1,12 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-const listPinsEndpoint = vi.hoisted(() => vi.fn());
-const authenticatedFetch = vi.hoisted(() => vi.fn());
-const createAuthenticatedBrowserFetch = vi.hoisted(() => vi.fn());
-
-vi.mock("../../api/generated/pins/pins", () => ({
-  listPins: listPinsEndpoint,
-}));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch,
-}));
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 
 import {
   fetchPins,
@@ -17,28 +14,33 @@ import {
   selectPinnedChatMap,
   selectPinnedProjectMap,
 } from "./queries";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
 import type { PinnedItem } from "./types";
 
-createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+let fetchMock: Mock<typeof fetch>;
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
 
 afterEach(() => {
-  vi.clearAllMocks();
-  createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+  vi.unstubAllGlobals();
 });
 
 describe("fetchPins", () => {
   it("lists pins through the generated authenticated endpoint", async () => {
-    listPinsEndpoint.mockResolvedValue([]);
+    fetchMock.mockResolvedValue(jsonResponse([]));
 
     await expect(fetchPins()).resolves.toEqual([]);
 
-    expect(listPinsEndpoint).toHaveBeenCalledWith(
-      undefined,
-      authenticatedFetch,
-    );
-    expect(createAuthenticatedBrowserFetch).toHaveBeenCalledWith(
-      globalThis.fetch,
-    );
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("GET");
+    expect(new URL(request.url).pathname).toBe("/api/v1/pins");
+    expect(request.credentials).toBe("include");
   });
 });
 
@@ -49,7 +51,7 @@ describe("pin query keys and selectors", () => {
   });
 
   it("narrows generated pin unions by item type", () => {
-    const pins: PinnedItem[] = [
+    const pins: Array<PinnedItem> = [
       {
         itemType: "chat",
         itemId: "c1",

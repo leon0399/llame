@@ -13,25 +13,22 @@ import type {
 } from "@/lib/services/org-units/types";
 
 /** Icon + label per unit type — matches the design's TYPE map exactly (Admin.dc.html). */
-export const ORG_UNIT_TYPE_META: Record<
-  OrgUnitType,
-  { icon: LucideIcon; label: string }
-> = {
+export const ORG_UNIT_TYPE_META = {
   organization: { icon: Building2Icon, label: "Organization" },
   group: { icon: UsersIcon, label: "Group" },
   team: { icon: UsersRoundIcon, label: "Team" },
   department: { icon: NetworkIcon, label: "Department" },
-};
+} satisfies Record<OrgUnitType, { icon: LucideIcon; label: string }>;
 
 /** Legend order, and the create-child dialog's type segment (root type is
  * fixed to `organization` — only these three are ever a child's type). */
-export const ORG_UNIT_TYPE_ORDER: OrgUnitType[] = [
+export const ORG_UNIT_TYPE_ORDER: Array<OrgUnitType> = [
   "organization",
   "group",
   "team",
   "department",
 ];
-export const CHILD_ORG_UNIT_TYPES: OrgUnitType[] = [
+export const CHILD_ORG_UNIT_TYPES: Array<OrgUnitType> = [
   "group",
   "team",
   "department",
@@ -39,7 +36,7 @@ export const CHILD_ORG_UNIT_TYPES: OrgUnitType[] = [
 
 /** Full 7-role vocabulary display label (D2 — the design mock omits
  * `service_account`, this doesn't). */
-export const ROLE_LABEL: Record<OrgRole, string> = {
+export const ROLE_LABEL = {
   owner: "owner",
   admin: "admin",
   maintainer: "maintainer",
@@ -47,14 +44,14 @@ export const ROLE_LABEL: Record<OrgRole, string> = {
   viewer: "viewer",
   guest: "guest",
   service_account: "service account",
-};
+} satisfies Record<OrgRole, string>;
 
 export type GuideKind = "bar" | "blank" | "elbow" | "tee";
 
 export type TreeRow = {
   unit: OrgUnitResponse;
   depth: number;
-  guides: GuideKind[];
+  guides: Array<GuideKind>;
   hasChildren: boolean;
   open: boolean;
   isRoot: boolean;
@@ -83,10 +80,10 @@ function effectiveParentId(
 }
 
 function childrenOf(
-  units: OrgUnitResponse[],
+  units: Array<OrgUnitResponse>,
   visibleIds: Set<string>,
   parentId: string | null,
-): OrgUnitResponse[] {
+): Array<OrgUnitResponse> {
   // The API already returns units in parent-before-child path order (D5),
   // so filtering preserves correct sibling order without re-sorting.
   return units.filter((u) => effectiveParentId(u, visibleIds) === parentId);
@@ -100,33 +97,47 @@ function childrenOf(
  * that ancestor still had siblings after it, and the immediate-parent
  * column resolves to `elbow` (last child) or `tee` (more siblings follow).
  */
-export function buildRows(
-  units: OrgUnitResponse[],
-  collapsed: Record<string, boolean>,
-): TreeRow[] {
-  const visibleIds = new Set(units.map((u) => u.id));
-  const rows: TreeRow[] = [];
+/**
+ * The guide glyph for each ancestor level of one row: a bar or blank for the
+ * levels above, and the elbow or tee that joins this row to its parent.
+ */
+function guideKinds(
+  ancestorContinues: Array<boolean>,
+  isLast: boolean,
+): Array<GuideKind> {
+  const depth = ancestorContinues.length;
+  return ancestorContinues.map((continues, level) =>
+    level < depth - 1
+      ? continues
+        ? "bar"
+        : "blank"
+      : isLast
+        ? "elbow"
+        : "tee",
+  );
+}
 
-  const walk = (nodes: OrgUnitResponse[], ancestorContinues: boolean[]) => {
+export function buildRows(
+  units: Array<OrgUnitResponse>,
+  collapsed: Record<string, boolean>,
+): Array<TreeRow> {
+  const visibleIds = new Set(units.map((u) => u.id));
+  const rows: Array<TreeRow> = [];
+
+  const walk = (
+    nodes: Array<OrgUnitResponse>,
+    ancestorContinues: Array<boolean>,
+  ) => {
     nodes.forEach((unit, i) => {
       const isLast = i === nodes.length - 1;
       const depth = ancestorContinues.length;
       const kids = childrenOf(units, visibleIds, unit.id);
       const hasChildren = kids.length > 0;
       const open = !collapsed[unit.id];
-      const guides: GuideKind[] = ancestorContinues.map((continues, level) =>
-        level < depth - 1
-          ? continues
-            ? "bar"
-            : "blank"
-          : isLast
-            ? "elbow"
-            : "tee",
-      );
       rows.push({
         unit,
         depth,
-        guides,
+        guides: guideKinds(ancestorContinues, isLast),
         hasChildren,
         open,
         isRoot: depth === 0,
@@ -142,7 +153,9 @@ export function buildRows(
 }
 
 /** Every unit with at least one visible child — drives the expand/collapse-all toggle. */
-export function collapsibleUnitIds(units: OrgUnitResponse[]): string[] {
+export function collapsibleUnitIds(
+  units: Array<OrgUnitResponse>,
+): Array<string> {
   const visibleIds = new Set(units.map((u) => u.id));
   return units
     .filter((u) => childrenOf(units, visibleIds, u.id).length > 0)
@@ -159,8 +172,8 @@ export function collapsibleUnitIds(units: OrgUnitResponse[]): string[] {
 export function visibleAncestorChain(
   unit: OrgUnitResponse,
   unitsById: Map<string, OrgUnitResponse>,
-): OrgUnitResponse[] {
-  const chain: OrgUnitResponse[] = [];
+): Array<OrgUnitResponse> {
+  const chain: Array<OrgUnitResponse> = [];
   const visited = new Set<string>();
   let current: OrgUnitResponse | undefined = unit;
   while (current && !visited.has(current.id)) {
@@ -214,9 +227,9 @@ export function effectiveRoleFor(
  */
 export function descendantIdsOf(
   unitId: string,
-  units: OrgUnitResponse[],
+  units: Array<OrgUnitResponse>,
 ): Set<string> {
-  const childrenByParent = new Map<string, OrgUnitResponse[]>();
+  const childrenByParent = new Map<string, Array<OrgUnitResponse>>();
   for (const u of units) {
     if (!u.parentId) continue;
     const list = childrenByParent.get(u.parentId) ?? [];

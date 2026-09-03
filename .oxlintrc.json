@@ -1,19 +1,263 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+
+  // Repository policy. Workspace configs add only local environments,
+  // generated-file ignores, type-aware mode, and reviewed exceptions.
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "vitest",
+    "react",
+    "nextjs",
+    "jsx-a11y"
+  ],
   "categories": {
-    "correctness": "off"
+    "correctness": "error"
   },
+  // Specifiers resolve relative to this file, including through `extends`.
   "jsPlugins": [
     {
       "name": "anti-slop",
-      "specifier": "./tools/oxlint/anti-slop/index.ts"
+      "specifier": "./packages/oxlint-plugin-anti-slop/index.ts"
+    },
+    {
+      "name": "sonarjs",
+      "specifier": "eslint-plugin-sonarjs"
     }
   ],
+
   "rules": {
+    // Repository boundaries and security.
+    "anti-slop/forbid-process-env-outside-env-ts": [
+      "error",
+      {
+        "allowedFiles": [
+          "apps/api/src/app.setup.ts",
+          "apps/api/src/chats/turn-telemetry.ts",
+          "apps/api/src/core-infra.module.ts",
+          "apps/api/src/db/db.ts",
+          "apps/api/src/db/migrate.ts",
+          "apps/api/src/generate-openapi.ts",
+          "apps/api/src/instance-config/config-loader.ts",
+          "apps/api/src/instance-config/worker-profile.service.ts",
+          "apps/api/src/main.ts",
+          "apps/api/src/mcp/mcp-stdio-test-fixture.mjs",
+          "apps/api/src/queue/queue.module.ts",
+          "apps/api/src/runs/worker-harness.ts",
+          "apps/api/src/search/operations/cli.ts",
+          "apps/api/src/worker.ts",
+          "apps/api/vitest.integration.global-setup.mts",
+          "apps/api/vitest.integration.setup.ts",
+          "apps/web/components/sidebar-row-title.tsx",
+          "apps/web/instrumentation.ts",
+          "apps/web/lib/api/fetch.ts",
+          "e2e/support/auth-helpers.ts",
+          "e2e/support/db-server.ts",
+          "e2e/support/fixtures.ts",
+          "e2e/support/mcp-server.ts",
+          "e2e/support/mcp-stdio-server.mjs",
+          "e2e/support/model-server.ts",
+          "e2e/support/run-after-ready.ts",
+          "e2e/support/seed-sql.ts",
+          "packages/config-interpolation/src/interpolation.ts",
+          "playwright.config.ts"
+        ]
+      }
+    ],
+    "anti-slop/no-unsafe-inner-html": "error",
+    "anti-slop/require-timestamptz-column": "error",
+
+    // Type evidence and trust-boundary discipline.
     "anti-slop/no-chained-type-assertions": "error",
+    "anti-slop/no-conditional-empty-object-spread": "error",
+    "anti-slop/no-known-value-widening": "error",
+    "anti-slop/no-module-mocking": "error",
     "anti-slop/no-object-parameters": "error",
+    "anti-slop/no-reflect-apply": "error",
+    "anti-slop/no-reflect-get": "error",
+    "anti-slop/no-runtime-typeof": ["error", { "allowInTypeGuards": true }],
     "anti-slop/no-shape-in-symbol-names": "error",
+    "anti-slop/no-unknown-parameters": [
+      "error",
+      { "allowWhenImmediatelyValidated": true, "allowErrorFamilyNames": true }
+    ],
+    "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unknown-type-aliases": "error",
-    "anti-slop/no-widen-then-assert": "error"
-  }
+    "anti-slop/no-unsafe-dictionary-type": "error",
+    "anti-slop/no-vacuous-throw-assertion": "error",
+    "anti-slop/no-widen-then-assert": "error",
+    "anti-slop/parameter-decorator-own-line": "error",
+    "anti-slop/require-safety-comment-for-type-assertion": "error",
+    "typescript/array-type": ["error", { "default": "generic" }],
+    "typescript/no-array-delete": "error",
+    "typescript/no-base-to-string": "error",
+    "typescript/no-duplicate-enum-values": "error",
+    "typescript/no-duplicate-type-constituents": "error",
+    // Allows declaration merging onto lib.dom globals without allowing `{}`.
+    "typescript/no-empty-object-type": [
+      "error",
+      { "allowInterfaces": "with-single-extends" }
+    ],
+    "typescript/no-explicit-any": "error",
+    "typescript/no-for-in-array": "error",
+    "typescript/no-redundant-type-constituents": "error",
+    "typescript/no-require-imports": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-enum-comparison": "error",
+    "typescript/no-unsafe-function-type": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-return": "error",
+    "typescript/no-unsafe-type-assertion": "error",
+    "typescript/no-unsafe-unary-minus": "error",
+    "typescript/no-wrapper-object-types": "error",
+    "typescript/prefer-as-const": "error",
+
+    // Async, promises, and error handling. Type-aware rules no-op unless a
+    // workspace enables `options.typeAware`.
+    "no-throw-literal": "error",
+    "preserve-caught-error": "error",
+    "typescript/await-thenable": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-implied-eval": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/only-throw-error": "error",
+    "typescript/prefer-promise-reject-errors": "error",
+    "typescript/require-await": "error",
+    "typescript/unbound-method": "error",
+    "typescript/use-unknown-in-catch-callback-variable": "error",
+    "unicorn/catch-error-name": "error",
+    "unicorn/no-useless-promise-resolve-reject": "error",
+
+    // Expressions, collections, and platform APIs.
+    "no-regex-spaces": "error",
+    "object-shorthand": "error",
+    "prefer-arrow-callback": ["error", { "allowNamedFunctions": true }],
+    "prefer-const": ["error", { "ignoreReadBeforeAssign": true }],
+    "prefer-object-has-own": "error",
+    "typescript/restrict-plus-operands": "error",
+    "typescript/restrict-template-expressions": "error",
+    "unicorn/consistent-empty-array-spread": "error",
+    "unicorn/no-typeof-undefined": "error",
+    "unicorn/no-useless-spread": "error",
+    "unicorn/numeric-separators-style": "error",
+    "unicorn/prefer-at": "error",
+    "unicorn/prefer-dom-node-append": "error",
+    "unicorn/prefer-import-meta-properties": "error",
+    "unicorn/prefer-number-properties": "error",
+    "unicorn/prefer-single-call": "error",
+    "unicorn/prefer-string-raw": "error",
+    "unicorn/prefer-string-replace-all": "error",
+    "unicorn/prefer-string-slice": "error",
+    "unicorn/prefer-top-level-await": "error",
+
+    // React.
+    "react/button-has-type": "error",
+    "react/exhaustive-deps": "error",
+    "react/rules-of-hooks": "error",
+
+    // Tests. Focused tests are forbidden; the other rules conflict with
+    // table-driven and framework-managed assertions.
+    "vitest/expect-expect": "off",
+    "vitest/no-conditional-expect": "off",
+    "vitest/no-focused-tests": "error",
+    "vitest/no-standalone-expect": "off",
+    "vitest/require-mock-type-parameters": "off",
+    "vitest/require-to-throw-message": "off",
+
+    // Complexity and size limits.
+    "complexity": ["error", { "max": 25, "variant": "modified" }],
+    "max-depth": ["error", { "max": 3 }],
+    "max-lines": [
+      "error",
+      { "max": 500, "skipBlankLines": true, "skipComments": true }
+    ],
+    "max-lines-per-function": [
+      "error",
+      { "max": 40, "skipBlankLines": true, "skipComments": true }
+    ],
+    "max-nested-callbacks": ["error", { "max": 3 }],
+    "max-params": ["error", { "max": 4 }],
+    "sonarjs/cognitive-complexity": ["error", 25],
+
+    // Unfinished work and debugging residue.
+    "anti-slop/no-untracked-todo": "error",
+    "no-console": ["error", { "allow": ["error", "warn"] }],
+    "no-warning-comments": ["error", { "terms": ["@nocommit"] }],
+    "unicorn/consistent-function-scoping": "error"
+  },
+
+  "overrides": [
+    {
+      // Vendored rules must parse and load; repository style does not apply.
+      "files": ["packages/oxlint-plugin-anti-slop/vendor/**"],
+      "rules": {
+        "anti-slop/no-chained-type-assertions": "off",
+        "anti-slop/no-object-parameters": "off",
+        "anti-slop/no-runtime-typeof": "off",
+        "anti-slop/no-unknown-parameters": "off",
+        "anti-slop/no-unknown-returns": "off",
+        "anti-slop/no-unsafe-dictionary-type": "off",
+        "anti-slop/require-safety-comment-for-type-assertion": "off",
+        "max-lines": "off",
+        "max-lines-per-function": "off",
+        "typescript/no-explicit-any": "off"
+      }
+    },
+    {
+      // Tests favor readable scenarios over production size limits.
+      "files": [
+        "**/*.spec.ts",
+        "**/*.stories.tsx",
+        "**/*.test-fixture.ts",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "e2e/support/**"
+      ],
+      "rules": {
+        "max-lines": "off",
+        "max-lines-per-function": "off",
+        "max-nested-callbacks": "off",
+        "max-statements": "off",
+        "no-console": "off",
+        "unicorn/consistent-function-scoping": "off"
+      }
+    },
+    {
+      // Console output is the interface for commands, setup, and evaluation.
+      "files": [
+        "**/*.config.mts",
+        "**/*.config.ts",
+        "**/*.global-setup.mts",
+        "**/*.setup.ts",
+        "**/db/migrate.ts",
+        "**/e2e/support/**",
+        "**/eval/**",
+        "**/evals/**",
+        "**/generate-openapi.ts",
+        "**/operations/cli-commands.ts",
+        "**/operations/cli.ts"
+      ],
+      "rules": {
+        "no-console": "off"
+      }
+    },
+    {
+      // These API entrypoints compile as CommonJS. Remove this if API moves
+      // to ESM.
+      "files": [
+        "**/db/migrate.ts",
+        "**/generate-openapi.ts",
+        "**/operations/cli.ts",
+        "**/src/main.ts",
+        "**/src/worker.ts"
+      ],
+      "rules": {
+        "unicorn/prefer-top-level-await": "off"
+      }
+    }
+  ]
 }

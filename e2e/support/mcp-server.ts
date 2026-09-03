@@ -33,8 +33,39 @@ type JsonRpcRequest = {
   params?: unknown;
 };
 
+type JsonRpcResult = {
+  jsonrpc: "2.0";
+  id: unknown;
+  result: unknown;
+};
+
+type JsonRpcError = {
+  jsonrpc: "2.0";
+  id: unknown;
+  error: { code: number; message: string };
+};
+
+type JsonRpcResponse = JsonRpcResult | JsonRpcError;
+
+type StatsResponse = {
+  toolCalls: number;
+  sessionBoundRequests: number;
+};
+
+type ToolCallParams = {
+  name?: unknown;
+};
+
+function isJsonRpcRequest(value: unknown): value is JsonRpcRequest {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isToolCallParams(value: unknown): value is ToolCallParams {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 async function readJson(request: IncomingMessage): Promise<JsonRpcRequest> {
-  const chunks: Uint8Array[] = [];
+  const chunks: Array<Uint8Array> = [];
   for await (const chunk of request) {
     if (!(chunk instanceof Uint8Array)) {
       throw new TypeError("request body is not binary");
@@ -42,15 +73,15 @@ async function readJson(request: IncomingMessage): Promise<JsonRpcRequest> {
     chunks.push(chunk);
   }
   const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+  if (!isJsonRpcRequest(parsed)) {
     throw new TypeError("request body is not a JSON-RPC object");
   }
-  return parsed as JsonRpcRequest;
+  return parsed;
 }
 
 function sendJson(
   response: ServerResponse,
-  body: unknown,
+  body: JsonRpcResponse | StatsResponse,
   headers: OutgoingHttpHeaders = {},
 ): void {
   response.writeHead(200, {
@@ -62,17 +93,10 @@ function sendJson(
 
 function sendResult(
   response: ServerResponse,
-  id: unknown,
-  result: unknown,
+  message: JsonRpcResult,
   headers?: OutgoingHttpHeaders,
 ): void {
-  sendJson(response, { jsonrpc: "2.0", id, result }, headers);
-}
-
-function callParams(params: unknown): Record<string, unknown> | null {
-  return params !== null && typeof params === "object" && !Array.isArray(params)
-    ? (params as Record<string, unknown>)
-    : null;
+  sendJson(response, message, headers);
 }
 
 async function handleMcpRequest(
@@ -90,11 +114,14 @@ async function handleMcpRequest(
   if (rpc.method === "initialize") {
     sendResult(
       response,
-      rpc.id,
       {
-        protocolVersion: "2025-11-25",
-        capabilities: { tools: {} },
-        serverInfo: { name: "llame-e2e-fixture", version: "1.0.0" },
+        jsonrpc: "2.0",
+        id: rpc.id,
+        result: {
+          protocolVersion: "2025-11-25",
+          capabilities: { tools: {} },
+          serverInfo: { name: "llame-e2e-fixture", version: "1.0.0" },
+        },
       },
       { "mcp-session-id": SESSION_ID },
     );
@@ -113,26 +140,29 @@ async function handleMcpRequest(
   }
 
   if (rpc.method === "tools/list") {
-    sendResult(response, rpc.id, {
-      tools: [
-        {
-          name: TOOL_NAME,
-          description: "Search the deterministic current fixture evidence.",
-          inputSchema: {
-            type: "object",
-            properties: { query: { type: "string" } },
-            required: ["query"],
-            additionalProperties: false,
+    sendResult(response, {
+      jsonrpc: "2.0",
+      id: rpc.id,
+      result: {
+        tools: [
+          {
+            name: TOOL_NAME,
+            description: "Search the deterministic current fixture evidence.",
+            inputSchema: {
+              type: "object",
+              properties: { query: { type: "string" } },
+              required: ["query"],
+              additionalProperties: false,
+            },
           },
-        },
-      ],
+        ],
+      },
     });
     return;
   }
 
   if (rpc.method === "tools/call") {
-    const params = callParams(rpc.params);
-    if (params?.["name"] !== TOOL_NAME) {
+    if (!isToolCallParams(rpc.params) || rpc.params.name !== TOOL_NAME) {
       sendJson(response, {
         jsonrpc: "2.0",
         id: rpc.id,
@@ -142,8 +172,12 @@ async function handleMcpRequest(
     }
 
     toolCalls += 1;
-    sendResult(response, rpc.id, {
-      content: [{ type: "text", text: FIXTURE_RESULT }],
+    sendResult(response, {
+      jsonrpc: "2.0",
+      id: rpc.id,
+      result: {
+        content: [{ type: "text", text: FIXTURE_RESULT }],
+      },
     });
     return;
   }

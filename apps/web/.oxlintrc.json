@@ -1,36 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": [
-    "typescript",
-    "unicorn",
-    "oxc",
-    "react",
-    "nextjs",
-    "jsx-a11y",
-    "vitest"
-  ],
-  "jsPlugins": [
-    {
-      "name": "anti-slop",
-      "specifier": "../../tools/oxlint/anti-slop/index.ts"
-    }
-  ],
-  "env": {
-    "browser": true,
-    "node": true
-  },
-  "ignorePatterns": [".next/**", "next-env.d.ts"],
-  "rules": {
-    "anti-slop/no-chained-type-assertions": "error",
-    "anti-slop/no-object-parameters": "error",
-    "anti-slop/no-shape-in-symbol-names": "error",
-    "anti-slop/no-unknown-type-aliases": "error",
-    "anti-slop/no-widen-then-assert": "error",
-    "complexity": ["error", { "max": 35, "variant": "modified" }],
-    "react/rules-of-hooks": "error",
-    "react/exhaustive-deps": "warn",
-    // Requires a type parameter on every `vi.fn()` — noisy against our test
-    // style, which relies on inference/assertion at the call site instead.
-    "vitest/require-mock-type-parameters": "off"
-  }
+  "extends": ["../../.oxlintrc.json"],
+  "env": { "browser": true, "node": true },
+  // Orval output is fixed at its OpenAPI or generator source.
+  "ignorePatterns": [".next/**", "next-env.d.ts", "lib/api/generated/**"]
 }

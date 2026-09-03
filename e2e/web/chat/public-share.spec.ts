@@ -40,10 +40,7 @@ test("an anonymous visitor can open a public shared chat", async ({
   ).toBe(true);
 
   const anonymousContext = await browser.newContext({
-    baseURL:
-      typeof test.info().project.use.baseURL === "string"
-        ? test.info().project.use.baseURL
-        : undefined,
+    baseURL: test.info().project.use.baseURL,
     storageState: { cookies: [], origins: [] },
   });
   try {

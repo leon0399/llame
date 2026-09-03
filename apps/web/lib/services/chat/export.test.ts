@@ -1,27 +1,22 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-const { getChatMessages, fetchModels } = vi.hoisted(() => ({
-  getChatMessages: vi.fn(),
-  fetchModels: vi.fn(),
-}));
-
-vi.mock("../../api/generated/chats/chats", () => ({
-  getChatMessages,
-}));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch: () => vi.fn(),
-}));
-vi.mock("../models/queries", () => ({
-  fetchModels,
-  modelDisplayName: (
-    modelId: string,
-    models?: readonly { id: string; name?: string }[],
-  ) => models?.find((model) => model.id === modelId)?.name ?? modelId,
-}));
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 
 import { exportChatAsMarkdown } from "./export";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+  type JsonValue,
+} from "../../test-support/fetch-stub";
 
 // jsdom doesn't implement the Blob URL APIs at all — save whatever (if
 // anything) was there before stubbing, so afterEach can restore the exact
@@ -29,35 +24,62 @@ import { exportChatAsMarkdown } from "./export";
 const originalCreateObjectURL = URL.createObjectURL;
 const originalRevokeObjectURL = URL.revokeObjectURL;
 
+let fetchMock: Mock<typeof fetch>;
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
+
 afterEach(() => {
-  getChatMessages.mockReset();
-  fetchModels.mockReset();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
   URL.createObjectURL = originalCreateObjectURL;
   URL.revokeObjectURL = originalRevokeObjectURL;
   vi.restoreAllMocks();
 });
 
+/** Route the stubbed fetch by real path: /chats/:id/messages vs. /models. */
+function routeFetch(
+  messagesResponse: JsonValue,
+  modelsStatus: { ok: true; body: JsonValue } | { ok: false },
+) {
+  fetchMock.mockImplementation(async (input) => {
+    const request = input instanceof Request ? input : new Request(input);
+    const { pathname } = new URL(request.url);
+    if (pathname === "/api/v1/models") {
+      return modelsStatus.ok
+        ? jsonResponse(modelsStatus.body)
+        : jsonResponse({ message: "models unavailable" }, 503);
+    }
+    if (pathname.endsWith("/messages")) {
+      return jsonResponse(messagesResponse);
+    }
+    throw new Error(`unexpected fetch to ${pathname}`);
+  });
+}
+
 describe("exportChatAsMarkdown", () => {
   it("downloads the full history as a Markdown file, deferring the object-URL revoke", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout"] });
-    getChatMessages.mockResolvedValue({
-      messages: [
-        {
-          id: "m1",
-          chatId: "c1",
-          seq: 1,
-          role: "user",
-          senderUserId: "u1",
-          parts: [{ type: "text", text: "Hi" }],
-          attachments: [],
-          usage: null,
-          inReplyTo: null,
-          createdAt: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-    });
-    fetchModels.mockRejectedValue(new Error("models unavailable"));
+    routeFetch(
+      {
+        messages: [
+          {
+            id: "m1",
+            chatId: "c1",
+            seq: 1,
+            role: "user",
+            senderUserId: "u1",
+            parts: [{ type: "text", text: "Hi" }],
+            attachments: [],
+            usage: null,
+            inReplyTo: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+      { ok: false },
+    );
 
     const createObjectURL = vi.fn(() => "blob:fake-url");
     const revokeObjectURL = vi.fn();
@@ -82,33 +104,38 @@ describe("exportChatAsMarkdown", () => {
 
   it("resolves assistant model names from /models when exporting", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout"] });
-    getChatMessages.mockResolvedValue({
-      messages: [
-        {
-          id: "m1",
-          chatId: "c1",
-          seq: 1,
-          role: "assistant",
-          senderUserId: null,
-          parts: [{ type: "text", text: "Hi" }],
-          attachments: [],
-          usage: { modelId: "system:openai:gpt-4o" },
-          inReplyTo: null,
-          createdAt: "2026-01-01T00:00:00.000Z",
+    routeFetch(
+      {
+        messages: [
+          {
+            id: "m1",
+            chatId: "c1",
+            seq: 1,
+            role: "assistant",
+            senderUserId: null,
+            parts: [{ type: "text", text: "Hi" }],
+            attachments: [],
+            usage: { modelId: "system:openai:gpt-4o" },
+            inReplyTo: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+      {
+        ok: true,
+        body: {
+          defaultModelId: "system:openai:gpt-4o",
+          models: [
+            {
+              id: "system:openai:gpt-4o",
+              source: "system",
+              name: "GPT-4o",
+              contextWindowTokens: 128_000,
+            },
+          ],
         },
-      ],
-    });
-    fetchModels.mockResolvedValue({
-      defaultModelId: "system:openai:gpt-4o",
-      models: [
-        {
-          id: "system:openai:gpt-4o",
-          source: "system",
-          name: "GPT-4o",
-          contextWindowTokens: 128_000,
-        },
-      ],
-    });
+      },
+    );
     let exportedBlob: Blob | undefined;
     URL.createObjectURL = vi.fn((blob: Blob) => {
       exportedBlob = blob;
@@ -121,8 +148,11 @@ describe("exportChatAsMarkdown", () => {
 
     await exportChatAsMarkdown("chat-1", "My Chat");
 
-    expect(fetchModels).toHaveBeenCalledOnce();
     expect(clickSpy).toHaveBeenCalledTimes(1);
+    const requestedPaths = fetchMock.mock.calls.map(
+      (_, index) => new URL(requestFromCall(fetchMock, index).url).pathname,
+    );
+    expect(requestedPaths).toContain("/api/v1/models");
     await expect(exportedBlob?.text()).resolves.toContain(
       "**Assistant** · GPT-4o",
     );

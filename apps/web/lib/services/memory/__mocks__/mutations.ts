@@ -6,8 +6,9 @@ export const updateMemoryMutate =
   fn<(input: UpdateMemoryDto) => void>().mockName("updateMemoryMutate");
 
 export const useUpdateMemoryMutation = fn(
-  (): {
-    isError: boolean;
-    mutate: typeof updateMemoryMutate;
-  } => ({ isError: false, mutate: updateMemoryMutate }),
+  () =>
+    ({ isError: false, mutate: updateMemoryMutate }) satisfies {
+      isError: boolean;
+      mutate: typeof updateMemoryMutate;
+    },
 ).mockName("useUpdateMemoryMutation");

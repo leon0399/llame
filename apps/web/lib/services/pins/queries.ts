@@ -11,7 +11,7 @@ export const pinQueryKeys = {
   list: () => [...pinQueryKeys.all, "list"] as const,
 };
 
-export const fetchPins = (): Promise<PinnedItem[]> =>
+export const fetchPins = (): Promise<Array<PinnedItem>> =>
   listPinsEndpoint(
     undefined,
     createAuthenticatedBrowserFetch(globalThis.fetch),
@@ -36,7 +36,7 @@ export function usePins() {
  * recency), not the chat's own updatedAt.
  */
 export function selectPinnedChatMap(
-  pins: PinnedItem[] | undefined,
+  pins: Array<PinnedItem> | undefined,
 ): Map<string, string> {
   const map = new Map<string, string>();
   for (const pin of pins ?? []) {
@@ -47,7 +47,7 @@ export function selectPinnedChatMap(
 
 /** Project id -> pinnedAt, for the project list's "Pinned" grouping (design D5). */
 export function selectPinnedProjectMap(
-  pins: PinnedItem[] | undefined,
+  pins: Array<PinnedItem> | undefined,
 ): Map<string, string> {
   const map = new Map<string, string>();
   for (const pin of pins ?? []) {

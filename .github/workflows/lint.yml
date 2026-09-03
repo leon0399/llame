@@ -28,7 +28,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -38,20 +38,9 @@ jobs:
         with:
           turbo-cache: lint
 
-      # OpenAPI correctness gate; the full warning audit remains available via
-      # pnpm openapi:lint without adding its summary/description warnings here.
-      - run: pnpm openapi:lint:ci
-
-      # Oxlint across root E2E and every workspace; type-aware rules via
-      # tsgolint in apps/api. The Turbo graph owns the root lint dependency.
-      - run: pnpm exec turbo run lint
-
-      # Project-wide native ast-grep rules; identical command to Lefthook.
-      - run: pnpm lint:ast-grep
-
-      # Product-owned Markdown; generated integrations and symlink aliases are
-      # excluded explicitly in the shared markdownlint-cli2 configuration.
-      - run: pnpm lint:markdown
+      # Canonical static gate: root and workspace Oxlint, Markdown, OpenAPI,
+      # dead code, duplication, and Halstead difficulty.
+      - run: pnpm lint
 
   format:
     name: Format

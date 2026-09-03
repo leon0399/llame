@@ -61,7 +61,7 @@ export type InterpolationResult = {
    * secret would not be recognized. Empty resolutions are omitted — an empty
    * string matches everywhere and would redact all output.
    */
-  readonly substituted: readonly string[];
+  readonly substituted: ReadonlyArray<string>;
 };
 
 /**
@@ -71,44 +71,70 @@ export function interpolateStringWithSubstitutions(
   input: string,
   env: NodeJS.ProcessEnv = process.env,
 ): InterpolationResult {
-  const substituted: string[] = [];
+  const substituted: Array<string> = [];
   let out = "";
   let i = 0;
   while (i < input.length) {
-    if (input[i] === "{") {
-      if (input[i + 1] === "{") {
-        out += "{";
-        i += 2;
-        continue;
-      }
+    if (input[i] !== "{") {
+      out += input[i];
+      i += 1;
+      continue;
+    }
 
-      const rest = input.slice(i);
+    if (input[i + 1] === "{") {
+      out += "{";
+      i += 2;
+      continue;
+    }
 
-      const envMatch = ENV_TOKEN.exec(rest);
-      if (envMatch) {
-        const [full, name, fallback] = envMatch;
-        const resolved = resolveEnvToken(name, fallback, env);
-        if (resolved.length > 0) substituted.push(resolved);
-        out += resolved;
-        i += full.length;
-        continue;
-      }
+    const rest = input.slice(i);
 
-      const pathMatch = PATH_TOKEN.exec(rest);
-      if (pathMatch) {
-        const [full, location] = pathMatch;
-        const resolved = resolvePathToken(location);
-        if (resolved.length > 0) substituted.push(resolved);
-        out += resolved;
-        i += full.length;
-        continue;
-      }
+    const envMatch = matchEnvToken(rest, env, substituted);
+    if (envMatch) {
+      out += envMatch.resolved;
+      i += envMatch.length;
+      continue;
+    }
+
+    const pathMatch = matchPathToken(rest, substituted);
+    if (pathMatch) {
+      out += pathMatch.resolved;
+      i += pathMatch.length;
+      continue;
     }
 
     out += input[i];
     i += 1;
   }
   return { value: out, substituted };
+}
+
+/** A token match's resolved replacement text and the source length it consumed. */
+type TokenMatch = { readonly resolved: string; readonly length: number };
+
+function matchEnvToken(
+  rest: string,
+  env: NodeJS.ProcessEnv,
+  substituted: Array<string>,
+): TokenMatch | undefined {
+  const envMatch = ENV_TOKEN.exec(rest);
+  if (!envMatch) return undefined;
+  const [full, name, fallback] = envMatch;
+  const resolved = resolveEnvToken(name, fallback, env);
+  if (resolved.length > 0) substituted.push(resolved);
+  return { resolved, length: full.length };
+}
+
+function matchPathToken(
+  rest: string,
+  substituted: Array<string>,
+): TokenMatch | undefined {
+  const pathMatch = PATH_TOKEN.exec(rest);
+  if (!pathMatch) return undefined;
+  const [full, location] = pathMatch;
+  const resolved = resolvePathToken(location);
+  if (resolved.length > 0) substituted.push(resolved);
+  return { resolved, length: full.length };
 }
 
 function resolveEnvToken(
@@ -151,30 +177,39 @@ function resolvePathToken(location: string): string {
       ? undefined
       : location.slice(separatorAt + JSON_POINTER_SEPARATOR.length);
 
-  let payload: string;
+  const payload = readSecretFile(filePath);
+  if (pointer === undefined) {
+    return payload.trim();
+  }
+  return selectJsonPointerFromPayload(payload, pointer, filePath);
+}
+
+function readSecretFile(filePath: string): string {
   try {
-    payload = readFileSync(filePath, "utf8");
-  } catch (err) {
+    return readFileSync(filePath, "utf8");
+  } catch (error) {
     // The fs error names the path and errno only — never file contents.
-    const detail = err instanceof Error ? err.message : String(err);
+    const detail = error instanceof Error ? error.message : String(error);
     throw new InterpolationError(
       `required file ${filePath} could not be read: ${detail}`,
       { kind: "path", location: filePath },
     );
   }
+}
 
-  if (pointer === undefined) {
-    return payload.trim();
-  }
-
+function selectJsonPointerFromPayload(
+  payload: string,
+  pointer: string,
+  filePath: string,
+): string {
   let document: JsonValue;
   try {
     // SAFETY: JSON.parse returns `any`; unknown is the I/O-boundary type that
     // parseJsonValue validates into JsonValue.
     const parsed = JSON.parse(payload) as unknown;
     document = parseJsonValue(parsed);
-  } catch (err) {
-    if (err instanceof InterpolationError) throw err;
+  } catch (error) {
+    if (error instanceof InterpolationError) throw error;
     throw new InterpolationError(
       `required file ${filePath} is not valid JSON`,
       { kind: "path", location: filePath },
@@ -207,7 +242,7 @@ type JsonValue =
   | number
   | boolean
   | null
-  | readonly JsonValue[]
+  | ReadonlyArray<JsonValue>
   | JsonObject;
 
 // eslint-disable-next-line anti-slop/no-unsafe-dictionary-type -- package-local UnknownRecord: the one owned Record<string, unknown> declaration for JSON.parse boundaries; consumers use JsonValue / JsonObject after parseJsonValue.
@@ -237,7 +272,7 @@ function isJsonObject(value: JsonValue): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
+function isJsonArray(value: JsonValue): value is ReadonlyArray<JsonValue> {
   return Array.isArray(value);
 }
 

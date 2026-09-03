@@ -44,7 +44,7 @@ afterEach(() => {
 });
 
 /** Drain the chain; each character schedules at most 30ms. */
-function settle(ms = 5_000) {
+function settle(ms = 5000) {
   act(() => {
     vi.advanceTimersByTime(ms);
   });

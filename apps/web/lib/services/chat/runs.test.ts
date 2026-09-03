@@ -1,18 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-// Hoisted so the vi.mock factories (also hoisted) can close over them.
-const { getRunContextReceipt, updateRun } = vi.hoisted(() => ({
-  getRunContextReceipt: vi.fn(),
-  updateRun: vi.fn(),
-}));
-
-vi.mock("../../api/generated/runs/runs", () => ({
-  getRunContextReceipt,
-  updateRun,
-}));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch: () => vi.fn(),
-}));
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
+import { QueryClient } from "@tanstack/react-query";
 
 import {
   cancelRun,
@@ -20,10 +15,21 @@ import {
   runIdToCancel,
   runQueryKeys,
 } from "./runs";
+import {
+  emptyResponse,
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
+
+let fetchMock: Mock<typeof fetch>;
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
 
 afterEach(() => {
-  updateRun.mockReset();
-  getRunContextReceipt.mockReset();
+  vi.unstubAllGlobals();
 });
 
 describe("fetchRunContextReceipt", () => {
@@ -36,7 +42,7 @@ describe("fetchRunContextReceipt", () => {
       contentHash: "sha256:receipt",
       createdAt: "2026-07-18T00:00:00.000Z",
     };
-    getRunContextReceipt.mockResolvedValue(receipt);
+    fetchMock.mockResolvedValue(jsonResponse(receipt));
 
     await expect(
       fetchRunContextReceipt({
@@ -45,14 +51,14 @@ describe("fetchRunContextReceipt", () => {
         meta: undefined,
         pageParam: undefined,
         direction: undefined,
-        client: undefined as never,
+        client: new QueryClient(),
       }),
     ).resolves.toEqual(receipt);
 
-    expect(getRunContextReceipt).toHaveBeenCalledWith(
-      "run%2Fwith%20spaces",
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-      expect.any(Function),
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("GET");
+    expect(new URL(request.url).pathname).toBe(
+      "/api/v1/runs/run%2Fwith%20spaces/context-receipt",
     );
   });
 });
@@ -83,30 +89,30 @@ describe("runIdToCancel", () => {
 
 describe("cancelRun", () => {
   it("PATCHes the run with status cancelled", async () => {
-    updateRun.mockResolvedValue(undefined);
+    fetchMock.mockResolvedValue(emptyResponse());
     await cancelRun("run-1");
-    expect(updateRun).toHaveBeenCalledWith(
-      "run-1",
-      { status: "cancelled" },
-      undefined,
-      expect.any(Function),
-    );
+
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("PATCH");
+    expect(new URL(request.url).pathname).toBe("/api/v1/runs/run-1");
+    await expect(request.clone().json()).resolves.toEqual({
+      status: "cancelled",
+    });
   });
 
   it("swallows a 404 (run already gone) and a 409 (already terminal)", async () => {
-    updateRun.mockRejectedValueOnce({ status: 404, info: {} });
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 404));
     await expect(cancelRun("run-x")).resolves.toBeUndefined();
 
-    updateRun.mockRejectedValueOnce({ status: 409, info: {} });
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 409));
     await expect(cancelRun("run-y")).resolves.toBeUndefined();
   });
 
   it("propagates other errors (e.g. 500, network)", async () => {
-    const error = { status: 500, info: {} };
-    updateRun.mockRejectedValueOnce(error);
-    await expect(cancelRun("run-z")).rejects.toBe(error);
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 500));
+    await expect(cancelRun("run-z")).rejects.toMatchObject({ status: 500 });
 
-    updateRun.mockRejectedValueOnce(new Error("network down"));
+    fetchMock.mockRejectedValueOnce(new Error("network down"));
     await expect(cancelRun("run-w")).rejects.toThrow("network down");
   });
 });

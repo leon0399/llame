@@ -44,6 +44,13 @@ type SidebarContextProps = {
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null);
 
+/** Narrows the `useState`-style updater union to its function variant. */
+function isOpenUpdater(
+  value: boolean | ((value: boolean) => boolean),
+): value is (value: boolean) => boolean {
+  return typeof value === "function";
+}
+
 /** Reads the shared sidebar state (open/collapsed, mobile) from context; throws outside a `SidebarProvider`. */
 function useSidebar() {
   const context = React.useContext(SidebarContext);
@@ -84,7 +91,7 @@ function SidebarProvider({
   const open = openProp ?? _open;
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
-      const openState = typeof value === "function" ? value(open) : value;
+      const openState = isOpenUpdater(value) ? value(open) : value;
       if (setOpenProp) {
         setOpenProp(openState);
       } else {
@@ -140,6 +147,9 @@ function SidebarProvider({
       <div
         data-slot="sidebar-wrapper"
         style={
+          // SAFETY: `--sidebar-*` are CSS custom properties; valid inline
+          // style keys at runtime, but CSSProperties's type doesn't model
+          // arbitrary custom properties, so this asserts past that gap only.
           {
             "--sidebar-width": SIDEBAR_WIDTH,
             "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
@@ -211,6 +221,9 @@ function Sidebar({
           data-mobile="true"
           className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
           style={
+            // SAFETY: `--sidebar-width` is a CSS custom property; a valid
+            // inline style key at runtime that CSSProperties's type doesn't
+            // model, so this asserts past that gap only.
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
             } as React.CSSProperties
@@ -306,6 +319,7 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
 
   return (
     <button
+      type="button"
       data-sidebar="rail"
       data-slot="sidebar-rail"
       aria-label="Toggle Sidebar"
@@ -542,6 +556,13 @@ const sidebarMenuButtonVariants = cva(
 );
 
 /** The clickable row content within a `SidebarMenuItem`; shows a `Tooltip` when the sidebar is collapsed to icon-only and `tooltip` is set. Pass `render` to use a custom element (e.g. a link) instead of a `button`. */
+/** Narrows the `tooltip` prop union to its plain-string-label variant. */
+function isTooltipLabel(
+  tooltip: string | React.ComponentProps<typeof TooltipContent>,
+): tooltip is string {
+  return typeof tooltip === "string";
+}
+
 function SidebarMenuButton({
   render,
   isActive = false,
@@ -579,7 +600,7 @@ function SidebarMenuButton({
     return comp;
   }
 
-  if (typeof tooltip === "string") {
+  if (isTooltipLabel(tooltip)) {
     tooltip = {
       children: tooltip,
     };
@@ -679,6 +700,9 @@ function SidebarMenuSkeleton({
         className="h-4 max-w-(--skeleton-width) flex-1"
         data-sidebar="menu-skeleton-text"
         style={
+          // SAFETY: `--skeleton-width` is a CSS custom property; a valid
+          // inline style key at runtime that CSSProperties's type doesn't
+          // model, so this asserts past that gap only.
           {
             "--skeleton-width": width,
           } as React.CSSProperties

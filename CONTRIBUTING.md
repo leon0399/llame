@@ -265,7 +265,7 @@ pnpm exec turbo run typecheck
 pnpm exec turbo run test
 pnpm exec turbo run build --concurrency=1
 pnpm --filter api test:integration
-pnpm exec turbo run test:storybook build --filter=storybook
+pnpm exec turbo run test:component build --filter=storybook
 pnpm test:e2e
 ```
 

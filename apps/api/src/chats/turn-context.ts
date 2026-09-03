@@ -257,6 +257,7 @@ async function resolveTurnEffectiveContext(
     // leaves this process; the detail-free log marker is the same decision.
     // Preserving more means first deciding how much of a render failure may
     // travel without carrying prompt content.
+    // eslint-disable-next-line preserve-caught-error -- see above
     throw new Error('Failed to render system prompt');
   }
   const codeOwnedCandidates = await deps.knowledgeCandidates.resolve({

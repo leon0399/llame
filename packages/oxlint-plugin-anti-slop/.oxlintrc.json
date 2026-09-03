@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "extends": ["../../.oxlintrc.json"],
+  "env": { "node": true },
+  "ignorePatterns": ["vendor/**"],
+  "overrides": [
+    {
+      "files": ["rules/**/*.ts", "shared/**/*.ts"],
+      "rules": {
+        "anti-slop/no-chained-type-assertions": "off",
+        "anti-slop/no-runtime-typeof": "off",
+        "anti-slop/no-unsafe-dictionary-type": "off",
+        "anti-slop/require-safety-comment-for-type-assertion": "off",
+        "complexity": "off",
+        "max-depth": "off",
+        "max-lines": "off",
+        "max-lines-per-function": "off",
+        "sonarjs/cognitive-complexity": "off"
+      }
+    }
+  ]
+}

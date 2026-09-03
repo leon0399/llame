@@ -21,9 +21,7 @@ const underlineStyle = {
 } as const;
 
 const shiftedOffset = (token: ThemedToken, offsetShift: number) =>
-  typeof token.offset === "number"
-    ? { offset: token.offset + offsetShift }
-    : null;
+  token.offset !== undefined ? { offset: token.offset + offsetShift } : null;
 
 /** Narrows a token to `content`, keeping its identity when nothing changed. */
 const sliceToken = (
@@ -45,7 +43,7 @@ const decorateToken = (
   // Streamdown's token renderer folds `htmlStyle` into the span's style and
   // spreads `htmlAttrs` onto it — the only pass-through the tokens offer.
   htmlStyle: {
-    ...(typeof token.htmlStyle === "object" ? token.htmlStyle : undefined),
+    ...token.htmlStyle,
     ...underlineStyle,
   },
   htmlAttrs: {
@@ -55,10 +53,10 @@ const decorateToken = (
 });
 
 const decorateLine = (
-  line: ThemedToken[],
-  candidates: RegexCandidate[],
-): ThemedToken[] => {
-  const out: ThemedToken[] = [];
+  line: Array<ThemedToken>,
+  candidates: Array<RegexCandidate>,
+): Array<ThemedToken> => {
+  const out: Array<ThemedToken> = [];
   let pos = 0;
 
   for (const token of line) {

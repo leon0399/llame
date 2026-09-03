@@ -1,47 +1,55 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-const { forkChatEndpoint } = vi.hoisted(() => ({ forkChatEndpoint: vi.fn() }));
-
-vi.mock("../../api/generated/chats/chats", () => ({
-  forkChat: forkChatEndpoint,
-}));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch: () => vi.fn(),
-}));
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 
 import { forkChat } from "./fork";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
+
+let fetchMock: Mock<typeof fetch>;
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
 
 afterEach(() => {
-  forkChatEndpoint.mockReset();
+  vi.unstubAllGlobals();
 });
 
 describe("forkChat", () => {
   it("POSTs the forks sub-collection with the fork-point message id", async () => {
-    forkChatEndpoint.mockResolvedValue({ id: "forked-chat" });
+    fetchMock.mockResolvedValue(jsonResponse({ id: "forked-chat" }));
 
     const result = await forkChat("chat-1", "msg-1");
 
-    expect(forkChatEndpoint).toHaveBeenCalledWith(
-      "chat-1",
-      { fromMessageId: "msg-1" },
-      undefined,
-      expect.any(Function),
-    );
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("POST");
+    expect(new URL(request.url).pathname).toBe("/api/v1/chats/chat-1/forks");
+    await expect(request.clone().json()).resolves.toEqual({
+      fromMessageId: "msg-1",
+    });
     expect(result).toEqual({ id: "forked-chat" });
   });
 
   it("POSTs with no fromMessageId when omitted — forks the whole chat (clone)", async () => {
-    forkChatEndpoint.mockResolvedValue({ id: "cloned-chat" });
+    fetchMock.mockResolvedValue(jsonResponse({ id: "cloned-chat" }));
 
     const result = await forkChat("chat-1");
 
-    const [, options] = forkChatEndpoint.mock.calls[0] as [
-      string,
-      { fromMessageId?: string },
-    ];
+    const request = requestFromCall(fetchMock);
+    const body = await request.clone().text();
     // JSON.stringify drops the undefined property — assert the wire shape,
     // not just the JS object identity.
-    expect(JSON.stringify(options)).toBe("{}");
+    expect(body).toBe("{}");
     expect(result).toEqual({ id: "cloned-chat" });
   });
 });

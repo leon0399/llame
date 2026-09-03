@@ -9,12 +9,17 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "lint:fix": "oxlint --deny-warnings --fix",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage && crap-typescript --threshold 42 --format none src",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@barney-media/crap-typescript": "catalog:",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "@workspace/config-typescript": "workspace:*",
+    "oxlint": "catalog:",
     "oxlint-tsgolint": "7.0.2001",
     "typescript": "catalog:",
     "vitest": "catalog:"

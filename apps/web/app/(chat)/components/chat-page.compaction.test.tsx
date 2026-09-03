@@ -3,9 +3,12 @@
 /**
  * Renders the ACTUAL ChatPage against a pre-seeded QueryClient (mirroring
  * what SSR hydration provides on a real reload) with a real
- * useChatMessagesQuery. The AI SDK's useChat, next/navigation, and the
- * deferred markdown renderer are mocked to isolate the render wiring without
- * needing a live network/transport or loading the renderer's plugin graph.
+ * useChatMessagesQuery, the real markdown renderer, and the real
+ * ActiveRunsProvider (its GET /me/runs rehydration hits a stubbed
+ * globalThis.fetch that always answers with no active runs — this suite's
+ * focus is render wiring, not run polling, which contexts/active-runs-context.test.tsx
+ * already covers). The AI SDK's useChat and next/navigation are mocked —
+ * neither has an in-process seam.
  *
  * #136 read-side merge: compaction is no longer a separate query/cache
  * entry — it arrives embedded in the SAME `chatQueryKeys.messages(chatId)`
@@ -16,9 +19,19 @@
  * other the way a separate, independently-erroring query could.
  */
 
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
 
 process.env.NEXT_PUBLIC_API_URL = "https://api.example.com";
 
@@ -26,27 +39,12 @@ const routerMock = { push: vi.fn(), replace: vi.fn() };
 vi.mock("next/navigation", () => ({
   useRouter: () => routerMock,
 }));
-vi.mock("@workspace/ui/components/ai-elements/message-response", () => ({
-  MessageResponse: ({ children }: { children: string }) => children,
-}));
-// ChatSessionContent reads trackRun/untrackChat/markChatSeen from this
-// context; stub it out so this render-focused suite doesn't need a real
-// ActiveRunsProvider (its own polling/fetch effects are out of scope here).
-vi.mock("@/contexts/active-runs-context", () => ({
-  useActiveRuns: () => ({
-    trackRun: vi.fn(),
-    untrackChat: vi.fn(),
-    registerViewedChat: vi.fn(() => () => {}),
-    completedChats: new Set<string>(),
-    markChatSeen: vi.fn(),
-  }),
-}));
 
 let useChatMessages: Array<{
   id: string;
   role: "user" | "assistant";
-  parts: unknown[];
-  metadata?: { seq?: number; usage?: Record<string, unknown> };
+  parts: Array<unknown>;
+  metadata?: { seq?: number; usage?: ChatMessageResponse["usage"] };
 }> = [];
 
 type OnFinishArg = {
@@ -77,6 +75,7 @@ vi.mock("@ai-sdk/react", () => ({
   },
 }));
 
+import { ActiveRunsProvider } from "@/contexts/active-runs-context";
 import { ChatProvider } from "@/contexts/chat-context";
 import { rawChatMessage } from "@/lib/services/chat/message-fixtures";
 import {
@@ -119,10 +118,25 @@ beforeAll(() => {
   }
 });
 
+beforeEach(() => {
+  // The real ActiveRunsProvider's mount rehydration (GET /me/runs) always
+  // reports no active runs here — this suite's own coverage is render
+  // wiring, not run polling (see contexts/active-runs-context.test.tsx).
+  stubFetch().mockImplementation(async (input) => {
+    const request = input instanceof Request ? input : new Request(input);
+    const { pathname } = new URL(request.url);
+    if (pathname === "/api/v1/me/runs") return jsonResponse([]);
+    throw new Error(`unrouted fetch in test: ${request.method} ${pathname}`);
+  });
+});
+
 afterEach(() => {
   useChatMessages = [];
   capturedOnFinish = undefined;
   capturedResume = undefined;
+  // NOT vi.unstubAllGlobals() here — beforeAll's ResizeObserver stub (above)
+  // must survive across tests in this file; each test's own fetch stub is
+  // already replaced fresh by the next beforeEach's stubFetch() call.
   cleanup();
 });
 
@@ -148,9 +162,11 @@ function renderChatPage(
         chatId,
         seq: message.metadata?.seq ?? index + 1,
         role: message.role,
+        // SAFETY: `useChatMessages` fixtures in this suite always seed AI
+        // SDK text/tool parts, matching `ChatMessageResponse["parts"]`'s
+        // shape even though the local fixture type keeps `parts: unknown[]`.
         parts: message.parts as ChatMessageResponse["parts"],
-        usage: (message.metadata?.usage ??
-          null) as ChatMessageResponse["usage"],
+        usage: message.metadata?.usage ?? null,
       }),
     ),
     compaction: seed.compaction,
@@ -177,13 +193,15 @@ function renderChatPage(
     queryClient,
     ...render(
       <QueryClientProvider client={queryClient}>
-        <ChatProvider>
-          <ChatPage
-            chatId={chatId}
-            initialChatExists
-            initialDraftPhase={null}
-          />
-        </ChatProvider>
+        <ActiveRunsProvider>
+          <ChatProvider>
+            <ChatPage
+              chatId={chatId}
+              initialChatExists
+              initialDraftPhase={null}
+            />
+          </ChatProvider>
+        </ActiveRunsProvider>
       </QueryClientProvider>,
     ),
   };
@@ -306,7 +324,7 @@ describe("ChatPage — compaction checkpoint render", () => {
 
   it("reload parity: a compaction present in the RAW api-shaped messages payload (the real toChatUiMessages mapping, not a hand-shaped fixture) still renders after being routed through the same cache seeding a real reload uses", () => {
     const chatId = "chat-reload-parity";
-    const rawMessages: ChatMessageResponse[] = [
+    const rawMessages: Array<ChatMessageResponse> = [
       {
         id: "m1",
         chatId,
@@ -335,8 +353,13 @@ describe("ChatPage — compaction checkpoint render", () => {
     const mappedMessages = toChatUiMessages({ messages: rawMessages });
     useChatMessages = mappedMessages.map((m) => ({
       id: m.id,
+      // SAFETY: `rawMessages` above only seeds "user"/"assistant" roles, and
+      // `toChatUiMessages` is role-preserving, so `m.role` can't be anything
+      // else here even though its own return type is the wider UI role set.
       role: m.role as "user" | "assistant",
       parts: m.parts,
+      // SAFETY: `rawMessages` never sets a `seq`-bearing metadata shape
+      // beyond `{ seq?: number }`; `toChatUiMessages` doesn't add other keys.
       metadata: m.metadata as { seq?: number } | undefined,
     }));
 
@@ -433,7 +456,14 @@ describe("ChatPage — model context transparency", () => {
     const switchTrigger = screen.getByRole("button", {
       name: "Model changed from model-a to model-b",
     });
-    const userText = await screen.findByText("Triggering request");
+    // findByText, not getByText: MessageResponse is a next/dynamic, ssr:false
+    // chunk (chat-message-row.tsx's documented #187/#417 client-only-chunk
+    // gap) — its text is absent from the first synchronous render.
+    const userText = await screen.findByText(
+      "Triggering request",
+      {},
+      { timeout: 5000 },
+    );
     expect(
       switchTrigger.compareDocumentPosition(userText) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -447,7 +477,7 @@ describe("ChatPage — model context transparency", () => {
   // span — literal debug text in the owner's chat. Every producer now shares
   // one part type, so one branch covers the whole family INCLUDING a producer
   // this build does not know about, which is what the last case pins.
-  it("renders no visible content for server-authored context parts", () => {
+  it("renders no visible content for server-authored context parts", async () => {
     const chatId = "chat-server-parts";
     const runId = "11111111-2222-4333-8444-555555555555";
     // These sit in the useChat copy, which is what the TRANSCRIPT renders —
@@ -530,7 +560,12 @@ describe("ChatPage — model context transparency", () => {
       compaction: null,
     });
 
-    expect(screen.getByText("Owner question")).toBeTruthy();
+    // findByText, not getByText: MessageResponse is a next/dynamic, ssr:false
+    // chunk (chat-message-row.tsx's documented #187/#417 client-only-chunk
+    // gap) — its text is absent from the first synchronous render.
+    expect(
+      await screen.findByText("Owner question", {}, { timeout: 5000 }),
+    ).toBeTruthy();
     expect(screen.queryByText(/unsupported part type/i)).toBeNull();
     // The digest's own content is prompt-side only; it must never surface as
     // chat content the owner reads back.
@@ -633,7 +668,7 @@ describe("ChatPage — model context transparency", () => {
       pages: [
         {
           ...queryClient.getQueryData<{
-            pages: Array<{ messages: ChatMessageResponse[] }>;
+            pages: Array<{ messages: Array<ChatMessageResponse> }>;
           }>(chatQueryKeys.targetMessages(chatId, targetSeq))!.pages[0]!,
         },
       ],

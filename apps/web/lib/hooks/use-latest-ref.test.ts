@@ -32,6 +32,9 @@ describe("useLatestRef", () => {
         const ref = useLatestRef(value);
         captured ??= () => ref.current;
       },
+      // SAFETY: widens the literal `undefined` initial prop so
+      // `renderHook`'s inferred prop type allows the later
+      // `rerender({ value: "xhigh" })` call — no value narrowing involved.
       { initialProps: { value: undefined as string | undefined } },
     );
 

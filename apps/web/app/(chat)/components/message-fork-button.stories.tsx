@@ -11,6 +11,10 @@ import { MessageForkButton } from "./message-fork-button";
 
 const useForkChat = vi.mocked(fork.useForkChat, { partial: true });
 
+function isFunction(value: unknown): value is (forked: { id: string }) => void {
+  return typeof value === "function";
+}
+
 const meta = {
   component: MessageForkButton,
   tags: ["autodocs"],
@@ -48,6 +52,8 @@ export const Basic: Story = {
     await expect(forkMutate).toHaveBeenCalledTimes(1);
     // Direct call inspection instead of expect.any(Function): browser-mode
     // matchers instanceof-check against the wrong realm's Function.
+    // SAFETY: MessageForkButton always calls `mutate` with these two
+    // positional arguments — asserted immediately below by shape and type.
     const [variables, { onSuccess }] = forkMutate.mock.calls[0] as [
       { chatId: string; fromMessageId: string },
       { onSuccess: (forked: { id: string }) => void },
@@ -56,7 +62,7 @@ export const Basic: Story = {
       chatId: "chat-1",
       fromMessageId: "msg-2",
     });
-    await expect(typeof onSuccess).toBe("function");
+    await expect(isFunction(onSuccess)).toBe(true);
 
     // Driving the mutation's success navigates through onForked.
     onSuccess({ id: "forked-chat-9" });

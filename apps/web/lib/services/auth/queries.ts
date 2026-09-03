@@ -20,7 +20,7 @@ import type {
 import { InvalidCredentialsError } from "./errors";
 
 export type { AuthTokenResponse, PublicUserResponse };
-export { InvalidCredentialsError, isInvalidCredentialsError } from "./errors";
+export { isInvalidCredentialsError } from "./errors";
 
 export const authQueryKeys = {
   me: ["auth", "me"] as const,

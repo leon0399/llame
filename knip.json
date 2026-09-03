@@ -1,0 +1,81 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "e2e/**/*.spec.ts",
+        "e2e/support/db-server.ts",
+        "e2e/support/model-server.ts",
+        "e2e/support/mcp-server.ts",
+        "e2e/support/mcp-stdio-server.mjs",
+        "e2e/support/run-after-ready.ts"
+      ],
+      "project": ["e2e/**/*.ts"],
+      "ignoreDependencies": ["tsx"],
+      "ignoreBinaries": ["psql"]
+    },
+    "apps/api": {
+      "entry": [
+        "src/main.ts",
+        "src/worker.ts",
+        "src/generate-openapi.ts",
+        "src/db/db.ts",
+        "src/**/*.test.ts",
+        "src/**/*.integration.test.ts",
+        "evals/**/*.test.ts",
+        "stryker.config.json",
+        "src/instance-config/prompt-built-runtime.contract.ts"
+      ],
+      "project": ["src/**/*.ts", "evals/**/*.ts"]
+    },
+    "apps/web": {
+      "entry": [
+        "app/**/{page,layout,route,error,loading,not-found,template,default}.tsx",
+        "sentry.*.config.ts",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/__mocks__/**",
+        "**/parked/*.tsx"
+      ],
+      "project": ["**/*.{ts,tsx}"],
+      "ignoreDependencies": ["@tailwindcss/postcss"]
+    },
+    "packages/ui": {
+      "entry": ["src/**/*.stories.tsx", "src/**/*.test.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}"]
+    },
+    "packages/config-interpolation": {
+      "entry": ["src/index.ts", "src/**/*.test.ts"],
+      "project": ["src/**/*.ts"]
+    },
+    "packages/oxlint-plugin-anti-slop": {
+      "entry": ["rules/**/*.test.ts"],
+      "project": ["**/*.ts", "**/*.mjs"],
+      "ignore": ["vendor/**"]
+    },
+    "apps/storybook": {
+      "entry": [".storybook/**/*.{ts,tsx}"],
+      "project": ["**/*.{ts,tsx}"],
+      "ignoreDependencies": [
+        "@tailwindcss/postcss",
+        "@tailwindcss/typography",
+        "@base-ui/react",
+        "@hookform/resolvers",
+        "@radix-ui/react-use-controllable-state",
+        "motion",
+        "next-themes",
+        "react-hook-form",
+        "sonner",
+        "streamdown",
+        "use-stick-to-bottom",
+        "zod"
+      ]
+    }
+  },
+  "ignore": [
+    "apps/web/lib/api/generated/**",
+    "packages/oxlint-plugin-anti-slop/vendor/**"
+  ],
+  "ignoreDependencies": ["next", "shadcn"],
+  "ignoreExportsUsedInFile": true
+}

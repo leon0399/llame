@@ -109,6 +109,8 @@ describe("Fetch policies", () => {
       method: "POST",
       url: "https://api.example.com/api/v1/chats/chat-1/messages",
     });
+    // SAFETY: the `toBeInstanceOf(Request)` assertion above just proved
+    // `input` is a `Request` at runtime.
     expect(await (input as Request).text()).toBe(body);
   });
 

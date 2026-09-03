@@ -1,19 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { MessagesSquareIcon } from "lucide-react";
+import Link from "next/link";
 
 import { useActiveRuns } from "@/contexts/active-runs-context";
-import { exportChatAsMarkdown } from "@/lib/services/chat/export";
-import { useForkChat } from "@/lib/services/chat/fork";
 import type { ChatResponse } from "@/lib/services/chat/queries";
-import { useSetChatArchive } from "@/lib/services/chat/management";
 import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
-import { filterProjectsByName } from "@/lib/services/project/filter";
-import { useFileChat } from "@/lib/services/project/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import { ArchivedBadge } from "@/components/archived-badge";
-import { SearchFilterInput } from "@/components/search-filter-input";
-import { HoverReveal, SidebarRowAction } from "@/components/hover-reveal";
+import { PinButton } from "@/components/pin-button";
 import { SidebarRowTitle } from "@/components/sidebar-row-title";
 import { cn } from "@workspace/ui/lib/utils";
 import {
@@ -25,132 +21,208 @@ import {
   resolveChatActivityStatus,
 } from "./chat-activity-indicator";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuPortal,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@workspace/ui/components/dropdown-menu";
-import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@workspace/ui/components/sidebar";
-import { toast } from "@workspace/ui/components/sonner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
-import {
-  ArchiveIcon,
-  DownloadIcon,
-  FolderPlusIcon,
-  GitForkIcon,
-  MessagesSquareIcon,
-  MoreHorizontalIcon,
-  PenLineIcon,
-  PinIcon,
-  PinOffIcon,
-  PlusIcon,
-  Share2Icon,
-  TrashIcon,
-  type LucideIcon,
-} from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 
+import { ChatItemMenu } from "./chat-item-menu";
 import { ShareChatDialog } from "./share-chat-dialog";
 
 // Placeholder for untitled chats (title === null, generation pending). Client-owned
 // so it can be localized without touching stored data.
 const UNTITLED_CHAT_LABEL = "New chat";
 
-// Row menu, grouped by action semantics: quick pin toggle → chat metadata
-// (name, project) → produce-something-new (share, export, fork) → lifecycle
-// (reversible archive, then irreversible delete last). Pin, Rename, Move to
-// project, Share, Export, Fork & Delete are wired; everything else stays a
-// visible, disabled placeholder until its feature ships (never hidden, never
-// a dead click).
-// `id` is the stable dispatch key (matched in the render switch below);
-// `label` is user-facing copy only — renaming/i18n never silently detaches a
-// handler.
-const CHAT_MENU_GROUPS: {
-  id: string;
-  label: string;
-  icon: LucideIcon;
-  destructive?: boolean;
-}[][] = [
-  [{ id: "pin", label: "Pin", icon: PinIcon }],
-  [
-    { id: "rename", label: "Rename", icon: PenLineIcon },
-    // Rendered as a select-like radio submenu; the visible label is dynamic
-    // ("Add to project" when unfiled, "Change project" when filed).
-    { id: "project", label: "Add to project", icon: FolderPlusIcon },
-  ],
-  [
-    { id: "share", label: "Share", icon: Share2Icon },
-    { id: "export", label: "Export as Markdown", icon: DownloadIcon },
-    // Clones the WHOLE chat into a new one the caller owns — reuses the
-    // per-message "fork from here" machinery with no anchor message. Same
-    // icon + vocabulary as MessageForkButton (the per-message action) —
-    // same machinery, same affordance identity.
-    { id: "fork", label: "Fork", icon: GitForkIcon },
-  ],
-  [
-    { id: "archive", label: "Archive", icon: ArchiveIcon },
-    { id: "delete", label: "Delete", icon: TrashIcon, destructive: true },
-  ],
-];
+function ChatItemIcon({
+  isArchived,
+  activityStatus,
+}: {
+  isArchived: boolean;
+  activityStatus: ReturnType<typeof resolveChatActivityStatus>;
+}) {
+  return (
+    <span
+      // Archived rows read as de-emphasized (mock's
+      // `.sec-item[data-archived] .sec-ico { opacity:.5 }`).
+      className={cn(
+        "relative flex shrink-0 items-center",
+        isArchived && "opacity-50",
+      )}
+    >
+      {/* SidebarMenuButton's own [&>svg]:size-4 rule only reaches a DIRECT
+          child <svg> — nesting the icon inside this wrapper (for the badge's
+          position:relative anchor) took it out from under that rule, so the
+          size has to be explicit here now. */}
+      <MessagesSquareIcon className="text-muted-foreground size-4" />
+      <ChatActivityIndicator status={activityStatus} />
+    </span>
+  );
+}
 
-export function ChatItem({
+function ChatItemTitleBlock({
   chat,
-  isActive = false,
-  projects = [],
-  onNewProject,
-  isPinned = false,
+  title,
+  isArchived,
+  activityStatus,
+  excerpt,
 }: {
   chat: ChatResponse;
-  isActive?: boolean;
-  /** The caller's projects, for the row menu's "Move to project" submenu. */
-  projects?: ProjectResponse[];
-  /**
-   * Opens the caller-owned "new project" dialog (one shared instance, not one
-   * per row); the caller files this chat into the created project. Absent →
-   * the submenu item renders disabled (never a dead click).
-   */
-  onNewProject?: () => void;
-  /**
-   * From the caller's `usePins()` (pins is the sole source of pin state,
-   * design D5) — this chat carries no pin field of its own.
-   */
-  isPinned?: boolean;
+  title: string;
+  isArchived: boolean;
+  activityStatus: ReturnType<typeof resolveChatActivityStatus>;
+  excerpt: string | null | undefined;
 }) {
-  const excerpt = chat.lastMessage;
+  return (
+    <span className="flex min-w-0 flex-1 flex-col">
+      <span className="flex min-w-0 items-center gap-[.35rem]">
+        {/* A title cut short fades and scrolls to its end on hover; the
+            excerpt keeps an ellipsis — the rest of it belongs to the chat,
+            not to this row (DESIGN.md §3, "Overflow"). */}
+        <SidebarRowTitle
+          text={title}
+          animateChanges
+          // The placeholder stands in for a name the run is still producing,
+          // so it reads as in progress rather than as the chat's actual
+          // title.
+          shimmer={chat.title === null && activityStatus === "processing"}
+          // Archived title de-emphasis (mock's `.sec-title` rule).
+          className={cn(isArchived && "text-muted-foreground")}
+        />
+        {isArchived && <ArchivedBadge />}
+      </span>
+      {excerpt && (
+        <span className="truncate text-xs text-muted-foreground">
+          {excerpt}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** The row's clickable body: activity icon, title, and excerpt. Split out of
+ * `ChatItem` since it's a distinct, self-contained visual region. */
+function ChatItemLink({
+  chat,
+  title,
+  isActive,
+  isArchived,
+  activityStatus,
+  excerpt,
+}: {
+  chat: ChatResponse;
+  title: string;
+  isActive: boolean;
+  isArchived: boolean;
+  activityStatus: ReturnType<typeof resolveChatActivityStatus>;
+  excerpt: string | null | undefined;
+}) {
+  return (
+    <SidebarMenuButton
+      className="h-auto min-w-0 flex-1 py-1.5 hover:bg-transparent focus-visible:ring-0 active:bg-transparent data-active:bg-transparent"
+      isActive={isActive}
+      render={<Link href={`/chat/${chat.id}`} />}
+    >
+      <ChatItemIcon isArchived={isArchived} activityStatus={activityStatus} />
+      <ChatItemTitleBlock
+        chat={chat}
+        title={title}
+        isArchived={isArchived}
+        activityStatus={activityStatus}
+        excerpt={excerpt}
+      />
+    </SidebarMenuButton>
+  );
+}
+
+function ChatItemRow({
+  isActive,
+  children,
+}: {
+  isActive: boolean;
+  children: ReactNode;
+}) {
+  return (
+    // A flex line, not the primitive's overlay: the actions below are real
+    // layout, so the text shrinks by exactly their width and the row reserves
+    // nothing while they are hidden (see HoverReveal). The hover/active fill
+    // moves with that — it belongs to the whole row, and the button no longer
+    // spans it — so the row paints it and the button hands it back.
+    <SidebarMenuItem
+      className={cn(
+        "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
+        isActive && "bg-sidebar-accent",
+      )}
+    >
+      {children}
+    </SidebarMenuItem>
+  );
+}
+
+type DialogState = { open: boolean; onOpenChange: (open: boolean) => void };
+
+/** The row's three action dialogs, plus the state driving them — bundled so
+ * `ChatItem` hands out one object instead of six loose props. */
+function useChatItemDialogs() {
+  const [shareOpen, setShareOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  return {
+    share: { open: shareOpen, onOpenChange: setShareOpen },
+    rename: { open: renameOpen, onOpenChange: setRenameOpen },
+    deleteDialog: { open: deleteOpen, onOpenChange: setDeleteOpen },
+    openShare: () => setShareOpen(true),
+    openRename: () => setRenameOpen(true),
+    openDelete: () => setDeleteOpen(true),
+  };
+}
+
+function ChatItemDialogs({
+  chat,
+  title,
+  isActive,
+  share,
+  rename,
+  deleteDialog,
+}: {
+  chat: ChatResponse;
+  title: string;
+  isActive: boolean;
+  share: DialogState;
+  rename: DialogState;
+  deleteDialog: DialogState;
+}) {
+  return (
+    <>
+      <ShareChatDialog
+        chat={{ id: chat.id, visibility: chat.visibility }}
+        {...share}
+      />
+      <RenameChatDialog chat={{ id: chat.id, title }} {...rename} />
+      <DeleteChatDialog
+        chat={{ id: chat.id, title }}
+        isActive={isActive}
+        {...deleteDialog}
+      />
+    </>
+  );
+}
+
+/** Everything `ChatItem` derives before it can render: activity status, the
+ * three action dialogs, and the pin toggle. Split out so the component below
+ * is composition only. */
+function useChatItemRow(
+  chat: ChatResponse,
+  isPinned: boolean,
+  isActive: boolean,
+) {
   const { completedChats, activeChatIds } = useActiveRuns();
   const activityStatus = resolveChatActivityStatus({
     processing: activeChatIds.has(chat.id),
     unread: completedChats.has(chat.id),
   });
-  const [shareOpen, setShareOpen] = useState(false);
-  const [renameOpen, setRenameOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [projectFilter, setProjectFilter] = useState("");
-  const filteredProjects = filterProjectsByName(projects, projectFilter);
-  const title = chat.title ?? UNTITLED_CHAT_LABEL;
-  const isArchived = chat.archivedAt !== null;
+  const dialogs = useChatItemDialogs();
   const pinMutation = usePinItem();
   const unpinMutation = useUnpinItem();
-  const archiveMutation = useSetChatArchive();
-  const forkMutation = useForkChat();
-  const fileChatMutation = useFileChat();
-  const router = useRouter();
 
   // Unified pin resource (design D2): PUT to pin, DELETE to unpin, keyed by
   // itemType+itemId. Pinning synthesizes a card from the chat already on
@@ -164,278 +236,59 @@ export function ChatItem({
           card: { id: chat.id, title: chat.title, archivedAt: chat.archivedAt },
         });
 
+  const title = chat.title ?? UNTITLED_CHAT_LABEL;
+
+  // One flat context, spread into every child below instead of each
+  // repeating the same props at its own call site.
+  return {
+    chat,
+    title,
+    isActive,
+    isPinned,
+    togglePin,
+    isArchived: chat.archivedAt !== null,
+    excerpt: chat.lastMessage,
+    activityStatus,
+    onRename: dialogs.openRename,
+    onShare: dialogs.openShare,
+    onDelete: dialogs.openDelete,
+    share: dialogs.share,
+    rename: dialogs.rename,
+    deleteDialog: dialogs.deleteDialog,
+  };
+}
+
+export function ChatItem({
+  chat,
+  isActive = false,
+  projects = [],
+  onNewProject,
+  isPinned = false,
+}: {
+  chat: ChatResponse;
+  isActive?: boolean;
+  /** The caller's projects, for the row menu's "Move to project" submenu. */
+  projects?: Array<ProjectResponse>;
+  /**
+   * Opens the caller-owned "new project" dialog (one shared instance, not one
+   * per row); the caller files this chat into the created project. Absent →
+   * the submenu item renders disabled (never a dead click).
+   */
+  onNewProject?: () => void;
+  /**
+   * From the caller's `usePins()` (pins is the sole source of pin state,
+   * design D5) — this chat carries no pin field of its own.
+   */
+  isPinned?: boolean;
+}) {
+  const row = useChatItemRow(chat, isPinned, isActive);
+
   return (
-    // A flex line, not the primitive's overlay: the actions below are real
-    // layout, so the text shrinks by exactly their width and the row reserves
-    // nothing while they are hidden (see HoverReveal). The hover/active fill
-    // moves with that — it belongs to the whole row, and the button no longer
-    // spans it — so the row paints it and the button hands it back.
-    <SidebarMenuItem
-      className={cn(
-        "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
-        isActive && "bg-sidebar-accent",
-      )}
-    >
-      <SidebarMenuButton
-        className="h-auto min-w-0 flex-1 py-1.5 hover:bg-transparent focus-visible:ring-0 active:bg-transparent data-active:bg-transparent"
-        isActive={isActive}
-        render={<Link href={`/chat/${chat.id}`} />}
-      >
-        <span
-          // Archived rows read as de-emphasized (mock's
-          // `.sec-item[data-archived] .sec-ico { opacity:.5 }`).
-          className={cn(
-            "relative flex shrink-0 items-center",
-            isArchived && "opacity-50",
-          )}
-        >
-          {/* SidebarMenuButton's own [&>svg]:size-4 rule only reaches a
-              DIRECT child <svg> — nesting the icon inside this wrapper
-              (for the badge's position:relative anchor) took it out from
-              under that rule, so the size has to be explicit here now. */}
-          <MessagesSquareIcon className="text-muted-foreground size-4" />
-          <ChatActivityIndicator status={activityStatus} />
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="flex min-w-0 items-center gap-[.35rem]">
-            {/* A title cut short fades and scrolls to its end on hover; the
-                excerpt keeps an ellipsis — the rest of it belongs to the chat,
-                not to this row (DESIGN.md §3, "Overflow"). */}
-            <SidebarRowTitle
-              text={title}
-              animateChanges
-              // The placeholder stands in for a name the run is still
-              // producing, so it reads as in progress rather than as the
-              // chat's actual title.
-              shimmer={chat.title === null && activityStatus === "processing"}
-              // Archived title de-emphasis (mock's `.sec-title` rule).
-              className={cn(isArchived && "text-muted-foreground")}
-            />
-            {isArchived && <ArchivedBadge />}
-          </span>
-          {excerpt && (
-            <span className="truncate text-xs text-muted-foreground">
-              {excerpt}
-            </span>
-          )}
-        </span>
-      </SidebarMenuButton>
-
-      {/* A pinned row keeps its pin in layout; everything else appears with
-          hover, taking its width only then. */}
-      <HoverReveal atRest={isPinned}>
-        <Tooltip>
-          <TooltipTrigger render={<SidebarRowAction onClick={togglePin} />}>
-            {isPinned ? <PinOffIcon /> : <PinIcon />}
-            <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
-          </TooltipTrigger>
-          <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
-        </Tooltip>
-      </HoverReveal>
-
-      <DropdownMenu
-        modal={true}
-        // Reset the project filter so reopening the menu starts unfiltered.
-        onOpenChange={(open) => {
-          if (!open) setProjectFilter("");
-        }}
-      >
-        {/* Always in layout on the active row (as on the pre-redesign list),
-            hover-revealed elsewhere. */}
-        <HoverReveal atRest={isActive}>
-          <DropdownMenuTrigger render={<SidebarRowAction />}>
-            <MoreHorizontalIcon />
-            <span className="sr-only">More</span>
-          </DropdownMenuTrigger>
-        </HoverReveal>
-
-        <DropdownMenuContent side="bottom" align="start">
-          {CHAT_MENU_GROUPS.map((group, index) => (
-            <DropdownMenuGroup key={index}>
-              {index > 0 && <DropdownMenuSeparator />}
-              {group.map((action) => {
-                // The one non-uniform entry: a select-like radio submenu, not
-                // a plain onSelect action. Unfiled chat → "Add to project";
-                // filed chat → "Change project" with the current project
-                // marked, and re-selecting the marked project unfiles the
-                // chat (toggle-off) — no separate "Remove from project" item.
-                if (action.id === "project") {
-                  return (
-                    <DropdownMenuSub key={action.id}>
-                      <DropdownMenuSubTrigger>
-                        <FolderPlusIcon />
-                        <span>
-                          {chat.projectId === null
-                            ? "Add to project"
-                            : "Change project"}
-                        </span>
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuPortal>
-                        {/* Combobox-shaped submenu: filter input on top and
-                            "New project" at the bottom, each divided from the
-                            project radio list by a separator. */}
-                        <DropdownMenuSubContent className="w-56">
-                          {projects.length > 0 && (
-                            <>
-                              <SearchFilterInput
-                                value={projectFilter}
-                                onChange={setProjectFilter}
-                                placeholder="Search projects…"
-                                // Keep typing local to the input: Radix menus
-                                // typeahead-jump focus on printable keys.
-                                // Escape still propagates so it closes the
-                                // menu as everywhere else.
-                                onKeyDown={(event) => {
-                                  if (event.key !== "Escape") {
-                                    event.stopPropagation();
-                                  }
-                                }}
-                              />
-                              <DropdownMenuSeparator />
-                            </>
-                          )}
-                          {projects.length === 0 ? (
-                            <DropdownMenuItem disabled>
-                              No projects yet
-                            </DropdownMenuItem>
-                          ) : filteredProjects.length === 0 ? (
-                            <DropdownMenuItem disabled>
-                              No projects found
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuRadioGroup
-                              value={chat.projectId ?? ""}
-                              onValueChange={(value) =>
-                                fileChatMutation.mutate({
-                                  chatId: chat.id,
-                                  // Radix fires onValueChange even for the
-                                  // already-selected item — that's the
-                                  // toggle-off: re-picking the current
-                                  // project unfiles the chat.
-                                  projectId:
-                                    value === chat.projectId ? null : value,
-                                })
-                              }
-                            >
-                              {filteredProjects.map((project) => (
-                                <DropdownMenuRadioItem
-                                  key={project.id}
-                                  value={project.id}
-                                >
-                                  <span className="truncate">
-                                    {project.name}
-                                  </span>
-                                </DropdownMenuRadioItem>
-                              ))}
-                            </DropdownMenuRadioGroup>
-                          )}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            disabled={!onNewProject}
-                            // Deferred open, same reasoning as Rename below;
-                            // the caller owns ONE shared dialog and files
-                            // this chat into the created project.
-                            onSelect={
-                              onNewProject
-                                ? () => setTimeout(onNewProject, 0)
-                                : undefined
-                            }
-                          >
-                            <PlusIcon />
-                            <span>New project</span>
-                          </DropdownMenuItem>
-                        </DropdownMenuSubContent>
-                      </DropdownMenuPortal>
-                    </DropdownMenuSub>
-                  );
-                }
-
-                const onSelect =
-                  action.id === "pin"
-                    ? togglePin
-                    : action.id === "rename"
-                      ? () =>
-                          // Let the dropdown close normally (no preventDefault
-                          // — an always-open dropdown lingering behind the
-                          // modal dialog needs a stray extra click to dismiss
-                          // once the dialog closes) and defer the dialog open
-                          // a tick, so its mount doesn't race the dropdown's
-                          // own close/unmount and focus-return.
-                          setTimeout(() => setRenameOpen(true), 0)
-                      : action.id === "share"
-                        ? () => setTimeout(() => setShareOpen(true), 0)
-                        : action.id === "export"
-                          ? () => {
-                              void exportChatAsMarkdown(chat.id, title).catch(
-                                () => toast.error("Couldn't export the chat."),
-                              );
-                            }
-                          : action.id === "fork"
-                            ? () =>
-                                // No fromMessageId — clones the WHOLE chat,
-                                // same mutation the per-message fork uses.
-                                forkMutation.mutate(
-                                  { chatId: chat.id },
-                                  {
-                                    onSuccess: (forked) =>
-                                      router.push(`/chat/${forked.id}`),
-                                  },
-                                )
-                            : action.id === "archive"
-                              ? () =>
-                                  archiveMutation.mutate({
-                                    id: chat.id,
-                                    archived:
-                                      chat.archivedAt === null ? true : false,
-                                  })
-                              : action.id === "delete"
-                                ? () => setTimeout(() => setDeleteOpen(true), 0)
-                                : undefined;
-
-                const Icon =
-                  action.id === "pin" && isPinned ? PinOffIcon : action.icon;
-                const label =
-                  action.id === "pin" && isPinned
-                    ? "Unpin"
-                    : action.id === "archive"
-                      ? chat.archivedAt === null
-                        ? "Archive"
-                        : "Unarchive"
-                      : action.label;
-
-                return (
-                  <DropdownMenuItem
-                    key={action.id}
-                    disabled={!onSelect}
-                    onSelect={onSelect}
-                    variant={action.destructive ? "destructive" : "default"}
-                  >
-                    <Icon />
-                    <span>{label}</span>
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuGroup>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <ShareChatDialog
-        chat={{ id: chat.id, visibility: chat.visibility }}
-        open={shareOpen}
-        onOpenChange={setShareOpen}
-      />
-      <RenameChatDialog
-        chat={{ id: chat.id, title }}
-        open={renameOpen}
-        onOpenChange={setRenameOpen}
-      />
-      <DeleteChatDialog
-        chat={{ id: chat.id, title }}
-        isActive={isActive}
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-      />
-    </SidebarMenuItem>
+    <ChatItemRow isActive={isActive}>
+      <ChatItemLink {...row} />
+      <PinButton {...row} />
+      <ChatItemMenu {...row} projects={projects} onNewProject={onNewProject} />
+      <ChatItemDialogs {...row} />
+    </ChatItemRow>
   );
 }

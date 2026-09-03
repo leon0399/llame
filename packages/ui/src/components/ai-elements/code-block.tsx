@@ -56,7 +56,7 @@ export async function highlightCode(
   language: BundledLanguage,
   showLineNumbers = false,
 ) {
-  const transformers: ShikiTransformer[] = showLineNumbers
+  const transformers: Array<ShikiTransformer> = showLineNumbers
     ? [lineNumberTransformer]
     : [];
 
@@ -123,11 +123,13 @@ export const CodeBlock = ({
           <div
             className="overflow-auto dark:hidden [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm"
             // biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
+            // safe-html: shiki codeToHtml output (see the codeToHtml calls above); shiki escapes the source and wraps it in its own spans
             dangerouslySetInnerHTML={{ __html: html }}
           />
           <div
             className="hidden overflow-auto dark:block [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-foreground! [&>pre]:text-sm [&_code]:font-mono [&_code]:text-sm"
             // biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
+            // safe-html: shiki codeToHtml output (see the codeToHtml calls above); shiki escapes the source and wraps it in its own spans
             dangerouslySetInnerHTML={{ __html: darkHtml }}
           />
           {children && (
@@ -180,6 +182,9 @@ export const CodeBlockCopyButton = ({
       onCopy?.();
       setTimeout(() => setIsCopied(false), timeout);
     } catch (error) {
+      // SAFETY: the try block's only fallible call is
+      // navigator.clipboard.writeText, which rejects with a DOMException — an
+      // Error subtype — per the Clipboard API spec.
       onError?.(error as Error);
     }
   };

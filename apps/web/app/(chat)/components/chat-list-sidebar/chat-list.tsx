@@ -18,12 +18,7 @@ import { SidebarRowSkeletons } from "../sidebar-row-skeletons";
 import { ChatItem } from "./chat-item";
 import { CreateProjectForChatDialog } from "./project-dialogs";
 
-// Chat list splits into two server-driven categories (design D4/D5):
-//   1. Pinned section — ?pinned=only&archived=with (includes archived pinned)
-//   2. All section    — ?pinned=exclude (archived excluded by default)
-// This retires bug #204 by construction: Pinned is a discrete rendered
-// section above the time-grouped All, never interleaved.
-export function ChatList() {
+function useChatListData() {
   const pathname = usePathname();
   const routeChatId = pathname.startsWith("/chat/")
     ? pathname.split("/")[2]
@@ -53,61 +48,108 @@ export function ChatList() {
     [pins],
   );
 
+  return {
+    routeChatId,
+    pinnedChats,
+    allChats,
+    allProjects,
+    pinnedAtByChatId,
+    hasData,
+    isLoading: chatsLoading || pinnedLoading,
+  };
+}
+
+function PinnedChatsSection({
+  chats,
+  routeChatId,
+  projects,
+  onNewProject,
+}: {
+  chats: ReturnType<typeof useChatListData>["pinnedChats"];
+  routeChatId: string | undefined;
+  projects: ReturnType<typeof useChatListData>["allProjects"];
+  onNewProject: (chatId: string) => void;
+}) {
+  if (chats.length === 0) return null;
+
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel className="sticky top-0 z-10 bg-sidebar md:bg-background">
+        Pinned
+      </SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {chats.map((chat) => (
+            <ChatItem
+              key={chat.id}
+              chat={chat}
+              isActive={chat.id === routeChatId}
+              projects={projects}
+              onNewProject={
+                onNewProject ? () => onNewProject(chat.id) : undefined
+              }
+              isPinned={true}
+            />
+          ))}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
+function ChatListLoadingState() {
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>Today</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarRowSkeletons />
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
+function ChatListEmptyState() {
+  return (
+    <SidebarGroup>
+      <SidebarGroupContent>
+        <div className="px-2 text-muted-foreground w-full flex flex-row justify-center items-center text-sm gap-2">
+          Your conversations will appear here once you start chatting!
+        </div>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
+// Chat list splits into two server-driven categories (design D4/D5):
+//   1. Pinned section — ?pinned=only&archived=with (includes archived pinned)
+//   2. All section    — ?pinned=exclude (archived excluded by default)
+// This retires bug #204 by construction: Pinned is a discrete rendered
+// section above the time-grouped All, never interleaved.
+export function ChatList() {
+  const {
+    routeChatId,
+    pinnedChats,
+    allChats,
+    allProjects,
+    pinnedAtByChatId,
+    hasData,
+    isLoading,
+  } = useChatListData();
   const [newProjectChatId, setNewProjectChatId] = React.useState<string | null>(
     null,
   );
 
-  if (chatsLoading || pinnedLoading) {
-    return (
-      <SidebarGroup>
-        <SidebarGroupLabel>Today</SidebarGroupLabel>
-        <SidebarGroupContent>
-          <SidebarRowSkeletons />
-        </SidebarGroupContent>
-      </SidebarGroup>
-    );
-  }
-
-  if (!hasData && pinnedChats.length === 0) {
-    return (
-      <SidebarGroup>
-        <SidebarGroupContent>
-          <div className="px-2 text-muted-foreground w-full flex flex-row justify-center items-center text-sm gap-2">
-            Your conversations will appear here once you start chatting!
-          </div>
-        </SidebarGroupContent>
-      </SidebarGroup>
-    );
-  }
+  if (isLoading) return <ChatListLoadingState />;
+  if (!hasData && pinnedChats.length === 0) return <ChatListEmptyState />;
 
   return (
     <>
-      {pinnedChats.length > 0 && (
-        <SidebarGroup>
-          <SidebarGroupLabel className="sticky top-0 z-10 bg-sidebar md:bg-background">
-            Pinned
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {pinnedChats.map((chat) => (
-                <ChatItem
-                  key={chat.id}
-                  chat={chat}
-                  isActive={chat.id === routeChatId}
-                  projects={allProjects}
-                  onNewProject={
-                    setNewProjectChatId
-                      ? () => setNewProjectChatId(chat.id)
-                      : undefined
-                  }
-                  isPinned={true}
-                />
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      )}
-
+      <PinnedChatsSection
+        chats={pinnedChats}
+        routeChatId={routeChatId}
+        projects={allProjects}
+        onNewProject={setNewProjectChatId}
+      />
       {hasData && (
         <ChatTimeGroups
           chats={allChats}

@@ -1,23 +1,28 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-const listProjectsEndpoint = vi.hoisted(() => vi.fn());
-const authenticatedFetch = vi.hoisted(() => vi.fn());
-const createAuthenticatedBrowserFetch = vi.hoisted(() => vi.fn());
-
-vi.mock("../../api/generated/projects/projects", () => ({
-  listProjects: listProjectsEndpoint,
-}));
-vi.mock("../../api/fetch", () => ({
-  createAuthenticatedBrowserFetch,
-}));
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 
 import { fetchProjects, projectQueryKeys } from "./queries";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "../../test-support/fetch-stub";
 
-createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+let fetchMock: Mock<typeof fetch>;
+
+beforeEach(() => {
+  fetchMock = stubFetch();
+});
 
 afterEach(() => {
-  vi.clearAllMocks();
-  createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
+  vi.unstubAllGlobals();
 });
 
 describe("projectQueryKeys", () => {
@@ -33,28 +38,25 @@ describe("projectQueryKeys", () => {
 
 describe("fetchProjects", () => {
   it("lists projects through the generated authenticated endpoint", async () => {
-    listProjectsEndpoint.mockResolvedValue([{ id: "p1" }]);
+    fetchMock.mockResolvedValue(jsonResponse([{ id: "p1" }]));
     await fetchProjects();
-    expect(listProjectsEndpoint).toHaveBeenCalledWith(
-      undefined,
-      undefined,
-      authenticatedFetch,
-    );
-    expect(createAuthenticatedBrowserFetch).toHaveBeenCalledWith(
-      globalThis.fetch,
-    );
+
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("GET");
+    expect(new URL(request.url).pathname).toBe("/api/v1/projects");
+    expect(new URL(request.url).search).toBe("");
+    expect(request.credentials).toBe("include");
   });
 
   it("passes server filters to the generated endpoint", async () => {
-    listProjectsEndpoint.mockResolvedValue([]);
+    fetchMock.mockResolvedValue(jsonResponse([]));
     const filters = { pinned: "only" as const, archived: "with" as const };
 
     await fetchProjects(filters);
 
-    expect(listProjectsEndpoint).toHaveBeenCalledWith(
-      filters,
-      undefined,
-      authenticatedFetch,
-    );
+    const request = requestFromCall(fetchMock);
+    const params = new URL(request.url).searchParams;
+    expect(params.get("pinned")).toBe("only");
+    expect(params.get("archived")).toBe("with");
   });
 });

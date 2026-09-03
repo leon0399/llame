@@ -188,11 +188,11 @@ export const MathDelimiters: Story = {
       "between $5 and $10 per seat, or $1,000 to $2,000 a year",
       "Entities in that prose still resolve: $5 & $10 per invoice",
       "the plan costs $20 per seat",
-      "write \\(x\\) for that",
-      "\\(y\\)",
+      String.raw`write \(x\) for that`,
+      String.raw`\(y\)`,
       "An unpaired ( stops at the paragraph",
       "It never pairs with a ) down here",
-      "\\(z\\)",
+      String.raw`\(z\)`,
     ]) {
       await expect(rendered).toContain(literal);
     }
