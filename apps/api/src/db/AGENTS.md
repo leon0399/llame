@@ -28,7 +28,8 @@ Edit `src/db/schema/`, then run `pnpm db:generate` and
 `pnpm --filter api db:check`. A no-schema-changes result proves the schema is in
 sync; `db:check` validates the migrations, journal, and snapshot chain. Never
 hand-edit generated SQL without a reason in the migration's SQL header. Journal
-edits are limited to the P4 rebase procedure and record ordering only.
+edits are limited to the P4 rebase procedure and record ordering only. Never
+hand-edit generated metadata snapshots.
 
 ## The four migration patterns
 
@@ -61,9 +62,10 @@ not** `CREATE OR REPLACE` it. `CREATE OR REPLACE FUNCTION` requires the executin
 role to already own the function, and on any instance that ran
 `db:provision-rls` the owner is `app_rls` — which `app` is deliberately never a
 member of. An in-place edit therefore fails `db:migrate` on exactly the
-instances that deployed correctly. Add a **new sibling function** instead, and
-re-run `pnpm db:provision-rls` after applying. These functions return
-identifiers, timestamps, and counts only — never content or vectors.
+instances that deployed correctly. Add a **new sibling function**, add its
+ownership and execute grants to `docker/postgres/rls-function-owner.sql`, then
+run `pnpm db:provision-rls`. These functions return identifiers, timestamps,
+and counts only — never content or vectors.
 
 **P4 — apply order comes from the journal, not filenames.** `0000`–`0023` are
 index-prefixed; `drizzle.config.ts` now sets `migrations.prefix: 'timestamp'`,

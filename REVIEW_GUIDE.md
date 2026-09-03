@@ -158,8 +158,9 @@ duplication.
 
 - Model the HTTP API as resources plus standard verbs. `PATCH /resource/:id`,
   not RPC verb handles like `/chats/:id/rename`.
-- Every endpoint takes a class-validator DTO and returns an explicit response
-  type mirroring an egress allowlist — never an ad-hoc object.
+- Structured request bodies and queries use class-validator DTOs; scalar route
+  parameters use pipes. JSON endpoints return explicit response allowlists;
+  streaming endpoints document their transport contract.
 - **Defaults are hard to change.** A new default is a contract with every
   existing self-hoster. Anything that shares user data with a provider defaults
   to off, and the consent contract states its retroactivity and its

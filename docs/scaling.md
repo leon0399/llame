@@ -297,8 +297,10 @@ SELECT count(*) AS compactions
 FROM compactions;
 ```
 
-Stop and investigate if either count is non-zero. Stop compatible workers only
-after both counts are zero, then apply the migration and matching application
+Obtain maintainer agreement, stop every API process, drain or terminate accepted
+Runs on compatible workers, then stop workers and wait for compaction writes to
+settle. Run both checks as superuser or a `BYPASSRLS` role with `SELECT` on both
+tables. Stop if either count is non-zero. Apply the migration and application
 revision together. After the first `replacement_history` write, recover through
 a forward fix or restore a pre-migration snapshot and discard later writes. Do
 not remove replacement history without an approved retention policy.

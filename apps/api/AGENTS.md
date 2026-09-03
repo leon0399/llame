@@ -141,8 +141,8 @@ framing.
 
 Working rules, in order of how easily they are broken:
 
-- **Stored text is the sole replay authority.** Every persisted item stores its
-  complete final model-facing envelope in `data.text`. Producer, form, Run
+- **Stored text is the sole replay authority for `data-context`.** Each item
+  stores its complete final model-facing envelope in `data.text`. Producer, form, Run
   linkage, and payload are non-rendering metadata. An item with an unrecognized
   producer still replays its stored text verbatim; a metadata-only or empty-text
   item is inert and is never regenerated. **Never gate replay on current producer
@@ -288,9 +288,9 @@ Operator commands (`pnpm --filter api search:*`,
 `src/search/operations/cli.ts`): `backfill` (pure producer — enqueues, never
 calls a provider), `coverage`, `retry-failed`, `prune`,
 `projection-coverage` (the cutover gate for canonical conversation reads;
-returns no identifiers or content). All fail loudly rather than succeeding
-having silently done less than reported — including when `pnpm db:provision-rls`
-has not run, which their `SECURITY DEFINER` discovery functions need.
+returns no identifiers or content). `backfill`, `coverage`, and
+`projection-coverage` fail loudly without provisioned discovery functions;
+`retry-failed` and `prune` use owner-scoped writes.
 
 `search_conversations` has one canonical model result contract and no activation
 flag or legacy preview; its exact allowlist entry gates HTTP Run admission, and
@@ -378,8 +378,5 @@ Two surfaces have extra conditions:
   dynamic tool as unavailable. Roll back by removing MCP ids from the accepting
   API first, then draining bound Runs on still-capable workers.
 
-An accepted OpenSpec MAY instead declare an alpha-only single-revision hard
-cutover when mixed revisions and existing data are explicitly out of scope; do
-not infer that exception silently. Per-migration steps and the operator SQL:
-[`src/db/AGENTS.md`](src/db/AGENTS.md) and
+Per-migration steps and operator SQL: [`src/db/AGENTS.md`](src/db/AGENTS.md) and
 [docs/scaling.md](../../docs/scaling.md).

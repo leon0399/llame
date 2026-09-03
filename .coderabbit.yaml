@@ -22,11 +22,11 @@ reviews:
         (5) measured performance on a hot path.
 
         llame is multi-tenant and self-hosted. Treat request bodies, params, headers, model
-        output, tool results, and MCP responses as attacker-controlled. Always report, at any
-        confidence: authorization identity taken from client-controlled input; a tenant-bearing
-        table or query without datastore-level isolation; a fail-open branch in an authorization
-        path; a secret, resolved `{env:...}`/`{path:...}` value, MCP session id, or host
-        filesystem path reaching logs, errors, model context, or owner-visible output.
+        output, tool results, and MCP responses as attacker-controlled. Report a security finding
+        only with a reachable, evidence-backed path: client-controlled authorization identity;
+        missing datastore isolation for tenant data; fail-open authorization; or credentials,
+        resolved secrets, MCP session ids, or host paths reaching logs, errors, model context, or
+        owner-visible output.
 
         You are the consistently-present reviewer on this repository; a Codex reviewer runs
         intermittently as a second opinion. Do not assume anything is covered by someone else.
@@ -129,11 +129,8 @@ reviews:
 
   # Walkthrough poem adds no review value.
   poem: false
-  # Required for CodeRabbit to submit approving reviews at all. With this off
-  # (the default — and what the dashboard toggle resolves to for this repo)
-  # CodeRabbit only comments and never approves. Declared in-repo so approvals
-  # don't depend on dashboard state.
-  request_changes_workflow: true
+  # Human approval gates remain human-owned.
+  request_changes_workflow: false
   auto_apply_labels: true
 
 knowledge_base:

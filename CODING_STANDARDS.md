@@ -9,11 +9,15 @@ The most common failure is not bad code — it's unrequested code.
 - Solve the task as stated. Nothing else.
 - Do not refactor, rename, reformat, or "clean up" code the task doesn't require touching. Anything nearby that deserves fixing is a note, not a diff.
 - Do not add features, options, or handling for cases the task doesn't mention.
+- Required tenant isolation, fail-closed authorization, durability, and
+  transaction safety are part of every task.
 - Confine the blast radius. Regression risk scales with the code you _touch_, not the code you add: when an isolated new unit and a change threaded through shared paths would both satisfy the task, build the isolated unit — even at the cost of some duplication (§2 permits it). For example, when the ask can be one new minimalist pipeline with a new approach, don't deliver as an override woven through every existing pipeline.
 - Match the surrounding code — its abstraction level, naming, error handling, idioms. Do not import a pattern the codebase doesn't use, even one you prefer. Where the surroundings themselves break these rules, don't extend the violation into new code — and don't launch a cleanup either.
 - If the task is ambiguous, seems to demand a bigger design, or would be satisfied by something simpler than what was asked — say so _before_ building. Never run on an unstated assumption.
 
-**Challenge the ask — frontier models only.** The requirements can carry the bloat too. When reframing the requirement or its approach would remove substantial complexity while keeping the intent and functional outcome identical, propose the reframe — sketch the simpler version and what it deletes — and ask the human user before implementing. This is proposal-making, not decision-making: the human says yes or no, and what was asked gets built unless they say yes or iterate on a reframed ask. Gated by capability: Claude Fable 5 or later (and models of comparable intelligence) should raise such proposals; lesser models — Opus and below — must not second-guess requirements and implement as stated, raising only the flags above.
+When reframing a requirement would remove substantial complexity without
+changing its outcome, propose the smaller version before implementing. The
+human decides; otherwise build the stated requirement.
 
 ## 2. No speculative abstraction
 

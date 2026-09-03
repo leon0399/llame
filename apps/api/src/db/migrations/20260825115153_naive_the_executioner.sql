@@ -2,13 +2,12 @@
 -- compactions.tool_observation_ledger and adds required
 -- compactions.replacement_history. There is no legacy reader, fallback, dual
 -- writer, or backfill.
--- BEFORE APPLYING: quiesce API writers, keep compatible workers running, drain
--- or explicitly terminate every accepted nonterminal Run, then use an
--- administrative BYPASSRLS/superuser connection to verify zero nonterminal Runs
--- and zero compaction rows. The normal `app` role CANNOT perform that global
--- check under FORCE RLS — without app.current_user_id its reads are denied and
--- a false zero is possible. Stop workers only after both checks pass; apply
--- schema and application revisions together.
+-- BEFORE APPLYING TO THE MAINTAINER DATABASE: obtain maintainer agreement and
+-- stop every API process, including legacy readers. Keep compatible workers
+-- running until accepted Runs drain or are explicitly terminated, then stop
+-- them and wait for in-flight compaction writes to settle. Using a superuser or
+-- a BYPASSRLS role with SELECT on runs and compactions, verify both tables are
+-- empty before applying the schema and application revisions together.
 -- Rollback is unsupported after the first replacement_history write; there is
 -- no reverse conversion into tool_observation_ledger.
 -- Operator SQL: docs/scaling.md#compaction-replacement-history-hard-cutover
