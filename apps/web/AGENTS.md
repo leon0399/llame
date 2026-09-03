@@ -1,7 +1,8 @@
 # apps/web
 
 Next.js 16 App Router client. It owns browser/UI state and calls `apps/api` for
-all auth, chat, and persistence; it has no database.
+auth, chat, and product persistence; local UI preferences may use cookies. It
+has no database.
 
 Before changing Next behavior, read the relevant installed guide under
 `node_modules/next/dist/docs/`. Next 16 may differ from remembered APIs.
@@ -34,8 +35,9 @@ optional.
   jsdom placement.
 - `proxy.ts` must not query the API or database. `useMe()` keeps `staleTime: 0`
   and `refetchOnMount: "always"`.
-- Components and routes use handwritten feature services, never generated
-  modules directly. See [`lib/api/AGENTS.md`](lib/api/AGENTS.md).
+- Components and routes use handwritten feature services for runtime calls;
+  generated model types may be imported type-only. See
+  [`lib/api/AGENTS.md`](lib/api/AGENTS.md).
 - Chat send, reconnect, and run-event streams bypass generated bindings and use
   `authAwareFetch`; generated calls must not buffer them.
 - Chat history is TanStack Query state. Seed SSR data through hydration or

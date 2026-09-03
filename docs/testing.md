@@ -28,11 +28,13 @@ Tooling guards may live in the owning workspace's test directory.
    jsdom for headless hooks, Query cache logic, and temporarily containers that
    mock at least three modules, router, or AI streaming; add a one-line reason.
 6. Product E2E has one directory per user surface; app tests stay with apps.
-7. Tenant tables/endpoints ship datastore and app-layer negative tests.
+7. Tenant changes ship an RLS cross-tenant integration test and a separate
+   app-layer authorization unit test.
 8. New apps follow the same shape and own integration setup only when they own
    an external dependency.
-9. Retry is diagnostic. Playwright retries twice but `failOnFlakyTests` keeps a
-   recovered test red. Never fix flakes with wider timeouts/retries.
+9. Retry is diagnostic. In CI, Playwright retries twice and
+   `failOnFlakyTests` keeps a recovered test red; local runs use zero retries.
+   Never fix flakes with wider timeouts/retries.
 10. E2E builds and starts production web and rejects occupied ports. Do not turn
     dev compilation races into assertion waits or readiness endpoints.
 11. Reject tautologies: mock-return echoes, implementation-derived expected
@@ -67,7 +69,8 @@ unit ------+-> build ---------+
            +-> storybook
 ```
 
-- Lint workflow: Oxlint, formatting, repository anti-slop rules, Markdown.
+- Lint workflow: Oxlint, formatting, anti-slop rules, Markdown, OpenAPI, Knip,
+  jscpd, and Halstead difficulty.
 - Workflow lint: actionlint, zizmor, pinact.
 - CI: typecheck; unit/coverage/CRAP; build plus generated-diff check;
   Testcontainers integration; Storybook; production Playwright.

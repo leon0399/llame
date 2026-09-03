@@ -1,8 +1,8 @@
 # apps/storybook
 
 Storybook runtime and browser-test host for stories co-located in
-`packages/ui/src`. This workspace owns `.storybook/`, browser tests, and the
-static build; it does not own component stories.
+`packages/ui/src` and `apps/web`. This workspace owns `.storybook/`, browser
+tests, and the static build; it does not own component stories.
 
 ## Commands
 
@@ -18,7 +18,7 @@ pnpm --filter storybook typecheck
 ## Boundaries
 
 - `.storybook/main.ts`: `@storybook/nextjs-vite`, addon wiring, and the
-  `packages/ui/src` story glob.
+  `packages/ui/src` plus `apps/web` story globs.
 - `.storybook/preview.tsx`, `preview.css`: theme and Tailwind story-source scan.
 - `.storybook/vitest.setup.ts`: browser annotations; a11y failures are errors.
 - `test/`: node-only tooling guards with no co-locatable source owner.

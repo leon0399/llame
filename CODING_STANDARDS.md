@@ -28,6 +28,7 @@ The correct change is the smallest one that fully solves the current task.
   compensate for a shape the task can simplify.
 - Prefer composition to inheritance and one traceable path over pass-through
   layers.
+- Inheritance deeper than one level is prohibited.
 - Remove imports, parameters, functions, and flags orphaned by the change.
   Leave pre-existing dead code outside scope.
 - Add no compatibility shim when nothing uses the old path.

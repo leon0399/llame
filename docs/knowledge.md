@@ -59,19 +59,20 @@ contain current space ID/name, relative path, zero-based offset/limit, and an
 excerpt capped at 500 Unicode code points. Cropped excerpts show ellipses while
 coordinates still address the full passage.
 
-Space-scoped safe failures may return usable matches with `complete: false` and
-bounded warnings. Total failure, no inventory, timeout/cancel, invalid cursor,
-or global-limit failure is top-level and closed. Cursors are live keyset
-continuations, not snapshots.
+Unscoped search may return usable matches with `complete: false` when one space
+fails safely. An explicit target failure, total failure, no inventory,
+timeout/cancel, invalid cursor, or global-limit failure is top-level and closed.
+Cursors are live keyset continuations, not snapshots.
 
 ## Read and limits
 
 `knowledge_read` requires explicit `knowledgeSpaceId` and one admitted relative
 Markdown path. Optional zero-based `offset` and `limit` (1-2,000) select logical
 lines. Omitted limit reads the bounded remainder. Results contain numbered
-lines, `lineCount`, `nextOffset`, and `cutReason` (`line_limit` or
-`output_limit`). Cuts preserve whole lines; out-of-range offsets return
-`knowledge_range_invalid`.
+lines, `lineCount`, and the effective zero-based `offset`. When content remains,
+`nextOffset` names the continuation and `cutReason` is `line_limit` or
+`output_limit`; complete reads omit both. Cuts preserve whole lines;
+out-of-range offsets return `knowledge_range_invalid`.
 
 Files are capped at 1 MiB and must be complete UTF-8. Traversal, symlinks,
 malformed encoding, unsupported paths, excessive work, and unavailable mounts

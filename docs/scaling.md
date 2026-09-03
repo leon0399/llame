@@ -60,10 +60,10 @@ no parallel routing layer.
 
 ## Capacity
 
-A Run holds a DB connection during each `runAs` transaction. Per-process
-`db.poolSize` must cover total Run concurrency plus HTTP headroom for co-located
-APIs. Fleet `sum(poolSize x replicas)` must stay below Postgres
-`max_connections`.
+A Run holds an application-pool connection during each `runAs` transaction.
+Per-process `db.poolSize` must cover Run concurrency plus HTTP headroom.
+Postgres capacity must also include pg-boss's separate pool and reserved
+operator/migration connections; the fleet total stays below `max_connections`.
 
 | Load           | Scale with                          | Limit                                |
 | -------------- | ----------------------------------- | ------------------------------------ |

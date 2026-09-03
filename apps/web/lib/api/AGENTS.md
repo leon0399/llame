@@ -7,8 +7,9 @@ it directly. Regenerate both sides with `pnpm generate:api-client`; narrower
 commands are `generate:api-schema` and `generate:web-client`. Review the pinned
 `@orval/fetch` patch with every Orval upgrade.
 
-Only `lib/api/` and `lib/services/` may import generated modules. Components and
-routes use feature services, which own query keys, pagination, cancellation,
+Only `lib/api/` and `lib/services/` may import generated runtime modules.
+Type-only model imports are allowed in consumers and fixtures. Components and
+routes use feature services for requests, query keys, pagination, cancellation,
 cache invalidation, and domain errors.
 
 Generated code stays runtime-neutral: relative URLs; no Next, React, TanStack,

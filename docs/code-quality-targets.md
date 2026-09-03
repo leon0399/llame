@@ -17,11 +17,11 @@ map a function unambiguously; ten API functions currently report that visible
 | Duplication                |                    `<0.25%` | jscpd                           |
 | `any` / unparsed `unknown` |                         `0` | Oxlint and anti-slop            |
 
-Static metrics cover API, web, UI, and config-interpolation product source;
-tests, stories, generated clients, migrations, support, and vendored code are
-excluded. Coverage and CRAP cover API, web, and config-interpolation, including
-unimported product files. Storybook gates UI behavior until browser coverage is
-available.
+Halstead and duplication cover product source and exclude tests, stories,
+generated clients, migrations, support, and vendored code. Oxlint also checks
+tests, stories, and E2E; only their size limits are relaxed. Coverage and CRAP
+cover API, web, and config-interpolation, including unimported product files.
+Storybook gates UI behavior until browser coverage is available.
 
 | Workspace            |   Lines | Statements |
 | -------------------- | ------: | ---------: |

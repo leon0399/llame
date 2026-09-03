@@ -42,6 +42,10 @@ path and failure.
 - Preserve `messages.parts`, stored order, and stored context-item text. New
   replay transforms or omissions require a spec.
 - Every Run stays on pg-boss; `RunExecutionService` remains HTTP-independent.
+- Changes to server-authored data semantics define one API/worker revision
+  boundary with rollout and rollback procedures.
+- Write-capable tools require checkpoint or dedupe semantics before execution;
+  queue recovery may repeat a tool call.
 
 ### Existence and scope
 
@@ -62,7 +66,8 @@ path and failure.
 - Never edit generated clients or OpenAPI output by hand.
 - APIs use resources and standard verbs, validated DTOs, and explicit response
   allowlists. Defaults are durable contracts; provider data sharing defaults
-  off. Config errors fail boot with the bad path.
+  off and states retroactivity plus non-erasability together. Config errors fail
+  boot with the bad path.
 - Unimplemented UI is a visible disabled placeholder, never hidden or clickable
   without behavior. Do not add noisy per-request or per-token logs.
 - TypeScript remains the only web/API/worker language.

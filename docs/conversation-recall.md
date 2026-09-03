@@ -19,7 +19,8 @@ Before an HTTP process accepts search Runs or any process registers `runs`
 consumption, `pnpm --filter api search:projection-coverage` must report complete
 current locator coverage. Workers gate even when their local allowlist omits
 search because accepted Runs carry immutable declarations. Processes that
-neither accept nor consume Runs skip the gate. Failures expose counts only.
+neither accept nor consume Runs skip the gate. Incomplete coverage exposes
+counts only; provisioning and query failures report the operational error.
 
 ## Contract
 

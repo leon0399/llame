@@ -67,11 +67,12 @@ Specs: [instance config](../../openspec/specs/instance-config/spec.md),
 
 ## Model-context rail
 
-Every server-authored, non-system-prompt contribution is a stored context item
-whose complete model-facing envelope lives in `data.text`.
+Every newly authored `data-context` contribution stores its complete
+model-facing envelope in `data.text`.
 
-- Replay stored text and part order verbatim. Metadata never regenerates text;
-  unknown producers remain stored but render nothing.
+- Replay non-empty stored text and part order verbatim, including unknown
+  producers/forms. Metadata never regenerates text; missing or empty text is
+  inert.
 - Temporal items persist instant and IANA zone and say "received", not
   "current".
 - Historical events use the rail. Slowly changing complete state uses the

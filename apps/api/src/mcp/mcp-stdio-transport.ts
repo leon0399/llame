@@ -170,9 +170,8 @@ function delay(ms: number): Promise<void> {
  * `Buffer.concat`: a child that writes without ever emitting a newline grows
  * this process's heap without limit, unlike the remote transport's response
  * body, which `mcp-bounded-fetch.ts` caps before parsing. This applies the
- * same cap to the one accumulation point stdio has. The check runs before the
- * concat, not after, so an oversized write is refused at ~cap + one chunk of
- * peak memory rather than after allocating the oversized buffer once.
+ * same cap to each newline-delimited message and trailing partial message. The
+ * check runs before concatenation, so an oversized message is never retained.
  */
 export class BoundedReadBuffer {
   private buffer: Buffer | undefined;
@@ -181,11 +180,24 @@ export class BoundedReadBuffer {
   constructor(private readonly maxBytes: number) {}
 
   append(chunk: Buffer): void {
-    const nextLength = (this.buffer?.length ?? 0) + chunk.length;
-    if (this.limitExceeded || nextLength > this.maxBytes) {
-      this.limitExceeded = true;
-      this.buffer = undefined;
+    if (this.limitExceeded) {
       throw new McpStdioMessageLimitError(this.maxBytes);
+    }
+    const lastBufferedNewline = this.buffer?.lastIndexOf(0x0a) ?? -1;
+    let messageBytes = (this.buffer?.length ?? 0) - (lastBufferedNewline + 1);
+    let start = 0;
+    while (start < chunk.length) {
+      const newline = chunk.indexOf(0x0a, start);
+      const end = newline === -1 ? chunk.length : newline;
+      messageBytes += end - start;
+      if (messageBytes > this.maxBytes) {
+        this.limitExceeded = true;
+        this.buffer = undefined;
+        throw new McpStdioMessageLimitError(this.maxBytes);
+      }
+      if (newline === -1) break;
+      messageBytes = 0;
+      start = newline + 1;
     }
     this.buffer = this.buffer ? Buffer.concat([this.buffer, chunk]) : chunk;
   }

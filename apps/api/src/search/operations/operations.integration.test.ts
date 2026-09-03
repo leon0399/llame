@@ -402,7 +402,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
         await pruneUndeclaredModelVectors(tenantDb, [declaredModel]);
 
       expect(prunedDocuments).toBeGreaterThanOrEqual(2);
-      expect(affectedOwners).toBeGreaterThanOrEqual(2);
+      expect(affectedOwners).toBe(2);
       expect(retiredBindings).toBeGreaterThanOrEqual(1);
       expect(await ledgerRowExists(undeclaredModel)).toBe(false);
       expect(await ledgerRowExists(declaredModel)).toBe(true);

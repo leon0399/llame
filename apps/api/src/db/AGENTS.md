@@ -15,7 +15,8 @@ pnpm --filter api db:check
 pnpm --filter api test:integration
 ```
 
-Fresh setup: `pnpm db:reset && pnpm db:migrate && pnpm db:provision-rls`.
+Run `pnpm db:provision-rls` after every `pnpm db:migrate`. Fresh setup:
+`pnpm db:reset && pnpm db:migrate && pnpm db:provision-rls`.
 Postgres must include pgvector and `pg_trgm`; stock Postgres is insufficient.
 
 Edit `src/db/schema/`, then run `pnpm db:generate` and
@@ -66,9 +67,9 @@ Org-unit/membership policies need the `app_rls`-owned
 `llame_role_on_unit_path(...)` function to avoid recursive RLS. Provisioning is
 split deliberately:
 
-1. Migrations create functions and grant reads as `app`.
-2. `pnpm db:provision-rls`, running as superuser, creates/uses `app_rls` and
-   reassigns function ownership.
+1. Initdb creates `app_rls`; old volumes must be reset or repaired as superuser.
+2. Migrations create functions and grant reads as `app`.
+3. `pnpm db:provision-rls`, running as superuser, reassigns function ownership.
 
 Never grant `app` membership in `app_rls`; that permits `SET ROLE` around forced
 RLS. Before provisioning, functions remain harmlessly owned by `app` and grant

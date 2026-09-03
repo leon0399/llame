@@ -150,8 +150,8 @@ broader claim.
 | Any change             | `pnpm format:check`; `git diff --check`                         |
 | Product Markdown       | `pnpm lint:markdown`                                            |
 | OpenSpec proposal      | `pnpm exec openspec validate <change> --strict`                 |
-| Workspace TypeScript   | affected `lint`, `typecheck`, `test`                            |
-| Root TypeScript        | `pnpm lint:code`; focused E2E if behavior changed               |
+| Workspace TypeScript   | affected `lint`, `typecheck`, and `test:coverage` when defined  |
+| Root TypeScript        | `pnpm lint`; focused E2E if behavior changed                    |
 | Buildable workspace    | `pnpm --filter <workspace> build`                               |
 | API DB/tenancy         | API integration suite plus negative isolation coverage          |
 | API/generated client   | OpenAPI lint, regeneration, second-generation clean diff        |

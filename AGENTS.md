@@ -63,7 +63,8 @@ build is required, use `pnpm exec turbo run build --concurrency=1`. Never run
 the unbounded root `pnpm build`.
 
 Playwright owns its Postgres, migrations, API, model/MCP fixtures, and
-production web build. Stop services using its default ports
+production web build unless `POSTGRES_URL` points at an external database;
+that database is neither started, reset, nor migrated. Stop services using its default ports
 `4300/4301/55433/4302/4303/4304` and any Next process using `apps/web` before
 E2E. Authenticated tests use `e2e/support/fixtures.ts`; destructive session
 tests use `freshAccount`.

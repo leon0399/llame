@@ -6,7 +6,8 @@ paths:
 # Storybook stories
 
 Stories feed the Storybook MCP manifest and browser tests. Use
-`packages/ui/src/components/model-switch-boundary.stories.tsx` as the reference.
+`packages/ui/src/components/custom/model-switch-boundary.stories.tsx` as the
+reference.
 
 ## Workflow
 
@@ -66,6 +67,8 @@ wrapper.
 AI Elements source lives in `vercel/ai-elements`
 `packages/examples/src/<component>*.tsx`; use the `librarian` skill to inspect
 it. Docs are at `https://elements.ai-sdk.dev/components/<name>`.
+Link the exact docs section from story JSDoc. Adapt only imports, icons, Next
+primitives, required a11y names, and preview-frame width; record other changes.
 
 ## Known failures
 

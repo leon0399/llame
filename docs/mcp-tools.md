@@ -1,7 +1,8 @@
 # MCP tools
 
 llame connects to operator-managed MCP servers and exposes selected read-only
-tools. Configuration is instance-scoped and restart-applied; every API/worker
+tools. Put `mcpServers` in `apps/api/llame.config.json`; `LLAME_CONFIG_PATH`
+overrides that path. Configuration is restart-applied, and every API/worker
 process owns its clients and sessions.
 
 ## Configure remote HTTP
@@ -127,6 +128,11 @@ Pre-alpha deployments run one code revision. Restart every API and worker with
 matching server config, allowlists, secrets, and reachability. Enable one exact
 read-only tool first and verify execution, replay, outage recovery, and secret
 absence before adding more.
+
+Before an availability-writer migration, stop API writers and drain accepted
+Runs on compatible workers. Apply the migration, then restart every process on
+the matching revision. Rollback stops new authoring, drains bound Runs on
+compatible workers, then reverses the schema and binary order.
 
 ## Troubleshooting
 

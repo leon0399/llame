@@ -354,4 +354,14 @@ describe('BoundedReadBuffer', () => {
     buffer.append(Buffer.from('4567'));
     expect(buffer.readMessage()).toBeNull();
   });
+
+  it('applies the cap to each newline-delimited message', () => {
+    const buffer = new BoundedReadBuffer(40);
+    const message = '{"jsonrpc":"2.0","method":"x"}\n';
+    buffer.append(Buffer.from(message.repeat(3)));
+
+    expect(buffer.readMessage()).toMatchObject({ method: 'x' });
+    expect(buffer.readMessage()).toMatchObject({ method: 'x' });
+    expect(buffer.readMessage()).toMatchObject({ method: 'x' });
+  });
 });
