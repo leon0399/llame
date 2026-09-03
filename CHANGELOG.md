@@ -4,6 +4,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - **UTC-stable auth timestamps**: the remaining naive auth timestamp columns
   migrate to `timestamptz` with explicit UTC conversion.
+- **Repository quality gates**: standard lint, component-test, coverage, static
+  analysis, and mutation commands now run through package scripts and CI.
 
 # 2026-08-28
 
