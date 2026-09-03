@@ -9,8 +9,6 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     exclude: [
       'src/**/*.integration.test.ts',
-      'src/instance-config/config-loader.test.ts',
-      'src/instance-config/knowledge-config.test.ts',
       'src/mcp/mcp-runtime.module.test.ts',
     ],
     maxWorkers: 4,
