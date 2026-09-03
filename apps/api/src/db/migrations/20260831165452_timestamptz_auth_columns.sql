@@ -14,5 +14,5 @@
 -- `verification_tokens` has no reader anywhere outside the schema file; it is
 -- vestigial and a candidate for deletion under the pre-launch evolution policy,
 -- which is a separate decision from correcting its type here.
-ALTER TABLE "users" ALTER COLUMN "email_verified" SET DATA TYPE timestamp with time zone;--> statement-breakpoint
-ALTER TABLE "verification_tokens" ALTER COLUMN "expires" SET DATA TYPE timestamp with time zone;
+ALTER TABLE "users" ALTER COLUMN "email_verified" SET DATA TYPE timestamp with time zone USING "email_verified" AT TIME ZONE 'UTC';--> statement-breakpoint
+ALTER TABLE "verification_tokens" ALTER COLUMN "expires" SET DATA TYPE timestamp with time zone USING "expires" AT TIME ZONE 'UTC';

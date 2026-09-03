@@ -12,7 +12,7 @@
  * archive guard's branching in `update`, or `delete`'s boolean-return
  * contract — this file closes that gap.
  *
- * TEST_DATABASE_URL-gated; run by test:integration.
+ * Requires TEST_DATABASE_URL; run by test:integration.
  */
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
@@ -24,10 +24,14 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ProjectsRepository } from './projects-repository';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
-const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+if (!TEST_DB_URL) {
+  throw new Error(
+    'projects-repository.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration`.',
+  );
+}
 type SqlClient = ReturnType<typeof postgres>;
 
-describeIfDb('ProjectsRepository (real Postgres)', () => {
+describe('ProjectsRepository (real Postgres)', () => {
   let sqlClient: SqlClient;
   let db: Db;
   let tenantDb: TenantDbService;
@@ -56,8 +60,8 @@ describeIfDb('ProjectsRepository (real Postgres)', () => {
   }
 
   beforeAll(async () => {
-    const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-    sqlClient = postgres(TEST_DB_URL!, { ssl, max: 5 });
+    const ssl = /sslmode=require/.test(TEST_DB_URL) ? 'require' : false;
+    sqlClient = postgres(TEST_DB_URL, { ssl, max: 5 });
     db = drizzle(sqlClient, { schema });
     tenantDb = new TenantDbService(db);
     ownerA = crypto.randomUUID();
