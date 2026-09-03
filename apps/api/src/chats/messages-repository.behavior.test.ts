@@ -7,10 +7,18 @@ import type { Db } from '../db/tenant-db.service';
 import { MessagesRepository } from './messages-repository';
 
 type QueryValue = ReadonlyArray<unknown>;
+type MessageInsert = typeof schema.messages.$inferInsert;
 
-function queryResult<T>(rows: ReadonlyArray<T>) {
+function queryResult<T>(
+  rows: ReadonlyArray<T>,
+  onValues?: (value: MessageInsert | Array<MessageInsert>) => void,
+) {
   const terminal = Promise.resolve(rows);
   const chain = () => terminal;
+  const values = (value: MessageInsert | Array<MessageInsert>) => {
+    onValues?.(value);
+    return terminal;
+  };
   return Object.assign(terminal, {
     from: chain,
     where: chain,
@@ -18,7 +26,7 @@ function queryResult<T>(rows: ReadonlyArray<T>) {
     limit: chain,
     groupBy: chain,
     innerJoin: chain,
-    values: chain,
+    values,
     set: chain,
     onConflictDoNothing: chain,
     returning: () => terminal,
@@ -222,9 +230,14 @@ describe('MessagesRepository writes', () => {
   it('chunks createMany input and creates user and assistant rows with a sequence', async () => {
     const createdUser = message(1);
     const createdAssistant = message(2, 'assistant');
-    const db = makeDb({
-      insert: [[createdUser], [createdAssistant]],
-    });
+    const db = makeDb({});
+    const batches: Array<unknown> = [];
+    vi.spyOn(db, 'insert').mockImplementation(() =>
+      asQuery(queryResult([], (rows) => batches.push(rows))),
+    );
+    const insertedRows: Array<unknown> = [];
+    const createdRows = [createdUser, createdAssistant];
+    let insertCall = 0;
     const transaction = vi
       .spyOn(db, 'transaction')
       .mockImplementation(async (callback) => {
@@ -232,24 +245,34 @@ describe('MessagesRepository writes', () => {
         // methods used by insertWithChatSequence.
         // eslint-disable-next-line typescript/no-unsafe-type-assertion
         return callback({
-          select: () => asQuery(queryResult([{ value: 0 }])),
-          insert: () => asQuery(queryResult([])),
+          select: () => asQuery(queryResult([{ value: insertCall }])),
+          insert: () => {
+            const created = createdRows[insertCall++];
+            if (created === undefined) throw new Error('unexpected insert');
+            return asQuery(
+              queryResult([created], (row) => insertedRows.push(row)),
+            );
+          },
         } as never);
       });
     const repository = new MessagesRepository(db);
 
-    await repository.createMany([
-      {
-        id: 'copy-1',
+    await repository.createMany(
+      Array.from({ length: 501 }, (_, index) => ({
+        id: `copy-${index + 1}`,
         chatId: chat.id,
-        seq: 1,
+        seq: index + 1,
         role: 'user',
         senderUserId: chat.ownerUserId,
         parts: [],
         attachments: [],
         inReplyTo: null,
-      },
-    ]);
+      })),
+    );
+    expect(batches).toHaveLength(2);
+    expect(
+      batches.map((batch) => (Array.isArray(batch) ? batch.length : 0)),
+    ).toEqual([500, 1]);
     await expect(
       repository.createUserMessageIfAbsent({
         id: 'user-message',
@@ -257,15 +280,19 @@ describe('MessagesRepository writes', () => {
         senderUserId: chat.ownerUserId,
         parts: [],
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(createdUser);
     await expect(
       repository.createAssistantReplyIfAbsent({
         chatId: chat.id,
         inReplyTo: 'user-message',
         parts: [],
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(createdAssistant);
     expect(transaction).toHaveBeenCalledTimes(2);
+    expect(insertedRows).toEqual([
+      expect.objectContaining({ role: 'user', seq: 1 }),
+      expect.objectContaining({ role: 'assistant', seq: 2 }),
+    ]);
   });
 
   it('returns existing turn state and updates only a retryable assistant', async () => {

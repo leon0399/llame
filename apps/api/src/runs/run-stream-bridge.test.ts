@@ -721,9 +721,9 @@ describe('RunStreamBridgeService', () => {
   });
 
   it('closes without output when the client aborts before polling', async () => {
-    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
-      [],
-    );
+    const listByRunId = vi
+      .spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValue([]);
     const controller = new AbortController();
     controller.abort();
     const { bridge } = bridgeFixture();
@@ -735,5 +735,6 @@ describe('RunStreamBridgeService', () => {
     });
 
     await expect(response.text()).resolves.toBe('');
+    expect(listByRunId).not.toHaveBeenCalled();
   });
 });

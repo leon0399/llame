@@ -92,6 +92,7 @@ describe('AssistantPartCollector', () => {
     const over = 'o'.repeat(REASONING_PERSIST_MAX + 1);
 
     collector.reasoning(exact);
+    expect(collector.parts()).toEqual([{ type: 'reasoning', text: exact }]);
     collector.reasoning(over);
 
     expect(collector.parts()).toEqual([

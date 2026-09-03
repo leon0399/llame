@@ -92,6 +92,17 @@ describe('Knowledge filesystem I/O helpers', () => {
     ).rejects.toEqual(new Error('factory failed'));
   });
 
+  it('does not invoke a resource factory after cancellation', async () => {
+    const controller = new AbortController();
+    const factory = vi.fn(() => Promise.resolve({ close: vi.fn() }));
+    controller.abort();
+
+    await expect(
+      observeResource(factory, controller.signal),
+    ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
+    expect(factory).not.toHaveBeenCalled();
+  });
+
   it('translates close failures and prioritizes cancellation after close', async () => {
     const failure = new Error('close failed');
     await expect(
@@ -101,7 +112,7 @@ describe('Knowledge filesystem I/O helpers', () => {
     const controller = new AbortController();
     const close = vi.fn(() => {
       controller.abort();
-      return Promise.resolve();
+      return Promise.reject(failure);
     });
     await expect(
       closeResource({ close }, controller.signal),

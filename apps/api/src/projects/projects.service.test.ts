@@ -54,7 +54,7 @@ describe('ProjectsService', () => {
   });
 
   it('forwards list filters and the owner to the repository', async () => {
-    const { service } = makeService();
+    const { service, runAsSpy } = makeService();
     const listForUser = vi
       .spyOn(ProjectsRepository.prototype, 'listForUser')
       .mockResolvedValue([project]);
@@ -65,6 +65,10 @@ describe('ProjectsService', () => {
     ).resolves.toEqual([project]);
 
     expect(listForUser).toHaveBeenCalledWith('verified-user', filter);
+    expect(runAsSpy).toHaveBeenCalledWith(
+      'verified-user',
+      expect.any(Function),
+    );
   });
 
   it('uses the owner scope for reads, updates, and deletes', async () => {
@@ -96,7 +100,11 @@ describe('ProjectsService', () => {
       name: 'Renamed',
     });
     expect(remove).toHaveBeenCalledWith(project.id, project.ownerUserId);
-    expect(runAsSpy).toHaveBeenCalledTimes(3);
+    expect(runAsSpy.mock.calls).toEqual([
+      [project.ownerUserId, expect.any(Function)],
+      [project.ownerUserId, expect.any(Function)],
+      [project.ownerUserId, expect.any(Function)],
+    ]);
   });
 
   it('defaults a missing list filter to an empty object', async () => {

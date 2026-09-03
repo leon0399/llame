@@ -106,6 +106,7 @@ async function buildWorker(
   const warnSpy = vi
     .spyOn(Logger.prototype, 'warn')
     .mockImplementation(() => {});
+  const logSpy = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
   const ensureQueue = vi.fn().mockResolvedValue(undefined);
   const consume = vi.fn(
     (
@@ -176,6 +177,7 @@ async function buildWorker(
     ensureQueue,
     errorSpy,
     indexService,
+    logSpy,
     schedule,
     warnSpy,
     worker,
@@ -379,7 +381,20 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
       const rows = call++ < 3 ? [{ bypass: true }] : staleRows;
       return fn({ execute: () => Promise.resolve(rows) });
     };
-    const enqueueChatReindex = vi.fn().mockResolvedValue(undefined);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const releases: Array<() => void> = [];
+    const enqueueChatReindex = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          releases.push(() => {
+            inFlight -= 1;
+            resolve();
+          });
+        }),
+    );
     const harness = await buildWorker(runAsPublic, {
       dispatch: { enqueueChatReindex },
     });
@@ -388,10 +403,22 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
     if (sweepHandler === undefined)
       throw new Error('sweep handler was not registered');
 
-    await sweepHandler();
+    const sweep = sweepHandler();
+    await vi.waitFor(() =>
+      expect(enqueueChatReindex).toHaveBeenCalledTimes(20),
+    );
+    expect(maxInFlight).toBe(20);
+    releases.splice(0).forEach((release) => release());
+    await vi.waitFor(() =>
+      expect(enqueueChatReindex).toHaveBeenCalledTimes(21),
+    );
+    releases.splice(0).forEach((release) => release());
+    await sweep;
 
     expect(enqueueChatReindex).toHaveBeenCalledTimes(staleRows.length);
-    expect(harness.worker).toBeDefined();
+    expect(harness.logSpy).toHaveBeenCalledWith(
+      'Sweep enqueued 21 chat reindex job(s)',
+    );
   });
 
   it('logs and rethrows a failed sweep', async () => {

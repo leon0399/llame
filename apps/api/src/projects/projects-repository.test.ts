@@ -117,7 +117,10 @@ describe('ProjectsRepository list ordering', () => {
       .catch(() => null);
 
     expect(lastQuery(queries).sql).toContain('not exists');
-    expect(lastQuery(queries).params).toContain('owner');
+    expect(lastQuery(queries).sql).toContain('"pins"."user_id" = $');
+    expect(
+      lastQuery(queries).params.filter((value) => value === 'owner'),
+    ).toHaveLength(2);
     expect(lastQuery(queries).params).toContain('project');
   });
 });

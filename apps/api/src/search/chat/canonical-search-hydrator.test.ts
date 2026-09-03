@@ -4,6 +4,8 @@ import {
   type CanonicalHydrationRow,
 } from './canonical-search-hydrator';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import { is, SQL } from 'drizzle-orm';
 
 import * as schema from '../../db/schema';
 import type { Db } from '../../db/tenant-db.service';
@@ -496,22 +498,44 @@ describe('hydrateCanonicalSearchCandidate', () => {
 
   it('executes one query for a valid owner and UUID candidate', async () => {
     const tx: Db = drizzle.mock({ schema });
+    const rows = [
+      row(),
+      row({
+        message_id: LAST_MESSAGE_ID,
+        message_seq: '11',
+        message_role: 'assistant',
+        message_parts: [{ type: 'text', text: 'last source' }],
+      }),
+    ];
     const execute = vi.spyOn(tx, 'execute').mockResolvedValue(
-      Object.assign([], {
+      Object.assign(rows, {
         columns: [],
-        count: 0,
+        count: rows.length,
         command: 'SELECT',
         statement: { name: '', string: '', types: [], columns: [] },
         state: { status: 'I', pid: 0, secret: 0 },
       }),
     );
 
-    await expect(
-      hydrateCanonicalSearchCandidate(tx, 'owner-A', {
-        chatId: CHAT_ID,
-        bestDocumentId: DOCUMENT_ID,
-      }),
-    ).resolves.toBeNull();
+    const result = await hydrateCanonicalSearchCandidate(tx, 'owner-A', {
+      chatId: CHAT_ID,
+      bestDocumentId: DOCUMENT_ID,
+    });
+    expect(result?.chatId).toBe(CHAT_ID);
+    expect(result?.messages.map(({ messageSeq }) => messageSeq)).toEqual([
+      7, 11,
+    ]);
     expect(execute).toHaveBeenCalledTimes(1);
+    const query = execute.mock.calls[0]?.[0];
+    if (!is(query, SQL)) throw new Error('expected hydration SQL');
+    const compiled = new PgDialect().sqlToQuery(query);
+    expect(compiled.sql).toContain('document_chat.owner_user_id = $');
+    expect(compiled.sql).toContain('d.id = $');
+    expect(compiled.sql).toContain('d.chat_id = $');
+    expect(
+      compiled.params.filter((value) => value === 'owner-A').length,
+    ).toBeGreaterThan(1);
+    expect(compiled.params).toContain(CHAT_ID);
+    expect(compiled.params).toContain(DOCUMENT_ID);
   });
 });

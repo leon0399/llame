@@ -134,7 +134,7 @@ describe('buildCanonicalSearchExcerpt', () => {
   });
 
   it('clamps out-of-range exact coordinates and never emits a broken surrogate', () => {
-    const source = `${'a'.repeat(700)}😀${'b'.repeat(100)}`;
+    const source = `${'a'.repeat(498)}😀${'b'.repeat(302)}`;
     const result = buildCanonicalSearchExcerpt(
       passage(source, {
         startOffset: -100,
@@ -147,5 +147,6 @@ describe('buildCanonicalSearchExcerpt', () => {
       CANONICAL_SEARCH_MAX_EXCERPT_CODE_POINTS,
     );
     expect(result).not.toContain('\uFFFD');
+    expect(result).toContain('😀');
   });
 });

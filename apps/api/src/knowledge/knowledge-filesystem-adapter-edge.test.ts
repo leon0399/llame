@@ -64,6 +64,7 @@ type PortOptions = {
   readonly realpath?: (filePath: string) => string;
   readonly lstatFailure?: (filePath: string) => Error | undefined;
   readonly openFailure?: Error;
+  readonly opendirFailure?: Error;
 };
 
 function port(options: PortOptions = {}): KnowledgeFilesystemPort {
@@ -84,6 +85,9 @@ function port(options: PortOptions = {}): KnowledgeFilesystemPort {
       return Promise.resolve(noteStats);
     }),
     opendir: vi.fn(() => {
+      if (options.opendirFailure !== undefined) {
+        return Promise.reject(options.opendirFailure);
+      }
       let index = 0;
       const directory: KnowledgeFilesystemDirectory = {
         read: vi.fn(() => Promise.resolve(entries[index++] ?? null)),
@@ -125,6 +129,7 @@ describe('Knowledge filesystem adapter edge branches', () => {
       noteStats: fileStats(2),
       bytes: Buffer.from('x'),
     });
+    const open = vi.spyOn(fileSystem, 'open');
     const budget = {
       remainingEntries: 100,
       remainingFiles: 10,
@@ -136,6 +141,7 @@ describe('Knowledge filesystem adapter edge branches', () => {
         budget,
       }),
     ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
+    expect(open).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -249,12 +255,15 @@ describe('Knowledge filesystem adapter edge branches', () => {
   });
 
   it('translates a directory open failure and a realpath failure without leaking the cause', async () => {
-    const openFailure = port({
-      openFailure: Object.assign(new Error('gone'), { code: 'ENOENT' }),
+    const directoryFailure = port({
+      opendirFailure: Object.assign(new Error('gone'), { code: 'ENOENT' }),
     });
     await expect(
-      new KnowledgeFilesystemAdapter(binding(), openFailure).read('note.md'),
-    ).rejects.toMatchObject({ code: 'knowledge_not_found' });
+      new KnowledgeFilesystemAdapter(binding(), directoryFailure).search(
+        'needle',
+        5,
+      ),
+    ).rejects.toMatchObject({ code: 'knowledge_space_unavailable' });
 
     const realpathFailure = port({
       realpath: () => {

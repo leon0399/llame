@@ -10,6 +10,7 @@ import {
 } from './runs-repository';
 
 type QueryCall = { method: string; args: Array<unknown> };
+type LoggedQuery = { sql: string; params: Array<unknown> };
 
 type ActiveRunSummary = {
   id: string;
@@ -96,6 +97,15 @@ function makeDb(options: {
   return { db, calls, select, insert, update };
 }
 
+function makeLoggedDb() {
+  const queries: Array<LoggedQuery> = [];
+  const db: Db = drizzle.mock({
+    schema,
+    logger: { logQuery: (sql, params) => queries.push({ sql, params }) },
+  });
+  return { db, queries };
+}
+
 const now = new Date('2026-09-02T00:00:00.000Z');
 const run: Run = {
   id: 'run-1',
@@ -164,6 +174,21 @@ describe('RunsRepository', () => {
         beforeSeq: 10,
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it('binds owner, chat, and sequence cursor in the recent-run query', async () => {
+    const { db, queries } = makeLoggedDb();
+    await new RunsRepository(db)
+      .findMostRecentByChatMessageSequence('chat-bound', 'owner-bound', {
+        beforeSeq: 10,
+      })
+      .catch(() => undefined);
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0]?.sql).toContain('"runs"."chat_id" = $');
+    expect(queries[0]?.sql).toContain('"runs"."user_id" = $');
+    expect(queries[0]?.sql).toContain('"messages"."seq" < $');
+    expect(queries[0]?.params).toEqual(['chat-bound', 'owner-bound', 10, 1]);
   });
 
   it('reads runs by chat, active chat, active user, and owner-scoped id', async () => {
@@ -288,7 +313,10 @@ describe('RunEventsRepository', () => {
 
 describe('failRunTransactionally', () => {
   it('appends run.failed only when the terminal update wins', async () => {
-    const { db, insert } = makeDb({ update: [[run], []], insert: [[event]] });
+    const { db, calls, insert } = makeDb({
+      update: [[run], []],
+      insert: [[event]],
+    });
     const runAsCalls: Array<string> = [];
     const tenantDb = {
       runAs<T>(_userId: string, callback: (tx: Db) => Promise<T>): Promise<T> {
@@ -310,5 +338,10 @@ describe('failRunTransactionally', () => {
 
     expect(runAsCalls).toHaveLength(2);
     expect(insert).toHaveBeenCalledOnce();
+    expect(calls.find(({ method }) => method === 'values')?.args[0]).toEqual({
+      runId: run.id,
+      eventType: 'run.failed',
+      payload: { status: 'failed', message: 'failed once' },
+    });
   });
 });

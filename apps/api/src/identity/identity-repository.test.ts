@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import type { ExternalIdentity, Membership, OrgUnit } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
+import { isRecord } from '../unknown-record';
 import {
   ExternalIdentitiesRepository,
   MembershipsRepository,
@@ -54,22 +55,29 @@ type QueryRows = ReadonlyArray<
   | { orgUnitId: string; role: Membership['role'] }
   | { id: string }
 >;
+type QueryCall = { method: string; args: Array<unknown> };
+type LoggedQuery = { sql: string; params: Array<unknown> };
 
 /** A Promise fluent query double; every repository chain ends by awaiting it. */
-function queryResult(value: QueryRows) {
+function queryResult(value: QueryRows, calls: Array<QueryCall>) {
   const terminal = Promise.resolve(value);
-  const chain = () => terminal;
+  const chain =
+    (method: string) =>
+    (...args: Array<unknown>) => {
+      calls.push({ method, args });
+      return terminal;
+    };
   return Object.assign(terminal, {
-    from: chain,
-    where: chain,
-    orderBy: chain,
-    limit: chain,
-    for: chain,
-    groupBy: chain,
-    innerJoin: chain,
-    values: chain,
-    set: chain,
-    returning: () => terminal,
+    from: chain('from'),
+    where: chain('where'),
+    orderBy: chain('orderBy'),
+    limit: chain('limit'),
+    for: chain('for'),
+    groupBy: chain('groupBy'),
+    innerJoin: chain('innerJoin'),
+    values: chain('values'),
+    set: chain('set'),
+    returning: chain('returning'),
   });
 }
 
@@ -91,27 +99,37 @@ function makeDb(options: {
   const insertResults = [...(options.insert ?? [])];
   const updateResults = [...(options.update ?? [])];
   const deleteResults = [...(options.delete ?? [])];
+  const calls: Array<QueryCall> = [];
   const select = vi
     .spyOn(db, 'select')
     .mockImplementation(() =>
-      asQuery(queryResult(selectResults.shift() ?? [])),
+      asQuery(queryResult(selectResults.shift() ?? [], calls)),
     );
   const insert = vi
     .spyOn(db, 'insert')
     .mockImplementation(() =>
-      asQuery(queryResult(insertResults.shift() ?? [])),
+      asQuery(queryResult(insertResults.shift() ?? [], calls)),
     );
   const update = vi
     .spyOn(db, 'update')
     .mockImplementation(() =>
-      asQuery(queryResult(updateResults.shift() ?? [])),
+      asQuery(queryResult(updateResults.shift() ?? [], calls)),
     );
   const remove = vi
     .spyOn(db, 'delete')
     .mockImplementation(() =>
-      asQuery(queryResult(deleteResults.shift() ?? [])),
+      asQuery(queryResult(deleteResults.shift() ?? [], calls)),
     );
-  return { db, select, insert, update, remove };
+  return { db, calls, select, insert, update, remove };
+}
+
+function makeLoggedDb() {
+  const queries: Array<LoggedQuery> = [];
+  const db: Db = drizzle.mock({
+    schema,
+    logger: { logQuery: (sql, params) => queries.push({ sql, params }) },
+  });
+  return { db, queries };
 }
 
 afterEach(() => {
@@ -142,6 +160,25 @@ describe('OrgUnitsRepository', () => {
     ).resolves.toBe(child);
     expect(rootDb.insert).toHaveBeenCalledOnce();
     expect(childDb.insert).toHaveBeenCalledOnce();
+    const rootValues = rootDb.calls.find(({ method }) => method === 'values')
+      ?.args[0];
+    if (!isRecord(rootValues)) {
+      throw new Error('expected root insert values');
+    }
+    expect(rootValues['id']).toEqual(expect.any(String));
+    expect(rootValues['path']).toEqual(expect.any(String));
+    expect(rootValues['path']).toBe(rootValues['id']);
+    const childValues = childDb.calls.find(({ method }) => method === 'values')
+      ?.args[0];
+    if (!isRecord(childValues)) {
+      throw new Error('expected child insert values');
+    }
+    expect(childValues).toMatchObject({ parentId: root.id });
+    expect(childValues['id']).toEqual(expect.any(String));
+    expect(childValues['path']).toEqual(expect.any(String));
+    expect(childValues['path']).toBe(
+      `${root.path}/${String(childValues['id'])}`,
+    );
   });
 
   it('reads one unit, visible units, and a path-bounded subtree', async () => {
@@ -156,6 +193,21 @@ describe('OrgUnitsRepository', () => {
     expect(select).toHaveBeenCalledTimes(3);
   });
 
+  it('binds id and subtree paths and orders visible units by path', async () => {
+    const { db, queries } = makeLoggedDb();
+    const repository = new OrgUnitsRepository(db);
+    await repository.findById(root.id).catch(() => undefined);
+    await repository.findSubtree(root).catch(() => []);
+    await repository.listVisible().catch(() => []);
+
+    expect(queries[0]?.sql).toContain('"org_units"."id" = $');
+    expect(queries[0]?.params).toContain(root.id);
+    expect(queries[1]?.sql).toContain('"org_units"."path" = $');
+    expect(queries[1]?.sql).toContain('"org_units"."path" like $');
+    expect(queries[1]?.params).toEqual([root.path, `${root.path}/%`]);
+    expect(queries[2]?.sql).toContain('order by "org_units"."path" asc');
+  });
+
   it('moves a subtree, moves a unit to root, and rejects an own-subtree target', async () => {
     const moveDb = makeDb({
       select: [[child], [root], [root], [child], [root]],
@@ -165,6 +217,11 @@ describe('OrgUnitsRepository', () => {
       new OrgUnitsRepository(moveDb.db).move({ id: child.id }, root),
     ).resolves.toBe(child);
     expect(moveDb.update).toHaveBeenCalledTimes(2);
+    const moveSets = moveDb.calls
+      .filter(({ method }) => method === 'set')
+      .map(({ args }) => args[0]);
+    expect(moveSets[0]).toHaveProperty('path');
+    expect(moveSets[1]).toMatchObject({ parentId: root.id });
 
     const rootDb = makeDb({
       select: [[child], [root], [child]],
@@ -173,6 +230,9 @@ describe('OrgUnitsRepository', () => {
     await expect(
       new OrgUnitsRepository(rootDb.db).moveToRoot({ id: child.id }),
     ).resolves.toBe(root);
+    expect(
+      rootDb.calls.filter(({ method }) => method === 'set').at(-1)?.args[0],
+    ).toMatchObject({ parentId: null });
 
     const cycleDb = makeDb({
       select: [[root], [child], [root], [root], [child]],
@@ -199,6 +259,11 @@ describe('OrgUnitsRepository', () => {
     ).resolves.toBe(child);
     await expect(repository.delete(child.id)).resolves.toBe(true);
     await expect(repository.delete(child.id)).resolves.toBe(false);
+    const writeSets = writeDb.calls
+      .filter(({ method }) => method === 'set')
+      .map(({ args }) => args[0]);
+    expect(writeSets[0]).toMatchObject({ name: 'Renamed' });
+    expect(writeSets[1]).toMatchObject({ settings: { color: 'blue' } });
   });
 });
 

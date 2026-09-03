@@ -23,10 +23,15 @@ describe('project DTOs', () => {
     expect(toProjectResponse(project)).toEqual(project);
   });
 
-  it('accepts a partial update with an explicit archive flag', async () => {
+  it('accepts boolean archive flags and rejects null', async () => {
+    for (const archived of [true, false]) {
+      await expect(
+        validate(plainToInstance(UpdateProjectDto, { archived })),
+      ).resolves.toEqual([]);
+    }
     await expect(
-      validate(plainToInstance(UpdateProjectDto, { archived: true })),
-    ).resolves.toEqual([]);
+      validate(plainToInstance(UpdateProjectDto, { archived: null })),
+    ).resolves.not.toEqual([]);
   });
 
   it('rejects blank create and update names but permits omitted update names', async () => {
@@ -41,17 +46,30 @@ describe('project DTOs', () => {
     expect(omittedErrors).toEqual([]);
   });
 
-  it('accepts only the documented archive and pin list filters', async () => {
-    const valid = plainToInstance(ListProjectsQueryDto, {
-      archived: 'only',
-      pinned: 'exclude',
-    });
-    const invalid = plainToInstance(ListProjectsQueryDto, {
-      archived: 'invalid',
-      pinned: 'invalid',
-    });
+  it.each(['only', 'with'] as const)(
+    'accepts archived=%s',
+    async (archived) => {
+      await expect(
+        validate(plainToInstance(ListProjectsQueryDto, { archived })),
+      ).resolves.toEqual([]);
+    },
+  );
 
-    await expect(validate(valid)).resolves.toEqual([]);
-    await expect(validate(invalid)).resolves.not.toEqual([]);
-  });
+  it.each(['only', 'with', 'exclude'] as const)(
+    'accepts pinned=%s',
+    async (pinned) => {
+      await expect(
+        validate(plainToInstance(ListProjectsQueryDto, { pinned })),
+      ).resolves.toEqual([]);
+    },
+  );
+
+  it.each(['archived', 'pinned'] as const)(
+    'rejects invalid %s',
+    async (key) => {
+      await expect(
+        validate(plainToInstance(ListProjectsQueryDto, { [key]: 'invalid' })),
+      ).resolves.not.toEqual([]);
+    },
+  );
 });

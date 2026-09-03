@@ -39,10 +39,13 @@ function makeLoggedDb() {
   return { db, queries };
 }
 
-function writeResult<T>(result: T) {
+function writeResult<T>(result: T, setValues?: Array<{ position: number }>) {
   const terminal = Promise.resolve(result);
   const where = vi.fn(() => terminal);
-  const set = vi.fn(() => ({ where }));
+  const set = vi.fn((value: { position: number }) => {
+    setValues?.push(value);
+    return { where };
+  });
   return { set, where };
 }
 
@@ -67,7 +70,9 @@ function asDbQuery<T extends object>(query: T): never {
 }
 
 function nextSelect(results: Array<never>): never {
-  return results.shift() ?? selectResult([]);
+  const result = results.shift();
+  if (result === undefined) throw new Error('unexpected select call');
+  return result;
 }
 
 describe('PinsRepository ordering', () => {
@@ -154,7 +159,10 @@ describe('PinsRepository reorder', () => {
       { itemType: projectPin.itemType, itemId: projectPin.itemId, position: 1 },
       { itemType: orphan.itemType, itemId: orphan.itemId, position: 2 },
     ];
-    const finalRows = [chatPin, projectPin];
+    const finalRows = [
+      { ...projectPin, position: 0 },
+      { ...chatPin, position: 1 },
+    ];
     const db: Db = drizzle.mock({ schema });
     const selectResults = [
       selectResult(existingRows),
@@ -179,10 +187,11 @@ describe('PinsRepository reorder', () => {
       return asDbQuery(query);
     });
     const updates: Array<object> = [];
+    const setValues: Array<{ position: number }> = [];
     // SAFETY: this fixture implements update().set().where() and is awaited
     // once for each temporary and final position assignment.
     vi.spyOn(db, 'update').mockImplementation(() => {
-      const query = writeResult(undefined);
+      const query = writeResult(undefined, setValues);
       updates.push(query);
       // SAFETY: the query fixture above implements the exact fluent subset.
       return asDbQuery(query);
@@ -195,22 +204,28 @@ describe('PinsRepository reorder', () => {
       ]),
     ).resolves.toEqual([
       {
-        itemType: 'chat',
-        itemId: chatPin.itemId,
-        pinnedAt: chatPin.pinnedAt,
-        title: 'Chat',
-        archivedAt: null,
-      },
-      {
         itemType: 'project',
         itemId: projectPin.itemId,
         pinnedAt: projectPin.pinnedAt,
         name: 'Project',
         archivedAt: null,
       },
+      {
+        itemType: 'chat',
+        itemId: chatPin.itemId,
+        pinnedAt: chatPin.pinnedAt,
+        title: 'Chat',
+        archivedAt: null,
+      },
     ]);
     expect(deletes).toHaveLength(1);
     expect(updates).toHaveLength(4);
+    expect(setValues).toEqual([
+      { position: -2 },
+      { position: -3 },
+      { position: 0 },
+      { position: 1 },
+    ]);
   });
 
   it('reorders a chat-only set without querying project cards', async () => {
@@ -220,16 +235,18 @@ describe('PinsRepository reorder', () => {
         { itemType: chatPin.itemType, itemId: chatPin.itemId, position: 0 },
       ]),
       selectResult([{ id: chatPin.itemId }]),
-      selectResult([]),
+      selectResult([chatPin]),
+      selectResult([{ id: chatPin.itemId, title: 'Chat', archivedAt: null }]),
     ];
     // SAFETY: these fixtures implement the select chains used by reorder() and
-    // its final empty listWithCards() read.
+    // its final chat-only listWithCards() read.
     vi.spyOn(db, 'select').mockImplementation(() => nextSelect(selectResults));
     const updates: Array<object> = [];
+    const setValues: Array<{ position: number }> = [];
     // SAFETY: this fixture implements update().set().where(), the exact chain
     // used for the two position assignments.
     vi.spyOn(db, 'update').mockImplementation(() => {
-      const query = writeResult(undefined);
+      const query = writeResult(undefined, setValues);
       updates.push(query);
       // SAFETY: the query fixture above implements the exact fluent subset.
       return asDbQuery(query);
@@ -239,8 +256,17 @@ describe('PinsRepository reorder', () => {
       new PinsRepository(db).reorder('owner', [
         { itemType: 'chat', itemId: chatPin.itemId },
       ]),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual([
+      {
+        itemType: 'chat',
+        itemId: chatPin.itemId,
+        pinnedAt: chatPin.pinnedAt,
+        title: 'Chat',
+        archivedAt: null,
+      },
+    ]);
     expect(updates).toHaveLength(2);
+    expect(setValues).toEqual([{ position: -1 }, { position: 0 }]);
   });
 
   it('returns an empty result when reordering an empty set', async () => {
@@ -441,17 +467,15 @@ describe('PinsRepository hydration and writes', () => {
   });
 
   it('unpins by all three owner and item coordinates', async () => {
-    const where = vi.fn(() => Promise.resolve());
-    const remove = vi.fn(() => ({ where }));
-    const db: Db = drizzle.mock({ schema });
-    // SAFETY: the repository only invokes `delete().where()` and awaits its
-    // terminal promise; this fixture implements that exact fluent subset.
-    vi.spyOn(db, 'delete').mockImplementation(() => asDbQuery(remove()));
+    const { db, queries } = makeLoggedDb();
 
-    await expect(
-      new PinsRepository(db).unpin('owner', 'project', projectPin.itemId),
-    ).resolves.toBeUndefined();
-    expect(remove).toHaveBeenCalledOnce();
-    expect(where).toHaveBeenCalledOnce();
+    await new PinsRepository(db)
+      .unpin('owner', 'project', projectPin.itemId)
+      .catch(() => undefined);
+    expect(queries).toHaveLength(1);
+    expect(queries[0]?.sql).toContain('"pins"."user_id" = $');
+    expect(queries[0]?.sql).toContain('"pins"."item_type" = $');
+    expect(queries[0]?.sql).toContain('"pins"."item_id" = $');
+    expect(queries[0]?.params).toEqual(['owner', 'project', projectPin.itemId]);
   });
 });

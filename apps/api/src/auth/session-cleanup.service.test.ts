@@ -6,6 +6,7 @@ import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { Queue } from '../queue/queue';
 import type { Db } from '../db/tenant-db.service';
 import { SessionsRepository } from './sessions.repository';
+import { SESSION_IDLE_TTL_MS } from './constants';
 import {
   SessionCleanupService,
   SESSIONS_CLEANUP_QUEUE,
@@ -120,7 +121,7 @@ describe('SessionCleanupService', () => {
     const first = makeService(1);
     await first.service.onApplicationBootstrap();
     await first.cleanup();
-    expect(first.deleteExpired).toHaveBeenCalledOnce();
+    expect(first.deleteExpired).toHaveBeenCalledWith(SESSION_IDLE_TTL_MS);
 
     first.deleteExpired.mockResolvedValue(2);
     await first.cleanup();

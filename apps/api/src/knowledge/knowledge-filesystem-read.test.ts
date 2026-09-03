@@ -340,7 +340,10 @@ describe('Knowledge filesystem line-reading helpers', () => {
   });
 
   it('rejects an invalid UTF-8 sequence held for decoder flush', async () => {
+    let read = false;
     const file = fileWith(fileStats(1), (buffer) => {
+      if (read) return Promise.resolve({ bytesRead: 0 });
+      read = true;
       buffer[0] = 0xc3;
       return Promise.resolve({ bytesRead: 1 });
     });

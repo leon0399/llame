@@ -41,7 +41,7 @@ export class UpdateProjectDto {
     description:
       'Archive (true) or unarchive (false) the project. Omit to leave unchanged.',
   })
-  @IsOptional()
+  @ValidateIf((o: UpdateProjectDto) => o.archived !== undefined)
   @IsBoolean()
   archived?: boolean;
 }

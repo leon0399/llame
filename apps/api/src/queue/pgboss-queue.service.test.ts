@@ -26,10 +26,7 @@ import 'reflect-metadata';
 import { PgBossService } from '@wavezync/nestjs-pgboss';
 
 import { isRecord } from '../unknown-record';
-import {
-  DEFAULT_QUEUE_OPTIONS,
-  PgBossQueueService,
-} from './pgboss-queue.service';
+import { PgBossQueueService } from './pgboss-queue.service';
 import { defineQueue } from './queue';
 
 function makeQueueService() {
@@ -188,10 +185,10 @@ describe('PgBossQueueService queue operations', () => {
     expect(createQueue).toHaveBeenCalledWith(
       'plain',
       expect.objectContaining({
-        retryLimit: DEFAULT_QUEUE_OPTIONS.retryLimit,
-        retryDelay: DEFAULT_QUEUE_OPTIONS.retryDelay,
-        retryBackoff: DEFAULT_QUEUE_OPTIONS.retryBackoff,
-        policy: DEFAULT_QUEUE_OPTIONS.policy,
+        retryLimit: 3,
+        retryDelay: 2,
+        retryBackoff: true,
+        policy: 'standard',
       }),
     );
     expect(updateQueue).toHaveBeenCalledOnce();

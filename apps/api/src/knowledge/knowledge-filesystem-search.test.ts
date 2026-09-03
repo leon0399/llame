@@ -118,14 +118,15 @@ describe('Knowledge filesystem search helpers', () => {
   });
 
   it('uses code-point offsets when case folding expands a character', async () => {
+    const text = `${'a'.repeat(600)}İneedle${'b'.repeat(600)}`;
     await expect(
-      collectKnowledgePassages('note.md', 'İneedle\n', 'needle'),
+      collectKnowledgePassages('note.md', text, 'needle'),
     ).resolves.toEqual([
       {
         path: 'note.md',
         offset: 0,
         limit: 1,
-        excerpt: 'İneedle\n',
+        excerpt: `…${text.slice(352, 850)}…`,
       },
     ]);
   });

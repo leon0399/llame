@@ -22,7 +22,7 @@ describe('canonical JSON helpers', () => {
     expect(compareCodePoints('same', 'same')).toBe(0);
     expect(compareCodePoints('a', 'aa')).toBeLessThan(0);
     expect(compareCodePoints('aa', 'a')).toBeGreaterThan(0);
-    expect(compareCodePoints('😀', 'a')).toBeGreaterThan(0);
+    expect(compareCodePoints('😀', '\uE000')).toBeGreaterThan(0);
     expect(() => canonicalize(Symbol('unsupported'))).toThrow(TypeError);
     expect(() => canonicalize(() => undefined)).toThrow(/function/);
   });

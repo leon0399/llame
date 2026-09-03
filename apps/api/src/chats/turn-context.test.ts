@@ -323,15 +323,12 @@ describe('buildTurnContextAndParts', () => {
     const result = await buildTurnContextAndParts(deps(), {
       tx,
       chat: chat(),
-      turnInput: turnInput({ dynamicCandidates: [availableCandidate] }),
+      turnInput: turnInput({ dynamicCandidates: [unavailableCandidate] }),
       shareRecentChats: { shareRecentChats: false },
       digestDelta: null,
     });
 
-    expect(contextProducers(result.messageParts)).toEqual([
-      'tool-availability',
-      'temporal',
-    ]);
+    expect(contextProducers(result.messageParts)).toEqual(['temporal']);
   });
 
   it('rethrows a prompt render error without a bound digest and redacts it with a bound digest', async () => {

@@ -20,11 +20,11 @@ const sourceResult = {
   ],
 };
 
-function recallTools() {
+function recallTools(search = vi.fn(() => sourceResult)) {
   return {
     search_conversations: tool({
       inputSchema: z.object({ query: z.string(), limit: z.number() }),
-      execute: () => sourceResult,
+      execute: search,
     }),
     conversation_read: tool({
       inputSchema: z.object({
@@ -314,11 +314,13 @@ describe('ScriptedModelsService', () => {
       },
     ];
 
+    const search = vi.fn(() => sourceResult);
     await expect(
       service.createClient('invalid-recall').streamText({
         messages: priorMessages,
-        tools: recallTools(),
+        tools: recallTools(search),
       }).text,
     ).resolves.toBe('closed');
+    expect(search).toHaveBeenCalledOnce();
   });
 });

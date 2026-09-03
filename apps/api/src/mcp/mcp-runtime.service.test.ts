@@ -146,6 +146,7 @@ describe('McpRuntimeService', () => {
   });
 
   it('reconnects when a tool executor reports a reconnect disposition', async () => {
+    vi.useFakeTimers();
     const discovered: McpDiscoveredTool = {
       ...discoveredTool('web', 'reconnect'),
       execute: vi.fn(() =>
@@ -162,8 +163,13 @@ describe('McpRuntimeService', () => {
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discovered))),
     );
+    const replacement = fakeClient();
+    const clientFactory = vi
+      .fn<McpRuntimeClientFactory>()
+      .mockResolvedValueOnce(client)
+      .mockResolvedValueOnce(replacement);
     const runtime = new McpRuntimeService(servers('web'), {
-      clientFactory: vi.fn(() => Promise.resolve(client)),
+      clientFactory,
       random: () => 0,
     });
 
@@ -193,6 +199,9 @@ describe('McpRuntimeService', () => {
     expect(runtime.resolveDynamicTool('mcp__web__reconnect')).toEqual({
       state: 'unavailable',
     });
+    await vi.advanceTimersByTimeAsync(0);
+    await flushAsync();
+    expect(clientFactory).toHaveBeenCalledTimes(2);
 
     await runtime.onModuleDestroy();
   });
