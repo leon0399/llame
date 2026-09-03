@@ -38,8 +38,11 @@
     "test:e2e:ui": "playwright test --ui",
     "test:integration": "pnpm --filter api test:integration",
     "test:metrics": "node --test scripts/quality-metrics.test.mjs",
-    "test:mutation": "pnpm --filter api test:mutation",
-    "test:mutation:dry": "pnpm --filter api test:mutation:dry",
+    "test:mutation": "turbo run test:mutation --concurrency=1",
+    "test:mutation:aggregate": "pnpm --filter api test:mutation:aggregate",
+    "test:mutation:dry": "turbo run test:mutation:dry --concurrency=1",
+    "test:mutation:shard": "pnpm --filter api test:mutation:shard",
+    "test:mutation:tooling": "pnpm --filter api test:mutation:tooling",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {

@@ -52,3 +52,5 @@ CLAUDE.local.md
 .claude/worktrees/
 coverage/
 .stryker-tmp/
+**/reports/mutation/
+**/reports/stryker-incremental*.json

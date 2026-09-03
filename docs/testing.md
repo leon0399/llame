@@ -50,15 +50,17 @@ expected values come from that same list.
 
 ## Mutation testing
 
-The API mutation command is a diagnostic over three pure MCP utilities and
-their direct unit tests. It is not a CI gate.
+Mutation covers API and config-interpolation business logic. Web/UI, tooling,
+browser, integration, and E2E behavior stay in their existing gates.
 
 ```bash
 pnpm test:mutation:dry
 pnpm test:mutation
 ```
 
-Reports live under ignored `apps/api/reports/mutation/`.
+CI partitions API source files into stable shards and aggregates their reports.
+Each package remains runnable directly; reports live under ignored workspace
+`reports/` directories.
 
 ## CI mapping
 
@@ -66,6 +68,7 @@ Reports live under ignored `apps/api/reports/mutation/`.
 typecheck -+
 unit ------+-> build ---------+
            +-> integration ---+-> product e2e
+           +-> mutation
            +-> storybook
 ```
 
@@ -73,7 +76,7 @@ unit ------+-> build ---------+
   jscpd, and Halstead difficulty.
 - Workflow lint: actionlint, zizmor, pinact.
 - CI: typecheck; unit/coverage/CRAP; build plus generated-diff check;
-  Testcontainers integration; Storybook; production Playwright.
+  Testcontainers integration; mutation; Storybook; production Playwright.
 - Evals never run in CI.
 
 ## Tracked follow-ups

@@ -6,6 +6,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   migrate to `timestamptz` with explicit UTC conversion.
 - **Repository quality gates**: standard lint, component-test, coverage, static
   analysis, and mutation commands now run through package scripts and CI.
+- **Mutation testing**: API mutation runs are sharded in CI and aggregated into
+  one report; config interpolation has its own package task.
 
 # 2026-08-28
 

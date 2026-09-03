@@ -1,0 +1,61 @@
+name: Restore Stryker baseline
+description: Restore the newest compatible Stryker incremental report.
+
+inputs:
+  workspace:
+    description: Workspace path relative to the repository root.
+    required: true
+  cache-file:
+    description: Incremental report path relative to the workspace.
+    required: false
+    default: reports/stryker-incremental.json
+  cache-suffix:
+    description: Stable cache partition, such as api-shard-0.
+    required: false
+    default: default
+outputs:
+  prefix:
+    description: Immutable-cache restore prefix for this environment.
+    value: ${{ steps.fingerprint.outputs.prefix }}
+  trust:
+    description: Cache trust class for this run.
+    value: ${{ steps.fingerprint.outputs.trust }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compute mutation environment fingerprint
+      id: fingerprint
+      shell: bash
+      env:
+        CACHE_SUFFIX: ${{ inputs.cache-suffix }}
+        TRUST: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'trusted' }}
+        INPUT_HASH: >-
+          ${{ hashFiles(
+            'pnpm-lock.yaml',
+            'pnpm-workspace.yaml',
+            'package.json',
+            '.node-version',
+            '.github/actions/setup/action.yml',
+            '.github/actions/stryker-baseline/action.yml',
+            'scripts/mutation-sharding.mjs',
+            'apps/api/package.json',
+            'apps/api/stryker.config.*',
+            'apps/api/vitest*.config.*',
+            'apps/api/tsconfig*.json',
+            'apps/api/{openapi.json,nest-cli.json,llame.config.json.example,src/instance-config/llame.config.schema.json,src/prompts/chat-default.md,src/search/chat/eval/BASELINE.md,src/search/chat/eval/dataset.ts,src/mcp/**/*.mjs,src/testing/**,src/db/migrations/**/*.sql,src/db/migrations/meta/**/*.json}',
+            'packages/config-interpolation/{package.json,src/**,tsconfig*.json}',
+            'packages/config-typescript/{package.json,base.json}'
+          ) }}
+      run: |
+        echo "prefix=stryker-v3-${RUNNER_OS}-${INPUT_HASH}-${CACHE_SUFFIX}-" >> "$GITHUB_OUTPUT"
+        echo "trust=${TRUST}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore compatible mutation baseline
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ inputs.workspace }}/${{ inputs.cache-file }}
+        key: ${{ steps.fingerprint.outputs.prefix }}${{ steps.fingerprint.outputs.trust }}-${{ github.sha }}
+        restore-keys: |
+          ${{ steps.fingerprint.outputs.prefix }}${{ steps.fingerprint.outputs.trust }}-
+          ${{ steps.fingerprint.outputs.prefix }}trusted-
