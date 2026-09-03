@@ -168,7 +168,10 @@ describe('rendering', () => {
     ).toBe(
       [
         '<system-reminder producer="tool-availability" form="notice">',
-        CONTEXT_ITEM_PROVENANCE,
+        // Verbatim, not the CONTEXT_ITEM_PROVENANCE import: this is the rail's
+        // non-removable attribution, so it is pinned independently of the
+        // constant the envelope splices in.
+        'Inserted by llame; not written by the user.',
         'Removed tools:\n- `search_conversations`',
         '</system-reminder>',
       ].join('\n'),

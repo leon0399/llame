@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect } from "storybook/test";
+import { expect, fn } from "storybook/test";
 
 import { CodeBlock, CodeBlockCopyButton } from "./code-block.js";
 
@@ -38,6 +38,10 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
+
+// Module-scoped so both `render` and `play` see the same spy without widening
+// the story's args past CodeBlock's own props.
+const onCopy = fn();
 
 /**
  * Highlights a short snippet with the default themed light/dark output and
@@ -86,12 +90,33 @@ export const WithCopyButton: Story = {
   args: { language: "typescript" },
   render: (args) => (
     <CodeBlock {...args}>
-      <CodeBlockCopyButton aria-label="Copy code" />
+      <CodeBlockCopyButton aria-label="Copy code" onCopy={onCopy} />
     </CodeBlock>
   ),
   play: async ({ canvas, userEvent }) => {
-    const button = canvas.getByRole("button", { name: "Copy code" });
-    await userEvent.click(button);
-    await expect(button).toBeVisible();
+    onCopy.mockClear();
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      "clipboard",
+    );
+    const writeText = fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    try {
+      const button = canvas.getByRole("button", { name: "Copy code" });
+      await userEvent.click(button);
+      await expect(writeText).toHaveBeenCalledOnce();
+      await expect(writeText).toHaveBeenCalledWith(sampleCode);
+      await expect(onCopy).toHaveBeenCalledOnce();
+    } finally {
+      if (clipboardDescriptor) {
+        Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
+      } else {
+        Reflect.deleteProperty(navigator, "clipboard");
+      }
+    }
   },
 };

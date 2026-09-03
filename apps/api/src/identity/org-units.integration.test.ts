@@ -9,7 +9,7 @@
  * codes).
  *
  * Requires POSTGRES_URL to point at a migrated, non-superuser-owned database
- * with `app_rls` provisioned (see apps/api/AGENTS.md) — the test:integration globalSetup
+ * with `app_rls` provisioned (see apps/api/src/db/AGENTS.md) — the test:integration globalSetup
  * sets this up and runs this file.
  *
  * A SMALL, FIXED pool of users is registered once in `beforeAll` and reused

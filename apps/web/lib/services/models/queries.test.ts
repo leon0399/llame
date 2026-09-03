@@ -34,6 +34,14 @@ const model: AvailableModel = {
   contextWindowTokens: 128_000,
 };
 
+describe("model query keys", () => {
+  // Literal anchor: the wiring test below compares the hook's key against this
+  // same factory, so without a literal here any key value ships green.
+  it("keeps the resource-path list key", () => {
+    expect(modelQueryKeys.all).toEqual(["models"]);
+  });
+});
+
 describe("fetchModels", () => {
   it("fetches the authenticated models envelope through the generated endpoint", async () => {
     const response = {

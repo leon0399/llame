@@ -1,3 +1,9 @@
+-- single-flight runs. Hand-authored: the partial unique index cannot be
+-- created over existing duplicates, so a manual UPDATE cancels all but the
+-- newest non-terminal run per chat (plus matching run.cancelled events) inside
+-- a NO FORCE ROW LEVEL SECURITY window (pattern P2 — migrations run as `app`
+-- with no app.current_user_id, so under FORCE the UPDATE silently no-ops).
+-- Re-add the window and the cancellation if this migration is regenerated.
 ALTER TABLE "runs" ADD COLUMN "heartbeat_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "runs" ADD COLUMN "cancel_requested_at" timestamp with time zone;--> statement-breakpoint
 -- Hand-authored backfill (like 0006/0010): the partial unique index below cannot

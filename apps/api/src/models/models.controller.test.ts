@@ -4,6 +4,15 @@ import { ModelsController, type ModelsReader } from './models.controller';
 import { ModelConfigurationError } from './models.service';
 
 describe('ModelsController', () => {
+  // Held by reference so the copy assertion below has the catalog's own array
+  // to compare against.
+  const catalogTags: string[] = ['flagship'];
+  const catalogReasoning = {
+    effortLevels: [{ value: 'low', label: 'Low' }],
+    defaultEffort: 'low',
+    cacheInvalidatedByEffortChange: false,
+  };
+
   function makeController(service?: Partial<ModelsReader>) {
     const modelsService = {
       getAvailableModels: vi.fn().mockReturnValue({
@@ -13,6 +22,9 @@ describe('ModelsController', () => {
             id: 'system:openai:gpt-5.5',
             source: 'system',
             name: 'GPT-5.5',
+            contextWindowTokens: 400_000,
+            tags: catalogTags,
+            reasoning: catalogReasoning,
           },
           {
             id: 'system:openai:gpt-5.4-mini',
@@ -42,6 +54,13 @@ describe('ModelsController', () => {
           id: 'system:openai:gpt-5.5',
           source: 'system',
           name: 'GPT-5.5',
+          contextWindowTokens: 400_000,
+          tags: ['flagship'],
+          reasoning: {
+            effortLevels: [{ value: 'low', label: 'Low' }],
+            defaultEffort: 'low',
+            cacheInvalidatedByEffortChange: false,
+          },
         },
         {
           id: 'system:openai:gpt-5.4-mini',
@@ -51,6 +70,28 @@ describe('ModelsController', () => {
       ],
     });
     expect(JSON.stringify(response)).not.toContain('providerModelId');
+  });
+
+  it("hands out copies of the catalog's nested data", () => {
+    // The catalog is a process-lifetime singleton, so `toAvailableModelResponse`
+    // builds the response field by field and copies `tags`/`reasoning` rather
+    // than spreading the entry. Without this assertion a `return { ...model }`
+    // shallow copy passes every other test in this file while letting one
+    // caller's mutation reach every subsequent caller.
+    const { controller } = makeController();
+
+    const response = controller.listModels();
+
+    expect(response.models[0]?.tags).toEqual(['flagship']);
+    expect(response.models[0]?.tags).not.toBe(catalogTags);
+    expect(response.models[0]?.reasoning).toEqual(catalogReasoning);
+    expect(response.models[0]?.reasoning).not.toBe(catalogReasoning);
+    expect(response.models[0]?.reasoning?.effortLevels).not.toBe(
+      catalogReasoning.effortLevels,
+    );
+    expect(response.models[0]?.reasoning?.effortLevels[0]).not.toBe(
+      catalogReasoning.effortLevels[0],
+    );
   });
 
   it('maps model configuration failures to the standard error body', () => {

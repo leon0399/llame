@@ -1,3 +1,8 @@
+-- add-user-personalization. Drizzle-generated, then hand-appends FORCE ROW
+-- LEVEL SECURITY for personalization (pattern P1). Without it the owning `app`
+-- role bypasses all four owner policies, which in a single-role self-hosted
+-- deployment means no isolation at all on a table holding owner-authored
+-- profile text. Re-add the statement if this migration is regenerated.
 CREATE TABLE "personalization" (
 	"user_id" text PRIMARY KEY NOT NULL,
 	"preferred_name" text,

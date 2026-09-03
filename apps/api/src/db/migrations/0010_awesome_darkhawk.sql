@@ -1,4 +1,4 @@
--- Hand-edited (documented in apps/api/AGENTS.md): drizzle-kit also emitted a
+-- Hand-edited (documented in apps/api/src/db/AGENTS.md): drizzle-kit also emitted a
 -- DROP/CREATE of the unchanged sessions_user_created_idx (snapshot-ordering
 -- churn); removed here so the deploy doesn't rebuild an identical index and
 -- briefly block writes on sessions.

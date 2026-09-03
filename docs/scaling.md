@@ -281,12 +281,12 @@ legacy reader, nullable fallback, dual writer, compatibility backfill, or mixed
 old/new worker deployment. The migration is safe only when no compaction row
 needs conversion.
 
-The operator preflight must run through an administrative connection that can
-see every tenant (`BYPASSRLS` or superuser), not the request `app` role. With
-FORCE RLS, a tenant-less `app` connection returns no rows and would make a
-false zero-count claim. Quiesce API compaction writers, keep compatible workers
-running, drain or explicitly terminate every accepted nonterminal Run, then
-verify both checks are zero:
+Obtain maintainer agreement and create and verify a pre-migration snapshot.
+With the co-located `all` profile, quiesce new Chat sends and drain or terminate
+accepted Runs before stopping the processes. In a split deployment, stop the
+`web` APIs first, drain on compatible dedicated workers, then stop the workers.
+After every process exits and compaction writes settle, run both checks as
+superuser or a `BYPASSRLS` role with `SELECT` on both tables:
 
 ```sql
 SELECT count(*) AS nonterminal_runs
@@ -297,11 +297,11 @@ SELECT count(*) AS compactions
 FROM compactions;
 ```
 
-Stop and investigate if either count is non-zero. Stop compatible workers only
-after both counts are zero, then apply the migration and matching application
-revision together. Rollback reverses the order: stop new authoring, drain Runs
-accepted by the new revision while compatible workers remain available, stop
-workers, and only then roll back schema and binaries.
+Stop if either count is non-zero. Apply the migration and application revision
+together. After the first `replacement_history` write, recover through a
+forward fix or restore the verified snapshot and discard later writes; without
+that snapshot, only a forward fix remains. Do not remove replacement history
+without an approved retention policy.
 
 ## Process-local MCP clients
 

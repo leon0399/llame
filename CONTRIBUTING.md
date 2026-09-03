@@ -128,9 +128,12 @@ gh pr ready <proposal-pr>
 ```
 
 Publication approval and proposal-PR approval are separate gates. Proposal-PR
-approval means an explicit GitHub Approval review from Leo, unless Leo names a
-delegate in the issue or PR. Wait for that approval before creating
-implementation layers or writing implementation code.
+approval normally means an explicit GitHub Approval review from Leo, unless Leo
+names a delegate in the issue or PR. GitHub does not allow a PR author to
+approve their own PR. When Leo authored the proposal, a top-level PR comment
+from Leo that identifies the approved proposal revision satisfies this gate.
+Wait for that approval record before creating implementation layers or writing
+implementation code.
 
 ### 4. Implement and publish the stack incrementally
 

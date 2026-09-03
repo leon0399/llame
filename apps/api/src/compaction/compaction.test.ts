@@ -248,8 +248,11 @@ describe('resolveCompactionThreshold', () => {
   });
 
   it('derives from the context window when no explicit override is set', () => {
+    // Independent literal, not `window * COMPACTION_WINDOW_RATIO`: recomputing
+    // through the imported constant moves both sides together, so any ratio
+    // ships green.
     expect(resolveCompactionThreshold({ contextWindowTokens: 1_000_000 })).toBe(
-      Math.floor(1_000_000 * COMPACTION_WINDOW_RATIO),
+      800_000,
     );
   });
 
@@ -262,7 +265,7 @@ describe('resolveCompactionThreshold', () => {
         explicitThresholdTokens: Number.NaN,
         contextWindowTokens: 200_000,
       }),
-    ).toBe(Math.floor(200_000 * COMPACTION_WINDOW_RATIO));
+    ).toBe(160_000);
   });
 });
 
@@ -395,8 +398,25 @@ describe('buildCompactionRequest', () => {
     expect(last).toEqual({ role: 'user', content: COMPACTION_INSTRUCTION });
   });
 
+  it('pins the compaction ratio itself', () => {
+    expect(COMPACTION_WINDOW_RATIO).toBe(0.8);
+  });
+
   it('requests the stable operational-handoff Markdown sections', () => {
-    for (const heading of COMPACTION_SECTION_HEADINGS) {
+    // Authored independently of COMPACTION_SECTION_HEADINGS (#57's acceptance
+    // criteria). Iterating the implementation's own array would shrink with it,
+    // so a dropped section would still pass.
+    const EXPECTED_HEADINGS = [
+      'Objective',
+      'Constraints and Preferences',
+      'Decisions and Rationale',
+      'Established Facts',
+      'Current State',
+      'Open Questions and Next Steps',
+      'Critical References',
+    ];
+    expect(COMPACTION_SECTION_HEADINGS).toEqual(EXPECTED_HEADINGS);
+    for (const heading of EXPECTED_HEADINGS) {
       expect(COMPACTION_INSTRUCTION).toContain(`## ${heading}`);
     }
     expect(COMPACTION_INSTRUCTION).toContain('Output only the summary');

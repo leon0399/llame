@@ -9,8 +9,7 @@
 -- the transcript, and rolling back restores the code path but not the rows.
 --
 -- drizzle-kit cannot express a jsonb array filter, and this is data rather
--- than schema, so it is hand-authored and recorded in apps/api/AGENTS.md's
--- migration exception ledger.
+-- than schema, so this migration is hand-authored.
 --
 -- The UPDATE runs inside a NO FORCE ROW LEVEL SECURITY window for the same
 -- reason as 0012/0020/0022: migrations run as the owning `app` role with no

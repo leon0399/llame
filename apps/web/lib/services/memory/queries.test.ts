@@ -20,6 +20,13 @@ afterEach(() => {
   createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
 });
 
+describe("memory query keys", () => {
+  it("keeps the resource-path keys", () => {
+    expect(memoryQueryKeys.all).toEqual(["memory"]);
+    expect(memoryQueryKeys.mine()).toEqual(["memory", "me"]);
+  });
+});
+
 describe("memory query transport", () => {
   it("fetches the caller's memory through the generated authenticated endpoint", async () => {
     const response = { shareRecentChats: false };

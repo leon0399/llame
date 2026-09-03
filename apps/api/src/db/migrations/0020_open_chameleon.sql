@@ -1,3 +1,8 @@
+-- runs.model_id. drizzle-kit emits only ADD COLUMN + SET NOT NULL, so a manual
+-- UPDATE backfills existing rows to the canonical default before SET NOT NULL,
+-- inside a NO FORCE ROW LEVEL SECURITY window (pattern P2, same as 0012).
+-- Without the window the backfill silently no-ops and SET NOT NULL fails.
+-- Re-add the window and the backfill if this migration is regenerated.
 ALTER TABLE "runs" ADD COLUMN IF NOT EXISTS "model_id" text;
 -- Hand-authored backfill (like 0012): FORCE RLS would silently no-op this
 -- update because migrations run as the owning `app` role with no

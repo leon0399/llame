@@ -1,3 +1,7 @@
+-- Owner-scoped knowledge_spaces. Drizzle-generated, then hand-appends FORCE ROW
+-- LEVEL SECURITY (pattern P1); without FORCE the table-owning `app` role
+-- bypasses the owner policies. Re-add the statement before applying if the
+-- schema is regenerated.
 CREATE TABLE "knowledge_spaces" (
 	"knowledge_space_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"owner_user_id" text NOT NULL,

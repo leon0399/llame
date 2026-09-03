@@ -1,3 +1,7 @@
+-- rework-item-pinning. Hand-appends FORCE ROW LEVEL SECURITY for pins (pattern
+-- P1, same as 0021). Also drops chats.pinned_at and chats_owner_pinned_updated_idx,
+-- replacing row-level chat pinning with the per-user pins table — no data
+-- backfill, by design. Re-add the FORCE statement if this is regenerated.
 CREATE TYPE "public"."pin_item_type" AS ENUM('chat', 'project');--> statement-breakpoint
 CREATE TABLE "pins" (
 	"user_id" text NOT NULL,

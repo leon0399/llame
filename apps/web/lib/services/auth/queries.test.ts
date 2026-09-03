@@ -52,6 +52,12 @@ afterEach(() => {
   policies.createOptionalAuthFetch.mockReturnValue(optionalAuthFetch);
 });
 
+describe("auth query keys", () => {
+  it("keeps the resource-path key", () => {
+    expect(authQueryKeys.me).toEqual(["auth", "me"]);
+  });
+});
+
 describe("auth transport boundaries", () => {
   it("fetches the current user through the authenticated generated endpoint", async () => {
     const user = { id: "u1", name: "A" };

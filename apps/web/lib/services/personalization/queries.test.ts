@@ -26,6 +26,13 @@ afterEach(() => {
   createAuthenticatedBrowserFetch.mockReturnValue(authenticatedFetch);
 });
 
+describe("personalization query keys", () => {
+  it("keeps the resource-path keys", () => {
+    expect(personalizationQueryKeys.all).toEqual(["personalization"]);
+    expect(personalizationQueryKeys.mine()).toEqual(["personalization", "me"]);
+  });
+});
+
 describe("personalization query transport", () => {
   it("fetches the caller's profile through the generated authenticated endpoint", async () => {
     const response = {
