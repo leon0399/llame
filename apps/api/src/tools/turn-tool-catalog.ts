@@ -78,7 +78,7 @@ export type ToolAvailabilityEntry =
 
 export type ToolAvailabilityManifestV1 = {
   readonly version: 1;
-  readonly entries: readonly ToolAvailabilityEntry[];
+  readonly entries: ReadonlyArray<ToolAvailabilityEntry>;
 };
 
 export type ToolAvailabilityManifestV0 = {
@@ -103,7 +103,7 @@ export type AdmittedTurnTool = {
 };
 
 export type TurnToolCatalog = {
-  readonly admitted: readonly AdmittedTurnTool[];
+  readonly admitted: ReadonlyArray<AdmittedTurnTool>;
   readonly manifest: ToolAvailabilityManifestV1;
 };
 
@@ -134,7 +134,7 @@ function isRepresentableAbortTimeout(timeoutSeconds: number): boolean {
 
 const hasExactKeys = (
   value: UnknownRecord,
-  expected: readonly string[],
+  expected: ReadonlyArray<string>,
 ): boolean => {
   const actual = Object.keys(value).sort(compareCodePoints);
   return (
@@ -168,7 +168,7 @@ const isToolUnavailableReason = (
   // SAFETY: value is a plain string, just narrowed above; the reasons tuple's
   // own .includes() only accepts its literal union, so this widens the array
   // to check membership of a general string.
-  (TOOL_UNAVAILABLE_REASONS as readonly string[]).includes(value);
+  (TOOL_UNAVAILABLE_REASONS as ReadonlyArray<string>).includes(value);
 
 export function parseToolAvailabilityManifest(
   value: unknown,
@@ -201,56 +201,54 @@ export function parseToolAvailabilityManifest(
   // SAFETY: Array.isArray narrows an unknown value to any[]; asserting
   // unknown[] forces each entry to be validated below rather than silently
   // inheriting any.
-  const rawEntryValues = rawEntries as unknown[];
+  const rawEntryValues = rawEntries as Array<unknown>;
 
-  const entries: ToolAvailabilityEntry[] = [];
+  const entries: Array<ToolAvailabilityEntry> = [];
   let previousId: string | undefined;
   for (const rawEntry of rawEntryValues) {
-    if (!isRecord(rawEntry)) {
-      throw invalidManifest('entry must contain a string id');
-    }
-    const rawId = rawEntry['id'];
-    if (!isToolId(rawId)) {
-      throw invalidManifest('entry must contain a string id');
-    }
-    const id = rawId;
-    if (previousId !== undefined && compareCodePoints(previousId, id) >= 0) {
-      throw invalidManifest('entry ids must be non-empty, unique, and sorted');
-    }
-    previousId = id;
-
-    const state = rawEntry['state'];
-    const declarationHash = rawEntry['declarationHash'];
-    if (
-      state === 'available' &&
-      hasExactKeys(rawEntry, ['declarationHash', 'id', 'state']) &&
-      isString(declarationHash) &&
-      /^[0-9a-f]{64}$/.test(declarationHash)
-    ) {
-      entries.push({
-        id,
-        state: 'available',
-        declarationHash,
-      });
-      continue;
-    }
-    const reason = rawEntry['reason'];
-    if (
-      state === 'unavailable' &&
-      hasExactKeys(rawEntry, ['id', 'reason', 'state']) &&
-      isToolUnavailableReason(reason)
-    ) {
-      entries.push({
-        id,
-        state: 'unavailable',
-        reason,
-      });
-      continue;
-    }
-    throw invalidManifest('entry has an invalid state payload');
+    const entry = parseToolAvailabilityEntry(rawEntry, previousId);
+    entries.push(entry);
+    previousId = entry.id;
   }
 
   return { version: 1, entries };
+}
+
+function parseToolAvailabilityEntry(
+  rawEntry: unknown,
+  previousId: string | undefined,
+): ToolAvailabilityEntry {
+  if (!isRecord(rawEntry)) {
+    throw invalidManifest('entry must contain a string id');
+  }
+  const rawId = rawEntry['id'];
+  if (!isToolId(rawId)) {
+    throw invalidManifest('entry must contain a string id');
+  }
+  const id = rawId;
+  if (previousId !== undefined && compareCodePoints(previousId, id) >= 0) {
+    throw invalidManifest('entry ids must be non-empty, unique, and sorted');
+  }
+
+  const state = rawEntry['state'];
+  const declarationHash = rawEntry['declarationHash'];
+  if (
+    state === 'available' &&
+    hasExactKeys(rawEntry, ['declarationHash', 'id', 'state']) &&
+    isString(declarationHash) &&
+    /^[0-9a-f]{64}$/.test(declarationHash)
+  ) {
+    return { id, state: 'available', declarationHash };
+  }
+  const reason = rawEntry['reason'];
+  if (
+    state === 'unavailable' &&
+    hasExactKeys(rawEntry, ['id', 'reason', 'state']) &&
+    isToolUnavailableReason(reason)
+  ) {
+    return { id, state: 'unavailable', reason };
+  }
+  throw invalidManifest('entry has an invalid state payload');
 }
 
 export function hashToolAvailabilityManifest(
@@ -287,102 +285,123 @@ const candidateClassification = (
 function candidateIsAllowlisted(
   candidate: TurnToolCandidate,
   id: string,
-  allowedRules: readonly string[],
+  allowedRules: ReadonlyArray<string>,
 ): boolean {
   return candidate.source.type === 'code_owned'
     ? matchesCodeOwnedToolId(id, allowedRules)
     : matchesAllowedToolId(id, allowedRules);
 }
 
-export async function composeTurnToolCatalog(input: {
-  readonly allowedToolRules: readonly string[];
-  readonly callTimeoutSeconds: number;
-  readonly candidates: Iterable<TurnToolCandidate>;
-}): Promise<TurnToolCatalog> {
-  const candidates = [...input.candidates];
-  const eligible = candidates.filter((candidate) => {
-    const id = candidateId(candidate);
-    return (
-      isToolId(id) &&
-      candidateIsAllowlisted(candidate, id, input.allowedToolRules) &&
-      candidateClassification(candidate) === 'read_only'
+function collidingToolEntries(
+  group: ReadonlyArray<TurnToolCandidate>,
+): Array<ToolAvailabilityEntry> {
+  const collidingIds = [...new Set(group.map(candidateId))].sort(
+    compareCodePoints,
+  );
+  return collidingIds.map((id) => ({
+    id,
+    state: 'unavailable' as const,
+    reason: 'name_collision' as const,
+  }));
+}
+
+function unavailableEntry(id: string, reason: ToolUnavailableReason) {
+  return { entry: { id, state: 'unavailable' as const, reason } };
+}
+
+/** Validates and, if it passes, admits the sole surviving candidate for one
+ * folded tool id. Never called on a colliding group (see `collidingToolEntries`). */
+async function admitTurnToolCandidate(
+  candidate: TurnToolCandidate,
+  callTimeoutSeconds: number,
+): Promise<{ admitted?: AdmittedTurnTool; entry: ToolAvailabilityEntry }> {
+  const id = candidateId(candidate);
+  if (candidate.state === 'unavailable') {
+    return unavailableEntry(id, candidate.reason);
+  }
+  if (
+    !hasValidTrustedTimeout(candidate.tool.timeoutSeconds, callTimeoutSeconds)
+  ) {
+    return unavailableEntry(id, 'declaration_refused');
+  }
+
+  const admission = await admitToolInputSchema(candidate.tool.inputSchema);
+  if (!admission.success) {
+    logger.warn(
+      `Refusing tool "${id}": ${admission.reason.replace('_', ' ')} for dialect "${admission.dialect}": ${admission.message}.`,
     );
+    return unavailableEntry(id, 'declaration_refused');
+  }
+
+  const canonicalized = canonicalize({
+    id,
+    description: candidate.tool.description,
+    inputSchema: admission.inputSchema,
   });
-  const byFoldedId = new Map<string, TurnToolCandidate[]>();
-  for (const candidate of eligible) {
+  assertModelToolDeclaration(canonicalized);
+  const declaration = canonicalized;
+  const declarationHash = hashToolDeclaration(declaration);
+  return {
+    admitted: {
+      source: candidate.source,
+      declaration,
+      declarationHash,
+      executor: candidate.tool,
+    },
+    entry: { id, state: 'available', declarationHash },
+  };
+}
+
+/** The candidates worth naming an id for at all — allowlisted, read-only,
+ * well-formed ids — grouped by case-folded id so a same-folded-id collision
+ * is detectable before any of them is admitted. */
+function groupEligibleTurnToolCandidates(
+  candidates: ReadonlyArray<TurnToolCandidate>,
+  allowedToolRules: ReadonlyArray<string>,
+): Map<string, Array<TurnToolCandidate>> {
+  const byFoldedId = new Map<string, Array<TurnToolCandidate>>();
+  for (const candidate of candidates) {
     const id = candidateId(candidate);
+    if (
+      !isToolId(id) ||
+      !candidateIsAllowlisted(candidate, id, allowedToolRules) ||
+      candidateClassification(candidate) !== 'read_only'
+    ) {
+      continue;
+    }
     const foldedId = asciiCaseFoldToolId(id);
     const group = byFoldedId.get(foldedId) ?? [];
     group.push(candidate);
     byFoldedId.set(foldedId, group);
   }
+  return byFoldedId;
+}
 
-  const admitted: AdmittedTurnTool[] = [];
-  const entries: ToolAvailabilityEntry[] = [];
+export async function composeTurnToolCatalog(input: {
+  readonly allowedToolRules: ReadonlyArray<string>;
+  readonly callTimeoutSeconds: number;
+  readonly candidates: Iterable<TurnToolCandidate>;
+}): Promise<TurnToolCatalog> {
+  const byFoldedId = groupEligibleTurnToolCandidates(
+    [...input.candidates],
+    input.allowedToolRules,
+  );
+
+  const admitted: Array<AdmittedTurnTool> = [];
+  const entries: Array<ToolAvailabilityEntry> = [];
   const sortedFoldedIds = [...byFoldedId.keys()].sort(compareCodePoints);
   for (const foldedId of sortedFoldedIds) {
     const group = byFoldedId.get(foldedId) ?? [];
     if (group.length !== 1) {
-      const collidingIds = [...new Set(group.map(candidateId))].sort(
-        compareCodePoints,
-      );
-      entries.push(
-        ...collidingIds.map((id) => ({
-          id,
-          state: 'unavailable' as const,
-          reason: 'name_collision' as const,
-        })),
-      );
+      entries.push(...collidingToolEntries(group));
       continue;
     }
-    const candidate = group[0];
-    const id = candidateId(candidate);
-    if (candidate.state === 'unavailable') {
-      entries.push({ id, state: 'unavailable', reason: candidate.reason });
-      continue;
-    }
-    if (
-      !hasValidTrustedTimeout(
-        candidate.tool.timeoutSeconds,
-        input.callTimeoutSeconds,
-      )
-    ) {
-      entries.push({
-        id,
-        state: 'unavailable',
-        reason: 'declaration_refused',
-      });
-      continue;
-    }
-
-    const admission = await admitToolInputSchema(candidate.tool.inputSchema);
-    if (!admission.success) {
-      logger.warn(
-        `Refusing tool "${id}": ${admission.reason.replace('_', ' ')} for dialect "${admission.dialect}": ${admission.message}.`,
-      );
-      entries.push({
-        id,
-        state: 'unavailable',
-        reason: 'declaration_refused',
-      });
-      continue;
-    }
-
-    const canonicalized = canonicalize({
-      id,
-      description: candidate.tool.description,
-      inputSchema: admission.inputSchema,
-    });
-    assertModelToolDeclaration(canonicalized);
-    const declaration = canonicalized;
-    const declarationHash = hashToolDeclaration(declaration);
-    admitted.push({
-      source: candidate.source,
-      declaration,
-      declarationHash,
-      executor: candidate.tool,
-    });
-    entries.push({ id, state: 'available', declarationHash });
+    const outcome = await admitTurnToolCandidate(
+      group[0],
+      input.callTimeoutSeconds,
+    );
+    entries.push(outcome.entry);
+    if (outcome.admitted) admitted.push(outcome.admitted);
   }
 
   admitted.sort((left, right) =>

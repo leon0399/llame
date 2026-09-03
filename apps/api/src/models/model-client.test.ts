@@ -30,7 +30,7 @@ const messages = [
     role: 'user',
     content: 'Hello',
   },
-] satisfies ModelMessage[];
+] satisfies Array<ModelMessage>;
 
 describe('ModelClient', () => {
   beforeEach(() => {

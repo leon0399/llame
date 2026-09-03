@@ -52,9 +52,9 @@ export class TransitionCompactionError extends Error {
 }
 
 function schemaOnlyTools(
-  declarations: readonly ModelToolDeclaration[],
+  declarations: ReadonlyArray<ModelToolDeclaration>,
 ): ToolSet | null {
-  const entries: [string, ToolSet[string]][] = [];
+  const entries: Array<[string, ToolSet[string]]> = [];
   for (const declaration of declarations) {
     const inputSchema = toFlexibleSchema(declaration.inputSchema);
     if (inputSchema === null) {
@@ -77,7 +77,9 @@ function schemaOnlyTools(
  * arm), matching every other JSON-record boundary in this codebase. Malformed
  * (non-object) parts fail closed rather than silently coercing.
  */
-export function toStoredMessages(history: readonly Message[]): StoredMessage[] {
+export function toStoredMessages(
+  history: ReadonlyArray<Message>,
+): Array<StoredMessage> {
   return history.map((message) => ({
     ...message,
     parts: message.parts.map((part) => {
@@ -151,7 +153,7 @@ export class CompactionService {
     userId: string;
     client: ModelClient;
     system: string;
-    toolDeclarations: readonly ModelToolDeclaration[];
+    toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
     /** The triggering run's effort — see `summarize`. */
     effort?: string;
     lastTurnTotalTokens?: number;
@@ -171,7 +173,7 @@ export class CompactionService {
     userId: string;
     client: ModelClient;
     system: string;
-    toolDeclarations: readonly ModelToolDeclaration[];
+    toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
     /** The triggering run's effort — see `summarize`. */
     effort?: string;
     lastTurnTotalTokens?: number;
@@ -302,13 +304,13 @@ export class CompactionService {
         digestCandidate !== null &&
         shareRecentChats.shareRecentChats
       ) {
-        await chatsRepo.setRecencyDigest(
-          input.chatId,
-          input.userId,
-          digestCandidate.baseline,
-          digestCandidate.told,
-          compaction.id,
-        );
+        await chatsRepo.setRecencyDigest({
+          chatId: input.chatId,
+          ownerUserId: input.userId,
+          baseline: digestCandidate.baseline,
+          told: digestCandidate.told,
+          rebakedFrom: compaction.id,
+        });
       }
     });
 
@@ -332,39 +334,7 @@ export class CompactionService {
     abortSignal?: AbortSignal;
   }): Promise<'created' | 'superseded'> {
     input.abortSignal?.throwIfAborted();
-    const state = await this.tenantDb.runAs(input.userId, async (tx) => {
-      const compactions = new CompactionsRepository(tx);
-      const previous = await compactions.findLatestByChatId(
-        input.chatId,
-        input.userId,
-        { beforeSeq: input.triggeringUserSeq },
-      );
-      const history = await new MessagesRepository(tx).findByChatId(
-        input.chatId,
-        input.userId,
-        {
-          maxSeq: input.triggeringUserSeq - 1,
-          ...(previous && { sinceSeq: previous.uptoSeq }),
-        },
-      );
-      const plan = planTransitionCompaction(
-        toStoredMessages(history),
-        input.triggeringUserSeq,
-      );
-      const sourceRun = await new RunsRepository(
-        tx,
-      ).findMostRecentByChatMessageSequence(input.chatId, input.userId, {
-        beforeSeq: input.triggeringUserSeq,
-      });
-      const sourceSnapshot = sourceRun
-        ? await new ModelContextSnapshotsRepository(tx).findByOwnedRun(
-            sourceRun.id,
-            input.userId,
-          )
-        : undefined;
-
-      return { previous, plan, sourceRun, sourceSnapshot };
-    });
+    const state = await this.loadTransitionState(input);
     input.abortSignal?.throwIfAborted();
 
     if (!state.plan) {
@@ -454,36 +424,102 @@ export class CompactionService {
     });
     input.abortSignal?.throwIfAborted();
 
+    return this.commitTransitionCompaction({
+      chatId: input.chatId,
+      userId: input.userId,
+      abortSignal: input.abortSignal,
+      previousId: state.previous?.id ?? null,
+      uptoSeq: plan.uptoSeq,
+      summary,
+      replacementHistory,
+      usage: buildTurnTelemetry({
+        usage: inference.usage,
+        finishReason: inference.finishReason,
+        status: 'completed',
+        modelId: sourceClient.model,
+        // Matches what `summarize` actually sent.
+        ...(sourceEffort !== undefined && { effort: sourceEffort }),
+        latencyMs: inference.latencyMs,
+        price: sourceClient.pricing,
+      }),
+    });
+  }
+
+  /** Read phase of `compactForTransition`: the plan plus the source run whose
+   * prompt prefix and model it will reuse — gathered in one transaction so
+   * the plan and its source snapshot describe the same instant. */
+  private async loadTransitionState(input: {
+    chatId: string;
+    userId: string;
+    triggeringUserSeq: number;
+  }) {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const compactions = new CompactionsRepository(tx);
-      const latest = await compactions.findLatestByChatId(
+      const previous = await compactions.findLatestByChatId(
         input.chatId,
         input.userId,
+        { beforeSeq: input.triggeringUserSeq },
       );
-      input.abortSignal?.throwIfAborted();
+      const history = await new MessagesRepository(tx).findByChatId(
+        input.chatId,
+        input.userId,
+        {
+          maxSeq: input.triggeringUserSeq - 1,
+          ...(previous && { sinceSeq: previous.uptoSeq }),
+        },
+      );
+      const plan = planTransitionCompaction(
+        toStoredMessages(history),
+        input.triggeringUserSeq,
+      );
+      const sourceRun = await new RunsRepository(
+        tx,
+      ).findMostRecentByChatMessageSequence(input.chatId, input.userId, {
+        beforeSeq: input.triggeringUserSeq,
+      });
+      const sourceSnapshot = sourceRun
+        ? await new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+            sourceRun.id,
+            input.userId,
+          )
+        : undefined;
+
+      return { previous, plan, sourceRun, sourceSnapshot };
+    });
+  }
+
+  /** Write phase of `compactForTransition`: the staleness-guarded insert. */
+  private async commitTransitionCompaction(params: {
+    chatId: string;
+    userId: string;
+    abortSignal?: AbortSignal;
+    previousId: string | null;
+    uptoSeq: number;
+    summary: string;
+    replacementHistory: ReturnType<typeof buildCompactionReplacementHistory>;
+    usage: ReturnType<typeof buildTurnTelemetry>;
+  }): Promise<'created' | 'superseded'> {
+    return this.tenantDb.runAs(params.userId, async (tx) => {
+      const compactions = new CompactionsRepository(tx);
+      const latest = await compactions.findLatestByChatId(
+        params.chatId,
+        params.userId,
+      );
+      params.abortSignal?.throwIfAborted();
       if (
-        (latest?.id ?? null) !== (state.previous?.id ?? null) &&
+        (latest?.id ?? null) !== params.previousId &&
         latest !== undefined &&
-        latest.uptoSeq >= plan.uptoSeq
+        latest.uptoSeq >= params.uptoSeq
       ) {
         return 'superseded' as const;
       }
       const created = await compactions.createIfCutoffAbsent({
-        chatId: input.chatId,
-        uptoSeq: plan.uptoSeq,
-        parentId: state.previous?.id ?? null,
-        summary,
-        replacementHistory,
-        usage: buildTurnTelemetry({
-          usage: inference.usage,
-          finishReason: inference.finishReason,
-          status: 'completed',
-          modelId: sourceClient.model,
-          // Matches what `summarize` actually sent.
-          ...(sourceEffort !== undefined && { effort: sourceEffort }),
-          latencyMs: inference.latencyMs,
-          price: sourceClient.pricing,
-        }),
+        chatId: params.chatId,
+        uptoSeq: params.uptoSeq,
+        parentId: params.previousId,
+        summary: params.summary,
+        replacementHistory: params.replacementHistory,
+        usage: params.usage,
       });
       return created ? ('created' as const) : ('superseded' as const);
     });
@@ -492,8 +528,8 @@ export class CompactionService {
   private async summarize(input: {
     client: ModelClient;
     system: string;
-    messages: ModelMessage[];
-    toolDeclarations: readonly ModelToolDeclaration[];
+    messages: Array<ModelMessage>;
+    toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
     /**
      * The effort of the run whose prompt prefix this request reuses. Sent as
      * persisted, never re-resolved: the whole point of reproducing that run's

@@ -53,10 +53,10 @@ export type McpRemoteServerConfig = {
 export type McpStdioServerConfig = {
   type: 'stdio';
   command: string;
-  args?: readonly string[];
+  args?: ReadonlyArray<string>;
   env?: Readonly<Record<string, string>>;
   cwd?: string;
-  protectedValues?: readonly string[];
+  protectedValues?: ReadonlyArray<string>;
 };
 
 export type McpServerConfig = McpRemoteServerConfig | McpStdioServerConfig;
@@ -111,7 +111,7 @@ export type RawMcpServerEntry =
   | {
       type: 'stdio';
       command: string;
-      args?: string[];
+      args?: Array<string>;
       env?: Record<string, string>;
       cwd?: string;
     };
@@ -205,7 +205,7 @@ export type RawModelEntry = {
   pricingUsdPer1M?: SystemModelCatalogEntry['pricingUsdPer1M'];
   name?: string;
   description?: string;
-  tags?: string[];
+  tags?: Array<string>;
   icon?: string;
   knowledgeCutoff?: string;
   /**
@@ -219,10 +219,9 @@ export type RawModelEntry = {
    * the catalog entry.
    */
   reasoning?: {
-    readonly effortLevels: readonly (
-      | string
-      | { readonly value: string; readonly label: string }
-    )[];
+    readonly effortLevels: ReadonlyArray<
+      string | { readonly value: string; readonly label: string }
+    >;
     readonly defaultEffort: string;
     readonly cacheInvalidatedByEffortChange?: boolean;
   };
@@ -245,9 +244,9 @@ export interface RawInstanceConfig extends Record<string, unknown> {
   mcpServers?: Record<string, RawMcpServerEntry>;
   knowledge?: RawKnowledgeConfig;
   workers?: Record<string, WorkerProfile>;
-  providers?: RawProviderEntry[];
-  models?: RawModelEntry[];
-  embeddingModels?: RawEmbeddingModelEntry[];
+  providers?: Array<RawProviderEntry>;
+  models?: Array<RawModelEntry>;
+  embeddingModels?: Array<RawEmbeddingModelEntry>;
   search?: RawSearchConfig;
 }
 
@@ -291,7 +290,7 @@ export type LlameConfig = {
    */
   tools: {
     /** Code-owned ids or exact / canonical configured-MCP namespace permissions admitted for advertisement/execution. Default: empty. */
-    allowed: readonly string[];
+    allowed: ReadonlyArray<string>;
     /** Hard step cap for the tool-calling loop. */
     maxStepsPerRun: number;
     /** Global per-tool-call timeout, in seconds (a tool may override at registration). */
@@ -320,7 +319,7 @@ export type LlameConfig = {
    * `OPENAI_BASE_URL` bare environment variables — those names remain valid
    * `{env:...}` interpolation inputs referenced from an entry's `key`/`baseUrl`.
    */
-  providers: ProviderConfig[];
+  providers: Array<ProviderConfig>;
   /**
    * The executable model catalog (providers-and-models-as-code, #167),
    * superseding the formerly hardcoded `models/model-catalog.ts` array. Every
@@ -328,13 +327,13 @@ export type LlameConfig = {
    * otherwise, checked in config-loader.ts) — cross-array reference
    * integrity isn't expressible in the JSON Schema itself.
    */
-  models: SystemModelCatalogEntry[];
+  models: Array<SystemModelCatalogEntry>;
   /**
    * The declared embedding-model catalog (chat-search-embeddings, design
    * D1). Default: empty — an instance declaring none is unchanged from
    * today (off-by-default; part of the exit contract).
    */
-  embeddingModels: EmbeddingModelCatalogEntry[];
+  embeddingModels: Array<EmbeddingModelCatalogEntry>;
   /**
    * Per-corpus search settings (chat-search-embeddings, design D6). `chats`
    * is the only corpus this change embeds.

@@ -20,7 +20,7 @@ import {
 
 export type ModelsAvailability = {
   defaultModelId: string;
-  models: PublicModelCatalogEntry[];
+  models: Array<PublicModelCatalogEntry>;
 };
 
 export class ModelConfigurationError extends Error {

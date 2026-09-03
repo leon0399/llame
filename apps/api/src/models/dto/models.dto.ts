@@ -43,7 +43,7 @@ export class ModelReasoningResponse {
       'string, and do not assume a value means the same thing on another ' +
       'model. Order is the only scale.',
   })
-  effortLevels!: EffortLevelResponse[];
+  effortLevels!: Array<EffortLevelResponse>;
 
   @ApiProperty({
     description:
@@ -77,7 +77,7 @@ export class AvailableModelResponse {
   description?: string;
 
   @ApiPropertyOptional({ type: [String] })
-  tags?: string[];
+  tags?: Array<string>;
 
   @ApiPropertyOptional()
   icon?: string;
@@ -117,7 +117,7 @@ export class ModelsResponse {
   defaultModelId!: string;
 
   @ApiProperty({ type: () => [AvailableModelResponse] })
-  models!: AvailableModelResponse[];
+  models!: Array<AvailableModelResponse>;
 }
 
 export class ModelDomainErrorResponse {

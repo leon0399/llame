@@ -6,10 +6,11 @@ import {
   pgPolicy,
   pgTable,
   text,
-  timestamp,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+
+import { timestamptz } from '../columns';
 import { users } from './auth';
 import { chats } from './chats';
 
@@ -76,12 +77,8 @@ export const searchChatDocuments = pgTable(
     // Covered message range (informational pointers, not FKs — see header).
     firstMessageId: uuid('first_message_id').notNull(),
     lastMessageId: uuid('last_message_id').notNull(),
-    firstMessageAt: timestamp('first_message_at', {
-      withTimezone: true,
-    }).notNull(),
-    lastMessageAt: timestamp('last_message_at', {
-      withTimezone: true,
-    }).notNull(),
+    firstMessageAt: timestamptz('first_message_at').notNull(),
+    lastMessageAt: timestamptz('last_message_at').notNull(),
     // Zero-based UTF-16 offsets in the first/last message's canonical visible
     // text. Nullable during the projection backfill; writers populate them in
     // the later locator-aware chunker layer.
@@ -137,12 +134,8 @@ export const searchChatDocuments = pgTable(
     fts: tsvector('fts').generatedAlwaysAs(
       sql`to_tsvector('simple', coalesce("normalized_content", ''))`,
     ),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('search_chat_documents_chat_ordinal_version_unique').on(
@@ -217,7 +210,7 @@ export const searchChatState = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     // Newest message time reflected by the current projection (null = never built).
-    indexedAt: timestamp('indexed_at', { withTimezone: true }),
+    indexedAt: timestamptz('indexed_at'),
     // Chunker version the current projection was built with.
     chunkerVersion: integer('chunker_version').notNull(),
     // Number of current-version documents produced by the same rebuild. NULL
@@ -225,9 +218,7 @@ export const searchChatState = pgTable(
     // therefore not ready for canonical reads; zero is a valid covered state
     // for a Chat with no eligible visible text.
     expectedDocumentCount: integer('expected_document_count'),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
   (t) => [
     index('search_chat_state_owner_idx').on(t.ownerUserId),
@@ -283,12 +274,8 @@ export const embeddingModelBindings = pgTable('embedding_model_bindings', {
   documentPrefix: text('document_prefix'),
   queryPrefix: text('query_prefix'),
   batchSize: integer('batch_size'),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
+  createdAt: timestamptz('created_at').notNull().defaultNow(),
+  updatedAt: timestamptz('updated_at').notNull().defaultNow(),
 });
 
 export type EmbeddingModelBinding = InferSelectModel<

@@ -10,10 +10,11 @@ import {
   pgPolicy,
   pgTable,
   text,
-  timestamp,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+
+import { timestamptz } from '../columns';
 import { sql } from 'drizzle-orm';
 import { users } from './auth';
 import { projects } from './projects';
@@ -28,8 +29,8 @@ export type RecencyDigestEntry = {
 
 /** Frozen prompt inputs. Deliberately excludes chat identifiers. */
 export type RecencyDigestBaseline = {
-  pinned: RecencyDigestEntry[];
-  recent: RecencyDigestEntry[];
+  pinned: Array<RecencyDigestEntry>;
+  recent: Array<RecencyDigestEntry>;
   pinnedShown: number;
   pinnedTotal: number;
   recentShown: number;
@@ -75,17 +76,13 @@ export const chats = pgTable(
     // manual) is never auto-replaced: setGeneratedTitle guards on `title IS NULL`.
     title: text('title'),
     visibility: chatVisibility('visibility').notNull().default('private'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
     // Archive state (chat-project-archive): a nullable timestamp on the row, so
     // archiving is a global, owner-scoped action (unlike the per-user `pins`
     // table). NULL = not archived. Honor it in list reads (exclude by default)
     // and the mutation guard (archived rejects all writes except unarchive/delete).
-    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    archivedAt: timestamptz('archived_at'),
     // Folder grouping (projects-foundation): a chat belongs to 0-or-1 project.
     // ON DELETE SET NULL — deleting a project unfiles its chats, never destroys them.
     projectId: uuid('project_id').references(() => projects.id, {
@@ -97,7 +94,7 @@ export const chats = pgTable(
       'recency_digest_baseline',
     ).$type<RecencyDigestBaseline>(),
     recencyDigestTold: jsonb('recency_digest_told').$type<
-      RecencyDigestToldEntry[]
+      Array<RecencyDigestToldEntry>
     >(),
     // Set only when compaction actually re-resolves the baseline. This is the
     // durable event record for the one-shot supersession marker; compaction
@@ -182,18 +179,16 @@ export const messages = pgTable(
     senderUserId: text('sender_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    parts: jsonb('parts').$type<unknown[]>().notNull(), // AI SDK v6 UIMessage parts array
+    parts: jsonb('parts').$type<Array<unknown>>().notNull(), // AI SDK v6 UIMessage parts array
     attachments: jsonb('attachments')
-      .$type<unknown[]>()
+      .$type<Array<unknown>>()
       .notNull()
       .default(sql`'[]'::jsonb`),
     usage: jsonb('usage'),
     inReplyTo: uuid('in_reply_to').references((): AnyPgColumn => messages.id, {
       onDelete: 'set null',
     }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [
     index('messages_chat_created_idx').on(t.chatId, t.createdAt),
@@ -224,7 +219,7 @@ export type Message = InferSelectModel<typeof messages>;
 
 export interface CompactionReplacementMessage {
   role: 'user' | 'assistant';
-  parts: unknown[];
+  parts: Array<unknown>;
 }
 
 // A context-compaction summary (#57) — a first-class row, not an opaque inline event,
@@ -252,13 +247,11 @@ export const compactions = pgTable(
     // Complete application replay replacement for the superseded prefix.
     // Internal-only and runtime-validated before replay.
     replacementHistory: jsonb('replacement_history')
-      .$type<CompactionReplacementMessage[]>()
+      .$type<Array<CompactionReplacementMessage>>()
       .notNull(),
     // Telemetry of the summarization call (TurnTelemetry shape), like messages.usage.
     usage: jsonb('usage'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [
     // Read path: latest compaction per chat (ORDER BY upto_seq DESC LIMIT 1).
@@ -346,7 +339,7 @@ export const runs = pgTable(
     // at pickup (skip execution) or mid-flight (abort the model call). The DB is
     // the cross-process source of truth; the in-memory abort registry is the
     // fast path while worker and API share a process.
-    cancelRequestedAt: timestamp('cancel_requested_at', { withTimezone: true }),
+    cancelRequestedAt: timestamptz('cancel_requested_at'),
     // Terminal failure detail ({ message, ... }); null unless status is failed.
     error: jsonb('error'),
     // What this run actually injected on the context rail, AS RENDERED.
@@ -365,12 +358,10 @@ export const runs = pgTable(
     // An item whose content originates outside this chat is not erasable
     // through that content's own source: deleting the source, or withdrawing
     // consent for it, does not reach a record already written.
-    contextItems: jsonb('context_items').$type<RunContextItem[]>(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    startedAt: timestamp('started_at', { withTimezone: true }),
-    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    contextItems: jsonb('context_items').$type<Array<RunContextItem>>(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+    startedAt: timestamptz('started_at'),
+    finishedAt: timestamptz('finished_at'),
     // Reasoning effort resolved at accept time, stored concretely rather than
     // as a marker meaning "use the model's default" — same rule `model_id`
     // states: a later configuration edit must not alter an already queued run.
@@ -446,9 +437,7 @@ export const runEvents = pgTable(
       .references(() => runs.id, { onDelete: 'cascade' }),
     eventType: text('event_type').notNull(),
     payload: jsonb('payload'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [
     // Replay path: WHERE run_id AND sequence > cursor ORDER BY sequence.

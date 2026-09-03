@@ -10,12 +10,8 @@
  * TEST_DATABASE_URL-gated; run by test:integration (floors enforced in CI).
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
 
 import * as schema from '../../../db/schema';
 import { TenantDbService, type Db } from '../../../db/tenant-db.service';
@@ -35,7 +31,7 @@ import {
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = ReturnType<typeof postgres>;
 const K = 10;
 
 describeIfDb('chat search — relevance eval', () => {
@@ -44,13 +40,11 @@ describeIfDb('chat search — relevance eval', () => {
   let tenantDb: TenantDbService;
   let u: string;
   const chatIdByKey = new Map<string, string>();
-  const results: EvalQueryResult[] = [];
+  const results: Array<EvalQueryResult> = [];
 
   beforeAll(async () => {
-    const postgres = require('postgres');
-    const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-    sqlClient = connect(TEST_DB_URL!, { ssl, max: 3 });
+    sqlClient = postgres(TEST_DB_URL!, { ssl, max: 3 });
     db = drizzle(sqlClient, { schema });
     tenantDb = new TenantDbService(db);
     const indexService = new SearchIndexService(tenantDb);

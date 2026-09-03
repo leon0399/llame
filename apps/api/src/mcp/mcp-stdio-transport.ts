@@ -22,7 +22,7 @@ export const MAX_DIAGNOSTIC_CHARS = 64 * 1024;
 
 export type McpStdioTransportConfig = {
   readonly command: string;
-  readonly args?: readonly string[];
+  readonly args?: ReadonlyArray<string>;
   readonly env?: Readonly<Record<string, string>>;
   readonly cwd?: string;
 };
@@ -51,8 +51,8 @@ const MIN_PROTECTED_FRAGMENT_CHARS = 8;
  * secret in a sub-eight-character line is not worth blinding the log for.
  */
 function withLineFragments(
-  protectedValues: readonly string[],
-): readonly string[] {
+  protectedValues: ReadonlyArray<string>,
+): ReadonlyArray<string> {
   const expanded = new Set(protectedValues);
   for (const value of protectedValues) {
     if (!value.includes('\n')) continue;
@@ -78,10 +78,10 @@ function withLineFragments(
 export class DiagnosticBuffer {
   private pending = '';
   private retained = 0;
-  private readonly protectedValues: readonly string[];
+  private readonly protectedValues: ReadonlyArray<string>;
 
   constructor(
-    protectedValues: readonly string[],
+    protectedValues: ReadonlyArray<string>,
     private readonly emit: (text: string) => void,
   ) {
     this.protectedValues = withLineFragments(protectedValues);

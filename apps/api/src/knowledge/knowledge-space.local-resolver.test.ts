@@ -46,7 +46,7 @@ describe('KnowledgeSpaceLocalResolver', () => {
     expect(() =>
       resolver.resolveChild(resolver.resolveRoot(), SPACE_ID),
     ).toThrow(KnowledgeSpaceUnavailableError);
-    expect(() => lstatSync(child)).toThrow();
+    expect(() => lstatSync(child)).toThrow(/ENOENT/);
   });
 
   it('accepts a real directory created by a concurrent mkdir race', () => {

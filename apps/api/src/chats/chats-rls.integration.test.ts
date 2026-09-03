@@ -27,15 +27,12 @@
  */
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { sql as dsql } from 'drizzle-orm';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql, type TransactionSql } from 'postgres';
 import * as schema from '../db/schema';
 import {
   ChatsRepository,
@@ -51,7 +48,7 @@ import { ChatsService } from './chats.service';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
-type SqlClient = any;
+type SqlClient = Sql;
 
 /** Asserts a raw `sql` template-tag row carries a string `id`. */
 function assertRowId(r: unknown): asserts r is { id: string } {
@@ -72,15 +69,15 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
    * `SET LOCAL` (plain `SET LOCAL x = $1` cannot take a bind parameter). This
    * mirrors what the request layer must do for every chats/messages query.
    */
-  const asUser = (userId: string, fn: (tx: SqlClient) => Promise<any>) =>
-    sql.begin(async (tx: SqlClient) => {
+  const asUser = <T>(userId: string, fn: (tx: TransactionSql) => Promise<T>) =>
+    sql.begin(async (tx) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
       return fn(tx);
     });
 
   beforeAll(async () => {
     // Dynamic import to avoid connecting at module load time.
-    const postgres = require('postgres');
+    const postgres = await import('postgres');
     const connect = postgres.default ?? postgres;
     // Local test databases (docker) have no TLS; only require it if the URL asks.
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
@@ -469,7 +466,7 @@ describeIfDb(
     let userBId: string;
 
     beforeAll(async () => {
-      const postgres = require('postgres');
+      const postgres = await import('postgres');
       const connect = postgres.default ?? postgres;
       const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
       // max: 2 (see first describe block) so afterAll cleanup can't deadlock against

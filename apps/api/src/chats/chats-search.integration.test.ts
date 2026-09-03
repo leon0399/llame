@@ -15,13 +15,10 @@
  * SearchIndexService before searching. TEST_DATABASE_URL-gated; run by test:integration.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 import { and, eq, sql } from 'drizzle-orm';
 
 import * as schema from '../db/schema';
@@ -37,7 +34,7 @@ import { renderConversationCheckpoint } from './context-builder';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = Sql;
 
 const text = (t: string) => [{ type: 'text', text: t }];
 
@@ -74,7 +71,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     msgs: Array<{
       role: 'user' | 'assistant' | 'system' | 'tool';
       text?: string;
-      parts?: unknown[];
+      parts?: Array<unknown>;
     }>,
   ): Promise<string> {
     const id = crypto.randomUUID();
@@ -101,7 +98,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
   }
 
   beforeAll(async () => {
-    const postgres = require('postgres');
+    const postgres = await import('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sqlClient = connect(TEST_DB_URL!, { ssl, max: 3 });
@@ -402,7 +399,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
       SELECT relname, relforcerowsecurity FROM pg_class
       WHERE relname IN ('search_chat_documents','search_chat_state') ORDER BY relname`;
     // ORDER BY relname is alphabetical: search_chat_documents < search_chat_state.
-    expect(rows.map((r: any) => [r.relname, r.relforcerowsecurity])).toEqual([
+    expect(rows.map((r) => [r.relname, r.relforcerowsecurity])).toEqual([
       ['search_chat_documents', true],
       ['search_chat_state', true],
     ]);

@@ -12,7 +12,7 @@ import type {
 import type { TokenPrice } from './model-catalog';
 
 export interface ModelStreamInput {
-  messages: ModelMessage[];
+  messages: Array<ModelMessage>;
   system?: string;
   abortSignal?: AbortSignal;
   /**
@@ -85,7 +85,7 @@ export interface ModelStreamInput {
 }
 
 export interface ModelObjectInput<OBJECT> {
-  messages: ModelMessage[];
+  messages: Array<ModelMessage>;
   system?: string;
   abortSignal?: AbortSignal;
   /**

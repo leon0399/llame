@@ -1,4 +1,10 @@
-import { isBoolean, isNumber, isRecord, isString } from '../unknown-record';
+import {
+  isBoolean,
+  isNumber,
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '../unknown-record';
 
 export const PROTECTED_VALUE_REDACTION_MARKER = '[REDACTED]';
 
@@ -12,8 +18,8 @@ export type ProtectedValueSanitizationResult =
  * exact runtime value, not display text.
  */
 export function normalizeProtectedValues(
-  values: readonly string[],
-): readonly string[] {
+  values: ReadonlyArray<string>,
+): ReadonlyArray<string> {
   return [...new Set(values.filter((value) => value.length > 0))].sort(
     (left, right) => {
       const lengthDifference = right.length - left.length;
@@ -25,7 +31,7 @@ export function normalizeProtectedValues(
 
 function containsProtectedString(
   value: string,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): boolean {
   return protectedValues.some((protectedValue) =>
     value.includes(protectedValue),
@@ -50,9 +56,9 @@ function canonicalJsonScalar(value: unknown): string | undefined {
  */
 export function redactProtectedString(
   value: string,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): string {
-  const output: string[] = [];
+  const output: Array<string> = [];
   let cursor = 0;
 
   while (cursor < value.length) {
@@ -94,7 +100,7 @@ export function redactProtectedString(
 export function containsProtectedValueJson(
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- thin public wrapper delegating straight into `containsNormalizedProtectedValueJson` below (which validates via `typeof value === 'string'` as its own first use); this function's first use is a bare-identifier delegation call, not itself a validating check.
   value: unknown,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): boolean {
   return containsNormalizedProtectedValueJson(
     value,
@@ -104,7 +110,7 @@ export function containsProtectedValueJson(
 
 function containsNormalizedProtectedValueJson(
   value: unknown,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): boolean {
   if (isString(value)) {
     return containsProtectedString(value, protectedValues);
@@ -136,7 +142,7 @@ function containsNormalizedProtectedValueJson(
 export function sanitizeProtectedValueJson(
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- thin public wrapper delegating straight into `sanitizeNormalizedProtectedValueJson` below (which validates via `typeof value === 'string'` as its own first use); this function's first use is a bare-identifier delegation call, not itself a validating check.
   value: unknown,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): ProtectedValueSanitizationResult {
   return sanitizeNormalizedProtectedValueJson(
     value,
@@ -146,7 +152,7 @@ export function sanitizeProtectedValueJson(
 
 function sanitizeNormalizedProtectedValueJson(
   value: unknown,
-  protectedValues: readonly string[],
+  protectedValues: ReadonlyArray<string>,
 ): ProtectedValueSanitizationResult {
   if (isString(value)) {
     return {
@@ -166,21 +172,34 @@ function sanitizeNormalizedProtectedValueJson(
   }
 
   if (Array.isArray(value)) {
-    const safe: unknown[] = [];
-    for (const item of value) {
-      const result = sanitizeNormalizedProtectedValueJson(
-        item,
-        protectedValues,
-      );
-      if (!result.success) return result;
-      safe.push(result.value);
-    }
-    return { success: true, value: safe };
+    return sanitizeProtectedValueArray(value, protectedValues);
   }
 
   if (!isRecord(value)) return { success: true, value };
 
-  const safeEntries: [string, unknown][] = [];
+  return sanitizeProtectedValueRecord(value, protectedValues);
+}
+
+function sanitizeProtectedValueArray(
+  value: Array<unknown>,
+  protectedValues: ReadonlyArray<string>,
+): ProtectedValueSanitizationResult {
+  const safe: Array<unknown> = [];
+  for (const item of value) {
+    const result = sanitizeNormalizedProtectedValueJson(item, protectedValues);
+    if (!result.success) return result;
+    safe.push(result.value);
+  }
+  return { success: true, value: safe };
+}
+
+/** A protected object KEY cannot be redacted without changing the object's
+ *  meaning, so its presence fails the whole record closed. */
+function sanitizeProtectedValueRecord(
+  value: UnknownRecord,
+  protectedValues: ReadonlyArray<string>,
+): ProtectedValueSanitizationResult {
+  const safeEntries: Array<[string, unknown]> = [];
   for (const [key, item] of Object.entries(value)) {
     if (containsProtectedString(key, protectedValues)) {
       return { success: false, reason: 'protected_value_key' };

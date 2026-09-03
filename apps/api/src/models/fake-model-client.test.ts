@@ -31,7 +31,7 @@ const messages = [
     role: 'user',
     content: 'Hello',
   },
-] satisfies ModelMessage[];
+] satisfies Array<ModelMessage>;
 
 describe('createFakeModelClient', () => {
   it('fires callbacks when a response stream is consumed', async () => {

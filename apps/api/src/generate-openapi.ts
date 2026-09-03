@@ -46,14 +46,14 @@ async function generateOpenApi() {
       // (open handles would hang the build process).
       await app.close();
     }
-  } catch (err) {
+  } catch (error) {
     // Covers failures that DO propagate normally (anything after
     // NestFactory.create resolves — configureApp, document generation,
     // writeFile) — the DI-constructor-throw case above is handled by the
     // logger option instead, since it never reaches here.
-    console.error('OpenAPI generation failed:', err);
+    console.error('OpenAPI generation failed:', error);
     process.exitCode = 1;
-    throw err;
+    throw error;
   }
 }
 

@@ -108,7 +108,7 @@ export class IdentityController {
   @ApiUnauthorizedResponse()
   async listOrgUnits(
     @CurrentUser() userId: string,
-  ): Promise<OrgUnitResponse[]> {
+  ): Promise<Array<OrgUnitResponse>> {
     const units = await this.identity.listOrgUnits(userId);
     return units.map(toOrgUnitResponse);
   }
@@ -195,7 +195,7 @@ export class IdentityController {
   async listMemberships(
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) orgUnitId: string,
-  ): Promise<MembershipResponse[]> {
+  ): Promise<Array<MembershipResponse>> {
     const rows = await this.identity.listMemberships({ userId, orgUnitId });
     return rows.map(toMembershipResponse);
   }

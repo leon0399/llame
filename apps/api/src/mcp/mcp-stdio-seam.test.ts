@@ -45,7 +45,7 @@ describe('stdio config-to-client seam', () => {
     // The config layer's job: the secret is protected, the literal path is not.
     expect(entry.protectedValues).toEqual([secret]);
 
-    const seen: string[] = [];
+    const seen: Array<string> = [];
     const client = await McpServerClient.connectStdio({
       serverId: 'local',
       command: entry.command,

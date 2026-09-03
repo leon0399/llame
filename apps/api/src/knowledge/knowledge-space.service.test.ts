@@ -21,7 +21,7 @@ function fakeDb(): Db {
 
 function makeService(root: string | undefined) {
   const tx = fakeDb();
-  const events: string[] = [];
+  const events: Array<string> = [];
   const runAs: TenantRunner['runAs'] = async (ownerUserId, callback) => {
     events.push(`db:${ownerUserId}`);
     return callback(tx);

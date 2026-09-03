@@ -2,11 +2,9 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { tool, type ToolSet } from 'ai';
 
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import { isNumber, isRecord, isString } from '../unknown-record';
 import {
   type Message,
   type ModelToolDeclaration,
-  type RunEvent,
   type RunStatus,
 } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
@@ -37,11 +35,13 @@ import {
   type MessagePart,
 } from '../chats/context-builder';
 import { isModelChangeItem } from '../chats/context-item-producers';
-import {
-  neutralizeToolResult,
-  normalizeToolObservationOutcome,
-} from '../chats/tool-observation-part';
+import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { createDeltaBuffer } from './delta-buffer';
+import {
+  createAssistantPartCollector,
+  reconstructDurableAssistant,
+  toolActivityPart,
+} from './assistant-transcript';
 import {
   InstanceConfigService,
   type InstanceConfigReader,
@@ -82,7 +82,7 @@ type AssistantTurnTelemetry = TurnTelemetry & { runId: string };
 type AssistantTurnPersistence = {
   chatId: string;
   inReplyTo: string;
-  parts: MessagePart[];
+  parts: Array<MessagePart>;
   telemetry?: AssistantTurnTelemetry;
 };
 
@@ -95,8 +95,17 @@ type PreparedExecutionContext = {
   system: string;
   messages: ReturnType<typeof buildContext>['messages'];
   untitled: boolean;
-  toolDeclarations: ModelToolDeclaration[];
+  toolDeclarations: Array<ModelToolDeclaration>;
   tools: Awaited<ReturnType<typeof resolveBoundExecutableTools>>;
+};
+
+type ExecuteRunInput = {
+  runId: string;
+  chatId: string;
+  userId: string;
+  userMessage: RunUserMessage;
+  client: ModelClient;
+  abortSignal?: AbortSignal;
 };
 
 /**
@@ -136,288 +145,8 @@ export function classifyAbortedRun(
 export type RunUserMessage = {
   id: string;
   seq: number;
-  parts: MessagePart[];
+  parts: Array<MessagePart>;
 };
-
-/**
- * Cap on persisted reasoning text. Reasoning is display-only (stripped from
- * model context), so this bounds storage + the per-turn context-read cost (each
- * build reads every message's parts) without affecting what the model sees.
- */
-export const REASONING_PERSIST_MAX = 24_000;
-
-/**
- * A persisted tool-activity part (design D5, AI SDK tool-part vocabulary):
- * `type: "tool-<name>"`, correlated by `toolCallId`, settled state only
- * (`output-available` | `output-error` — no `input-streaming`/`input-available`
- * snapshot is persisted; results are atomic in this slice, D5). Built by both
- * the genuine-execution path (runTool) and the unavailable/hallucinated-call
- * refusal path (onUnavailableToolCall), so both render through the exact same
- * `ToolCallPart` component web-side.
- */
-export type ToolActivityPart = {
-  type: `tool-${string}`;
-  toolCallId: string;
-  state: 'output-available' | 'output-error';
-  input: unknown;
-  output?: unknown;
-  errorText?: string;
-  /** Provider-portable structured outcome: success or the ToolResult error type. */
-  outcome: string;
-  /** SDK-supported result metadata marking an error produced by run termination
-   *  rather than by the tool itself. Persisted so the UI can render
-   *  "Cancelled" without parsing error text, and survives the live transport. */
-  resultProviderMetadata?: { llame: { cancelled: true } };
-};
-
-/** The step-cap marker part (design D6): `type: "data-cap-notice"`, AI SDK
- * v6 data-part shape (payload nested under `.data`) so the SAME part renders
- * live (bridge → `data-cap-notice` stream chunk) and from history. */
-export type CapNoticePart = {
-  type: 'data-cap-notice';
-  data: { stepsUsed: number; maxSteps: number };
-};
-
-/** Builds the stored assistant transcript in the exact order llame observed it. */
-export function createAssistantPartCollector() {
-  type PendingToolPart = { readonly type: 'pending-tool'; toolCallId: string };
-  const collected: (MessagePart | PendingToolPart)[] = [];
-  const pendingToolIndexes = new Map<string, number>();
-  // Ids whose outcome is already recorded, by either path. Settlement is
-  // at-most-once per call (design D6, first writer wins).
-  const settledToolCallIds = new Set<string>();
-
-  const appendText = (text: string) => {
-    if (text.length === 0) return;
-    const last = collected.at(-1);
-    if (last?.type === 'text' && isString(last.text)) {
-      last.text += text;
-      return;
-    }
-    collected.push({ type: 'text', text });
-  };
-
-  const appendReasoning = (text: string) => {
-    if (text.length === 0) return;
-    const last = collected.at(-1);
-    if (last?.type === 'reasoning' && isString(last.text)) {
-      last.text += text;
-      return;
-    }
-    collected.push({ type: 'reasoning', text });
-  };
-
-  return {
-    text: appendText,
-    reasoning: appendReasoning,
-    toolRequested: (toolCallId: string) => {
-      pendingToolIndexes.set(toolCallId, collected.length);
-      collected.push({ type: 'pending-tool', toolCallId });
-    },
-    tool: (part: ToolActivityPart) => {
-      // Settlement is at-most-once per call. A tool that ignored cancellation
-      // and completed after termination already settled it must not replace
-      // that record, nor append a second one for the same id.
-      if (settledToolCallIds.has(part.toolCallId)) {
-        return;
-      }
-      settledToolCallIds.add(part.toolCallId);
-      const pendingIndex = pendingToolIndexes.get(part.toolCallId);
-      if (pendingIndex === undefined) {
-        collected.push(part);
-        return;
-      }
-      collected[pendingIndex] = part;
-      pendingToolIndexes.delete(part.toolCallId);
-    },
-    capNotice: (part: CapNoticePart) => collected.push(part),
-    parts: (): MessagePart[] =>
-      collected
-        // Only settled tool parts are a durable history representation. A
-        // provider failure after tool.requested leaves the request in the
-        // event log, while avoiding an invalid UI tool-part snapshot.
-        .filter((part): part is MessagePart => part.type !== 'pending-tool')
-        .map((part) =>
-          part.type === 'reasoning' &&
-          isString(part.text) &&
-          part.text.length > REASONING_PERSIST_MAX
-            ? {
-                ...part,
-                text: `${part.text.slice(0, REASONING_PERSIST_MAX)}…`,
-              }
-            : part,
-        ),
-  };
-}
-
-function toolActivityPart(
-  toolCallId: string,
-  toolName: string,
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- persisted verbatim into the tool-observation record's `input` field; each tool's actual argument shape is validated separately at the AI SDK / MCP boundary before this function ever runs (see the `tool({ execute })` callback below) -- this just records what was already admitted.
-  input: unknown,
-  result: ToolResult,
-): ToolActivityPart {
-  return result.status === 'success'
-    ? {
-        type: `tool-${toolName}`,
-        toolCallId,
-        state: 'output-available',
-        input,
-        output: result,
-        outcome: 'success',
-      }
-    : {
-        type: `tool-${toolName}`,
-        toolCallId,
-        state: 'output-error',
-        input,
-        errorText: result.message,
-        outcome: normalizeToolObservationOutcome(result.type, 'error'),
-        ...(result.type === 'cancelled' && {
-          resultProviderMetadata: {
-            llame: { cancelled: true as const },
-          },
-        }),
-      };
-}
-
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the ternary test `isRecord(payload)` below -- an `isXxx`-named guard call, but as a ternary test rather than an `if`/`return`-of-boolean, a shape the structural exemption doesn't unwrap.
-function eventPayloadField(payload: unknown, key: string) {
-  return isRecord(payload) ? payload[key] : undefined;
-}
-
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `eventPayloadField` above, which validates via `isRecord(payload)` as its own ternary test; bare-identifier delegation, not itself a validating call.
-function eventPayloadString(payload: unknown, key: string): string | undefined {
-  const value = eventPayloadField(payload, key);
-  return isString(value) ? value : undefined;
-}
-
-/**
- * Rebuild the observable assistant prefix from the append-only event log and
- * identify calls that were durably requested but never durably completed.
- * Request-time reservations keep synthetic results in occurrence order even
- * though their completion events are appended at terminalization.
- */
-function reconstructDurableAssistant(events: RunEvent[]) {
-  const collector = createAssistantPartCollector();
-  const openToolCalls = new Map<
-    string,
-    { readonly toolName: string; readonly toolInput: unknown }
-  >();
-  const seenToolCallIds = new Set<string>();
-  const completedToolCallIds = new Set<string>();
-
-  for (const event of events) {
-    if (event.eventType === 'model.delta') {
-      collector.text(eventPayloadString(event.payload, 'text') ?? '');
-      continue;
-    }
-    if (event.eventType === 'reasoning.delta') {
-      collector.reasoning(eventPayloadString(event.payload, 'text') ?? '');
-      continue;
-    }
-    if (event.eventType === 'run.step_cap_reached') {
-      const stepsUsed = eventPayloadField(event.payload, 'stepsUsed');
-      const maxSteps = eventPayloadField(event.payload, 'maxSteps');
-      if (isNumber(stepsUsed) && isNumber(maxSteps)) {
-        collector.capNotice({
-          type: 'data-cap-notice',
-          data: { stepsUsed, maxSteps },
-        });
-      }
-      continue;
-    }
-    if (event.eventType === 'tool.requested') {
-      const toolCallId = eventPayloadString(event.payload, 'toolCallId');
-      const toolName = eventPayloadString(event.payload, 'toolName');
-      if (
-        !toolCallId ||
-        !toolName ||
-        seenToolCallIds.has(toolCallId) ||
-        completedToolCallIds.has(toolCallId)
-      ) {
-        continue;
-      }
-      seenToolCallIds.add(toolCallId);
-      const toolInput = eventPayloadField(event.payload, 'input');
-      openToolCalls.set(toolCallId, { toolName, toolInput });
-      collector.toolRequested(toolCallId);
-      continue;
-    }
-    if (event.eventType !== 'tool.completed') {
-      continue;
-    }
-
-    const toolCallId = eventPayloadString(event.payload, 'toolCallId');
-    if (!toolCallId || completedToolCallIds.has(toolCallId)) {
-      continue;
-    }
-    const request = openToolCalls.get(toolCallId);
-    const output = eventPayloadField(event.payload, 'output');
-    if (!request || !isRecord(output)) {
-      continue;
-    }
-    const status = output['status'];
-    let result: ToolResult;
-    if (status === 'success') {
-      result = { ...output, status };
-    } else if (
-      status === 'error' &&
-      isString(output['type']) &&
-      isString(output['message'])
-    ) {
-      result = { status, type: output['type'], message: output['message'] };
-    } else {
-      continue;
-    }
-    completedToolCallIds.add(toolCallId);
-    openToolCalls.delete(toolCallId);
-    collector.tool(
-      toolActivityPart(toolCallId, request.toolName, request.toolInput, result),
-    );
-  }
-
-  return { collector, openToolCalls };
-}
-
-/**
- * Assistant-turn parts, in occurrence order: a leading `reasoning` part
- * (capped, display-only) when the model produced thinking, then every tool
- * call/result of the run (in the order they were recorded), then the answer
- * text, then an optional step-cap notice. All three display-only kinds —
- * reasoning, tool parts, and the cap notice — survive a reload for the UI but
- * are stripped by `partsToText`, so they never re-enter model context on a
- * later turn or in a compaction summary (the model saw tool results live
- * during the run's own loop; the persisted parts are a UI record).
- */
-export function assistantParts(input: {
-  reasoningText: string;
-  toolParts: readonly ToolActivityPart[];
-  text: string;
-  capNotice?: CapNoticePart;
-}): MessagePart[] {
-  const { reasoningText, toolParts, text, capNotice } = input;
-  const parts: MessagePart[] = [];
-  if (reasoningText.length > 0) {
-    const reasoning =
-      reasoningText.length > REASONING_PERSIST_MAX
-        ? `${reasoningText.slice(0, REASONING_PERSIST_MAX)}…`
-        : reasoningText;
-    parts.push({ type: 'reasoning', text: reasoning });
-  }
-  parts.push(...toolParts);
-  // Skip an empty text part: a reasoning-only turn (or one that hits onFinish
-  // with no visible answer) should not persist a spurious `{ type: 'text',
-  // text: '' }` -- no downstream renderer (chat-page.tsx, markdown export)
-  // needs an empty text bubble/line.
-  if (text.length > 0) {
-    parts.push({ type: 'text', text });
-  }
-  if (capNotice) {
-    parts.push(capNotice);
-  }
-  return parts;
-}
 
 type TerminalRunStatus = Extract<
   RunStatus,
@@ -500,14 +229,9 @@ export class RunExecutionService {
     return settlement;
   }
 
-  async executeRun(input: {
-    runId: string;
-    chatId: string;
-    userId: string;
-    userMessage: RunUserMessage;
-    client: ModelClient;
-    abortSignal?: AbortSignal;
-  }): Promise<ReturnType<ModelClient['streamText']>> {
+  async executeRun(
+    input: ExecuteRunInput,
+  ): Promise<ReturnType<ModelClient['streamText']>> {
     const { client } = input;
 
     // Claim before any context preparation can invoke a model. Transition
@@ -588,21 +312,6 @@ export class RunExecutionService {
           input.userId,
         );
 
-        const compaction = await new CompactionsRepository(
-          tx,
-        ).findLatestByChatId(input.chatId, input.userId, {
-          beforeSeq: input.userMessage.seq,
-        });
-
-        const history = await new MessagesRepository(tx).findByChatId(
-          input.chatId,
-          input.userId,
-          {
-            maxSeq: input.userMessage.seq,
-            ...(compaction && { sinceSeq: compaction.uptoSeq }),
-          },
-        );
-
         const snapshot = await new ModelContextSnapshotsRepository(
           tx,
         ).findByOwnedRun(input.runId, input.userId);
@@ -612,16 +321,11 @@ export class RunExecutionService {
           );
         }
 
-        const built = buildContext(toStoredMessages(history), {
-          systemPrompt: snapshot.systemPrompt,
-          ...(compaction && {
-            compaction: {
-              summary: compaction.summary,
-              uptoSeq: compaction.uptoSeq,
-              replacementHistory: compaction.replacementHistory,
-            },
-          }),
-        });
+        const built = await this.rebuildContextForChat(
+          tx,
+          input,
+          snapshot.systemPrompt,
+        );
 
         return {
           ...built,
@@ -642,84 +346,14 @@ export class RunExecutionService {
         ),
       };
 
-      const reservedOutputTokens =
-        this.instanceConfig.config.runs.maxOutputTokens;
-      if (
-        !requestFitsContextWindow({
-          system: prepared.system,
-          messages: prepared.messages,
-          toolDeclarations: prepared.toolDeclarations,
-          contextWindowTokens: client.contextWindowTokens,
-          reservedOutputTokens,
-        })
-      ) {
-        if (!input.userMessage.parts.some(isModelChangeItem)) {
-          throw new ContextIncompatibleError(
-            'The complete request exceeds the target model context window and no model-switch source context is available.',
-          );
-        }
-        try {
-          await this.compaction.compactForTransition({
-            chatId: input.chatId,
-            userId: input.userId,
-            triggeringUserSeq: input.userMessage.seq,
-            reservedOutputTokens,
-            abortSignal: input.abortSignal,
-          });
-        } catch (error) {
-          if (input.abortSignal?.aborted) {
-            throw error;
-          }
-          throw new ContextIncompatibleError(
-            'The complete request does not fit the target model and transition compaction could not produce compatible context.',
-            { cause: error },
-          );
-        }
-
-        const rebuilt = await this.tenantDb.runAs(input.userId, async (tx) => {
-          const compaction = await new CompactionsRepository(
-            tx,
-          ).findLatestByChatId(input.chatId, input.userId, {
-            beforeSeq: input.userMessage.seq,
-          });
-          const history = await new MessagesRepository(tx).findByChatId(
-            input.chatId,
-            input.userId,
-            {
-              maxSeq: input.userMessage.seq,
-              ...(compaction && { sinceSeq: compaction.uptoSeq }),
-            },
-          );
-          return buildContext(toStoredMessages(history), {
-            systemPrompt: prepared.system,
-            ...(compaction && {
-              compaction: {
-                summary: compaction.summary,
-                uptoSeq: compaction.uptoSeq,
-                replacementHistory: compaction.replacementHistory,
-              },
-            }),
-          });
-        });
-        prepared.messages = rebuilt.messages;
-        // Transition compaction replaces the request wholesale, so the items
-        // recorded must be the rebuilt set — the initial build's items were
-        // never sent.
-        contextItems = rebuilt.contextItems;
-        if (
-          !requestFitsContextWindow({
-            system: prepared.system,
-            messages: prepared.messages,
-            toolDeclarations: prepared.toolDeclarations,
-            contextWindowTokens: client.contextWindowTokens,
-            reservedOutputTokens,
-          })
-        ) {
-          throw new ContextIncompatibleError(
-            'The complete request still exceeds the target model context window after one transition compaction.',
-          );
-        }
-      }
+      // Transition compaction replaces the request wholesale when it runs, so
+      // the items recorded must be the rebuilt set — the initial build's
+      // items were never sent.
+      contextItems = await this.ensureRequestFitsContextWindow(
+        prepared,
+        contextItems,
+        input,
+      );
       // Recorded only once the request is final: before this point a
       // transition compaction can still replace it, and a preparation failure
       // means no request was ever made. Recording earlier would durably assert
@@ -1135,16 +769,10 @@ export class RunExecutionService {
           persistDelta(deltas.flush());
           await deltaWrites;
           if (progressWriteFailed) {
-            await this.settleTerminalRun({
+            await this.settleProgressWriteFailure({
               userId: input.userId,
               runId: input.runId,
-              status: 'failed',
               telemetry: assistantTelemetry,
-              runPayload: {
-                status: 'failed',
-                message: 'Run progress could not be persisted.',
-              },
-              error: { message: 'Run progress could not be persisted.' },
             });
             return;
           }
@@ -1164,16 +792,10 @@ export class RunExecutionService {
           // in that window permanently loses them.
           await deltaWrites;
           if (progressWriteFailed) {
-            await this.settleTerminalRun({
+            await this.settleProgressWriteFailure({
               userId: input.userId,
               runId: input.runId,
-              status: 'failed',
               telemetry: assistantTelemetry,
-              runPayload: {
-                status: 'failed',
-                message: 'Run progress could not be persisted.',
-              },
-              error: { message: 'Run progress could not be persisted.' },
             });
             return;
           }
@@ -1212,10 +834,11 @@ export class RunExecutionService {
             await parentAbortSettlement;
             return;
           }
+          // `streamedText === ''` makes the `startsWith` check vacuously true
+          // (every string starts with the empty string), so that case is
+          // already covered by this branch — there is no second case to guard.
           if (text.startsWith(streamedText)) {
             assistantPartCollector.text(text.slice(streamedText.length));
-          } else if (streamedText.length === 0) {
-            assistantPartCollector.text(text);
           }
           const telemetry = buildTurnTelemetry({
             usage,
@@ -1247,16 +870,10 @@ export class RunExecutionService {
           persistDelta(deltas.flush());
           await deltaWrites;
           if (progressWriteFailed) {
-            await this.settleTerminalRun({
+            await this.settleProgressWriteFailure({
               userId: input.userId,
               runId: input.runId,
-              status: 'failed',
               telemetry: assistantTelemetry,
-              runPayload: {
-                status: 'failed',
-                message: 'Run progress could not be persisted.',
-              },
-              error: { message: 'Run progress could not be persisted.' },
             });
             return;
           }
@@ -1282,16 +899,10 @@ export class RunExecutionService {
             // Re-drain after settlement — same reason as in onError.
             await deltaWrites;
             if (progressWriteFailed) {
-              await this.settleTerminalRun({
+              await this.settleProgressWriteFailure({
                 userId: input.userId,
                 runId: input.runId,
-                status: 'failed',
                 telemetry: assistantTelemetry,
-                runPayload: {
-                  status: 'failed',
-                  message: 'Run progress could not be persisted.',
-                },
-                error: { message: 'Run progress could not be persisted.' },
               });
               return;
             }
@@ -1395,6 +1006,127 @@ export class RunExecutionService {
     }
   }
 
+  /**
+   * Loads the latest compaction and the message history up to the run's
+   * triggering message, then rebuilds the context with `systemPrompt` — the
+   * shared core of both the initial per-run context build and a
+   * transition-compaction rebuild.
+   */
+  private async rebuildContextForChat(
+    tx: Db,
+    input: ExecuteRunInput,
+    systemPrompt: string,
+  ): Promise<ReturnType<typeof buildContext>> {
+    const { chatId, userId, userMessage } = input;
+    const compaction = await new CompactionsRepository(tx).findLatestByChatId(
+      chatId,
+      userId,
+      { beforeSeq: userMessage.seq },
+    );
+    const history = await new MessagesRepository(tx).findByChatId(
+      chatId,
+      userId,
+      {
+        maxSeq: userMessage.seq,
+        ...(compaction && { sinceSeq: compaction.uptoSeq }),
+      },
+    );
+    return buildContext(toStoredMessages(history), {
+      systemPrompt,
+      ...(compaction && {
+        compaction: {
+          summary: compaction.summary,
+          uptoSeq: compaction.uptoSeq,
+          replacementHistory: compaction.replacementHistory,
+        },
+      }),
+    });
+  }
+
+  /**
+   * If the built request doesn't fit the target model's context window,
+   * attempts recovery via `compactAndRebuildForContextWindow` — or fails fast
+   * with `ContextIncompatibleError` when there is no model-switch anchor to
+   * transition from. Returns `contextItems` unchanged when the request
+   * already fits.
+   */
+  private async ensureRequestFitsContextWindow(
+    prepared: PreparedExecutionContext,
+    contextItems: ReturnType<typeof buildContext>['contextItems'],
+    input: ExecuteRunInput,
+  ): Promise<ReturnType<typeof buildContext>['contextItems']> {
+    const reservedOutputTokens =
+      this.instanceConfig.config.runs.maxOutputTokens;
+    if (
+      requestFitsContextWindow({
+        system: prepared.system,
+        messages: prepared.messages,
+        toolDeclarations: prepared.toolDeclarations,
+        contextWindowTokens: input.client.contextWindowTokens,
+        reservedOutputTokens,
+      })
+    ) {
+      return contextItems;
+    }
+    if (!input.userMessage.parts.some(isModelChangeItem)) {
+      throw new ContextIncompatibleError(
+        'The complete request exceeds the target model context window and no model-switch source context is available.',
+      );
+    }
+    return this.compactAndRebuildForContextWindow(
+      prepared,
+      input,
+      reservedOutputTokens,
+    );
+  }
+
+  /**
+   * Attempts one transition compaction and context rebuild, then re-checks;
+   * throws `ContextIncompatibleError` if compaction itself fails (unless the
+   * abort signal fired, which rethrows) or the rebuilt request still doesn't
+   * fit. Mutates `prepared.messages` in place and returns the rebuilt context
+   * items to record — the initial build's items were never sent.
+   */
+  private async compactAndRebuildForContextWindow(
+    prepared: PreparedExecutionContext,
+    input: ExecuteRunInput,
+    reservedOutputTokens: number | null,
+  ): Promise<ReturnType<typeof buildContext>['contextItems']> {
+    try {
+      await this.compaction.compactForTransition({
+        chatId: input.chatId,
+        userId: input.userId,
+        triggeringUserSeq: input.userMessage.seq,
+        reservedOutputTokens,
+        abortSignal: input.abortSignal,
+      });
+    } catch (error) {
+      if (input.abortSignal?.aborted) throw error;
+      throw new ContextIncompatibleError(
+        'The complete request does not fit the target model and transition compaction could not produce compatible context.',
+        { cause: error },
+      );
+    }
+    const rebuilt = await this.tenantDb.runAs(input.userId, (tx) =>
+      this.rebuildContextForChat(tx, input, prepared.system),
+    );
+    prepared.messages = rebuilt.messages;
+    if (
+      !requestFitsContextWindow({
+        system: prepared.system,
+        messages: prepared.messages,
+        toolDeclarations: prepared.toolDeclarations,
+        contextWindowTokens: input.client.contextWindowTokens,
+        reservedOutputTokens,
+      })
+    ) {
+      throw new ContextIncompatibleError(
+        'The complete request still exceeds the target model context window after one transition compaction.',
+      );
+    }
+    return rebuilt.contextItems;
+  }
+
   private abortedRunMessage(status: 'cancelled' | 'expired'): string {
     return status === 'expired'
       ? 'Run timed out: exceeded its wall-clock budget.'
@@ -1423,6 +1155,31 @@ export class RunExecutionService {
       );
     }
     throw new RunNotRunnableError(input.runId);
+  }
+
+  /**
+   * Settle the run as failed because its own progress could not be persisted.
+   *
+   * Reached from four points in the stream lifecycle — `onError` and
+   * `onFinish`, each before and after the assistant turn is written. Once a
+   * delta write has failed the durable log no longer matches what the model
+   * produced, so the run must not settle as anything but failed, and it must
+   * settle the same way from every one of those points.
+   */
+  private async settleProgressWriteFailure(input: {
+    userId: string;
+    runId: string;
+    telemetry: AssistantTurnTelemetry;
+  }): Promise<void> {
+    const message = 'Run progress could not be persisted.';
+    await this.settleTerminalRun({
+      userId: input.userId,
+      runId: input.runId,
+      status: 'failed',
+      telemetry: input.telemetry,
+      runPayload: { status: 'failed', message },
+      error: { message },
+    });
   }
 
   private async failRunProgressPersistence(input: {
@@ -1690,6 +1447,62 @@ export class RunExecutionService {
    * a failure here must not roll back the committed turn. No-op when nothing
    * was persisted (dual-fire, or the chat vanished mid-stream).
    */
+  /**
+   * Bump the chat's activity time so an in-place assistant-reply update
+   * (which leaves messages.created_at unchanged) still moves the search
+   * staleness high-water mark — the reindex sweep's backstop for a lost
+   * enqueue — and so the chat list reflects the latest turn. Its own
+   * single-row transaction, called BEFORE the reindex rather than in the
+   * terminal one: the finalizer never holds the chat row (see the lock-order
+   * note there), and a touch landing after the reindex would leave every
+   * completed turn looking stale (`indexed_at < updated_at`) and re-enqueue
+   * it for nothing.
+   */
+  private async touchChatActivity(
+    chatId: string,
+    userId: string,
+  ): Promise<void> {
+    try {
+      await this.tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).touch(chatId, userId),
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to bump activity time for chat ${chatId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  /**
+   * Tier-1 synchronous lexical index: rebuild inline on the worker path
+   * (already post-model-call, so a rebuild is cheap) so the finished turn is
+   * searchable at once. Post-commit + best-effort: a chunker failure must
+   * never fail the run — on error fall back to the async reindex queue (a
+   * producer of the general per-chat reindex job).
+   */
+  private async reindexAfterTurn(
+    chatId: string,
+    userId: string,
+  ): Promise<void> {
+    try {
+      await this.searchIndex.reindexChat(chatId, userId);
+      // chat-search-embeddings design D5: the inline Tier-1 rebuild is one of
+      // the three enqueue sites embed work must fire from — the reindex
+      // worker only runs on the fallback/fork/sweep paths below, so an
+      // ordinary turn would otherwise produce no embedding work until a
+      // sweep noticed. Best-effort + off-by-default; see the dispatch
+      // service's own contract.
+      void this.embedDispatch.enqueueChatEmbed(chatId, userId);
+    } catch (error) {
+      this.logger.error(
+        `Inline reindex failed for chat ${chatId}; falling back to async`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      void this.reindexDispatch.enqueueChatReindex(chatId, userId);
+    }
+  }
+
   private async afterAssistantTurn(
     assistantMessage: Message | undefined,
     userId: string,
@@ -1699,51 +1512,8 @@ export class RunExecutionService {
       return;
     }
 
-    // Bump the chat's activity time so an in-place assistant-reply update
-    // (which leaves messages.created_at unchanged) still moves the search
-    // staleness high-water mark — the reindex sweep's backstop for a lost
-    // enqueue — and so the chat list reflects the latest turn. Its own
-    // single-row transaction, out here rather than in the terminal one, so the
-    // finalizer never holds the chat row (see the lock-order note there).
-    //
-    // BEFORE the reindex, not concurrently with it: the sweep flags a chat when
-    // `indexed_at < updated_at`, so a touch landing after the reindex would
-    // leave every completed turn looking stale and re-enqueue it for nothing.
-    try {
-      await this.tenantDb.runAs(userId, (tx) =>
-        new ChatsRepository(tx).touch(assistantMessage.chatId, userId),
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to bump activity time for chat ${assistantMessage.chatId}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-    }
-
-    // Tier-1 synchronous lexical index: rebuild inline on the worker path
-    // (already post-model-call, so a rebuild is cheap) so the finished turn
-    // is searchable at once. Post-commit + best-effort: a chunker failure
-    // must never fail the run — on error fall back to the async reindex
-    // queue (a producer of the general per-chat reindex job).
-    try {
-      await this.searchIndex.reindexChat(assistantMessage.chatId, userId);
-      // chat-search-embeddings design D5: the inline Tier-1 rebuild is one of
-      // the three enqueue sites embed work must fire from — the reindex
-      // worker only runs on the fallback/fork/sweep paths below, so an
-      // ordinary turn would otherwise produce no embedding work until a
-      // sweep noticed. Best-effort + off-by-default; see the dispatch
-      // service's own contract.
-      void this.embedDispatch.enqueueChatEmbed(assistantMessage.chatId, userId);
-    } catch (error) {
-      this.logger.error(
-        `Inline reindex failed for chat ${assistantMessage.chatId}; falling back to async`,
-        error instanceof Error ? error.stack : String(error),
-      );
-      void this.reindexDispatch.enqueueChatReindex(
-        assistantMessage.chatId,
-        userId,
-      );
-    }
+    await this.touchChatActivity(assistantMessage.chatId, userId);
+    await this.reindexAfterTurn(assistantMessage.chatId, userId);
 
     if (!telemetry || !assistantMessage.inReplyTo) {
       return;

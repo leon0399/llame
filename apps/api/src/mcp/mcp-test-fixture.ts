@@ -2,6 +2,7 @@ import {
   createServer,
   type IncomingHttpHeaders,
   type IncomingMessage,
+  type Server,
   type ServerResponse,
 } from 'node:http';
 
@@ -22,11 +23,11 @@ export type McpFixtureResponse =
     })
   | (FixtureResponseBase & {
       readonly kind: 'sse';
-      readonly events: readonly {
+      readonly events: ReadonlyArray<{
         readonly id?: string;
         readonly data: unknown;
         readonly rawData?: boolean;
-      }[];
+      }>;
     })
   | { readonly kind: 'disconnect'; readonly delayMs?: number };
 
@@ -80,7 +81,7 @@ export type McpFixtureRequestSummary = {
   readonly httpMethod: string;
   readonly rpcMethod: string | null;
   readonly cursor: string | null;
-  readonly headerNames: readonly string[];
+  readonly headerNames: ReadonlyArray<string>;
 };
 
 type RecordedRequest = {
@@ -91,7 +92,7 @@ type RecordedRequest = {
 
 export type McpTestFixture = {
   readonly url: string;
-  requestSummaries(): readonly McpFixtureRequestSummary[];
+  requestSummaries(): ReadonlyArray<McpFixtureRequestSummary>;
   receivedHeader(index: number, name: string, expectedValue: string): boolean;
   receivedHeaderMatching(
     predicate: (summary: McpFixtureRequestSummary) => boolean,
@@ -107,7 +108,7 @@ const wait = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 async function readRequestBody(request: IncomingMessage) {
-  const chunks: Uint8Array[] = [];
+  const chunks: Array<Uint8Array> = [];
   for await (const chunk of request) {
     if (!(chunk instanceof Uint8Array)) {
       throw new TypeError('MCP fixture request body is not binary.');
@@ -195,14 +196,12 @@ async function sendFixtureResponse(
   response.end(sseBody(action.events));
 }
 
-export async function createMcpTestFixture(
-  scripts: Readonly<Record<string, readonly McpFixtureResponse[]>>,
-): Promise<McpTestFixture> {
-  const queues = new Map(
-    Object.entries(scripts).map(([key, actions]) => [key, [...actions]]),
-  );
-  const requests: RecordedRequest[] = [];
-  const server = createServer((request, response) => {
+/** How the fixture server answers one request: log it, then dispatch the next scripted action. */
+function fixtureRequestListener(
+  queues: Map<string, Array<McpFixtureResponse>>,
+  requests: Array<RecordedRequest>,
+): (request: IncomingMessage, response: ServerResponse) => void {
+  return (request, response) => {
     void (async () => {
       let body: unknown;
       try {
@@ -233,8 +232,11 @@ export async function createMcpTestFixture(
       }
       await sendFixtureResponse(request, response, action);
     })();
-  });
+  };
+}
 
+/** Starts `server` on an ephemeral loopback port and returns it, closing the server first on failure. */
+async function listenOnLoopbackPort(server: Server): Promise<number> {
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => {
@@ -255,21 +257,33 @@ export async function createMcpTestFixture(
     });
     throw new TypeError('MCP fixture server did not start listening.');
   }
+  return address.port;
+}
+
+function hasHeader(
+  record: RecordedRequest | undefined,
+  name: string,
+  expectedValue: string,
+): boolean {
+  const value = record?.headers[name.toLowerCase()];
+  return Array.isArray(value)
+    ? value.includes(expectedValue)
+    : value === expectedValue;
+}
+
+export async function createMcpTestFixture(
+  scripts: Readonly<Record<string, ReadonlyArray<McpFixtureResponse>>>,
+): Promise<McpTestFixture> {
+  const queues = new Map(
+    Object.entries(scripts).map(([key, actions]) => [key, [...actions]]),
+  );
+  const requests: Array<RecordedRequest> = [];
+  const server = createServer(fixtureRequestListener(queues, requests));
+  const port = await listenOnLoopbackPort(server);
   let closePromise: Promise<void> | undefined;
 
-  const hasHeader = (
-    record: RecordedRequest | undefined,
-    name: string,
-    expectedValue: string,
-  ): boolean => {
-    const value = record?.headers[name.toLowerCase()];
-    return Array.isArray(value)
-      ? value.includes(expectedValue)
-      : value === expectedValue;
-  };
-
   return {
-    url: `http://127.0.0.1:${address.port}/mcp`,
+    url: `http://127.0.0.1:${port}/mcp`,
     requestSummaries: () => requests.map(({ summary }) => ({ ...summary })),
     receivedHeader: (index, name, expectedValue) =>
       hasHeader(requests[index], name, expectedValue),

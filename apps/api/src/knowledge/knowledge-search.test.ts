@@ -60,7 +60,7 @@ describe('collectKnowledgePassages', () => {
   });
 
   it('partitions a long merged interval into adjacent passages that each retain a match', async () => {
-    const lines = Array.from({ length: 2_501 }, (_value, index) =>
+    const lines = Array.from({ length: 2501 }, (_value, index) =>
       index % 2 === 0 ? `needle ${index}` : `line ${index}`,
     );
 
@@ -71,8 +71,8 @@ describe('collectKnowledgePassages', () => {
     );
 
     expect(passages.map(({ offset, limit }) => ({ offset, limit }))).toEqual([
-      { offset: 0, limit: 2_000 },
-      { offset: 2_000, limit: 501 },
+      { offset: 0, limit: 2000 },
+      { offset: 2000, limit: 501 },
     ]);
     expect(passages.every(({ excerpt }) => excerpt.includes('needle'))).toBe(
       true,
@@ -80,7 +80,7 @@ describe('collectKnowledgePassages', () => {
   });
 
   it('keeps trailing context by moving the final match into the adjacent partition', async () => {
-    const lines = Array.from({ length: 2_001 }, (_value, index) =>
+    const lines = Array.from({ length: 2001 }, (_value, index) =>
       index % 3 === 1 ? `needle ${index}` : `line ${index}`,
     );
     const passages = await collectKnowledgePassages(
@@ -90,8 +90,8 @@ describe('collectKnowledgePassages', () => {
     );
 
     expect(passages.map(({ offset, limit }) => ({ offset, limit }))).toEqual([
-      { offset: 0, limit: 1_999 },
-      { offset: 1_999, limit: 2 },
+      { offset: 0, limit: 1999 },
+      { offset: 1999, limit: 2 },
     ]);
     expect(passages.every(({ excerpt }) => excerpt.includes('needle'))).toBe(
       true,

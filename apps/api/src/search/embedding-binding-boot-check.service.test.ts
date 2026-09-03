@@ -13,7 +13,7 @@ import { InstanceConfigService } from '../instance-config/instance-config.servic
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { EmbeddingBindingBootCheckService } from './embedding-binding-boot-check.service';
 
-const openModules: TestingModule[] = [];
+const openModules: Array<TestingModule> = [];
 
 /** Shared row shape covering both query results this fake stands in for —
  *  a full ledger row (`findEmbeddingBinding`) or a bare `modelKey` projection
@@ -27,7 +27,7 @@ type FakeRow = Partial<EmbeddingModelBinding> & { modelKey: string };
  * task 7.3 — no `.where()`, it wants every ledger row). `from()`'s result is
  * therefore both directly awaitable AND chainable with `.where()`.
  */
-function fakeTx(rows: FakeRow[]) {
+function fakeTx(rows: Array<FakeRow>) {
   const query = {
     select: () => query,
     // A real Promise (not a hand-rolled thenable — oxlint's
@@ -45,8 +45,8 @@ function fakeTx(rows: FakeRow[]) {
 
 async function buildService(
   embeddingModels: typeof BUILT_IN_DEFAULTS.embeddingModels,
-  bindingsByKey: Record<string, EmbeddingModelBinding[]>,
-  undeclaredKeys: string[] = [],
+  bindingsByKey: Record<string, Array<EmbeddingModelBinding>>,
+  undeclaredKeys: Array<string> = [],
 ) {
   let calls = 0;
   const declaredKeyCount = embeddingModels.length;
@@ -65,7 +65,7 @@ async function buildService(
     return fn(fakeTx(bindingsByKey[key] ?? []));
   };
 
-  const module = await Test.createTestingModule({
+  const moduleRef = await Test.createTestingModule({
     providers: [
       EmbeddingBindingBootCheckService,
       {
@@ -75,9 +75,9 @@ async function buildService(
       { provide: TenantDbService, useValue: { runAsPublic } },
     ],
   }).compile();
-  openModules.push(module);
+  openModules.push(moduleRef);
   return {
-    service: module.get(EmbeddingBindingBootCheckService),
+    service: moduleRef.get(EmbeddingBindingBootCheckService),
     callCount: () => calls,
   };
 }

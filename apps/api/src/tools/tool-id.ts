@@ -5,7 +5,7 @@ export function isToolId(value: unknown): value is string {
 }
 
 export function asciiCaseFoldToolId(id: string): string {
-  return id.replace(/[A-Z]/gu, (character) => character.toLowerCase());
+  return id.replaceAll(/[A-Z]/gu, (character) => character.toLowerCase());
 }
 
 /**
@@ -16,7 +16,7 @@ export function asciiCaseFoldToolId(id: string): string {
  */
 export function matchesAllowedToolId(
   toolId: string,
-  allowedRules: readonly string[],
+  allowedRules: ReadonlyArray<string>,
 ): boolean {
   return allowedRules.some((rule) =>
     rule.endsWith('*') ? toolId.startsWith(rule.slice(0, -1)) : rule === toolId,
@@ -26,7 +26,7 @@ export function matchesAllowedToolId(
 /** Code-owned tool permissions are exact; wildcard rules belong to MCP ids. */
 export function matchesCodeOwnedToolId(
   toolId: string,
-  allowedRules: readonly string[],
+  allowedRules: ReadonlyArray<string>,
 ): boolean {
   return allowedRules.includes(toolId);
 }

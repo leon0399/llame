@@ -20,13 +20,10 @@
  */
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { BadRequestException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 import * as schema from '../db/schema';
 import { type Db, TenantDbService } from '../db/tenant-db.service';
 import { PinsService } from './pins.service';
@@ -39,7 +36,7 @@ export {};
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
-type SqlClient = any;
+type SqlClient = Sql;
 
 describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
   let sql: SqlClient;
@@ -50,7 +47,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
   let chatBId: string; // owned by B
   let projectAId: string; // owned by A
 
-  const asUser = (userId: string, fn: (tx: SqlClient) => Promise<any>) =>
+  const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
       return fn(tx);
@@ -58,14 +55,14 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
 
   // Identity-absent scope: current_user_id = '' — the no-identity (runAsPublic)
   // path. Every pins policy compares user_id to '' and matches nothing.
-  const asPublic = (fn: (tx: SqlClient) => Promise<any>) =>
+  const asPublic = <T>(fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', '', true)`;
       return fn(tx);
     });
 
   beforeAll(async () => {
-    const postgres = require('postgres');
+    const postgres = await import('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 2 });
@@ -283,12 +280,10 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
     await expect(
       pinsService.reorderPins(
         userBId,
-        before.map(
-          (row: { item_type: 'chat' | 'project'; item_id: string }) => ({
-            itemType: row.item_type,
-            itemId: row.item_id,
-          }),
-        ),
+        before.map((row) => ({
+          itemType: row.item_type,
+          itemId: row.item_id,
+        })),
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
 

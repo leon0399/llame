@@ -140,7 +140,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
    * @param chatId - The chat identifier
    * @returns The messages returned for that chat in the current test tenant context
    */
-  async function listMessages(chatId: string): Promise<Message[]> {
+  async function listMessages(chatId: string): Promise<Array<Message>> {
     return tenantDb.runAs(userAId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userAId),
     );
@@ -255,7 +255,8 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     if (!isRecord(ownerReadBody) || !Array.isArray(ownerReadBody.messages)) {
       throw new Error('Expected a messages array');
     }
-    const [firstMessage, secondMessage]: unknown[] = ownerReadBody.messages;
+    const [firstMessage, secondMessage]: Array<unknown> =
+      ownerReadBody.messages;
     assertOrderedMessage(firstMessage);
     assertOrderedMessage(secondMessage);
 
@@ -328,7 +329,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
   it('loads target-ended windows, rejects missing targets, and hides foreign targets', async () => {
     const targetChatId = await createChat(userAId, 'Target API Chat');
-    const targetMessages: Message[] = [];
+    const targetMessages: Array<Message> = [];
 
     await tenantDb.runAs(userAId, async (tx) => {
       const messagesRepo = new MessagesRepository(tx);
@@ -439,7 +440,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
   it('caps default HTTP message history reads at the latest 100 messages', async () => {
     const cappedChatId = await createChat(userAId, 'Capped History API Chat');
-    const seededMessageIds: string[] = [];
+    const seededMessageIds: Array<string> = [];
 
     await tenantDb.runAs(userAId, async (tx) => {
       const messagesRepo = new MessagesRepository(tx);
@@ -822,7 +823,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       return ['cancelled', 'failed', 'completed', 'expired'].includes(
         current.status,
       );
-    }, 10000);
+    }, 10_000);
     models.client.delayMs = 0;
 
     const turnsAfterCancel = models.client.turns.length;
@@ -1200,7 +1201,9 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(sse.text).toContain('data: [DONE]');
 
     // Cursor: replay strictly after the last seen sequence → tail only ([DONE]).
-    const lastSequence = frames[frames.length - 1].sequence;
+    const lastFrame = frames.at(-1);
+    if (lastFrame === undefined) expect.unreachable('expected replayed frames');
+    const lastSequence = lastFrame.sequence;
     const resumed = await request(http)
       .get(`/api/v1/runs/${run.id}/events?after_sequence=${lastSequence}`)
       .set('Cookie', cookieA);

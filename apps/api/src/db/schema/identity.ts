@@ -7,10 +7,11 @@ import {
   pgPolicy,
   pgTable,
   text,
-  timestamp,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+
+import { timestamptz } from '../columns';
 import { users } from './auth';
 
 // Node flavors (openspec/specs/org-units/spec.md): the tree is behavior-uniform — `type` is
@@ -106,12 +107,8 @@ export const orgUnits = pgTable(
     settings: jsonb('settings')
       .notNull()
       .default(sql`'{}'::jsonb`),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('org_units_path_unique').on(t.path),
@@ -180,9 +177,7 @@ export const memberships = pgTable(
       .notNull()
       .references(() => orgUnits.id, { onDelete: 'cascade' }),
     role: orgRole('role').notNull().default('member'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('memberships_user_unit_unique').on(t.userId, t.orgUnitId),
@@ -297,9 +292,7 @@ export const externalIdentities = pgTable(
     // The provider's stable subject for this person (chat user id, sub claim).
     externalSubject: text('external_subject').notNull(),
     metadata: jsonb('metadata'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('external_identities_provider_subject_unique').on(

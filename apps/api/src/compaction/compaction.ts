@@ -24,7 +24,7 @@ import type { CompactionReplacementMessage } from '../db/schema';
 import { isCompletedAssistantTurn } from '../chats/chats-repository';
 import { type ModelToolDeclaration } from '../db/schema';
 
-type CompactionReplacementHistory = CompactionReplacementMessage[];
+type CompactionReplacementHistory = Array<CompactionReplacementMessage>;
 
 /**
  * When the model's context window is known (MODEL_CONTEXT_WINDOW_TOKENS),
@@ -131,7 +131,7 @@ export function normalizeCompactionSummary(value: unknown): string | null {
  * just completed (see planCompaction.measuredContextTokens).
  */
 export function estimateContextTokens(
-  history: StoredMessage[],
+  history: Array<StoredMessage>,
   previousSummary: string | undefined,
   previousReplacementHistory?: CompactionReplacementHistory,
 ): number {
@@ -163,8 +163,8 @@ export function estimateContextTokens(
  */
 export function estimateModelRequestTokens(input: {
   system: string;
-  messages: ModelMessage[];
-  toolDeclarations: readonly ModelToolDeclaration[];
+  messages: Array<ModelMessage>;
+  toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
 }): number {
   return Math.ceil(
     JSON.stringify({
@@ -177,8 +177,8 @@ export function estimateModelRequestTokens(input: {
 
 export function requestFitsContextWindow(input: {
   system: string;
-  messages: ModelMessage[];
-  toolDeclarations: readonly ModelToolDeclaration[];
+  messages: Array<ModelMessage>;
+  toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
   contextWindowTokens: number;
   reservedOutputTokens: number | null;
 }): boolean {
@@ -220,7 +220,7 @@ export interface CompactionPlan {
   /** The new compaction supersedes every message with seq <= uptoSeq. */
   uptoSeq: number;
   /** The turns being absorbed into the summary (oldest→newest). */
-  absorb: StoredMessage[];
+  absorb: Array<StoredMessage>;
 }
 
 /**
@@ -228,7 +228,7 @@ export interface CompactionPlan {
  * the summarized prefix; the current triggering user turn is always excluded.
  */
 export function planTransitionCompaction(
-  history: StoredMessage[],
+  history: Array<StoredMessage>,
   triggeringUserSeq: number,
 ): CompactionPlan | null {
   const ordered = [...history]
@@ -268,7 +268,7 @@ export function planTransitionCompaction(
  * threshold or when nothing precedes the keep-recent window.
  */
 export function planCompaction(input: {
-  history: StoredMessage[];
+  history: Array<StoredMessage>;
   previousSummary: string | undefined;
   previousReplacementHistory?: CompactionReplacementHistory;
   thresholdTokens: number;
@@ -291,11 +291,12 @@ export function planCompaction(input: {
     0,
     Math.max(0, ordered.length - input.keepRecentMessages),
   );
-  if (absorb.length === 0) {
+  const last = absorb.at(-1);
+  if (last === undefined) {
     return null;
   }
 
-  return { uptoSeq: absorb[absorb.length - 1].seq, absorb };
+  return { uptoSeq: last.seq, absorb };
 }
 
 /**
@@ -330,7 +331,7 @@ export function buildCompactionRequest(input: {
         replacementHistory: CompactionReplacementHistory;
       }
     | undefined;
-  absorb: StoredMessage[];
+  absorb: Array<StoredMessage>;
   mode?: 'full_current' | 'transition_up_to';
 }): ModelRequestContext {
   const { system, messages } = buildContext(input.absorb, {
@@ -352,8 +353,8 @@ export function buildCompactionRequest(input: {
 export function buildCompactionReplacementHistory(input: {
   summary: string;
   previous: CompactionReplacementHistory | undefined;
-  absorb: StoredMessage[];
-}): CompactionReplacementMessage[] {
+  absorb: Array<StoredMessage>;
+}): Array<CompactionReplacementMessage> {
   return [
     {
       role: 'user',

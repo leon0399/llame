@@ -371,7 +371,7 @@ describe('chunkConversation — oversized messages (#517)', () => {
     expect(assistantChunks[0]).toMatchObject({
       firstMessageTextOffset: 0,
     });
-    const finalAssistantChunk = assistantChunks[assistantChunks.length - 1];
+    const finalAssistantChunk = assistantChunks.at(-1);
     expect(finalAssistantChunk).toMatchObject({
       lastMessageTextOffsetExclusive: answer.length,
     });

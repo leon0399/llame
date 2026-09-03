@@ -24,13 +24,13 @@ import {
 } from './openai-embedding-backend';
 
 type DoEmbedOptions = Parameters<EmbeddingModelV3['doEmbed']>[0];
-type SimpleEmbedResult = { embeddings: EmbeddingModelV3Embedding[] };
+type SimpleEmbedResult = { embeddings: Array<EmbeddingModelV3Embedding> };
 type SimpleEmbedFn = (
   options: DoEmbedOptions,
 ) => SimpleEmbedResult | PromiseLike<SimpleEmbedResult>;
 type SimpleDoEmbedInput =
   | SimpleEmbedResult
-  | SimpleEmbedResult[]
+  | Array<SimpleEmbedResult>
   | SimpleEmbedFn;
 
 /** Named type-guard over the `typeof` check (anti-slop/no-runtime-typeof's `allowInTypeGuards` pattern — see `unknown-record.ts`'s `isString`/`isNumber`/etc.). */
@@ -44,7 +44,7 @@ function embeddingOf(seed: number, dimensions = 3): EmbeddingModelV3Embedding {
 
 /** Builds `dependencies.createOpenAI` returning a fixed mock model, and records what settings our adapter passed to it. Accepts just `{embeddings}` — `warnings: []` (required by `EmbeddingModelV3Result`) is filled in here so every test site stays focused on what it's actually asserting. */
 function withModel(doEmbed: SimpleDoEmbedInput) {
-  const settingsCalls: { apiKey: string; baseURL?: string }[] = [];
+  const settingsCalls: Array<{ apiKey: string; baseURL?: string }> = [];
   const wrappedDoEmbed = isSimpleEmbedFn(doEmbed)
     ? async (options: DoEmbedOptions) => ({
         ...(await doEmbed(options)),
@@ -109,7 +109,7 @@ describe('createOpenAIEmbeddingBackend — keyless provider (task 5.4)', () => {
 
 describe('createOpenAIEmbeddingBackend — prefixes', () => {
   it('applies documentPrefix to documents and queryPrefix to the query, never crossed', async () => {
-    const seenValues: string[] = [];
+    const seenValues: Array<string> = [];
     const { dependencies } = withModel((options) => {
       seenValues.push(...options.values);
       return { embeddings: options.values.map((_, i) => embeddingOf(i)) };
@@ -131,7 +131,7 @@ describe('createOpenAIEmbeddingBackend — prefixes', () => {
   });
 
   it('embeds content verbatim when no prefix is configured', async () => {
-    const seenValues: string[] = [];
+    const seenValues: Array<string> = [];
     const { dependencies } = withModel((options) => {
       seenValues.push(...options.values);
       return { embeddings: options.values.map((_, i) => embeddingOf(i)) };
@@ -149,7 +149,7 @@ describe('createOpenAIEmbeddingBackend — prefixes', () => {
 
 describe('createOpenAIEmbeddingBackend — batching (task 5.4/D5)', () => {
   it('chunks the provider request to the configured batchSize', async () => {
-    const callSizes: number[] = [];
+    const callSizes: Array<number> = [];
     const { dependencies } = withModel((options) => {
       callSizes.push(options.values.length);
       return { embeddings: options.values.map((_, i) => embeddingOf(i)) };
@@ -175,7 +175,7 @@ describe('createOpenAIEmbeddingBackend — batching (task 5.4/D5)', () => {
   });
 
   it('defaults to a batch size of 32 when unset', async () => {
-    const callSizes: number[] = [];
+    const callSizes: Array<number> = [];
     const { dependencies } = withModel((options) => {
       callSizes.push(options.values.length);
       return { embeddings: options.values.map((_, i) => embeddingOf(i)) };

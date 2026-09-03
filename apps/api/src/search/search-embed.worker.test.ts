@@ -31,7 +31,7 @@ import { SEARCH_EMBED_QUEUE } from './reindex-queues';
 import { SearchEmbedDispatchService } from './search-embed-dispatch.service';
 import { SearchEmbedWorker } from './search-embed.worker';
 
-const openModules: TestingModule[] = [];
+const openModules: Array<TestingModule> = [];
 
 const MODEL: EmbeddingModelCatalogEntry = {
   id: 'embed-a',

@@ -8,8 +8,6 @@ import { PublicUserResponse } from './public-user.response';
 // Allowlist, not blocklist: PublicUser enumerates the fields safe to expose. A new
 // column on `users` (e.g. a 2FA secret, OAuth/refresh token, API key) is NOT returned
 // over HTTP until someone explicitly adds it here — fail closed, never leak by default.
-export type PublicUser = PublicUserResponse;
-
 /** Project a user to the fields safe to cross the HTTP boundary. */
 export function toPublicUser(user: User): PublicUserResponse {
   return {

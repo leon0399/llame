@@ -22,7 +22,7 @@ export function childPath(parentPath: string, id: string): string {
  * of id-based paths: the ancestor set needs no recursive query — and the RLS
  * policies rely on exactly this property (string_to_array(path, '/')).
  */
-export function pathIds(path: string): string[] {
+export function pathIds(path: string): Array<string> {
   return path.split(PATH_SEPARATOR).filter((segment) => segment.length > 0);
 }
 

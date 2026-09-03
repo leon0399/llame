@@ -23,7 +23,7 @@ export type ParsedMcpToolIdResult =
     };
 
 function asciiCaseFold(value: string): string {
-  return value.replace(/[A-Z]/gu, (letter) => letter.toLowerCase());
+  return value.replaceAll(/[A-Z]/gu, (letter) => letter.toLowerCase());
 }
 
 export function createMcpToolId(
@@ -74,7 +74,7 @@ export function parseMcpToolId(id: string): ParsedMcpToolIdResult {
 }
 
 export function findAsciiCaseFoldedCollisionIndexes(
-  ids: readonly string[],
+  ids: ReadonlyArray<string>,
 ): ReadonlySet<number> {
   const counts = new Map<string, number>();
   for (const id of ids) {

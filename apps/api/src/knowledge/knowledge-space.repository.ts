@@ -164,7 +164,7 @@ export class KnowledgeSpaceRepository {
     ownerUserId: string,
     limit: number,
     after?: KnowledgeSpaceCursor,
-  ): Promise<KnowledgeSpace[]> {
+  ): Promise<Array<KnowledgeSpace>> {
     const conditions = [eq(knowledgeSpaces.ownerUserId, ownerUserId)];
     if (after !== undefined) {
       conditions.push(

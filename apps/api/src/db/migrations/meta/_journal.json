@@ -379,6 +379,13 @@
       "when": 1787920646176,
       "tag": "20260828123726_flowery_nitro",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1788195292823,
+      "tag": "20260831165452_timestamptz_auth_columns",
+      "breakpoints": true
     }
   ]
 }

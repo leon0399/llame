@@ -146,7 +146,7 @@ type OperationEntry = {
   operation: z.infer<typeof operationObjectSchema>;
 };
 
-function operations(): OperationEntry[] {
+function operations(): Array<OperationEntry> {
   return Object.entries(document.paths).flatMap(([path, pathItem]) =>
     HTTP_METHODS.flatMap((method) => {
       const operation = pathItem[method];

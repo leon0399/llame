@@ -63,7 +63,7 @@ export class ProjectsController {
   async getProjects(
     @CurrentUser() userId: string,
     @Query() query: ListProjectsQueryDto,
-  ): Promise<ProjectResponse[]> {
+  ): Promise<Array<ProjectResponse>> {
     const list = await this.projectsService.listProjects(userId, query);
     return list.map(toProjectResponse);
   }

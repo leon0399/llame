@@ -19,7 +19,7 @@ export const CONVERSATION_HISTORY_NOTICE = `${CONVERSATION_HISTORY_UNTRUSTED_NOT
  * Stored text is preserved exactly; only the separator between text parts is
  * authored by this projection.
  */
-export function visibleMessageText(parts: readonly unknown[]): string {
+export function visibleMessageText(parts: ReadonlyArray<unknown>): string {
   return parts
     .filter(isTextPart)
     .map((part) => part.text)

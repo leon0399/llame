@@ -42,7 +42,7 @@ export function buildCanonicalSearchExcerpt(
 }
 
 function cropFromFallbackAnchor(
-  codePoints: readonly string[],
+  codePoints: ReadonlyArray<string>,
   anchorStart: number,
 ): string {
   const start = clamp(anchorStart, 0, codePoints.length);
@@ -53,7 +53,7 @@ function cropFromFallbackAnchor(
 }
 
 function cropAroundExactAnchor(
-  codePoints: readonly string[],
+  codePoints: ReadonlyArray<string>,
   anchorStart: number,
   anchorEnd: number,
 ): string {

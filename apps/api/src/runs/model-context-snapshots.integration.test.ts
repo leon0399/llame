@@ -3,13 +3,9 @@
  * same non-superuser, table-owning TEST_DATABASE_URL used by the RLS suite.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -29,7 +25,10 @@ import { type EffectiveContextSnapshotInput } from './effective-context-resolver
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+// `postgres` is required lazily so the unit project never loads the driver at
+// runtime, but a type-only import of its client type is erased and carries no
+// runtime cost.
+type SqlClient = Sql;
 
 describeIfDb(
   'model context snapshots — FORCE RLS and immutable bindings',
@@ -41,7 +40,7 @@ describeIfDb(
     let userB: string;
 
     beforeAll(async () => {
-      const postgres = require('postgres');
+      const postgres = await import('postgres');
       const connect = postgres.default ?? postgres;
       const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
       sql = connect(TEST_DB_URL!, { ssl, max: 5 });

@@ -1,5 +1,10 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-03
+
+- **UTC-stable auth timestamps**: the remaining naive auth timestamp columns
+  migrate to `timestamptz` with explicit UTC conversion.
+
 # 2026-08-28
 
 - **pnpm 10 → 11** (#633): `packageManager` and the Nix dev shell pin

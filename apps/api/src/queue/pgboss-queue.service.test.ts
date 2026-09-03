@@ -32,7 +32,7 @@ import { PgBossQueueService } from './pgboss-queue.service';
 type InjectionToken =
   | string
   | symbol
-  | (abstract new (...args: never[]) => object);
+  | (abstract new (...args: Array<never>) => object);
 
 /** What `@Inject()` writes: one entry per decorated constructor parameter. */
 type SelfParamType = { index: number; param: InjectionToken };
@@ -54,14 +54,14 @@ function isSelfParamType(value: unknown): value is SelfParamType {
 }
 
 /** A Nest provider class, i.e. what `@Injectable()` decorates. */
-type ProviderClass = abstract new (...args: never[]) => object;
+type ProviderClass = abstract new (...args: Array<never>) => object;
 
 /**
  * Narrows `Reflect.getMetadata`'s `unknown` without asserting: an absent or
  * malformed entry must read as "not decorated" and fail the expectation,
  * never throw or be silently coerced into a passing shape.
  */
-function selfParamTypesOf(target: ProviderClass): SelfParamType[] {
+function selfParamTypesOf(target: ProviderClass): Array<SelfParamType> {
   const metadata: unknown = Reflect.getMetadata('self:paramtypes', target);
   if (!Array.isArray(metadata)) return [];
   return metadata.filter(isSelfParamType);

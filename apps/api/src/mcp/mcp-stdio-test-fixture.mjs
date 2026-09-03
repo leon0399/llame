@@ -80,6 +80,59 @@ function toolsListResult(cursor) {
   return nextCursor === undefined ? { tools } : { tools, nextCursor };
 }
 
+// One handler per JSON-RPC method, keyed by name — a lookup instead of an
+// if/else chain, since the dispatch (below) is the same for every method.
+const methodHandlers = {
+  async initialize(message) {
+    if (config.stderrPreInit) await writeStderrChunks();
+    send({
+      jsonrpc: '2.0',
+      id: message.id,
+      result: {
+        protocolVersion: config.protocolVersion ?? '2025-11-25',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'stdio-fixture', version: '0.0.0' },
+      },
+    });
+  },
+  async 'notifications/initialized'(_message) {
+    if (!config.stderrPreInit) await writeStderrChunks();
+    if (config.exitAfterInit) process.exit(4);
+  },
+  'tools/list'(message) {
+    send({
+      jsonrpc: '2.0',
+      id: message.id,
+      result: toolsListResult(message.params?.cursor),
+    });
+  },
+  'tools/call'(message) {
+    if (config.exitOnCall) process.exit(5);
+    send({
+      jsonrpc: '2.0',
+      id: message.id,
+      result: config.callResult ?? {
+        content: [{ type: 'text', text: 'ok' }],
+      },
+    });
+  },
+};
+
+async function handleMessage(message) {
+  const handler = methodHandlers[message.method];
+  if (handler) {
+    await handler(message);
+    return;
+  }
+  if (message.id !== undefined) {
+    send({
+      jsonrpc: '2.0',
+      id: message.id,
+      error: { code: -32_601, message: 'Method not found' },
+    });
+  }
+}
+
 let buffer = '';
 process.stdin.on('data', async (data) => {
   buffer += data.toString('utf8');
@@ -96,54 +149,7 @@ process.stdin.on('data', async (data) => {
       continue;
     }
 
-    if (message.method === 'initialize') {
-      if (config.stderrPreInit) await writeStderrChunks();
-      send({
-        jsonrpc: '2.0',
-        id: message.id,
-        result: {
-          protocolVersion: config.protocolVersion ?? '2025-11-25',
-          capabilities: { tools: {} },
-          serverInfo: { name: 'stdio-fixture', version: '0.0.0' },
-        },
-      });
-      continue;
-    }
-
-    if (message.method === 'notifications/initialized') {
-      if (!config.stderrPreInit) await writeStderrChunks();
-      if (config.exitAfterInit) process.exit(4);
-      continue;
-    }
-
-    if (message.method === 'tools/list') {
-      send({
-        jsonrpc: '2.0',
-        id: message.id,
-        result: toolsListResult(message.params?.cursor),
-      });
-      continue;
-    }
-
-    if (message.method === 'tools/call') {
-      if (config.exitOnCall) process.exit(5);
-      send({
-        jsonrpc: '2.0',
-        id: message.id,
-        result: config.callResult ?? {
-          content: [{ type: 'text', text: 'ok' }],
-        },
-      });
-      continue;
-    }
-
-    if (message.id !== undefined) {
-      send({
-        jsonrpc: '2.0',
-        id: message.id,
-        error: { code: -32601, message: 'Method not found' },
-      });
-    }
+    await handleMessage(message);
   }
 });
 

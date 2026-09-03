@@ -12,9 +12,9 @@ const NOW = new Date('2026-08-23T12:00:00.000Z');
 type Row = { id: string } | KnowledgeSpace;
 
 function fakeDb(input: {
-  selects: Row[][];
-  inserted?: Row[];
-  events: string[];
+  selects: Array<Array<Row>>;
+  inserted?: Array<Row>;
+  events: Array<string>;
   onConflict: ReturnType<typeof vi.fn>;
 }): Db {
   let selectIndex = 0;
@@ -71,7 +71,7 @@ function fakeDb(input: {
 
 describe('KnowledgeSpaceRepository.createOrGet', () => {
   it('locks the owner before reading and does not insert when a space exists', async () => {
-    const events: string[] = [];
+    const events: Array<string> = [];
     const existing = {
       knowledgeSpaceId: SPACE_ID,
       ownerUserId: OWNER_ID,
@@ -90,7 +90,7 @@ describe('KnowledgeSpaceRepository.createOrGet', () => {
   });
 
   it('uses targetless conflict handling and rereads after a conflict', async () => {
-    const events: string[] = [];
+    const events: Array<string> = [];
     const existing = {
       knowledgeSpaceId: SPACE_ID,
       ownerUserId: OWNER_ID,

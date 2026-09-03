@@ -51,9 +51,9 @@ export function loadSchemaDocument(
   try {
     const text = access.readFile(SCHEMA_PATH);
     parsed = JSON.parse(text);
-  } catch (err) {
+  } catch (error) {
     throw new InstanceConfigError(
-      `The published JSON Schema artifact at ${SCHEMA_PATH} is missing or invalid — this is an internal packaging problem (see nest-cli.json "assets"), not an operator llame.config.json error: ${err instanceof Error ? err.message : String(err)}`,
+      `The published JSON Schema artifact at ${SCHEMA_PATH} is missing or invalid — this is an internal packaging problem (see nest-cli.json "assets"), not an operator llame.config.json error: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
   if (!isRecord(parsed)) {

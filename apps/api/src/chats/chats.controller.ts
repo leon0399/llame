@@ -179,7 +179,7 @@ export class ChatsController {
   async getChats(
     @CurrentUser() userId: string,
     @Query() query: ListChatsQueryDto,
-  ): Promise<ChatListItemResponse[]> {
+  ): Promise<Array<ChatListItemResponse>> {
     const chats = await this.chatsService.listChatsWithLastMessage(userId, {
       projectId: query.projectId,
       archived: query.archived,
@@ -339,38 +339,45 @@ export class ChatsController {
 
       await writeWebResponse(streamResponse, response, abort.signal);
     } catch (error) {
-      // Same 422 envelope for both; the `code` discriminates. Model
-      // resolution already ran first, so an effort failure here always names a
-      // model that IS available.
-      if (
-        error instanceof ModelNotAvailableError ||
-        error instanceof EffortNotAvailableError
-      ) {
-        throw new HttpException(
-          {
-            statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
-            error: 'Unprocessable Entity',
-            message: error.message,
-            code: error.code,
-          },
-          HttpStatus.UNPROCESSABLE_ENTITY,
-        );
-      }
-      if (error instanceof ModelConfigurationError) {
-        throw new HttpException(
-          {
-            statusCode: HttpStatus.SERVICE_UNAVAILABLE,
-            error: 'Service Unavailable',
-            message: error.message,
-            code: error.code,
-          },
-          HttpStatus.SERVICE_UNAVAILABLE,
-        );
-      }
-      throw error;
+      this.mapModelDomainError(error);
     } finally {
       abort.cleanup();
     }
+  }
+
+  /**
+   * Same 422 envelope for both `ModelNotAvailableError`/`EffortNotAvailableError`
+   * — the `code` discriminates. Model resolution already ran first, so an
+   * effort failure here always names a model that IS available. Any other
+   * error rethrows unchanged.
+   */
+  private mapModelDomainError(error: unknown): never {
+    if (
+      error instanceof ModelNotAvailableError ||
+      error instanceof EffortNotAvailableError
+    ) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+          error: 'Unprocessable Entity',
+          message: error.message,
+          code: error.code,
+        },
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+    if (error instanceof ModelConfigurationError) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+          error: 'Service Unavailable',
+          message: error.message,
+          code: error.code,
+        },
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+    throw error;
   }
 
   // PATCH (partial update) of a chat resource — RESTful, not an RPC-style verb endpoint.

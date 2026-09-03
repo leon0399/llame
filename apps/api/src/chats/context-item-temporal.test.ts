@@ -18,7 +18,7 @@ const INSTANT = new Date('2026-08-19T16:36:00.000Z');
 
 function compactionReplacementHistory(
   summary: string,
-): CompactionReplacementMessage[] {
+): Array<CompactionReplacementMessage> {
   return [
     {
       role: 'user',
@@ -174,7 +174,7 @@ describe('temporal rows in assembled context', () => {
   const msg = (input: {
     seq: number;
     role: 'user' | 'assistant';
-    parts: MessagePart[];
+    parts: Array<MessagePart>;
   }) => ({
     id: `msg-${input.seq}`,
     chatId: 'chat-1',

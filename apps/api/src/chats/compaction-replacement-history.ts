@@ -2,7 +2,7 @@ import type { CompactionReplacementMessage } from '../db/schema/chats';
 import { isRecord, isString, type UnknownRecord } from '../unknown-record';
 
 const TOOL_PART_PREFIX = 'tool-';
-const TOOL_CALL_ID_MAX_LENGTH = 1_024;
+const TOOL_CALL_ID_MAX_LENGTH = 1024;
 const TOOL_NAME_MAX_LENGTH = 64;
 const TOOL_OUTCOME_MAX_LENGTH = 128;
 const TOOL_CALL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/u;
@@ -56,7 +56,7 @@ export function parseToolObservationOmission(value: unknown): number | null {
     : null;
 }
 
-function isUnknownArray(value: unknown): value is unknown[] {
+function isUnknownArray(value: unknown): value is Array<unknown> {
   return Array.isArray(value);
 }
 
@@ -96,11 +96,11 @@ export function isStoredReplacementToolPart(
 
 export function parseCompactionReplacementHistory(
   value: unknown,
-): CompactionReplacementMessage[] | null {
+): Array<CompactionReplacementMessage> | null {
   if (!isUnknownArray(value)) return null;
   if (value.length === 0) return null;
 
-  const records: CompactionReplacementMessage[] = [];
+  const records: Array<CompactionReplacementMessage> = [];
   for (const [index, record] of value.entries()) {
     if (!isCompactionReplacementMessage(record)) return null;
     if (record.parts.length !== 1) return null;

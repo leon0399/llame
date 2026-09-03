@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
+import { type KnowledgeSpace } from '../db/schema/knowledge-spaces';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import {
   KnowledgeSpaceLocalResolver,
@@ -22,6 +23,35 @@ import { normalizeKnowledgeSpaceName } from './knowledge-space-name';
 
 export const KNOWLEDGE_SPACE_DEFAULT_LIMIT = 50;
 export const KNOWLEDGE_SPACE_MAX_LIMIT = 100;
+
+function validateKnowledgeSpaceListLimit(limit: number | undefined): number {
+  const resolved = limit ?? KNOWLEDGE_SPACE_DEFAULT_LIMIT;
+  if (
+    !Number.isSafeInteger(resolved) ||
+    resolved < 1 ||
+    resolved > KNOWLEDGE_SPACE_MAX_LIMIT
+  ) {
+    throw new Error('Knowledge Space list limit is invalid');
+  }
+  return resolved;
+}
+
+/** `rows` carries one extra row past the page limit (see
+ *  `listForOwnerPage`'s `limit + 1`) purely to signal whether a further page
+ *  exists — a longer `rows` than `page`, not `page`'s own length, is what a
+ *  `nextCursor` is built from. */
+function nextKnowledgeSpaceCursor(
+  rows: Array<KnowledgeSpace>,
+  page: Array<KnowledgeSpace>,
+): string | null {
+  if (rows.length <= page.length) return null;
+  const last = page.at(-1);
+  if (last === undefined) return null;
+  return encodeKnowledgeSpaceCursor({
+    createdAt: last.createdAt,
+    id: last.knowledgeSpaceId,
+  });
+}
 
 /** The HTTP and owner-scoped management capability exposed by this service. */
 export type KnowledgeSpaceManagement = Pick<
@@ -91,17 +121,10 @@ export class KnowledgeSpaceService {
       after?: string;
     } = {},
   ): Promise<{
-    items: KnowledgeSpaceApiProjection[];
+    items: Array<KnowledgeSpaceApiProjection>;
     nextCursor: string | null;
   }> {
-    const limit = options.limit ?? KNOWLEDGE_SPACE_DEFAULT_LIMIT;
-    if (
-      !Number.isSafeInteger(limit) ||
-      limit < 1 ||
-      limit > KNOWLEDGE_SPACE_MAX_LIMIT
-    ) {
-      throw new Error('Knowledge Space list limit is invalid');
-    }
+    const limit = validateKnowledgeSpaceListLimit(options.limit);
     const after =
       options.after === undefined
         ? undefined
@@ -114,17 +137,9 @@ export class KnowledgeSpaceService {
       ),
     );
     const page = rows.slice(0, limit);
-    const nextCursor =
-      rows.length > limit
-        ? encodeKnowledgeSpaceCursor({
-            createdAt: page[page.length - 1].createdAt,
-            id: page[page.length - 1].knowledgeSpaceId,
-          })
-        : null;
-
     return {
       items: page.map(toKnowledgeSpaceApiProjection),
-      nextCursor,
+      nextCursor: nextKnowledgeSpaceCursor(rows, page),
     };
   }
 

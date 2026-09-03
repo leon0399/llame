@@ -64,6 +64,40 @@ function isConcurrentTreeChange(err: unknown): boolean {
   );
 }
 
+/** A falsy sub-write result under RLS means visible-but-not-permitted, per
+ * `updateOrgUnit`'s zero-rows-under-USING landmine doc — never a silent
+ * success. */
+function assertOrgUnitWritten(
+  wroteRow: OrgUnit | undefined,
+  message: string,
+): void {
+  if (!wroteRow) throw new ForbiddenException(message);
+}
+
+/** Maps a caught membership-write failure to the D2/RLS-write error contract
+ * shared by `changeMembershipRole` and `revokeMembership`. Always throws. */
+function rethrowMembershipWriteError(
+  err: unknown,
+  forbiddenMessage: string,
+): never {
+  if (err instanceof HttpException) throw err;
+  const code = pgErrorCode(err);
+  if (code === '42501') {
+    throw new ForbiddenException(forbiddenMessage);
+  }
+  // D2's last-owner trigger — demoting/revoking/leaving the sole owner of a
+  // root unit.
+  if (code === 'OW001') {
+    throw new ConflictException(
+      conflictBody(
+        ORG_UNITS_ERROR_CODES.lastOwner,
+        'Cannot remove the last owner of this org — transfer ownership first',
+      ),
+    );
+  }
+  throw err;
+}
+
 /** The summarize() missing-entry default, in one place (D3). */
 function enrich(
   unit: OrgUnit,
@@ -157,15 +191,15 @@ export class IdentityService {
         // bootstrap) — memberCount/directRole legitimately read 0/null.
         return this.withSummary(tx, input.userId, unit);
       });
-    } catch (err) {
-      if (err instanceof NotFoundException) {
-        throw err;
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
       }
       // The deferred path-integrity constraint trigger (D1) raises 23514 when
       // a commit would leave this unit's path inconsistent with its parent's
       // current path — the backstop behind the FOR UPDATE lock above, for
       // whatever residual race it doesn't close. Retryable, not a server error.
-      if (pgErrorCode(err) === '23514') {
+      if (pgErrorCode(error) === '23514') {
         throw new ConflictException(
           conflictBody(
             ORG_UNITS_ERROR_CODES.concurrentTreeChange,
@@ -173,7 +207,7 @@ export class IdentityService {
           ),
         );
       }
-      throw err;
+      throw error;
     }
   }
 
@@ -207,7 +241,7 @@ export class IdentityService {
    * `directRole`). ONE `summarize` call for the whole list — never a
    * per-unit round trip, regardless of list size.
    */
-  async listOrgUnits(userId: string): Promise<OrgUnitWithSummary[]> {
+  async listOrgUnits(userId: string): Promise<Array<OrgUnitWithSummary>> {
     return this.tenantDb.runAs(userId, async (tx) => {
       const units = await new OrgUnitsRepository(tx).listVisible();
       const summaries = await new MembershipsRepository(tx).summarize(
@@ -254,72 +288,25 @@ export class IdentityService {
     parentId?: string | null;
   }): Promise<OrgUnitWithSummary> {
     try {
-      return await this.tenantDb.runAs(input.userId, async (tx) => {
-        const repo = new OrgUnitsRepository(tx);
-        const existing = await repo.findById(input.orgUnitId);
-        if (!existing) {
-          throw new NotFoundException(`Org unit ${input.orgUnitId} not found`);
-        }
-
-        if (input.parentId === null) {
-          const moved = await repo.moveToRoot({ id: input.orgUnitId });
-          if (!moved) {
-            throw new ForbiddenException('Not permitted to move this org unit');
-          }
-        } else if (input.parentId !== undefined) {
-          const newParent = await repo.findById(input.parentId);
-          if (!newParent) {
-            throw new NotFoundException(`Org unit ${input.parentId} not found`);
-          }
-          const moved = await repo.move({ id: input.orgUnitId }, newParent);
-          if (!moved) {
-            throw new ForbiddenException('Not permitted to move this org unit');
-          }
-        }
-
-        if (input.name !== undefined) {
-          const renamed = await repo.rename(input.orgUnitId, input.name);
-          if (!renamed) {
-            throw new ForbiddenException(
-              'Not permitted to rename this org unit',
-            );
-          }
-        }
-
-        if (input.settings !== undefined) {
-          const updated = await repo.updateSettings(
-            input.orgUnitId,
-            input.settings,
-          );
-          if (!updated) {
-            throw new ForbiddenException(
-              'Not permitted to update settings on this org unit',
-            );
-          }
-        }
-
-        const result = await repo.findById(input.orgUnitId);
-        if (!result) {
-          throw new NotFoundException(`Org unit ${input.orgUnitId} not found`);
-        }
-        return this.withSummary(tx, input.userId, result);
-      });
-    } catch (err) {
-      if (err instanceof HttpException) {
-        throw err;
+      return await this.tenantDb.runAs(input.userId, (tx) =>
+        this.applyOrgUnitUpdate(tx, input),
+      );
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
       }
       // Move-into-own-subtree (repository guard) is a validation error, not
       // an authorization or integrity outcome — 422 (spec: "Move into own
       // subtree is rejected").
-      if (err instanceof MoveIntoOwnSubtreeError) {
+      if (error instanceof MoveIntoOwnSubtreeError) {
         throw new UnprocessableEntityException({
           statusCode: 422,
           error: 'Unprocessable Entity',
-          message: err.message,
+          message: error.message,
           code: ORG_UNITS_ERROR_CODES.moveIntoOwnSubtree,
         });
       }
-      if (isConcurrentTreeChange(err)) {
+      if (isConcurrentTreeChange(error)) {
         throw new ConflictException(
           conflictBody(
             ORG_UNITS_ERROR_CODES.concurrentTreeChange,
@@ -327,10 +314,74 @@ export class IdentityService {
           ),
         );
       }
-      if (pgErrorCode(err) === '42501') {
+      if (pgErrorCode(error) === '42501') {
         throw new ForbiddenException('Not permitted to update this org unit');
       }
-      throw err;
+      throw error;
+    }
+  }
+
+  /** The transactional body of `updateOrgUnit`: whichever sub-writes are
+   * present, each checked for the RLS zero-rows-under-USING landmine. */
+  private async applyOrgUnitUpdate(
+    tx: Db,
+    input: {
+      userId: string;
+      orgUnitId: string;
+      name?: string;
+      settings?: UnknownRecord;
+      parentId?: string | null;
+    },
+  ): Promise<OrgUnitWithSummary> {
+    const repo = new OrgUnitsRepository(tx);
+    const existing = await repo.findById(input.orgUnitId);
+    if (!existing) {
+      throw new NotFoundException(`Org unit ${input.orgUnitId} not found`);
+    }
+
+    await this.applyOrgUnitMove(repo, input);
+
+    if (input.name !== undefined) {
+      assertOrgUnitWritten(
+        await repo.rename(input.orgUnitId, input.name),
+        'Not permitted to rename this org unit',
+      );
+    }
+
+    if (input.settings !== undefined) {
+      assertOrgUnitWritten(
+        await repo.updateSettings(input.orgUnitId, input.settings),
+        'Not permitted to update settings on this org unit',
+      );
+    }
+
+    const result = await repo.findById(input.orgUnitId);
+    if (!result) {
+      throw new NotFoundException(`Org unit ${input.orgUnitId} not found`);
+    }
+    return this.withSummary(tx, input.userId, result);
+  }
+
+  /** Resolves `input.parentId`'s move semantics: `undefined` is a no-op,
+   * `null` moves to root, a unit id moves under that unit. */
+  private async applyOrgUnitMove(
+    repo: OrgUnitsRepository,
+    input: { orgUnitId: string; parentId?: string | null },
+  ): Promise<void> {
+    if (input.parentId === null) {
+      assertOrgUnitWritten(
+        await repo.moveToRoot({ id: input.orgUnitId }),
+        'Not permitted to move this org unit',
+      );
+    } else if (input.parentId !== undefined) {
+      const newParent = await repo.findById(input.parentId);
+      if (!newParent) {
+        throw new NotFoundException(`Org unit ${input.parentId} not found`);
+      }
+      assertOrgUnitWritten(
+        await repo.move({ id: input.orgUnitId }, newParent),
+        'Not permitted to move this org unit',
+      );
     }
   }
 
@@ -357,12 +408,12 @@ export class IdentityService {
           );
         }
       });
-    } catch (err) {
-      if (err instanceof HttpException) {
-        throw err;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
       }
       // FK RESTRICT on parent_id — the unit still has children.
-      if (pgErrorCode(err) === '23503') {
+      if (pgErrorCode(error) === '23503') {
         throw new ConflictException(
           conflictBody(
             ORG_UNITS_ERROR_CODES.hasChildren,
@@ -370,7 +421,7 @@ export class IdentityService {
           ),
         );
       }
-      throw err;
+      throw error;
     }
   }
 
@@ -385,7 +436,7 @@ export class IdentityService {
   async listMemberships(input: {
     userId: string;
     orgUnitId: string;
-  }): Promise<Membership[]> {
+  }): Promise<Array<Membership>> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const unit = await new OrgUnitsRepository(tx).findById(input.orgUnitId);
       if (!unit) {
@@ -430,26 +481,11 @@ export class IdentityService {
         }
         return updated;
       });
-    } catch (err) {
-      if (err instanceof HttpException) {
-        throw err;
-      }
-      const code = pgErrorCode(err);
-      if (code === '42501') {
-        throw new ForbiddenException(
-          'Not permitted to change this membership’s role',
-        );
-      }
-      // D2's last-owner trigger — demoting the sole owner of a root unit.
-      if (code === 'OW001') {
-        throw new ConflictException(
-          conflictBody(
-            ORG_UNITS_ERROR_CODES.lastOwner,
-            'Cannot remove the last owner of this org — transfer ownership first',
-          ),
-        );
-      }
-      throw err;
+    } catch (error) {
+      rethrowMembershipWriteError(
+        error,
+        'Not permitted to change this membership’s role',
+      );
     }
   }
 
@@ -479,24 +515,11 @@ export class IdentityService {
           );
         }
       });
-    } catch (err) {
-      if (err instanceof HttpException) {
-        throw err;
-      }
-      const code = pgErrorCode(err);
-      if (code === '42501') {
-        throw new ForbiddenException('Not permitted to revoke this membership');
-      }
-      // D2's last-owner trigger — the sole owner of a root unit leaving/being revoked.
-      if (code === 'OW001') {
-        throw new ConflictException(
-          conflictBody(
-            ORG_UNITS_ERROR_CODES.lastOwner,
-            'Cannot remove the last owner of this org — transfer ownership first',
-          ),
-        );
-      }
-      throw err;
+    } catch (error) {
+      rethrowMembershipWriteError(
+        error,
+        'Not permitted to revoke this membership',
+      );
     }
   }
 
@@ -519,10 +542,10 @@ export class IdentityService {
           role: input.role,
         });
       });
-    } catch (err) {
+    } catch (error) {
       // Drizzle wraps the driver error, so the SQLSTATE can be on `.code` OR the
       // wrapped `.cause.code`.
-      const code = pgErrorCode(err);
+      const code = pgErrorCode(error);
       if (code === '23505') {
         throw new ConflictException(
           conflictBody(
@@ -543,7 +566,7 @@ export class IdentityService {
           'Not permitted to grant membership on this org unit',
         );
       }
-      throw err;
+      throw error;
     }
   }
 }

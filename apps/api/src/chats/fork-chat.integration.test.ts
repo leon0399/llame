@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 /**
  * forkChat on a live DB (RLS) — the copy's correctness + tenancy:
  * - copies the seq-prefix into a NEW owned chat, order preserved, `in_reply_to`
@@ -7,12 +8,8 @@
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 
@@ -31,13 +28,13 @@ import { renderConversationCheckpoint } from './context-builder';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = Sql;
 
 function hasStringText(value: unknown): value is { text: string } {
   return isRecord(value) && typeof value.text === 'string';
 }
 
-const textOf = (parts: unknown[]): string | undefined => {
+const textOf = (parts: Array<unknown>): string | undefined => {
   if (!Array.isArray(parts)) return undefined;
   const text = parts.find(hasStringText);
   return text?.text;
@@ -52,7 +49,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
   let b: string;
 
   beforeAll(async () => {
-    const postgres = require('postgres');
+    const postgres = await import('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 5 });
@@ -174,7 +171,9 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
   it('a cross-tenant fork throws and creates nothing', async () => {
     const { chatId, asst1Id } = await seedChat(a);
 
-    await expect(service.forkChat(chatId, b, asst1Id)).rejects.toThrow();
+    await expect(service.forkChat(chatId, b, asst1Id)).rejects.toThrow(
+      NotFoundException,
+    );
 
     const bChats = await service.listChatsWithLastMessage(b);
     expect(bChats).toEqual([]);
@@ -207,7 +206,9 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
   it('a cross-tenant whole-chat fork (clone) throws and creates nothing', async () => {
     const { chatId } = await seedChat(a);
 
-    await expect(service.forkChat(chatId, b, undefined)).rejects.toThrow();
+    await expect(service.forkChat(chatId, b, undefined)).rejects.toThrow(
+      NotFoundException,
+    );
 
     const bChats = await service.listChatsWithLastMessage(b);
     expect(bChats).toEqual([]);
@@ -245,16 +246,16 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       // test is about fork correctness at scale, not seeding performance.
       // Explicit element type (not `as`): contextually types `role` as the
       // literal union directly, instead of widening to `string`.
-      const rows: {
+      const rows: Array<{
         id: string;
         chatId: string;
         seq: number;
         role: 'user' | 'assistant';
         senderUserId: string | null;
-        parts: { type: string; text: string }[];
-        attachments: unknown[];
+        parts: Array<{ type: string; text: string }>;
+        attachments: Array<unknown>;
         inReplyTo: string | null;
-      }[] = Array.from({ length: MESSAGE_COUNT }, (_, i) => ({
+      }> = Array.from({ length: MESSAGE_COUNT }, (_, i) => ({
         id: crypto.randomUUID(),
         chatId: chat.id,
         seq: i + 1,
@@ -270,7 +271,9 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       }
       await messages.createMany(rows);
 
-      return { chatId: chat.id, lastId: rows[rows.length - 1].id };
+      const lastRow = rows.at(-1);
+      if (lastRow === undefined) expect.unreachable('expected seeded rows');
+      return { chatId: chat.id, lastId: lastRow.id };
     });
 
     const forked = await service.forkChat(chatId, a, lastId);

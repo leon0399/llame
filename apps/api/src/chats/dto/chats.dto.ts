@@ -159,10 +159,10 @@ export class CreateTextMessagePartDto {
   @IsIn(['text'])
   type!: 'text';
 
-  @ApiProperty({ minLength: 1, maxLength: 20000 })
+  @ApiProperty({ minLength: 1, maxLength: 20_000 })
   @IsString()
   @Matches(/\S/, { message: 'text must not be blank' })
-  @MaxLength(20000)
+  @MaxLength(20_000)
   text!: string;
 }
 
@@ -181,7 +181,7 @@ export class CreateMessageBodyDto {
   @ArrayMaxSize(50)
   @ValidateNested({ each: true })
   @Type(() => CreateTextMessagePartDto)
-  parts!: CreateTextMessagePartDto[];
+  parts!: Array<CreateTextMessagePartDto>;
 }
 
 export class CreateMessageDto {
@@ -280,11 +280,11 @@ export class ChatListItemResponse extends ChatResponse {
 }
 
 /** Text parts only — non-text parts (tool calls, files, reasoning) are omitted. */
-function partsToExcerpt(parts: unknown[]): string {
+function partsToExcerpt(parts: Array<unknown>): string {
   const text = parts
     .map((part) => (isTextPart(part) ? part.text : ''))
     .join(' ')
-    .replace(/\s+/g, ' ')
+    .replaceAll(/\s+/g, ' ')
     .trim();
 
   return text.length > LAST_MESSAGE_EXCERPT_MAX_LENGTH
@@ -479,7 +479,7 @@ export class ChatSearchResultResponse {
 
 export class ChatSearchResponse {
   @ApiProperty({ type: () => [ChatSearchResultResponse] })
-  results!: ChatSearchResultResponse[];
+  results!: Array<ChatSearchResultResponse>;
 }
 
 export class ChatMessagesQueryDto {
@@ -552,13 +552,13 @@ export class ChatMessageResponse {
     type: 'array',
     items: { type: 'object', additionalProperties: true },
   })
-  parts!: unknown[];
+  parts!: Array<unknown>;
 
   @ApiProperty({
     type: 'array',
     items: { type: 'object', additionalProperties: true },
   })
-  attachments!: unknown[];
+  attachments!: Array<unknown>;
 
   @ApiProperty({
     type: 'object',
@@ -576,7 +576,7 @@ export class ChatMessageResponse {
 
 export class ChatMessagesResponse {
   @ApiProperty({ type: () => [ChatMessageResponse] })
-  messages!: ChatMessageResponse[];
+  messages!: Array<ChatMessageResponse>;
 
   // Embedded (#136): the chat's latest compaction, folded into this same
   // response instead of a separate `GET :id/compaction` round trip. null
@@ -623,7 +623,7 @@ export class SharedChatMessageResponse {
     type: 'array',
     items: { type: 'object', additionalProperties: true },
   })
-  parts!: unknown[];
+  parts!: Array<unknown>;
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;
@@ -639,12 +639,12 @@ export class SharedChatResponse {
   title!: string | null;
 
   @ApiProperty({ type: () => [SharedChatMessageResponse] })
-  messages!: SharedChatMessageResponse[];
+  messages!: Array<SharedChatMessageResponse>;
 }
 
 export function toSharedChatResponse(
   chat: Pick<Chat, 'id' | 'title'>,
-  messages: Message[],
+  messages: Array<Message>,
 ): SharedChatResponse {
   return {
     id: chat.id,

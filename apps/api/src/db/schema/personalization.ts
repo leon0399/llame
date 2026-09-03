@@ -1,11 +1,7 @@
 import { InferSelectModel, sql } from 'drizzle-orm';
-import {
-  boolean,
-  pgPolicy,
-  pgTable,
-  text,
-  timestamp,
-} from 'drizzle-orm/pg-core';
+import { boolean, pgPolicy, pgTable, text } from 'drizzle-orm/pg-core';
+
+import { timestamptz } from '../columns';
 import { users } from './auth';
 
 // One owner-authored personalization profile per user (add-user-personalization).
@@ -45,12 +41,8 @@ export const personalization = pgTable(
     shareAccountIdentity: boolean('share_account_identity')
       .notNull()
       .default(false),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
   // The callback takes no parameter: this table needs no index (the primary key
   // IS the only access path), so nothing here references a column builder —

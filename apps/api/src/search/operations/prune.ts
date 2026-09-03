@@ -45,7 +45,7 @@ export type PruneResult = {
    *  must treat any non-empty result as a failed command (see
    *  `owner-write.ts`'s header) — the ledger row is still retired
    *  regardless, since it is a separate global operation, not per-owner. */
-  failures: OwnerWriteFailure[];
+  failures: Array<OwnerWriteFailure>;
 };
 
 /**
@@ -58,27 +58,31 @@ export type PruneResult = {
  * layer fully undeclared) correctly prunes every embedded/attempted row,
  * since every non-null key is then "not any declared key."
  */
+// `<> ALL(${array})` does not bind a JS array as a Postgres array parameter
+// through this driver (verified empirically: postgres.js sends it as a
+// single text-array-typed parameter whose serialized value is the array's
+// own elements joined without the `{...}` envelope, which Postgres then
+// rejects as a malformed array literal). `NOT IN (v1, v2, ...)` — one bind
+// parameter per declared key via `sql.join` — sidesteps that entirely. An
+// empty declared set has no valid `IN (...)` form (bare `()` is a syntax
+// error), so it collapses to `TRUE`: every non-null key is then "not
+// declared," which is the correct semantics.
+function notInDeclared(
+  column: ReturnType<typeof sql>,
+  declaredModelKeys: ReadonlyArray<string>,
+) {
+  return declaredModelKeys.length === 0
+    ? sql`TRUE`
+    : sql`${column} NOT IN (${sql.join(
+        declaredModelKeys.map((key) => sql`${key}`),
+        sql`, `,
+      )})`;
+}
+
 export async function pruneUndeclaredModelVectors(
   tenantDb: Pick<TenantDbService, 'runAs' | 'runAsPublic'>,
-  declaredModelKeys: readonly string[],
+  declaredModelKeys: ReadonlyArray<string>,
 ): Promise<PruneResult> {
-  // `<> ALL(${array})` does not bind a JS array as a Postgres array
-  // parameter through this driver (verified empirically: postgres.js sends
-  // it as a single text-array-typed parameter whose serialized value is the
-  // array's own elements joined without the `{...}` envelope, which
-  // Postgres then rejects as a malformed array literal). `NOT IN (v1, v2,
-  // ...)` — one bind parameter per declared key via `sql.join` — sidesteps
-  // that entirely. An empty declared set has no valid `IN (...)` form (bare
-  // `()` is a syntax error), so it collapses to `TRUE`: every non-null key
-  // is then "not declared," which is the correct semantics.
-  const notInDeclared = (column: ReturnType<typeof sql>) =>
-    declaredModelKeys.length === 0
-      ? sql`TRUE`
-      : sql`${column} NOT IN (${sql.join(
-          declaredModelKeys.map((key) => sql`${key}`),
-          sql`, `,
-        )})`;
-
   const {
     total: prunedDocuments,
     affectedOwners,
@@ -92,7 +96,7 @@ export async function pruneUndeclaredModelVectors(
             embed_input_version = NULL,
             embedding_fail_reason = NULL
         WHERE embedding_model_key IS NOT NULL
-          AND ${notInDeclared(sql`embedding_model_key`)}
+          AND ${notInDeclared(sql`embedding_model_key`, declaredModelKeys)}
       `),
   );
 
@@ -113,7 +117,7 @@ export async function pruneUndeclaredModelVectors(
       ? await tenantDb.runAsPublic((tx) =>
           tx.execute(sql`
             DELETE FROM embedding_model_bindings
-            WHERE ${notInDeclared(sql`model_key`)}
+            WHERE ${notInDeclared(sql`model_key`, declaredModelKeys)}
           `),
         )
       : { count: 0 };

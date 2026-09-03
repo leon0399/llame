@@ -75,7 +75,7 @@ describe('PinsService.pin — error mapping', () => {
   async function makeService(
     runAsImpl: () => Promise<PinnedRow | undefined>,
   ): Promise<PinsService> {
-    const module = await Test.createTestingModule({
+    const moduleRef = await Test.createTestingModule({
       providers: [
         PinsService,
         {
@@ -84,7 +84,7 @@ describe('PinsService.pin — error mapping', () => {
         },
       ],
     }).compile();
-    return module.get(PinsService);
+    return moduleRef.get(PinsService);
   }
 
   it('maps a 42501 (RLS WITH CHECK denial) to 404, not 500', async () => {
@@ -146,13 +146,13 @@ describe('PinsService.pin — error mapping', () => {
         Object.assign(new Error('uniq'), { code: '23505' }),
       )
       .mockResolvedValueOnce(row);
-    const module = await Test.createTestingModule({
+    const moduleRef = await Test.createTestingModule({
       providers: [
         PinsService,
         { provide: TenantDbService, useValue: { runAs } },
       ],
     }).compile();
-    const svc = module.get(PinsService);
+    const svc = moduleRef.get(PinsService);
 
     await expect(svc.pin('u1', 'chat', 'c1')).resolves.toEqual(row);
     expect(runAs).toHaveBeenCalledTimes(2);
@@ -161,7 +161,7 @@ describe('PinsService.pin — error mapping', () => {
 
 describe('PinsService.reorderPins — error mapping', () => {
   it('maps an exact-set mismatch to 400', async () => {
-    const module = await Test.createTestingModule({
+    const moduleRef = await Test.createTestingModule({
       providers: [
         PinsService,
         {
@@ -174,7 +174,7 @@ describe('PinsService.reorderPins — error mapping', () => {
     }).compile();
 
     await expect(
-      module
+      moduleRef
         .get(PinsService)
         .reorderPins('u1', [{ itemType: 'chat', itemId: 'c1' }]),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -185,15 +185,15 @@ describe('PinsController', () => {
   async function makeController(
     service: PinsControllerServiceDouble,
   ): Promise<PinsController> {
-    const module = await Test.createTestingModule({
+    const moduleRef = await Test.createTestingModule({
       controllers: [PinsController],
       providers: [{ provide: PinsService, useValue: service }],
     }).compile();
-    return module.get(PinsController);
+    return moduleRef.get(PinsController);
   }
 
   it('GET /pins maps service rows to PinnedItemResponse[]', async () => {
-    const rows: PinnedRow[] = [
+    const rows: Array<PinnedRow> = [
       {
         itemType: 'project',
         itemId: 'p1',
@@ -238,7 +238,7 @@ describe('PinsController', () => {
   });
 
   it('PUT /pins/order delegates the complete order and maps the returned list', async () => {
-    const rows: PinnedRow[] = [
+    const rows: Array<PinnedRow> = [
       {
         itemType: 'project',
         itemId: 'p1',

@@ -38,16 +38,16 @@ import { SearchReindexWorker } from './search-reindex.worker';
 import { SearchIndexService } from './search-index.service';
 
 type ProvisioningRow = { bypass: boolean };
-type ProvisioningTx = { execute: () => Promise<ProvisioningRow[]> };
+type ProvisioningTx = { execute: () => Promise<Array<ProvisioningRow>> };
 type PublicRunner = <T>(fn: (tx: ProvisioningTx) => Promise<T>) => Promise<T>;
 
-const openModules: TestingModule[] = [];
+const openModules: Array<TestingModule> = [];
 
 /**
  * Returns a PublicRunner that yields the next row-set in `sequence` for each
  * successive call, repeating the last entry once the sequence is exhausted.
  */
-function provisioned(sequence: ProvisioningRow[][]): PublicRunner {
+function provisioned(sequence: Array<Array<ProvisioningRow>>): PublicRunner {
   let call = 0;
   return <T>(fn: (tx: ProvisioningTx) => Promise<T>) => {
     const rows = sequence[Math.min(call, sequence.length - 1)];

@@ -12,13 +12,9 @@
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
+import postgres from 'postgres';
 import { z } from 'zod';
 
 import * as schema from '../db/schema';
@@ -30,7 +26,7 @@ import { type UnknownRecord } from '../unknown-record';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = ReturnType<typeof postgres>;
 const text = (t: string) => [{ type: 'text', text: t }];
 
 describeIfDb('search projection — SearchIndexService + discovery', () => {
@@ -58,11 +54,11 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
   const ownedRows = <T extends UnknownRecord>(
     frag: ReturnType<typeof sql>,
     rowSchema: z.ZodType<T>,
-  ): Promise<T[]> =>
+  ): Promise<Array<T>> =>
     tenantDb
       .runAs(u, (tx) => tx.execute(frag))
       .then((rows) => rowSchema.array().parse([...rows]));
-  const staleIds = (): Promise<string[]> =>
+  const staleIds = (): Promise<Array<string>> =>
     tenantDb
       .runAsPublic((tx) =>
         tx.execute<{ chat_id: string }>(sql`
@@ -80,7 +76,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
   const embeddingCoverage = (
     modelKey: string,
     inputVersion: number,
-  ): Promise<CoverageRow[]> =>
+  ): Promise<Array<CoverageRow>> =>
     tenantDb
       .runAsPublic((tx) =>
         tx.execute<CoverageRow>(sql`
@@ -93,7 +89,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     msgs: Array<{
       role: 'user' | 'assistant';
       text?: string;
-      parts?: unknown[];
+      parts?: Array<unknown>;
       usage?: unknown;
     }>,
   ): Promise<string> {
@@ -116,10 +112,8 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
   }
 
   beforeAll(async () => {
-    const postgres = require('postgres');
-    const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-    sqlClient = connect(TEST_DB_URL!, { ssl, max: 3 });
+    sqlClient = postgres(TEST_DB_URL!, { ssl, max: 3 });
     db = drizzle(sqlClient, { schema });
     tenantDb = new TenantDbService(db);
     indexService = new SearchIndexService(tenantDb);

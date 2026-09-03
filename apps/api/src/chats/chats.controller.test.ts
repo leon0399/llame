@@ -32,7 +32,7 @@ const chat: Chat = {
   recencyDigestRebakedFrom: null,
 };
 
-const chatMessages: Message[] = [
+const chatMessages: Array<Message> = [
   {
     id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
     chatId: chat.id,
@@ -296,10 +296,10 @@ describe('ChatsController', () => {
         },
       ],
       usage: {
-        inputTokens: 71400,
+        inputTokens: 71_400,
         cachedInputTokens: 0,
         outputTokens: 1280,
-        totalTokens: 72680,
+        totalTokens: 72_680,
         modelId: 'system:openai:gpt-4o',
         effort: 'high',
         latencyMs: 500,
@@ -323,7 +323,7 @@ describe('ChatsController', () => {
 
     expect(result.compaction?.stats).toEqual({
       absorbedMessageCount: 5,
-      beforeTokens: 71400,
+      beforeTokens: 71_400,
       afterTokens: 1280,
       modelId: 'system:openai:gpt-4o',
       effort: 'high',

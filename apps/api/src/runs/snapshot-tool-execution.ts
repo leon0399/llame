@@ -75,93 +75,115 @@ function unavailableExecutor(declaration: ModelToolDeclaration): Tool {
   };
 }
 
+/** Throws on a malformed or duplicate declaration; records a valid id as seen. */
+function validateDeclaration(
+  declaration: ModelToolDeclaration,
+  seen: Set<string>,
+): void {
+  if (
+    !declaration ||
+    !isString(declaration.id) ||
+    declaration.id.length === 0 ||
+    !isString(declaration.description) ||
+    !isRecord(declaration.inputSchema)
+  ) {
+    invalidDeclaration('expected a non-empty id, description, and JSON schema');
+  }
+  if (seen.has(declaration.id)) {
+    invalidDeclaration(`duplicate tool id "${declaration.id}"`);
+  }
+  seen.add(declaration.id);
+}
+
+/** Binds a registry-resolved (code-owned) executor, verified against the snapshot. */
+async function resolveCodeOwnedTool(
+  declaration: ModelToolDeclaration,
+  executor: Tool,
+): Promise<BoundExecutableTool> {
+  if (executor.classification !== 'read_only') {
+    throw new ModelContextExecutionError(
+      `Bound model context tool "${declaration.id}" is no longer read-only.`,
+    );
+  }
+
+  if (!toFlexibleSchema(executor.inputSchema)) {
+    throw new ModelContextExecutionError(
+      `Bound model context tool "${declaration.id}" declares an unsupported schema dialect.`,
+    );
+  }
+
+  const liveDeclaration = {
+    id: executor.id,
+    description: executor.description,
+    inputSchema: await resolveJsonSchema(executor.inputSchema),
+  };
+  if (canonicalJson(liveDeclaration) !== canonicalJson(declaration)) {
+    throw new ModelContextExecutionError(
+      `Bound model context tool "${declaration.id}" no longer matches its snapshotted declaration.`,
+    );
+  }
+
+  return { declaration, executor };
+}
+
+/**
+ * Binds a dynamic-resolver-supplied executor, or `undefined` when the id
+ * isn't dynamic at all (the caller then treats it as unresolvable). A
+ * registry entry always wins and follows the strict code-owned path above,
+ * even when its id resembles a dynamic namespace. Only the runtime resolver
+ * can confirm that a registry-missing id belongs to a currently configured
+ * dynamic source.
+ */
+function resolveDynamicToolBinding(
+  declaration: ModelToolDeclaration,
+  dynamicResolver: DynamicToolExecutorResolver | undefined,
+): BoundExecutableTool | undefined {
+  const dynamicResolution = dynamicResolver?.resolveDynamicTool(declaration.id);
+  if (
+    dynamicResolution === undefined ||
+    dynamicResolution.state === 'not_dynamic'
+  ) {
+    return undefined;
+  }
+  if (
+    dynamicResolution.state === 'available' &&
+    dynamicResolution.declarationHash === hashToolDeclaration(declaration) &&
+    dynamicResolution.executor.id === declaration.id &&
+    dynamicResolution.executor.classification === 'read_only'
+  ) {
+    return { declaration, executor: dynamicResolution.executor };
+  }
+  return { declaration, executor: unavailableExecutor(declaration) };
+}
+
 /**
  * Resolve trusted executor functions for an immutable provider-facing tool
  * manifest. The snapshot decides what is advertised; the live registry only
  * supplies code and must still match that historical declaration exactly.
  */
 export async function resolveBoundExecutableTools(
-  declarations: readonly ModelToolDeclaration[],
+  declarations: ReadonlyArray<ModelToolDeclaration>,
   registry: ReadonlyMap<string, Tool> = TOOL_REGISTRY,
   dynamicResolver?: DynamicToolExecutorResolver,
-): Promise<BoundExecutableTool[]> {
+): Promise<Array<BoundExecutableTool>> {
   const seen = new Set<string>();
-  const resolved: BoundExecutableTool[] = [];
+  const resolved: Array<BoundExecutableTool> = [];
 
   for (const declaration of declarations) {
-    if (
-      !declaration ||
-      !isString(declaration.id) ||
-      declaration.id.length === 0 ||
-      !isString(declaration.description) ||
-      !isRecord(declaration.inputSchema)
-    ) {
-      invalidDeclaration(
-        'expected a non-empty id, description, and JSON schema',
-      );
-    }
-    if (seen.has(declaration.id)) {
-      invalidDeclaration(`duplicate tool id "${declaration.id}"`);
-    }
-    seen.add(declaration.id);
+    validateDeclaration(declaration, seen);
 
     const executor = registry.get(declaration.id);
     if (executor) {
-      if (executor.classification !== 'read_only') {
-        throw new ModelContextExecutionError(
-          `Bound model context tool "${declaration.id}" is no longer read-only.`,
-        );
-      }
-
-      if (!toFlexibleSchema(executor.inputSchema)) {
-        throw new ModelContextExecutionError(
-          `Bound model context tool "${declaration.id}" declares an unsupported schema dialect.`,
-        );
-      }
-
-      const liveDeclaration = {
-        id: executor.id,
-        description: executor.description,
-        inputSchema: await resolveJsonSchema(executor.inputSchema),
-      };
-      if (canonicalJson(liveDeclaration) !== canonicalJson(declaration)) {
-        throw new ModelContextExecutionError(
-          `Bound model context tool "${declaration.id}" no longer matches its snapshotted declaration.`,
-        );
-      }
-
-      resolved.push({ declaration, executor });
+      resolved.push(await resolveCodeOwnedTool(declaration, executor));
       continue;
     }
 
-    // A registry entry always wins and follows the strict code-owned path
-    // above, even when its id resembles a dynamic namespace. Only the runtime
-    // resolver can confirm that a registry-missing id belongs to a currently
-    // configured dynamic source.
-    const dynamicResolution = dynamicResolver?.resolveDynamicTool(
-      declaration.id,
+    const dynamicBinding = resolveDynamicToolBinding(
+      declaration,
+      dynamicResolver,
     );
-    if (
-      dynamicResolution !== undefined &&
-      dynamicResolution.state !== 'not_dynamic'
-    ) {
-      if (
-        dynamicResolution.state === 'available' &&
-        dynamicResolution.declarationHash ===
-          hashToolDeclaration(declaration) &&
-        dynamicResolution.executor.id === declaration.id &&
-        dynamicResolution.executor.classification === 'read_only'
-      ) {
-        resolved.push({
-          declaration,
-          executor: dynamicResolution.executor,
-        });
-      } else {
-        resolved.push({
-          declaration,
-          executor: unavailableExecutor(declaration),
-        });
-      }
+    if (dynamicBinding !== undefined) {
+      resolved.push(dynamicBinding);
       continue;
     }
 

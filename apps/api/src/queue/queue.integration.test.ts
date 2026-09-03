@@ -188,7 +188,7 @@ describeIfDb(
         Promise.reject(new Error('permanent failure')),
       );
 
-      const dead: unknown[] = [];
+      const dead: Array<unknown> = [];
       await consume(deadLetterQueue(dlqQueue), (data) => {
         dead.push(data);
         return Promise.resolve();
@@ -225,14 +225,14 @@ describeIfDb(
       });
       await queue.ensureQueue(guarded);
 
-      const handled: unknown[] = [];
+      const handled: Array<unknown> = [];
       await consume(guarded, (data) => {
         handled.push(data);
         return Promise.resolve();
       });
       // The DLQ consumer sees the RAW payload — skip the guard by consuming
       // the derived definition without a parse.
-      const dead: unknown[] = [];
+      const dead: Array<unknown> = [];
       await consume(
         defineQueue<object>({ name: `${tag}-guarded.dead` }),
         (data) => {
@@ -317,7 +317,7 @@ describeIfDb(
       });
       await queue.ensureQueue(deferredQueue);
 
-      const received: number[] = [];
+      const received: Array<number> = [];
       await consume(deferredQueue, () => {
         received.push(Date.now());
         return Promise.resolve();
@@ -332,7 +332,7 @@ describeIfDb(
         'the deferred job to be delivered',
       );
       // Allow modest clock/polling slack, but it must not arrive immediately.
-      expect(received[0] - enqueuedAt).toBeGreaterThanOrEqual(1_500);
+      expect(received[0] - enqueuedAt).toBeGreaterThanOrEqual(1500);
     });
 
     it('runs jobs in parallel under concurrency and settles each independently (design D1, #2.2)', async () => {
@@ -344,8 +344,8 @@ describeIfDb(
 
       let inFlight = 0;
       let maxInFlight = 0;
-      const completed: number[] = [];
-      const failed: number[] = [];
+      const completed: Array<number> = [];
+      const failed: Array<number> = [];
 
       await consume(
         concurrencyQueue,
@@ -405,7 +405,7 @@ describeIfDb(
       await queue.ensureQueue(queueA);
       await queue.ensureQueue(queueB);
 
-      const seenByFirst: string[] = [];
+      const seenByFirst: Array<string> = [];
       // Only ever subscribes to queue A.
       await consume(queueA, (data) => {
         seenByFirst.push(data.tag);
@@ -421,12 +421,12 @@ describeIfDb(
         'queue A job to be consumed',
       );
       // Give the unsubscribed queue B job a chance to be wrongly picked up.
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       expect(seenByFirst).toEqual(['a-job']);
 
       // A second process subscribing to the SAME queue shares its jobs — no
       // job runs twice.
-      const seenBySecond: string[] = [];
+      const seenBySecond: Array<string> = [];
       await consume(queueA, (data) => {
         seenBySecond.push(data.tag);
         return Promise.resolve();
@@ -441,7 +441,7 @@ describeIfDb(
         10_000,
         'both shared jobs to be consumed exactly once total',
       );
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       expect(seenByFirst.length + seenBySecond.length).toBe(3);
       expect([...seenByFirst, ...seenBySecond].sort()).toEqual(
         ['a-job', 'shared-1', 'shared-2'].sort(),
@@ -491,7 +491,7 @@ describeIfDb(
       let finished = false;
       await queue.consume(drainQueue, async () => {
         started = true;
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
         finished = true;
       });
 

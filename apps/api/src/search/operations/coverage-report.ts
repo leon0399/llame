@@ -35,7 +35,7 @@ export async function getEmbeddingCoverageReport(
   modelId: string,
   inputVersion: number,
   maxRows: number,
-): Promise<CoverageRow[]> {
+): Promise<Array<CoverageRow>> {
   const rows = await tenantDb.runAsPublic((tx) =>
     tx.execute<ReportRow>(sql`
       SELECT chat_id, owner_user_id, outstanding_count, embedded_count, failed_count

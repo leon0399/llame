@@ -1,13 +1,8 @@
 import { InferSelectModel } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
-import {
-  index,
-  pgPolicy,
-  pgTable,
-  text,
-  timestamp,
-  uuid,
-} from 'drizzle-orm/pg-core';
+import { index, pgPolicy, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+
+import { timestamptz } from '../columns';
 import { users } from './auth';
 
 // A project: a terminal, user-owned chat group (projects-foundation). Its own
@@ -25,16 +20,12 @@ export const projects = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
     // Archive state (chat-project-archive): a nullable timestamp on the row, so
     // archiving is a global, owner-scoped action (unlike the per-user `pins`
     // table). NULL = not archived.
-    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    archivedAt: timestamptz('archived_at'),
   },
   (t) => [
     // Mirrors listForUser's ORDER BY exactly (owner, created_at DESC) so the

@@ -44,7 +44,7 @@ const canonicalContentResultSchema = z.object({
   chatId: z.string().uuid(),
   messageSeq: z.number().int().positive().safe(),
   offset: z.number().int().nonnegative().safe(),
-  limit: z.number().int().positive().max(2_000),
+  limit: z.number().int().positive().max(2000),
   excerpt: z.string(),
 });
 const searchToolPartSchema = z.object({
@@ -71,7 +71,7 @@ type SourcePart =
   | { type: 'text' | 'reasoning'; text: string }
   | { type: 'tool-call'; toolName: string; input: { secret: boolean } };
 
-function searchToolPart(parts: readonly unknown[]) {
+function searchToolPart(parts: ReadonlyArray<unknown>) {
   for (const part of parts) {
     const parsed = searchToolPartSchema.safeParse(part);
     if (parsed.success) return parsed.data;
@@ -79,7 +79,7 @@ function searchToolPart(parts: readonly unknown[]) {
   return undefined;
 }
 
-function readToolParts(parts: readonly unknown[]) {
+function readToolParts(parts: ReadonlyArray<unknown>) {
   return parts.flatMap((part) => {
     const parsed = readToolPartSchema.safeParse(part);
     const candidate = z
@@ -123,10 +123,13 @@ describe('conversation provenance acceptance — queued lexical search and canon
   async function seedSource(
     ownerUserId: string,
     title: string,
-    parts: readonly SourcePart[],
-    role: 'user' | 'assistant' = 'user',
-    usage?: { status: 'error' },
+    parts: ReadonlyArray<SourcePart>,
+    options: {
+      role?: 'user' | 'assistant';
+      usage?: { status: 'error' };
+    } = {},
   ) {
+    const { role = 'user', usage } = options;
     const chatId = crypto.randomUUID();
     const message = await harness.tenantDb.runAs(ownerUserId, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
@@ -152,7 +155,7 @@ describe('conversation provenance acceptance — queued lexical search and canon
   }
 
   it('executes queued search → exact read continuation and preserves the observation after source deletion', async () => {
-    const sourceLines = Array.from({ length: 2_050 }, (_, index) =>
+    const sourceLines = Array.from({ length: 2050 }, (_, index) =>
       index === 137
         ? `${SEARCH_QUERY} 😀 source line`
         : `source line ${index.toString().padStart(4, '0')}`,
@@ -323,8 +326,7 @@ describe('conversation provenance acceptance — queued lexical search and canon
       ownerB,
       'Retryable source',
       [{ type: 'text', text: RETRYABLE_MARKER }],
-      'assistant',
-      { status: 'error' },
+      { role: 'assistant', usage: { status: 'error' } },
     );
     await new SearchIndexService(harness.tenantDb).reindexChat(
       foreign.chatId,

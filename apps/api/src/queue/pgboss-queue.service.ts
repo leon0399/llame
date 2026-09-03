@@ -119,10 +119,9 @@ export class PgBossQueueService implements Queue {
     await this.boss.updateQueue(queue.name, updatable);
   }
 
-  // Mirrors the interface's variance-escape bound (see queue.ts).
-  async enqueue<Q extends QueueDefinition<any>>(
-    queue: Q,
-    data: PayloadOf<Q>,
+  async enqueue<T extends object>(
+    queue: QueueDefinition<T>,
+    data: T,
     options?: EnqueueOptions,
   ): Promise<string | null> {
     const sendOptions: EnqueueOptions = {};
@@ -148,7 +147,7 @@ export class PgBossQueueService implements Queue {
     return this.boss.send(queue.name, data, sendOptions);
   }
 
-  // See enqueue for the variance-escape bound.
+  // Mirrors the interface's variance-escape bound (see queue.ts).
   async consume<Q extends QueueDefinition<any>>(
     queue: Q,
     handler: JobHandler<PayloadOf<Q>>,
@@ -172,7 +171,7 @@ export class PgBossQueueService implements Queue {
           pollingIntervalSeconds: options.pollingIntervalSeconds,
         }),
       },
-      async (jobs: PgBossJob<PayloadOf<Q>>[]) => {
+      async (jobs: Array<PgBossJob<PayloadOf<Q>>>) => {
         const definition: QueueDefinition<PayloadOf<Q>> = queue;
         for (const job of jobs) {
           // The definition's guard runs BEFORE domain code: a payload written
@@ -188,11 +187,10 @@ export class PgBossQueueService implements Queue {
     );
   }
 
-  // See enqueue for the variance-escape bound.
-  async schedule<Q extends QueueDefinition<any>>(
-    queue: Q,
+  async schedule<T extends object>(
+    queue: QueueDefinition<T>,
     cron: string,
-    data?: PayloadOf<Q>,
+    data?: T,
   ): Promise<void> {
     await this.boss.schedule(queue.name, cron, data);
   }

@@ -43,14 +43,9 @@ export function classifyMcpFailure(
     hasSession?: boolean;
   }>,
 ): McpFailureDisposition {
-  if (
-    failure.stage === 'initialize' ||
-    failure.stage === 'discovery' ||
-    failure.stage === 'refresh'
-  ) {
-    return 'reconnect';
-  }
-
+  // Every non-'call' stage ('initialize', 'discovery', 'refresh', and
+  // anything this client doesn't yet recognize) reconnects; only a 'call'
+  // failure's kind needs the finer classification below.
   if (failure.stage !== 'call') {
     return 'reconnect';
   }

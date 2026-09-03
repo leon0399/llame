@@ -8,6 +8,7 @@ import { isRecord } from '../unknown-record';
 import {
   CHUNKER_VERSION,
   chunkConversation,
+  type ConversationChunk,
 } from './chat/conversation-chunker';
 
 /** Postgres serialization failure (SQLSTATE 40001) — a REPEATABLE READ rebuild that
@@ -16,6 +17,99 @@ import {
 function isSerializationFailure(error: unknown): boolean {
   return isRecord(error) && error['code'] === '40001';
 }
+
+/** Shape of one previously-indexed chunk, as read back for the hash/locator diff. */
+interface ExistingChunkRow {
+  ordinal: number;
+  version: number;
+  ownerUserId: string;
+  hash: string;
+  firstMessageId: string;
+  lastMessageId: string;
+  firstMessageTextOffset: number | null;
+  lastMessageTextOffsetExclusive: number | null;
+}
+
+/**
+ * Which of `chunks` need to be (re)written: a chunk is unchanged only when a
+ * current-version row exists for its ordinal and every content/locator field —
+ * including `ownerUserId`, since a chat transfer must still rewrite every row —
+ * matches exactly. Pure and hash/locator-diff-only, so it is safe to call on
+ * every rebuild, including a cheap no-op pass.
+ */
+function diffChangedChunks(
+  existing: Array<ExistingChunkRow>,
+  chunks: Array<ConversationChunk>,
+  ownerUserId: string,
+): Array<ConversationChunk> {
+  const currentByOrdinal = new Map(
+    existing
+      .filter((row) => row.version === CHUNKER_VERSION)
+      .map((row) => [row.ordinal, row]),
+  );
+  return chunks.filter((chunk) => {
+    const current = currentByOrdinal.get(chunk.chunkOrdinal);
+    return (
+      current?.ownerUserId !== ownerUserId ||
+      current?.hash !== chunk.contentHash ||
+      current?.firstMessageId !== chunk.firstMessageId ||
+      current?.lastMessageId !== chunk.lastMessageId ||
+      current?.firstMessageTextOffset !== chunk.firstMessageTextOffset ||
+      current?.lastMessageTextOffsetExclusive !==
+        chunk.lastMessageTextOffsetExclusive
+    );
+  });
+}
+
+/** New/changed row, mapped from a search chunk, ready for `.insert().values()`. */
+function toChunkRow(
+  ownerUserId: string,
+  chatId: string,
+  chunk: ConversationChunk,
+) {
+  return {
+    ownerUserId,
+    chatId,
+    chunkOrdinal: chunk.chunkOrdinal,
+    chunkerVersion: CHUNKER_VERSION,
+    firstMessageId: chunk.firstMessageId,
+    lastMessageId: chunk.lastMessageId,
+    firstMessageAt: chunk.firstMessageAt,
+    lastMessageAt: chunk.lastMessageAt,
+    firstMessageTextOffset: chunk.firstMessageTextOffset,
+    lastMessageTextOffsetExclusive: chunk.lastMessageTextOffsetExclusive,
+    content: chunk.content,
+    normalizedContent: chunk.normalizedContent,
+    contentHash: chunk.contentHash,
+  };
+}
+
+// chat-search-embeddings design D7's "upsert trap" (trap 1): this upsert only
+// runs for `changed` chunks — those whose content hash or canonical locator
+// differs (see `diffChangedChunks`) — so nulling the embedding columns here
+// clears a stale vector PRECISELY when its content or source changed, never
+// on a no-op rebuild. Omitting these five is the single way this design can
+// silently serve a WRONG embedding: the row's content is rewritten while its
+// vector still describes the old text, with no error and no symptom until
+// ranking degrades.
+const CHUNK_UPSERT_CONFLICT_SET = {
+  ownerUserId: sql`excluded.owner_user_id`,
+  firstMessageId: sql`excluded.first_message_id`,
+  lastMessageId: sql`excluded.last_message_id`,
+  firstMessageAt: sql`excluded.first_message_at`,
+  lastMessageAt: sql`excluded.last_message_at`,
+  firstMessageTextOffset: sql`excluded.first_message_text_offset`,
+  lastMessageTextOffsetExclusive: sql`excluded.last_message_text_offset_exclusive`,
+  content: sql`excluded.content`,
+  normalizedContent: sql`excluded.normalized_content`,
+  contentHash: sql`excluded.content_hash`,
+  updatedAt: sql`now()`,
+  embedding: sql`NULL`,
+  embeddingModelKey: sql`NULL`,
+  embeddedContentHash: sql`NULL`,
+  embedInputVersion: sql`NULL`,
+  embeddingFailReason: sql`NULL`,
+};
 
 /**
  * SearchIndexService (#195) — rebuilds ONE chat's lexical projection from the
@@ -78,8 +172,20 @@ export class SearchIndexService {
     );
 
     const chunks = chunkConversation(rows);
+    const existing = await this.selectExistingChunks(tx, chatId);
+    const changed = diffChangedChunks(existing, chunks, ownerUserId);
+    if (changed.length > 0) {
+      await this.upsertChunks(tx, chatId, ownerUserId, changed);
+    }
+    await this.pruneObsoleteChunks(tx, chatId, chunks.length);
+    await this.updateWatermark(tx, chatId, ownerUserId, chunks.length);
+  }
 
-    const existing = await tx
+  private async selectExistingChunks(
+    tx: Db,
+    chatId: string,
+  ): Promise<Array<ExistingChunkRow>> {
+    return tx
       .select({
         ordinal: searchChatDocuments.chunkOrdinal,
         version: searchChatDocuments.chunkerVersion,
@@ -93,86 +199,36 @@ export class SearchIndexService {
       })
       .from(searchChatDocuments)
       .where(eq(searchChatDocuments.chatId, chatId));
+  }
 
-    const currentByOrdinal = new Map(
-      existing
-        .filter((e) => e.version === CHUNKER_VERSION)
-        .map((e) => [e.ordinal, e]),
-    );
+  // Changed/new chunks upsert in ONE multi-row statement (one round-trip
+  // regardless of N — matters for a version-bump rebuild / cold backfill).
+  private async upsertChunks(
+    tx: Db,
+    chatId: string,
+    ownerUserId: string,
+    changed: Array<ConversationChunk>,
+  ): Promise<void> {
+    await tx
+      .insert(searchChatDocuments)
+      .values(changed.map((chunk) => toChunkRow(ownerUserId, chatId, chunk)))
+      .onConflictDoUpdate({
+        target: [
+          searchChatDocuments.chatId,
+          searchChatDocuments.chunkOrdinal,
+          searchChatDocuments.chunkerVersion,
+        ],
+        set: CHUNK_UPSERT_CONFLICT_SET,
+      });
+  }
 
-    // Hash/locator diff: an unchanged chunk is left exactly as-is (no write).
-    // Changed/new chunks upsert in ONE multi-row statement (one round-trip
-    // regardless of N — matters for a version-bump rebuild / cold backfill).
-    const changed = chunks.filter((chunk) => {
-      const current = currentByOrdinal.get(chunk.chunkOrdinal);
-      return (
-        current?.ownerUserId !== ownerUserId ||
-        current?.hash !== chunk.contentHash ||
-        current?.firstMessageId !== chunk.firstMessageId ||
-        current?.lastMessageId !== chunk.lastMessageId ||
-        current?.firstMessageTextOffset !== chunk.firstMessageTextOffset ||
-        current?.lastMessageTextOffsetExclusive !==
-          chunk.lastMessageTextOffsetExclusive
-      );
-    });
-    if (changed.length > 0) {
-      await tx
-        .insert(searchChatDocuments)
-        .values(
-          changed.map((chunk) => ({
-            ownerUserId,
-            chatId,
-            chunkOrdinal: chunk.chunkOrdinal,
-            chunkerVersion: CHUNKER_VERSION,
-            firstMessageId: chunk.firstMessageId,
-            lastMessageId: chunk.lastMessageId,
-            firstMessageAt: chunk.firstMessageAt,
-            lastMessageAt: chunk.lastMessageAt,
-            firstMessageTextOffset: chunk.firstMessageTextOffset,
-            lastMessageTextOffsetExclusive:
-              chunk.lastMessageTextOffsetExclusive,
-            content: chunk.content,
-            normalizedContent: chunk.normalizedContent,
-            contentHash: chunk.contentHash,
-          })),
-        )
-        .onConflictDoUpdate({
-          target: [
-            searchChatDocuments.chatId,
-            searchChatDocuments.chunkOrdinal,
-            searchChatDocuments.chunkerVersion,
-          ],
-          set: {
-            ownerUserId: sql`excluded.owner_user_id`,
-            firstMessageId: sql`excluded.first_message_id`,
-            lastMessageId: sql`excluded.last_message_id`,
-            firstMessageAt: sql`excluded.first_message_at`,
-            lastMessageAt: sql`excluded.last_message_at`,
-            firstMessageTextOffset: sql`excluded.first_message_text_offset`,
-            lastMessageTextOffsetExclusive: sql`excluded.last_message_text_offset_exclusive`,
-            content: sql`excluded.content`,
-            normalizedContent: sql`excluded.normalized_content`,
-            contentHash: sql`excluded.content_hash`,
-            updatedAt: sql`now()`,
-            // chat-search-embeddings design D7's "upsert trap" (trap 1): this
-            // upsert only runs for `changed` chunks — those whose content hash
-            // or canonical locator differs (see the filter above) — so nulling
-            // here clears a stale vector PRECISELY when its content or source
-            // changed, never on a no-op rebuild. Omitting these five is the
-            // single way this design can silently serve a WRONG embedding: the
-            // row's content is rewritten while its vector still describes the
-            // old text, with no error and no symptom until ranking degrades.
-            embedding: sql`NULL`,
-            embeddingModelKey: sql`NULL`,
-            embeddedContentHash: sql`NULL`,
-            embedInputVersion: sql`NULL`,
-            embeddingFailReason: sql`NULL`,
-          },
-        });
-    }
-
-    // One DELETE for both obsolete-tail (current version, ordinal past the new
-    // count) and stale-version rows (a version bump rebuilds the whole chat).
+  // One DELETE for both obsolete-tail (current version, ordinal past the new
+  // count) and stale-version rows (a version bump rebuilds the whole chat).
+  private async pruneObsoleteChunks(
+    tx: Db,
+    chatId: string,
+    chunkCount: number,
+  ): Promise<void> {
     await tx
       .delete(searchChatDocuments)
       .where(
@@ -180,11 +236,18 @@ export class SearchIndexService {
           eq(searchChatDocuments.chatId, chatId),
           or(
             ne(searchChatDocuments.chunkerVersion, CHUNKER_VERSION),
-            gte(searchChatDocuments.chunkOrdinal, chunks.length),
+            gte(searchChatDocuments.chunkOrdinal, chunkCount),
           ),
         ),
       );
+  }
 
+  private async updateWatermark(
+    tx: Db,
+    chatId: string,
+    ownerUserId: string,
+    chunkCount: number,
+  ): Promise<void> {
     // indexed_at is the high-water mark the discovery sweep compares against: the
     // GREATEST of the newest message time AND the chat's own updated_at (bumped on
     // every turn incl. an in-place assistant-reply update — which leaves
@@ -212,7 +275,7 @@ export class SearchIndexService {
           (SELECT updated_at FROM chats WHERE id = ${chatId})
         ),
         ${CHUNKER_VERSION},
-        ${chunks.length}
+        ${chunkCount}
       )
       ON CONFLICT (chat_id) DO UPDATE SET
         owner_user_id = EXCLUDED.owner_user_id,

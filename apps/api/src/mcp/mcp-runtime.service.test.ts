@@ -62,7 +62,7 @@ function discoveredTool(
   };
 }
 
-function discovery(...tools: McpDiscoveredTool[]): McpDiscoveryResult {
+function discovery(...tools: Array<McpDiscoveredTool>): McpDiscoveryResult {
   return { tools, refused: [] };
 }
 
@@ -81,14 +81,14 @@ function fakeClient(
 }
 
 const servers = (
-  ...ids: string[]
+  ...ids: Array<string>
 ): Readonly<Record<string, McpRuntimeServerDefinition>> =>
   Object.fromEntries(
     ids.map((id) => [id, { url: `https://${id}.example.test/mcp` }]),
   );
 
 const stdioServers = (
-  ...ids: string[]
+  ...ids: Array<string>
 ): Readonly<Record<string, McpRuntimeServerDefinition>> =>
   Object.fromEntries(
     ids.map((id) => [id, { transport: 'stdio' as const, command: 'node' }]),
@@ -973,7 +973,7 @@ describe('McpRuntimeService', () => {
     void first.then(() => {
       settled = true;
     });
-    await vi.advanceTimersByTimeAsync(4_999);
+    await vi.advanceTimersByTimeAsync(4999);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     await expect(first).resolves.toBeUndefined();
@@ -1009,7 +1009,7 @@ describe('McpRuntimeService', () => {
     void shutdown.then(() => {
       settled = true;
     });
-    await vi.advanceTimersByTimeAsync(4_999);
+    await vi.advanceTimersByTimeAsync(4999);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     await expect(shutdown).resolves.toBeUndefined();
@@ -1057,7 +1057,7 @@ describe('McpRuntimeService', () => {
     });
     expect(client.close).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(5000);
     await expect(shutdown).resolves.toBeUndefined();
     await vi.advanceTimersByTimeAsync(10 * MINUTE_MS);
     expect(factory).toHaveBeenCalledTimes(1);
@@ -1089,7 +1089,7 @@ describe('McpRuntimeService', () => {
     });
     await flushAsync();
     expect(settled).toBe(false);
-    await vi.advanceTimersByTimeAsync(4_999);
+    await vi.advanceTimersByTimeAsync(4999);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     await expect(shutdown).resolves.toBeUndefined();
@@ -1183,7 +1183,7 @@ describe('McpRuntimeService stdio lifecycle', () => {
   // a second for as long as it stayed configured.
   it('settles a child that keeps exiting right after discovery', async () => {
     vi.useFakeTimers();
-    const disconnects: (() => void)[] = [];
+    const disconnects: Array<() => void> = [];
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
       disconnects.push(config.onDisconnect ?? (() => undefined));
       return Promise.resolve(fakeClient());
@@ -1216,7 +1216,7 @@ describe('McpRuntimeService stdio lifecycle', () => {
 
   it('refunds the retry budget to a session that stayed up', async () => {
     vi.useFakeTimers();
-    const disconnects: (() => void)[] = [];
+    const disconnects: Array<() => void> = [];
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
       disconnects.push(config.onDisconnect ?? (() => undefined));
       return Promise.resolve(fakeClient());
@@ -1235,7 +1235,7 @@ describe('McpRuntimeService stdio lifecycle', () => {
       await vi.advanceTimersByTimeAsync(5 * MINUTE_MS);
       disconnects.at(-1)?.();
       await flushAsync();
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
       await flushAsync();
     }
 
@@ -1271,7 +1271,7 @@ describe('McpRuntimeService stdio lifecycle', () => {
 
   // Task 2.4 — the factory receives a transport-appropriate config.
   it('dispatches the client factory on the transport discriminator', async () => {
-    const seen: unknown[] = [];
+    const seen: Array<unknown> = [];
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
       seen.push(config);
       return Promise.resolve(fakeClient());

@@ -80,7 +80,7 @@ if (!TEST_DB_URL) {
 }
 
 type RuntimeCatalogSnapshotter = {
-  snapshotCandidates(): readonly TurnToolCandidate[];
+  snapshotCandidates(): ReadonlyArray<TurnToolCandidate>;
 };
 
 const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
@@ -95,7 +95,7 @@ const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
 };
 
 function fakeInstanceConfig(
-  toolsAllowed: readonly string[] = [],
+  toolsAllowed: ReadonlyArray<string> = [],
 ): InstanceConfigReader {
   return {
     config: {
@@ -154,7 +154,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     previousRun?: Run;
     previousManifest?: ToolAvailabilityManifest;
     activeCompaction?: Compaction;
-    toolsAllowed?: readonly string[];
+    toolsAllowed?: ReadonlyArray<string>;
     runtime?: RuntimeCatalogSnapshotter;
     memory?: MemorySettingsResolver & MemorySettingsBindingResolver;
     recencyDigest?: RecencyDigestResolver;
@@ -466,7 +466,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
 
   it('binds one synchronous process-local runtime snapshot into the accepted turn', async () => {
     const id = 'mcp__web__search';
-    const dynamicCandidates: readonly TurnToolCandidate[] = [
+    const dynamicCandidates: ReadonlyArray<TurnToolCandidate> = [
       {
         source: { type: 'mcp', serverId: 'web' },
         state: 'unavailable',
@@ -505,7 +505,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
 
   it('passes raw wildcard rules to effective-context composition after taking an unfiltered runtime snapshot', async () => {
     const id = 'mcp__web__search';
-    const dynamicCandidates: readonly TurnToolCandidate[] = [
+    const dynamicCandidates: ReadonlyArray<TurnToolCandidate> = [
       {
         source: { type: 'mcp', serverId: 'web' },
         state: 'unavailable',

@@ -125,7 +125,7 @@ d('compaction lineage over HTTP (#57)', () => {
   }
 
   /** The compaction model calls, identified by their trailing instruction. */
-  function compactionCalls(): FakeTurn[] {
+  function compactionCalls(): Array<FakeTurn> {
     return models.client.turns.filter(
       (t) => t.messages.at(-1)?.content === COMPACTION_INSTRUCTION,
     );

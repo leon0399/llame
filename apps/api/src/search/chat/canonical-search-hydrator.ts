@@ -48,7 +48,7 @@ export type CanonicalSearchMessage = {
 
 export type HydratedCanonicalSearchDocument = {
   chatId: string;
-  messages: CanonicalSearchMessage[];
+  messages: Array<CanonicalSearchMessage>;
 };
 
 function parseSafePositiveInteger(value: string): number | null {
@@ -67,22 +67,41 @@ function parseTimestamp(value: Date | string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+/** The boundary row's text-offset span, each end independently validated. */
+function resolveOffsetSpan(row: CanonicalHydrationRow) {
+  return {
+    firstOffset: parseValidOffset(row.first_message_text_offset),
+    lastOffset: parseValidOffset(row.last_message_text_offset_exclusive),
+  };
+}
+
+/** The winning projection document's identity, as recorded on every row. */
+type DocumentBoundary = {
+  firstMessageId: string;
+  lastMessageId: string;
+  firstProjectionSeq: string;
+  lastProjectionSeq: string;
+  firstOffset: number;
+  lastOffset: number;
+};
+
+/** The document's message sequence span, parsed to safe integers. */
+type MessageSeqRange = {
+  firstSeq: number;
+  lastSeq: number;
+};
+
 function sameDocumentBoundary(
   row: CanonicalHydrationRow,
-  firstMessageId: string,
-  lastMessageId: string,
-  firstSeq: string,
-  lastSeq: string,
-  firstOffset: number,
-  lastOffset: number,
+  boundary: DocumentBoundary,
 ): boolean {
   return (
-    row.first_message_id === firstMessageId &&
-    row.last_message_id === lastMessageId &&
-    row.first_seq === firstSeq &&
-    row.last_seq === lastSeq &&
-    row.first_message_text_offset === firstOffset &&
-    row.last_message_text_offset_exclusive === lastOffset
+    row.first_message_id === boundary.firstMessageId &&
+    row.last_message_id === boundary.lastMessageId &&
+    row.first_seq === boundary.firstProjectionSeq &&
+    row.last_seq === boundary.lastProjectionSeq &&
+    row.first_message_text_offset === boundary.firstOffset &&
+    row.last_message_text_offset_exclusive === boundary.lastOffset
   );
 }
 
@@ -94,47 +113,36 @@ type DecodedCanonicalMessage = {
   visibleText: string | null;
 };
 
+/** A row that carries no source text — presentation-only or malformed. */
+function nonSourceMessage(
+  messageSeq: number,
+  kind: 'presentation' | 'invalid',
+): DecodedCanonicalMessage {
+  return { messageSeq, kind, role: null, timestamp: null, visibleText: null };
+}
+
 /** Decode and validate one canonical source row before range mapping. */
 function decodeCanonicalMessage(
   row: CanonicalHydrationRow,
   candidate: CanonicalSearchCandidate,
-  firstMessageId: string,
-  lastMessageId: string,
-  firstProjectionSeq: string,
-  lastProjectionSeq: string,
-  firstOffset: number,
-  lastOffset: number,
-  firstSeq: number,
-  lastSeq: number,
+  boundary: DocumentBoundary,
+  range: MessageSeqRange,
 ): DecodedCanonicalMessage | null {
   if (
     row.message_chat_id !== candidate.chatId ||
-    !sameDocumentBoundary(
-      row,
-      firstMessageId,
-      lastMessageId,
-      firstProjectionSeq,
-      lastProjectionSeq,
-      firstOffset,
-      lastOffset,
-    )
+    !sameDocumentBoundary(row, boundary)
   ) {
     return null;
   }
 
   const messageSeq = parseSafePositiveInteger(row.message_seq);
+  const { firstSeq, lastSeq } = range;
   if (messageSeq === null || messageSeq < firstSeq || messageSeq > lastSeq) {
     return null;
   }
 
   if (row.message_role === 'system' || row.message_role === 'tool') {
-    return {
-      messageSeq,
-      kind: 'presentation',
-      role: null,
-      timestamp: null,
-      visibleText: null,
-    };
+    return nonSourceMessage(messageSeq, 'presentation');
   }
 
   if (
@@ -145,13 +153,7 @@ function decodeCanonicalMessage(
     }) ||
     !Array.isArray(row.message_parts)
   ) {
-    return {
-      messageSeq,
-      kind: 'invalid',
-      role: null,
-      timestamp: null,
-      visibleText: null,
-    };
+    return nonSourceMessage(messageSeq, 'invalid');
   }
 
   const timestamp = parseTimestamp(row.message_created_at);
@@ -164,43 +166,39 @@ function decodeCanonicalMessage(
   };
 }
 
+type RowPosition = { isFirst: boolean; isLast: boolean };
+type SourceRange = { start: number; end: number };
+
 function hasValidSourceRange(
-  index: number,
-  lastIndex: number,
+  position: RowPosition,
   sameMessage: boolean,
   textLength: number,
-  sourceStart: number,
-  sourceEndExclusive: number,
+  range: SourceRange,
 ): boolean {
   return (
-    sourceStart <= textLength &&
-    sourceEndExclusive <= textLength &&
-    (index !== 0 || sourceStart < textLength) &&
-    (index !== lastIndex || sourceEndExclusive > 0) &&
-    (!sameMessage || sourceStart < sourceEndExclusive)
+    range.start <= textLength &&
+    range.end <= textLength &&
+    (!position.isFirst || range.start < textLength) &&
+    (!position.isLast || range.end > 0) &&
+    (!sameMessage || range.start < range.end)
   );
 }
 
 /**
- * Convert one database snapshot's rows into canonical source records.
- * Returning null is intentional: any stale, malformed, or unauthorized
- * projection/source state is a closed internal miss and must never fall back
- * to presentation projection bytes.
+ * Resolve and validate the winning projection document's boundary and message
+ * sequence span from the query's boundary-carrying rows. Every row repeats
+ * the same boundary columns; the first row is authoritative.
  */
-export function hydrateCanonicalSearchRows(
-  rows: readonly CanonicalHydrationRow[],
+function resolveDocumentBoundary(
+  rows: ReadonlyArray<CanonicalHydrationRow>,
   candidate: CanonicalSearchCandidate,
-): HydratedCanonicalSearchDocument | null {
-  if (candidate.bestDocumentId === null || rows.length === 0) return null;
-
-  const firstRow = rows[0];
-  const lastRow = rows[rows.length - 1];
+): { boundary: DocumentBoundary; range: MessageSeqRange } | null {
+  const [firstRow] = rows;
+  const lastRow = rows.at(-1);
+  if (firstRow === undefined || lastRow === undefined) return null;
   const firstMessageId = firstRow.first_message_id;
   const lastMessageId = firstRow.last_message_id;
-  const firstOffset = parseValidOffset(firstRow.first_message_text_offset);
-  const lastOffset = parseValidOffset(
-    firstRow.last_message_text_offset_exclusive,
-  );
+  const { firstOffset, lastOffset } = resolveOffsetSpan(firstRow);
   const firstSeq = parseSafePositiveInteger(firstRow.first_seq);
   const lastSeq = parseSafePositiveInteger(firstRow.last_seq);
 
@@ -220,103 +218,130 @@ export function hydrateCanonicalSearchRows(
     return null;
   }
 
-  const messages: CanonicalSearchMessage[] = [];
-  let previousSeq = 0;
-
-  for (const [index, row] of rows.entries()) {
-    const decoded = decodeCanonicalMessage(
-      row,
-      candidate,
+  return {
+    boundary: {
       firstMessageId,
       lastMessageId,
-      firstRow.first_seq,
-      firstRow.last_seq,
+      firstProjectionSeq: firstRow.first_seq,
+      lastProjectionSeq: firstRow.last_seq,
       firstOffset,
       lastOffset,
-      firstSeq,
-      lastSeq,
-    );
-    if (decoded === null || decoded.messageSeq <= previousSeq) {
-      return null;
-    }
+    },
+    range: { firstSeq, lastSeq },
+  };
+}
 
-    const isBoundary = index === 0 || index === rows.length - 1;
-    previousSeq = decoded.messageSeq;
-    if (decoded.kind === 'presentation') {
-      if (isBoundary) return null;
-      continue;
-    }
-    if (decoded.kind === 'invalid') return null;
-    if (
-      decoded.role === null ||
-      decoded.timestamp === null ||
-      decoded.visibleText === null
-    ) {
-      return null;
-    }
+/**
+ * What one already-decoded row contributes to the hydrated document: a
+ * source message, nothing (a skippable presentation/empty row in the
+ * interior), or a fatal stop — any stale, malformed, or unauthorized
+ * projection/source state is a closed internal miss and must never fall back
+ * to presentation projection bytes.
+ */
+type RowOutcome =
+  | { kind: 'message'; message: CanonicalSearchMessage }
+  | { kind: 'skip' }
+  | { kind: 'stop' };
 
-    if (decoded.visibleText.length === 0) {
-      // The chunker skips empty eligible messages, so an empty boundary means
-      // the projection no longer identifies the source it was built from.
-      if (isBoundary) return null;
-      continue;
-    }
+/** The candidate source range for one row: the boundary offset at either end
+ * of the message span, the full text otherwise. */
+function sourceOffsets(
+  position: RowPosition,
+  sameMessage: boolean,
+  boundary: DocumentBoundary,
+  textLength: number,
+): SourceRange {
+  return {
+    start: position.isFirst || sameMessage ? boundary.firstOffset : 0,
+    end: position.isLast || sameMessage ? boundary.lastOffset : textLength,
+  };
+}
 
-    const sourceStart =
-      index === 0 || firstMessageId === lastMessageId ? firstOffset : 0;
-    const sourceEndExclusive =
-      index === rows.length - 1 || firstMessageId === lastMessageId
-        ? lastOffset
-        : decoded.visibleText.length;
+function resolveRowOutcome(
+  decoded: DecodedCanonicalMessage,
+  position: RowPosition,
+  boundary: DocumentBoundary,
+): RowOutcome {
+  const sameMessage = boundary.firstMessageId === boundary.lastMessageId;
+  const isBoundary = position.isFirst || position.isLast;
 
-    if (
-      !hasValidSourceRange(
-        index,
-        rows.length - 1,
-        firstMessageId === lastMessageId,
-        decoded.visibleText.length,
-        sourceStart,
-        sourceEndExclusive,
-      )
-    ) {
-      return null;
-    }
+  if (decoded.kind === 'presentation') {
+    return isBoundary ? { kind: 'stop' } : { kind: 'skip' };
+  }
+  if (decoded.kind === 'invalid') return { kind: 'stop' };
+  if (
+    decoded.role === null ||
+    decoded.timestamp === null ||
+    decoded.visibleText === null
+  ) {
+    return { kind: 'stop' };
+  }
 
-    messages.push({
+  const textLength = decoded.visibleText.length;
+  if (textLength === 0) {
+    // The chunker skips empty eligible messages, so an empty boundary means
+    // the projection no longer identifies the source it was built from.
+    return isBoundary ? { kind: 'stop' } : { kind: 'skip' };
+  }
+
+  const range = sourceOffsets(position, sameMessage, boundary, textLength);
+  if (!hasValidSourceRange(position, sameMessage, textLength, range)) {
+    return { kind: 'stop' };
+  }
+
+  return {
+    kind: 'message',
+    message: {
       messageSeq: decoded.messageSeq,
       role: decoded.role,
       timestamp: decoded.timestamp,
       visibleText: decoded.visibleText,
-      sourceStart,
-      sourceEndExclusive,
-    });
+      sourceStart: range.start,
+      sourceEndExclusive: range.end,
+    },
+  };
+}
+
+/** Convert one database snapshot's rows into canonical source records. */
+export function hydrateCanonicalSearchRows(
+  rows: ReadonlyArray<CanonicalHydrationRow>,
+  candidate: CanonicalSearchCandidate,
+): HydratedCanonicalSearchDocument | null {
+  if (candidate.bestDocumentId === null || rows.length === 0) return null;
+
+  const resolved = resolveDocumentBoundary(rows, candidate);
+  if (resolved === null) return null;
+  const { boundary, range } = resolved;
+
+  const messages: Array<CanonicalSearchMessage> = [];
+  let previousSeq = 0;
+
+  for (const [index, row] of rows.entries()) {
+    const decoded = decodeCanonicalMessage(row, candidate, boundary, range);
+    if (decoded === null || decoded.messageSeq <= previousSeq) {
+      return null;
+    }
+    previousSeq = decoded.messageSeq;
+
+    const position = {
+      isFirst: index === 0,
+      isLast: index === rows.length - 1,
+    };
+    const outcome = resolveRowOutcome(decoded, position, boundary);
+    if (outcome.kind === 'stop') return null;
+    if (outcome.kind === 'message') messages.push(outcome.message);
   }
 
   return { chatId: candidate.chatId, messages };
 }
 
-/**
- * Hydrate a winning projection document from a caller-provided owner-scoped
- * transaction. The caller MUST pass the `tx` from `TenantDbService.runAs`;
- * this function intentionally does not open a nested transaction or a public
- * sharing read path.
- */
-export async function hydrateCanonicalSearchCandidate(
-  tx: Db,
+/** The winning projection document's identity and text-offset boundary. */
+function winningDocumentCte(
   ownerUserId: string,
-  candidate: CanonicalSearchCandidate,
-): Promise<HydratedCanonicalSearchDocument | null> {
-  if (
-    !ownerUserId.trim() ||
-    !UUID_PATTERN.test(candidate.chatId) ||
-    candidate.bestDocumentId === null ||
-    !UUID_PATTERN.test(candidate.bestDocumentId)
-  ) {
-    return null;
-  }
-
-  const rows = await tx.execute<CanonicalHydrationRow>(sql`
-    WITH winning_document AS (
+  bestDocumentId: string,
+  chatId: string,
+) {
+  return sql`
       SELECT
         d.first_message_id,
         d.last_message_id,
@@ -326,12 +351,17 @@ export async function hydrateCanonicalSearchCandidate(
       INNER JOIN chats AS document_chat
         ON document_chat.id = d.chat_id
        AND document_chat.owner_user_id = ${ownerUserId}
-      WHERE d.id = ${candidate.bestDocumentId}
-        AND d.chat_id = ${candidate.chatId}
+      WHERE d.id = ${bestDocumentId}
+        AND d.chat_id = ${chatId}
         AND d.owner_user_id = ${ownerUserId}
         AND d.chunker_version = ${CHUNKER_VERSION}
       LIMIT 1
-    ), boundaries AS (
+    `;
+}
+
+/** The winning document's message sequence boundary, owner-scoped. */
+function boundariesCte(ownerUserId: string, chatId: string) {
+  return sql`
       SELECT
         d.first_message_id,
         d.last_message_id,
@@ -342,10 +372,10 @@ export async function hydrateCanonicalSearchCandidate(
       FROM winning_document AS d
       INNER JOIN messages AS first_message
         ON first_message.id = d.first_message_id
-       AND first_message.chat_id = ${candidate.chatId}
+       AND first_message.chat_id = ${chatId}
       INNER JOIN messages AS last_message
         ON last_message.id = d.last_message_id
-       AND last_message.chat_id = ${candidate.chatId}
+       AND last_message.chat_id = ${chatId}
       INNER JOIN chats AS first_chat
         ON first_chat.id = first_message.chat_id
        AND first_chat.owner_user_id = ${ownerUserId}
@@ -353,7 +383,12 @@ export async function hydrateCanonicalSearchCandidate(
         ON last_chat.id = last_message.chat_id
        AND last_chat.owner_user_id = ${ownerUserId}
       WHERE first_message.seq <= last_message.seq
-    )
+    `;
+}
+
+/** Every message row within the resolved boundary, owner-scoped. */
+function messagesInBoundarySelect(ownerUserId: string, chatId: string) {
+  return sql`
     SELECT
       message.id AS message_id,
       message.chat_id AS message_chat_id,
@@ -370,13 +405,44 @@ export async function hydrateCanonicalSearchCandidate(
       boundaries.last_message_text_offset_exclusive
     FROM boundaries
     INNER JOIN messages AS message
-      ON message.chat_id = ${candidate.chatId}
+      ON message.chat_id = ${chatId}
      AND message.seq >= boundaries.first_seq
      AND message.seq <= boundaries.last_seq
     INNER JOIN chats AS message_chat
       ON message_chat.id = message.chat_id
      AND message_chat.owner_user_id = ${ownerUserId}
     ORDER BY message.seq ASC
+  `;
+}
+
+/**
+ * Hydrate a winning projection document from a caller-provided owner-scoped
+ * transaction. The caller MUST pass the `tx` from `TenantDbService.runAs`;
+ * this function intentionally does not open a nested transaction or a public
+ * sharing read path.
+ *
+ * The three CTEs below mirror the query's own `winning_document` /
+ * `boundaries` / final-select structure; splitting them into named fragments
+ * composes back into the exact same single statement (verified byte-for-byte
+ * against the prior monolithic query), never a second round trip.
+ */
+export async function hydrateCanonicalSearchCandidate(
+  tx: Db,
+  ownerUserId: string,
+  candidate: CanonicalSearchCandidate,
+): Promise<HydratedCanonicalSearchDocument | null> {
+  if (
+    !ownerUserId.trim() ||
+    !UUID_PATTERN.test(candidate.chatId) ||
+    candidate.bestDocumentId === null ||
+    !UUID_PATTERN.test(candidate.bestDocumentId)
+  ) {
+    return null;
+  }
+
+  const rows = await tx.execute<CanonicalHydrationRow>(sql`
+    WITH winning_document AS (${winningDocumentCte(ownerUserId, candidate.bestDocumentId, candidate.chatId)}), boundaries AS (${boundariesCte(ownerUserId, candidate.chatId)})
+    ${messagesInBoundarySelect(ownerUserId, candidate.chatId)}
   `);
 
   return hydrateCanonicalSearchRows([...rows], candidate);

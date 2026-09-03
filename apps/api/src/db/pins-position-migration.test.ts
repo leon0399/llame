@@ -5,7 +5,7 @@ const migration = readFileSync(
   join(__dirname, 'migrations', '20260826125629_gifted_tigra.sql'),
   'utf8',
 );
-const normalized = migration.replace(/\s+/g, ' ');
+const normalized = migration.replaceAll(/\s+/g, ' ');
 
 describe('pins position migration', () => {
   it('backfills each owner from the prior pinned-at order before setting NOT NULL', () => {

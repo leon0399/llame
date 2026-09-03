@@ -67,6 +67,11 @@ type OutstandingRow = {
   priorEmbedInputVersion: number | null;
 };
 
+/** The chat/owner pair every per-batch operation is scoped to — travels
+ *  together across `processBatch`, `handleBatchFailure`, and
+ *  `queryOutstandingBatch`. */
+type ChatRef = { readonly chatId: string; readonly ownerUserId: string };
+
 /**
  * Resolves the declared embedding model + its `providers[]` connection into
  * the adapter's config shape — the same "reuse an existing `providers[]`
@@ -79,7 +84,7 @@ type OutstandingRow = {
  */
 export function resolveEmbeddingBackendConfig(
   model: EmbeddingModelCatalogEntry,
-  providers: readonly ProviderConfig[],
+  providers: ReadonlyArray<ProviderConfig>,
 ): OpenAIEmbeddingBackendConfig {
   const provider = providers.find((p) => p.id === model.provider);
   if (!provider) {
@@ -137,12 +142,15 @@ function embedGuardWhere(
  * would let the lexical staleness predicate re-flag the chat, triggering a
  * rebuild, which enqueues an embed, forever.
  */
+/** The model/version identity every embedding write stamps — travels
+ *  together across `persistEmbeddingSuccess`/`persistEmbeddingFailure`. */
+type EmbedTarget = { readonly modelKey: string; readonly inputVersion: number };
+
 async function persistEmbeddingSuccess(
   tx: Db,
   result: EmbeddingResult,
   priorEmbedInputVersion: number | null,
-  modelKey: string,
-  inputVersion: number,
+  target: EmbedTarget,
 ): Promise<boolean> {
   // pgvector's text-input literal is a JSON-shaped array, e.g. "[0.1,0.2]" —
   // bound as text with an explicit ::vector cast (no native JS→vector type).
@@ -150,9 +158,9 @@ async function persistEmbeddingSuccess(
   const updated = await tx.execute(sql`
     UPDATE search_chat_documents
     SET embedding = ${vectorLiteral}::vector,
-        embedding_model_key = ${modelKey},
+        embedding_model_key = ${target.modelKey},
         embedded_content_hash = ${result.contentHash},
-        embed_input_version = ${inputVersion},
+        embed_input_version = ${target.inputVersion},
         embedding_fail_reason = NULL
     WHERE ${embedGuardWhere(result.documentId, result.contentHash, priorEmbedInputVersion)}
   `);
@@ -177,16 +185,15 @@ async function persistEmbeddingSuccess(
 async function persistEmbeddingFailure(
   tx: Db,
   row: OutstandingRow,
-  modelKey: string,
-  inputVersion: number,
+  target: EmbedTarget,
   reason: string,
 ): Promise<boolean> {
   const updated = await tx.execute(sql`
     UPDATE search_chat_documents
     SET embedding = NULL,
-        embedding_model_key = ${modelKey},
+        embedding_model_key = ${target.modelKey},
         embedded_content_hash = ${row.contentHash},
-        embed_input_version = ${inputVersion},
+        embed_input_version = ${target.inputVersion},
         embedding_fail_reason = ${reason}
     WHERE ${embedGuardWhere(row.id, row.contentHash, row.priorEmbedInputVersion)}
   `);
@@ -224,13 +231,23 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     private readonly instanceConfig: InstanceConfigReader,
   ) {}
 
-  async onApplicationBootstrap(): Promise<void> {
+  /** Off-by-default gating (design D14): undefined means "register nothing" —
+   *  no corpus model declared, this process's worker profile omits
+   *  'search-embed', or (defensively) the declared model id isn't in
+   *  `embeddingModels[]`. Each bail-out path logs its own reason. */
+  private resolveActiveEmbedModel():
+    | {
+        readonly model: EmbeddingModelCatalogEntry;
+        readonly backend: EmbeddingBackend;
+        readonly concurrency: number;
+      }
+    | undefined {
     const modelId = this.instanceConfig.config.search.chats.embeddingModelId;
     if (!modelId) {
       // Off-by-default: the whole layer is inert. No ensureQueue, no
       // consumer, no provider client — an instance that never declares a
       // corpus model never creates 'search-embed' at all.
-      return;
+      return undefined;
     }
 
     // Design D14: a fourth worker group is a fourth way to silently run zero
@@ -242,7 +259,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
       this.logger.warn(
         `Embedding is configured (corpus model "${modelId}") but this process's active worker profile does not include 'search-embed' — no embed jobs are consumed here. Ensure some deployed process covers this group.`,
       );
-      return;
+      return undefined;
     }
 
     const model = this.instanceConfig.config.embeddingModels.find(
@@ -255,7 +272,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
       this.logger.error(
         `Embedding model "${modelId}" is not declared in embeddingModels[] — cannot start the embed consumer.`,
       );
-      return;
+      return undefined;
     }
     const backend = createOpenAIEmbeddingBackend(
       resolveEmbeddingBackendConfig(
@@ -263,6 +280,13 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
         this.instanceConfig.config.providers,
       ),
     );
+    return { model, backend, concurrency };
+  }
+
+  async onApplicationBootstrap(): Promise<void> {
+    const resolved = this.resolveActiveEmbedModel();
+    if (resolved === undefined) return;
+    const { model, backend, concurrency } = resolved;
 
     await this.queue.ensureQueue(SEARCH_EMBED_QUEUE);
     await this.queue.consume(
@@ -281,7 +305,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
       { pollingIntervalSeconds: 1, concurrency },
     );
     this.logger.log(
-      `Consuming '${SEARCH_EMBED_QUEUE.name}' (concurrency ${concurrency}, model "${modelId}")`,
+      `Consuming '${SEARCH_EMBED_QUEUE.name}' (concurrency ${concurrency}, model "${model.id}")`,
     );
   }
 
@@ -328,31 +352,119 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
    * block rebuilds directly), then persist conditionally in a short
    * transaction (READ COMMITTED — `runAs`'s default, matching D15 rule 3).
    */
+  /** Persist every successfully embedded result, then (D1) write the binding
+   *  ledger row on the first vector this batch actually persisted — see
+   *  `ensureBindingLedgerRow`'s own comment. Returns how many wrote. */
+  private async persistBatchSuccesses(
+    ownerUserId: string,
+    results: ReadonlyArray<EmbeddingResult>,
+    byId: ReadonlyMap<string, OutstandingRow>,
+    model: EmbeddingModelCatalogEntry,
+  ): Promise<number> {
+    let written = 0;
+    await this.tenantDb.runAs(ownerUserId, async (tx) => {
+      for (const result of results) {
+        const row = byId.get(result.documentId);
+        if (!row) continue; // defensive: embedDocuments only ever returns ids it was sent
+        const wrote = await persistEmbeddingSuccess(
+          tx,
+          result,
+          row.priorEmbedInputVersion,
+          { modelKey: model.id, inputVersion: EMBED_INPUT_VERSION },
+        );
+        if (wrote) written += 1;
+      }
+      if (written > 0) {
+        await ensureBindingLedgerRow(tx, model);
+      }
+    });
+    return written;
+  }
+
+  /**
+   * Nothing persisted this batch: every document was superseded between
+   * read and write (D7 guard), or the adapter's own response-count mismatch
+   * silently discarded the whole chunk (a per-item invalid vector now
+   * THROWS — see openai-embedding-backend.ts's isValidVector — and is
+   * tombstoned by `handleBatchFailure` instead of reaching here). Looping
+   * again immediately would just re-request the SAME stuck batch, so this
+   * never retries inline — the 5-minute sweep is the natural backoff.
+   *
+   * Throws ONLY when this model has no ledger row yet: `runEmbedBacklogSweep`'s
+   * D6 gate returns early while `findEmbeddingBinding` is null, and that row
+   * is written only once a vector actually persists — so a model's
+   * FIRST-EVER batch landing here has no recovery path at all without a
+   * throw, and the documents would stay outstanding forever, invisible,
+   * until someone re-runs `search:backfill` by hand. Once a ledger row
+   * exists the sweep can rediscover the batch, so this only warns.
+   */
+  private async assertRecoverableZeroWrite(
+    chatId: string,
+    model: EmbeddingModelCatalogEntry,
+    results: ReadonlyArray<EmbeddingResult>,
+    outstanding: ReadonlyArray<OutstandingRow>,
+  ): Promise<void> {
+    if (results.length >= outstanding.length) return;
+    this.logger.warn(
+      `Embed batch for chat ${chatId}: backend returned ${results.length}/${outstanding.length} vector(s) and none persisted — leaving the rest outstanding for the next sweep`,
+    );
+    const bound = await this.tenantDb.runAsPublic((tx) =>
+      findEmbeddingBinding(tx, model.id),
+    );
+    if (!bound) {
+      throw new EmbeddingBackendError(
+        `embedding backend returned ${results.length} of ${outstanding.length} vectors on the first batch for model "${model.id}"; no vector persisted, so no backlog sweep can recover this chat`,
+        false,
+      );
+    }
+  }
+
+  /** Query this batch's outstanding rows and shape them for embedding —
+   *  undefined means nothing is outstanding. Split out of `processBatch`
+   *  purely for its own line budget. */
+  private async loadOutstandingBatch(
+    chatRef: ChatRef,
+    model: EmbeddingModelCatalogEntry,
+  ): Promise<
+    | {
+        readonly outstanding: Array<OutstandingRow>;
+        readonly hasMore: boolean;
+        readonly byId: ReadonlyMap<string, OutstandingRow>;
+        readonly documents: Array<EmbeddingDocumentInput>;
+      }
+    | undefined
+  > {
+    const batchSize = model.batchSize;
+    const outstanding = await this.tenantDb.runAs(chatRef.ownerUserId, (tx) =>
+      this.queryOutstandingBatch(tx, chatRef, model.id, batchSize),
+    );
+    if (outstanding.length === 0) return undefined;
+    const hasMore = outstanding.length === batchSize;
+    const byId = new Map(outstanding.map((row) => [row.id, row]));
+    // Design D11: embed `content` verbatim — role labels, original casing,
+    // never `normalized_content`.
+    const documents: Array<EmbeddingDocumentInput> = outstanding.map((row) => ({
+      documentId: row.id,
+      contentHash: row.contentHash,
+      content: row.content,
+    }));
+    return { outstanding, hasMore, byId, documents };
+  }
+
   private async processBatch(
     chatId: string,
     ownerUserId: string,
     model: EmbeddingModelCatalogEntry,
     backend: EmbeddingBackend,
   ): Promise<{ processedCount: number; hasMore: boolean }> {
-    const batchSize = model.batchSize;
-    const outstanding = await this.tenantDb.runAs(ownerUserId, (tx) =>
-      this.queryOutstandingBatch(tx, chatId, ownerUserId, model.id, batchSize),
-    );
-    if (outstanding.length === 0) {
+    const chatRef: ChatRef = { chatId, ownerUserId };
+    const loaded = await this.loadOutstandingBatch(chatRef, model);
+    if (loaded === undefined) {
       return { processedCount: 0, hasMore: false };
     }
-    const hasMore = outstanding.length === batchSize;
-    const byId = new Map(outstanding.map((row) => [row.id, row]));
+    const { outstanding, hasMore, byId, documents } = loaded;
 
-    // Design D11: embed `content` verbatim — role labels, original casing,
-    // never `normalized_content`.
-    const documents: EmbeddingDocumentInput[] = outstanding.map((row) => ({
-      documentId: row.id,
-      contentHash: row.contentHash,
-      content: row.content,
-    }));
-
-    let results: EmbeddingResult[];
+    let results: Array<EmbeddingResult>;
     try {
       // Trap 6: exactly one persist-batch per embedDocuments call. The
       // adapter's own internal chunking already splits by the model's
@@ -363,82 +475,41 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
       results = await backend.embedDocuments(documents);
     } catch (error) {
       return this.handleBatchFailure(
-        ownerUserId,
-        chatId,
-        outstanding,
-        model.id,
+        chatRef,
+        { outstanding, modelId: model.id, hasMore },
         error,
-        hasMore,
       );
     }
 
-    let written = 0;
-    await this.tenantDb.runAs(ownerUserId, async (tx) => {
-      for (const result of results) {
-        const row = byId.get(result.documentId);
-        if (!row) continue; // defensive: embedDocuments only ever returns ids it was sent
-        const wrote = await persistEmbeddingSuccess(
-          tx,
-          result,
-          row.priorEmbedInputVersion,
-          model.id,
-          EMBED_INPUT_VERSION,
-        );
-        if (wrote) written += 1;
-      }
-      // D1: write the binding ledger row on the first vector this batch
-      // actually persisted — see ensureBindingLedgerRow's own comment.
-      if (written > 0) {
-        await ensureBindingLedgerRow(tx, model);
-      }
-    });
-
+    const written = await this.persistBatchSuccesses(
+      ownerUserId,
+      results,
+      byId,
+      model,
+    );
     if (written === 0) {
-      // Every document in this batch was superseded between read and write
-      // (D7 guard), or the adapter's own response-count mismatch silently
-      // discarded the whole chunk (a per-item invalid vector now THROWS —
-      // see openai-embedding-backend.ts's isValidVector — and is tombstoned
-      // by handleBatchFailure above instead of reaching this branch). Either
-      // way, looping again immediately would just re-request the SAME stuck
-      // batch — stop this job without re-enqueueing; the sweep is the
-      // natural backoff.
-      if (results.length < outstanding.length) {
-        this.logger.warn(
-          `Embed batch for chat ${chatId}: backend returned ${results.length}/${outstanding.length} vector(s) and none persisted — leaving the rest outstanding for the next sweep`,
-        );
-        // ...but "the next sweep" only exists once this model has a ledger
-        // row: `runEmbedBacklogSweep`'s D6 gate returns early while
-        // `findEmbeddingBinding` is null, and that row is written above only
-        // when a vector actually persisted. So on a model's FIRST-EVER batch
-        // this branch has no recovery path at all — the documents stay
-        // outstanding forever, invisible, until someone re-runs
-        // `search:backfill` by hand. Throw instead, so the queue's retry
-        // policy governs and a persistent mismatch dead-letters visibly.
-        // Once a ledger row exists the original reasoning holds: returning
-        // lets the sweep re-discover the batch, which is the intended backoff.
-        const bound = await this.tenantDb.runAsPublic((tx) =>
-          findEmbeddingBinding(tx, model.id),
-        );
-        if (!bound) {
-          throw new EmbeddingBackendError(
-            `embedding backend returned ${results.length} of ${outstanding.length} vectors on the first batch for model "${model.id}"; no vector persisted, so no backlog sweep can recover this chat`,
-            false,
-          );
-        }
-      }
+      await this.assertRecoverableZeroWrite(
+        chatId,
+        model,
+        results,
+        outstanding,
+      );
       return { processedCount: 0, hasMore: false };
     }
     return { processedCount: written, hasMore };
   }
 
   private async handleBatchFailure(
-    ownerUserId: string,
-    chatId: string,
-    outstanding: readonly OutstandingRow[],
-    modelId: string,
+    chatRef: ChatRef,
+    batch: {
+      readonly outstanding: ReadonlyArray<OutstandingRow>;
+      readonly modelId: string;
+      readonly hasMore: boolean;
+    },
     error: unknown,
-    hasMore: boolean,
   ): Promise<{ processedCount: number; hasMore: boolean }> {
+    const { chatId, ownerUserId } = chatRef;
+    const { outstanding, modelId, hasMore } = batch;
     const classified = classifyEmbeddingFailure(error);
     if (!classified.terminal) {
       // Transient: rethrow so the queue's own retry policy (retryLimit 5,
@@ -455,8 +526,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
         const wrote = await persistEmbeddingFailure(
           tx,
           row,
-          modelId,
-          EMBED_INPUT_VERSION,
+          { modelKey: modelId, inputVersion: EMBED_INPUT_VERSION },
           classified.message,
         );
         if (wrote) tombstoned += 1;
@@ -473,11 +543,10 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
 
   private queryOutstandingBatch(
     tx: Db,
-    chatId: string,
-    ownerUserId: string,
+    chatRef: ChatRef,
     modelId: string,
     batchSize: number,
-  ): Promise<OutstandingRow[]> {
+  ): Promise<Array<OutstandingRow>> {
     // Mirrors `llame_search_embedding_coverage`'s `needs_embedding`
     // predicate (design D10) — IS DISTINCT FROM throughout is load-bearing,
     // not stylistic: a never-attempted row has NULL embedding_model_key/
@@ -493,8 +562,8 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
       .from(searchChatDocuments)
       .where(
         and(
-          eq(searchChatDocuments.chatId, chatId),
-          eq(searchChatDocuments.ownerUserId, ownerUserId),
+          eq(searchChatDocuments.chatId, chatRef.chatId),
+          eq(searchChatDocuments.ownerUserId, chatRef.ownerUserId),
           sql`(
             embedding_model_key      IS DISTINCT FROM ${modelId}
             OR embedded_content_hash IS DISTINCT FROM content_hash

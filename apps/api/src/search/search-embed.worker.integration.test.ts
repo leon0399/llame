@@ -21,15 +21,11 @@
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 import { Test, type TestingModule } from '@nestjs/testing';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
 import { MockEmbeddingModelV3 } from 'ai/test';
+import postgres from 'postgres';
 import { z } from 'zod';
 
 import * as schema from '../db/schema';
@@ -63,7 +59,7 @@ import { SearchIndexService } from './search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = ReturnType<typeof postgres>;
 const text = (t: string) => [{ type: 'text', text: t }];
 const MODEL_KEY = 'embed-model-a';
 
@@ -82,12 +78,12 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
   let tenantDb: TenantDbService;
   let indexService: SearchIndexService;
   let u: string;
-  let openModules: TestingModule[];
+  let openModules: Array<TestingModule>;
 
   const ownedRows = <T extends UnknownRecord>(
     frag: ReturnType<typeof sql>,
     rowSchema: z.ZodType<T>,
-  ): Promise<T[]> =>
+  ): Promise<Array<T>> =>
     tenantDb
       .runAs(u, (tx) => tx.execute(frag))
       .then((rows) => rowSchema.array().parse([...rows]));
@@ -158,8 +154,8 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
 
   function fakeBackend(
     embedDocuments: (
-      documents: readonly EmbeddingDocumentInput[],
-    ) => Promise<EmbeddingResult[]>,
+      documents: ReadonlyArray<EmbeddingDocumentInput>,
+    ) => Promise<Array<EmbeddingResult>>,
   ): EmbeddingBackend {
     return {
       embedDocuments,
@@ -169,7 +165,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     };
   }
 
-  function vector(seed: number): readonly number[] {
+  function vector(seed: number): ReadonlyArray<number> {
     return [seed, seed + 1, seed + 2];
   }
 
@@ -200,10 +196,8 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
   }
 
   beforeAll(async () => {
-    const postgres = require('postgres');
-    const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-    sqlClient = connect(TEST_DB_URL!, { ssl, max: 5 });
+    sqlClient = postgres(TEST_DB_URL!, { ssl, max: 5 });
     db = drizzle(sqlClient, { schema });
     tenantDb = new TenantDbService(db);
     indexService = new SearchIndexService(tenantDb);
@@ -444,7 +438,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
 
     // Not re-attempted: a second pass at the SAME content must not call the
     // backend again for this document.
-    const secondCallDocumentIds: string[] = [];
+    const secondCallDocumentIds: Array<string> = [];
     const trackingBackend = fakeBackend((documents) => {
       secondCallDocumentIds.push(...documents.map((d) => d.documentId));
       return Promise.resolve([]);
@@ -566,7 +560,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     );
     expect(backlog).toEqual([]);
 
-    const secondPassDocumentIds: string[] = [];
+    const secondPassDocumentIds: Array<string> = [];
     const trackingBackend = fakeBackend((documents) => {
       secondPassDocumentIds.push(...documents.map((d) => d.documentId));
       return Promise.resolve([]);
@@ -707,7 +701,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     expect(docCount[0].n).toBeGreaterThan(batchSize);
 
     const { worker } = await buildWorker();
-    const callSizes: number[] = [];
+    const callSizes: Array<number> = [];
     const backend = fakeBackend((documents) => {
       callSizes.push(documents.length);
       return Promise.resolve(

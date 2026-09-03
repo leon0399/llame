@@ -9,16 +9,16 @@ import {
 
 const timestamp = new Date('2026-08-27T12:00:00.000Z');
 
+// No test varies the role — every fixture is an assistant message.
 function message(
   messageSeq: number,
   visibleText: string,
   sourceStart = 0,
   sourceEndExclusive = visibleText.length,
-  role: 'user' | 'assistant' = 'assistant',
 ): CanonicalSearchMessage {
   return {
     messageSeq,
-    role,
+    role: 'assistant',
     timestamp,
     visibleText,
     sourceStart,
@@ -30,7 +30,7 @@ function matchingLines(
   predicate: (normalizedText: string, normalizedQuery: string) => boolean,
   calls: Array<{
     normalizedQuery: string;
-    normalizedLines: readonly string[];
+    normalizedLines: ReadonlyArray<string>;
   }> = [],
 ): CanonicalLinePredicateEvaluator {
   return (normalizedQuery, lines) => {
@@ -138,7 +138,7 @@ describe('matchCanonicalSearchPreview', () => {
   it('normalizes the query and each source intersection once while preserving raw source', async () => {
     const calls: Array<{
       normalizedQuery: string;
-      normalizedLines: readonly string[];
+      normalizedLines: ReadonlyArray<string>;
     }> = [];
     await matchCanonicalSearchPreview(
       {
@@ -367,7 +367,7 @@ describe('matchCanonicalSearchPreview', () => {
   });
 
   it('partitions a long merged interval into adjacent bounded passages retaining matches and selects the earliest', async () => {
-    const lines = Array.from({ length: 2_501 }, (_value, index) =>
+    const lines = Array.from({ length: 2501 }, (_value, index) =>
       index % 2 === 0 ? `needle ${index}` : `line ${index}`,
     );
     const passages = await matchCanonicalSearchPreview(
@@ -376,15 +376,15 @@ describe('matchCanonicalSearchPreview', () => {
       matchingLines((line, normalizedQuery) => line.includes(normalizedQuery)),
     );
 
-    expect(passages).toMatchObject({ offset: 0, limit: 2_000 });
-    expect(passages?.lines).toHaveLength(2_000);
+    expect(passages).toMatchObject({ offset: 0, limit: 2000 });
+    expect(passages?.lines).toHaveLength(2000);
     expect(passages?.lines[0]).toMatchObject({ line: 0, text: 'needle 0' });
     expect(passages?.lines.at(-1)?.text).toBe('line 1999');
     expect(passages?.anchor.line).toBe(0);
   });
 
   it('moves the final qualifying match into the tail partition when context would otherwise be lost', async () => {
-    const lines = Array.from({ length: 2_001 }, (_value, index) =>
+    const lines = Array.from({ length: 2001 }, (_value, index) =>
       index % 3 === 1 ? `needle ${index}` : `line ${index}`,
     );
     const result = await matchCanonicalSearchPreview(
@@ -393,8 +393,8 @@ describe('matchCanonicalSearchPreview', () => {
       matchingLines((line, normalizedQuery) => line.includes(normalizedQuery)),
     );
 
-    expect(result).toMatchObject({ offset: 0, limit: 1_999 });
-    expect(result?.lines).toHaveLength(1_999);
+    expect(result).toMatchObject({ offset: 0, limit: 1999 });
+    expect(result?.lines).toHaveLength(1999);
     expect(result?.lines.at(-1)?.text).toBe('line 1998');
   });
 

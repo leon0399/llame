@@ -65,7 +65,7 @@ function makeService(
     runExecution?: RunExecutor;
     aborts?: RunAbortRegistrar;
     canonicalSearchCoverage?: CanonicalSearchCoverageGate;
-    allowedTools?: string[];
+    allowedTools?: Array<string>;
     runsConcurrency?: number | null;
   } = {},
 ) {
@@ -261,7 +261,7 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
 });
 
 describe('RunsWorkerService — canonical search coverage admission', () => {
-  const localToolCases: [string, string[]][] = [
+  const localToolCases: Array<[string, Array<string>]> = [
     ['without a local search tool', []],
     ['with a local search tool', ['search_conversations']],
   ];

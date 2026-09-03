@@ -21,10 +21,9 @@
  *   datastore backstop and MUST be filtered on the owner id in the query
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
+
+import { type Sql } from 'postgres';
 
 // Make this file a module so its top-level `TEST_DB_URL`/`describeIfDb`/
 // `SqlClient` are module-scoped, not globals that collide with the sibling
@@ -34,14 +33,14 @@ export {};
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
-type SqlClient = any;
+type SqlClient = Sql;
 
 describeIfDb('RLS integration — personalization tenancy', () => {
   let sql: SqlClient;
   let userAId: string;
   let userBId: string;
 
-  const asUser = (userId: string, fn: (tx: SqlClient) => Promise<any>) =>
+  const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
       return fn(tx);
@@ -49,14 +48,14 @@ describeIfDb('RLS integration — personalization tenancy', () => {
 
   // Identity-absent scope: current_user_id = '' — the no-identity (runAsPublic)
   // path taken when an unauthenticated caller reads a publicly shared chat.
-  const asPublic = (fn: (tx: SqlClient) => Promise<any>) =>
+  const asPublic = <T>(fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', '', true)`;
       return fn(tx);
     });
 
   beforeAll(async () => {
-    const postgres = require('postgres');
+    const postgres = await import('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 2 });
@@ -207,6 +206,6 @@ describeIfDb('RLS integration — personalization tenancy', () => {
       userBId,
       (tx) => tx`SELECT id, name, email FROM users WHERE id = ${userBId}`,
     );
-    expect(filtered.map((row: any) => row.id)).toEqual([userBId]);
+    expect(filtered.map((row) => row.id)).toEqual([userBId]);
   });
 });

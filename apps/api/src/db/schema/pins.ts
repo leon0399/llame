@@ -7,10 +7,11 @@ import {
   pgTable,
   primaryKey,
   text,
-  timestamp,
   unique,
   uuid,
 } from 'drizzle-orm/pg-core';
+
+import { timestamptz } from '../columns';
 import { users } from './auth';
 
 // DB-enforced set of pinnable item types (rework-item-pinning). Two values
@@ -43,9 +44,7 @@ export const pins = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     itemType: pinItemType('item_type').notNull(),
     itemId: uuid('item_id').notNull(),
-    pinnedAt: timestamp('pinned_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    pinnedAt: timestamptz('pinned_at').notNull().defaultNow(),
     position: integer('position').notNull(),
   },
   (t) => [

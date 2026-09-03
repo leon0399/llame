@@ -333,7 +333,7 @@ describe('effective context resolver', () => {
   });
 
   it('refuses malformed and unsupported schemas independently before snapshotting', async () => {
-    const warnings: string[] = [];
+    const warnings: Array<string> = [];
     vi.spyOn(Logger.prototype, 'warn').mockImplementation((message) => {
       warnings.push(String(message));
     });

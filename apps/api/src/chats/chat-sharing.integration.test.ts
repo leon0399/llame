@@ -12,12 +12,8 @@
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { and, eq } from 'drizzle-orm';
@@ -33,7 +29,7 @@ import { isTextPart } from './context-builder';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = Sql;
 
 describeIfDb('chat sharing — RLS relaxation is safe', () => {
   let sql: SqlClient;
@@ -96,7 +92,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
   };
 
   beforeAll(async () => {
-    const postgres = require('postgres');
+    const postgres = await import('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 5 });
@@ -274,7 +270,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
     });
 
     const PAGE_SIZE = 100;
-    const pages: (string | undefined)[][] = [];
+    const pages: Array<Array<string | undefined>> = [];
     let beforeSeq: number | undefined;
 
     // Walk backward exactly like the web's paginateAllMessages: each page

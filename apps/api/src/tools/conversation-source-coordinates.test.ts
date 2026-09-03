@@ -1,3 +1,5 @@
+import { ZodError } from 'zod';
+
 import { parseConversationSourceCoordinates } from './conversation-source-coordinates';
 
 const CHAT_ID = '00000000-0000-4000-8000-000000000001';
@@ -26,7 +28,7 @@ describe('conversation source coordinates', () => {
     ['fractional offset', { offset: 1.5 }],
     ['unsafe offset', { offset: Number.MAX_SAFE_INTEGER + 1 }],
     ['zero limit', { limit: 0 }],
-    ['limit above reader maximum', { limit: 2_001 }],
+    ['limit above reader maximum', { limit: 2001 }],
     ['fractional limit', { limit: 1.5 }],
     ['unknown property', { source: 'projection' }],
   ])('rejects %s before a source can be read', (_label, invalid) => {
@@ -38,6 +40,6 @@ describe('conversation source coordinates', () => {
         limit: 1,
         ...invalid,
       }),
-    ).toThrow();
+    ).toThrow(ZodError);
   });
 });

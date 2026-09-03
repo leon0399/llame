@@ -89,7 +89,7 @@ const PRODUCER_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
  */
 function isExactRecord(
   value: unknown,
-  expectedKeys: readonly string[],
+  expectedKeys: ReadonlyArray<string>,
 ): value is UnknownRecord {
   return (
     isRecord(value) &&
@@ -203,8 +203,8 @@ export interface ClientTextPart {
  * so a client-supplied item-shaped part is discarded rather than trusted.
  */
 export function sanitizeClientMessageParts(
-  parts: readonly unknown[],
-): ClientTextPart[] {
+  parts: ReadonlyArray<unknown>,
+): Array<ClientTextPart> {
   return parts.flatMap((part) => {
     if (
       !isRecord(part) ||

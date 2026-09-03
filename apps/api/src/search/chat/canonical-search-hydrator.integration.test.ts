@@ -7,12 +7,10 @@
  */
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
+import postgres from 'postgres';
 import { z } from 'zod';
 
 import * as schema from '../../db/schema';
@@ -30,11 +28,11 @@ import { SearchIndexService } from '../search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
-type SqlClient = any;
+type SqlClient = ReturnType<typeof postgres>;
 
 type SeedMessage = {
   role: 'user' | 'assistant' | 'system' | 'tool';
-  parts: unknown[];
+  parts: Array<unknown>;
   usage?: unknown;
 };
 
@@ -49,10 +47,10 @@ describeIfDb('canonical search hydration', () => {
 
   async function seedChat(
     ownerUserId: string,
-    seedMessages: readonly SeedMessage[],
-  ): Promise<{ chatId: string; messageIds: string[] }> {
+    seedMessages: ReadonlyArray<SeedMessage>,
+  ): Promise<{ chatId: string; messageIds: Array<string> }> {
     const chatId = crypto.randomUUID();
-    const messageIds: string[] = [];
+    const messageIds: Array<string> = [];
     await tenantDb.runAs(ownerUserId, async (tx) => {
       const chats = new ChatsRepository(tx);
       const messages = new MessagesRepository(tx);
@@ -78,7 +76,7 @@ describeIfDb('canonical search hydration', () => {
   async function documentIdsAs(
     ownerUserId: string,
     chatId: string,
-  ): Promise<string[]> {
+  ): Promise<Array<string>> {
     const rows = await tenantDb.runAs(ownerUserId, (tx) =>
       tx.execute<{ id: string }>(sql`
         SELECT id
@@ -128,10 +126,8 @@ describeIfDb('canonical search hydration', () => {
   }
 
   beforeAll(async () => {
-    const postgres = require('postgres');
-    const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-    sqlClient = connect(TEST_DB_URL!, { ssl, max: 5 });
+    sqlClient = postgres(TEST_DB_URL!, { ssl, max: 5 });
     tenantDb = new TenantDbService(drizzle(sqlClient, { schema }));
     indexService = new SearchIndexService(tenantDb);
     ownerA = crypto.randomUUID();

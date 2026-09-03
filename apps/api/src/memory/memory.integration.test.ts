@@ -41,14 +41,14 @@ describe('/api/v1/me/memory (HTTP)', () => {
     request(http).patch('/api/v1/me/memory').set('Cookie', cookie).send(body);
 
   beforeAll(async () => {
-    const module = await Test.createTestingModule({
+    const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
       .compile();
 
-    app = module.createNestApplication();
+    app = moduleRef.createNestApplication();
     configureApp(app);
     await app.init();
     http = app.getHttpServer();

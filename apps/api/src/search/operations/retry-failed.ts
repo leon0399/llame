@@ -43,7 +43,7 @@ export type RetryFailedResult = {
   /** Owners whose clear rejected; empty on full success. The caller must
    *  treat any non-empty result as a failed command — see
    *  `owner-write.ts`'s header. */
-  failures: OwnerWriteFailure[];
+  failures: Array<OwnerWriteFailure>;
 };
 
 export async function retryFailedDocuments(

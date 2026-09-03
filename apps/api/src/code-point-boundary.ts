@@ -8,11 +8,11 @@
  */
 
 function isHighSurrogate(code: number): boolean {
-  return code >= 0xd800 && code <= 0xdbff;
+  return code >= 0xd8_00 && code <= 0xdb_ff;
 }
 
 function isLowSurrogate(code: number): boolean {
-  return code >= 0xdc00 && code <= 0xdfff;
+  return code >= 0xdc_00 && code <= 0xdf_ff;
 }
 
 /**

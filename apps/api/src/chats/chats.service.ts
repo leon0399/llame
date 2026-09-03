@@ -4,8 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { type Chat, type Compaction, type Message } from '../db/schema';
-import { TenantDbService } from '../db/tenant-db.service';
+import {
+  type Chat,
+  type Compaction,
+  type Message,
+  type MessageRole,
+} from '../db/schema';
+import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   SearchEmbedDispatchService,
   type ChatEmbedDispatcher,
@@ -53,7 +58,7 @@ export class ChatsService {
       pinned?: 'only' | 'with' | 'exclude';
       archived?: 'only' | 'with';
     } = {},
-  ): Promise<{ chat: Chat; lastMessage: Message | undefined }[]> {
+  ): Promise<Array<{ chat: Chat; lastMessage: Message | undefined }>> {
     return this.tenantDb.runAs(userId, async (tx) => {
       // Independent queries — let postgres.js pipeline them on the connection.
       const [chatList, latest] = await Promise.all([
@@ -103,64 +108,117 @@ export class ChatsService {
     options: { limit: number; beforeSeq?: number; targetSeq?: number },
   ): Promise<
     | {
-        messages: Message[];
+        messages: Array<Message>;
         compaction: Compaction | undefined;
         absorbedMessageCount: number | null;
       }
     | undefined
   > {
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
-      const chatsRepository = new ChatsRepository(tx);
-      const chat = await chatsRepository.findById(chatId, ownerUserId);
-      if (!chat) {
+      const window = await this.loadMessageWindow(
+        tx,
+        chatId,
+        ownerUserId,
+        options,
+      );
+      if (!window) {
         return undefined;
       }
 
-      const messagesRepository = new MessagesRepository(tx);
-      const compactionsRepository = new CompactionsRepository(tx);
-      let messages: Message[];
-      let compaction: Compaction | undefined;
+      const absorbedMessageCount = await this.computeAbsorbedMessageCount(
+        new CompactionsRepository(tx),
+        chatId,
+        ownerUserId,
+        window.compaction,
+      );
 
-      if (options.targetSeq !== undefined) {
-        messages = await messagesRepository.findByChatId(chatId, ownerUserId, {
-          limit: options.limit,
-          maxSeq: options.targetSeq,
-        });
-        if (messages.at(-1)?.seq !== options.targetSeq) {
-          return undefined;
-        }
-        compaction = await compactionsRepository.findLatestByChatId(
-          chatId,
-          ownerUserId,
-          { maxSeq: options.targetSeq },
-        );
-      } else {
-        [messages, compaction] = await Promise.all([
-          messagesRepository.findByChatId(chatId, ownerUserId, {
-            limit: options.limit,
-            maxSeq:
-              options.beforeSeq === undefined
-                ? undefined
-                : options.beforeSeq - 1,
-          }),
-          compactionsRepository.findLatestByChatId(chatId, ownerUserId),
-        ]);
-      }
-
-      let absorbedMessageCount: number | null = null;
-      if (compaction) {
-        const previous = compaction.parentId
-          ? await compactionsRepository.findLatestByChatId(
-              chatId,
-              ownerUserId,
-              { beforeSeq: compaction.uptoSeq },
-            )
-          : undefined;
-        absorbedMessageCount = compaction.uptoSeq - (previous?.uptoSeq ?? 0);
-      }
-
-      return { messages, compaction, absorbedMessageCount };
+      return { ...window, absorbedMessageCount };
     });
+  }
+
+  /**
+   * Either an exact-target window (final row must land on `targetSeq`, else
+   * the target is missing/deleted/foreign and the read reports "not found")
+   * or a `beforeSeq`-paginated one — see `getChatMessages`'s own doc for the
+   * shape of the contract these two strategies share.
+   */
+  private async loadMessageWindow(
+    tx: Db,
+    chatId: string,
+    ownerUserId: string,
+    options: { limit: number; beforeSeq?: number; targetSeq?: number },
+  ): Promise<
+    { messages: Array<Message>; compaction: Compaction | undefined } | undefined
+  > {
+    const chat = await new ChatsRepository(tx).findById(chatId, ownerUserId);
+    if (!chat) {
+      return undefined;
+    }
+
+    const scope = { chatId, ownerUserId, limit: options.limit };
+    return options.targetSeq !== undefined
+      ? this.loadWindowAtTarget(tx, scope, options.targetSeq)
+      : this.loadWindowBeforeSeq(tx, scope, options.beforeSeq);
+  }
+
+  /** The window ending exactly at `targetSeq`, or undefined if it doesn't land there. */
+  private async loadWindowAtTarget(
+    tx: Db,
+    scope: { chatId: string; ownerUserId: string; limit: number },
+    targetSeq: number,
+  ): Promise<
+    { messages: Array<Message>; compaction: Compaction | undefined } | undefined
+  > {
+    const { chatId, ownerUserId, limit } = scope;
+    const messages = await new MessagesRepository(tx).findByChatId(
+      chatId,
+      ownerUserId,
+      { limit, maxSeq: targetSeq },
+    );
+    if (messages.at(-1)?.seq !== targetSeq) {
+      return undefined;
+    }
+    const compaction = await new CompactionsRepository(tx).findLatestByChatId(
+      chatId,
+      ownerUserId,
+      { maxSeq: targetSeq },
+    );
+    return { messages, compaction };
+  }
+
+  /** The most recent `limit` messages strictly before `beforeSeq` (or the tail, if omitted). */
+  private async loadWindowBeforeSeq(
+    tx: Db,
+    scope: { chatId: string; ownerUserId: string; limit: number },
+    beforeSeq: number | undefined,
+  ): Promise<{ messages: Array<Message>; compaction: Compaction | undefined }> {
+    const { chatId, ownerUserId, limit } = scope;
+    const [messages, compaction] = await Promise.all([
+      new MessagesRepository(tx).findByChatId(chatId, ownerUserId, {
+        limit,
+        maxSeq: beforeSeq === undefined ? undefined : beforeSeq - 1,
+      }),
+      new CompactionsRepository(tx).findLatestByChatId(chatId, ownerUserId),
+    ]);
+    return { messages, compaction };
+  }
+
+  /** How many messages the latest compaction's chain has absorbed, if any. */
+  private async computeAbsorbedMessageCount(
+    compactionsRepository: CompactionsRepository,
+    chatId: string,
+    ownerUserId: string,
+    compaction: Compaction | undefined,
+  ): Promise<number | null> {
+    if (!compaction) {
+      return null;
+    }
+    const previous = compaction.parentId
+      ? await compactionsRepository.findLatestByChatId(chatId, ownerUserId, {
+          beforeSeq: compaction.uptoSeq,
+        })
+      : undefined;
+    return compaction.uptoSeq - (previous?.uptoSeq ?? 0);
   }
 
   async createChat(input: {
@@ -195,11 +253,11 @@ export class ChatsService {
       return await this.tenantDb.runAs(ownerUserId, (tx) =>
         new ChatsRepository(tx).update(chatId, ownerUserId, patch),
       );
-    } catch (err) {
-      if (err instanceof HttpException) {
-        throw err;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
       }
-      const code = pgErrorCode(err);
+      const code = pgErrorCode(error);
       // Sound today because project_id is the ONLY patchable FK on chats
       // (owner_user_id isn't patchable, so the WITH CHECK's other conjunct
       // can't fail). If chats ever gains another patchable FK, this catch
@@ -208,7 +266,7 @@ export class ChatsService {
       if (code === '23503' || code === '42501') {
         throw new NotFoundException('Project not found');
       }
-      throw err;
+      throw error;
     }
   }
 
@@ -254,7 +312,7 @@ export class ChatsService {
   async getSharedChat(
     chatId: string,
     options?: { limit?: number; beforeSeq?: number },
-  ): Promise<{ chat: Chat; messages: Message[] } | undefined> {
+  ): Promise<{ chat: Chat; messages: Array<Message> } | undefined> {
     return this.tenantDb.runAsPublic(async (tx) => {
       const chat = await new ChatsRepository(tx).findPublicById(chatId);
       if (!chat) {
@@ -272,6 +330,56 @@ export class ChatsService {
       );
       return { chat, messages };
     });
+  }
+
+  /**
+   * Shared write side of both fork paths (`forkSharedChat` and `forkChat`
+   * below): create a new chat owned by `ownerUserId` and copy `toCopy` into
+   * it in order, remapping every id (including `inReplyTo` references
+   * between the copied rows) to a freshly generated one. Ids are
+   * pre-assigned before any insert — `createMany`'s chunked bulk insert has
+   * no per-row RETURNING to learn a new id mid-batch, and a reply's
+   * `inReplyTo` only ever points to an earlier row in the same prefix
+   * (lower `seq`), so every reference is guaranteed to already be mapped.
+   */
+  private async copyMessagesIntoNewChat(
+    tx: Db,
+    ownerUserId: string,
+    title: string | null,
+    toCopy: Array<{
+      id: string;
+      role: MessageRole;
+      parts: Array<unknown>;
+      senderUserId: string | null;
+      attachments: Array<unknown>;
+      inReplyTo: string | null;
+    }>,
+  ): Promise<Chat> {
+    const chatsRepo = new ChatsRepository(tx);
+    // Nullable title (#78): a still-untitled chat stays untitled when forked
+    // rather than forcing a title onto it.
+    const created = await chatsRepo.create({
+      ownerUserId,
+      ...(title !== null && { title: forkTitle(title) }),
+    });
+
+    const idMap = new Map(toCopy.map((m) => [m.id, crypto.randomUUID()]));
+    await new MessagesRepository(tx).createMany(
+      toCopy.map((message, index) => ({
+        id: idMap.get(message.id)!,
+        chatId: created.id,
+        seq: index + 1,
+        role: message.role,
+        senderUserId: message.senderUserId,
+        parts: message.parts,
+        attachments: message.attachments,
+        inReplyTo: message.inReplyTo
+          ? (idMap.get(message.inReplyTo) ?? null)
+          : null,
+      })),
+    );
+
+    return created;
   }
 
   /**
@@ -315,42 +423,24 @@ export class ChatsService {
       shared.messages.map((m) => [m.id, m.inReplyTo]),
     );
 
-    const forked = await this.tenantDb.runAs(callerId, async (tx) => {
-      const chatsRepo = new ChatsRepository(tx);
-      const messagesRepo = new MessagesRepository(tx);
-
-      const created = await chatsRepo.create({
-        ownerUserId: callerId,
-        ...(dto.title !== null && { title: forkTitle(dto.title) }),
-      });
-
-      const idMap = new Map(
-        dto.messages.map((m) => [m.id, crypto.randomUUID()]),
-      );
-
-      await messagesRepo.createMany(
-        dto.messages.map((message, index) => {
-          const originalInReplyTo = inReplyToById.get(message.id) ?? null;
-          return {
-            id: idMap.get(message.id)!,
-            chatId: created.id,
-            seq: index + 1,
-            role: message.role,
-            senderUserId: message.role === 'user' ? callerId : null,
-            parts: message.parts,
-            // Not part of the public contract — never copied (same
-            // precedent as forkChat's usage: a fork made zero API calls and
-            // must not inherit telemetry or attachments it didn't produce).
-            attachments: [],
-            inReplyTo: originalInReplyTo
-              ? (idMap.get(originalInReplyTo) ?? null)
-              : null,
-          };
-        }),
-      );
-
-      return created;
-    });
+    const forked = await this.tenantDb.runAs(callerId, (tx) =>
+      this.copyMessagesIntoNewChat(
+        tx,
+        callerId,
+        dto.title,
+        dto.messages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          parts: message.parts,
+          senderUserId: message.role === 'user' ? callerId : null,
+          // Not part of the public contract — never copied (same precedent
+          // as forkChat's usage: a fork made zero API calls and must not
+          // inherit telemetry or attachments it didn't produce).
+          attachments: [],
+          inReplyTo: inReplyToById.get(message.id) ?? null,
+        })),
+      ),
+    );
 
     // Index the forked chat's copied content for search (#195). Fork stays
     // async by design (grill Q4) — no model call to hide an inline rebuild
@@ -451,40 +541,16 @@ export class ChatsService {
         maxSeq,
       });
 
-      const created = await chatsRepo.create({
+      // usage is deliberately NOT copied: a fork makes ZERO API calls, so its
+      // turns must not carry cost/token telemetry — else a future usage
+      // aggregation (summed by created_at) would double-count the original
+      // spend at the fork date.
+      return this.copyMessagesIntoNewChat(
+        tx,
         ownerUserId,
-        // Nullable title (#78): a still-untitled chat stays untitled when forked
-        // rather than forcing a title onto it.
-        ...(source.title !== null && { title: forkTitle(source.title) }),
-      });
-
-      // Pre-assign every copy's new id up front so in_reply_to can be remapped
-      // BEFORE any insert happens — a chunked bulk insert has no per-row
-      // RETURNING to learn a new id mid-batch, and a reply's in_reply_to only
-      // ever points to an earlier message in this same prefix (lower seq), so
-      // every reference is guaranteed to already be in the map.
-      const idMap = new Map(toCopy.map((m) => [m.id, crypto.randomUUID()]));
-
-      await messagesRepo.createMany(
-        toCopy.map((message, index) => ({
-          id: idMap.get(message.id)!,
-          chatId: created.id,
-          seq: index + 1,
-          role: message.role,
-          senderUserId: message.senderUserId,
-          parts: message.parts,
-          attachments: message.attachments,
-          // usage is deliberately NOT copied: a fork makes ZERO API calls, so its
-          // turns must not carry cost/token telemetry — else a future usage
-          // aggregation (summed by created_at) would double-count the original
-          // spend at the fork date.
-          inReplyTo: message.inReplyTo
-            ? (idMap.get(message.inReplyTo) ?? null)
-            : null,
-        })),
+        source.title,
+        toCopy,
       );
-
-      return created;
     });
 
     // Index the forked chat's copied content for search (#195). Fork stays

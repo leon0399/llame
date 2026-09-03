@@ -18,12 +18,10 @@
  */
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type Sql } from 'postgres';
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { IdentityService } from './identity.service';
@@ -32,7 +30,7 @@ import { MembershipsRepository } from './identity-repository';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
-type SqlClient = any;
+type SqlClient = Sql;
 
 describeIfDb(
   'Org-tree invariants — DB-enforced path integrity & last-owner protection',
@@ -41,10 +39,10 @@ describeIfDb(
     let db: Db;
     let tenantDb: TenantDbService;
     let identity: IdentityService;
-    const userIds: string[] = [];
-    const rootIds: string[] = [];
+    const userIds: Array<string> = [];
+    const rootIds: Array<string> = [];
 
-    const asUser = (userId: string, fn: (tx: SqlClient) => Promise<any>) =>
+    const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
       sql.begin(async (tx: SqlClient) => {
         await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
         return fn(tx);
@@ -58,8 +56,8 @@ describeIfDb(
       return id;
     }
 
-    beforeAll(() => {
-      const postgres = require('postgres');
+    beforeAll(async () => {
+      const postgres = await import('postgres');
       const connect = postgres.default ?? postgres;
       const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
       sql = connect(TEST_DB_URL!, { ssl, max: 5 });

@@ -4,10 +4,10 @@ import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ProjectsRepository } from './projects-repository';
 
-type LoggedQuery = { sql: string; params: unknown[] };
+type LoggedQuery = { sql: string; params: Array<unknown> };
 
 function makeMockDb() {
-  const queries: LoggedQuery[] = [];
+  const queries: Array<LoggedQuery> = [];
   const db: Db = drizzle.mock({
     schema,
     logger: {
@@ -19,7 +19,7 @@ function makeMockDb() {
   return { db, queries };
 }
 
-function lastQuery(queries: LoggedQuery[]): LoggedQuery {
+function lastQuery(queries: Array<LoggedQuery>): LoggedQuery {
   const query = queries.at(-1);
   if (!query) throw new Error('expected a logged database query');
   return query;

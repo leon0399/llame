@@ -95,7 +95,7 @@ export class ReorderPinsDto {
   @ValidateNested({ each: true })
   @Type(() => ReorderPinsItemDto)
   @ArrayUnique((item: ReorderPinsItemDto) => `${item.itemType}:${item.itemId}`)
-  items!: ReorderPinsItemDto[];
+  items!: Array<ReorderPinsItemDto>;
 }
 
 export const PINNED_ITEM_RESPONSE_SCHEMA = {

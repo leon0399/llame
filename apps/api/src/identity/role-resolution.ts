@@ -31,7 +31,7 @@ export type EffectiveRole = {
  */
 export function resolveEffectiveRole(
   path: string,
-  membershipsOnPath: Pick<Membership, 'orgUnitId' | 'role'>[],
+  membershipsOnPath: Array<Pick<Membership, 'orgUnitId' | 'role'>>,
 ): EffectiveRole | null {
   const ids = pathIds(path);
   const byUnit = new Map(membershipsOnPath.map((m) => [m.orgUnitId, m.role]));

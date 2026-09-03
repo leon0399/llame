@@ -184,9 +184,9 @@ describe('loadInstanceConfig — file presence', () => {
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
-    } catch (err) {
-      expect(errorMessage(err)).toContain(file);
-      expect(errorMessage(err)).toMatch(/line \d+, column \d+/);
+    } catch (error) {
+      expect(errorMessage(error)).toContain(file);
+      expect(errorMessage(error)).toMatch(/line \d+, column \d+/);
     }
   });
 
@@ -334,7 +334,7 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
     const secretFile = path.join(tmpDir, 'model-id.secret');
     writeFileSync(secretFile, '  system:openai:gpt-5.4-mini  \n');
     writeConfig(
-      `{ "defaults": { "modelId": "{path:${secretFile.replace(/\\/g, '\\\\')}}" }, ${modelFixtureJson('system:openai:gpt-5.4-mini')} }`,
+      `{ "defaults": { "modelId": "{path:${secretFile.replaceAll('\\', String.raw`\\`)}}" }, ${modelFixtureJson('system:openai:gpt-5.4-mini')} }`,
     );
     expect(loadInstanceConfig().defaults.modelId).toBe(
       'system:openai:gpt-5.4-mini',
@@ -348,8 +348,8 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
-    } catch (err) {
-      expect(errorMessage(err)).toContain(missing);
+    } catch (error) {
+      expect(errorMessage(error)).toContain(missing);
     }
   });
 
@@ -452,7 +452,7 @@ describe('loadInstanceConfig — mcpServers (add-streamable-http-mcp-tools 4.1�
             "url": "https://example.test/mcp",
             "headers": {
               "Authorization": "Bearer {env:MCP_TOKEN}",
-              "X-Path-Token": "{path:${secretFile.replace(/\\/g, '\\\\')}}"
+              "X-Path-Token": "{path:${secretFile.replaceAll('\\', String.raw`\\`)}}"
             }
           }
         }
@@ -587,11 +587,11 @@ describe('loadInstanceConfig — mcpServers (add-streamable-http-mcp-tools 4.1�
 
     const odd = loadInstanceConfig({}).mcpServers.odd;
     if (odd.type !== 'stdio') expect.unreachable('expected a stdio entry');
+    const { env } = odd;
+    if (env === undefined) expect.unreachable('expected a declared env');
 
-    expect(Object.prototype.hasOwnProperty.call(odd.env, '__proto__')).toBe(
-      true,
-    );
-    expect(odd.env?.['__proto__']).toBe('literal-value');
+    expect(Object.hasOwn(env, '__proto__')).toBe(true);
+    expect(env['__proto__']).toBe('literal-value');
   });
 
   it('protects only the substituted segment of a partly interpolated field', () => {
@@ -995,7 +995,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
       source: 'system',
       provider: 'openai',
       providerModelId: 'gpt-5.4-mini',
-      contextWindowTokens: 400000,
+      contextWindowTokens: 400_000,
     });
   });
 
@@ -1140,7 +1140,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
 
     it('renders the exact id, name, and literal-name escape surface in an override', () => {
       writePrompt(
-        'id {{model.id}} name {{model.name}} literal \\{{model.name}}',
+        String.raw`id {{model.id}} name {{model.name}} literal \{{model.name}}`,
         'override.md',
       );
       writeConfig(`{
@@ -1257,8 +1257,8 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
-    } catch (err) {
-      expect(errorMessage(err)).not.toContain('sk-should-never-leak');
+    } catch (error) {
+      expect(errorMessage(error)).not.toContain('sk-should-never-leak');
     }
   });
 
@@ -1266,13 +1266,15 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     const secretFile = path.join(tmpDir, 'model-id.secret');
     writeFileSync(secretFile, 'sk-should-never-appear-either');
     writeConfig(
-      `{ "defaults": { "modelId": "{path:${secretFile.replace(/\\/g, '\\\\')}}" } }`,
+      `{ "defaults": { "modelId": "{path:${secretFile.replaceAll('\\', String.raw`\\`)}}" } }`,
     );
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
-    } catch (err) {
-      expect(errorMessage(err)).not.toContain('sk-should-never-appear-either');
+    } catch (error) {
+      expect(errorMessage(error)).not.toContain(
+        'sk-should-never-appear-either',
+      );
     }
   });
 });
@@ -1424,14 +1426,14 @@ describe('loadInstanceConfig — no secret in logs', () => {
     const secretFile = path.join(tmpDir, 'openai.secret');
     writeFileSync(secretFile, 'sk-should-never-appear-in-any-error');
     writeConfig(`{
-      "http": { "trustProxy": "{path:${secretFile.replace(/\\/g, '\\\\')}}" },
+      "http": { "trustProxy": "{path:${secretFile.replaceAll('\\', String.raw`\\`)}}" },
       "runs": { "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS_SRC}" }
     }`);
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
-    } catch (err) {
-      expect(errorMessage(err)).not.toContain(
+    } catch (error) {
+      expect(errorMessage(error)).not.toContain(
         'sk-should-never-appear-in-any-error',
       );
     }
@@ -1449,23 +1451,23 @@ describe('loadInstanceConfig — no secret in logs', () => {
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
-    } catch (err) {
-      expect(errorMessage(err)).not.toContain('sk-embed-should-never-leak');
+    } catch (error) {
+      expect(errorMessage(error)).not.toContain('sk-embed-should-never-leak');
     }
   });
 
   it('a dangling search.chats.embeddingModelId error never contains a resolved (secret-sourced) value', () => {
     const secretFile = path.join(tmpDir, 'embedding-model-id.secret');
     writeFileSync(secretFile, 'sk-embed-should-never-appear-either');
-    const escapedPath = secretFile.replace(/\\/g, '\\\\');
+    const escapedPath = secretFile.replaceAll('\\', String.raw`\\`);
     writeConfig(
       `{ "search": { "chats": { "embeddingModelId": "{path:${escapedPath}}" } } }`,
     );
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
-    } catch (err) {
-      expect(errorMessage(err)).not.toContain(
+    } catch (error) {
+      expect(errorMessage(error)).not.toContain(
         'sk-embed-should-never-appear-either',
       );
     }

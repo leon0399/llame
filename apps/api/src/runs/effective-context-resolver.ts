@@ -16,6 +16,17 @@ import { type Tool } from '../tools/types';
 
 export { canonicalJson } from '../canonical-json';
 
+/** Code-owned candidates when the caller doesn't supply pre-classified ones. */
+function defaultCodeOwnedCandidates(
+  candidates: Iterable<Tool> | undefined,
+): Array<TurnToolCandidate> {
+  return [...(candidates ?? TOOL_REGISTRY.values())].map((tool) => ({
+    source: { type: 'code_owned' as const },
+    state: 'available' as const,
+    tool,
+  }));
+}
+
 export type EffectiveContextSnapshotInput = {
   availabilityHash: string;
   contentHash: string;
@@ -24,10 +35,10 @@ export type EffectiveContextSnapshotInput = {
   source: SystemModelCatalogEntry['systemPromptSource'];
   systemPrompt: string;
   toolAvailabilityManifest: ToolAvailabilityManifestV1;
-  toolDeclarations: ModelToolDeclaration[];
+  toolDeclarations: Array<ModelToolDeclaration>;
 };
 
-export async function resolveEffectiveContext(input: {
+interface ResolveEffectiveContextInput {
   model: SystemModelCatalogEntry;
   /**
    * The prompt exactly as it will be sent, already rendered with the owner's
@@ -41,22 +52,23 @@ export async function resolveEffectiveContext(input: {
    * rather than mutating the old one.
    */
   systemPrompt: string;
-  allowedToolRules: readonly string[];
+  allowedToolRules: ReadonlyArray<string>;
   callTimeoutSeconds: number;
   candidates?: Iterable<Tool>;
   /** Owner-bound static candidates, including closed unavailable entries. */
   codeOwnedCandidates?: Iterable<TurnToolCandidate>;
   /** Synchronous source snapshots; shared allowlist and declaration admission still apply. */
   dynamicCandidates?: Iterable<TurnToolCandidate>;
-}): Promise<EffectiveContextSnapshotInput> {
+}
+
+export async function resolveEffectiveContext(
+  input: ResolveEffectiveContextInput,
+): Promise<EffectiveContextSnapshotInput> {
   const { systemPrompt } = input;
-  const codeOwnedCandidates: TurnToolCandidate[] = input.codeOwnedCandidates
-    ? [...input.codeOwnedCandidates]
-    : [...(input.candidates ?? TOOL_REGISTRY.values())].map((tool) => ({
-        source: { type: 'code_owned' as const },
-        state: 'available' as const,
-        tool,
-      }));
+  const codeOwnedCandidates: Array<TurnToolCandidate> =
+    input.codeOwnedCandidates
+      ? [...input.codeOwnedCandidates]
+      : defaultCodeOwnedCandidates(input.candidates);
   const catalog = await composeTurnToolCatalog({
     allowedToolRules: input.allowedToolRules,
     callTimeoutSeconds: input.callTimeoutSeconds,

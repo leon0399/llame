@@ -446,7 +446,7 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
       type: 'knowledge_space_unavailable',
       message: 'The Knowledge Space is unavailable.',
     });
-    expect(() => lstatSync(workerRoot)).toThrow();
+    expect(() => lstatSync(workerRoot)).toThrow(/ENOENT/);
     expect(json(result)).not.toContain(root);
   });
 
@@ -512,7 +512,9 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
       message: 'The Knowledge note was not found.',
     });
     expect(lstatSync(childPath(spaceAId)).isDirectory()).toBe(true);
-    expect(() => lstatSync(path.join(childPath(spaceAId), spaceBId))).toThrow();
+    expect(() => lstatSync(path.join(childPath(spaceAId), spaceBId))).toThrow(
+      /ENOENT/,
+    );
     expect(json(result)).not.toContain(guessedPath);
     expect(json(result)).not.toContain(ownerBId);
     expect(json(result)).not.toContain(spaceBId);
@@ -562,7 +564,7 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
         type: 'knowledge_space_unavailable',
         message: 'The Knowledge Space is unavailable.',
       });
-      expect(() => lstatSync(child)).toThrow();
+      expect(() => lstatSync(child)).toThrow(/ENOENT/);
     } finally {
       await spaceService.provisionForOwner(ownerBId);
       const notes = path.join(child, 'notes');
