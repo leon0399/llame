@@ -1,0 +1,117 @@
+{
+  "projectId": "0f7e4a36-9f43-4c15-be85-dbf5912a88c9",
+  "shape": "storybook",
+  "pkg": "@workspace/ui",
+  "globalName": "LlameDesignSystem0f7e4a",
+  "entry": ".design-sync/entry.ts",
+  "storybookConfigDir": "apps/storybook/.storybook",
+  "storybookStatic": ".design-sync/sb-reference",
+  "readmeHeader": ".design-sync/conventions.md",
+  "titleMap": {
+    "accordion": "Accordion",
+    "conversation": "Conversation",
+    "message": "Message",
+    "reasoning": null,
+    "shimmer": "Shimmer",
+    "alert": "Alert",
+    "alert-dialog": "AlertDialog",
+    "avatar": "Avatar",
+    "badge": "Badge",
+    "button": "Button",
+    "button-group": "ButtonGroup",
+    "card": "Card",
+    "collapsible": "Collapsible",
+    "command": "Command",
+    "model-switch-boundary": "ModelSwitchBoundary",
+    "text-shimmer": "TextShimmer",
+    "dialog": "Dialog",
+    "dropdown-menu": "DropdownMenu",
+    "field": "Field",
+    "form": "Form",
+    "hover-card": "HoverCard",
+    "input": "Input",
+    "input-group": "InputGroup",
+    "kbd": "Kbd",
+    "label": "Label",
+    "marker": "Marker",
+    "popover": "Popover",
+    "scroll-area": "ScrollArea",
+    "select": "Select",
+    "separator": "Separator",
+    "sheet": "Sheet",
+    "sidebar": "Sidebar",
+    "skeleton": "Skeleton",
+    "spinner": "Spinner",
+    "switch": "Switch",
+    "tabs": "Tabs",
+    "textarea": "Textarea",
+    "toggle": "Toggle",
+    "toggle-group": "ToggleGroup",
+    "tooltip": "Tooltip",
+    "sonner": "Toaster",
+    "regex-tester": null,
+    "archived-badge": null,
+    "app-sidebar-admin-entry": null,
+    "app-sidebar-nav": null,
+    "pinned-chat-row": null,
+    "pinned-project-row": null,
+    "admin-section-nav": null,
+    "chat-activity-indicator": null,
+    "chat-item": null,
+    "compaction-boundary": null,
+    "effective-context-inspector": null,
+    "message-fork-button": null,
+    "model-selector": null,
+    "project-item": null,
+    "tool-cap-notice-part": null,
+    "code-block": null,
+    "markdown": null,
+    "tool": null
+  },
+  "overrides": {
+    "Message": {
+      "skip": [
+        "components-ai-elements-message--markdown",
+        "components-ai-elements-message--math-delimiters"
+      ]
+    },
+    "Button": {
+      "cardMode": "column"
+    },
+    "ScrollArea": {
+      "cardMode": "column"
+    },
+    "Sidebar": {
+      "cardMode": "single",
+      "primaryStory": "Basic"
+    },
+    "AlertDialog": {
+      "cardMode": "single"
+    },
+    "Kbd": {
+      "cardMode": "single",
+      "primaryStory": "Basic"
+    },
+    "Command": {
+      "cardMode": "single"
+    },
+    "Dialog": {
+      "cardMode": "single"
+    },
+    "DropdownMenu": {
+      "cardMode": "single"
+    },
+    "Popover": {
+      "cardMode": "single"
+    },
+    "Select": {
+      "cardMode": "single"
+    },
+    "Sheet": {
+      "cardMode": "single"
+    },
+    "Tooltip": {
+      "cardMode": "single"
+    }
+  }
+}

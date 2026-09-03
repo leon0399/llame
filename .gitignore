@@ -50,3 +50,13 @@ npm-debug.log*
 # Local agent context (per-developer, not shared)
 CLAUDE.local.md
 .claude/worktrees/
+
+# design-sync: build artifacts, scratch, verification state (durable state is
+# .design-sync/{config.json,NOTES.md,conventions.md,previews/,overrides/})
+.design-sync/sb-reference/
+.design-sync/*.log
+.design-sync/learnings/
+.design-sync/.cache/
+.design-sync/node_modules
+.ds-sync/
+ds-bundle/
