@@ -4,6 +4,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - **UTC-stable auth timestamps**: the remaining naive auth timestamp columns
   migrate to `timestamptz` with explicit UTC conversion.
+- **Reasoning summaries**: OpenAI/Anthropic headed summary parts no longer
+  glue into a `****` run. Consecutive summaries share one Thinking panel;
+  a tool call still splits panels so occurrence order is preserved.
 - **Repository quality gates**: standard lint, component-test, coverage, static
   analysis, and mutation commands now run through package scripts and CI.
 - **Mutation testing**: API mutation runs are sharded in CI and aggregated into

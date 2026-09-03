@@ -105,6 +105,24 @@ describe("chatToMarkdown", () => {
     expect(md).toContain("answer");
   });
 
+  it("unglues consecutive reasoning-summary headings in the export", () => {
+    const md = chatToMarkdown("T", [
+      msg({
+        role: "assistant",
+        parts: [
+          {
+            type: "reasoning",
+            text: "**Investigating****Inspecting schema**",
+          },
+          { type: "text", text: "answer" },
+        ],
+      }),
+    ]);
+    expect(md).toContain("**Investigating**");
+    expect(md).toContain("**Inspecting schema**");
+    expect(md).not.toContain("****");
+  });
+
   it("skips system/tool rows and empty turns", () => {
     const md = chatToMarkdown("T", [
       msg({ role: "system", parts: [{ type: "text", text: "SYSTEM" }] }),

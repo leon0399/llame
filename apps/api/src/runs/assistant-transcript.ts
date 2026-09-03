@@ -22,6 +22,7 @@ import { type RunEvent } from '../db/schema';
 import { type MessagePart } from '../chats/context-builder';
 import { normalizeToolObservationOutcome } from '../chats/tool-observation-part';
 import { type ToolResult } from '../tools/types';
+import { separateGluedReasoningBlocks } from './reasoning-summaries';
 
 /**
  * Cap on persisted reasoning text. Reasoning is display-only (stripped from
@@ -90,7 +91,7 @@ class AssistantPartCollectorImpl {
     if (text.length === 0) return;
     const last = this.collected.at(-1);
     if (last?.type === 'reasoning' && isString(last.text)) {
-      last.text += text;
+      last.text = separateGluedReasoningBlocks(last.text + text);
       return;
     }
     this.collected.push({ type: 'reasoning', text });

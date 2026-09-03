@@ -115,3 +115,40 @@ export const Collapsed: Story = {
     await expect(content).toBeVisible();
   },
 };
+
+/**
+ * OpenAI/Anthropic reasoning summaries arrive as discrete headed blocks.
+ * Providers that drop `summary_index` concatenate them into a `****` run
+ * that markdown cannot parse as bold or as a heading — this story is that
+ * glued wire shape after the display repair, so each title is its own
+ * strong heading rather than one half-bold paragraph.
+ *
+ * @summary for a reasoning panel whose trace is discrete summary parts
+ * @see https://github.com/vercel/ai/issues/6742
+ */
+export const SummaryParts: Story = {
+  tags: ["ai-generated"],
+  args: {
+    isStreaming: false,
+    defaultOpen: true,
+    duration: 3,
+  },
+  render: (args) => (
+    <Reasoning {...args}>
+      <ReasoningTrigger />
+      <ReasoningContent>
+        {
+          "**Investigating likely culprit PRs****Inspecting message schema**\n\nThe stored parts array is the source of truth."
+        }
+      </ReasoningContent>
+    </Reasoning>
+  ),
+  play: async ({ canvas, canvasElement }) => {
+    await expect(
+      canvas.getByText(/investigating likely culprit prs/i),
+    ).toBeVisible();
+    await expect(canvas.getByText(/inspecting message schema/i)).toBeVisible();
+    await expect(canvasElement.textContent).not.toContain("****");
+    await expect(canvasElement.querySelectorAll("strong")).toHaveLength(2);
+  },
+};

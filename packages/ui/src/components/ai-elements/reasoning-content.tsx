@@ -5,6 +5,7 @@ import type { ComponentProps } from "react";
 import { memo } from "react";
 
 import { ModelOutputStreamdown } from "@workspace/ui/components/custom/model-output-streamdown";
+import { separateGluedReasoningBlocks } from "@workspace/ui/lib/reasoning-blocks";
 import { cn } from "@workspace/ui/lib/utils";
 
 export type ReasoningContentProps = ComponentProps<
@@ -28,11 +29,16 @@ export const ReasoningContent = memo(
       className={cn(
         "mt-4 text-sm",
         "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-muted-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
+        // Summary parts open with a bold heading; lift those isolated titles
+        // out of the muted body so they read as section headings.
+        "[&_p:has(>strong:only-child)]:text-foreground",
         className,
       )}
       {...props}
     >
-      <ModelOutputStreamdown>{children}</ModelOutputStreamdown>
+      <ModelOutputStreamdown>
+        {separateGluedReasoningBlocks(children)}
+      </ModelOutputStreamdown>
     </CollapsibleContent>
   ),
 );
