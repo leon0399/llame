@@ -31,7 +31,7 @@ export const ReasoningContent = memo(
         "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-muted-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
         // Summary parts open with a bold heading; lift those isolated titles
         // out of the muted body so they read as section headings.
-        "[&_p:has(>strong:only-child)]:text-foreground",
+        "[&_p:has(>[data-streamdown=strong]:only-child)]:text-foreground",
         className,
       )}
       {...props}

@@ -41,6 +41,21 @@ describe("separateGluedReasoningBlocks", () => {
     expect(separateGluedReasoningBlocks(prose)).toBe(prose);
   });
 
+  it("leaves punctuation-adjacent inline emphasis alone", () => {
+    const parenthetical = "Check (**signature**) next";
+    const trailingProse = "Use (**priority**) now.";
+
+    expect(separateGluedReasoningBlocks(parenthetical)).toBe(parenthetical);
+    expect(separateGluedReasoningBlocks(trailingProse)).toBe(trailingProse);
+  });
+
+  it("leaves a standalone **** separator alone", () => {
+    expect(separateGluedReasoningBlocks("****")).toBe("****");
+    expect(separateGluedReasoningBlocks("before\n\n****\n\nafter")).toBe(
+      "before\n\n****\n\nafter",
+    );
+  });
+
   it("leaves an unclosed emphasis run alone", () => {
     expect(separateGluedReasoningBlocks("weighing options **")).toBe(
       "weighing options **",

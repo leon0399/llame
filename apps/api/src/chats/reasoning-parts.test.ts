@@ -81,6 +81,16 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
     ]);
   });
 
+  it('unglues a first reasoning chunk that already contains multiple summary parts', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.reasoning('**A****B**');
+
+    expect(collector.parts()).toEqual([
+      { type: 'reasoning', text: '**A**\n\n**B**' },
+    ]);
+  });
+
   it('inserts a paragraph break when a summary heading butts onto prior prose', () => {
     const collector = createAssistantPartCollector();
 

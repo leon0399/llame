@@ -94,7 +94,10 @@ class AssistantPartCollectorImpl {
       last.text = separateGluedReasoningBlocks(last.text + text);
       return;
     }
-    this.collected.push({ type: 'reasoning', text });
+    this.collected.push({
+      type: 'reasoning',
+      text: separateGluedReasoningBlocks(text),
+    });
   }
 
   toolRequested(toolCallId: string): void {

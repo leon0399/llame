@@ -4,8 +4,8 @@
  * that copy owns display; this copy owns persistence. See vercel/ai#6742
  * and NousResearch/hermes-agent#80736.
  */
-const GLUED_HEADING_RUN = /(?<!\*)\*{4}(?!\*)/g;
-const GLUED_AFTER_PROSE = /(?<=[^\s*])(\*\*(?=[^\s*])[^\n]*?\*\*)/g;
+const GLUED_HEADING_RUN = /(?<=[^\s*])\*{4}(?=[^\s*])/g;
+const GLUED_AFTER_PROSE = /(?<=[^\s*])(\*\*(?=[^\s*])[^\n]*?\*\*)(?=\n|$)/g;
 
 export function separateGluedReasoningBlocks(text: string): string {
   return text

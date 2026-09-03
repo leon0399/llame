@@ -13,12 +13,12 @@
 
 // A heading butting straight onto the previous part, in the two shapes the
 // wire produces:
-//   1. heading-onto-heading — `**One****Two**`, a bare `****` run.
+//   1. heading-onto-heading — `**One****Two**`, a `****` run between heading text.
 //   2. prose-onto-heading   — `interaction!**Two**`.
 // Emphasis that legitimately follows whitespace is left alone, and a heading
 // must close on its own line to count as a summary part.
-const GLUED_HEADING_RUN = /(?<!\*)\*{4}(?!\*)/g;
-const GLUED_AFTER_PROSE = /(?<=[^\s*])(\*\*(?=[^\s*])[^\n]*?\*\*)/g;
+const GLUED_HEADING_RUN = /(?<=[^\s*])\*{4}(?=[^\s*])/g;
+const GLUED_AFTER_PROSE = /(?<=[^\s*])(\*\*(?=[^\s*])[^\n]*?\*\*)(?=\n|$)/g;
 
 export function separateGluedReasoningBlocks(text: string): string {
   return text

@@ -149,6 +149,8 @@ export const SummaryParts: Story = {
     ).toBeVisible();
     await expect(canvas.getByText(/inspecting message schema/i)).toBeVisible();
     await expect(canvasElement.textContent).not.toContain("****");
-    await expect(canvasElement.querySelectorAll("strong")).toHaveLength(2);
+    await expect(
+      canvasElement.querySelectorAll('[data-streamdown="strong"]'),
+    ).toHaveLength(2);
   },
 };
