@@ -332,6 +332,32 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
+  it('opens a new UI reasoning part when reasoning.delta carries a new partId', () => {
+    const t = createRunEventTranslator('run-summary');
+
+    expect(
+      t.translate({
+        eventType: 'reasoning.delta',
+        payload: { text: '**Investigating**', partId: 'rs_1:0' },
+      }),
+    ).toEqual([
+      { type: 'start', messageId: 'run-summary' },
+      { type: 'reasoning-start', id: 'rs_1:0' },
+      { type: 'reasoning-delta', id: 'rs_1:0', delta: '**Investigating**' },
+    ]);
+
+    expect(
+      t.translate({
+        eventType: 'reasoning.delta',
+        payload: { text: '**Inspecting**', partId: 'rs_1:1' },
+      }),
+    ).toEqual([
+      { type: 'reasoning-end', id: 'rs_1:0' },
+      { type: 'reasoning-start', id: 'rs_1:1' },
+      { type: 'reasoning-delta', id: 'rs_1:1', delta: '**Inspecting**' },
+    ]);
+  });
+
   it('re-opens a fresh reasoning part after text (think → answer → think)', () => {
     const t = createRunEventTranslator('run-7');
     t.translate({ eventType: 'reasoning.delta', payload: { text: 'a' } }); // reasoning-1

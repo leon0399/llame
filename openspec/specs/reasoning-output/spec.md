@@ -94,7 +94,13 @@ The backend SHALL use the existing AI SDK reasoning stream protocol and persiste
 
 ### Requirement: Reasoning summaries render as distinct markdown blocks
 
-Displayable reasoning from providers that emit headed summary parts (OpenAI Responses `reasoningSummary`, and equivalent Anthropic/relay shapes) SHALL render each part as its own markdown block. Concatenated parts that glue a heading onto the previous part (`**One****Two**`, or prose butting onto `**Heading**`) SHALL be separated by a paragraph break before markdown rendering, including for reasoning persisted before this repair. Isolated bold titles SHALL read as section headings against the muted body.
+Displayable reasoning from providers that emit headed summary parts (OpenAI Responses `reasoningSummary`, and equivalent Anthropic/relay shapes) SHALL render each part as its own markdown block. When the AI SDK supplies a reasoning part id (`${itemId}:${summaryIndex}` on OpenAI Responses), each distinct id SHALL persist as its own `{ type: "reasoning" }` part. Consecutive persisted reasoning parts still share one Thinking panel. Concatenated parts that glue a heading onto the previous part (`**One****Two**`, or prose butting onto `**Heading**`) SHALL be separated by a paragraph break at display and export, including for reasoning persisted before part ids were recorded and for Chat Completions relays that never emit an id. Isolated bold titles SHALL read as section headings against the muted body.
+
+#### Scenario: Responses summary_index persists as separate parts
+
+- **WHEN** a native Responses stream emits reasoning deltas whose SDK part id changes
+- **THEN** the assistant message stores one reasoning part per id
+- **AND** the chat still shows those parts in one Thinking panel until a tool or visible text splits the group
 
 #### Scenario: Glued summary headings split before render
 

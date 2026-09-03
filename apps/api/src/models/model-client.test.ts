@@ -232,6 +232,47 @@ describe('ModelClient', () => {
     );
   });
 
+  it('forwards the SDK reasoning part id with each reasoning delta', () => {
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.responses',
+      modelId: 'gpt-test',
+    });
+    const openaiProvider = Object.assign(
+      vi.fn(() => providerModel),
+      { chat: vi.fn(() => providerModel) },
+    );
+    createOpenAIMock.mockReturnValue(openaiProvider);
+    streamTextMock.mockReturnValue({});
+
+    const onReasoningDelta = vi.fn();
+    const client = createOpenAIModelClient(
+      {
+        credential: 'sk-user-supplied',
+        providerModelId: 'gpt-test',
+        modelId: 'system:openai:gpt-test',
+        contextWindowTokens: 128_000,
+        nativeOpenAI: true,
+      },
+      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+    );
+    client.streamText({ messages, onReasoningDelta });
+
+    const onChunk = streamTextMock.mock.calls[0]?.[0]?.onChunk;
+    expect(onChunk).toBeTypeOf('function');
+    onChunk?.({
+      chunk: {
+        type: 'reasoning-delta',
+        id: 'rs_1:0',
+        text: '**Investigating**',
+      },
+    });
+
+    expect(onReasoningDelta).toHaveBeenCalledWith(
+      '**Investigating**',
+      'rs_1:0',
+    );
+  });
+
   describe('reasoning effort (add-reasoning-effort)', () => {
     function build(nativeOpenAI: boolean) {
       const providerModel = new MockLanguageModelV3({

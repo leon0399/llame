@@ -91,6 +91,41 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
     ]);
   });
 
+  it('starts a new reasoning part when the SDK part id changes', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.reasoning('**Investigating**', 'rs_1:0');
+    collector.reasoning('**Inspecting schema**', 'rs_1:1');
+
+    expect(collector.parts()).toEqual([
+      { type: 'reasoning', text: '**Investigating**' },
+      { type: 'reasoning', text: '**Inspecting schema**' },
+    ]);
+  });
+
+  it('concatenates deltas that share an SDK part id without unglue', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.reasoning('**Investigating**', 'rs_1:0');
+    collector.reasoning(' the logs', 'rs_1:0');
+
+    expect(collector.parts()).toEqual([
+      { type: 'reasoning', text: '**Investigating** the logs' },
+    ]);
+  });
+
+  it('does not persist breaks at streaming chunk boundaries inside inline emphasis', () => {
+    const collector = createAssistantPartCollector();
+    const streamed =
+      'the**quick**fix for the**root**cause of the**timeout**issue.';
+
+    for (const character of streamed) {
+      collector.reasoning(character);
+    }
+
+    expect(collector.parts()).toEqual([{ type: 'reasoning', text: streamed }]);
+  });
+
   it('inserts a paragraph break when a summary heading butts onto prior prose', () => {
     const collector = createAssistantPartCollector();
 
