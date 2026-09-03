@@ -20,7 +20,7 @@
     "@vitest/coverage-v8": "catalog:",
     "@workspace/config-typescript": "workspace:*",
     "oxlint": "catalog:",
-    "oxlint-tsgolint": "7.0.2001",
+    "oxlint-tsgolint": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

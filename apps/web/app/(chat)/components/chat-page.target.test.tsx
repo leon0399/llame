@@ -271,7 +271,12 @@ describe("ChatPage target hydration", () => {
       const searchParams = new URL(requests[0]!.url).searchParams;
       expect(searchParams.get("limit")).toBe("100");
       expect(searchParams.get("targetSeq")).toBe("900");
-      expect(screen.getByText("target answer")).toBeTruthy();
+      expect(
+        mocks.useChatCalls.some((call) =>
+          call.messages?.some((message) => message.id === "target"),
+        ),
+      ).toBe(true);
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
     });
 
     expect(messagesRequests()).toHaveLength(1);

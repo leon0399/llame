@@ -1,78 +1,35 @@
-# Runtime & package manager: Node + pnpm (decision, 2026-07)
+# Runtime and package manager
 
-llame runs on **Node ≥ 22.19 with pnpm 11.x**. A structured evaluation of
-switching to Bun (as package manager, runtime, and/or test runner) concluded:
-**stay**, and revisit only when the trigger conditions below flip. This
-records the reasoning so the question isn't relitigated from scratch.
+llame uses Node >=22.19 and pnpm 11. Revisit Bun only when all hard triggers
+below change.
 
-## Why not Bun today
+## Why Node remains
 
-Evaluated against this stack specifically (Nest 11 + Express 5, postgres.js,
-pg-boss, Next 16 + Turbopack, Playwright, Sentry), mid-2026:
+- Bun discourages `node:async_hooks`; request context carries trusted RLS
+  identity and Sentry/OTel state.
+- Worker-thread gaps conflict with durable-worker growth.
+- Nest lacks first-party Bun support and had decorator-metadata regressions.
+- Next/Turbopack and Playwright had runtime/multi-worker blockers.
+- Signal handling affects API shutdown and queue/pool drains.
+- llame is long-running and Postgres/LLM-bound; Bun's install/cold-start wins do
+  not target current bottlenecks.
 
-1. **`node:async_hooks`** — Bun's own docs mark usage "strongly discouraged"
-   and V8 promise hooks are not called. Request-scoped context is
-   load-bearing here (per-request RLS `app.current_user_id`, OTel-based
-   Sentry server SDK). This is the hard disqualifier: it intersects the
-   tenancy security model, not just DX.
-2. **`node:worker_threads`** — documented option gaps plus open stability
-   issues; the durable-run worker (#50) is the next major build-out and
-   should not sit on the runtime's weakest module.
-3. **NestJS has no first-party Bun support** (nestjs/nest#15764 open), a live
-   decorator-metadata regression existed at evaluation time
-   (oven-sh/bun#27575), and no public production Nest-on-Bun deployment was
-   found. midday — the flagship all-Bun TypeScript SaaS — chose Hono, not Nest.
-4. **Next 16 + Turbopack under the Bun runtime** had open Fast-Refresh
-   rebuild storms (vercel/next.js#89530) and a hard runtime warning against
-   Cache Components (#87630); Vercel's Bun runtime is beta.
-5. **Playwright cannot run under Bun** (multi-worker instability is the
-   Playwright team's own named blocker, microsoft/playwright#27139), and
-   `bun test` breaks on workspace mocking — which describes the api suite.
-6. **SIGTERM handling has a bug history** in Bun — the api's shutdown-hook
-   drain (postgres.js pool, pg-boss) depends on correct signal delivery.
-7. **The performance profile doesn't fit.** Bun's wins are cold start and
-   install speed. `apps/api` is a long-running, Postgres/LLM-bound SSE
-   server — the regime where V8's tiered JIT and mature GC win and benchmark
-   gaps collapse to single digits. Installs (~10s warm) and warm builds
-   (FULL TURBO, sub-second) are not bottlenecks.
+Bun as package manager alone saves little while losing pnpm patch/deploy,
+requiring lockfile/CI/Nix changes, and weakening isolated-install maturity.
 
-Bun-as-package-manager-only (Node stays the runtime) is viable and supported
-by Turborepo, but buys only a few seconds per install against a lockfile
-migration, CI/Nix rework, the loss of `pnpm deploy`/`pnpm patch` (no Bun
-equivalents), and isolated installs being months old (rocky 1.3.0 launch,
-stabilized over ~4 point releases).
+Reopen when Bun supports async hooks, Nest supports Bun, and Playwright's
+multi-worker blocker closes. Production Nest evidence and resolved Turbopack
+issues are secondary. First adoption should be a new isolated service, not an
+in-place API migration.
 
-## Revisit triggers
+## pnpm contracts
 
-Reopen the question when **all of the hard ones** hold:
-
-- [ ] Bun's `node:async_hooks` docs no longer discourage use (hard)
-- [ ] NestJS ships first-party Bun support (hard)
-- [ ] Playwright's Bun multi-worker blocker is closed (hard)
-- [ ] A credible production Nest-on-Bun deployment exists (soft)
-- [ ] Turbopack-under-Bun issue cluster is resolved (soft)
-
-Realistic first adoption if triggers land: a **new adjunct service** (e.g. a
-messaging-channel gateway on Hono/`Bun.serve`) — never an in-place migration
-of `apps/api`.
-
-## pnpm specifics (what we use and why)
-
-- **`catalog:`** in `pnpm-workspace.yaml` — one shared version per dependency
-  used by 2+ workspaces. Add new shared deps to the catalog, not per-package.
-- **`allowBuilds`** — the reviewed allow/deny list for install scripts
-  (successor to `onlyBuiltDependencies`; the only mechanism in pnpm 11).
-  Every entry is a decision; unlisted packages are blocked.
-- **`enableGlobalVirtualStore` is deliberately off** — it would make
-  per-worktree installs near-instant for the multi-agent worktree workflow
-  (<https://pnpm.io/git-worktrees>), but tsgo resolves through the
-  global-store realpaths and `@types` identities split, failing the web
-  typecheck on identical dependency versions. Revisit when tsgo/TS support
-  the layout.
-- Keep pnpm current on the 11.x line. pnpm 11's Security & build defaults
-  (`minimumReleaseAgeStrict`, `blockExoticSubdeps`, `strictDepBuilds`,
-  `optimisticRepeatInstall`, `verifyDepsBeforeRun`) are pinned in
-  `pnpm-workspace.yaml` so a later major cannot silently flip them.
-  `minimumReleaseAge` stays 10080 (7 days), stricter than 11's 1440 default.
-  `engineStrict` lives in `pnpm-workspace.yaml` (`.npmrc` is auth/registry-only
-  in 11). The 12.x step is #634.
+- Put dependencies shared by two or more workspaces in
+  `pnpm-workspace.yaml`'s `catalog:`.
+- `allowBuilds` is the reviewed install-script allowlist; unlisted scripts are
+  blocked.
+- Keep `enableGlobalVirtualStore` off: tsgo resolves global-store realpaths into
+  split `@types` identities. Revisit when tsgo supports that layout.
+- Stay current on pnpm 11. Security/build defaults are pinned in
+  `pnpm-workspace.yaml`; `minimumReleaseAge` is seven days and `engineStrict`
+  lives there. pnpm 12 is #634.

@@ -50,3 +50,5 @@ npm-debug.log*
 # Local agent context (per-developer, not shared)
 CLAUDE.local.md
 .claude/worktrees/
+coverage/
+.stryker-tmp/

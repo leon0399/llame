@@ -1,55 +1,52 @@
 # apps/web
 
-Next.js 16 App Router frontend. `apps/web` is a thin browser client of `apps/api`: it owns UI state and calls `NEXT_PUBLIC_API_URL` directly for auth and chat. Consumes shared UI from `@workspace/ui`.
+Next.js 16 App Router client. It owns browser/UI state and calls `apps/api` for
+auth, chat, and product persistence; local UI preferences may use cookies. It
+has no database.
 
-## This is NOT the Next.js you know
+Before changing Next behavior, read the relevant installed guide under
+`node_modules/next/dist/docs/`. Next 16 may differ from remembered APIs.
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+## Stack and structure
 
-## Stack
-
-- Next.js 16 (App Router, Turbopack dev + build) + React 19
-- Auth: api-owned revocable sessions; browser calls `/auth/v1` with `credentials: 'include'`
-- Server state: TanStack Query; non-streaming HTTP via committed Orval Fetch bindings
-- UI: shadcn/ui through `@workspace/ui`, Tailwind, framer-motion
-- Chat transport: Vercel AI SDK v6 `DefaultChatTransport` streaming from `apps/api`
-- DB: none in web; `apps/api` is the sole DB owner
-- Observability: Sentry (`@sentry/nextjs`)
-
-## Structure
-
-- `app/(auth)/` — login/register UI; calls `apps/api` `/auth/v1`
-- `app/(chat)/` — chat UI; streams via `apps/api` `/api/v1/chats`
-- `lib/` — `api/`, `services/`, `hooks/`, `appearance/`, static model display data
-- `components/`, `contexts/`, `hooks/`, `utils/`
-- `proxy.ts` (cookie-presence gate; Next 16's rename of `middleware.ts`), `instrumentation*.ts` + `sentry.*.config.ts`
+- React 19, TanStack Query, Tailwind, shadcn via `@workspace/ui`, Sentry.
+- Non-streaming HTTP uses generated Orval Fetch bindings. AI SDK
+  `DefaultChatTransport` owns chat streams.
+- `app/(auth)/`: login/register; `app/(chat)/`: chat UI.
+- `lib/`: API policies, feature services, hooks, appearance, and model display.
+- `proxy.ts`: cookie-presence UX gate; API guards remain authoritative.
 
 ## Commands
 
 ```bash
-pnpm --filter web dev        # next dev (Turbopack is the Next 16 default)
+pnpm --filter web dev
 pnpm --filter web build
-pnpm --filter web lint       # oxlint --deny-warnings --report-unused-disable-directives  (lint:fix to autofix)
-pnpm --filter web test       # vitest run  (test:watch to watch)
-pnpm --filter web typecheck  # tsgo --noEmit (TypeScript 7 Go port; emit/build stays on TS 5.x)
+pnpm --filter web lint
+pnpm --filter web test
+pnpm --filter web typecheck
 ```
 
-## Setup
+Copy `.env.example` to `.env.local`; set `NEXT_PUBLIC_API_URL`. Sentry is
+optional.
 
-Copy `.env.example` to `.env.local`. Needs `NEXT_PUBLIC_API_URL` pointing at `apps/api`. Sentry DSN optional.
+## Traps
 
-## Gotchas
-
-- **Where a test goes** ([docs/testing.md](../../docs/testing.md) rule 5): a test that renders a component and asserts DOM/interaction belongs in the component's `.stories.tsx` as a play-function test, not a jsdom `.test.tsx`. jsdom is for pure logic, headless hooks (`renderHook`, React Query cache logic), and — temporarily, with a one-line comment — containers mocking ≥3 modules, the router, or the AI SDK streaming hook.
-- Route groups: `(auth)` and `(chat)`.
-- `proxy.ts` is a cookie-presence UX gate only. It must not import NextAuth, touch the DB, or call api per request. `apps/api` guards are authoritative.
-- `useMe()` is auth-critical: keep `staleTime: 0` and `refetchOnMount: 'always'` despite the global QueryClient stale time.
-- Non-streaming chat, run, and me requests use generated endpoint functions with
-  the authenticated browser Fetch policy. Keep Query keys, hooks, mutations,
-  cache behavior, and domain error mapping handwritten in feature services.
-- Chat send, reconnect, and run-event streams bypass generated bindings. Keep
-  `authAwareFetch` wired into `DefaultChatTransport`; generated functions must
-  never buffer these streams.
-- Chat history/message reads are server state. Route them through TanStack Query query keys/hooks; SSR-loaded history must seed React Query via `initialData` or hydration before `useChat` consumes it. Do not pass server-fetched messages directly into chat UI state. Keep draft/new-chat message queries disabled until the chat exists server-side.
-- Chat query keys live in `lib/services/chat/queries.ts` as a feature key factory. Keep keys as serializable arrays from generic resource to specific resource/subresource (`["chats"]`, `["chats", "list"]`, `["chats", chatId, "messages"]`). Use `chatQueryKeys.lists()` for chat-list invalidation and `chatQueryKeys.messages(chatId)` for message history. Query functions that depend on key variables must read them from `QueryFunctionContext`, not from a separate closure.
-- Mutations follow the reference pattern in `lib/services/org-units/mutations.ts`: a mutation-key factory mirroring the query-key factory, plain fetchers as `mutationFn`, and optimistic cache patches only where the next state is client-computable (cancel → snapshot → patch → rollback-on-error → always-invalidate-on-settled). Creations/grants that need server-assigned fields (id, path, createdAt, …) stay invalidate-on-success only, never optimistic.
+- Follow [docs/testing.md](../../docs/testing.md) for component-story versus
+  jsdom placement.
+- `proxy.ts` must not query the API or database. `useMe()` keeps `staleTime: 0`
+  and `refetchOnMount: "always"`.
+- Components and routes use handwritten feature services for runtime calls;
+  generated model types may be imported type-only. See
+  [`lib/api/AGENTS.md`](lib/api/AGENTS.md).
+- Chat send, reconnect, and run-event streams bypass generated bindings and use
+  `authAwareFetch`; generated calls must not buffer them.
+- Chat history is TanStack Query state. Seed SSR data through hydration or
+  `initialData`; do not pass it directly into `useChat` state. Disable draft
+  message queries until the Chat exists.
+- Query keys are serializable arrays from general to specific and live in
+  feature factories. Query functions read variables from
+  `QueryFunctionContext`.
+- Mutations follow `lib/services/org-units/mutations.ts`: optimistic updates
+  only when the client can compute the complete next state; otherwise
+  invalidate after success. The optimistic sequence is cancel, snapshot, patch,
+  rollback on error, then always invalidate on settle.

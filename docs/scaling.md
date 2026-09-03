@@ -1,420 +1,122 @@
 # Horizontal scaling
 
-How llame's runtime topology scales, what each layer's ceiling is, and the
-constraints the durable-run pipeline (#48/#50) must respect to keep horizontal
-scaling true. Written against the v0.1→v0.2 architecture (SPEC §9, §23.1,
-§24.0.1); update when the worker split lands.
-
-## Topology
+llame scales API and worker processes around one Postgres database containing
+the application and pg-boss schemas.
 
 ```text
-            ┌────────────┐         ┌────────────┐
-  clients → │  api × N   │         │ worker × M │   (`api` = dist/main.js,
-            │ (NestJS,   │         │ (dist/     │    `worker` = dist/worker.js
-            │  HTTP+SSE) │         │  worker.js)│    — one image, two
-            └─────┬──────┘         └─────┬──────┘    entrypoints, #116)
-                  │                      │
-                  └───────┬──────────────┘
-                          ▼
-                   ┌─────────────┐
-                   │  Postgres   │  app schema (Drizzle) + `pgboss` schema
-                   │  (single)   │  — one database, two connection pools
-                   └─────────────┘
+clients -> api x N ----+
+                       +-> Postgres
+          worker x M --+
 ```
 
-- **api replicas (N)** are stateless: sessions are DB rows, chat state is DB
-  rows, SSE replay reads the DB by cursor. Any replica can serve any request;
-  no sticky sessions required.
-- **worker replicas (M)** are pg-boss consumers, and the queue is the ONLY
-  execution path (inline request-thread execution was removed). Which
-  consumers a given process runs — co-located inside `api`, split into a
-  dedicated `worker`, or both — is a **worker profile** (below), not a
-  hardcoded topology. pg-boss claims jobs with `SELECT … FOR UPDATE SKIP
-LOCKED`, so adding workers needs no coordination: M processes polling one
-  queue never double-claim a job. This is the same mechanism behind Oban,
-  Solid Queue, River, and Graphile Worker — the industry-standard
-  Postgres-backed queue design.
-- **Postgres** is the deliberate single point of coordination (SPEC §24.0.1:
-  no Redis, no separate scheduler). Self-hosted deployments scale it
-  vertically; the queue pattern's practical ceiling (thousands of jobs/sec on
-  a modest instance) is orders of magnitude above llame's target load.
+- API replicas are stateless: sessions, Chat state, and SSE replay cursors live
+  in Postgres; no sticky sessions.
+- Worker replicas claim pg-boss jobs with `SKIP LOCKED`. Queue execution is the
+  only Run path.
+- Postgres is the deliberate coordination point; no Redis or separate
+  scheduler.
 
-## Worker profiles — the topology primitive (durable-run-workers D2/D4, #116)
+`dist/main.js` starts HTTP plus the selected worker profile;
+`dist/worker.js` starts a no-HTTP application context. One build/image emits
+both.
 
-A **worker profile** is a named `{ group → concurrency }` map: which of the
-four fixed **consumer groups** — `runs` (RunsWorkerService + its `runs.dead`
-DLQ), `search-reindex` (SearchReindexWorker + the 5-minute sweep),
-`sessions-cleanup` (SessionCleanupService), and `search-embed`
-(SearchEmbedWorker, chat-search-embeddings design D14 — a separate group from
-`search-reindex` because it is network-bound and latency-tolerant where
-reindexing is DB-bound and latency-sensitive, and because its concurrency is
-the operator's provider-spend/self-hosted-saturation dial) — a process
-consumes, and each group's main-queue concurrency. A group absent from the
-active profile means that process registers **nothing** for it, not even at
-concurrency 1. `search-embed` additionally gates on an embedding model being
-configured (`search.chats.embeddingModelId`, off by default): a process whose
-profile covers the group still registers nothing for it until an operator
-declares a model.
+## Worker profiles
 
-Configured in `llame.config.json`'s `workers` map, selected at boot by the
-`LLAME_WORKER_PROFILE` env var (default `all`). Two profiles are always
-available as built-ins (no config file needed):
+`workers` in `llame.config.json` maps profile names to consumer-group
+concurrency. `LLAME_WORKER_PROFILE` selects one at boot (default `all`). Fixed
+groups:
 
-- **`all`** — every group at concurrency 1. This is today's co-located
-  behavior exactly: `main.ts` (the api) with no `LLAME_WORKER_PROFILE` set
-  runs all four groups in-process, one debugger target, no compose changes
-  required for a small/dev install.
-- **`web`** — no groups. An HTTP-only process that enqueues (chat messages,
-  reindex jobs) but consumes nothing; pairs with a separate process running
-  `all` (or a subset).
+- `runs`: Run worker plus dead-letter handling;
+- `search-reindex`: reindex worker and sweep;
+- `sessions-cleanup`: session cleanup;
+- `search-embed`: network-bound embedding producer, registered only when a
+  model is configured.
 
-Both `apps/api/src/main.ts` (HTTP + whatever its profile covers) and
-`apps/api/src/worker.ts` (`NestFactory.createApplicationContext` — no HTTP
-server at all) resolve the SAME active profile through `WorkerProfileService`
-— there is no separate co-location toggle (no `RUN_EXECUTION_MODE`).
-`nest build` compiles the whole `src/` program, so one image produces both
-`dist/main.js` and `dist/worker.js`; `pnpm --filter api start:worker:prod`
-runs the dedicated entrypoint.
+Built-ins:
 
-**Fail-closed misconfiguration guards**, enforced at boot:
+- `all`: every group at concurrency 1; default co-located topology.
+- `web`: no consumers; pair with dedicated workers.
 
-- A profile referencing a group name that isn't one of the four fixed groups
-  fails the JSON Schema validation (`llame.config.schema.json`'s closed
-  per-profile shape) — never silently ignored.
-- `LLAME_WORKER_PROFILE` naming a profile absent from the configured
-  `workers` map throws out of `WorkerProfileService`'s constructor, aborting
-  boot — a typo here must never silently run a process with zero consumers.
-- **Operator responsibility, not enforced by code**: every group must be
-  covered by _some_ deployed profile across the fleet. Running only a `web`
-  api with no paired `worker` (or a `worker` profile that omits a group)
-  means that group's jobs pile up unrun — the built-in `all` profile
-  guarantees coverage by default; a custom split is the operator's choice to
-  get right.
+Unknown group/profile names fail boot. Code cannot prove fleet coverage;
+operators must deploy at least one consumer for every required group. A
+web-only fleet accepts jobs that never run.
 
-**Splitting api/worker in a real deployment** (illustrative — this repo ships
-no Dockerfile/production `compose.yaml` yet; adapt to your own image build):
+Illustrative split (the repository still ships no production image/compose):
 
 ```yaml
 services:
   api:
-    build: .
     command: node dist/main.js
-    environment:
-      LLAME_WORKER_PROFILE: web # HTTP only — enqueues, consumes nothing
-    ports: ["3001:3001"]
-
+    environment: { LLAME_WORKER_PROFILE: web }
   worker:
-    build: .
     command: node dist/worker.js
-    environment:
-      LLAME_WORKER_PROFILE: all # every group, concurrency 1
-    deploy:
-      replicas: 3 # `docker compose up --scale worker=3` works the same way
+    environment: { LLAME_WORKER_PROFILE: all }
+    deploy: { replicas: 3 }
 ```
 
-**Adding a taint profile** (a job-class pinned to a capable machine — the
-first real candidate is the future `embeddings` group, #196): declare a new
-named profile in `workers` subscribing to only that group (e.g.
-`"heavy": { "embeddings": 2 }`), deploy a process with
-`LLAME_WORKER_PROFILE=heavy` on that machine, and drop the group from `all`
-(or whichever profile the rest of the fleet runs) so it isn't double-consumed.
-No routing/tagging layer is needed — pg-boss's per-queue `work()` subscription
-already is the router.
+To isolate a job class, define a profile containing only that group and remove
+the group from general profiles. pg-boss queue subscription is the router; add
+no parallel routing layer.
 
-**Connection-pool sizing.** A run holds a database connection for each `runAs`
-transaction, so per-process concurrency is bounded by the postgres pool
-(`db.poolSize` in `llame.config.json`, default 10, `DB_POOL_SIZE` fallback):
-set it **≥ the process's total run concurrency** (the sum of the active
-profile's group concurrencies) plus headroom for HTTP requests on a co-located
-api. Across the fleet, `Σ(poolSize × replicas)` must stay within Postgres
-`max_connections`. The concurrency knob without a matching pool just moves the
-bottleneck from the queue to the connection — raise them together.
+## Capacity
 
-## Knowledge root mounts
+A Run holds an application-pool connection during each `runAs` transaction.
+Per-process `db.poolSize` must cover Run concurrency plus HTTP headroom.
+Postgres capacity must also include pg-boss's separate pool and reserved
+operator/migration connections; the fleet total stays below `max_connections`.
 
-Personal Knowledge adds one operator-configured `knowledge.root`; it is not a
-worker-profile group or a queue-routing key. Every API process that authors Runs
-must declare the setting so accept-time availability is consistent. A process
-serving `POST /api/v1/knowledge-spaces` needs write access to create stable-ID
-children. Every process consuming `runs` needs read access to every current
-owner child it may execute. A split deployment may use different absolute paths
-only when they expose the same logical stable-ID directory set. Subset mounts
-and owner-affinity routing are unsupported until execution placement exists.
+| Load           | Scale with                          | Limit                                |
+| -------------- | ----------------------------------- | ------------------------------------ |
+| HTTP/SSE       | API replicas                        | Postgres read/write capacity         |
+| Run execution  | worker replicas/profile concurrency | DB pool and provider capacity        |
+| Scheduled jobs | no action                           | pg-boss elects one scheduler         |
+| Job isolation  | group-specific profile              | operator profile coverage            |
+| Rate limiting  | shared storage (future)             | current counters are per API process |
 
-Configuration loading does not probe the root. A missing or unusable mount is
-reported as a closed Knowledge-unavailable outcome during provisioning or worker
-execution; it never falls back to the process working directory, another owner,
-or remote storage. Keep the root and its children trusted-writer-only. Tenant-
-writable and synchronization-managed mounts are unsupported. Final symlinks are
-refused and final files are opened with `O_NOFOLLOW`, but hostile concurrent
-parent swaps or hardlink races still require future descriptor-relative
-containment hardening.
+## Runtime invariants and current limitation
 
-See [docs/knowledge.md](knowledge.md) for the operator setup, rollout, limits,
-and rollback boundary.
+1. Durable Run truth is `runs` plus `run_events`; process state must be
+   reconstructable or live-connection-local.
+2. Terminal status and `run.<status>` event append in one transaction.
+3. Postgres forced RLS owns tenant isolation.
 
-Run-liveness config changed alongside this (durable-run-workers D7): the
-queue's native `heartbeatSeconds` (set via `runs.heartbeatSeconds` in
-`llame.config.json`) replaced the old application-level heartbeat +
-stale-threshold settings — see `apps/api/src/runs/run-queues.ts`.
+Mid-flight cancellation is process-local. Co-located `all` aborts immediately;
+in split topology, API sets `cancel_requested_at` but a worker already streaming
+does not receive a cross-process signal and may spend until completion. A
+LISTEN/NOTIFY or control-queue channel is required; do not claim full split
+cancellation before it ships.
 
-## What scales by adding replicas
+Run liveness uses process wall-clock abort, pg-boss heartbeat/retry, dead-letter
+terminalization, and age-based unwedge for queued rows with no active job.
+Enqueue is not transactional with the Run row: failure marks the Run failed
+best-effort; age unwedge covers a crash between row commit and enqueue.
 
-| Load                          | Scale by                                      | Mechanism                                                                                                                                 |
-| ----------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| HTTP request throughput       | api replicas                                  | stateless handlers, DB-backed sessions                                                                                                    |
-| Concurrent SSE replay streams | api replicas                                  | cursor reads; any replica serves any run                                                                                                  |
-| Run execution throughput      | `worker` replicas (`docker scale worker=N`)   | SKIP LOCKED job claiming — independent of api replica count                                                                               |
-| Scheduled jobs (cron)         | nothing to do                                 | pg-boss elects a single scheduler internally                                                                                              |
-| Per-worker run concurrency    | a profile's `runs` concurrency (design D1/D2) | LLM runs are IO-bound; a worker must hold many streams in flight — `concurrency × replicas` must stay within the Postgres connection pool |
-| Job-class isolation (taints)  | a dedicated worker profile (design D2)        | a queue-subset profile on its own machine — no routing layer, see "Worker profiles" above                                                 |
-| Rate-limit fairness           | shared ThrottlerStorage (future)              | throttle counters are per-process in-memory today — N api replicas ⇒ N× the ceiling                                                       |
+Per-Chat ordering is exclusivity, not queueing: one nonterminal Run per Chat;
+concurrent new messages get 409 and same-message retry supersedes.
 
-## Invariants that keep this true
+## Knowledge mounts
 
-These are load-bearing; breaking any of them silently breaks horizontal
-scaling correctness (not just performance):
+Every Run-accepting API declares the logical `knowledge.root`; provisioning
+needs child-create access and every `runs` consumer needs all relevant children.
+Different absolute paths must expose the same stable IDs. Missing mounts fail
+closed; subset mounts and owner-affinity routing are unsupported. See
+[knowledge.md](knowledge.md).
 
-1. **No in-process state that outlives a request.** A run's durable truth is
-   the `runs` row + `run_events` log; a client reconnecting to a _different_
-   api replica must observe the same stream via the cursor. Anything cached
-   in-process (delta buffers, abort controllers) must be reconstructible from
-   the DB or scoped to a single live connection.
-   - **Known limitation (split api/worker deployment).** Mid-flight
-     cancellation currently reaches only the _local_ `RunAbortRegistry`: a
-     Stop/`PATCH` on the api process aborts an in-flight run only when that run
-     executes in the **same** process (the co-located `all` profile — the
-     default — where cancel works end-to-end). In a split deployment (api on
-     `web`, a run executing in a separate `worker`), the api sets
-     `runs.cancel_requested_at`, but the worker reads it once at pickup and has
-     no cross-process signal to abort a stream already in flight — so the run
-     can keep spending until it completes. Fixing it needs a cross-process
-     cancel channel (LISTEN/NOTIFY or a control queue — the same substrate as
-     the push-based deltas in #118); tracked as a follow-up alongside the
-     split-deployment operationalization. Co-located deployments are
-     unaffected.
-2. **Terminal status transitions append their `run.<status>` event in the
-   same transaction** (see `RunEventType` in `runs-repository.ts`). The SSE
-   replay loop's poll-efficiency optimization depends on it.
-3. **Tenant isolation is enforced in Postgres (FORCE RLS), not in app
-   memory** — replicas can't disagree about authorization.
+## MCP process multiplication
 
-## Revision-coordinated semantic-part rollout
+Every API and worker owns clients and discovery state. Replica count multiplies
+remote connections and stdio child processes, including `web` APIs that need a
+catalog to author Run snapshots. Catalog divergence settles exact declaration
+mismatches as unavailable. See [mcp-tools.md](mcp-tools.md) for configuration
+and deployment.
 
-The API persists server-authored message parts before a queued Run executes, and
-workers later render those parts into model context. Adding a new semantic-part
-schema is therefore not mixed-revision compatible: an old worker can silently
-omit control context authored by a newer API.
+## Open scaling work
 
-`data-recency-digest` follows the same rule without a schema migration: deploy workers
-that render it before any API authors it. Rollback stops digest authoring first, drains
-accepted Runs, and only then rolls binaries back. Persisted digest parts remain durable
-conversation history; deleting them would falsify the context a prior Run received.
+- #118: replace 200 ms live-event polling and add cross-process cancellation
+  signaling; cursor polling remains for resume.
+- #119: prune unbounded terminal `model.delta` history.
+- #116: production image/compose for independent workers.
 
-**The unified `data-context` part changes what counts as a boundary.** Every
-server-authored context item now shares one part type, discriminated by a
-`producer` and an optional `form`, and an unrecognized value of either is
-tolerated: an unknown `form` is read as absent, and an unknown `producer` parses,
-is recorded, and renders nothing. That tolerance is what keeps a newer API's part
-from being **rejected** by an older worker — it is not a licence to deploy
-writers first.
-
-**Deploy producer-aware workers before any API authors that producer.** An older
-worker accepts the envelope and then renders nothing for the producer it does not
-know, so the item is silently absent from the model's view for the life of that
-Run — and an omitted item may be exactly the tool-availability or instruction
-control the turn depended on. What tolerance buys is that the surrounding request
-still executes instead of failing whole; the ordering requirement is unchanged.
-
-What remains a coordinated boundary is a change to the **envelope itself** — a
-new field on `data-context` — because the envelope is validated by exact key set.
-Land backward-compatible readers first, deploy workers that understand the change
-before any API authors it, then quiesce old writers and drain accepted Runs
-before the writer cutover. Rollback stops new authoring first and drains Runs
-accepted by the newer API before rolling binaries back.
-
-Tolerance changes the failure mode rather than removing the discipline. A worker
-that does not know a producer renders nothing for it, so the model never sees the
-item; the loss is recoverable after the fact because the item is still recorded in
-`runs.context_items` with empty text marking the omission, and its part remains in
-`messages.parts`. That makes a version skew auditable rather than invisible — it
-does not make it harmless.
-
-One departure from the rule above: the `20260821030000_context_item_cutover`
-migration **deleted** the retired `data-model-context`, `data-tool-availability`,
-and `data-recency-digest` parts instead of reshaping them, because no instance
-held history worth carrying through the boundary. Rollback restores the code
-path, not the rows, and a chat predating the cutover has no context parts and no
-model-switch boundary.
-
-For `data-tool-availability`, first apply the backward-compatible preparation
-migration: the new snapshot columns have v0 defaults and both the legacy and
-availability-aware conflict indexes remain, so old API writers continue to
-work. Compatible readers and workers may be deployed in this state, but no new
-availability writer may be activated: the retained legacy index would reject a
-v1 snapshot that reuses an existing prompt/tool contract.
-
-Before the writer cutover, quiesce old API writers and drain accepted Runs.
-Then apply the cutover migration that removes the legacy conflict index and the
-temporary v0 defaults, deploy compatible workers, and only then deploy the API
-revision that authors the part. A straight-through upgrade applying preparation
-and cutover together must quiesce old writers before migration starts. Rollback
-reverses the binary order: stop new API authoring, drain Runs accepted by it,
-then roll workers back. Do not delete the additive columns or retained semantic
-parts during rollback; a later forward migration may remove them under a
-separately specified retention policy.
-
-In a split deployment, compatible dedicated workers can be deployed before the
-cutover. The default `all` profile is co-located: `main.ts` is both API and
-consumer, so worker-first deployment is impossible. Quiesce new Chat sends and
-drain every accepted Run before applying the cutover and restarting the fleet,
-or temporarily provide compatible dedicated workers and move every API process
-to `web` before new authoring starts. Do not claim co-located worker-first
-compatibility.
-
-### Compaction replacement-history hard cutover
-
-The `20260825115153_naive_the_executioner` migration replaces
-`compactions.tool_observation_ledger` with required JSONB
-`compactions.replacement_history`. This is an alpha hard cutover: there is no
-legacy reader, nullable fallback, dual writer, compatibility backfill, or mixed
-old/new worker deployment. The migration is safe only when no compaction row
-needs conversion.
-
-Obtain maintainer agreement and create and verify a pre-migration snapshot.
-With the co-located `all` profile, quiesce new Chat sends and drain or terminate
-accepted Runs before stopping the processes. In a split deployment, stop the
-`web` APIs first, drain on compatible dedicated workers, then stop the workers.
-After every process exits and compaction writes settle, run both checks as
-superuser or a `BYPASSRLS` role with `SELECT` on both tables:
-
-```sql
-SELECT count(*) AS nonterminal_runs
-FROM runs
-WHERE status NOT IN ('completed', 'failed', 'cancelled', 'expired');
-
-SELECT count(*) AS compactions
-FROM compactions;
-```
-
-Stop if either count is non-zero. Apply the migration and application revision
-together. After the first `replacement_history` write, recover through a
-forward fix or restore the verified snapshot and discard later writes; without
-that snapshot, only a forward fix remains. Do not remove replacement history
-without an approved retention policy.
-
-## Process-local MCP clients
-
-Every API, co-located consumer, and dedicated worker process eagerly owns one
-independent client/session lifecycle per configured MCP server. Clients and
-sessions are never shared through Postgres or transferred between processes.
-This preserves the durable execution boundary but makes replica count part of
-outbound capacity planning: each process maintains its own connection,
-periodically performs complete discovery after an independently jittered 48–72
-minute delay, and reconnects independently with Full Jitter.
-
-For a **local stdio** server this is not a connection but a child process, so
-replica count multiplies processes rather than sockets: every process holding
-an MCP catalog runs one child per configured stdio server, and the total is
-(API processes + worker processes) x (stdio servers). That includes `web`-profile
-API processes, which never execute a tool — they still need a live catalog to
-author a Run's availability manifest at accept time, and discovery has no
-offline form. In the default co-located topology this is one child per server
-and unremarkable; scaling out is where it becomes a real resource decision, and
-it is worth knowing before adding a replica that a browser-backed MCP server
-means another browser.
-
-One server's failure is isolated. Turns read the latest atomically published
-local catalog and never wait for discovery or reconnect. The API may therefore
-snapshot a declaration while the claiming worker observes that server as
-unavailable or has a different declaration. The worker executes only an exact
-id/hash match; divergence settles that remote call as non-fatal unavailable
-instead of substituting a contract or failing unrelated work.
-
-Enabling operator MCP configuration is another revision boundary. Keep
-`mcpServers` empty during the binary upgrade. A split deployment can drain and
-deploy compatible dedicated workers before the matching `web` API. In the
-default co-located topology, quiesce new Chat sends and drain Runs before
-restarting all processes on the compatible binary, or temporarily move
-consumption to compatible dedicated workers; calling that topology
-"worker-first" is incorrect. Only after every binary is compatible should every
-process receive the same MCP config and secret inputs and restart. Rollback must
-leave capable workers and their config in place until bound Runs drain. A
-co-located rollback therefore quiesces sends and drains before any restart or
-config removal; a split deployment can first restart only the API with MCP ids
-removed, drain on the still-capable dedicated workers, and then remove server
-config and roll binaries back. See [mcp-tools.md](mcp-tools.md) for the full
-operator sequence.
-
-## Design constraints for the worker split — status after #107
-
-Decided up front so the worker slice wouldn't default into shapes that cap
-scaling later. What each became:
-
-1. **Transactional enqueue → implemented as fail-fast + self-heal.** The
-   enqueue is NOT transactional with the run row (pg-boss writes through its
-   own pool). What ships instead: an enqueue failure immediately fails the
-   run in a best-effort transaction (freeing the chat's single-flight slot).
-   Residual stuck-`queued` state self-heals via **two** paths, because the
-   queue's native liveness (design D7 below) only recovers an _active_ job: a
-   run whose worker died mid-execution is retried/dead-lettered by the queue,
-   but a run with **no active job at all** — never enqueued (a crash between
-   the run-row commit and the enqueue) or never picked up (a worker outage) —
-   is expired by an **age-based unwedge** in the single-flight admission path
-   (a next message expires a blocker whose last sign of life exceeds
-   `timeoutSeconds + heartbeatSeconds`). The old _heartbeat_-based unwedge was
-   deleted with the deadman collapse and **re-keyed to age**, so it sits
-   alongside queue-native liveness rather than being replaced by it. pg-boss's
-   external-transaction `db` option remains the upgrade if those windows ever
-   matter.
-2. **Per-chat ordering → implemented as exclusivity, not queueing.** The
-   partial unique index (`runs_chat_inflight_unique`) admits one non-terminal
-   run per chat; a concurrent different message gets **409** (with a
-   zombie-expiry unwedge), a same-message retry supersedes. There is no
-   per-chat job queue to reorder, so `key_strict_fifo` was unnecessary —
-   ordering is client-driven by design.
-3. **Worker concurrency — implemented (design D1/D2).** `ConsumeOptions.concurrency`
-   maps to pg-boss's native `localConcurrency`: one `work()` registration
-   spawns N per-process workers that each settle one job independently (a
-   throw fails only that job). Concurrency is a per-**consumer-group** knob
-   inside the active worker profile, applied to the group's main queue —
-   see "Worker profiles" above.
-4. **Live deltas pushed, not polled — open (#118).** The stream bridge polls
-   `run_events` at 200ms for the LIVE path today — and with inline execution
-   removed this is now EVERY turn's path, which raises #118's priority.
-   LISTEN/NOTIFY per-run channels are the planned fix; polling stays for
-   resume.
-5. **Event-log retention — open (#119).** `model.delta` rows still accumulate
-   without bound; a pg-boss cron prunes them for terminal runs.
-6. **Deadman → collapsed onto the queue's native heartbeat (design D7).**
-   The hand-rolled per-run deadman (app-level `setInterval` heartbeat +
-   stale-threshold CAS) is deleted. Liveness is now three mechanisms: an
-   in-process wall-clock abort for the alive-but-overrunning case, the
-   `runs` queue's native `heartbeatSeconds` (worker death → pg-boss
-   fails/retries the job → a healthy worker re-executes it), and a
-   `runs.dead` consumer that writes a terminal `run.expired` in the owner's
-   tenant scope on retry-exhaustion. `markFinished`'s first-writer-wins
-   guard (invariant 2) still makes it race-safe.
-
-Independent worker scaling (a dedicated no-HTTP entrypoint, `worker × M`
-separate from `api × N`) is **implemented**: `apps/api/src/worker.ts` boots a
-headless `NestFactory.createApplicationContext`, gated by the same worker
-profile mechanism as the co-located api. `nest build` emits both
-`dist/main.js` and `dist/worker.js` from one image. What's still open: this
-repo ships no Dockerfile or production `compose.yaml` yet, so the compose
-snippet above is illustrative, not a runnable service — #116's remaining
-work is wiring that into whatever image build a deployment uses.
-
-## When Postgres stops being enough
-
-The seams to swap at, in order of likelihood:
-
-- **Queue throughput**: `Queue` interface → BullMQ/Redis (the interface was
-  shaped for this; note it does _not_ abstract over workflow engines like
-  Temporal — that would be a rearchitecture, not a swap).
-- **Delta fan-out**: LISTEN/NOTIFY → Redis pub/sub.
-- **Read load**: Postgres read replicas for the SSE replay/read surface.
-
-None of these are expected inside the self-hosted target envelope; the point
-of this document is that reaching for them is a swap at a named seam, not a
-rewrite.
+If Postgres becomes the measured limit, swap at existing seams: queue interface
+to Redis-backed queue, LISTEN/NOTIFY to pub/sub, then SSE/read paths to replicas.
+None is justified inside the current self-hosted envelope.

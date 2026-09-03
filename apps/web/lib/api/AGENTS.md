@@ -1,39 +1,22 @@
-# API Client Layer
+# apps/web/lib/api
 
-## Generated ownership
+## Generated boundary
 
-`generated/` is produced from `apps/api/openapi.json` by Orval 8.24.0. Do not
-hand-edit generated files. The API schema is authoritative; regenerate the
-schema and client together with:
+`generated/` comes from `apps/api/openapi.json` through Orval 8.24.0. Never edit
+it directly. Regenerate both sides with `pnpm generate:api-client`; narrower
+commands are `generate:api-schema` and `generate:web-client`. Review the pinned
+`@orval/fetch` patch with every Orval upgrade.
 
-```bash
-pnpm generate:api-client
-```
+Only `lib/api/` and `lib/services/` may import generated runtime modules.
+Type-only model imports are allowed in consumers and fixtures. Components and
+routes use feature services for requests, query keys, pagination, cancellation,
+cache invalidation, and domain errors.
 
-The shorter commands are `pnpm generate:api-schema` and
-`pnpm generate:web-client`. The checked-in `@orval/fetch@8.24.0` patch is part
-of this reproducible generation path and must be reviewed with any Orval bump.
+Generated code stays runtime-neutral: relative URLs; no Next, React, TanStack,
+environment, or browser imports. Callers inject the policy from `fetch.ts`.
+`buildApiUrl` is reserved for explicit AI SDK transports.
 
-## Consumption boundary
+The `streaming` OpenAPI tag is excluded. Chat send, reconnect, and run-event
+streams remain explicit transports using `buildApiUrl` and `authAwareFetch`.
 
-Generated endpoint modules are service-layer inputs. Only modules under
-`lib/services/` and `lib/api/` may consume them; components and routes use
-feature services instead of importing generated modules directly. This keeps
-the generated contract replaceable without leaking it through the UI. Feature
-services retain Query keys, pagination, abort propagation, cache invalidation,
-and domain error mapping.
-
-Generated code is portable TypeScript: endpoint URLs stay relative, and the
-output has no Next.js, React, TanStack Query, environment, or browser imports.
-The caller supplies the final `fetch` argument. Use the authenticated browser,
-optional-auth, or server policy factory from `fetch.ts` for the relevant
-runtime. Keep `buildApiUrl` for explicit AI SDK transports only.
-
-The OpenAPI `streaming` tag is intentionally excluded. Chat send, reconnect,
-and run-event streaming remain explicit AI SDK/Fetch transports and are not part
-of the generated client. `buildApiUrl` and `authAwareFetch` in `fetch.ts` exist
-only for those explicit stream paths; generated functions always receive an
-injected policy and parse non-streaming responses themselves.
-
-Extract this layer into a shared package only when a second independent runtime
-consumer exists. Until then, keep the generated client local to `apps/web`.
+Keep this layer local until a second independent runtime needs it.

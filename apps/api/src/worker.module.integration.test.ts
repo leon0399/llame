@@ -16,9 +16,9 @@
  * `search-embed` (chat-search-embeddings design D14) is a FOURTH group in
  * `all`, but SearchEmbedWorker additionally gates on
  * `search.chats.embeddingModelId` being configured (off-by-default, design
- * D5/spec "off by default"). This suite boots with no llame.config.json — no
- * embedding model declared — so `search-embed` registers NOTHING even under
- * `all`, proving the off-by-default contract at this integration boundary.
+ * D5/spec "off by default"). This suite overrides instance config with the
+ * built-in defaults, so no embedding model is declared and `search-embed`
+ * registers NOTHING even under `all`, proving the off-by-default contract.
  * The configured (model declared, consuming) state is covered by
  * SearchEmbedWorker's own tests, not here.
  *
@@ -40,6 +40,8 @@ import { Test } from '@nestjs/testing';
 import { type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 
+import { InstanceConfigService } from './instance-config/instance-config.service';
+import { BUILT_IN_DEFAULTS } from './instance-config/llame-config';
 import { McpRuntimeService } from './mcp/mcp-runtime.service';
 import { PgBossQueueService } from './queue/pgboss-queue.service';
 import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './runs/snapshot-tool-execution';
@@ -75,7 +77,6 @@ describeIfDb(
       'POSTGRES_URL',
       'PGBOSS_SCHEMA',
       'LLAME_WORKER_PROFILE',
-      'LLAME_CONFIG_PATH',
     ] as const;
     let originalEnv: Record<string, string | undefined>;
 
@@ -85,9 +86,6 @@ describeIfDb(
       );
       process.env.POSTGRES_URL = TEST_DB_URL;
       process.env.PGBOSS_SCHEMA = `${process.env.LLAME_TEST_SCHEMA_PREFIX ?? 'llame_t'}_smoke_${Date.now().toString(36)}`;
-      // No llame.config.json at this cwd -> built-in defaults, including the
-      // built-in `all`/`web` worker profiles this test exercises.
-      delete process.env.LLAME_CONFIG_PATH;
     });
 
     afterEach(() => {
@@ -104,6 +102,8 @@ describeIfDb(
       const moduleRef = await Test.createTestingModule({
         imports: [WorkerModule],
       })
+        .overrideProvider(InstanceConfigService)
+        .useValue({ config: BUILT_IN_DEFAULTS })
         .overrideProvider(CanonicalSearchCoverageService)
         .useValue({ assertReady: () => Promise.resolve() })
         .compile();
@@ -155,6 +155,8 @@ describeIfDb(
       const moduleRef = await Test.createTestingModule({
         imports: [WorkerModule],
       })
+        .overrideProvider(InstanceConfigService)
+        .useValue({ config: BUILT_IN_DEFAULTS })
         .overrideProvider(CanonicalSearchCoverageService)
         .useValue({ assertReady: () => Promise.resolve() })
         .compile();

@@ -173,6 +173,39 @@ describe("interpolateString — {path:...}", () => {
     );
   });
 
+  it("selects array members and continues through nested objects", () => {
+    const file = tempSecretFile(
+      JSON.stringify({ items: ["first", { name: "second" }] }),
+      "auth.json",
+    );
+
+    expect(interpolateString(`{path:${file}|json:/items/0}`)).toBe("first");
+    expect(interpolateString(`{path:${file}|json:/items/1/name}`)).toBe(
+      "second",
+    );
+  });
+
+  it("rejects malformed pointers and invalid array traversal", () => {
+    const file = tempSecretFile(
+      JSON.stringify({ items: ["first"], scalar: "secret" }),
+      "auth.json",
+    );
+    const invalidPointers = [
+      "items/0",
+      "/items/~2",
+      "/items/01",
+      "/items/1",
+      "/items/-",
+      "/scalar/child",
+    ];
+
+    for (const pointer of invalidPointers) {
+      expect(() => interpolateString(`{path:${file}|json:${pointer}}`)).toThrow(
+        InterpolationError,
+      );
+    }
+  });
+
   it("does not trim a JSON-selected string", () => {
     const file = tempSecretFile(
       JSON.stringify({ key: "  spaced  " }),

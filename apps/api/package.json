@@ -90,7 +90,7 @@
     "@vitest/coverage-v8": "catalog:",
     "drizzle-kit": "^0.31.4",
     "oxlint": "catalog:",
-    "oxlint-tsgolint": "7.0.2001",
+    "oxlint-tsgolint": "catalog:",
     "prettier": "catalog:",
     "supertest": "^7.2.2",
     "tsx": "catalog:",

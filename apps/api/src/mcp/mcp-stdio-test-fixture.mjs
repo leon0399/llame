@@ -42,7 +42,9 @@ if (config.cwdDumpPath) {
   writeFileSync(config.cwdDumpPath, process.cwd(), 'utf8');
 }
 if (config.stdoutFloodBytes) {
-  process.stdout.write('X'.repeat(config.stdoutFloodBytes));
+  await new Promise((resolve) => {
+    process.stdout.write('X'.repeat(config.stdoutFloodBytes), resolve);
+  });
 }
 const STDERR_LINE_WIDTH = 100;
 

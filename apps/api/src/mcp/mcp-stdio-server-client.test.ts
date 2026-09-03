@@ -335,10 +335,33 @@ describe('BoundedReadBuffer', () => {
     );
   });
 
+  it('stays failed after exceeding the cap', () => {
+    const buffer = new BoundedReadBuffer(8);
+
+    expect(() => buffer.append(Buffer.from('012345678'))).toThrow(
+      McpStdioMessageLimitError,
+    );
+    buffer.clear();
+
+    expect(() => buffer.append(Buffer.from('{}\n'))).toThrow(
+      McpStdioMessageLimitError,
+    );
+  });
+
   it('accumulates across chunks up to the cap without a newline', () => {
     const buffer = new BoundedReadBuffer(16);
     buffer.append(Buffer.from('0123'));
     buffer.append(Buffer.from('4567'));
     expect(buffer.readMessage()).toBeNull();
+  });
+
+  it('applies the cap to each newline-delimited message', () => {
+    const buffer = new BoundedReadBuffer(40);
+    const message = '{"jsonrpc":"2.0","method":"x"}\n';
+    buffer.append(Buffer.from(message.repeat(3)));
+
+    expect(buffer.readMessage()).toMatchObject({ method: 'x' });
+    expect(buffer.readMessage()).toMatchObject({ method: 'x' });
+    expect(buffer.readMessage()).toMatchObject({ method: 'x' });
   });
 });

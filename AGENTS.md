@@ -1,213 +1,148 @@
-# Agent instructions — llame
+# Agent instructions - llame
 
-How to work in this repo. [SPEC.md](SPEC.md) is the current cross-cutting architecture contract and documentation index; focused capability behavior lives in OpenSpec. `CLAUDE.md` and `GEMINI.md` are symlinks to this file.
-
-The product overview (what llame is) is short and always relevant, so it is imported in full:
+[SPEC.md](SPEC.md) indexes cross-cutting architecture; OpenSpec owns capability
+behavior. `CLAUDE.md` and `GEMINI.md` link here.
 
 @README.md
 
-The repository-wide contribution workflow is a direct operational convention and is imported in full:
-
 @CONTRIBUTING.md
-
-The coding standards govern every diff in this repo, so they are imported in full:
 
 @CODING_STANDARDS.md
 
-Per-developer, machine-local context is imported when present. The file is
-gitignored, so this import resolves to nothing on a checkout that has no
-`CLAUDE.local.md` — nothing in the tracked instructions may depend on it:
-
 @CLAUDE.local.md
 
-## Key documentation
+`CLAUDE.local.md` is optional and gitignored; tracked instructions must not
+depend on it.
 
-- [README.md](README.md) — current product overview, shipped baseline, and quickstart (imported above)
-- [CONTRIBUTING.md](CONTRIBUTING.md) — mandatory issue, OpenSpec, stacked-PR, verification, and review workflow (imported above)
-- [CODING_STANDARDS.md](CODING_STANDARDS.md) — what makes a diff acceptable: scope discipline, no speculative abstraction, complexity trip-wires, the review gate (imported above)
-- [REVIEW_GUIDE.md](REVIEW_GUIDE.md) — how a change is reviewed: the merge question, priority order, and the reviewer's checklist that human and bot reviewers share
-- [VISION.md](VISION.md) — north-star direction, principles, horizons, and deliberate deferrals
-- [ROADMAP.md](ROADMAP.md) — forward-only sequence of unshipped work; GitHub owns live status and implementation detail
-- [SPEC.md](SPEC.md) — current cross-cutting architecture contract, enforced invariants, and authority index
-- [`openspec/specs`](openspec/specs) — normative shipped capability behavior; [`openspec/changes`](openspec/changes) owns proposed deltas and archived implementation records
-- [CHANGELOG.md](CHANGELOG.md) — shipped chronology
-- [`docs/research`](docs/research) — noncanonical evidence, alternatives, and decision provenance
-- [DESIGN.md](DESIGN.md) — design system reference (visual language, OKLCH tokens, component stylings); consult before building or restyling any UI
-- [docs/testing.md](docs/testing.md) — the test pyramid, suffix-is-runner naming contract, placement rules, and CI mapping
-- [docs/scaling.md](docs/scaling.md) — horizontal-scaling topology, invariants, and the design constraints for the durable-run worker split (#48/#50)
+## Documentation authority
 
-## Monorepo layout
+- [REVIEW_GUIDE.md](REVIEW_GUIDE.md): reviewer judgment.
+- [VISION.md](VISION.md), [ROADMAP.md](ROADMAP.md): direction and unshipped work.
+- [SPEC.md](SPEC.md), [`openspec/specs`](openspec/specs): architecture and
+  shipped behavior. [`openspec/changes`](openspec/changes) owns proposals and
+  archives.
+- [CHANGELOG.md](CHANGELOG.md): shipped chronology.
+- [DESIGN.md](DESIGN.md): UI language.
+- [docs/testing.md](docs/testing.md), [docs/scaling.md](docs/scaling.md): test
+  placement and runtime topology.
+- [`docs/research`](docs/research): noncanonical evidence.
 
-pnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 22.19 (pinned to 22.23.1 in `.node-version`); `nix develop` or direnv gives a ready shell; pnpm 11). Workspaces: `apps/*`, `packages/*`.
+Put commands and traps in the closest `AGENTS.md`, capability behavior in
+OpenSpec, architecture in `SPEC.md`, and operator procedures in `docs/`. The
+spec wins any disagreement.
 
-| Path                         | Role                                                                                        | Stack (details in its own `AGENTS.md`)                                                                     |
-| ---------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `apps/web`                   | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB               | Next.js 16 (App Router), React 19, TanStack Query, generated Orval Fetch bindings, AI SDK (chat streaming) |
-| `apps/api`                   | API/services + **sole database owner**; ships co-located and dedicated worker entrypoints   | NestJS 11, Drizzle + postgres.js, pg-boss                                                                  |
-| `apps/storybook`             | Component workbench + browser interaction tests for `packages/ui` stories                   | Storybook 10 (nextjs-vite), Vitest browser mode                                                            |
-| `packages/ui`                | Shared shadcn/ui component library (`@workspace/ui`); stories co-located next to components | shadcn/ui, Tailwind, React 19                                                                              |
-| `packages/config-typescript` | Shared `tsconfig` bases                                                                     | —                                                                                                          |
+## Repository
 
-Each app/package has its own `AGENTS.md` (auto-loaded when you work in that directory) with concrete commands, structure, and gotchas. Nesting is allowed and preferred where a subtree has traps of its own — `apps/api/src/db` (schema, migrations, RLS provisioning) and `apps/web/lib/api` (the generated client boundary) both own one.
+pnpm 11 + Turborepo; TypeScript throughout; Node >=22.19 (`.node-version` pins
+22.23.1).
 
-**Keep every level as high as it can go.** Put implementation detail in the child file, not the parent; put normative capability behavior in [`openspec/specs`](openspec/specs), not in an `AGENTS.md`. An `AGENTS.md` is loaded into every conversation that touches its directory, so it earns its length in commands, boundaries, and traps — not in restated contracts. When the two disagree, the spec wins and the `AGENTS.md` has a bug.
+| Path                         | Owner                                                     |
+| ---------------------------- | --------------------------------------------------------- |
+| `apps/api`                   | API, services, database, co-located and dedicated workers |
+| `apps/web`                   | thin Next.js client; no database                          |
+| `apps/storybook`             | Storybook runtime and browser tests                       |
+| `packages/ui`                | shared shadcn components and stories                      |
+| `packages/config-typescript` | shared tsconfig presets                                   |
 
-## Commands (from repo root)
+## Root commands
 
 ```bash
 pnpm install
-pnpm dev      # turbo run dev — all apps in watch mode (web + api + storybook on :6006)
-pnpm build    # turbo build
-pnpm lint     # turbo lint (oxlint per workspace; type-aware via tsgolint in apps/api)
-pnpm format   # prettier --write --cache . over the ignore-pruned repository (format:check to verify)
-pnpm test:e2e            # playwright test; pass filters after --, e.g. pnpm test:e2e -- e2e/auth
-pnpm test:e2e:ui         # playwright test --ui
-pnpm test:e2e:headed     # playwright test --headed
-pnpm test:e2e:debug      # playwright test --debug
-pnpm test:e2e:report     # playwright show-report
+pnpm dev
+pnpm lint
+pnpm format
+pnpm test:e2e
+pnpm test:e2e:ui
+pnpm test:e2e:headed
+pnpm test:e2e:debug
+pnpm test:e2e:report
 ```
 
-Agent verification is resource-bounded: build affected workspaces sequentially
-(`pnpm --filter <workspace> build`). If an aggregate build is necessary, use
-`pnpm exec turbo run build --concurrency=1`; do not run the unbounded root
-`pnpm build`, which launches the API, Next, and Storybook builds concurrently.
+Build workspaces sequentially. Use `pnpm --filter <workspace> build`; if a full
+build is required, use `pnpm exec turbo run build --concurrency=1`. Never run
+the unbounded root `pnpm build`.
 
-Scope to one workspace with `pnpm --filter web <script>` (or `--filter api`).
-Install Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, Playwright starts a throwaway Docker Postgres, applies migrations, owns the API/model/MCP processes, builds `apps/web` with the E2E API URL, and serves that production build with `next start`; set `POSTGRES_URL` only to use an already-migrated external database instead. Authenticated E2E tests should use the worker-scoped fixture from `e2e/support/fixtures.ts`, which writes per-worker storage state under `.auth/`; destructive session tests should request `freshAccount`. Override `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_DB_PORT`, `E2E_DB_READY_PORT`, `E2E_MODEL_PORT`, or `E2E_MCP_PORT` only when the default E2E ports (`4300`/`4301`/`55433`/`4302`/`4303`/`4304`) conflict. Stop manually started services using the E2E ports and any `pnpm dev`, `next dev`, or `next start` using `apps/web` before E2E: Playwright rejects occupied service ports, and the production build must own `.next` without racing another Next process.
+Playwright owns its Postgres, migrations, API, model/MCP fixtures, and
+production web build unless `POSTGRES_URL` points at an external database;
+that database is neither started, reset, nor migrated. Stop services using its default ports
+`4300/4301/55433/4302/4303/4304` and any Next process using `apps/web` before
+E2E. Authenticated tests use `e2e/support/fixtures.ts`; destructive session
+tests use `freshAccount`.
 
-## Local database (docker)
+## Local database
 
-`compose.yaml` (repo root) runs Postgres for dev. One-time `cp apps/api/.env.example apps/api/.env.local`, then:
+Copy `apps/api/.env.example` to `apps/api/.env.local`, then:
 
 ```bash
-pnpm db:up        # start Postgres        ·   pnpm db:reset  # wipe + re-init
-pnpm db:migrate   # apply apps/api migrations (the authoritative schema)
-pnpm db:provision-rls # assign privileged RLS helper ownership after migrations
-pnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs
+pnpm db:up
+pnpm db:reset
+pnpm db:migrate
+pnpm db:provision-rls
+pnpm db:studio
+pnpm db:psql
+pnpm db:logs
 ```
 
-Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and the self-provisioning `test:integration` gate are documented in [apps/api/src/db/AGENTS.md](apps/api/src/db/AGENTS.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).
+`apps/api/src/db` owns the schema. See its
+[AGENTS.md](apps/api/src/db/AGENTS.md) for migrations, RLS, and provisioning.
 
 ## Pre-launch evolution
 
-llame has not launched: there are no third-party deployments and no production
-data. **This section outranks the coordinated-rollout guidance below and in
-[apps/api/AGENTS.md](apps/api/AGENTS.md) and
-[apps/api/src/db/AGENTS.md](apps/api/src/db/AGENTS.md)** until the first
-production deployment. Revisit the whole policy then.
+Until the first production deployment:
 
-- Optimize for the smallest coherent design that represents the product today.
-- Remove obsolete code, schemas, APIs, configuration, aliases, and transitional
-  paths directly.
-- Do not add backward-compatibility shims, legacy aliases, dual-read or
-  dual-write paths, or data-preserving backfills unless explicitly asked for.
-- Internal interfaces are not public compatibility contracts. Update their
-  callers and tests atomically when they change.
-- **Test and throwaway databases are disposable** — prefer `pnpm db:reset` and a
-  re-migrate over complicating the product to preserve local fixtures. **The
-  maintainer's own running instance is not.** A change that would discard its
-  chats is called out and agreed before it lands, even though no third party is
-  affected.
-- Treat migration history as a replaceable development baseline, but keep the
-  checked-in migration chain, `meta/_journal.json`, and the
-  `db:migrate` → `db:provision-rls` setup workflow coherent. **Do not rewrite an
-  already-applied migration without also resetting the databases that ran it**:
-  the migrator applies an entry only when its journal `when` is newer than the
-  newest already-applied one, so an edited statement silently never re-runs.
-  Editing a migration's comments is safe; editing its statements is not.
-- Consolidate the migration baseline only as an explicit, coordinated change,
-  never as incidental work in a feature branch.
+- Remove obsolete internal code, schemas, APIs, aliases, and transitional paths
+  directly. Do not add compatibility shims, dual reads/writes, or preservation
+  backfills unless requested.
+- Update internal callers and tests atomically.
+- Test databases are disposable; Leo's running instance is not. Agree before a
+  change discards its chats.
+- Migration history is replaceable only with a coordinated baseline change.
+  Never change statements in an already-applied migration without resetting
+  every database that ran it; comment-only edits are safe.
 
-**These survive everything above.** They are correctness properties, not
-backward-compatibility requirements, and "remove the transitional path" never
-licenses dropping one:
+These invariants remain: tenant tables use enabled and forced RLS with trusted
+identity and fail closed; migrations remain transactional, idempotent, and
+deterministic; secrets never reach logs, errors, model context, or owner output.
 
-- Tenant isolation — RLS `ENABLE`**d and** `FORCE`**d** on every tenant-bearing
-  table, identity from a trusted source, fail closed. A dropped policy is not a
-  removed legacy path.
-- Transactional safety, migration idempotence, and deterministic setup.
-- Secrets staying out of logs, errors, model context, and owner-visible output.
+## Repository conventions
 
-## Conventions
+- Modified cyclomatic complexity stays `< 25`. Extract only at a responsibility
+  boundary; no metric gaming or inline disables.
+- Use Drizzle for DB access and generate migrations by default. A manual
+  security/data step follows the SQL-comment contract in
+  [apps/api/src/db/AGENTS.md](apps/api/src/db/AGENTS.md).
+- Use conventional commits.
+- Root `.oxlintrc.json` declares each rule once. Workspace configs only extend,
+  scope environments, ignore generated/vendor files, or record narrow reviewed
+  exceptions. Fix code rather than weakening a repository rule.
+- `pnpm lint` owns repository rules. Chained assertions, including
+  `as unknown as T`, are banned; narrow or validate the boundary.
+- Product Markdown is part of `pnpm lint` and available directly through
+  `pnpm lint:markdown`; lint commands reject unused disables.
+- Follow [docs/testing.md](docs/testing.md). DB suites never skip silently.
+- UI uses [DESIGN.md](DESIGN.md), shared primitives, and semantic tokens.
+- Preserve `messages.parts` and stored order. Only declared display-only parts
+  stay outside model history; compaction replaces only its explicit prefix.
+  New replay transforms or omissions require a spec.
 
-- TypeScript only across web/api/worker — no second backend language (SPEC.md §23).
-- Modified cyclomatic complexity must remain `<= 35` under Oxlint's `modified` variant. Extract only along a real responsibility boundary; arbitrary helper extraction, inline disables, and other metric gaming are prohibited.
-- Drizzle ORM for all DB access. Generate migrations with `drizzle-kit` by
-  default; a security or data-transition gap may add a reviewed hand-authored
-  step only when the migration's own SQL comment records what it does, why the
-  generator cannot emit it, and what to re-add on regeneration. That comment is
-  the authority and the only record — see
-  [hand-authored migrations](apps/api/src/db/AGENTS.md#hand-authored-migrations).
-- Conventional commits (e.g. `feat(api):`, `docs(spec):`).
-- The constructor-decorator placement rule runs through the pinned native
-  `pnpm lint:ast-grep` command in Lefthook and CI. Chained type assertions,
-  including `as unknown as T`, are banned across the root E2E and four workspace
-  Oxlint scopes by the vendored anti-slop plugin; narrow the boundary, construct
-  a complete value, or validate untrusted input instead of suppressing the
-  compiler.
-- Product-owned Markdown must pass `pnpm lint:markdown` using the pinned
-  markdownlint-cli2 configuration. Fix violations in the source; do not add
-  inline disables or ignore paths unless the content is generated, maintained
-  upstream, or a symlink alias, and document that boundary in the root config.
-- Every workspace `lint` command rejects unused disable directives. Delete stale
-  suppressions; do not retain a directive for a rule that is not active in that
-  workspace.
-- Tests follow [docs/testing.md](docs/testing.md): `*.test.ts(x)` is Vitest everywhere (`.integration` infix = needs real Postgres; root `e2e/` is Playwright's island); component behavior belongs in Storybook stories, not jsdom render tests; DB-backed suites fail loudly, never skip silently.
-- UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).
-- **Preserve stored conversation parts wholesale by default.** `messages.parts`
-  is the durable application/UI history. Before appending a new turn, retain
-  prior model-bearing parts and their stored order; sanitize, render, and order
-  application-authored content before persistence rather than during replay.
-  At the SDK boundary, use only the minimal content-transparent conversion from
-  stored UI parts to model messages. This is a best-effort application
-  invariant, not provider-wire or cache-byte identity: SDK/provider
-  serialization may evolve, and the existing assistant/tool projection remains
-  an explicit exception pending
-  [#599](https://github.com/leon0399/llame/issues/599). Reasoning, sources, cap
-  notices, and other declared display-only parts are not model history. The
-  current top-level system prompt is outside message history, and compaction may
-  replace only the prefix it explicitly supersedes. New application-owned
-  replay transforms or omissions must be specified rather than introduced
-  silently.
+## Storybook MCP
 
-## Storybook MCP tools
-
-Stories live next to what they render — component stories in `packages/ui/src`, and (planned) page/meta-component stories in `apps/web` — so this workflow applies wherever UI work happens. When the `storybook` MCP server is connected (Storybook dev on :6006), its tools are the source of truth for component APIs and story conventions — not component source or type definitions:
-
-- **Never guess component props.** Before using any prop — even common-sounding ones like `shadow` or `size` — verify it via `list-all-documentation` → `get-documentation` (or an example story). Story names don't reliably reflect prop names. An undocumented prop does not exist: don't assume it from naming conventions or other libraries; check back with the user instead.
-- Call `get-storybook-story-instructions` before creating or editing any story and follow it over remembered conventions.
-- After any change that affects rendered UI (components, stories, styles, tokens), verify with `run-story-tests` (not a package.json script) and include the `preview-stories` URLs in your response. A shared file (token, util, hook) has no stories of its own — resolve its consumers' stories with `get-stories-by-component` and test/preview those.
+When connected, Storybook tools are authoritative for props and stories. Read
+story instructions before editing; verify props through documentation; after a
+rendered UI change, run story tests and return preview URLs. Resolve consumer
+stories for shared files with no story of their own.
 
 ## Security
 
-llame is multi-tenant and self-hosted: tenant isolation is a core invariant. Weigh security on every change that touches data, auth, tenancy, identity, secrets, or an externally reachable surface. These are the durable principles — concrete mechanics live in the relevant app's `AGENTS.md` and focused OpenSpec capability specs; SPEC.md indexes the cross-cutting contract:
+- Identity comes only from authentication, never caller-controlled scope.
+- Enforce tenant isolation in the datastore and fail closed without identity.
+- Omit or gate any reachable surface that cannot yet be secured.
+- Data/auth/tenancy changes state threats up front and ship a negative isolation
+  test.
+- Never expose credentials, resolved secret values, tokens, or host paths.
+- Stop for a decision if a change may weaken isolation.
 
-- **Authorization identity comes only from a trusted, authenticated source** — never from client-controlled input (params, body, query, headers). Never scope data access by a value the caller can set.
-- **Enforce isolation in the datastore, not just app code** (defense-in-depth), and make sure the app actually engages it. When identity or scope is absent, **fail closed** (deny), never open.
-- **Don't ship a reachable surface that can't yet be secured.** If the guard doesn't exist, gate the surface or omit it — a code comment is not a mitigation.
-- **Security is an acceptance criterion, not a follow-up.** Any change touching data/auth/tenancy states its isolation and threat considerations up front and ships a negative test (e.g. cross-tenant access is denied).
-- **Secrets stay secret** — never commit, log, print, or echo credentials, keys, or tokens; provider credentials are currently operator-managed through `llame.config.json` secret references.
-- **Surface risk, don't bury it.** If a change could weaken isolation, or you're unsure, say so explicitly and stop for a decision — don't defer silently.
+## Current runtime traps
 
-## Maintaining ROADMAP & CHANGELOG
-
-- `ROADMAP.md` is forward-only — it lists work that is **not yet done**.
-- `CHANGELOG.md` is the dated record of everything **shipped** — features, bug fixes, and chores alike — newest first.
-- **Update both in the same PR that ships the work, not after.** The PR's own diff adds the dated `CHANGELOG.md` entry and, if the work was on the roadmap, removes it from `ROADMAP.md` — so the changelog is correct the moment the PR merges, with no separate follow-up commit. Unplanned work (bug fixes, chores) goes straight to the changelog without ever appearing on the roadmap.
-
-## Current state / gotchas
-
-- `apps/api/src/db` is the single source of truth for the schema. `apps/web` owns no database or chat backend — it is a thin API client (SPEC.md §22.0).
-- Every chat run executes via the pg-boss queue (#107; there is no inline request-thread mode): the api enqueues and answers with the run-event stream bridge, while co-located consumers or the shipped no-HTTP `apps/api/src/worker.ts` entrypoint execute (`RunsWorkerService` → transport-agnostic `RunExecutionService` — don't couple it to HTTP).
-- Changes that add server-authored message-part schemas are coordinated
-  API/worker revision boundaries **once llame is deployed**: land
-  backward-compatible schema preparation first; before the writer cutover,
-  quiesce old API writers and drain accepted Runs, then apply the cutover and
-  deploy compatible workers before any API authors the new part. Concrete
-  rollout/rollback steps live in [apps/api/AGENTS.md](apps/api/AGENTS.md) and
-  [docs/scaling.md](docs/scaling.md).
-
-  Until then, [Pre-launch evolution](#pre-launch-evolution) governs: a
-  single-revision hard cutover is the default, not an exception an OpenSpec has
-  to claim. Keep the sequencing documented in the migration's own header
-  regardless — it is what makes the choreography reconstructable at launch.
+- Every Chat Run uses pg-boss. HTTP enqueues and streams events;
+  `RunExecutionService` stays transport-neutral.
