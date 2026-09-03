@@ -9,8 +9,8 @@
 -- check under FORCE RLS — without app.current_user_id its reads are denied and
 -- a false zero is possible. Stop workers only after both checks pass; apply
 -- schema and application revisions together.
--- ROLLBACK: stop new authoring, drain accepted Runs with compatible workers,
--- stop workers, then roll back schema and binaries.
+-- Rollback is unsupported after the first replacement_history write; there is
+-- no reverse conversion into tool_observation_ledger.
 -- Operator SQL: docs/scaling.md#compaction-replacement-history-hard-cutover
 ALTER TABLE "compactions" ADD COLUMN "replacement_history" jsonb NOT NULL;--> statement-breakpoint
 ALTER TABLE "compactions" DROP COLUMN "tool_observation_ledger";

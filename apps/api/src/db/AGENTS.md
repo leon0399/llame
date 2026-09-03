@@ -24,10 +24,10 @@ pins `pgvector/pgvector:pg17` by digest; `db:migrate` fails outright on stock
 
 ## Changing the schema
 
-Edit `src/db/schema/`, then `pnpm db:generate`. Never hand-edit a generated
-migration or `meta/_journal.json` without a recorded reason — see the exception
-ledger below. `pnpm db:generate` reporting **"no schema changes"** is the only
-proof that schema and migrations are back in sync after a rebase.
+Edit `src/db/schema/`, then run `pnpm db:generate` and
+`pnpm --filter api db:check`. A no-schema-changes result proves the schema is in
+sync; `db:check` validates the migrations, journal, and snapshot chain. Never
+hand-edit generated output without a reason in the migration's SQL header.
 
 ## The four migration patterns
 

@@ -24,7 +24,7 @@ elsewhere.
 | Path                   | Owns                                                                                                                                                   |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `src/runs/`            | The whole execution domain: executor, worker consumers, dispatch, stream bridge. `RunWorkerModule` backs both co-located consumers and `src/worker.ts` |
-| `src/queue/`           | pg-boss. Consumed **only** by `runs/`                                                                                                                  |
+| `src/queue/`           | pg-boss primitives used by runs, search workers, and session cleanup                                                                                   |
 | `src/chats/`           | Chat/message surface. Dispatches via `RunDispatchService`; never sees queue names or payloads                                                          |
 | `src/db/`              | Schema, migrations, `TenantDbService`. `DbModule` is the single global provider — see [`src/db/AGENTS.md`](src/db/AGENTS.md)                           |
 | `src/tools/`           | `registry.ts` and `resolveAdvertisedTools`, the tool-loop gate                                                                                         |

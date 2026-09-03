@@ -90,10 +90,10 @@ Stating an **invariant** over a constant is real:
 still catches a chunker that overshoots.
 
 **Recomputing the implementation's own derivation** is not:
-`toBe(Math.floor(window * COMPACTION_WINDOW_RATIO))` moves both sides together, so
-any ratio ships green. Iterating the implementation's own list
-(`for (const h of SECTION_HEADINGS)`) is the same defect — the loop shrinks with
-the array.
+`toBe(Math.floor(window * COMPACTION_WINDOW_RATIO))` moves both sides together,
+so any ratio ships green. Iterating the implementation's own list is
+tautological only when the expectation is derived from that same list; a loop
+with independent per-item expectations is a valid invariant test.
 
 A key factory, a cap, or a wire-format constant needs one **literal anchor**
 somewhere in its test file (`expect(pinQueryKeys.all).toEqual(["pins"])`). Given

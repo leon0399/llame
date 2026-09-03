@@ -39,6 +39,10 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+// Module-scoped so both `render` and `play` see the same spy without widening
+// the story's args past CodeBlock's own props.
+const onCopy = fn();
+
 /**
  * Highlights a short snippet with the default themed light/dark output and
  * no line-number gutter or overlay actions.
@@ -81,10 +85,6 @@ export const WithLineNumbers: Story = {
  *
  * @summary for a snippet with a copy-to-clipboard action
  */
-// Module-scoped so both `render` and `play` see the same spy without widening
-// the story's args past CodeBlock's own props.
-const onCopy = fn();
-
 export const WithCopyButton: Story = {
   tags: ["ai-elements-example", "ai-generated"],
   args: { language: "typescript" },
@@ -99,24 +99,23 @@ export const WithCopyButton: Story = {
       navigator,
       "clipboard",
     );
-    const originalClipboard = navigator.clipboard;
+    const writeText = fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
-      value: { writeText: fn().mockResolvedValue(undefined) },
+      value: { writeText },
     });
 
     try {
       const button = canvas.getByRole("button", { name: "Copy code" });
       await userEvent.click(button);
+      await expect(writeText).toHaveBeenCalledOnce();
+      await expect(writeText).toHaveBeenCalledWith(sampleCode);
       await expect(onCopy).toHaveBeenCalledOnce();
     } finally {
       if (clipboardDescriptor) {
         Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
       } else {
-        Object.defineProperty(navigator, "clipboard", {
-          configurable: true,
-          value: originalClipboard,
-        });
+        Reflect.deleteProperty(navigator, "clipboard");
       }
     }
   },

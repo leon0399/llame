@@ -53,8 +53,9 @@ reviews:
         Check: every endpoint has a class-validator DTO and an explicit response type mirroring
         an egress allowlist; `apps/api/openapi.json` is regenerated in the same change as any
         endpoint, DTO, or Swagger annotation edit (CI fails on a stale copy); one NestJS module
-        per feature with `@Inject(...)` decorators each on their own line; `queue/` is consumed
-        only by `runs/`; `RunExecutionService` stays transport-agnostic and no run executes on
+        per feature with `@Inject(...)` decorators each on their own line; queue primitives are
+        consumed by runs, search workers, and session cleanup; `RunExecutionService` stays
+        transport-agnostic and no run executes on
         the HTTP thread; `messages.parts` ordering and prior model-bearing parts are preserved
         rather than rebuilt during replay; chained type assertions (`as unknown as T`) are
         banned — narrow the dependency with a `Pick<>` instead.
@@ -70,8 +71,8 @@ reviews:
         `SET NOT NULL` or `USING` cast fails); a `CREATE OR REPLACE` on a `SECURITY DEFINER`
         function that `db:provision-rls` may already have reassigned to `app_rls` (add a new
         sibling function instead); a `SECURITY DEFINER` function returning content rather than
-        identifiers and counts; a hand-authored step lacking both a `.sql` header comment and a
-        ledger row; a journal `when` that does not sort last.
+        identifiers and counts; a hand-authored step lacking a `.sql` header comment; a journal
+        `when` that does not sort last.
 
     - path: "apps/web/**"
       instructions: |
@@ -98,7 +99,7 @@ reviews:
         meta rules rather than replacing them; no ad-hoc colors — use the semantic OKLCH tokens
         in DESIGN.md.
 
-    - path: "**/*.test.ts"
+    - path: "**/*.test.{ts,tsx}"
       instructions: |
         Per docs/testing.md. Check that the test fails without the change it covers, sits at the
         right level, and asserts behavior at a real seam rather than on mocks threaded through
