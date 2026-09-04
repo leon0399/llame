@@ -465,6 +465,115 @@ describe('hydrateCanonicalSearchRows', () => {
   });
 });
 
+describe('hydrateCanonicalSearchRows closed misses', () => {
+  const TEXT_LENGTH = 'before 😀 after'.length;
+  const lastRow = (overrides: Partial<CanonicalHydrationRow> = {}) =>
+    row({ message_id: LAST_MESSAGE_ID, message_seq: '11', ...overrides });
+  const hydrate = (rows: Array<CanonicalHydrationRow>) =>
+    hydrateCanonicalSearchRows(rows, {
+      chatId: CHAT_ID,
+      bestDocumentId: DOCUMENT_ID,
+    });
+
+  it('refuses a boundary sequence that is not a safe positive integer', () => {
+    for (const first_seq of ['0', 'not-a-number', '99999999999999999999']) {
+      expect(hydrate([row({ first_seq }), lastRow({ first_seq })])).toBeNull();
+    }
+  });
+
+  it('refuses a negative text offset', () => {
+    expect(
+      hydrate([
+        row({ first_message_text_offset: -1 }),
+        lastRow({ first_message_text_offset: -1 }),
+      ]),
+    ).toBeNull();
+  });
+
+  it('refuses an interior row that repeats a DIFFERENT document boundary', () => {
+    expect(
+      hydrate([
+        row(),
+        row({ message_seq: '9', first_message_text_offset: 6 }),
+        lastRow(),
+      ]),
+    ).toBeNull();
+  });
+
+  it('refuses an interior row belonging to another chat', () => {
+    expect(
+      hydrate([
+        row(),
+        row({ message_seq: '9', message_chat_id: 'other-chat' }),
+        lastRow(),
+      ]),
+    ).toBeNull();
+  });
+
+  it('refuses a row whose sequence falls outside the document span', () => {
+    expect(hydrate([row({ message_seq: '6' }), lastRow()])).toBeNull();
+    expect(hydrate([row(), lastRow({ message_seq: '12' })])).toBeNull();
+  });
+
+  it('refuses a first row whose source range starts at the very end of its text', () => {
+    expect(
+      hydrate([
+        row({ first_message_text_offset: TEXT_LENGTH }),
+        lastRow({ first_message_text_offset: TEXT_LENGTH }),
+      ]),
+    ).toBeNull();
+  });
+
+  it('refuses a last row whose source range ends before its text starts', () => {
+    expect(
+      hydrate([
+        row({ last_message_text_offset_exclusive: 0 }),
+        lastRow({ last_message_text_offset_exclusive: 0 }),
+      ]),
+    ).toBeNull();
+  });
+
+  it('refuses a source range that runs past the end of the message text', () => {
+    expect(
+      hydrate([
+        row({ last_message_text_offset_exclusive: 999 }),
+        lastRow({ last_message_text_offset_exclusive: 999 }),
+      ]),
+    ).toBeNull();
+  });
+
+  it('refuses a snapshot whose end rows are not the boundary messages', () => {
+    expect(
+      hydrate([row({ message_id: EMPTY_MESSAGE_ID }), lastRow()]),
+    ).toBeNull();
+    expect(
+      hydrate([row(), lastRow({ message_id: EMPTY_MESSAGE_ID })]),
+    ).toBeNull();
+  });
+
+  it('refuses a row count that contradicts a single-message boundary', () => {
+    expect(
+      hydrate([
+        row({ last_message_id: FIRST_MESSAGE_ID }),
+        row({ message_seq: '11', last_message_id: FIRST_MESSAGE_ID }),
+      ]),
+    ).toBeNull();
+  });
+
+  it('refuses a repeated sequence in the row snapshot', () => {
+    expect(hydrate([row(), lastRow({ message_seq: '7' })])).toBeNull();
+  });
+
+  it('refuses a candidate with no winning document even when rows are present', () => {
+    expect(
+      hydrateCanonicalSearchRows([row(), lastRow()], {
+        chatId: CHAT_ID,
+        bestDocumentId: null,
+      }),
+    ).toBeNull();
+  });
+});
+
 describe('hydrateCanonicalSearchCandidate', () => {
   it.each([
     ['empty owner', '   ', { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID }],

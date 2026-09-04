@@ -133,6 +133,51 @@ describe('buildCanonicalSearchExcerpt', () => {
     );
   });
 
+  it('returns the full source at exactly the excerpt cap', () => {
+    const source = 'x'.repeat(CANONICAL_SEARCH_MAX_EXCERPT_CODE_POINTS);
+    expect(
+      buildCanonicalSearchExcerpt(
+        passage(source, {
+          startOffset: 0,
+          endOffsetExclusive: 1,
+          kind: 'exact',
+        }),
+      ),
+    ).toBe(source);
+  });
+
+  it('crops one extra code point over the cap from a fallback start', () => {
+    const source = 'x'.repeat(CANONICAL_SEARCH_MAX_EXCERPT_CODE_POINTS + 1);
+    expect(
+      buildCanonicalSearchExcerpt(
+        passage(source, {
+          startOffset: 0,
+          endOffsetExclusive: 1,
+          kind: 'fallback',
+        }),
+      ),
+    ).toBe(`${'x'.repeat(CANONICAL_SEARCH_MAX_EXCERPT_CODE_POINTS - 1)}…`);
+  });
+
+  it('pads an end-anchored exact window left so the excerpt fills the budget', () => {
+    const source = `${'a'.repeat(590)}NEEDLE${'b'.repeat(4)}`;
+    const start = source.indexOf('NEEDLE');
+    const result = buildCanonicalSearchExcerpt(
+      passage(source, {
+        startOffset: start,
+        endOffsetExclusive: start + 6,
+        kind: 'exact',
+      }),
+    );
+
+    expect(result.startsWith('…')).toBe(true);
+    expect(result.endsWith('…')).toBe(false);
+    expect(result.endsWith('NEEDLEbbbb')).toBe(true);
+    expect(Array.from(result).length).toBe(
+      CANONICAL_SEARCH_MAX_EXCERPT_CODE_POINTS - 1,
+    );
+  });
+
   it('clamps out-of-range exact coordinates and never emits a broken surrogate', () => {
     const source = `${'a'.repeat(498)}😀${'b'.repeat(302)}`;
     const result = buildCanonicalSearchExcerpt(

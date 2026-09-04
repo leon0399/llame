@@ -281,6 +281,73 @@ describe('ScriptedModelsService', () => {
     }
   });
 
+  it('passes the scripted query and the searched source coordinates to each tool turn', async () => {
+    const service = new ScriptedModelsService();
+    service.register('recall-args', {
+      kind: 'conversation-recall',
+      query: 'needle',
+      continueRead: true,
+    });
+    const searchArgs: Array<unknown> = [];
+    const readArgs: Array<unknown> = [];
+    const tools = recallTools();
+    tools.search_conversations.execute = (input) => {
+      searchArgs.push(input);
+      return sourceResult;
+    };
+    tools.conversation_read.execute = (input) => {
+      readArgs.push(input);
+      return { status: 'success' as const, nextOffset: 2 };
+    };
+
+    await service.createClient('recall-args').streamText({
+      messages,
+      tools,
+      maxSteps: 5,
+    }).text;
+
+    expect(searchArgs[0]).toEqual({ query: 'needle', limit: 5 });
+    expect(readArgs).toHaveLength(2);
+    expect(readArgs[0]).toEqual({
+      chatId: sourceResult.results[0].chatId,
+      messageSeq: 2,
+      offset: 0,
+      limit: 2,
+    });
+    // The continuation reuses the searched coordinates but advances to the
+    // offset the previous read reported.
+    expect(readArgs[1]).toEqual({
+      chatId: sourceResult.results[0].chatId,
+      messageSeq: 2,
+      offset: 2,
+      limit: 2,
+    });
+  });
+
+  it('reads the source exactly once when continuation is not scripted', async () => {
+    const service = new ScriptedModelsService();
+    service.register('recall-once', {
+      kind: 'conversation-recall',
+      query: 'needle',
+    });
+    const readArgs: Array<unknown> = [];
+    const tools = recallTools();
+    tools.conversation_read.execute = (input) => {
+      readArgs.push(input);
+      return { status: 'success' as const, nextOffset: 2 };
+    };
+
+    await expect(
+      service.createClient('recall-once').streamText({
+        messages,
+        tools,
+        maxSteps: 5,
+      }).text,
+    ).resolves.toBe('The source was read.');
+    expect(readArgs).toHaveLength(1);
+    expect(readArgs[0]).toMatchObject({ offset: 0 });
+  });
+
   it('returns final text when a recall prompt contains invalid prior tool output', async () => {
     const service = new ScriptedModelsService();
     service.register('invalid-recall', {

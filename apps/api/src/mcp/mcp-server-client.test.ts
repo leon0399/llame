@@ -2706,4 +2706,84 @@ describe('McpServerClient', () => {
       }
     },
   );
+
+  it('accepts a page holding exactly 256 tools and a catalog holding exactly 1,000', async () => {
+    const page = (start: number, count: number) =>
+      Array.from({ length: count }, (_, offset) =>
+        tool(`tool_${(start + offset).toString().padStart(4, '0')}`),
+      );
+    const { fixture, client } = await connectFixture({
+      listResponses: [
+        jsonRpcResult(1, { tools: page(0, 256), nextCursor: '2' }),
+        jsonRpcResult(2, { tools: page(256, 256), nextCursor: '3' }),
+        jsonRpcResult(3, { tools: page(512, 256), nextCursor: '4' }),
+        jsonRpcResult(4, { tools: page(768, 232) }),
+      ],
+    });
+
+    try {
+      const result = await client.discover();
+      expect(result.tools).toHaveLength(1000);
+      expect(result.refused).toEqual([]);
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  }, 60_000);
+
+  it('accepts a declaration whose serialized size lands exactly on the 256 KiB cap', async () => {
+    const encoder = new TextEncoder();
+    const declaration = (padding: number) =>
+      tool('exact_size', { description: 'x'.repeat(padding) });
+    const overhead = encoder.encode(JSON.stringify(declaration(0))).byteLength;
+    const exact = declaration(256 * 1024 - overhead);
+    expect(encoder.encode(JSON.stringify(exact)).byteLength).toBe(256 * 1024);
+
+    const { fixture, client } = await connectFixture({
+      listResponses: [jsonRpcResult(1, { tools: [exact, tool('sibling')] })],
+    });
+
+    try {
+      const result = await client.discover();
+      expect(result.refused).toEqual([]);
+      expect(result.tools.map(({ definition }) => definition.id)).toContain(
+        'mcp__web__exact_size',
+      );
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  }, 15_000);
+
+  it('returns the catalog sorted by tool id and refusals sorted by source index', async () => {
+    const { fixture, client } = await connectFixture({
+      listResponses: [
+        jsonRpcResult(1, {
+          tools: [
+            tool('////'),
+            tool('c_tool'),
+            tool('a_tool'),
+            tool('b_tool'),
+            tool('too_large', { description: 'x'.repeat(256 * 1024) }),
+          ],
+        }),
+      ],
+    });
+
+    try {
+      const result = await client.discover();
+      // Emission order was c, a, b; the catalog is published by id.
+      expect(result.tools.map(({ definition }) => definition.id)).toEqual([
+        'mcp__web__a_tool',
+        'mcp__web__b_tool',
+        'mcp__web__c_tool',
+      ]);
+      // The size refusal is produced first but belongs last by source index.
+      expect(result.refused.map(({ index }) => index)).toEqual([0, 4]);
+      expect(result.refused.map(({ reason }) => reason)).toEqual([
+        'invalid_tool_id',
+        'declaration_too_large',
+      ]);
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  }, 15_000);
 });

@@ -234,11 +234,113 @@ describe('projectToolObservations', () => {
     const projection = projectToolObservations(parts);
 
     expect(projection?.omittedCount).toBeGreaterThan(0);
+    // Exactly the pairs that did not survive — never a saturated counter.
+    expect(projection?.omittedCount).toBe(
+      220 - (projection?.pairs.length ?? 0),
+    );
     expect(projection?.omissionPartIndex).toBe(0);
     expect(projection?.pairs.at(-1)?.partIndex).toBe(219);
     expect(projection?.toolCallParts.length).toBe(
       projection?.toolResultParts.length,
     );
+  });
+
+  it('refuses a part whose type does not carry the tool prefix or whose call id is empty', () => {
+    expect(
+      projectToolObservations([
+        {
+          type: 'xxxxxsearch_conversations',
+          toolCallId: 'call-1',
+          state: 'output-available',
+          input: {},
+        },
+        toolPart({ toolCallId: '' }),
+      ]),
+    ).toBeNull();
+  });
+
+  it('falls back to a success outcome for an output-available part that stores none', () => {
+    const projection = projectToolObservations([
+      toolPart({ outcome: undefined }),
+    ]);
+
+    expect(toolOutputText(projection?.toolResultParts[0]?.output)).toContain(
+      `${untrustedLabel}\nOutcome: success`,
+    );
+  });
+
+  it('reads an errored part body from errorText, never from a stale output', () => {
+    const projection = projectToolObservations([
+      toolPart({
+        state: 'output-error',
+        output: { status: 'success', value: 'stale payload' },
+        errorText: 'BOOM',
+        outcome: 'error',
+      }),
+    ]);
+
+    const text = toolOutputText(projection?.toolResultParts[0]?.output);
+    expect(text).toContain('Payload:\nBOOM');
+    expect(text).not.toContain('stale payload');
+  });
+
+  it('marks a cleared payload incomplete ONLY for an incomplete successful Knowledge result', () => {
+    const bulk = 'R'.repeat(TOOL_REPLAY_CALL_LIMIT * 2);
+    const clearedOutcomeOf = (overrides: UnknownRecord): string => {
+      const projection = projectToolObservations([toolPart(overrides)]);
+      const text = toolOutputText(projection?.toolResultParts[0]?.output);
+      expect(text).not.toContain('Payload:');
+      const match = /Outcome: (?<outcome>\S+)/u.exec(text);
+      if (match?.groups === undefined) {
+        throw new Error(`expected an outcome line, got ${text}`);
+      }
+      return match.groups['outcome'] ?? '';
+    };
+
+    expect(
+      clearedOutcomeOf({
+        type: 'tool-knowledge_search',
+        output: { status: 'success', complete: false, results: bulk },
+      }),
+    ).toBe('incomplete');
+    // Another tool with the identical payload shape is not Knowledge.
+    expect(
+      clearedOutcomeOf({
+        output: { status: 'success', complete: false, results: bulk },
+      }),
+    ).toBe('success');
+    // A Knowledge call that errored never produced that payload.
+    expect(
+      clearedOutcomeOf({
+        type: 'tool-knowledge_search',
+        state: 'output-error',
+        errorText: bulk,
+        outcome: 'success',
+        output: { status: 'success', complete: false },
+      }),
+    ).toBe('success');
+    // A non-success outcome keeps its own token.
+    expect(
+      clearedOutcomeOf({
+        type: 'tool-knowledge_search',
+        outcome: 'provider.timeout',
+        output: { status: 'success', complete: false, results: bulk },
+      }),
+    ).toBe('provider.timeout');
+    // A failed Knowledge payload is not an incomplete one.
+    expect(
+      clearedOutcomeOf({
+        type: 'tool-knowledge_search',
+        output: { status: 'error', complete: false, results: bulk },
+      }),
+    ).toBe('success');
+    // A COMPLETE Knowledge payload is not an incomplete one.
+    expect(
+      clearedOutcomeOf({
+        type: 'tool-knowledge_search',
+        output: { status: 'success', complete: true, results: bulk },
+      }),
+    ).toBe('success');
   });
 });
 

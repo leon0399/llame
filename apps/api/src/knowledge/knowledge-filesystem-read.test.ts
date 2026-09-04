@@ -360,6 +360,254 @@ describe('Knowledge filesystem line-reading helpers', () => {
       readKnowledgeFileLines(file, fileStats(1), budget, undefined),
     ).rejects.toMatchObject({ code: 'knowledge_content_invalid' });
   });
+
+  it('stops selecting lines once the serialized content budget is spent', async () => {
+    const source = Buffer.from('a\nb\nc\nd\n');
+    let delivered = false;
+    const file = fileWith(fileStats(source.length), (buffer) => {
+      if (delivered) return Promise.resolve({ bytesRead: 0 });
+      delivered = true;
+      source.copy(buffer);
+      return Promise.resolve({ bytesRead: source.length });
+    });
+    const budget = resolveLineSelectionBudget({
+      filePath: '/trusted/note.md',
+      relativePath: 'note.md',
+      offset: 0,
+      requestedLimit: undefined,
+      // Each rendered line costs 6 serialized code units, so exactly two fit.
+      maxResultCodeUnits: 112,
+      fixedResultCodeUnits: 100,
+    });
+
+    await expect(
+      readKnowledgeFileLines(file, fileStats(source.length), budget, undefined),
+    ).resolves.toMatchObject({
+      lineIndex: 4,
+      selectedLines: ['1: a\n', '2: b\n'],
+      serializedContentCodeUnits: 12,
+      selectionStorageFull: true,
+    });
+  });
+
+  it('renders CRLF, LF, and an embedded carriage return distinctly', async () => {
+    const source = Buffer.from('first\r\nsecond\n\rx\n');
+    let delivered = false;
+    const file = fileWith(fileStats(source.length), (buffer) => {
+      if (delivered) return Promise.resolve({ bytesRead: 0 });
+      delivered = true;
+      source.copy(buffer);
+      return Promise.resolve({ bytesRead: source.length });
+    });
+    const budget = resolveLineSelectionBudget({
+      filePath: '/trusted/note.md',
+      relativePath: 'note.md',
+      offset: 0,
+      requestedLimit: 3,
+      maxResultCodeUnits: 1000,
+      fixedResultCodeUnits: 10,
+    });
+
+    await expect(
+      readKnowledgeFileLines(file, fileStats(source.length), budget, undefined),
+    ).resolves.toMatchObject({
+      lineIndex: 3,
+      selectedLines: ['1: first\r\n', '2: second\n', '3: \rx\n'],
+    });
+  });
+
+  it.each([-1, Number.NaN])(
+    'rejects a line-read byte count of %s',
+    async (bytesRead) => {
+      let reported = false;
+      const file = fileWith(fileStats(4), (buffer) => {
+        if (reported) return Promise.resolve({ bytesRead: 0 });
+        reported = true;
+        buffer.fill(97);
+        return Promise.resolve({ bytesRead });
+      });
+      const budget = resolveLineSelectionBudget({
+        filePath: '/trusted/note.md',
+        relativePath: 'note.md',
+        offset: 0,
+        requestedLimit: 1,
+        maxResultCodeUnits: 1000,
+        fixedResultCodeUnits: 10,
+      });
+
+      await expect(
+        readKnowledgeFileLines(file, fileStats(4), budget, undefined),
+      ).rejects.toMatchObject({ code: 'knowledge_space_unavailable' });
+    },
+  );
+
+  it('rejects a file that keeps growing past the read-byte cap', async () => {
+    const file = fileWith(fileStats(1), (buffer) => {
+      buffer.fill(97);
+      return Promise.resolve({ bytesRead: buffer.length });
+    });
+    const budget = resolveLineSelectionBudget({
+      filePath: '/trusted/note.md',
+      relativePath: 'note.md',
+      offset: 0,
+      requestedLimit: 1,
+      maxResultCodeUnits: 1000,
+      fixedResultCodeUnits: 10,
+    });
+
+    await expect(
+      readKnowledgeFileLines(file, fileStats(1), budget, undefined),
+    ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
+  });
+
+  it('carries a split multi-byte sequence across decode chunks', async () => {
+    const chunks = [Buffer.from([0xc3]), Buffer.from([0xa9, 0x0a])];
+    const file = fileWith(fileStats(0), (buffer) => {
+      const chunk = chunks.shift() ?? Buffer.alloc(0);
+      chunk.copy(buffer);
+      return Promise.resolve({ bytesRead: chunk.length });
+    });
+    const budget = resolveLineSelectionBudget({
+      filePath: '/trusted/note.md',
+      relativePath: 'note.md',
+      offset: 0,
+      requestedLimit: 1,
+      maxResultCodeUnits: 1000,
+      fixedResultCodeUnits: 10,
+    });
+
+    await expect(
+      readKnowledgeFileLines(file, fileStats(0), budget, undefined),
+    ).resolves.toMatchObject({ lineIndex: 1, selectedLines: ['1: é\n'] });
+  });
+
+  it('rejects a non-zero offset into a file with no decoded lines', () => {
+    expect(() =>
+      resolveLineSelectionResult(
+        {
+          lineIndex: 0,
+          selectedLines: [],
+          fragments: [],
+          serializedContentCodeUnits: 0,
+          selectionStorageFull: false,
+        },
+        {
+          offset: 5,
+          requestedLimit: undefined,
+          maxLines: 2000,
+          maxResultCodeUnits: 1000,
+          fixedResultCodeUnits: 0,
+        },
+        'note.md',
+      ),
+    ).toThrow(expect.objectContaining({ code: 'knowledge_range_invalid' }));
+  });
+
+  it('accepts an empty result that exactly fills its budget', () => {
+    const emptyResultCodeUnits =
+      1 +
+      JSON.stringify('lineCount').length +
+      1 +
+      JSON.stringify(0).length +
+      (1 + JSON.stringify('content').length + 1 + JSON.stringify('').length);
+
+    expect(
+      resolveLineSelectionResult(
+        {
+          lineIndex: 0,
+          selectedLines: [],
+          fragments: [],
+          serializedContentCodeUnits: 0,
+          selectionStorageFull: false,
+        },
+        {
+          offset: 0,
+          requestedLimit: undefined,
+          maxLines: 2000,
+          maxResultCodeUnits: emptyResultCodeUnits,
+          fixedResultCodeUnits: 0,
+        },
+        'note.md',
+      ),
+    ).toEqual({ path: 'note.md', offset: 0, lineCount: 0, content: '' });
+  });
+
+  it('measures the remaining lines from the requested offset', () => {
+    expect(
+      resolveLineSelectionResult(
+        {
+          lineIndex: 5,
+          selectedLines: ['3: c\n', '4: d\n', '5: e\n'],
+          fragments: [],
+          serializedContentCodeUnits: 0,
+          selectionStorageFull: false,
+        },
+        {
+          offset: 2,
+          requestedLimit: 3,
+          maxLines: 3,
+          maxResultCodeUnits: 1000,
+          fixedResultCodeUnits: 0,
+        },
+        'note.md',
+      ),
+    ).toEqual({
+      path: 'note.md',
+      offset: 2,
+      lineCount: 3,
+      content: '3: c\n4: d\n5: e\n',
+    });
+  });
+
+  it('drops another line when the continuation metadata overruns by one', () => {
+    const selectedLines = [
+      '1: a\n',
+      '2: b\n',
+      '3: c\n',
+      `4: ${'d'.repeat(30)}\n`,
+    ];
+    const threeLineCodeUnits =
+      1 +
+      JSON.stringify('lineCount').length +
+      1 +
+      JSON.stringify(3).length +
+      (1 +
+        JSON.stringify('content').length +
+        1 +
+        JSON.stringify('1: a\n2: b\n3: c\n').length) +
+      (1 + JSON.stringify('nextOffset').length + 1 + JSON.stringify(3).length) +
+      (1 +
+        JSON.stringify('cutReason').length +
+        1 +
+        JSON.stringify('output_limit').length);
+
+    expect(
+      resolveLineSelectionResult(
+        {
+          lineIndex: 5,
+          selectedLines,
+          fragments: [],
+          serializedContentCodeUnits: 0,
+          selectionStorageFull: false,
+        },
+        {
+          offset: 0,
+          requestedLimit: 4,
+          maxLines: 4,
+          maxResultCodeUnits: threeLineCodeUnits - 1,
+          fixedResultCodeUnits: 0,
+        },
+        'note.md',
+      ),
+    ).toEqual({
+      path: 'note.md',
+      offset: 0,
+      lineCount: 2,
+      content: '1: a\n2: b\n',
+      nextOffset: 2,
+      cutReason: 'output_limit',
+    });
+  });
 });
 
 describe('Knowledge filesystem cleanup translation', () => {
@@ -443,6 +691,16 @@ describe('Knowledge filesystem cleanup translation', () => {
     ).rejects.toMatchObject({
       code: 'knowledge_space_unavailable',
     });
+  });
+
+  it('uses a close failure when the original directory error is absent', async () => {
+    const directory: KnowledgeFilesystemDirectory = {
+      read: vi.fn(() => Promise.resolve(null)),
+      close: vi.fn(() => Promise.reject(new Error('close failed'))),
+    };
+    await expect(
+      closeDirectoryAndTranslateFailure(directory, undefined, undefined),
+    ).rejects.toMatchObject({ code: 'knowledge_space_unavailable' });
   });
 
   it('maps a directory failure to the closed unavailable error', async () => {
