@@ -23,9 +23,9 @@ whenever no model is selected. Each layer's final task is its exit criterion.
 Owns only the two default values, their spec text, and the example config. Separate so the
 retrieval review is not diluted.
 
-- [ ] 1.1 Change `BUILT_IN_DEFAULTS.tools` in `apps/api/src/instance-config/llame-config.ts` to `maxStepsPerRun: 20` and `callTimeoutSeconds: 120`, update the published JSON Schema defaults if they are declared there, and verify `pnpm --filter api test -- config-loader` passes with the new values asserted
-- [ ] 1.2 Update `apps/api/llame.config.json.example` and every doc line stating the old defaults (`rg -n "callTimeoutSeconds|maxStepsPerRun" README.md docs apps/api/AGENTS.md`), and verify `pnpm lint:markdown` passes
-- [ ] 1.3 **Exit:** verify `pnpm --filter api typecheck`, `pnpm --filter api lint`, and `pnpm --filter api test` pass, and that a config file omitting the `tools` timeout/steps keys resolves to 120 / 20
+- [x] 1.1 Change `BUILT_IN_DEFAULTS.tools` in `apps/api/src/instance-config/llame-config.ts` to `maxStepsPerRun: 20` and `callTimeoutSeconds: 120`, update the published JSON Schema defaults if they are declared there, and verify `pnpm --filter api test -- config-loader` passes with the new values asserted
+- [x] 1.2 Update `apps/api/llame.config.json.example` and every doc line stating the old defaults (`rg -n "callTimeoutSeconds|maxStepsPerRun" README.md docs apps/api/AGENTS.md`), and verify `pnpm lint:markdown` passes
+- [x] 1.3 **Exit:** verify `pnpm --filter api typecheck`, `pnpm --filter api lint`, and `pnpm --filter api test` pass, and that a config file omitting the `tools` timeout/steps keys resolves to 120 / 20
 
 ## 2. `hybrid-vector-retrieval/query-embed` — embed the query, degrade silently (design D2–D4)
 

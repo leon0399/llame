@@ -258,9 +258,9 @@
     // line reads; see docs/conversation-recall.md.
     "allowed": ["search_conversations"],
     // Maximum tool-requesting steps per run.
-    "maxStepsPerRun": 8,
+    "maxStepsPerRun": 20,
     // Per-tool-call timeout in seconds.
-    "callTimeoutSeconds": 15,
+    "callTimeoutSeconds": 120,
   },
 
   // Optional worker-profile concurrency overrides. See docs/scaling.md.
