@@ -71,7 +71,7 @@ describe('isToolAvailabilityPayload', () => {
     ['a primitive', null],
     ['an extra top-level key', { ...payload(), extra: true }],
     ['a missing top-level key', { ...payload(), removed: undefined }],
-    ['an invalid kind', { ...payload(), kind: 'initial', added: ['tool'] }],
+    ['an invalid kind', { ...payload(), kind: 'epoch', added: ['tool'] }],
     ['a non-array identifier field', { ...payload(), added: 'tool' }],
     ['an invalid identifier', { ...payload(), added: ['not valid'] }],
     ['unsorted identifiers', { ...payload(), added: ['z_tool', 'a_tool'] }],
@@ -285,17 +285,19 @@ describe('isToolAvailabilityPayload ordering and shape', () => {
     ).toBe(true);
   });
 
-  it('keeps each reason bucket distinct when checking for duplicate ids', () => {
+  it('tracks sort order per reason bucket rather than across them', () => {
+    // The second bucket starts below where the first ended, so a single
+    // ordering cursor shared across buckets would read this as unsorted.
     expect(
       isToolAvailabilityPayload(
         payload({
           unavailable: [
-            { id: 'down_one', reason: 'tool_missing' },
-            { id: 'down_two', reason: 'tool_missing' },
+            { id: 'z_one', reason: 'tool_missing' },
+            { id: 'z_two', reason: 'tool_missing' },
           ],
           becameUnavailable: [
-            { id: 'gone_one', reason: 'declaration_refused' },
-            { id: 'gone_two', reason: 'declaration_refused' },
+            { id: 'a_one', reason: 'declaration_refused' },
+            { id: 'a_two', reason: 'declaration_refused' },
           ],
         }),
       ),

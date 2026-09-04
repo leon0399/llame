@@ -33,5 +33,9 @@ describe('canonical JSON helpers', () => {
     expect(hashWithDomain('one', payload)).not.toBe(
       hashWithDomain('two', payload),
     );
+    // ...and stays sensitive to the payload within one domain.
+    expect(hashWithDomain('one', payload)).not.toBe(
+      hashWithDomain('one', canonicalJson({ value: 'y' })),
+    );
   });
 });

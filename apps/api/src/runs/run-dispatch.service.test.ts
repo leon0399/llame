@@ -1,9 +1,13 @@
+import { drizzle } from 'drizzle-orm/postgres-js';
+
+import * as schema from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type Queue } from '../queue/queue';
-import { TenantDbService } from '../db/tenant-db.service';
+import { type Db, TenantDbService } from '../db/tenant-db.service';
 import { RUNS_QUEUE, type RunJob } from './run-queues';
 import { RunDispatchService } from './run-dispatch.service';
+import { RunsRepository } from './runs-repository';
 
 const job: RunJob = {
   runId: 'run-1',
@@ -33,6 +37,10 @@ function queue(): Queue {
     cancel: () => Promise.resolve(),
   };
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('RunDispatchService', () => {
   it('ensures the configured runs queue once and enqueues the committed job', async () => {
@@ -76,15 +84,29 @@ describe('RunDispatchService', () => {
 
   it('fails the run transactionally when enqueue fails', async () => {
     const enqueueFailure = new Error('queue send failed');
-    const db = tenantDb(enqueueFailure);
+    const db = tenantDb();
+    const tx: Db = drizzle.mock({ schema });
+    const runAs = vi
+      .spyOn(db, 'runAs')
+      .mockImplementation(
+        <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>
+          callback(tx),
+      );
+    const markFinished = vi
+      .spyOn(RunsRepository.prototype, 'markFinished')
+      .mockResolvedValue(undefined);
     const q = queue();
     const enqueue = vi.spyOn(q, 'enqueue');
-    const runAs = vi.spyOn(db, 'runAs');
     enqueue.mockRejectedValue(enqueueFailure);
     const service = new RunDispatchService(q, config(), db);
 
     await expect(service.dispatch(job)).rejects.toBe(enqueueFailure);
     expect(enqueue).toHaveBeenCalledWith(RUNS_QUEUE, job);
     expect(runAs).toHaveBeenCalledWith('user-1', expect.any(Function));
+    // The owner-scoped callback actually runs: the run is failed with the
+    // generic message, never the raw infra error.
+    expect(markFinished).toHaveBeenCalledWith('run-1', 'user-1', 'failed', {
+      message: 'Could not queue the run for execution.',
+    });
   });
 });

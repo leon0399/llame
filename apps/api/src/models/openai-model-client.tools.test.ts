@@ -362,8 +362,10 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
       }).text,
     ).resolves.toBe('done');
 
-    expect(onTextDelta).toHaveBeenCalledWith('done');
-    expect(onReasoningDelta).toHaveBeenCalledWith('think');
+    // Exact call lists, not `toHaveBeenCalledWith`: each chunk must reach its
+    // own callback exactly once, so a chunk routed to both cannot pass.
+    expect(onTextDelta.mock.calls).toEqual([['done']]);
+    expect(onReasoningDelta.mock.calls).toEqual([['think']]);
   });
 });
 
@@ -462,7 +464,7 @@ describe('createOpenAIModelClient — delta callbacks', () => {
 
     await client.streamText({ messages, onTextDelta }).text;
 
-    expect(onTextDelta).toHaveBeenCalledWith('answer');
+    expect(onTextDelta.mock.calls).toEqual([['answer']]);
   });
 });
 

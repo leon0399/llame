@@ -7,6 +7,13 @@ import {
   validateSearchInput,
 } from './knowledge-filesystem-validation';
 import { KnowledgeFilesystemError } from './knowledge-filesystem-errors';
+import {
+  KNOWLEDGE_MAX_PATH_BYTES,
+  KNOWLEDGE_MAX_PATH_COMPONENTS,
+  KNOWLEDGE_MAX_READ_LINES,
+} from './knowledge-filesystem-limits';
+
+const MAX_SEARCH_QUERY_CODE_POINTS = 200;
 
 const validBinding = {
   id: '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
@@ -46,6 +53,14 @@ describe('Knowledge filesystem validation', () => {
     );
   });
 
+  // Upper bounds are inclusive: without a success case at exactly the cap a
+  // `>` → `>=` regression would reject valid input and no test would notice.
+  it('accepts a query and limit sitting exactly on their caps', () => {
+    expect(() =>
+      validateSearchInput('😀'.repeat(MAX_SEARCH_QUERY_CODE_POINTS), 10),
+    ).not.toThrow();
+  });
+
   it('enforces safe optional read ranges', () => {
     expect(() => validateReadRange(undefined, undefined)).not.toThrow();
     expect(() => validateReadRange(0, 1)).not.toThrow();
@@ -61,6 +76,9 @@ describe('Knowledge filesystem validation', () => {
         KnowledgeFilesystemError,
       );
     }
+    expect(() =>
+      validateReadRange(undefined, KNOWLEDGE_MAX_READ_LINES),
+    ).not.toThrow();
   });
 
   it('rejects absolute, traversal, control-character, and non-Markdown paths', () => {
@@ -80,6 +98,18 @@ describe('Knowledge filesystem validation', () => {
         KnowledgeFilesystemError,
       );
     }
+  });
+
+  it('accepts a path sitting exactly on the byte and component caps', () => {
+    const maxBytes = `${'a'.repeat(KNOWLEDGE_MAX_PATH_BYTES - 3)}.md`;
+    expect(Buffer.byteLength(maxBytes, 'utf8')).toBe(KNOWLEDGE_MAX_PATH_BYTES);
+    expect(validatePath(maxBytes, true)).toEqual([maxBytes]);
+
+    const maxComponents = [
+      ...Array.from({ length: KNOWLEDGE_MAX_PATH_COMPONENTS - 1 }, () => 'a'),
+      'note.md',
+    ];
+    expect(validatePath(maxComponents.join('/'), true)).toEqual(maxComponents);
   });
 
   it('distinguishes Markdown suffixes and joins relative components', () => {

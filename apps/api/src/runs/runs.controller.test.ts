@@ -157,11 +157,16 @@ describe('RunsController context receipt', () => {
   });
 
   it('returns not-found when an owned run lookup misses', async () => {
-    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(undefined);
+    const findById = vi
+      .spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValue(undefined);
 
     await expect(controller().getRun('owner', run.id)).rejects.toThrow(
       `Run ${run.id} not found`,
     );
+    // A run owned by someone else reaches the same 404 only because the lookup
+    // is scoped to the authenticated caller, never to a client-supplied id.
+    expect(findById).toHaveBeenCalledWith(run.id, 'owner');
   });
 
   it('requests cancellation and aborts an in-process run', async () => {

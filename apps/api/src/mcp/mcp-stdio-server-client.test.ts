@@ -388,8 +388,7 @@ describe('DiagnosticBuffer protected fragments', () => {
     buffer.append('x'.repeat(MAX_DIAGNOSTIC_CHARS));
     buffer.flush();
 
-    expect(seen).toHaveLength(1);
-    expect(seen[0]).toHaveLength(MAX_DIAGNOSTIC_CHARS);
+    expect(seen).toEqual(['x'.repeat(MAX_DIAGNOSTIC_CHARS)]);
   });
 
   it('redacts eight-character lines but leaves shorter fragments visible', () => {

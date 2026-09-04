@@ -20,7 +20,11 @@ const project: Project = {
 
 describe('project DTOs', () => {
   it('maps the complete project response without dropping archive state', () => {
-    expect(toProjectResponse(project)).toEqual(project);
+    const response = toProjectResponse(project);
+    expect(response).toEqual(project);
+    // A pass-through that handed the stored row back would leak whatever the
+    // schema grows next; the mapper must build its own object.
+    expect(response).not.toBe(project);
   });
 
   it('accepts boolean archive flags and rejects null', async () => {

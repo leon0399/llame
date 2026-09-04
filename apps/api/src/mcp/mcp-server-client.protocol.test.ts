@@ -791,7 +791,10 @@ describe('McpServerClient transport protocol', () => {
       });
       const pendingBeforeClose = vi.getTimerCount();
       await client.close();
-      expect(vi.getTimerCount()).toBe(pendingBeforeClose);
+      // Pinned, not compared to a free variable: a connect that left timers
+      // behind would satisfy an equal before/after count while still leaking.
+      expect(pendingBeforeClose).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();
     }

@@ -303,6 +303,13 @@ describe('AuthService', () => {
     ).resolves.toEqual(
       expect.objectContaining({ id: session.id, current: true }),
     );
+    // The service owns no owner check of its own: the caller's id must reach
+    // the repository, which is where the owner predicate lives.
+    expect(sessions.findByIdForUser).toHaveBeenCalledWith(
+      user.id,
+      session.id,
+      expect.any(Number),
+    );
 
     sessions.findByIdForUser.mockResolvedValue(undefined);
     await expect(

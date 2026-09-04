@@ -424,8 +424,11 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
   it('logs and rethrows a failed sweep', async () => {
     const failure = new Error('sweep failed');
     const enqueueChatReindex = vi.fn().mockRejectedValue(failure);
+    // `call` lives OUTSIDE the runner so the three provisioning self-checks are
+    // answered before the sweep's own stale query reaches the real row. Declared
+    // inside, it reset on every invocation and the sweep row was unreachable.
+    let call = 0;
     const runAsPublic: PublicRunner = (fn) => {
-      let call = 0;
       const rows =
         call++ < 3
           ? [{ bypass: true }]
@@ -441,6 +444,7 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
       throw new Error('sweep handler was not registered');
 
     await expect(sweepHandler()).rejects.toBe(failure);
+    expect(enqueueChatReindex).toHaveBeenCalledWith('c', 'u');
     expect(harness.errorSpy).toHaveBeenCalledWith(
       'Search staleness sweep failed',
       expect.any(String),

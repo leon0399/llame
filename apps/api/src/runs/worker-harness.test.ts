@@ -12,6 +12,7 @@ import {
   type LlameConfig,
 } from '../instance-config/llame-config';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
+import { WorkerModule } from '../worker.module';
 import { QUEUE } from '../queue/queue';
 import { ModelsService } from '../models/models.service';
 import { type Message, type Run } from '../db/schema';
@@ -223,7 +224,7 @@ describe('bootWorkerHarness', () => {
     await bootWorkerHarness({ allowedTools: ['conversation_read'] });
 
     expect(createTestingModule).toHaveBeenCalledWith({
-      imports: [expect.anything()],
+      imports: [WorkerModule],
     });
     expect(overrideProvider.mock.calls.map(([token]) => token)).toEqual([
       ModelsService,
@@ -264,19 +265,22 @@ describe('createUser', () => {
 });
 
 /**
- * A TenantDbService whose transaction hands out Drizzle's own mock database.
+ * A TenantDbService whose transaction hands out Drizzle's own mock database,
+ * plus its `runAs` spy so a caller can assert the identity the seed ran under.
  * Every repository seedRun touches is prototype-spied, so nothing reaches it.
  */
-function fakeTenantDb(): TenantDbService {
+function fakeTenantDb() {
   const db: Db = drizzle.mock({ schema });
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
-  vi.spyOn(tenantDb, 'runAs').mockImplementation(
-    async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
-      callback(db),
-  );
-  return tenantDb;
+  const runAs = vi
+    .spyOn(tenantDb, 'runAs')
+    .mockImplementation(
+      async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+        callback(db),
+    );
+  return { tenantDb, runAs };
 }
 
 /** A Queue whose enqueue is scripted; the harness never calls the other methods. */
@@ -331,13 +335,16 @@ describe('seedRun', () => {
 
   it('creates a titled chat, default hello part, and omits effort when unset', async () => {
     const { createIfAbsent, createMessage, createRun } = stubSeedRepos();
+    const { tenantDb, runAs } = fakeTenantDb();
 
     const seeded = await seedRun({
-      tenantDb: fakeTenantDb(),
+      tenantDb,
       userId: 'user-1',
       modelId: 'model-1',
     });
 
+    // Every seed write happens inside the owner's own tenant transaction.
+    expect(runAs).toHaveBeenCalledWith('user-1', expect.any(Function));
     expect(createIfAbsent).toHaveBeenCalledWith({
       id: seeded.chatId,
       ownerUserId: 'user-1',
@@ -354,7 +361,7 @@ describe('seedRun', () => {
       stubSeedRepos();
 
     await seedRun({
-      tenantDb: fakeTenantDb(),
+      tenantDb: fakeTenantDb().tenantDb,
       userId: 'user-1',
       modelId: 'model-1',
       chatId: 'existing-chat',
@@ -435,12 +442,14 @@ describe('dispatchRun and seedAndDispatchRun', () => {
       .spyOn(RunsRepository.prototype, 'create')
       .mockResolvedValue(run);
     const enqueue = vi.fn(() => Promise.resolve('job-1'));
-    const harness = { tenantDb: fakeTenantDb(), queue: fakeQueue(enqueue) };
+    const { tenantDb, runAs } = fakeTenantDb();
+    const harness = { tenantDb, queue: fakeQueue(enqueue) };
 
     await seedAndDispatchRun(harness, {
       userId: 'user-1',
       modelId: 'model-1',
     });
+    expect(runAs).toHaveBeenCalledWith('user-1', expect.any(Function));
     expect(createRun.mock.calls[0]?.[0]).not.toHaveProperty('effort');
 
     await seedAndDispatchRun(harness, {

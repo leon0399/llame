@@ -221,6 +221,34 @@ describe('BoundedStdioTransport', () => {
     );
   });
 
+  // Asserting `process.platform === 'win32'` against the spawn options only
+  // restates what the source computes, and on a non-Windows runner both sides
+  // are false whatever the source does. Pin each platform explicitly instead.
+  it.each([
+    ['win32', true],
+    ['linux', false],
+  ] as const)(
+    'derives windowsHide from platform %s',
+    async (platform, hide) => {
+      const platformSpy = vi
+        .spyOn(process, 'platform', 'get')
+        .mockReturnValue(platform);
+      try {
+        const child = fakeChild();
+        spawned.mockReturnValue(asChildProcess(child));
+        const transport = new BoundedStdioTransport({ command: '/bin/mcp' });
+
+        const started = transport.start();
+        child.emit('spawn');
+        await started;
+
+        expect(spawned.mock.calls[0]?.[2]?.windowsHide).toBe(hide);
+      } finally {
+        platformSpy.mockRestore();
+      }
+    },
+  );
+
   it('delivers parsed stdout messages and reports a cap overrun as a transport fault', async () => {
     const child = fakeChild();
     spawned.mockReturnValue(asChildProcess(child));
@@ -296,8 +324,18 @@ describe('BoundedStdioTransport', () => {
       params: {},
     };
     const sent = transport.send(ping);
+    let settled = false;
+    void sent.then(() => {
+      settled = true;
+    });
+
+    // A backpressured write must stay pending: only 'drain' may settle it.
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
     child.stdin.emit('drain');
-    await sent;
+    await expect(sent).resolves.toBeUndefined();
+    expect(settled).toBe(true);
   });
 
   it('close on an unstarted transport is a no-op, and close ends a live child', async () => {

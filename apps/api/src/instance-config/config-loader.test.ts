@@ -33,6 +33,10 @@ function errorMessage(err: unknown): string {
   return err.message;
 }
 
+// Every variable a `{env:...}` token in this file resolves against `process.env`
+// (i.e. a test that calls `loadInstanceConfig()` with no explicit env). Each is
+// cleared before and restored after every test, so an ambient value on the host
+// or in CI cannot decide the outcome.
 const ENV_KEYS = [
   'LLAME_CONFIG_PATH',
   'DEFAULT_MODEL_ID',
@@ -41,6 +45,16 @@ const ENV_KEYS = [
   'RUN_HEARTBEAT_SECONDS',
   'RUN_TIMEOUT_SECONDS',
   'TRUST_PROXY',
+  'EMPTY_TIMEOUT',
+  'EMPTY_TOKEN',
+  'IC_LOADER_REQUIRED_VAR',
+  'MISSING_STDIO_SECRET',
+  'PM_BASE_URL',
+  'PM_KEY',
+  'PM_KEY_UNSET',
+  'RUN_MAX_OUTPUT_TOKENS_SRC',
+  'RUN_TIMEOUT_SECONDS_SRC',
+  'TRUST_PROXY_SRC',
 ] as const;
 
 let originalEnv: Record<string, string | undefined>;

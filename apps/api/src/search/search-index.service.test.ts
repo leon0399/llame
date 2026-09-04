@@ -1,4 +1,6 @@
 import { Test, type TestingModule } from '@nestjs/testing';
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 
 import { chats, messages, searchChatDocuments } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
@@ -56,15 +58,17 @@ type FakeSelectQuery = {
   limit: () => Promise<ReadonlyArray<FakeChat>>;
 };
 
+type FakeConflictConfig = { target: ReadonlyArray<unknown> };
+
 type FakeTransaction = {
   select: () => FakeSelectQuery;
   insert: () => {
     values: (rows: ReadonlyArray<FakeInsertRow>) => {
-      onConflictDoUpdate: () => Promise<void>;
+      onConflictDoUpdate: (config: FakeConflictConfig) => Promise<void>;
     };
   };
   delete: () => { where: () => Promise<void> };
-  execute: () => Promise<{ count: number }>;
+  execute: (statement: SQL) => Promise<{ count: number }>;
 };
 
 const CHAT_ID = 'chat-1';
@@ -114,9 +118,11 @@ function transactionHarness(
     messages: row,
   }));
   const existingRows = options.existing ?? [];
-  const insertValues = vi.fn();
-  const execute = vi.fn(() => Promise.resolve({ count: 0 }));
-  const onConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
+  const insertValues = vi.fn((_rows: ReadonlyArray<FakeInsertRow>) => {});
+  const execute = vi.fn((_statement: SQL) => Promise.resolve({ count: 0 }));
+  const onConflictDoUpdate = vi.fn((_config: FakeConflictConfig) =>
+    Promise.resolve(),
+  );
   const values = vi.fn((rows: ReadonlyArray<FakeInsertRow>) => {
     insertValues(rows);
     return { onConflictDoUpdate };
@@ -215,6 +221,35 @@ describe('SearchIndexService.reindexChat', () => {
     expect(harness.onConflictDoUpdate).toHaveBeenCalledTimes(1);
     expect(harness.whereDelete).toHaveBeenCalledTimes(1);
     expect(harness.execute).toHaveBeenCalledTimes(1);
+
+    // The row actually written, not just that a write happened.
+    const chunk = baselineChunk();
+    expect(harness.insertValues.mock.calls[0]?.[0]?.[0]).toMatchObject({
+      ownerUserId: OWNER_ID,
+      chatId: CHAT_ID,
+      chunkOrdinal: chunk.chunkOrdinal,
+      chunkerVersion: CHUNKER_VERSION,
+      firstMessageId: 'm-1',
+      lastMessageId: 'm-1',
+      contentHash: chunk.contentHash,
+    });
+    // The upsert must conflict on the (chat, ordinal, version) identity — an
+    // empty target would silently turn every rebuild into a duplicate insert.
+    expect(harness.onConflictDoUpdate.mock.calls[0]?.[0]?.target).toHaveLength(
+      3,
+    );
+
+    // The watermark statement itself, with the values it binds.
+    const watermark = harness.execute.mock.calls[0]?.[0];
+    if (watermark === undefined)
+      throw new Error('watermark statement was not executed');
+    const compiled = new PgDialect().sqlToQuery(watermark);
+    expect(compiled.sql).toContain('INSERT INTO search_chat_state');
+    expect(compiled.sql).toContain('ON CONFLICT (chat_id) DO UPDATE SET');
+    expect(compiled.params).toContain(CHAT_ID);
+    expect(compiled.params).toContain(OWNER_ID);
+    expect(compiled.params).toContain(CHUNKER_VERSION);
+    expect(compiled.params.at(-1)).toBe(1);
   });
 
   it.each([

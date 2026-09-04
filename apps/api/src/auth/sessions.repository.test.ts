@@ -326,6 +326,21 @@ describe('SessionsRepository read and delete queries', () => {
     expect(queries[0].sql).toContain('returning "id"');
   });
 
+  // CWE-639: revoking by id alone would let any authenticated caller delete
+  // another owner's session, so the owner predicate must be in the statement
+  // itself and bound to the caller — not only enforced by RLS underneath.
+  it('scopes deleteByIdForUser to the owner as well as the session id', async () => {
+    const { repository, queries } = makeLoggedDb();
+
+    await repository
+      .deleteByIdForUser('owner-1', session.id)
+      .catch(() => undefined);
+
+    expect(queries[0].sql).toContain('"user_id" = $');
+    expect(queries[0].sql).toContain('"id" = $');
+    expect(queries[0].params).toStrictEqual(['owner-1', session.id]);
+  });
+
   it('scopes deleteOthersForUser to the owner while sparing the current session', async () => {
     const { repository, queries } = makeLoggedDb();
 

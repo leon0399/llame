@@ -178,6 +178,24 @@ describe('buildCanonicalSearchExcerpt', () => {
     );
   });
 
+  it('omits the leading ellipsis when the exact window starts at the passage head', () => {
+    const source = `NEEDLE${'a'.repeat(594)}`;
+    const result = buildCanonicalSearchExcerpt(
+      passage(source, {
+        startOffset: 0,
+        endOffsetExclusive: 6,
+        kind: 'exact',
+      }),
+    );
+
+    expect(result.startsWith('NEEDLE')).toBe(true);
+    expect(result.startsWith('…')).toBe(false);
+    expect(result.endsWith('…')).toBe(true);
+    expect(Array.from(result).length).toBe(
+      CANONICAL_SEARCH_MAX_EXCERPT_CODE_POINTS - 1,
+    );
+  });
+
   it('clamps out-of-range exact coordinates and never emits a broken surrogate', () => {
     const source = `${'a'.repeat(498)}😀${'b'.repeat(302)}`;
     const result = buildCanonicalSearchExcerpt(

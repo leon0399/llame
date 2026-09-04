@@ -199,14 +199,22 @@ describe('ScriptedModelsService', () => {
       finalText: 'source read',
     });
     const client = service.createClient('recall');
+    const search = vi.fn(() => sourceResult);
+    const tools = recallTools(search);
+    const read = vi.spyOn(tools.conversation_read, 'execute');
 
     await expect(
       client.streamText({
         messages,
-        tools: recallTools(),
+        tools,
         maxSteps: 5,
       }).text,
     ).resolves.toBe('source read');
+    // The scripted turns actually ran: one search, then the read and its
+    // continuation. Without this the final text alone would pass even if the
+    // client answered without calling a tool.
+    expect(search).toHaveBeenCalledOnce();
+    expect(read).toHaveBeenCalledTimes(2);
     expect(service.streamCalls).toEqual([
       { modelId: 'recall', effort: undefined },
     ]);
@@ -240,6 +248,7 @@ describe('ScriptedModelsService', () => {
       status: 'success' as const,
       results: [],
     });
+    const read = vi.spyOn(tools.conversation_read, 'execute');
 
     await expect(
       service.createClient('empty-recall').streamText({
@@ -247,6 +256,8 @@ describe('ScriptedModelsService', () => {
         tools,
       }).text,
     ).resolves.toBe('nothing found');
+    // "without requesting a read" is the point of the case, so assert it.
+    expect(read).not.toHaveBeenCalled();
     expect(service.streamCalls).toHaveLength(1);
   });
 
@@ -602,23 +613,31 @@ describe('ScriptedModelsService observable contract', () => {
   });
 
   it('withholds a delayed completion until its delay elapses', async () => {
-    const service = new ScriptedModelsService();
-    service.register('delayed', {
-      kind: 'complete',
-      text: 'later',
-      delayMs: 1000,
-    });
-    let settled = false;
-    const pending = service
-      .createClient('delayed')
-      .streamText({ messages }).text;
-    void pending.then(() => {
-      settled = true;
-    });
+    // Fake timers, not a real 1.1s sleep: the assertions are about ordering
+    // around the delay, and every mutant re-runs this file.
+    vi.useFakeTimers();
+    try {
+      const service = new ScriptedModelsService();
+      service.register('delayed', {
+        kind: 'complete',
+        text: 'later',
+        delayMs: 1000,
+      });
+      let settled = false;
+      const pending = service
+        .createClient('delayed')
+        .streamText({ messages }).text;
+      void pending.then(() => {
+        settled = true;
+      });
 
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(settled).toBe(false);
-    await expect(pending).resolves.toBe('later');
+      await vi.advanceTimersByTimeAsync(100);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(900);
+      await expect(pending).resolves.toBe('later');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('clears a delayed completion timer when the stream is aborted', async () => {
