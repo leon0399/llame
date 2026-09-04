@@ -1,0 +1,52 @@
+apps/api/src/runs/model-context-snapshots.repository.test.ts
+  706a6e20515e9675 1,42-45,60,64,167,172,178-180,184-186
+apps/api/src/chats/chats-repository.test.ts
+  706a6e20515e9675 21,46-57,489,500,508,510,520-521,528-533,541-543,560-563,571-573,677
+apps/api/src/chats/chat-loop.service.test.ts
+  706a6e20515e9675 11-12,121-125,127,131-132,141-146
+apps/api/src/mcp/mcp-stdio-transport.test.ts
+  706a6e20515e9675 25-26,31-34,36-42,44-45,51-61,217,299-300,302
+apps/api/src/runs/worker-harness.test.ts
+  706a6e20515e9675 1,30,32,80-84,95,106-108,114-123,125,135-137,141-144,149-155,221,229,267,270-271,273-276,284-297,390,399,444,448,451,455
+apps/api/src/search/search-embed.worker.test.ts
+  706a6e20515e9675 34-36,49-52,87-93
+apps/api/src/runs/run-stream-bridge.test.ts
+  706a6e20515e9675 24,1003
+apps/api/src/runs/run-execution.service.test.ts
+  706a6e20515e9675 192-195,225,228,415-428,436,441,444,914-922,924,926,931,933-936,938-940,1594,1603
+apps/api/src/models/fake-model-client.test.ts
+  706a6e20515e9675 1-5,10-19,230,232
+apps/api/src/chats/chats.controller.test.ts
+  706a6e20515e9675 11,735,751-752,757-758
+apps/api/src/models/openai-model-client.tools.test.ts
+  706a6e20515e9675 17,529-542
+apps/api/src/chats/tool-availability-context-item.test.ts
+  706a6e20515e9675 396-397
+apps/api/src/auth/sessions.repository.test.ts
+  706a6e20515e9675 5,11-13,43,48-59,72,91,95,101,103-104,106-107,371
+apps/api/src/personalization/personalization.controller.test.ts
+  706a6e20515e9675 33,37,48-50,52-53
+apps/api/src/mcp/mcp-server-client.protocol.test.ts
+  706a6e20515e9675 297-299
+apps/api/src/search/chat/canonical-search-excerpt.test.ts
+  706a6e20515e9675 176-180,182,198-199,201
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "1a6b1ffdcf2167b032036643a71911cfb788df30",
+  "prompts": {
+    "706a6e20515e9675": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1c0afb15-618f-4d5d-bcf7-33746bc40b89",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 262,
+      "total_deletions": 187,
+      "accepted_lines": 163,
+      "overriden_lines": 2
+    }
+  }
+}
