@@ -18,6 +18,7 @@ import {
   buildCompactionReplacementHistory,
   estimateModelRequestTokens,
   estimateContextTokens,
+  isPositiveFinite,
   planTransitionCompaction,
   requestFitsContextWindow,
   normalizeCompactionSummary,
@@ -793,5 +794,132 @@ describe('personalization exclusion (add-user-personalization D7)', () => {
     const last = request.messages.at(-1);
     expect(last?.role).toBe('user');
     expect(JSON.stringify(last)).toContain('<user_personalization>');
+  });
+});
+
+describe('estimateContextTokens boundaries', () => {
+  it('counts a prior summary or replacement history even with no live history', () => {
+    expect(
+      estimateContextTokens(
+        [],
+        'c'.repeat(400),
+        replacementHistory('k'.repeat(400)),
+      ),
+    ).toBeGreaterThan(50);
+    expect(
+      estimateContextTokens([], undefined, replacementHistory('checkpoint')),
+    ).toBeGreaterThan(0);
+  });
+
+  it('divides the serialized projection by four rather than multiplying', () => {
+    const history = [msg('a'.repeat(400))];
+    const estimate = estimateContextTokens(history, undefined);
+
+    // ~chars/4. A multiply would land four orders of magnitude out.
+    expect(estimate).toBeGreaterThan(90);
+    expect(estimate).toBeLessThan(400);
+  });
+
+  it('divides the whole request projection by four as well', () => {
+    const estimate = estimateModelRequestTokens({
+      system: 's'.repeat(400),
+      messages: [{ role: 'user', content: 'u'.repeat(400) }],
+      toolDeclarations: [],
+    });
+
+    expect(estimate).toBeGreaterThan(190);
+    expect(estimate).toBeLessThan(600);
+  });
+});
+
+describe('isPositiveFinite', () => {
+  it.each([
+    [undefined, false],
+    [Number.NaN, false],
+    [Number.POSITIVE_INFINITY, false],
+    [-1, false],
+    [0, false],
+    [0.5, true],
+    [1, true],
+  ] as const)('classifies %p as %p', (value, expected) => {
+    expect(isPositiveFinite(value)).toBe(expected);
+  });
+});
+
+describe('planTransitionCompaction ordering', () => {
+  it('orders an out-of-order window by seq before choosing the cutoff', () => {
+    const first = { ...msg('first'), seq: 1 };
+    const early = { ...msg('early answer', 'assistant'), seq: 2 };
+    const later = { ...msg('later answer', 'assistant'), seq: 4 };
+    const middle = { ...msg('middle question'), seq: 3 };
+    const triggering = { ...msg('unseen trigger'), seq: 5 };
+
+    const plan = planTransitionCompaction(
+      [later, first, triggering, early, middle],
+      triggering.seq,
+    );
+
+    expect(plan?.uptoSeq).toBe(later.seq);
+    expect(plan?.absorb.map((message) => message.seq)).toStrictEqual([
+      1, 2, 3, 4,
+    ]);
+  });
+
+  it('excludes a message at exactly the triggering sequence', () => {
+    const first = { ...msg('first'), seq: 1 };
+    const answer = { ...msg('answer', 'assistant'), seq: 2 };
+    const sameSeqAssistant = { ...msg('too new', 'assistant'), seq: 3 };
+
+    const plan = planTransitionCompaction([first, answer, sameSeqAssistant], 3);
+
+    expect(plan?.uptoSeq).toBe(answer.seq);
+    expect(plan?.absorb).not.toContainEqual(sameSeqAssistant);
+  });
+
+  it('never cuts through a user turn, even the newest message before the trigger', () => {
+    const first = { ...msg('first'), seq: 1 };
+    const answer = { ...msg('answer', 'assistant'), seq: 2 };
+    const followUp = { ...msg('follow-up question'), seq: 3 };
+    const triggering = { ...msg('unseen trigger'), seq: 4 };
+
+    const plan = planTransitionCompaction(
+      [first, answer, followUp, triggering],
+      triggering.seq,
+    );
+
+    expect(plan?.uptoSeq).toBe(answer.seq);
+  });
+});
+
+describe('planCompaction boundaries', () => {
+  it('compacts when the measured context exactly reaches the threshold', () => {
+    const history = [msg('one'), msg('two'), msg('three')];
+
+    expect(
+      planCompaction({
+        history,
+        previousSummary: undefined,
+        thresholdTokens: 1000,
+        keepRecentMessages: 1,
+        measuredContextTokens: 1000,
+      }),
+    ).not.toBeNull();
+  });
+
+  it('orders an out-of-order window by seq before splitting it', () => {
+    const first = { ...msg('first'), seq: 1 };
+    const second = { ...msg('second'), seq: 2 };
+    const third = { ...msg('third'), seq: 3 };
+
+    const plan = planCompaction({
+      history: [third, first, second],
+      previousSummary: undefined,
+      thresholdTokens: 1,
+      keepRecentMessages: 1,
+      measuredContextTokens: 10,
+    });
+
+    expect(plan?.uptoSeq).toBe(second.seq);
+    expect(plan?.absorb.map((message) => message.seq)).toStrictEqual([1, 2]);
   });
 });

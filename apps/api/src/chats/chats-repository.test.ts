@@ -13,11 +13,12 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import {
   ChatsRepository,
   CompactionsRepository,
-  MessagesRepository,
   type Db,
 } from './chats-repository';
+import { MessagesRepository } from './messages-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import * as schema from '../db/schema';
+import { isRecord, isString } from '../unknown-record';
 
 type LoggedQuery = {
   sql: string;
@@ -40,6 +41,18 @@ function makeMockDb() {
   });
 
   return { db, queries };
+}
+
+/**
+ * Drizzle's terminal builders (`PgRaw`, `PgDelete`) carry private state no
+ * structural double can satisfy, so a spy that replaces one has to hand back a
+ * plain thenable through the `never` bottom type.
+ */
+function asDbQuery<T extends object>(query: T): never {
+  // SAFETY: every double passed here implements exactly the fluent methods the
+  // repository under test calls, and settles as a real Promise.
+  // eslint-disable-next-line typescript/no-unsafe-type-assertion
+  return query as never;
 }
 
 function queryContains(
@@ -354,6 +367,322 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     expect(querySqlContains(queries, 'delete from "chats"')).toBe(true);
     expect(queryContains(queries, ownerUserId)).toBe(true);
     expect(queryContains(queries, chatId)).toBe(true);
+  });
+
+  it('createIfAbsent stores a supplied title and otherwise binds null', async () => {
+    const { db, queries } = makeMockDb();
+    await new ChatsRepository(db)
+      .createIfAbsent({ id: chatId, ownerUserId, title: 'Named' })
+      .catch(() => null);
+    expect(queryContains(queries, 'Named')).toBe(true);
+    expect(querySqlContains(queries, 'on conflict')).toBe(true);
+
+    queries.length = 0;
+    await new ChatsRepository(db)
+      .createIfAbsent({ id: chatId, ownerUserId })
+      .catch(() => null);
+    expect(lastQuery(queries).params).toContain(null);
+  });
+
+  it('create defaults visibility to private and title to null', async () => {
+    const { db, queries } = makeMockDb();
+    await new ChatsRepository(db).create({ ownerUserId }).catch(() => null);
+    expect(queryContains(queries, 'private')).toBe(true);
+    expect(lastQuery(queries).params).toContain(null);
+
+    queries.length = 0;
+    await new ChatsRepository(db)
+      .create({ ownerUserId, title: 'Titled', visibility: 'public' })
+      .catch(() => null);
+    expect(queryContains(queries, 'Titled')).toBe(true);
+    expect(queryContains(queries, 'public')).toBe(true);
+  });
+
+  it('setRecencyDigestIfAbsent writes only when the baseline is still null', async () => {
+    const { db, queries } = makeMockDb();
+    const baseline = {
+      pinned: [],
+      recent: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-09-03',
+    };
+    await new ChatsRepository(db)
+      .setRecencyDigestIfAbsent(chatId, ownerUserId, baseline, [])
+      .catch(() => null);
+    expect(querySqlContains(queries, 'update "chats"')).toBe(true);
+    expect(querySqlContains(queries, '"recency_digest_baseline" is null')).toBe(
+      true,
+    );
+    expect(queryContains(queries, ownerUserId)).toBe(true);
+  });
+
+  it('setRecencyDigest replaces baseline, told-set, and rebake marker', async () => {
+    const { db, queries } = makeMockDb();
+    await new ChatsRepository(db)
+      .setRecencyDigest({
+        chatId,
+        ownerUserId,
+        baseline: {
+          pinned: [],
+          recent: [],
+          pinnedShown: 0,
+          pinnedTotal: 0,
+          recentShown: 0,
+          recentTotal: 0,
+          compiledOn: '2026-09-03',
+        },
+        told: [{ chatId: 'other', pinned: true, title: 'Other' }],
+        rebakedFrom: 'compaction-1',
+      })
+      .catch(() => null);
+    expect(queryContains(queries, 'compaction-1')).toBe(true);
+    expect(queryContains(queries, ownerUserId)).toBe(true);
+    expect(updateSetSql(queries)).toContain('"recency_digest_rebaked_from"');
+  });
+
+  it('updateRecencyDigestTold writes only the told-set for the owner chat', async () => {
+    const { db, queries } = makeMockDb();
+    await new ChatsRepository(db)
+      .updateRecencyDigestTold(chatId, ownerUserId, [
+        { chatId: 'other', pinned: false, title: 'Other' },
+      ])
+      .catch(() => null);
+    expect(updateSetSql(queries)).toContain('"recency_digest_told"');
+    expect(queryContains(queries, ownerUserId)).toBe(true);
+    expect(queryContains(queries, chatId)).toBe(true);
+  });
+
+  it('findPinnedChatIds returns an empty set without querying for an empty id list', async () => {
+    const { db, queries } = makeMockDb();
+    await expect(
+      new ChatsRepository(db).findPinnedChatIds(ownerUserId, []),
+    ).resolves.toEqual(new Set());
+    expect(queries).toHaveLength(0);
+  });
+
+  it('findPinnedChatIds scopes pins to the caller and the requested chat ids', async () => {
+    const { db, queries } = makeMockDb();
+    await new ChatsRepository(db)
+      .findPinnedChatIds(ownerUserId, [chatId, 'other'])
+      .catch(() => null);
+    expect(queryContains(queries, ownerUserId)).toBe(true);
+    expect(queryContains(queries, 'chat')).toBe(true);
+    expect(queryContains(queries, chatId)).toBe(true);
+  });
+
+  it('searchByOwner returns no rows for a blank query and does not touch the database', async () => {
+    const { db, queries } = makeMockDb();
+    await expect(
+      new ChatsRepository(db).searchByOwner(ownerUserId, '   ', 10),
+    ).resolves.toEqual([]);
+    expect(queries).toHaveLength(0);
+  });
+
+  it('searchByOwner scopes both legs to the owner and names the hybrid document columns', async () => {
+    const { db } = makeMockDb();
+    const statements: Array<unknown> = [];
+    vi.spyOn(db, 'execute').mockImplementation((statement) => {
+      statements.push(statement);
+      return asDbQuery(Promise.resolve([]));
+    });
+
+    await new ChatsRepository(db).searchByOwner(
+      ownerUserId,
+      'hello_world%plus',
+      5,
+    );
+
+    const strings: Array<string> = [];
+    const walk = (value: unknown): void => {
+      if (isString(value)) {
+        strings.push(value);
+        return;
+      }
+      if (Array.isArray(value)) {
+        for (const item of value) walk(item);
+        return;
+      }
+      if (isRecord(value)) {
+        for (const item of Object.values(value)) walk(item);
+      }
+    };
+    walk(statements);
+    expect(strings).toEqual(
+      expect.arrayContaining([
+        'search_chat_documents',
+        'normalized_content',
+        ownerUserId,
+      ]),
+    );
+    expect(strings.some((value) => value.includes(String.raw`\_`))).toBe(true);
+    expect(strings.some((value) => value.includes(String.raw`\%`))).toBe(true);
+  });
+
+  it('searchByOwner collapses snippet whitespace and clips at 160 characters', async () => {
+    const long = `alpha${'  '.repeat(10)}bravo ${'c'.repeat(200)}`;
+    const { db } = makeMockDb();
+    vi.spyOn(db, 'execute')
+      // searchByOwner issues `SET LOCAL statement_timeout` before the search
+      // itself, and ignores its result.
+      .mockImplementationOnce(() => asDbQuery(Promise.resolve(undefined)))
+      .mockImplementation(() =>
+        asDbQuery(
+          Promise.resolve([
+            {
+              id: chatId,
+              title: 'Hit',
+              snippet: long,
+              updatedAt: new Date('2026-09-03T00:00:00.000Z'),
+              bestDocumentId: 'doc-1',
+            },
+          ]),
+        ),
+      );
+
+    const [hit] = await new ChatsRepository(db).searchByOwner(
+      ownerUserId,
+      'bravo',
+      5,
+    );
+
+    expect(hit?.snippet).not.toContain('  ');
+    expect(hit?.snippet?.endsWith('…')).toBe(true);
+    expect(hit?.snippet?.length).toBeLessThanOrEqual(161);
+    expect(hit?.snippet?.startsWith('alpha bravo')).toBe(true);
+  });
+
+  it('searchByOwner leaves a missing snippet as null', async () => {
+    const { db } = makeMockDb();
+    vi.spyOn(db, 'execute')
+      .mockImplementationOnce(() => asDbQuery(Promise.resolve(undefined)))
+      .mockImplementation(() =>
+        asDbQuery(
+          Promise.resolve([
+            {
+              id: chatId,
+              title: 'Title only',
+              snippet: null,
+              updatedAt: new Date('2026-09-03T00:00:00.000Z'),
+              bestDocumentId: null,
+            },
+          ]),
+        ),
+      );
+
+    await expect(
+      new ChatsRepository(db).searchByOwner(ownerUserId, 'title', 5),
+    ).resolves.toEqual([
+      {
+        id: chatId,
+        title: 'Title only',
+        snippet: null,
+        updatedAt: new Date('2026-09-03T00:00:00.000Z'),
+        bestDocumentId: null,
+      },
+    ]);
+  });
+
+  it('findByOwner applies project, exclude, titled-only, and archive-only filters', async () => {
+    const { db, queries } = makeMockDb();
+    await new ChatsRepository(db)
+      .findByOwner(ownerUserId, {
+        projectId: 'project-1',
+        excludeId: chatId,
+        titledOnly: true,
+        archived: 'only',
+      })
+      .catch(() => null);
+    expect(queryContains(queries, 'project-1')).toBe(true);
+    expect(queryContains(queries, chatId)).toBe(true);
+    expect(lastQuery(queries).sql).toContain('btrim');
+    expect(lastQuery(queries).sql).toContain('"archived_at" is not null');
+  });
+
+  it('findByOwner includes archived chats when asked and defaults to excluding them', async () => {
+    const { db, queries } = makeMockDb();
+    await new ChatsRepository(db)
+      .findByOwner(ownerUserId, { archived: 'with' })
+      .catch(() => null);
+    expect(lastQuery(queries).sql).not.toContain('"archived_at" is null');
+    expect(lastQuery(queries).sql).not.toContain('"archived_at" is not null');
+
+    queries.length = 0;
+    await new ChatsRepository(db).findByOwner(ownerUserId).catch(() => null);
+    expect(lastQuery(queries).sql).toContain('"archived_at" is null');
+  });
+
+  it('update allows a pure re-archive and rejects mixed unarchive-and-edit', async () => {
+    const archived = {
+      id: chatId,
+      ownerUserId,
+      title: 'Old',
+      visibility: 'private' as const,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      archivedAt: new Date(),
+      projectId: null,
+      recencyDigestBaseline: null,
+      recencyDigestTold: null,
+      recencyDigestRebakedFrom: null,
+    };
+    const { db, queries } = makeMockDb();
+    stubFindById(() => Promise.resolve(archived));
+    await new ChatsRepository(db)
+      .update(chatId, ownerUserId, { archived: true })
+      .catch(() => null);
+    expect(queries).toHaveLength(0);
+
+    await expect(
+      new ChatsRepository(db).update(chatId, ownerUserId, {
+        archived: false,
+        title: 'Nope',
+      }),
+    ).rejects.toThrow('archived');
+  });
+
+  it('update files a chat without bumping recency', async () => {
+    const { db, queries } = makeMockDb();
+    stubFindById(() =>
+      Promise.resolve({
+        id: chatId,
+        ownerUserId,
+        title: 'Old',
+        visibility: 'private',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        archivedAt: null,
+        projectId: null,
+        recencyDigestBaseline: null,
+        recencyDigestTold: null,
+        recencyDigestRebakedFrom: null,
+      }),
+    );
+    await new ChatsRepository(db)
+      .update(chatId, ownerUserId, { projectId: 'project-1' })
+      .catch(() => null);
+    expect(updateSetSql(queries)).toContain('"project_id"');
+    expect(updateSetSql(queries)).not.toContain('"updated_at"');
+  });
+
+  it('deleteById is true only when a row is actually removed', async () => {
+    const { db } = makeMockDb();
+    const returning = vi
+      .fn()
+      .mockResolvedValueOnce([{ id: chatId }])
+      .mockResolvedValueOnce([]);
+    vi.spyOn(db, 'delete').mockImplementation(() =>
+      asDbQuery({ where: () => ({ returning }) }),
+    );
+
+    await expect(
+      new ChatsRepository(db).deleteById(chatId, ownerUserId),
+    ).resolves.toBe(true);
+    await expect(
+      new ChatsRepository(db).deleteById(chatId, ownerUserId),
+    ).resolves.toBe(false);
   });
 
   it('setGeneratedTitle scopes by chatId, ownerUserId, and untitled state (#78)', async () => {

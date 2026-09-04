@@ -1,8 +1,10 @@
+import { Logger } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   McpRuntimeService,
   STDIO_MAX_FAST_ATTEMPTS,
+  STDIO_STABLE_AFTER_MS,
   type McpRuntimeClient,
   type McpRuntimeClientFactory,
   type McpRuntimeServerDefinition,
@@ -106,6 +108,133 @@ afterEach(() => {
 });
 
 describe('McpRuntimeService', () => {
+  it('initializes once even when lifecycle hooks are repeated', async () => {
+    const client = fakeClient();
+    const clientFactory = vi.fn<McpRuntimeClientFactory>(() =>
+      Promise.resolve(client),
+    );
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory,
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    runtime.onModuleInit();
+    expect(clientFactory).toHaveBeenCalledOnce();
+
+    await runtime.onModuleDestroy();
+    runtime.onModuleInit();
+    expect(clientFactory).toHaveBeenCalledOnce();
+  });
+
+  it('clamps a non-finite refresh jitter to the earliest refresh', async () => {
+    vi.useFakeTimers();
+    const client = fakeClient(vi.fn(() => Promise.resolve(emptyDiscovery())));
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+      random: () => Number.POSITIVE_INFINITY,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    expect(client.discover).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(48 * MINUTE_MS);
+    await flushAsync();
+    expect(client.discover).toHaveBeenCalledTimes(2);
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('reconnects when a tool executor reports a reconnect disposition', async () => {
+    vi.useFakeTimers();
+    const discovered: McpDiscoveredTool = {
+      ...discoveredTool('web', 'reconnect'),
+      execute: vi.fn(() =>
+        Promise.resolve({
+          disposition: 'reconnect' as const,
+          result: {
+            status: 'error' as const,
+            type: 'execution_failed',
+            message: 'remote session ended',
+          },
+        }),
+      ),
+    };
+    const client = fakeClient(
+      vi.fn(() => Promise.resolve(discovery(discovered))),
+    );
+    const replacement = fakeClient();
+    const clientFactory = vi
+      .fn<McpRuntimeClientFactory>()
+      .mockResolvedValueOnce(client)
+      .mockResolvedValueOnce(replacement);
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory,
+      random: () => 0,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    const resolution = runtime.resolveDynamicTool('mcp__web__reconnect');
+    if (resolution.state !== 'available') {
+      throw new Error('expected the dynamic tool to be available');
+    }
+
+    await expect(
+      resolution.executor.execute(
+        {
+          userId: 'user-1',
+          chatId: 'chat-1',
+          tenantDb: fakeTenantDb,
+          toolCallId: 'call-1',
+        },
+        { query: 'evidence' },
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'execution_failed',
+      message: 'remote session ended',
+    });
+    expect(client.close).toHaveBeenCalledOnce();
+    expect(runtime.resolveDynamicTool('mcp__web__reconnect')).toEqual({
+      state: 'unavailable',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await flushAsync();
+    expect(clientFactory).toHaveBeenCalledTimes(2);
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('returns unavailable for a canonical tool removed by refresh', async () => {
+    vi.useFakeTimers();
+    const client = fakeClient(
+      vi
+        .fn<McpRuntimeClient['discover']>()
+        .mockResolvedValueOnce(discovery(discoveredTool('web', 'lookup')))
+        .mockResolvedValueOnce(emptyDiscovery()),
+    );
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+      random: () => 0,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    expect(runtime.resolveDynamicTool('mcp__web__lookup').state).toBe(
+      'available',
+    );
+
+    await vi.advanceTimersByTimeAsync(48 * MINUTE_MS);
+    expect(runtime.resolveDynamicTool('mcp__web__lookup')).toEqual({
+      state: 'unavailable',
+    });
+
+    await runtime.onModuleDestroy();
+  });
+
   it('projects the complete admitted inventory without permission input or synthetic offline identities', async () => {
     const client = fakeClient(
       vi.fn(() =>
@@ -1296,5 +1425,393 @@ describe('McpRuntimeService stdio lifecycle', () => {
     );
 
     await runtime.onModuleDestroy();
+  });
+});
+
+describe('McpRuntimeService session fencing and cadence', () => {
+  it('clamps a negative jitter to the earliest and an oversized one to the latest refresh', async () => {
+    vi.useFakeTimers();
+    const early = fakeClient();
+    const earliest = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(early)),
+      random: () => -0.5,
+    });
+    earliest.onModuleInit();
+    await flushAsync();
+
+    await vi.advanceTimersByTimeAsync(48 * MINUTE_MS - 1);
+    await flushAsync();
+    expect(early.discover).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    await flushAsync();
+    expect(early.discover).toHaveBeenCalledTimes(2);
+    await earliest.onModuleDestroy();
+
+    const late = fakeClient();
+    const latest = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(late)),
+      random: () => 2,
+    });
+    latest.onModuleInit();
+    await flushAsync();
+
+    await vi.advanceTimersByTimeAsync(72 * MINUTE_MS - 1);
+    await flushAsync();
+    expect(late.discover).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    await flushAsync();
+    expect(late.discover).toHaveBeenCalledTimes(2);
+    await latest.onModuleDestroy();
+  });
+
+  it('tags a stdio diagnostic with its server id', async () => {
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    let diagnostic: ((text: string) => void) | undefined;
+    const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
+      diagnostic = 'onDiagnostic' in config ? config.onDiagnostic : undefined;
+      return Promise.resolve(fakeClient());
+    });
+    const runtime = new McpRuntimeService(stdioServers('local'), {
+      clientFactory,
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+
+    expect(diagnostic).toBeTypeOf('function');
+    diagnostic?.('child wrote to stderr');
+    expect(warn).toHaveBeenCalledWith('[local] child wrote to stderr');
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('cancels an in-flight discovery when the runtime shuts down', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<McpDiscoveryResult>();
+    let signal: AbortSignal | undefined;
+    const client = fakeClient(
+      vi.fn((options?: { readonly signal?: AbortSignal }) => {
+        signal = options?.signal;
+        return pending.promise;
+      }),
+    );
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    expect(signal?.aborted).toBe(false);
+
+    const closing = runtime.onModuleDestroy();
+    expect(signal?.aborted).toBe(true);
+    pending.resolve(emptyDiscovery());
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(closing).resolves.toBeUndefined();
+  });
+
+  it('withdraws a first discovery that landed after its client was replaced', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<McpDiscoveryResult>();
+    const disconnects: Array<() => void> = [];
+    const client = fakeClient(vi.fn(() => pending.promise));
+    const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
+      disconnects.push(config.onDisconnect ?? (() => undefined));
+      return Promise.resolve(client);
+    });
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory,
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    disconnects[0]?.();
+    await flushAsync();
+
+    pending.resolve(discovery(discoveredTool('web', 'late')));
+    await flushAsync();
+
+    expect(runtime.snapshotCandidates()).toEqual([]);
+    expect(runtime.resolveDynamicTool('mcp__web__late')).toEqual({
+      state: 'unavailable',
+    });
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('discards a refresh that landed after its client was replaced', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<McpDiscoveryResult>();
+    let discovered = false;
+    const client = fakeClient(
+      vi.fn(() => {
+        if (discovered) return pending.promise;
+        discovered = true;
+        return Promise.resolve(discovery(discoveredTool('web', 'first')));
+      }),
+    );
+    const disconnects: Array<() => void> = [];
+    const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
+      disconnects.push(config.onDisconnect ?? (() => undefined));
+      return Promise.resolve(client);
+    });
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory,
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    await vi.advanceTimersByTimeAsync(60 * MINUTE_MS);
+    await flushAsync();
+    expect(client.discover).toHaveBeenCalledTimes(2);
+
+    disconnects[0]?.();
+    await flushAsync();
+    pending.resolve(discovery(discoveredTool('web', 'second')));
+    await flushAsync();
+
+    expect(runtime.snapshotCandidates()).toEqual([
+      expect.objectContaining({
+        state: 'unavailable',
+        id: 'mcp__web__first',
+        reason: 'source_disconnected',
+      }),
+    ]);
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('refreshes again after a completed refresh releases the record', async () => {
+    vi.useFakeTimers();
+    const client = fakeClient(
+      vi.fn(() => Promise.resolve(discovery(discoveredTool('web', 'lookup')))),
+    );
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    expect(client.discover).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(60 * MINUTE_MS);
+    await flushAsync();
+    expect(client.discover).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(60 * MINUTE_MS);
+    await flushAsync();
+    expect(client.discover).toHaveBeenCalledTimes(3);
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('rejects a discovery that repeats an admitted tool id', async () => {
+    vi.useFakeTimers();
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() =>
+        Promise.resolve(
+          fakeClient(
+            vi.fn(() =>
+              Promise.resolve(
+                discovery(
+                  discoveredTool('web', 'same'),
+                  discoveredTool('web', 'same'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+
+    expect(runtime.snapshotCandidates()).toEqual([]);
+    expect(runtime.resolveDynamicTool('mcp__web__same')).toEqual({
+      state: 'unavailable',
+    });
+
+    await runtime.onModuleDestroy();
+  });
+
+  it.each([
+    ['discovery', 'discovery_failed'],
+    ['connect', 'source_disconnected'],
+    ['protocol', 'protocol_unsupported'],
+  ] as const)(
+    'reports a %s failure of a remembered inventory as %s',
+    async (failure, reason) => {
+      vi.useFakeTimers();
+      const disconnects: Array<() => void> = [];
+      let attempt = 0;
+      const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
+        attempt += 1;
+        if (attempt === 1) {
+          disconnects.push(config.onDisconnect ?? (() => undefined));
+          return Promise.resolve(
+            fakeClient(
+              vi.fn(() =>
+                Promise.resolve(discovery(discoveredTool('web', 'lookup'))),
+              ),
+            ),
+          );
+        }
+        if (failure === 'connect') {
+          return Promise.reject(new Error('endpoint down'));
+        }
+        if (failure === 'protocol') {
+          return Promise.reject(new McpProtocolUnsupportedError());
+        }
+        return Promise.resolve(
+          fakeClient(vi.fn(() => Promise.reject(new Error('bad catalog')))),
+        );
+      });
+      const runtime = new McpRuntimeService(servers('web'), {
+        clientFactory,
+        random: () => 0,
+      });
+
+      runtime.onModuleInit();
+      await flushAsync();
+      disconnects[0]?.();
+      await flushAsync();
+      await vi.advanceTimersByTimeAsync(1);
+      await flushAsync();
+
+      expect(runtime.snapshotCandidates()).toEqual([
+        expect.objectContaining({
+          state: 'unavailable',
+          id: 'mcp__web__lookup',
+          reason,
+        }),
+      ]);
+
+      await runtime.onModuleDestroy();
+    },
+  );
+
+  it('refunds the stdio budget at exactly the stability threshold', async () => {
+    vi.useFakeTimers();
+    const disconnects: Array<() => void> = [];
+    let attempt = 0;
+    const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
+      attempt += 1;
+      if (attempt === 1) return Promise.reject(new Error('spawn failed'));
+      disconnects.push(config.onDisconnect ?? (() => undefined));
+      return Promise.resolve(fakeClient());
+    });
+    const runtime = new McpRuntimeService(stdioServers('local'), {
+      clientFactory,
+      random: () => 1,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    expect(clientFactory).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await flushAsync();
+    expect(clientFactory).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(STDIO_STABLE_AFTER_MS);
+    disconnects.at(-1)?.();
+    await flushAsync();
+
+    await vi.advanceTimersByTimeAsync(999);
+    await flushAsync();
+    expect(clientFactory).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    await flushAsync();
+    expect(clientFactory).toHaveBeenCalledTimes(3);
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('closes a superseded client on its late disconnect and leaves the live session alone', async () => {
+    vi.useFakeTimers();
+    const disconnects: Array<() => void> = [];
+    const shared = fakeClient(
+      vi.fn(() => Promise.resolve(discovery(discoveredTool('web', 'lookup')))),
+    );
+    const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
+      disconnects.push(config.onDisconnect ?? (() => undefined));
+      return Promise.resolve(shared);
+    });
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory,
+      random: () => 0,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    disconnects[0]?.();
+    await flushAsync();
+    expect(shared.close).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await flushAsync();
+    expect(runtime.snapshotCandidates()).toEqual([
+      expect.objectContaining({ state: 'available' }),
+    ]);
+
+    disconnects[0]?.();
+    await flushAsync();
+    expect(shared.close).toHaveBeenCalledTimes(2);
+    expect(runtime.snapshotCandidates()).toEqual([
+      expect.objectContaining({ state: 'available' }),
+    ]);
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('releases the transport of an operation that went stale mid-discovery', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<McpDiscoveryResult>();
+    const disconnects: Array<() => void> = [];
+    const client = fakeClient(vi.fn(() => pending.promise));
+    const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
+      disconnects.push(config.onDisconnect ?? (() => undefined));
+      return Promise.resolve(client);
+    });
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory,
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    disconnects[0]?.();
+    await flushAsync();
+    expect(client.close).toHaveBeenCalledTimes(1);
+
+    pending.reject(new Error('discovery aborted'));
+    await flushAsync();
+    expect(client.close).toHaveBeenCalledTimes(2);
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('leaves no timer pending once shutdown completes', async () => {
+    vi.useFakeTimers();
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(fakeClient())),
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    expect(vi.getTimerCount()).toBe(1);
+
+    await runtime.onModuleDestroy();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

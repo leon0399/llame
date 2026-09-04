@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { McpServerClient } from './mcp-server-client';
 import {
   BoundedReadBuffer,
+  BoundedStdioTransport,
   DiagnosticBuffer,
   MAX_DIAGNOSTIC_CHARS,
   MAX_STDIO_MESSAGE_BYTES,
@@ -318,6 +319,19 @@ describe('McpServerClient.connectStdio', () => {
 });
 
 describe('BoundedReadBuffer', () => {
+  it('accepts a message exactly at the byte cap and strips CRLF framing', () => {
+    const line = Buffer.from(
+      '{"jsonrpc":"2.0","id":1,"result":{}}\r\n',
+      'utf8',
+    );
+    const buffer = new BoundedReadBuffer(line.length);
+
+    buffer.append(line);
+
+    expect(buffer.readMessage()).toMatchObject({ id: 1 });
+    expect(buffer.readMessage()).toBeNull();
+  });
+
   it('parses a message under the cap', () => {
     const buffer = new BoundedReadBuffer(MAX_STDIO_MESSAGE_BYTES);
     buffer.append(Buffer.from('{"jsonrpc":"2.0","id":1,"result":{}}\n'));
@@ -363,5 +377,49 @@ describe('BoundedReadBuffer', () => {
     expect(buffer.readMessage()).toMatchObject({ method: 'x' });
     expect(buffer.readMessage()).toMatchObject({ method: 'x' });
     expect(buffer.readMessage()).toMatchObject({ method: 'x' });
+  });
+});
+
+describe('DiagnosticBuffer protected fragments', () => {
+  it('accepts an unterminated chunk exactly at the diagnostic cap', () => {
+    const seen: Array<string> = [];
+    const buffer = new DiagnosticBuffer([], (text) => seen.push(text));
+
+    buffer.append('x'.repeat(MAX_DIAGNOSTIC_CHARS));
+    buffer.flush();
+
+    expect(seen).toEqual(['x'.repeat(MAX_DIAGNOSTIC_CHARS)]);
+  });
+
+  it('redacts eight-character lines but leaves shorter fragments visible', () => {
+    const secret = ['short', '12345678'].join('\n');
+    const seen: Array<string> = [];
+    const buffer = new DiagnosticBuffer([secret], (text) => seen.push(text));
+
+    buffer.append(`${secret}\n`);
+
+    const output = seen.join('');
+    expect(output).toContain('short');
+    expect(output).not.toContain('12345678');
+  });
+});
+
+describe('BoundedStdioTransport lifecycle', () => {
+  it('rejects sends before start and duplicate starts', async () => {
+    const transport = new BoundedStdioTransport({
+      command: process.execPath,
+      args: ['-e', 'process.stdin.resume()'],
+    });
+
+    await expect(
+      transport.send({ jsonrpc: '2.0', id: 1, method: 'ping' }),
+    ).rejects.toThrow('Not connected');
+    await expect(transport.close()).resolves.toBeUndefined();
+
+    await transport.start();
+    await expect(transport.start()).rejects.toThrow(
+      'BoundedStdioTransport already started!',
+    );
+    await transport.close();
   });
 });

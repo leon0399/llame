@@ -40,6 +40,7 @@
     "test:metrics": "node --test scripts/quality-metrics.test.mjs",
     "test:mutation": "turbo run test:mutation --concurrency=1",
     "test:mutation:aggregate": "pnpm --filter api test:mutation:aggregate",
+    "test:mutation:check": "pnpm --filter api test:mutation:check",
     "test:mutation:dry": "turbo run test:mutation:dry --concurrency=1",
     "test:mutation:shard": "pnpm --filter api test:mutation:shard",
     "test:mutation:tooling": "pnpm --filter api test:mutation:tooling",

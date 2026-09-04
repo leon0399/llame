@@ -1,4 +1,5 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   formatTemporalAnchor,
@@ -57,6 +58,10 @@ describe('resolveInstanceTimezone', () => {
     resetDegenerateZoneLog();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('returns a valid IANA identifier from the current environment', () => {
     const tz = resolveInstanceTimezone();
     expect(tz).toBeTruthy();
@@ -79,14 +84,47 @@ describe('resolveInstanceTimezone', () => {
   });
 
   it.each([
-    ['an offset', '+02:00'],
-    ['a negative offset', '-05:00'],
-    ['an identifier', 'Europe/Madrid'],
-    ['UTC', 'UTC'],
-  ])('classifies %s', (_label, zone) => {
-    expect(isIanaTimeZone(zone)).toBe(
-      !zone.startsWith('+') && !zone.startsWith('-'),
-    );
+    ['an offset', '+02:00', false],
+    ['a negative offset', '-05:00', false],
+    ['a digit-prefixed zone', '2:00', false],
+    ['an empty zone', '', false],
+    ['an identifier', 'Europe/Madrid', true],
+    ['UTC', 'UTC', true],
+  ])('classifies %s', (_label, zone, expected) => {
+    expect(isIanaTimeZone(zone)).toBe(expected);
+  });
+
+  it.each(['', 'Etc/Unknown', '+02:00'])(
+    'falls back for the degenerate resolved zone %j',
+    (timeZone) => {
+      const actual = new Intl.DateTimeFormat().resolvedOptions();
+      vi.spyOn(
+        Intl.DateTimeFormat.prototype,
+        'resolvedOptions',
+      ).mockReturnValue({ ...actual, timeZone });
+      const logger = new Logger('test');
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+      expect(resolveInstanceTimezone(logger)).toBe('UTC');
+      expect(resolveInstanceTimezone(logger)).toBe('UTC');
+      expect(warn).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledWith(
+        `Instance timezone resolved to ${String(timeZone)}; falling back to UTC. Set TZ to a valid IANA zone (e.g. Europe/Madrid), not a POSIX offset.`,
+      );
+    },
+  );
+
+  it('returns a resolved IANA zone without logging', () => {
+    const actual = new Intl.DateTimeFormat().resolvedOptions();
+    vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockReturnValue({
+      ...actual,
+      timeZone: 'Pacific/Auckland',
+    });
+    const logger = new Logger('test');
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+    expect(resolveInstanceTimezone(logger)).toBe('Pacific/Auckland');
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 

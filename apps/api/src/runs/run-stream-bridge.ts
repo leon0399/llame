@@ -472,6 +472,10 @@ export class RunStreamBridgeService {
       controller.enqueue(`data: ${JSON.stringify(chunk)}\n\n`);
 
     for (;;) {
+      if (input.abortSignal?.aborted) {
+        controller.close();
+        return;
+      }
       const drained = await this.drainAndTranslate({
         runId: input.runId,
         userId: input.userId,

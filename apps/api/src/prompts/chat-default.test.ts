@@ -23,7 +23,7 @@ const TEST_ANCHOR: TemporalAnchor = {
 
 const template = () =>
   createModelPromptLoader({
-    configPath: path.resolve(__dirname, '../../llame.config.json'),
+    configPath: path.resolve(__dirname, '../../llame.config.json.example'),
   }).resolve(MODEL).systemPromptTemplate;
 
 const render = (user?: PromptUserInput, chats?: PromptChatsInput) =>

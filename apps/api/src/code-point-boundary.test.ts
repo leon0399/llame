@@ -50,6 +50,20 @@ describe('codePointSafeCutIndex', () => {
     expect(codePointSafeCutIndex('abc', 2)).toBe(2);
   });
 
+  it('recognizes both inclusive ends of the high and low surrogate ranges', () => {
+    expect(codePointSafeCutIndex('\uD800\uDC00', 1)).toBe(0);
+    expect(codePointSafeCutIndex('\uD800\uDFFF', 1)).toBe(0);
+    expect(codePointSafeCutIndex('\uDBFF\uDC00', 1)).toBe(0);
+    expect(codePointSafeCutIndex('\uDBFF\uDFFF', 1)).toBe(0);
+  });
+
+  it('requires both halves to be surrogates in their correct positions', () => {
+    expect(codePointSafeCutIndex('\uD7FF\uDC00', 1)).toBe(1);
+    expect(codePointSafeCutIndex('\uDC00\uDC00', 1)).toBe(1);
+    expect(codePointSafeCutIndex('\uD800\uDBFF', 1)).toBe(1);
+    expect(codePointSafeCutIndex('\uD800\uE000', 1)).toBe(1);
+  });
+
   it('operates on the index alone: an out-of-range index is not clamped', () => {
     // No production caller passes an index beyond `text.length`; this pins the
     // primitive's actual contract (index-only, no bounds-checking) rather than

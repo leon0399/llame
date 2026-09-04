@@ -59,8 +59,9 @@ pnpm test:mutation
 ```
 
 CI partitions API source files into stable shards and aggregates their reports.
-Each package remains runnable directly; reports live under ignored workspace
-`reports/` directories.
+The merged API report and config-interpolation run enforce 80% MSI. Each package
+remains runnable directly; reports live under ignored workspace `reports/`
+directories.
 
 ## CI mapping
 

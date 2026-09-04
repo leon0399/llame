@@ -191,3 +191,36 @@ test("aggregate rejects an MSI threshold outside 0 through 100", () => {
     rmSync(directory, { recursive: true });
   }
 });
+
+test("aggregate fails below the requested MSI threshold", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "llame-mutation-msi-"));
+  const reportFile = path.join(directory, "mutation.json");
+  writeFileSync(
+    reportFile,
+    JSON.stringify({
+      schemaVersion: "1.0",
+      files: {
+        "src/a.ts": { mutants: [{ id: "0", status: "Survived" }] },
+      },
+    }),
+  );
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL("./mutation-sharding.mjs", import.meta.url)),
+        "aggregate",
+        "--threshold",
+        "80",
+        reportFile,
+      ],
+      { encoding: "utf8" },
+    );
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Mutation score 0\.00% is below 80%/u);
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
+});

@@ -798,6 +798,134 @@ describe('knowledge_search cursor continuation', () => {
     });
     expect(search).not.toHaveBeenCalled();
   });
+
+  it('filters explicit-space matches after a cursor and requests one lookahead', async () => {
+    const search = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
+      Promise.resolve([
+        { path: 'a.md', offset: 0, limit: 1, excerpt: 'before' },
+        { path: 'a.md', offset: 1, limit: 1, excerpt: 'after' },
+        { path: 'b.md', offset: 0, limit: 1, excerpt: 'later' },
+      ]),
+    );
+    const cursor = encodeKnowledgeSearchCursor({
+      version: 1,
+      query: 'needle',
+      knowledgeSpaceId: binding.id,
+      spaceCreatedAt: new Date(0),
+      spaceId: binding.id,
+      path: 'a.md',
+      offset: 0,
+    });
+
+    const result = await knowledgeSearchTool.execute(
+      context(fakeAdapter({ search })),
+      {
+        query: 'needle',
+        limit: 1,
+        knowledgeSpaceId: binding.id,
+        cursor,
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      results: [{ path: 'a.md', offset: 1 }],
+    });
+    expect(result).toHaveProperty('nextCursor');
+    expect(search).toHaveBeenCalledWith(
+      'needle',
+      1,
+      expect.objectContaining({
+        maxResults: 2,
+        after: { path: 'a.md', offset: 0 },
+      }),
+    );
+  });
+
+  it('orders unscoped continuation by date, stable ID, path, and offset', async () => {
+    const before: KnowledgeFilesystemBinding = {
+      ...binding,
+      id: '5f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
+      name: 'Before',
+      directory: '/srv/knowledge/5f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
+    };
+    const after: KnowledgeFilesystemBinding = {
+      ...binding,
+      id: '7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
+      name: 'After',
+      directory: '/srv/knowledge/7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
+    };
+    const createdAt = new Date(0);
+    const anchorSearch = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
+      Promise.resolve([
+        { path: 'a.md', offset: 0, limit: 1, excerpt: 'anchor' },
+        { path: 'a.md', offset: 1, limit: 1, excerpt: 'anchor later' },
+        { path: 'b.md', offset: 0, limit: 1, excerpt: 'anchor path later' },
+      ]),
+    );
+    const afterSearch = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
+      Promise.resolve([
+        { path: 'c.md', offset: 0, limit: 1, excerpt: 'after' },
+      ]),
+    );
+    const beforeSearch = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
+      Promise.resolve([
+        { path: 'before.md', offset: 0, limit: 1, excerpt: 'before' },
+      ]),
+    );
+    const spaces = [
+      { id: before.id, name: 'Before', createdAt },
+      { id: binding.id, name: 'Anchor', createdAt },
+      { id: after.id, name: 'After', createdAt },
+    ];
+    const toolContext = multiSpaceContext(
+      spaces,
+      new Map([
+        [before.id, before],
+        [binding.id, binding],
+        [after.id, after],
+      ]),
+      new Map([
+        [before.id, fakeAdapter({ search: beforeSearch })],
+        [binding.id, fakeAdapter({ search: anchorSearch })],
+        [after.id, fakeAdapter({ search: afterSearch })],
+      ]),
+    );
+    const cursor = encodeKnowledgeSearchCursor({
+      version: 1,
+      query: 'needle',
+      spaceCreatedAt: createdAt,
+      spaceId: binding.id,
+      path: 'a.md',
+      offset: 0,
+    });
+
+    const result = await knowledgeSearchTool.execute(toolContext, {
+      query: 'needle',
+      limit: 5,
+      cursor,
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      results: [
+        { knowledgeSpaceId: binding.id, path: 'a.md', offset: 1 },
+        { knowledgeSpaceId: binding.id, path: 'b.md', offset: 0 },
+        { knowledgeSpaceId: after.id, path: 'c.md', offset: 0 },
+      ],
+    });
+    expect(beforeSearch).not.toHaveBeenCalled();
+    expect(anchorSearch).toHaveBeenCalledWith(
+      'needle',
+      5,
+      expect.objectContaining({ after: { path: 'a.md', offset: 0 } }),
+    );
+    expect(afterSearch).toHaveBeenCalledWith(
+      'needle',
+      5,
+      expect.objectContaining({ after: undefined }),
+    );
+  });
 });
 
 describe('knowledge_search', () => {
@@ -905,6 +1033,45 @@ describe('knowledge_search', () => {
       status: 'error',
       type: 'knowledge_limit_exceeded',
       message: 'The Knowledge operation exceeded its result limit.',
+    });
+  });
+
+  it('maps an explicit-space adapter failure to an unavailable result', async () => {
+    const adapter = fakeAdapter({
+      search: vi.fn(() => Promise.reject(new Error('/private/knowledge/root'))),
+    });
+
+    await expect(
+      knowledgeSearchTool.execute(context(adapter), {
+        query: 'needle',
+        limit: 5,
+        knowledgeSpaceId: binding.id,
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_space_unavailable',
+      message: 'The Knowledge Space is unavailable.',
+    });
+  });
+
+  it('returns a closed limit error when an unscoped space exceeds its search budget', async () => {
+    const adapter = fakeAdapter({
+      search: vi.fn(() =>
+        Promise.reject(
+          new KnowledgeFilesystemError('knowledge_limit_exceeded'),
+        ),
+      ),
+    });
+
+    await expect(
+      knowledgeSearchTool.execute(context(adapter), {
+        query: 'needle',
+        limit: 5,
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_limit_exceeded',
+      message: 'The Knowledge operation exceeded its limit.',
     });
   });
 
@@ -1318,6 +1485,51 @@ describe('knowledge_search', () => {
       message: 'The Knowledge Space is unavailable.',
     });
   });
+
+  it('returns the resolver unavailable result when no listed space can be inspected', async () => {
+    const listedSpace: KnowledgeToolSpaceReference = {
+      id: binding.id,
+      name: 'Unavailable',
+      createdAt: new Date(0),
+    };
+    const baseContext = multiSpaceContext([listedSpace], new Map(), new Map());
+    const toolContext: ToolContext = {
+      ...baseContext,
+      knowledgeResolver: {
+        ...baseContext.knowledgeResolver!,
+        resolveBindingForOwnerById: vi.fn(() =>
+          Promise.reject(
+            new KnowledgeFilesystemError('knowledge_space_unavailable'),
+          ),
+        ),
+      },
+    };
+
+    await expect(
+      knowledgeSearchTool.execute(toolContext, { query: 'term', limit: 5 }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_space_unavailable',
+      message: 'The Knowledge Space is unavailable.',
+    });
+  });
+
+  it('returns a bounded unavailable warning for an unscoped generic adapter failure', async () => {
+    const adapter = fakeAdapter({
+      search: vi.fn(() => Promise.reject(new Error('/private/knowledge/root'))),
+    });
+
+    await expect(
+      knowledgeSearchTool.execute(context(adapter), {
+        query: 'term',
+        limit: 5,
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'knowledge_space_unavailable',
+      message: 'The Knowledge Space is unavailable.',
+    });
+  });
 });
 
 describe('knowledge_read', () => {
@@ -1364,6 +1576,33 @@ describe('knowledge_read', () => {
       notice: KNOWLEDGE_CONTENT_NOTICE,
     });
     expect(result).not.toHaveProperty('contentHash');
+  });
+
+  it('preserves the adapter cut reason when a bounded read continues', async () => {
+    const adapter = fakeAdapter({
+      read: vi.fn(() =>
+        Promise.resolve({
+          path: 'notes/a.md',
+          offset: 0,
+          lineCount: 2,
+          content: '1: first\n2: second',
+          nextOffset: 2,
+          cutReason: 'line_limit' as const,
+        }),
+      ),
+    });
+
+    await expect(
+      knowledgeReadTool.execute(context(adapter), {
+        knowledgeSpaceId: binding.id,
+        path: 'notes/a.md',
+        limit: 2,
+      }),
+    ).resolves.toMatchObject({
+      status: 'success',
+      nextOffset: 2,
+      cutReason: 'line_limit',
+    });
   });
 
   it('returns the closed range error from the adapter', async () => {
@@ -1541,6 +1780,19 @@ describe('Knowledge tool failure boundaries', () => {
     ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
   });
 
+  it('rejects before listing spaces when the trusted signal is already aborted', async () => {
+    const abort = new AbortController();
+    abort.abort();
+    const toolContext = { ...context(), abortSignal: abort.signal };
+
+    await expect(
+      knowledgeSearchTool.execute(toolContext, { query: 'needle', limit: 5 }),
+    ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
+    expect(
+      toolContext.knowledgeResolver?.listForOwnerPage,
+    ).not.toHaveBeenCalled();
+  });
+
   it('records parent abort and call timeout through the canonical runner outcomes', async () => {
     const abort = new AbortController();
     let markStarted!: () => void;
@@ -1594,5 +1846,215 @@ describe('Knowledge tool failure boundaries', () => {
         0.01,
       ),
     ).resolves.toMatchObject({ status: 'error', type: 'timeout' });
+  });
+});
+
+describe('knowledge_search cross-space ordering', () => {
+  /** Three spaces whose id order deliberately contradicts their age order. */
+  const LATE_ID = '1f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
+  const EARLY_A_ID = '2f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
+  const EARLY_B_ID = '3f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
+
+  const spaceBinding = (id: string): KnowledgeFilesystemBinding => ({
+    ...binding,
+    id,
+    directory: `/srv/knowledge/${id}`,
+  });
+
+  const singleMatchAdapter = (path: string, offset: number) =>
+    fakeAdapter({
+      search: vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
+        Promise.resolve([{ path, offset, limit: 1, excerpt: 'hit' }]),
+      ),
+    });
+
+  function orderingContext(): ToolContext {
+    return multiSpaceContext(
+      [
+        { id: LATE_ID, name: 'Late', createdAt: new Date(3000) },
+        { id: EARLY_B_ID, name: 'Early B', createdAt: new Date(1000) },
+        { id: EARLY_A_ID, name: 'Early A', createdAt: new Date(1000) },
+      ],
+      new Map([
+        [LATE_ID, spaceBinding(LATE_ID)],
+        [EARLY_A_ID, spaceBinding(EARLY_A_ID)],
+        [EARLY_B_ID, spaceBinding(EARLY_B_ID)],
+      ]),
+      new Map([
+        [LATE_ID, singleMatchAdapter('m.md', 0)],
+        [EARLY_A_ID, singleMatchAdapter('z.md', 4)],
+        [EARLY_B_ID, singleMatchAdapter('a.md', 0)],
+      ]),
+    );
+  }
+
+  it('orders results by space age, then space id, then path, then offset', async () => {
+    const result = await knowledgeSearchTool.execute(orderingContext(), {
+      query: 'term',
+      limit: 5,
+    });
+
+    // Inspection order was Late, Early B, Early A. Age wins over id, and id
+    // breaks the tie between the two same-age spaces.
+    expect(result).toMatchObject({
+      status: 'success',
+      results: [
+        { knowledgeSpaceId: EARLY_A_ID, path: 'z.md', offset: 4 },
+        { knowledgeSpaceId: EARLY_B_ID, path: 'a.md', offset: 0 },
+        { knowledgeSpaceId: LATE_ID, path: 'm.md', offset: 0 },
+      ],
+    });
+  });
+
+  it('orders passages inside one space by path, then by offset', async () => {
+    const context = multiSpaceContext(
+      [{ id: LATE_ID, name: 'Late', createdAt: new Date(3000) }],
+      new Map([[LATE_ID, spaceBinding(LATE_ID)]]),
+      new Map([
+        [
+          LATE_ID,
+          fakeAdapter({
+            search: vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
+              Promise.resolve([
+                { path: 'z.md', offset: 0, limit: 1, excerpt: 'z' },
+                { path: 'a.md', offset: 9, limit: 1, excerpt: 'a9' },
+                { path: 'a.md', offset: 1, limit: 1, excerpt: 'a1' },
+              ]),
+            ),
+          }),
+        ],
+      ]),
+    );
+
+    await expect(
+      knowledgeSearchTool.execute(context, { query: 'term', limit: 5 }),
+    ).resolves.toMatchObject({
+      results: [
+        { path: 'a.md', offset: 1 },
+        { path: 'a.md', offset: 9 },
+        { path: 'z.md', offset: 0 },
+      ],
+    });
+  });
+});
+
+describe('knowledge_search unscoped cursor exclusion', () => {
+  // A HIGHER id than the anchor, so age and id disagree: only the age
+  // comparison can place this space behind the cursor.
+  const OLDER_ID = '9f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
+  const ANCHOR_ID = '2f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
+  const LATER_ID_SAME_AGE = '3f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
+  // Newer than the anchor but with a LOWER id, so only the age comparison
+  // can place this space ahead of the cursor.
+  const NEWER_ID_LOWER = '0f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
+
+  const spaceBinding = (id: string): KnowledgeFilesystemBinding => ({
+    ...binding,
+    id,
+    directory: `/srv/knowledge/${id}`,
+  });
+
+  /** A cursor anchored mid-way through the ANCHOR space, at `m.md` offset 5. */
+  const anchorCursor = () =>
+    encodeKnowledgeSearchCursor({
+      version: 1,
+      query: 'term',
+      spaceCreatedAt: new Date(1000),
+      spaceId: ANCHOR_ID,
+      path: 'm.md',
+      offset: 5,
+    });
+
+  it('keeps only passages strictly after the anchor across space, id, path and offset', async () => {
+    const everyPassage = (id: string) =>
+      fakeAdapter({
+        search: vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
+          Promise.resolve([
+            { path: 'a.md', offset: 0, limit: 1, excerpt: `${id} a0` },
+            { path: 'm.md', offset: 5, limit: 1, excerpt: `${id} m5` },
+            { path: 'm.md', offset: 6, limit: 1, excerpt: `${id} m6` },
+            { path: 'z.md', offset: 0, limit: 1, excerpt: `${id} z0` },
+          ]),
+        ),
+      });
+    const context = multiSpaceContext(
+      [
+        { id: OLDER_ID, name: 'Older', createdAt: new Date(500) },
+        { id: ANCHOR_ID, name: 'Anchor', createdAt: new Date(1000) },
+        { id: LATER_ID_SAME_AGE, name: 'Sibling', createdAt: new Date(1000) },
+        { id: NEWER_ID_LOWER, name: 'Newer', createdAt: new Date(2000) },
+      ],
+      new Map([
+        [OLDER_ID, spaceBinding(OLDER_ID)],
+        [ANCHOR_ID, spaceBinding(ANCHOR_ID)],
+        [LATER_ID_SAME_AGE, spaceBinding(LATER_ID_SAME_AGE)],
+        [NEWER_ID_LOWER, spaceBinding(NEWER_ID_LOWER)],
+      ]),
+      new Map([
+        [OLDER_ID, everyPassage(OLDER_ID)],
+        [ANCHOR_ID, everyPassage(ANCHOR_ID)],
+        [LATER_ID_SAME_AGE, everyPassage(LATER_ID_SAME_AGE)],
+        [NEWER_ID_LOWER, everyPassage(NEWER_ID_LOWER)],
+      ]),
+    );
+
+    const result = await knowledgeSearchTool.execute(context, {
+      query: 'term',
+      limit: 10,
+      cursor: anchorCursor(),
+    });
+
+    // An older space is wholly behind the anchor; inside the anchor space only
+    // `m.md@6` and `z.md` follow it; a same-age space with a higher id is
+    // wholly ahead of it.
+    expect(result).toMatchObject({
+      status: 'success',
+      results: [
+        { knowledgeSpaceId: ANCHOR_ID, path: 'm.md', offset: 6 },
+        { knowledgeSpaceId: ANCHOR_ID, path: 'z.md', offset: 0 },
+        { knowledgeSpaceId: LATER_ID_SAME_AGE, path: 'a.md', offset: 0 },
+        { knowledgeSpaceId: LATER_ID_SAME_AGE, path: 'm.md', offset: 5 },
+        { knowledgeSpaceId: LATER_ID_SAME_AGE, path: 'm.md', offset: 6 },
+        { knowledgeSpaceId: LATER_ID_SAME_AGE, path: 'z.md', offset: 0 },
+        { knowledgeSpaceId: NEWER_ID_LOWER, path: 'a.md', offset: 0 },
+        { knowledgeSpaceId: NEWER_ID_LOWER, path: 'm.md', offset: 5 },
+        { knowledgeSpaceId: NEWER_ID_LOWER, path: 'm.md', offset: 6 },
+        { knowledgeSpaceId: NEWER_ID_LOWER, path: 'z.md', offset: 0 },
+      ],
+    });
+  });
+
+  it('applies the path and offset comparison to a space-scoped cursor too', async () => {
+    const scoped = context(
+      fakeAdapter({
+        search: vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
+          Promise.resolve([
+            { path: 'a.md', offset: 0, limit: 1, excerpt: 'a0' },
+            { path: 'm.md', offset: 5, limit: 1, excerpt: 'm5' },
+            { path: 'm.md', offset: 6, limit: 1, excerpt: 'm6' },
+          ]),
+        ),
+      }),
+    );
+
+    const result = await knowledgeSearchTool.execute(scoped, {
+      query: 'term',
+      limit: 10,
+      knowledgeSpaceId: binding.id,
+      cursor: encodeKnowledgeSearchCursor({
+        version: 1,
+        query: 'term',
+        knowledgeSpaceId: binding.id,
+        spaceCreatedAt: new Date(0),
+        spaceId: binding.id,
+        path: 'm.md',
+        offset: 5,
+      }),
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      results: [{ path: 'm.md', offset: 6 }],
+    });
   });
 });

@@ -3,26 +3,29 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { InstanceConfigError } from '@workspace/config-interpolation';
-import { loadInstanceConfig } from './config-loader';
+import { loadInstanceConfig as loadInstanceConfigFromPath } from './config-loader';
 
 describe('knowledge.root instance configuration', () => {
   let cwd: string;
-  let previousCwd: string;
   let previousProfile: string | undefined;
 
   beforeEach(() => {
-    previousCwd = process.cwd();
     previousProfile = process.env.LLAME_WORKER_PROFILE;
     cwd = mkdtempSync(path.join(tmpdir(), 'llame-knowledge-config-'));
-    process.chdir(cwd);
     delete process.env.LLAME_WORKER_PROFILE;
   });
 
   afterEach(() => {
-    process.chdir(previousCwd);
     if (previousProfile === undefined) delete process.env.LLAME_WORKER_PROFILE;
     else process.env.LLAME_WORKER_PROFILE = previousProfile;
   });
+
+  function loadInstanceConfig(env: NodeJS.ProcessEnv = process.env) {
+    return loadInstanceConfigFromPath({
+      ...env,
+      LLAME_CONFIG_PATH: path.join(cwd, 'llame.config.json'),
+    });
+  }
 
   function writeConfig(value: string): void {
     writeFileSync(path.join(cwd, 'llame.config.json'), value);

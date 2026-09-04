@@ -19,7 +19,10 @@ const TEST_ANCHOR: TemporalAnchor = {
   systemTime: '2000-01-01 00:00+00:00',
   systemTimezone: 'UTC',
 };
-import { loadInstanceConfig, resolveConfigPath } from './config-loader';
+import {
+  loadInstanceConfig as loadInstanceConfigFromPath,
+  resolveConfigPath,
+} from './config-loader';
 import { BUILT_IN_DEFAULTS } from './llame-config';
 
 /** Narrows a `catch`-clause `unknown` to its message without a cast; fails the test loudly if the caught value is not an `Error`. */
@@ -30,6 +33,10 @@ function errorMessage(err: unknown): string {
   return err.message;
 }
 
+// Every variable a `{env:...}` token in this file resolves against `process.env`
+// (i.e. a test that calls `loadInstanceConfig()` with no explicit env). Each is
+// cleared before and restored after every test, so an ambient value on the host
+// or in CI cannot decide the outcome.
 const ENV_KEYS = [
   'LLAME_CONFIG_PATH',
   'DEFAULT_MODEL_ID',
@@ -38,27 +45,38 @@ const ENV_KEYS = [
   'RUN_HEARTBEAT_SECONDS',
   'RUN_TIMEOUT_SECONDS',
   'TRUST_PROXY',
+  'EMPTY_TIMEOUT',
+  'EMPTY_TOKEN',
+  'IC_LOADER_REQUIRED_VAR',
+  'MISSING_STDIO_SECRET',
+  'PM_BASE_URL',
+  'PM_KEY',
+  'PM_KEY_UNSET',
+  'RUN_MAX_OUTPUT_TOKENS_SRC',
+  'RUN_TIMEOUT_SECONDS_SRC',
+  'TRUST_PROXY_SRC',
 ] as const;
 
 let originalEnv: Record<string, string | undefined>;
-let originalCwd: string;
 let tmpDir: string;
+
+function loadInstanceConfig(env: NodeJS.ProcessEnv = process.env) {
+  return loadInstanceConfigFromPath({
+    ...env,
+    LLAME_CONFIG_PATH:
+      env.LLAME_CONFIG_PATH ?? path.join(tmpDir, 'llame.config.json'),
+  });
+}
 
 beforeEach(() => {
   originalEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
   for (const k of ENV_KEYS) delete process.env[k];
 
-  // The config file (and the schema) resolve relative to cwd, same as
-  // .env.local — chdir into a scratch dir per test so LLAME_CONFIG_PATH can
-  // stay relative like an operator would write it, and so "file absent"
-  // tests don't accidentally pick up a stray llame.config.json.
-  originalCwd = process.cwd();
   tmpDir = mkdtempSync(path.join(tmpdir(), 'llame-instance-config-'));
-  process.chdir(tmpDir);
+  process.env.LLAME_CONFIG_PATH = path.join(tmpDir, 'llame.config.json');
 });
 
 afterEach(() => {
-  process.chdir(originalCwd);
   for (const k of ENV_KEYS) {
     if (originalEnv[k] === undefined) delete process.env[k];
     else process.env[k] = originalEnv[k];
@@ -105,12 +123,14 @@ function renderFirstModel(): string {
 
 describe('resolveConfigPath', () => {
   it('defaults to llame.config.json in the runtime cwd', () => {
-    expect(resolveConfigPath({})).toBe(path.join(tmpDir, 'llame.config.json'));
+    expect(resolveConfigPath({})).toBe(
+      path.join(process.cwd(), 'llame.config.json'),
+    );
   });
 
   it('LLAME_CONFIG_PATH overrides the default location', () => {
     expect(resolveConfigPath({ LLAME_CONFIG_PATH: 'custom.json' })).toBe(
-      path.join(tmpDir, 'custom.json'),
+      path.join(process.cwd(), 'custom.json'),
     );
   });
 });
@@ -195,7 +215,7 @@ describe('loadInstanceConfig — file presence', () => {
       `{ "defaults": { "modelId": "from-override" }, ${modelFixtureJson('from-override')} }`,
       'somewhere-else.json',
     );
-    process.env.LLAME_CONFIG_PATH = 'somewhere-else.json';
+    process.env.LLAME_CONFIG_PATH = path.join(tmpDir, 'somewhere-else.json');
     expect(loadInstanceConfig().defaults.modelId).toBe('from-override');
   });
 
@@ -208,6 +228,22 @@ describe('loadInstanceConfig — file presence', () => {
     expect(loadInstanceConfig().defaults.modelId).toBe(
       'system:openai:gpt-5.4-mini',
     );
+  });
+
+  it('rejects a top-level JSON array instead of coercing it to a config object', () => {
+    writeConfig('[]');
+
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /top-level value must be a JSON object/,
+    );
+  });
+
+  it('maps a non-ENOENT config read failure to a path-scoped error', () => {
+    process.env.LLAME_CONFIG_PATH = tmpDir;
+
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(tmpDir);
   });
 });
 
@@ -317,6 +353,14 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
     expect(() => loadInstanceConfig()).toThrow(/http\.trustProxy/);
     expect(() => loadInstanceConfig()).toThrow(/IC_LOADER_REQUIRED_VAR/);
+  });
+
+  it('rejects an empty token resolution on a required numeric setting', () => {
+    writeConfig('{ "runs": { "timeoutSeconds": "{env:EMPTY_TIMEOUT:-}" } }');
+
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/runs\.timeoutSeconds/);
+    expect(() => loadInstanceConfig()).toThrow(/empty value/);
   });
 
   it('embeds a token within a string-typed setting', () => {
@@ -1677,6 +1721,610 @@ describe('loadInstanceConfig — models[].reasoning (add-reasoning-effort)', () 
     );
     expect(() => loadInstanceConfig()).toThrow(
       /\/models\/0\/id: must NOT have fewer than 1 characters/,
+    );
+  });
+});
+
+describe('loadInstanceConfig — settings name themselves in every failure', () => {
+  /** Every numeric setting, its bound, and the leaf that carries it. */
+  const numericLeaves = [
+    {
+      group: 'runs',
+      key: 'maxOutputTokens',
+      path: 'runs.maxOutputTokens',
+      belowBound: '0',
+      boundMessage: 'runs.maxOutputTokens: must be a positive integer',
+      atBound: '1',
+      nullable: true,
+    },
+    {
+      group: 'runs',
+      key: 'heartbeatSeconds',
+      path: 'runs.heartbeatSeconds',
+      belowBound: '9',
+      boundMessage: 'runs.heartbeatSeconds: must be an integer >= 10',
+      atBound: '10',
+      nullable: false,
+    },
+    {
+      group: 'runs',
+      key: 'timeoutSeconds',
+      path: 'runs.timeoutSeconds',
+      belowBound: '0',
+      boundMessage: 'runs.timeoutSeconds: must be a positive integer',
+      atBound: '1',
+      nullable: false,
+    },
+    {
+      group: 'db',
+      key: 'poolSize',
+      path: 'db.poolSize',
+      belowBound: '0',
+      boundMessage: 'db.poolSize: must be a positive integer',
+      atBound: '1',
+      nullable: false,
+    },
+    {
+      group: 'tools',
+      key: 'maxStepsPerRun',
+      path: 'tools.maxStepsPerRun',
+      belowBound: '0',
+      boundMessage: 'tools.maxStepsPerRun: must be a positive integer',
+      atBound: '1',
+      nullable: false,
+    },
+    {
+      group: 'tools',
+      key: 'callTimeoutSeconds',
+      path: 'tools.callTimeoutSeconds',
+      belowBound: '0',
+      boundMessage: 'tools.callTimeoutSeconds: must be a positive integer',
+      atBound: '1',
+      nullable: false,
+    },
+  ] as const;
+
+  const writeLeaf = (group: string, key: string, literal: string) =>
+    writeConfig(`{ "${group}": { "${key}": ${literal} } }`);
+
+  it.each(numericLeaves)(
+    'names $path when its interpolated value falls below the bound',
+    ({ group, key, path: configPath, belowBound, boundMessage }) => {
+      writeLeaf(group, key, '"{env:IC_NUMERIC}"');
+
+      expect(() => loadInstanceConfig({ IC_NUMERIC: belowBound })).toThrow(
+        InstanceConfigError,
+      );
+      try {
+        loadInstanceConfig({ IC_NUMERIC: belowBound });
+        throw new Error(`expected ${configPath} to fail`);
+      } catch (error) {
+        expect(errorMessage(error)).toBe(boundMessage);
+      }
+    },
+  );
+
+  it.each(numericLeaves.filter(({ nullable }) => !nullable))(
+    'refuses an empty interpolation for $path instead of falling back',
+    ({ group, key, path: configPath }) => {
+      writeLeaf(group, key, '"{env:IC_NUMERIC}"');
+
+      try {
+        loadInstanceConfig({ IC_NUMERIC: '' });
+        throw new Error(`expected ${configPath} to fail`);
+      } catch (error) {
+        expect(errorMessage(error)).toBe(
+          `${configPath}: resolved to an empty value, which is not a valid number`,
+        );
+      }
+    },
+  );
+
+  it.each(numericLeaves)(
+    'accepts $path exactly at its lower bound',
+    ({ group, key, atBound }) => {
+      writeLeaf(group, key, '"{env:IC_NUMERIC}"');
+
+      expect(() => loadInstanceConfig({ IC_NUMERIC: atBound })).not.toThrow();
+    },
+  );
+
+  it('takes each numeric leaf from the file rather than the built-in default', () => {
+    writeConfig(`{
+      "runs": { "maxOutputTokens": 4321, "heartbeatSeconds": 47 },
+      "db": { "poolSize": 7 },
+      "tools": { "maxStepsPerRun": 9, "callTimeoutSeconds": 11 }
+    }`);
+
+    const config = loadInstanceConfig();
+    expect(config.runs.maxOutputTokens).toBe(4321);
+    expect(config.runs.heartbeatSeconds).toBe(47);
+    expect(config.db.poolSize).toBe(7);
+    expect(config.tools.maxStepsPerRun).toBe(9);
+    expect(config.tools.callTimeoutSeconds).toBe(11);
+    expect(config.runs.maxOutputTokens).not.toBe(
+      BUILT_IN_DEFAULTS.runs.maxOutputTokens,
+    );
+    expect(config.db.poolSize).not.toBe(BUILT_IN_DEFAULTS.db.poolSize);
+  });
+
+  it('names the dangling pointer and the catalog it failed to reference', () => {
+    writeConfig(`{
+      "defaults": { "modelId": "absent-model" },
+      ${modelFixtureJson('present-model')}
+    }`);
+    try {
+      loadInstanceConfig();
+      throw new Error('expected a dangling defaults.modelId to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toBe(
+        'defaults.modelId: does not reference any configured models[].id',
+      );
+    }
+
+    writeConfig(`{
+      "defaults": { "titleGenerationModelId": "absent-model" },
+      ${modelFixtureJson('present-model')}
+    }`);
+    try {
+      loadInstanceConfig();
+      throw new Error('expected a dangling titleGenerationModelId to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toBe(
+        'defaults.titleGenerationModelId: does not reference any configured models[].id',
+      );
+    }
+
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "embeddingModels": [
+        { "id": "e", "provider": "p", "providerModelId": "x", "dimensions": 8 }
+      ],
+      "search": { "chats": { "embeddingModelId": "absent-embedding" } }
+    }`);
+    try {
+      loadInstanceConfig();
+      throw new Error('expected a dangling embeddingModelId to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toBe(
+        'search.chats.embeddingModelId: does not reference any configured embeddingModels[].id',
+      );
+    }
+  });
+
+  it('scopes an interpolation failure to the setting that carries the token', () => {
+    writeConfig('{ "defaults": { "modelId": "{env:IC_ABSENT_VARIABLE}" } }');
+    try {
+      loadInstanceConfig({});
+      throw new Error('expected an unresolved token to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toMatch(/^defaults\.modelId: /u);
+    }
+
+    writeConfig(
+      '{ "defaults": { "titleGenerationModelId": "{env:IC_ABSENT_VARIABLE}" } }',
+    );
+    try {
+      loadInstanceConfig({});
+      throw new Error('expected an unresolved token to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toMatch(
+        /^defaults\.titleGenerationModelId: /u,
+      );
+    }
+  });
+});
+
+describe('loadInstanceConfig — per-entry settings name their own entry', () => {
+  it('keeps a configured provider credential and base url instead of unsetting them', () => {
+    writeConfig(
+      '{ "providers": [{ "id": "p", "type": "openai", "key": "literal-key", "baseUrl": "https://example.test" }] }',
+    );
+
+    const provider = loadInstanceConfig().providers[0];
+    expect(provider.key).toBe('literal-key');
+    expect(provider.baseUrl).toBe('https://example.test');
+  });
+
+  it('scopes a provider interpolation failure to that provider entry', () => {
+    writeConfig(
+      '{ "providers": [{ "id": "p", "type": "openai", "key": "{env:IC_ABSENT_VARIABLE}" }] }',
+    );
+    try {
+      loadInstanceConfig({});
+      throw new Error('expected an unresolved provider key to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toMatch(/^providers\[p\]\.key: /u);
+    }
+
+    writeConfig(
+      '{ "providers": [{ "id": "p", "type": "openai", "baseUrl": "{env:IC_ABSENT_VARIABLE}" }] }',
+    );
+    try {
+      loadInstanceConfig({});
+      throw new Error('expected an unresolved provider baseUrl to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toMatch(/^providers\[p\]\.baseUrl: /u);
+    }
+  });
+
+  it('names the model entry whose window or compaction threshold is unusable', () => {
+    const modelJson = (extra: string) => `{
+      ${SINGLE_PROVIDER_JSON},
+      "models": [{ "id": "m", "provider": "p", "providerModelId": "x", ${extra} }]
+    }`;
+
+    writeConfig(modelJson('"contextWindowTokens": "{env:IC_NUMERIC}"'));
+    try {
+      loadInstanceConfig({ IC_NUMERIC: '0' });
+      throw new Error('expected a non-positive context window to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toBe(
+        'models[m].contextWindowTokens: must be a positive integer',
+      );
+    }
+
+    writeConfig(modelJson('"contextWindowTokens": "{env:IC_NUMERIC}"'));
+    try {
+      loadInstanceConfig({ IC_NUMERIC: '' });
+      throw new Error('expected an empty context window to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toBe(
+        'models[m].contextWindowTokens: resolved to an empty value, which is not a valid number',
+      );
+    }
+
+    writeConfig(
+      modelJson(
+        '"contextWindowTokens": 1000, "compactionThresholdTokens": "{env:IC_NUMERIC}"',
+      ),
+    );
+    try {
+      loadInstanceConfig({ IC_NUMERIC: '0' });
+      throw new Error('expected a non-positive compaction threshold to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toBe(
+        'models[m].compactionThresholdTokens: must be a positive integer',
+      );
+    }
+
+    writeConfig(
+      modelJson(
+        '"contextWindowTokens": 1000, "compactionThresholdTokens": "{env:IC_NUMERIC}"',
+      ),
+    );
+    try {
+      loadInstanceConfig({ IC_NUMERIC: '' });
+      throw new Error('expected an empty compaction threshold to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toBe(
+        'models[m].compactionThresholdTokens: resolved to an empty value, which is not a valid number',
+      );
+    }
+  });
+
+  it('omits an unset compaction threshold from the resolved model', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "models": [{ "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 }]
+    }`);
+
+    const model = loadInstanceConfig().models[0];
+    expect(model).not.toHaveProperty('compactionThresholdTokens');
+    expect(model.contextWindowTokens).toBe(1000);
+  });
+});
+
+describe('loadInstanceConfig — file diagnostics name the exact location', () => {
+  /** Runs the loader and returns the message it failed with. */
+  function failureMessage(env: NodeJS.ProcessEnv = {}): string {
+    try {
+      loadInstanceConfig(env);
+    } catch (error) {
+      return errorMessage(error);
+    }
+    throw new Error('expected loadInstanceConfig to fail');
+  }
+
+  it('reports malformed JSONC at its one-based line and column', () => {
+    writeConfig('{\n  "runs": {\n    "timeoutSeconds": ,\n  }\n}');
+
+    expect(failureMessage()).toMatch(
+      /^Malformed JSONC in .*llame\.config\.json at line 3, column 23: /u,
+    );
+  });
+
+  it('reports a top-level value that is not a JSON object', () => {
+    writeConfig('[]');
+
+    expect(failureMessage()).toMatch(
+      /^Invalid .*llame\.config\.json: top-level value must be a JSON object$/u,
+    );
+  });
+
+  it('reports the FIRST duplicate property, with array elements bracketed', () => {
+    writeConfig(`{
+      "providers": [{ "id": "p", "type": "openai", "id": "q" }],
+      "runs": { "timeoutSeconds": 1, "timeoutSeconds": 2 }
+    }`);
+
+    expect(failureMessage()).toMatch(
+      /^Invalid .*llame\.config\.json: duplicate property at providers\[0\]\.id$/u,
+    );
+  });
+
+  it('still finds duplicates in a file carrying comments and trailing commas', () => {
+    writeConfig(`{
+      // an operator comment the duplicate scan must read past
+      "runs": {
+        "timeoutSeconds": 1,
+        "timeoutSeconds": 2,
+      },
+    }`);
+
+    expect(failureMessage()).toMatch(
+      /duplicate property at runs\.timeoutSeconds$/u,
+    );
+  });
+
+  it('fails loudly when the config path exists but cannot be read as a file', () => {
+    // A directory at the configured path is not "absent" — reporting it as a
+    // missing file would silently boot on built-in defaults.
+    mkdirSync(path.join(tmpDir, 'llame.config.json'), { recursive: true });
+
+    expect(failureMessage()).toMatch(
+      /^Failed to read .*llame\.config\.json: /u,
+    );
+  });
+
+  it('rewrites a schema failure inside models[] to name the model id', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "models": [
+        { "id": "good", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 },
+        { "id": "broken", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000, "surprise": 1 }
+      ]
+    }`);
+
+    expect(failureMessage()).toContain(
+      '/models[broken]/surprise: unrecognized key',
+    );
+  });
+
+  it('keeps the positional path when the failing model has no usable id', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "models": [
+        { "id": "", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 }
+      ]
+    }`);
+
+    expect(failureMessage()).toContain('/models/0/id');
+  });
+
+  it('reports a root-level schema failure against the root path', () => {
+    writeConfig('{ "surprise": 1 }');
+
+    expect(failureMessage()).toContain('/surprise: unrecognized key');
+  });
+});
+
+describe('loadInstanceConfig — knowledge.root', () => {
+  it('trims the resolved root before deciding it is absolute', () => {
+    writeConfig('{ "knowledge": { "root": "  /srv/knowledge  " } }');
+
+    expect(loadInstanceConfig().knowledge.root).toBe('/srv/knowledge');
+  });
+
+  it('scopes an interpolation failure to knowledge.root', () => {
+    writeConfig('{ "knowledge": { "root": "{env:IC_ABSENT_VARIABLE}" } }');
+
+    try {
+      loadInstanceConfig({});
+      throw new Error('expected an unresolved knowledge.root to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toMatch(/^knowledge\.root: /u);
+    }
+  });
+});
+
+describe('loadInstanceConfig — mcpServers entries name their own path', () => {
+  const stdioServer = (body: string) =>
+    `{ "mcpServers": { "web": { "type": "stdio", ${body} } } }`;
+
+  function failureFor(json: string, env: NodeJS.ProcessEnv = {}): string {
+    writeConfig(json);
+    try {
+      loadInstanceConfig(env);
+    } catch (error) {
+      return errorMessage(error);
+    }
+    throw new Error('expected the mcpServers entry to fail');
+  }
+
+  it('refuses a stdio command that interpolates to nothing', () => {
+    expect(
+      failureFor(stdioServer('"command": "{env:IC_EMPTY}"'), {
+        IC_EMPTY: '',
+      }),
+    ).toBe('mcpServers.web.command: must be a non-empty string');
+  });
+
+  it('reports an interpolation failure without echoing the value', () => {
+    const message = failureFor(
+      stdioServer('"command": "{env:IC_ABSENT_VARIABLE}"'),
+    );
+    expect(message).toBe('mcpServers.web.command: interpolation failed');
+  });
+
+  it('names the failing argument and environment entry by position and key', () => {
+    expect(
+      failureFor(
+        stdioServer('"command": "run", "args": ["ok", "{env:IC_ABSENT}"]'),
+      ),
+    ).toBe('mcpServers.web.args[1]: interpolation failed');
+    expect(
+      failureFor(
+        stdioServer('"command": "run", "env": { "TOKEN": "{env:IC_ABSENT}" }'),
+      ),
+    ).toBe('mcpServers.web.env.TOKEN: interpolation failed');
+  });
+
+  it('refuses a remote url that is not absolute http or https without userinfo', () => {
+    for (const url of [
+      'ftp://example.test/mcp',
+      'https://user:pw@example.test/mcp',
+      'not-a-url',
+    ]) {
+      expect(
+        failureFor(
+          `{ "mcpServers": { "web": { "type": "http", "url": ${JSON.stringify(url)} } } }`,
+        ),
+      ).toBe(
+        'mcpServers.web.url: must be an absolute http or https URL without userinfo',
+      );
+    }
+  });
+
+  it('refuses colliding and transport-owned header names by their full path', () => {
+    expect(
+      failureFor(`{
+        "mcpServers": {
+          "web": {
+            "type": "http",
+            "url": "https://example.test/mcp",
+            "headers": { "Authorization": "a", "authorization": "b" }
+          }
+        }
+      }`),
+    ).toBe(
+      'mcpServers.web.headers.Authorization and mcpServers.web.headers.authorization: header names collide under ASCII case-folding',
+    );
+    expect(
+      failureFor(`{
+        "mcpServers": {
+          "web": {
+            "type": "http",
+            "url": "https://example.test/mcp",
+            "headers": { "Mcp-Session-Id": "a" }
+          }
+        }
+      }`),
+    ).toBe(
+      'mcpServers.web.headers.Mcp-Session-Id: transport-owned header cannot be configured',
+    );
+  });
+
+  it('refuses a header that resolves to whitespace', () => {
+    expect(
+      failureFor(
+        `{
+          "mcpServers": {
+            "web": {
+              "type": "http",
+              "url": "https://example.test/mcp",
+              "headers": { "X-Token": "{env:IC_BLANK}" }
+            }
+          }
+        }`,
+        { IC_BLANK: '   ' },
+      ),
+    ).toBe(
+      'mcpServers.web.headers.X-Token: must resolve to a non-empty string',
+    );
+  });
+
+  it('collects each interpolated stdio value once as a protected value', () => {
+    writeConfig(
+      stdioServer(
+        '"command": "{env:IC_SECRET}", "args": ["{env:IC_SECRET}", "literal"], "env": { "TOKEN": "{env:IC_OTHER}" }',
+      ),
+    );
+
+    const web = loadInstanceConfig({
+      IC_SECRET: 'shared-secret',
+      IC_OTHER: 'other-secret',
+    }).mcpServers.web;
+    expect(web).toMatchObject({
+      type: 'stdio',
+      command: 'shared-secret',
+      args: ['shared-secret', 'literal'],
+      protectedValues: ['shared-secret', 'other-secret'],
+    });
+  });
+
+  it('omits optional stdio fields the operator did not configure', () => {
+    writeConfig(stdioServer('"command": "run"'));
+
+    const web = loadInstanceConfig().mcpServers.web;
+    expect(web).toEqual({ type: 'stdio', command: 'run' });
+  });
+});
+
+describe('loadInstanceConfig — tools.allowed entry validation', () => {
+  function allowlistFailure(ids: ReadonlyArray<string>, extra = ''): string {
+    writeConfig(`{ "tools": { "allowed": ${JSON.stringify(ids)} }${extra} }`);
+    try {
+      loadInstanceConfig();
+    } catch (error) {
+      return errorMessage(error);
+    }
+    throw new Error('expected the allowlist to fail');
+  }
+
+  const WEB_SERVER =
+    ', "mcpServers": { "web": { "type": "http", "url": "https://example.test/mcp" } }';
+
+  it('refuses a malformed MCP namespace wildcard', () => {
+    expect(allowlistFailure(['mcp__web__tool*'])).toBe(
+      'tools.allowed: invalid MCP namespace wildcard "mcp__web__tool*"',
+    );
+  });
+
+  it('refuses a wildcard whose server is not declared', () => {
+    expect(allowlistFailure(['mcp__absent__*'])).toBe(
+      'tools.allowed: MCP namespace wildcard "mcp__absent__*" references an undeclared mcpServers entry',
+    );
+  });
+
+  it('refuses a malformed exact MCP tool id', () => {
+    expect(allowlistFailure(['mcp__web'], WEB_SERVER)).toBe(
+      'tools.allowed: invalid MCP tool id "mcp__web"',
+    );
+  });
+
+  it('refuses an exact MCP tool id whose server is not declared', () => {
+    expect(allowlistFailure(['mcp__absent__docs'])).toBe(
+      'tools.allowed: MCP tool id "mcp__absent__docs" references an undeclared mcpServers entry',
+    );
+  });
+
+  it('refuses a code-owned id that is not registered', () => {
+    expect(allowlistFailure(['not_a_registered_tool'])).toBe(
+      'tools.allowed: unknown tool id "not_a_registered_tool" (not registered)',
+    );
+  });
+
+  it('admits a declared wildcard alongside an exact id and a registered tool', () => {
+    writeConfig(
+      `{ "tools": { "allowed": ["mcp__web__*", "mcp__web__docs", "search_conversations"] }${WEB_SERVER} }`,
+    );
+
+    expect(loadInstanceConfig().tools.allowed).toEqual([
+      'mcp__web__*',
+      'mcp__web__docs',
+      'search_conversations',
+    ]);
+  });
+});
+
+describe('resolveConfigPath override hygiene', () => {
+  it('trims the override and falls back when it holds only whitespace', () => {
+    expect(resolveConfigPath({ LLAME_CONFIG_PATH: '  custom.json  ' })).toBe(
+      path.join(process.cwd(), 'custom.json'),
+    );
+    expect(resolveConfigPath({ LLAME_CONFIG_PATH: '   ' })).toBe(
+      path.join(process.cwd(), 'llame.config.json'),
     );
   });
 });

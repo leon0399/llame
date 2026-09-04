@@ -252,6 +252,19 @@ describe('chunkConversation', () => {
       ]),
     ).toEqual([]);
   });
+
+  it('keeps a message whose role prefix exactly fills the chunk budget in one block', () => {
+    const content = 'x'.repeat(CHUNK_MAX_CHARS - '[user] '.length);
+    const chunks = chunkConversation([userMsg('exact', content, 0)]);
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toMatchObject({
+      content: `[user] ${content}`,
+      firstMessageTextOffset: 0,
+      lastMessageTextOffsetExclusive: content.length,
+    });
+    expect(chunks[0].content).toHaveLength(CHUNK_MAX_CHARS);
+  });
 });
 
 describe('chunkConversation — oversized messages (#517)', () => {
@@ -381,6 +394,49 @@ describe('chunkConversation — oversized messages (#517)', () => {
     for (const chunk of chunks) {
       expect(chunk.normalizedContent).not.toContain('context:');
     }
+  });
+
+  it('uses the full anchor when the preceding user text is exactly at the anchor cap', () => {
+    const question = 'q'.repeat(CHUNK_ANCHOR_MAX_CHARS);
+    const answer = 'a'.repeat(CHUNK_MAX_CHARS + 500);
+    const chunks = chunkConversation([
+      userMsg('u1', question, 0),
+      assistantMsg('a1', answer, 1),
+    ]);
+    const anchored = chunks.find((chunk) =>
+      chunk.content.includes('[context:'),
+    );
+
+    expect(anchored).toBeDefined();
+    expect(anchored!.content).toContain(`[context: ${question}] `);
+    expect(anchored!.content).not.toContain('…');
+  });
+
+  it('does not emit an empty trailing continuation slice at an exact cursor boundary', () => {
+    const answer = 'a'.repeat(CHUNK_MAX_CHARS - '[assistant] '.length + 1);
+    const chunks = chunkConversation([assistantMsg('a1', answer, 0)]);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.some((chunk) => chunk.content.endsWith('[assistant] '))).toBe(
+      false,
+    );
+    expect(chunks.at(-1)?.lastMessageTextOffsetExclusive).toBe(answer.length);
+  });
+
+  it('anchors a later oversized assistant to the latest preceding user, not an assistant turn', () => {
+    const answer = 'a'.repeat(CHUNK_MAX_CHARS + 500);
+    const chunks = chunkConversation([
+      userMsg('u1', 'the actual question', 0),
+      assistantMsg('a0', 'short acknowledgement', 1),
+      assistantMsg('a1', answer, 2),
+    ]);
+    const anchored = chunks.find((chunk) =>
+      chunk.content.includes('[context:'),
+    );
+
+    expect(anchored).toBeDefined();
+    expect(anchored!.content).toContain('[context: the actual question] ');
+    expect(anchored!.content).not.toContain('short acknowledgement');
   });
 
   it('emits no anchor for an oversized message that is itself a user message, even with a preceding user message', () => {

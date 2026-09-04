@@ -343,3 +343,153 @@ describe('truncateOversizedResult', () => {
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
 });
+
+describe('truncateOversizedResult marker wording', () => {
+  function noticeOf(result: ToolResult): string {
+    return z.object({ truncationNotice: z.string() }).parse(result)
+      .truncationNotice;
+  }
+
+  it('writes only the cap sentence when nothing but prose was cut', () => {
+    const notice = noticeOf(
+      truncateOversizedResult({
+        status: 'success',
+        text: 'x'.repeat(50_000),
+        // Short enough to survive whole: no list was shortened.
+        tags: ['a', 'b', 'c'],
+      }),
+    );
+
+    expect(notice).toMatch(
+      /^Result truncated to fit the 16000-character tool-result cap; \d+ characters omitted\. Re-run this tool with narrower arguments if you need the omitted content\.$/u,
+    );
+  });
+
+  it('leaves an array that fit out of the shortened-list report', () => {
+    const result = truncateOversizedResult({
+      status: 'success',
+      text: 'x'.repeat(50_000),
+      tags: ['a', 'b', 'c'],
+    });
+
+    expect(z.object({ tags: z.array(z.string()) }).parse(result).tags).toEqual([
+      'a',
+      'b',
+      'c',
+    ]);
+    expect(noticeOf(result)).not.toContain('kept 3 of 3');
+  });
+
+  it('calls a list at an unnamed path "the result"', () => {
+    // capRecord passes an empty key straight through, so this array is reached
+    // with no path of its own — the only case the fallback name exists for.
+    const notice = noticeOf(
+      truncateOversizedResult({
+        status: 'success',
+        '': Array.from({ length: 9000 }, (_entry, index) => `value ${index}`),
+      }),
+    );
+
+    expect(notice).toMatch(/the result kept \d+ of 9000/u);
+  });
+
+  it('names the three worst-hit lists, ranked by how much each lost', () => {
+    const list = (length: number): Array<string> =>
+      Array.from({ length }, (_entry, index) => `value ${index}`);
+    // Totals close enough that a comparator built on total + kept, rather than
+    // total - kept, flips the ranking.
+    const notice = noticeOf(
+      truncateOversizedResult({
+        status: 'success',
+        a: list(5000),
+        b: list(4900),
+        c: list(4800),
+        d: list(4700),
+      }),
+    );
+
+    expect(notice).toContain('Lists shortened: a kept');
+    expect(notice).toMatch(
+      /a kept \d+ of 5000; b kept \d+ of 4900; c kept \d+ of 4800/u,
+    );
+    expect(notice).not.toContain('d kept');
+  });
+
+  it('ranks by loss rather than by discovery order', () => {
+    const list = (length: number): Array<string> =>
+      Array.from({ length }, (_entry, index) => `value ${index}`);
+    const notice = noticeOf(
+      truncateOversizedResult({
+        status: 'success',
+        a: list(4700),
+        b: list(4800),
+        c: list(4900),
+        d: list(5000),
+      }),
+    );
+
+    expect(notice).toMatch(
+      /d kept \d+ of 5000; c kept \d+ of 4900; b kept \d+ of 4800/u,
+    );
+    expect(notice).not.toContain('a kept');
+  });
+
+  it('counts no overflow when exactly the named limit of lists was shortened', () => {
+    const list = (length: number): Array<string> =>
+      Array.from({ length }, (_entry, index) => `value ${index}`);
+    const notice = noticeOf(
+      truncateOversizedResult({
+        status: 'success',
+        a: list(5000),
+        b: list(4900),
+        c: list(4800),
+      }),
+    );
+
+    expect(notice).toMatch(/c kept \d+ of 4800\. Re-run/u);
+    expect(notice).not.toContain('more)');
+  });
+
+  it('preserves null values instead of rejecting them', () => {
+    const result = truncateOversizedResult({
+      status: 'success',
+      text: 'x'.repeat(50_000),
+      cursor: null,
+      nested: { next: null },
+    });
+
+    expect(
+      z
+        .object({ cursor: z.null(), nested: z.object({ next: z.null() }) })
+        .parse(result),
+    ).toEqual({ cursor: null, nested: { next: null } });
+  });
+});
+
+describe('truncateOversizedResult field preservation', () => {
+  /** Enough top-level fields that the fitting per-value limit is below the
+   *  field count, so dropping entries and shrinking them differ. */
+  function manyFields(): ToolResult {
+    const payload: { [key: string]: string } = {};
+    for (let index = 0; index < 500; index += 1) {
+      payload[`field${String(index).padStart(3, '0')}`] = 'x'.repeat(2000);
+    }
+    return { status: 'success', ...payload };
+  }
+
+  it('keeps every top-level field when the shape still fits', () => {
+    const result = truncateOversizedResult(manyFields());
+
+    const keys = Object.keys(result).filter((key) => key.startsWith('field'));
+    expect(keys).toHaveLength(500);
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+  });
+
+  it('reports no omitted fields while the shape is intact', () => {
+    const notice = z
+      .object({ truncationNotice: z.string() })
+      .parse(truncateOversizedResult(manyFields())).truncationNotice;
+
+    expect(notice).not.toContain('result fields omitted entirely');
+  });
+});

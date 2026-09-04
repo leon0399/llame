@@ -1,6 +1,22 @@
-import type { ModelMessage, TextStreamPart, ToolSet } from 'ai';
+import {
+  NoOutputGeneratedError,
+  type ModelMessage,
+  type TextStreamPart,
+  type ToolSet,
+} from 'ai';
 
 import { createFakeModelClient, ZERO_USAGE } from './fake-model-client';
+
+/**
+ * A tool whose `inputSchema` the AI SDK cannot prepare, so reaching it at all
+ * errors the stream. `ToolSet` has no shape for a deliberately invalid schema.
+ */
+function unpreparableTools(): ToolSet {
+  // SAFETY: this value is never executed as a tool — the SDK rejects the schema
+  // while preparing the call, which is exactly what the assertion below checks.
+  // eslint-disable-next-line typescript/no-unsafe-type-assertion
+  return { bad_tool: { description: 'bad', inputSchema: 42 } } as never;
+}
 
 async function collectText(stream: AsyncIterable<string>): Promise<string> {
   let text = '';
@@ -144,5 +160,79 @@ describe('createFakeModelClient', () => {
       model: 'fake-model',
       provider: 'fake',
     });
+  });
+});
+
+async function collectParts(
+  stream: AsyncIterable<TextStreamPart<ToolSet>>,
+): Promise<Array<TextStreamPart<ToolSet>>> {
+  const parts: Array<TextStreamPart<ToolSet>> = [];
+
+  for await (const part of stream) {
+    parts.push(part);
+  }
+
+  return parts;
+}
+
+describe('createFakeModelClient stream shape', () => {
+  it('emits no text delta at all for an empty response', async () => {
+    const parts = await collectParts(
+      createFakeModelClient([]).streamText({ messages }).fullStream,
+    );
+
+    expect(parts.map(({ type }) => type)).toStrictEqual([
+      'start',
+      'start-step',
+      'text-start',
+      'text-end',
+      'finish-step',
+      'finish',
+    ]);
+  });
+
+  it('opens and closes the text block under one id', async () => {
+    const parts = await collectParts(
+      createFakeModelClient(['done']).streamText({ messages }).fullStream,
+    );
+
+    const ids = parts
+      .filter(
+        (part) =>
+          part.type === 'text-start' ||
+          part.type === 'text-delta' ||
+          part.type === 'text-end',
+      )
+      .map((part) => ('id' in part ? part.id : undefined));
+    expect(ids).toStrictEqual([
+      'fake-response',
+      'fake-response',
+      'fake-response',
+    ]);
+  });
+
+  it('reports the fake provider and model on the completed step', async () => {
+    const result = createFakeModelClient(['done']).streamText({ messages });
+    await result.text;
+
+    expect((await result.steps)[0]?.model).toStrictEqual({
+      provider: 'fake',
+      modelId: 'fake-model',
+    });
+  });
+
+  it('forwards caller tools to the model rather than dropping them', async () => {
+    // A tool the SDK cannot prepare fails the stream — but only if the tools
+    // reached `streamText` at all.
+    await expect(
+      createFakeModelClient(['done']).streamText({
+        messages,
+        tools: unpreparableTools(),
+      }).text,
+    ).rejects.toThrow(NoOutputGeneratedError);
+
+    await expect(
+      createFakeModelClient(['done']).streamText({ messages }).text,
+    ).resolves.toBe('done');
   });
 });

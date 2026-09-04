@@ -76,9 +76,7 @@ jobs:
           pattern: mutation-report-forced-api-*
           path: apps/api/reports/mutation-shards
 
-      - run: >-
-          pnpm test:mutation:aggregate -- --expected-shards 8
-          reports/mutation-shards/mutation-report-forced-api-*/mutation.json
+      - run: pnpm test:mutation:check
         working-directory: apps/api
 
   config-interpolation:

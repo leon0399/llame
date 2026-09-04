@@ -126,6 +126,46 @@ describe('model prompt file loading', () => {
   });
 
   it.each([
+    ['permission denied', 'EPERM', 'prompt file is unreadable'],
+    ['other read failure', 'EIO', 'failed to read prompt file'],
+  ] as const)(
+    'maps a %s default read failure to a safe config error',
+    (_case, code, expected) => {
+      const access: PromptFileAccess = {
+        isFile: () => true,
+        readFile: () => {
+          throw Object.assign(new Error('private-host-detail'), { code });
+        },
+      };
+
+      expect(() => loader(access).resolve({ id: 'private-model' })).toThrow(
+        expected,
+      );
+      expect(() => loader(access).resolve({ id: 'private-model' })).not.toThrow(
+        /private-host-detail/,
+      );
+    },
+  );
+
+  it('maps an isFile failure to a safe config error', () => {
+    const access: PromptFileAccess = {
+      isFile: () => {
+        throw Object.assign(new Error('private-stat-detail'), {
+          code: 'EACCES',
+        });
+      },
+      readFile: () => 'unused',
+    };
+
+    expect(() => loader(access).resolve({ id: 'private-model' })).toThrow(
+      'prompt file is unreadable',
+    );
+    expect(() => loader(access).resolve({ id: 'private-model' })).not.toThrow(
+      /private-stat-detail/,
+    );
+  });
+
+  it.each([
     ['missing', false, () => 'unused'],
     ['empty', true, () => ' \r\n\t'],
   ] as const)(
@@ -233,6 +273,17 @@ describe('model prompt rendering', () => {
     expect(renderFor({ id: 'model-id' })).toBe('before after');
   });
 
+  it('renders the always-present temporal anchor paths with strict escaping', () => {
+    writeFileSync(
+      defaultPromptPath,
+      '{{context.systemTime}} @ {{context.systemTimezone}}',
+    );
+
+    expect(
+      renderResolved(loader().resolve({ id: 'model-id' }), { id: 'model-id' }),
+    ).toBe('2026-08-19 16:36+02:00 @ Europe/Madrid');
+  });
+
   it('escapes only markup characters, leaving prose punctuation intact', () => {
     writeFileSync(defaultPromptPath, 'name <b>{{model.name}}</b>');
 
@@ -319,6 +370,28 @@ describe('model prompt rendering', () => {
     expect(() => loader().resolve({ id: 'model-id' })).toThrow(
       'helper invocation',
     );
+  });
+
+  it('rejects an unknown block helper at boot', () => {
+    writeFileSync(defaultPromptPath, 'x {{#lookup model.id}}y{{/lookup}}');
+
+    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+      'unsupported prompt construct "lookup"',
+    );
+  });
+
+  it('rejects data paths as collection subjects', () => {
+    writeFileSync(defaultPromptPath, 'x {{#each @index}}y{{/each}}');
+
+    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+      'unsupported prompt construct',
+    );
+  });
+
+  it('accepts an empty conditional arm when surrounding literal content remains', () => {
+    writeFileSync(defaultPromptPath, 'before{{#if model.id}}{{/if}}after');
+
+    expect(renderFor({ id: 'model-id' })).toBe('beforeafter');
   });
 
   it('fails a template whose only content is expressions and whitespace', () => {
@@ -784,6 +857,113 @@ describe('boot probes the user and chats gate cross product', () => {
 
     expect(() => loader().resolve({ id: 'm' })).toThrow(
       /rendered prompt is empty/,
+    );
+  });
+});
+
+describe('prompt template rejection messages', () => {
+  const failingAccess = (code: string): PromptFileAccess => ({
+    isFile: vi.fn(() => true),
+    readFile: vi.fn(() => {
+      throw Object.assign(new Error('read failed'), { code });
+    }),
+  });
+
+  it.each([
+    ['ENOENT', 'prompt file is missing'],
+    ['EACCES', 'prompt file is unreadable'],
+    ['EIO', 'failed to read prompt file'],
+  ])('reports a %s read failure as "%s"', (code, message) => {
+    expect(() => loader(failingAccess(code)).resolve({ id: 'm1' })).toThrow(
+      `models[m1].systemPromptFile: ${message}`,
+    );
+  });
+
+  it('names a template that cannot be parsed', () => {
+    writeFileSync(defaultPromptPath, 'Hello {{#if model.id}}');
+
+    expect(() => loader().resolve({ id: 'm1' })).toThrow(
+      'models[m1].systemPromptFile: prompt template failed to parse',
+    );
+  });
+
+  it('rejects a template every probe renders as whitespace alone', () => {
+    writeFileSync(
+      defaultPromptPath,
+      '{{#if user.name}}Hi{{/if}} {{#if user.name}}there{{/if}}',
+    );
+
+    expect(() => loader().resolve({ id: 'm1' })).toThrow(
+      'models[m1].systemPromptFile: rendered prompt is empty',
+    );
+  });
+
+  it('rejects a literal as a conditional subject', () => {
+    writeFileSync(defaultPromptPath, 'Hello {{#if "yes"}}there{{/if}}');
+
+    expect(() => loader().resolve({ id: 'm1' })).toThrow(
+      'models[m1].systemPromptFile: unsupported prompt construct "StringLiteral"',
+    );
+  });
+
+  it('rejects a nested field reference inside an iteration', () => {
+    writeFileSync(
+      defaultPromptPath,
+      'Chats {{#each chats.pinned}}{{title.inner}}{{/each}}',
+    );
+
+    expect(() => loader().resolve({ id: 'm1' })).toThrow(
+      'models[m1].systemPromptFile: unsupported prompt construct "{{title.inner}}"',
+    );
+  });
+
+  it('rejects iterating a scalar or a parent-scoped collection', () => {
+    writeFileSync(defaultPromptPath, 'A {{#each user.name}}x{{/each}}');
+    expect(() => loader().resolve({ id: 'm1' })).toThrow(
+      'models[m1].systemPromptFile: unsupported prompt construct "{{user.name}}"',
+    );
+
+    writeFileSync(defaultPromptPath, 'B {{#each ../chats.pinned}}x{{/each}}');
+    expect(() => loader().resolve({ id: 'm1' })).toThrow(
+      'models[m1].systemPromptFile: unsupported prompt construct "{{../chats.pinned}}"',
+    );
+  });
+
+  it('rejects a hash argument on a value expression', () => {
+    writeFileSync(defaultPromptPath, 'Hello {{model.id key=1}}');
+
+    expect(() => loader().resolve({ id: 'm1' })).toThrow(
+      'models[m1].systemPromptFile: unsupported prompt construct "helper invocation"',
+    );
+  });
+
+  it('validates the statements inside a conditional body', () => {
+    writeFileSync(
+      defaultPromptPath,
+      'Hi {{#if model.id}}{{secret.value}}{{/if}}',
+    );
+
+    expect(() => loader().resolve({ id: 'm1' })).toThrow(
+      'models[m1].systemPromptFile: unsupported prompt construct "{{secret.value}}"',
+    );
+  });
+
+  it('requires literal content somewhere in the template', () => {
+    writeFileSync(defaultPromptPath, '{{#if model.id}}{{model.name}}{{/if}}');
+
+    expect(() => loader().resolve({ id: 'm1' })).toThrow(
+      'models[m1].systemPromptFile: prompt file is empty',
+    );
+  });
+
+  it('accepts literal content that lives only in an else arm', () => {
+    writeFileSync(
+      defaultPromptPath,
+      '{{#if model.name}}{{model.id}}{{else}}Fallback{{/if}}',
+    );
+
+    expect(loader().resolve({ id: 'm1' }).systemPromptTemplate).toContain(
+      'Fallback',
     );
   });
 });

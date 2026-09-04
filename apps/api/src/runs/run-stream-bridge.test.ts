@@ -3,6 +3,7 @@ import { toolTerminationMessage } from './tool-settlement';
  * Run-event → UI-chunk translator unit tests (#50) — pure state machine.
  */
 
+import { ConfigService } from '@nestjs/config';
 import { parseJsonEventStream } from '@ai-sdk/provider-utils';
 import {
   readUIMessageStream,
@@ -10,8 +11,54 @@ import {
   type UIMessage,
   type UIMessageChunk,
 } from 'ai';
+import { afterEach, vi } from 'vitest';
+import { drizzle } from 'drizzle-orm/postgres-js';
 
-import { createRunEventTranslator } from './run-stream-bridge';
+import * as schema from '../db/schema';
+import { TenantDbService, type Db } from '../db/tenant-db.service';
+import { RunEventsRepository, RunsRepository } from './runs-repository';
+import {
+  createRunEventTranslator,
+  RunStreamBridgeService,
+} from './run-stream-bridge';
+import type { Run, RunEvent } from '../db/schema/chats';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+const RUN_ID = '00000000-0000-4000-8000-000000000001';
+
+function runEvent(
+  sequence: number,
+  eventType: string,
+  payload: RunEvent['payload'],
+): RunEvent {
+  return {
+    sequence,
+    runId: RUN_ID,
+    eventType,
+    payload,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+  };
+}
+
+function bridgeFixture(configValues: Record<string, string> = {}) {
+  const db: Db = drizzle.mock({ schema });
+  const tenantDb = new TenantDbService({
+    transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
+  });
+  vi.spyOn(tenantDb, 'runAs').mockImplementation(
+    async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+      callback(db),
+  );
+  const config = new ConfigService(configValues);
+  return {
+    bridge: new RunStreamBridgeService(tenantDb, config),
+    tenantDb,
+    config,
+  };
+}
 
 describe('createRunEventTranslator', () => {
   it('emits prelude lazily, then deltas, then text-end + finish on completion', () => {
@@ -587,5 +634,434 @@ describe('createRunEventTranslator', () => {
     expect(
       t.translate({ eventType: 'run.step_cap_reached', payload: {} }),
     ).toEqual([]);
+  });
+});
+
+describe('RunStreamBridgeService', () => {
+  it('replays terminal run events as a complete UI-message stream', async () => {
+    const events = [
+      runEvent(1, 'model.delta', { text: 'answer' }),
+      runEvent(2, 'run.completed', null),
+    ];
+    const listByRunId = vi
+      .spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValue(events);
+    const { bridge } = bridgeFixture();
+
+    const response = bridge.createUiMessageStreamResponse({
+      runId: RUN_ID,
+      userId: 'user-1',
+    });
+    const body = await response.text();
+
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    expect(response.headers.get('x-vercel-ai-ui-message-stream')).toBe('v1');
+    expect(body).toContain('"type":"start"');
+    expect(body).toContain('"type":"text-delta"');
+    expect(body).toContain('"delta":"answer"');
+    expect(body).toContain('"type":"finish"');
+    expect(body).toContain('data: [DONE]\n\n');
+    expect(listByRunId).toHaveBeenCalledWith(RUN_ID, 'user-1', {
+      afterSequence: 0,
+    });
+  });
+
+  it('stops when the run is terminal but has no terminal event', async () => {
+    const listByRunId = vi
+      .spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValue([]);
+    const findById = vi
+      .spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValue({
+        id: RUN_ID,
+        chatId: '00000000-0000-4000-8000-000000000002',
+        messageId: null,
+        userId: 'user-1',
+        modelId: 'model-1',
+        modelContextSnapshotId: null,
+        status: 'completed',
+        workerId: null,
+        cancelRequestedAt: null,
+        error: null,
+        contextItems: null,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        startedAt: null,
+        finishedAt: null,
+        effort: null,
+      });
+    const { bridge } = bridgeFixture();
+
+    const response = bridge.createUiMessageStreamResponse({
+      runId: RUN_ID,
+      userId: 'user-1',
+    });
+
+    await expect(response.text()).resolves.toBe('');
+    expect(listByRunId).toHaveBeenCalledOnce();
+    expect(findById).toHaveBeenCalledWith(RUN_ID, 'user-1');
+  });
+
+  it('emits an explicit error when the configured stream window expires', async () => {
+    vi.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValue(1002);
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
+    const { bridge } = bridgeFixture({ RUN_STREAM_MAX_MS: '1' });
+
+    const response = bridge.createUiMessageStreamResponse({
+      runId: RUN_ID,
+      userId: 'user-1',
+    });
+    const body = await response.text();
+
+    expect(body).toContain(
+      'Stream window elapsed; the run is still executing. Reload to see the result.',
+    );
+    expect(body).not.toContain('data: [DONE]');
+  });
+
+  it('closes without output when the client aborts before polling', async () => {
+    const listByRunId = vi
+      .spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValue([]);
+    const controller = new AbortController();
+    controller.abort();
+    const { bridge } = bridgeFixture();
+
+    const response = bridge.createUiMessageStreamResponse({
+      runId: RUN_ID,
+      userId: 'user-1',
+      abortSignal: controller.signal,
+    });
+
+    await expect(response.text()).resolves.toBe('');
+    expect(listByRunId).not.toHaveBeenCalled();
+  });
+});
+
+describe('createRunEventTranslator part identity and error text', () => {
+  it('numbers successive text and reasoning parts so a client can keep them apart', () => {
+    const t = createRunEventTranslator('run-1');
+    t.translate({ eventType: 'run.started', payload: null });
+
+    const first = t.translate({
+      eventType: 'model.delta',
+      payload: { text: 'one' },
+    });
+    const think = t.translate({
+      eventType: 'reasoning.delta',
+      payload: { text: 'hmm' },
+    });
+    const second = t.translate({
+      eventType: 'model.delta',
+      payload: { text: 'two' },
+    });
+
+    expect(first).toContainEqual({ type: 'text-start', id: 'text-1' });
+    expect(first).toContainEqual({
+      type: 'text-delta',
+      id: 'text-1',
+      delta: 'one',
+    });
+    expect(think).toContainEqual({
+      type: 'reasoning-start',
+      id: 'reasoning-1',
+    });
+    expect(think).toContainEqual({ type: 'text-end', id: 'text-1' });
+    expect(second).toContainEqual({ type: 'text-start', id: 'text-2' });
+    expect(second).toContainEqual({
+      type: 'text-delta',
+      id: 'text-2',
+      delta: 'two',
+    });
+    expect(second).toContainEqual({
+      type: 'reasoning-end',
+      id: 'reasoning-1',
+    });
+  });
+
+  it('uses a generic error text only when the tool output carries none', () => {
+    const withMessage = createRunEventTranslator('run-1');
+    withMessage.translate({ eventType: 'run.started', payload: null });
+    withMessage.translate({
+      eventType: 'tool.requested',
+      payload: { toolCallId: 'c1', toolName: 'demo', input: {} },
+    });
+    expect(
+      withMessage.translate({
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'c1',
+          toolName: 'demo',
+          status: 'error',
+          output: { status: 'error', type: 'failed', message: 'disk full' },
+        },
+      }),
+    ).toContainEqual({
+      type: 'tool-output-error',
+      toolCallId: 'c1',
+      errorText: 'disk full',
+      dynamic: true,
+    });
+
+    const withoutMessage = createRunEventTranslator('run-1');
+    withoutMessage.translate({ eventType: 'run.started', payload: null });
+    withoutMessage.translate({
+      eventType: 'tool.requested',
+      payload: { toolCallId: 'c2', toolName: 'demo', input: {} },
+    });
+    expect(
+      withoutMessage.translate({
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'c2',
+          toolName: 'demo',
+          status: 'error',
+          output: { status: 'error', type: 'failed' },
+        },
+      }),
+    ).toContainEqual({
+      type: 'tool-output-error',
+      toolCallId: 'c2',
+      errorText: 'The tool failed.',
+      dynamic: true,
+    });
+  });
+
+  it('marks only a cancellation with the cancelled provider metadata', () => {
+    const t = createRunEventTranslator('run-1');
+    t.translate({ eventType: 'run.started', payload: null });
+    t.translate({
+      eventType: 'tool.requested',
+      payload: { toolCallId: 'c1', toolName: 'demo', input: {} },
+    });
+
+    expect(
+      t.translate({
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'c1',
+          toolName: 'demo',
+          status: 'error',
+          output: {
+            status: 'error',
+            type: 'cancelled',
+            message: 'stopped',
+          },
+        },
+      }),
+    ).toContainEqual({
+      type: 'tool-output-error',
+      toolCallId: 'c1',
+      errorText: 'stopped',
+      providerMetadata: { llame: { cancelled: true } },
+      dynamic: true,
+    });
+  });
+
+  it('distinguishes a cancelled run from a failed one when settling open tools', () => {
+    const cancelled = createRunEventTranslator('run-1');
+    cancelled.translate({ eventType: 'run.started', payload: null });
+    cancelled.translate({
+      eventType: 'tool.requested',
+      payload: { toolCallId: 'c1', toolName: 'demo', input: {} },
+    });
+    expect(
+      cancelled.translate({ eventType: 'run.cancelled', payload: null }),
+    ).toContainEqual({
+      type: 'tool-output-error',
+      toolCallId: 'c1',
+      errorText: toolTerminationMessage('cancelled'),
+      providerMetadata: { llame: { cancelled: true } },
+      dynamic: true,
+    });
+
+    const completed = createRunEventTranslator('run-1');
+    completed.translate({ eventType: 'run.started', payload: null });
+    completed.translate({
+      eventType: 'tool.requested',
+      payload: { toolCallId: 'c2', toolName: 'demo', input: {} },
+    });
+    expect(
+      completed.translate({ eventType: 'run.completed', payload: null }),
+    ).toContainEqual({
+      type: 'tool-output-error',
+      toolCallId: 'c2',
+      errorText: toolTerminationMessage('failed'),
+      providerMetadata: { llame: { cancelled: true } },
+      dynamic: true,
+    });
+  });
+
+  it('falls back to a generic run-failure message when the event carries none', () => {
+    const withMessage = createRunEventTranslator('run-1');
+    withMessage.translate({ eventType: 'run.started', payload: null });
+    expect(
+      withMessage.translate({
+        eventType: 'run.failed',
+        payload: { message: 'provider exploded' },
+      }),
+    ).toContainEqual({ type: 'error', errorText: 'provider exploded' });
+
+    const withoutMessage = createRunEventTranslator('run-1');
+    withoutMessage.translate({ eventType: 'run.started', payload: null });
+    expect(
+      withoutMessage.translate({ eventType: 'run.expired', payload: null }),
+    ).toContainEqual({ type: 'error', errorText: 'Run failed.' });
+  });
+
+  it('emits nothing for a lifecycle event with no UI representation', () => {
+    const t = createRunEventTranslator('run-1');
+    t.translate({ eventType: 'run.started', payload: null });
+    t.translate({
+      eventType: 'tool.requested',
+      payload: { toolCallId: 'c1', toolName: 'demo', input: {} },
+    });
+
+    expect(
+      t.translate({
+        eventType: 'tool.started',
+        payload: { toolCallId: 'c1', toolName: 'demo' },
+      }),
+    ).toEqual([]);
+    expect(
+      t.translate({ eventType: 'model.requested', payload: { modelId: 'm' } }),
+    ).toEqual([]);
+  });
+});
+
+describe('RunStreamBridgeService stream window', () => {
+  it('falls back to the default window when RUN_STREAM_MAX_MS is unusable', async () => {
+    for (const raw of ['0', '-1', 'not-a-number', '']) {
+      const { bridge } = bridgeFixture({ RUN_STREAM_MAX_MS: raw });
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+        runEvent(1, 'run.started', null),
+        runEvent(2, 'run.completed', null),
+      ]);
+
+      const response = bridge.createUiMessageStreamResponse({
+        runId: RUN_ID,
+        userId: 'user-1',
+      });
+
+      // A zero/negative/NaN window would trip the elapsed check on the very
+      // first pass and emit the window-elapsed error instead of finishing.
+      const body = await response.text();
+      expect(body).toContain('"type":"finish"');
+      expect(body).not.toContain('Stream window elapsed');
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('sets the AI SDK UI-message-stream headers on the response', () => {
+    const { bridge } = bridgeFixture();
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      runEvent(1, 'run.completed', null),
+    ]);
+
+    const response = bridge.createUiMessageStreamResponse({
+      runId: RUN_ID,
+      userId: 'user-1',
+    });
+
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    expect(response.headers.get('cache-control')).toBe('no-cache');
+    expect(response.headers.get('connection')).toBe('keep-alive');
+    expect(response.headers.get('x-vercel-ai-ui-message-stream')).toBe('v1');
+  });
+
+  it('terminates the SSE body with the DONE sentinel once the run finishes', async () => {
+    const { bridge } = bridgeFixture();
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      runEvent(1, 'run.started', null),
+      runEvent(2, 'model.delta', { text: 'hi' }),
+      runEvent(3, 'run.completed', null),
+    ]);
+
+    const body = await bridge
+      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .text();
+
+    expect(body.endsWith('data: [DONE]\n\n')).toBe(true);
+  });
+
+  it('surfaces a polling failure as a stream error rather than a silent close', async () => {
+    const { bridge } = bridgeFixture();
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockRejectedValue(
+      new Error('event log unavailable'),
+    );
+
+    await expect(
+      bridge
+        .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+        .text(),
+    ).rejects.toThrow('event log unavailable');
+  });
+});
+
+describe('RunStreamBridgeService window and terminal-status fallbacks', () => {
+  const terminalRun = (status: Run['status']): Run => ({
+    id: RUN_ID,
+    chatId: '00000000-0000-4000-8000-000000000002',
+    messageId: null,
+    userId: 'user-1',
+    modelId: 'model-1',
+    modelContextSnapshotId: null,
+    status,
+    workerId: null,
+    cancelRequestedAt: null,
+    error: null,
+    contextItems: null,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    startedAt: null,
+    finishedAt: null,
+    effort: null,
+  });
+
+  it('ignores a non-positive configured window and stops on a terminal run row instead', async () => {
+    vi.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValue(1002);
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
+    const findById = vi
+      .spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValue(terminalRun('expired'));
+    const { bridge } = bridgeFixture({ RUN_STREAM_MAX_MS: '0' });
+
+    const body = await bridge
+      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .text();
+
+    expect(body).toBe('');
+    expect(findById).toHaveBeenCalledWith(RUN_ID, 'user-1');
+  });
+
+  it('treats a cancelled run row as terminal when no terminal event arrived', async () => {
+    vi.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValue(1002);
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(
+      terminalRun('cancelled'),
+    );
+    const { bridge } = bridgeFixture({ RUN_STREAM_MAX_MS: '-1' });
+
+    await expect(
+      bridge
+        .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+        .text(),
+    ).resolves.toBe('');
+  });
+
+  it('emits nothing for an empty reasoning delta', () => {
+    const t = createRunEventTranslator('run-1');
+    t.translate({ eventType: 'run.started', payload: null });
+
+    expect(
+      t.translate({ eventType: 'reasoning.delta', payload: { text: '' } }),
+    ).toEqual([]);
+    expect(t.translate({ eventType: 'reasoning.delta', payload: {} })).toEqual(
+      [],
+    );
   });
 });

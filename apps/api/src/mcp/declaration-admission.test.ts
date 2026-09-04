@@ -689,3 +689,186 @@ describe('MCP declaration admission', () => {
     );
   });
 });
+
+describe('MCP declaration dialect and keyword vocabulary', () => {
+  const SENTINEL = 'AUTH-SENTINEL';
+
+  const admit = (inputSchema: UnknownRecord, name = 'tool') =>
+    admitMcpToolDefinitions({
+      serverId: 'web',
+      protectedValues: [SENTINEL],
+      definitions: [definition(name, inputSchema)],
+    });
+
+  const schema = (dialect: string, extra: UnknownRecord = {}) => ({
+    $schema: dialect,
+    type: 'object',
+    properties: {},
+    ...extra,
+  });
+
+  const DRAFT_07 = 'http://json-schema.org/draft-07/schema';
+  const V2019 = 'https://json-schema.org/draft/2019-09/schema';
+  const V2020 = 'https://json-schema.org/draft/2020-12/schema';
+  const tainted = { description: `see ${SENTINEL} for details` };
+
+  it('accepts every supported dialect spelling, with or without the fragment', async () => {
+    for (const dialect of supportedDialects) {
+      const result = await admit(
+        dialect === undefined
+          ? { type: 'object', properties: {} }
+          : schema(dialect),
+      );
+      expect(result.refused).toEqual([]);
+      expect(result.admitted).toHaveLength(1);
+    }
+  });
+
+  it('refuses a dialect it does not recognise', async () => {
+    const result = await admit(
+      schema('https://json-schema.org/draft/2020-13/schema'),
+    );
+
+    expect(result.admitted).toEqual([]);
+    expect(result.refused[0]?.reason).toBe('unsupported_dialect');
+  });
+
+  it('refuses a protected value hiding in a subschema map KEY', async () => {
+    const result = await admit({
+      type: 'object',
+      properties: { [`${SENTINEL}-field`]: { type: 'string' } },
+    });
+
+    expect(result.admitted).toEqual([]);
+    expect(result.refused[0]?.reason).toBe('protected_value');
+  });
+
+  it('refuses a protected value hiding in a schema node KEY', async () => {
+    const result = await admit({
+      type: 'object',
+      properties: {},
+      [`x-${SENTINEL}`]: 1,
+    });
+
+    expect(result.admitted).toEqual([]);
+    expect(result.refused[0]?.reason).toBe('protected_value');
+  });
+
+  it('redacts, rather than refuses, a protected value in a nested subschema description', async () => {
+    const result = await admit(schema(DRAFT_07, { not: tainted }));
+
+    expect(result.refused).toEqual([]);
+    const not = result.admitted[0]?.inputSchema['not'];
+    expect(isRecord(not) && not['description']).toContain(MCP_REDACTION_MARKER);
+    expect(JSON.stringify(result.admitted[0])).not.toContain(SENTINEL);
+  });
+
+  it('reads a tuple `items` array as subschemas only before 2020-12', async () => {
+    await expect(
+      admit(schema(DRAFT_07, { items: [tainted] })).then((r) => r.refused),
+    ).resolves.toEqual([]);
+    await expect(
+      admit(schema(V2020, { items: [tainted] })).then(
+        (r) => r.refused[0]?.reason,
+      ),
+    ).resolves.toBe('protected_value');
+  });
+
+  it('reads `additionalItems` as a subschema only before 2020-12', async () => {
+    await expect(
+      admit(schema(DRAFT_07, { additionalItems: tainted })).then(
+        (r) => r.refused,
+      ),
+    ).resolves.toEqual([]);
+    await expect(
+      admit(
+        schema('https://json-schema.org/draft-07/schema', {
+          additionalItems: tainted,
+        }),
+      ).then((r) => r.refused),
+    ).resolves.toEqual([]);
+    await expect(
+      admit(schema(V2020, { additionalItems: tainted })).then(
+        (r) => r.refused[0]?.reason,
+      ),
+    ).resolves.toBe('protected_value');
+  });
+
+  it('reads `unevaluatedItems` as a subschema only outside draft-07', async () => {
+    await expect(
+      admit(schema(V2019, { unevaluatedItems: tainted })).then(
+        (r) => r.refused,
+      ),
+    ).resolves.toEqual([]);
+    await expect(
+      admit(schema(DRAFT_07, { unevaluatedItems: tainted })).then(
+        (r) => r.refused[0]?.reason,
+      ),
+    ).resolves.toBe('protected_value');
+  });
+
+  it('reads `$defs` as a subschema map only outside draft-07', async () => {
+    await expect(
+      admit(schema(V2019, { $defs: { thing: tainted } })).then(
+        (r) => r.refused,
+      ),
+    ).resolves.toEqual([]);
+    await expect(
+      admit(schema(DRAFT_07, { $defs: { thing: tainted } })).then(
+        (r) => r.refused[0]?.reason,
+      ),
+    ).resolves.toBe('protected_value');
+  });
+
+  it('reads `prefixItems` as a subschema array only in 2020-12', async () => {
+    await expect(
+      admit(schema(V2020, { prefixItems: [tainted] })).then((r) => r.refused),
+    ).resolves.toEqual([]);
+    // The trailing `#` spelling must resolve to the SAME dialect, so the
+    // keyword still routes through the subschema-array vocabulary.
+    await expect(
+      admit(schema(`${V2020}#`, { prefixItems: [tainted] })).then(
+        (r) => r.refused,
+      ),
+    ).resolves.toEqual([]);
+    await expect(
+      admit(schema(DRAFT_07, { prefixItems: [tainted] })).then(
+        (r) => r.refused[0]?.reason,
+      ),
+    ).resolves.toBe('protected_value');
+  });
+
+  it('admits a declaration that carries no description and records an empty one', async () => {
+    const result = await admitMcpToolDefinitions({
+      serverId: 'web',
+      protectedValues: [SENTINEL],
+      definitions: [{ name: 'bare', inputSchema: { type: 'object' } }],
+    });
+
+    expect(result.refused).toEqual([]);
+    expect(result.admitted[0]?.description).toBe('');
+  });
+
+  it('refuses a declaration whose DERIVED tool id collides with a protected value', async () => {
+    const result = await admitMcpToolDefinitions({
+      serverId: 'web',
+      protectedValues: ['mcp__web__safe-name'],
+      definitions: [definition('safe-name')],
+    });
+
+    expect(result.admitted).toEqual([]);
+    expect(result.refused[0]?.reason).toBe('protected_value');
+  });
+
+  it('omits the id from a refusal it could not derive one for', async () => {
+    const result = await admitMcpToolDefinitions({
+      serverId: 'web',
+      protectedValues: [SENTINEL],
+      definitions: [{ inputSchema: { type: 'object' } }],
+    });
+
+    expect(result.refused).toStrictEqual([
+      { index: 0, reason: 'invalid_declaration' },
+    ]);
+  });
+});

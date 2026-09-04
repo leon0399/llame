@@ -14,6 +14,7 @@ import {
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
 
+import { type ModelObjectInput } from './model-client';
 import { createOpenAIModelClient } from './openai-model-client';
 
 const tools = {
@@ -334,6 +335,38 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     expect(model.doStreamCalls).toHaveLength(3);
     expect(model.doStreamCalls[2]?.tools).toEqual([]);
   });
+
+  it('forwards text and reasoning chunks to their optional callbacks', async () => {
+    const model = scriptedModel([
+      providerResponse(
+        [
+          { type: 'reasoning-start', id: 'reasoning' },
+          { type: 'reasoning-delta', id: 'reasoning', delta: 'think' },
+          { type: 'reasoning-end', id: 'reasoning' },
+          { type: 'text-start', id: 'answer' },
+          { type: 'text-delta', id: 'answer', delta: 'done' },
+          { type: 'text-end', id: 'answer' },
+        ],
+        'stop',
+      ),
+    ]);
+    const client = buildClient(model);
+    const onTextDelta = vi.fn();
+    const onReasoningDelta = vi.fn();
+
+    await expect(
+      client.streamText({
+        messages,
+        onTextDelta,
+        onReasoningDelta,
+      }).text,
+    ).resolves.toBe('done');
+
+    // Exact call lists, not `toHaveBeenCalledWith`: each chunk must reach its
+    // own callback exactly once, so a chunk routed to both cannot pass.
+    expect(onTextDelta.mock.calls).toEqual([['done']]);
+    expect(onReasoningDelta.mock.calls).toEqual([['think']]);
+  });
 });
 
 describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal', () => {
@@ -387,4 +420,170 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
       expect(model.doStreamCalls).toHaveLength(2);
     },
   );
+});
+
+describe('createOpenAIModelClient — capability surface', () => {
+  it('omits optional pricing and compaction keys the operator did not configure', () => {
+    const client = buildClient(scriptedModel([textResponse()]));
+
+    expect(client).not.toHaveProperty('pricing');
+    expect(client).not.toHaveProperty('compactionThresholdTokens');
+    expect(client.contextWindowTokens).toBe(128_000);
+  });
+
+  it('carries optional pricing and compaction keys through when configured', () => {
+    const provider = vi.fn<OpenAIProvider>();
+    provider.mockReturnValue(scriptedModel([textResponse()]));
+    provider.chat = vi.fn<OpenAIProvider['chat']>(() =>
+      scriptedModel([textResponse()]),
+    );
+    const client = createOpenAIModelClient(
+      {
+        providerModelId: 'gpt-test',
+        modelId: 'system:openai:gpt-test',
+        contextWindowTokens: 128_000,
+        nativeOpenAI: false,
+        pricing: { inputUsdPer1M: 1, outputUsdPer1M: 2 },
+        compactionThresholdTokens: 4000,
+      },
+      { createOpenAI: () => provider, streamText },
+    );
+
+    expect(client.pricing).toStrictEqual({
+      inputUsdPer1M: 1,
+      outputUsdPer1M: 2,
+    });
+    expect(client.compactionThresholdTokens).toBe(4000);
+  });
+});
+
+describe('createOpenAIModelClient — delta callbacks', () => {
+  it('streams text deltas when only the text callback is supplied', async () => {
+    const client = buildClient(scriptedModel([textResponse('answer')]));
+    const onTextDelta = vi.fn();
+
+    await client.streamText({ messages, onTextDelta }).text;
+
+    expect(onTextDelta.mock.calls).toEqual([['answer']]);
+  });
+});
+
+describe('createOpenAIModelClient — abort settlement failures', () => {
+  it('rethrows an error the abort handler itself raised', async () => {
+    let providerStarted: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      providerStarted = resolve;
+    });
+    const model = new MockLanguageModelV3({
+      provider: 'openai.test',
+      modelId: 'gpt-test',
+      doStream: ({ abortSignal }) =>
+        Promise.resolve({
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              providerStarted();
+              abortSignal?.addEventListener(
+                'abort',
+                () =>
+                  controller.error(new DOMException('Aborted', 'AbortError')),
+                { once: true },
+              );
+            },
+          }),
+        }),
+    });
+    const client = buildClient(model);
+    const abort = new AbortController();
+    const handlerFailure = new Error('error handler failed');
+    const result = client.streamText({
+      messages,
+      abortSignal: abort.signal,
+      onError: () => Promise.reject(handlerFailure),
+    });
+    const consumption = result.consumeStream();
+
+    await started;
+    abort.abort('run-timeout');
+
+    // The handler's own failure must surface, not the abort it was handling.
+    await expect(consumption).rejects.toBe(handlerFailure);
+  });
+});
+
+describe('createOpenAIModelClient — structured output', () => {
+  function objectClient(model: MockLanguageModelV3) {
+    const provider = vi.fn<OpenAIProvider>();
+    provider.mockReturnValue(model);
+    provider.chat = vi.fn<OpenAIProvider['chat']>(() => model);
+    return createOpenAIModelClient(
+      {
+        providerModelId: 'gpt-test',
+        modelId: 'system:openai:gpt-test',
+        contextWindowTokens: 128_000,
+        nativeOpenAI: false,
+      },
+      { createOpenAI: () => provider, streamText },
+    );
+  }
+
+  /**
+   * `generateObject` is optional on ModelClient. Calling it through the client
+   * keeps the receiver and the generic signature intact, which `bind` erases.
+   */
+  function objectGenerator(model: MockLanguageModelV3) {
+    const client = objectClient(model);
+    return <OBJECT>(input: ModelObjectInput<OBJECT>): Promise<OBJECT> => {
+      if (!client.generateObject) {
+        throw new Error('the OpenAI model client must expose generateObject');
+      }
+      return client.generateObject(input);
+    };
+  }
+
+  it('names the default output tool when the model answers with prose', async () => {
+    const generateObject = objectGenerator(
+      new MockLanguageModelV3({
+        provider: 'openai.test',
+        modelId: 'gpt-test',
+        doGenerate: () =>
+          Promise.resolve({
+            content: [{ type: 'text', text: 'not a tool call' }],
+            finishReason: { unified: 'stop', raw: undefined },
+            usage: PROVIDER_USAGE,
+            warnings: [],
+          }),
+      }),
+    );
+
+    await expect(
+      generateObject({
+        messages,
+        schema: z.object({ title: z.string() }),
+      }),
+    ).rejects.toThrow("Model did not produce a valid 'output' tool call");
+  });
+
+  it('names the caller-supplied output tool in the same failure', async () => {
+    const generateObject = objectGenerator(
+      new MockLanguageModelV3({
+        provider: 'openai.test',
+        modelId: 'gpt-test',
+        doGenerate: () =>
+          Promise.resolve({
+            content: [{ type: 'text', text: 'not a tool call' }],
+            finishReason: { unified: 'stop', raw: undefined },
+            usage: PROVIDER_USAGE,
+            warnings: [],
+          }),
+      }),
+    );
+
+    await expect(
+      generateObject({
+        messages,
+        schemaName: 'chat_title',
+        schema: z.object({ title: z.string() }),
+      }),
+    ).rejects.toThrow("Model did not produce a valid 'chat_title' tool call");
+  });
 });

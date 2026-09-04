@@ -168,6 +168,29 @@ function byId(
 }
 
 describe('McpServerClient', () => {
+  it('keeps control-plane error messages and dispositions safe and stable', () => {
+    expect(new McpDiscoveryLimitError('pages')).toMatchObject({
+      name: 'McpDiscoveryLimitError',
+      message: 'MCP discovery exceeded a fixed resource limit.',
+      limit: 'pages',
+      disposition: 'reconnect',
+      stage: 'discovery',
+    });
+    expect(new McpProtocolUnsupportedError()).toMatchObject({
+      name: 'McpProtocolUnsupportedError',
+      message: 'The MCP server negotiated an unsupported protocol version.',
+      disposition: 'reconnect',
+      stage: 'initialize',
+    });
+    expect(new McpServerOperationError('initialize', 'network')).toMatchObject({
+      name: 'McpServerOperationError',
+      message: 'MCP initialize failed.',
+      stage: 'initialize',
+      kind: 'network',
+      disposition: 'reconnect',
+    });
+  });
+
   it('reports successful inbound GET-SSE EOF only after connection completes', async () => {
     const fixture = await createMcpTestFixture({
       $get: [{ kind: 'sse', events: [] }],
@@ -1139,6 +1162,74 @@ describe('McpServerClient', () => {
     }
   });
 
+  it('rejects an overlapping discovery attempt before issuing a second list request', async () => {
+    const { fixture, client } = await connectFixture({
+      listResponses: [
+        {
+          ...jsonRpcResult(1, { tools: [tool('lookup')] }),
+          delayMs: 100,
+        },
+      ],
+    });
+
+    try {
+      const first = client.discover();
+      await vi.waitFor(() => {
+        expect(
+          fixture
+            .requestSummaries()
+            .filter(({ rpcMethod }) => rpcMethod === 'tools/list'),
+        ).toHaveLength(1);
+      });
+      await expect(client.discover()).rejects.toThrow(
+        'MCP discovery is already in progress.',
+      );
+      const firstResult = await first;
+      expect(firstResult.tools).toHaveLength(1);
+      expect(firstResult.refused).toEqual([]);
+      expect(
+        fixture
+          .requestSummaries()
+          .filter(({ rpcMethod }) => rpcMethod === 'tools/list'),
+      ).toHaveLength(1);
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
+  it('classifies caller cancellation of an in-flight discovery as a safe control-plane failure', async () => {
+    const { fixture, client } = await connectFixture({
+      listResponses: [
+        {
+          ...jsonRpcResult(1, { tools: [tool('lookup')] }),
+          delayMs: 1000,
+        },
+      ],
+    });
+    const controller = new AbortController();
+
+    try {
+      const discovery = client.discover({ signal: controller.signal });
+      await vi.waitFor(() => {
+        expect(
+          fixture
+            .requestSummaries()
+            .filter(({ rpcMethod }) => rpcMethod === 'tools/list'),
+        ).toHaveLength(1);
+      });
+      controller.abort(new Error('caller cancellation detail'));
+
+      await expect(discovery).rejects.toMatchObject({
+        name: 'McpServerOperationError',
+        stage: 'discovery',
+        kind: 'cancelled',
+        disposition: 'reconnect',
+      } satisfies Partial<McpServerOperationError>);
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
   it('rejects a page containing more than 256 tools', async () => {
     const { fixture, client } = await connectFixture({
       listResponses: [
@@ -1224,6 +1315,94 @@ describe('McpServerClient', () => {
           reason: 'schema_too_deep',
         },
       ]);
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
+  it('accepts a declaration whose schema reaches the depth-64 boundary', async () => {
+    type DeepSchema =
+      | { readonly type: 'string' }
+      | { readonly type: 'array'; readonly items: Record<string, never> }
+      | {
+          readonly type: 'object';
+          readonly properties: { readonly nested: DeepSchema };
+        };
+    let schema: DeepSchema = { type: 'array', items: {} };
+    for (let depth = 0; depth < 31; depth += 1) {
+      schema = { type: 'object', properties: { nested: schema } };
+    }
+    const { fixture, client } = await connectFixture({
+      listResponses: [
+        jsonRpcResult(1, {
+          tools: [tool('depth_boundary', { inputSchema: schema })],
+        }),
+      ],
+    });
+
+    try {
+      const result = await client.discover();
+      expect(result.refused).toEqual([]);
+      expect(result.tools).toHaveLength(1);
+      expect(result.tools[0]?.definition.remoteName).toBe('depth_boundary');
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
+  it('walks array-valued schema branches while admitting a valid tool', async () => {
+    const { fixture, client } = await connectFixture({
+      listResponses: [
+        jsonRpcResult(1, {
+          tools: [
+            tool('array_schema', {
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  values: { type: 'array', items: { type: 'string' } },
+                },
+              },
+            }),
+          ],
+        }),
+      ],
+    });
+
+    try {
+      const result = await client.discover();
+      expect(result.refused).toEqual([]);
+      expect(result.tools).toHaveLength(1);
+      expect(result.tools[0]?.definition.remoteName).toBe('array_schema');
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
+  it('classifies malformed POST-SSE payloads as a reconnecting call failure', async () => {
+    const { fixture, client } = await connectFixture({
+      listResponses: [jsonRpcResult(1, { tools: [tool('lookup')] })],
+      callResponses: [
+        {
+          kind: 'sse',
+          events: [{ data: '{malformed-json', rawData: true }],
+        },
+      ],
+    });
+
+    try {
+      const catalog = await client.discover();
+      const outcome = await byId(catalog.tools, 'mcp__web__lookup').execute(
+        {},
+        { toolCallId: 'call', messages: [], abortSignal: undefined },
+      );
+      expect(outcome).toEqual({
+        disposition: 'reconnect',
+        result: {
+          status: 'error',
+          type: 'execution_failed',
+          message: 'The remote tool failed to execute.',
+        },
+      });
     } finally {
       await cleanup({ client, fixture });
     }
@@ -2527,4 +2706,84 @@ describe('McpServerClient', () => {
       }
     },
   );
+
+  it('accepts a page holding exactly 256 tools and a catalog holding exactly 1,000', async () => {
+    const page = (start: number, count: number) =>
+      Array.from({ length: count }, (_, offset) =>
+        tool(`tool_${(start + offset).toString().padStart(4, '0')}`),
+      );
+    const { fixture, client } = await connectFixture({
+      listResponses: [
+        jsonRpcResult(1, { tools: page(0, 256), nextCursor: '2' }),
+        jsonRpcResult(2, { tools: page(256, 256), nextCursor: '3' }),
+        jsonRpcResult(3, { tools: page(512, 256), nextCursor: '4' }),
+        jsonRpcResult(4, { tools: page(768, 232) }),
+      ],
+    });
+
+    try {
+      const result = await client.discover();
+      expect(result.tools).toHaveLength(1000);
+      expect(result.refused).toEqual([]);
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  }, 60_000);
+
+  it('accepts a declaration whose serialized size lands exactly on the 256 KiB cap', async () => {
+    const encoder = new TextEncoder();
+    const declaration = (padding: number) =>
+      tool('exact_size', { description: 'x'.repeat(padding) });
+    const overhead = encoder.encode(JSON.stringify(declaration(0))).byteLength;
+    const exact = declaration(256 * 1024 - overhead);
+    expect(encoder.encode(JSON.stringify(exact)).byteLength).toBe(256 * 1024);
+
+    const { fixture, client } = await connectFixture({
+      listResponses: [jsonRpcResult(1, { tools: [exact, tool('sibling')] })],
+    });
+
+    try {
+      const result = await client.discover();
+      expect(result.refused).toEqual([]);
+      expect(result.tools.map(({ definition }) => definition.id)).toContain(
+        'mcp__web__exact_size',
+      );
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  }, 15_000);
+
+  it('returns the catalog sorted by tool id and refusals sorted by source index', async () => {
+    const { fixture, client } = await connectFixture({
+      listResponses: [
+        jsonRpcResult(1, {
+          tools: [
+            tool('////'),
+            tool('c_tool'),
+            tool('a_tool'),
+            tool('b_tool'),
+            tool('too_large', { description: 'x'.repeat(256 * 1024) }),
+          ],
+        }),
+      ],
+    });
+
+    try {
+      const result = await client.discover();
+      // Emission order was c, a, b; the catalog is published by id.
+      expect(result.tools.map(({ definition }) => definition.id)).toEqual([
+        'mcp__web__a_tool',
+        'mcp__web__b_tool',
+        'mcp__web__c_tool',
+      ]);
+      // The size refusal is produced first but belongs last by source index.
+      expect(result.refused.map(({ index }) => index)).toEqual([0, 4]);
+      expect(result.refused.map(({ reason }) => reason)).toEqual([
+        'invalid_tool_id',
+        'declaration_too_large',
+      ]);
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  }, 15_000);
 });

@@ -1,0 +1,692 @@
+import { tool, type ModelMessage } from 'ai';
+import { z } from 'zod';
+
+import { ScriptedModelsService } from './scripted-model-client';
+
+const messages = [
+  { role: 'user', content: 'Hello' },
+] satisfies Array<ModelMessage>;
+
+const sourceResult = {
+  status: 'success' as const,
+  results: [
+    {
+      kind: 'content' as const,
+      chatId: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
+      messageSeq: 2,
+      offset: 0,
+      limit: 2,
+    },
+  ],
+};
+
+function recallTools(search = vi.fn(() => sourceResult)) {
+  return {
+    search_conversations: tool({
+      inputSchema: z.object({ query: z.string(), limit: z.number() }),
+      execute: search,
+    }),
+    conversation_read: tool({
+      inputSchema: z.object({
+        chatId: z.string(),
+        messageSeq: z.number(),
+        offset: z.number().optional(),
+        limit: z.number(),
+      }),
+      execute: () => ({ status: 'success' as const, nextOffset: 2 }),
+    }),
+  };
+}
+
+describe('ScriptedModelsService', () => {
+  it('streams a complete answer, forwards deltas, and records the requested effort', async () => {
+    const service = new ScriptedModelsService();
+    service.register('complete', { kind: 'complete', text: 'hello' });
+    const client = service.createClient('complete');
+    const textDeltas: Array<string> = [];
+    const finishes: Array<unknown> = [];
+
+    await expect(
+      client.streamText({
+        messages,
+        effort: 'high',
+        onTextDelta: (text) => textDeltas.push(text),
+        onFinish: (event) => {
+          finishes.push(event);
+        },
+      }).text,
+    ).resolves.toBe('hello');
+
+    expect(textDeltas).toEqual(['hello']);
+    expect(finishes).toHaveLength(1);
+    expect(service.createClientCalls).toEqual([{ modelId: 'complete' }]);
+    expect(service.streamCalls).toEqual([
+      { modelId: 'complete', effort: 'high' },
+    ]);
+  });
+
+  it.each([
+    ['uses the default text', {}, 'ok', ['ok']],
+    ['allows an empty completion', { text: '' }, '', []],
+  ] as const)('%s', async (_name, options, expected, deltas) => {
+    const service = new ScriptedModelsService();
+    service.register('complete', { kind: 'complete', ...options });
+    const observedDeltas: Array<string> = [];
+    const finishes: Array<unknown> = [];
+
+    await expect(
+      service.createClient('complete').streamText({
+        messages,
+        onTextDelta: (text) => observedDeltas.push(text),
+        onFinish: (event) => {
+          finishes.push(event);
+        },
+      }).text,
+    ).resolves.toBe(expected);
+    expect(observedDeltas).toEqual(deltas);
+    expect(finishes).toEqual([
+      expect.objectContaining({ text: expected, finishReason: 'stop' }),
+    ]);
+  });
+
+  it('completes after a configured delay when it is not aborted', async () => {
+    vi.useFakeTimers();
+    try {
+      const service = new ScriptedModelsService();
+      service.register('delayed', {
+        kind: 'complete',
+        text: 'later',
+        delayMs: 1000,
+      });
+      const finishes: Array<unknown> = [];
+      const result = service.createClient('delayed').streamText({
+        messages,
+        onFinish: (event) => {
+          finishes.push(event);
+        },
+      });
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(finishes).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(result.text).resolves.toBe('later');
+      expect(finishes).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a stream whose signal was already aborted', async () => {
+    const service = new ScriptedModelsService();
+    service.register('hang', { kind: 'hang' });
+    const abort = new AbortController();
+    abort.abort('already cancelled');
+
+    await expect(
+      service.createClient('hang').streamText({
+        messages,
+        abortSignal: abort.signal,
+      }).text,
+    ).rejects.toThrow(/Aborted|cancelled/iu);
+  });
+
+  it.each([
+    ['missing behavior', 'missing', undefined],
+    ['infrastructure failure', 'infra', { kind: 'infra-throw' as const }],
+  ] as const)('fails closed for %s', (name, modelId, behavior) => {
+    const service = new ScriptedModelsService();
+    if (behavior !== undefined) service.register(modelId, behavior);
+
+    expect(() => service.createClient(modelId)).toThrow(
+      name === 'missing behavior'
+        ? /no behavior registered/
+        : /simulated infra failure/,
+    );
+  });
+
+  it('uses a custom infrastructure failure and records the attempted model', () => {
+    const service = new ScriptedModelsService();
+    service.register('infra', {
+      kind: 'infra-throw',
+      message: 'fixture exploded',
+    });
+
+    expect(() => service.createClient('infra')).toThrow('fixture exploded');
+    expect(service.createClientCalls).toEqual([{ modelId: 'infra' }]);
+  });
+
+  it('uses the configured provider-error message and exposes title/reasoning selections', async () => {
+    const service = new ScriptedModelsService();
+    service.register('provider-error', {
+      kind: 'provider-error',
+      message: 'provider unavailable',
+    });
+    service.registerReasoning('reasoning-model', {
+      effortLevels: [{ value: 'low' }, { value: 'high' }],
+      defaultEffort: 'low',
+      cacheInvalidatedByEffortChange: false,
+    });
+
+    const error = vi.fn();
+    await expect(
+      service.createClient('provider-error').streamText({
+        messages,
+        onError: error,
+      }).text,
+    ).rejects.toThrow('No output generated');
+    expect(error).toHaveBeenCalled();
+
+    const selection = service.validateModelSelection('reasoning-model');
+    expect(selection.reasoning).toEqual({
+      effortLevels: [{ value: 'low' }, { value: 'high' }],
+      defaultEffort: 'low',
+      cacheInvalidatedByEffortChange: false,
+    });
+    expect(service.resolveEffortSelection(selection, undefined)).toBe('low');
+    expect(service.resolveEffortSelection(selection, 'high')).toBe('high');
+    expect(service.resolveTitleModelConfig()).toMatchObject({
+      id: 'system:openai:gpt-5.4-nano',
+      providerModelId: 'gpt-5.4-nano',
+    });
+  });
+
+  it('executes a conversation-recall script through search, read, continuation, and final answer', async () => {
+    const service = new ScriptedModelsService();
+    service.register('recall', {
+      kind: 'conversation-recall',
+      query: 'needle',
+      continueRead: true,
+      finalText: 'source read',
+    });
+    const client = service.createClient('recall');
+    const search = vi.fn(() => sourceResult);
+    const tools = recallTools(search);
+    const read = vi.spyOn(tools.conversation_read, 'execute');
+
+    await expect(
+      client.streamText({
+        messages,
+        tools,
+        maxSteps: 5,
+      }).text,
+    ).resolves.toBe('source read');
+    // The scripted turns actually ran: one search, then the read and its
+    // continuation. Without this the final text alone would pass even if the
+    // client answered without calling a tool.
+    expect(search).toHaveBeenCalledOnce();
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(service.streamCalls).toEqual([
+      { modelId: 'recall', effort: undefined },
+    ]);
+  });
+
+  it('uses the default recall answer after one read', async () => {
+    const service = new ScriptedModelsService();
+    service.register('recall-default', {
+      kind: 'conversation-recall',
+      query: 'needle',
+    });
+
+    await expect(
+      service.createClient('recall-default').streamText({
+        messages,
+        tools: recallTools(),
+        maxSteps: 3,
+      }).text,
+    ).resolves.toBe('The source was read.');
+  });
+
+  it('finishes after an empty search result without requesting a read', async () => {
+    const service = new ScriptedModelsService();
+    service.register('empty-recall', {
+      kind: 'conversation-recall',
+      query: 'missing',
+      finalText: 'nothing found',
+    });
+    const tools = recallTools();
+    tools.search_conversations.execute = () => ({
+      status: 'success' as const,
+      results: [],
+    });
+    const read = vi.spyOn(tools.conversation_read, 'execute');
+
+    await expect(
+      service.createClient('empty-recall').streamText({
+        messages,
+        tools,
+      }).text,
+    ).resolves.toBe('nothing found');
+    // "without requesting a read" is the point of the case, so assert it.
+    expect(read).not.toHaveBeenCalled();
+    expect(service.streamCalls).toHaveLength(1);
+  });
+
+  it('aborts a hanging stream and cancels a delayed completion', async () => {
+    vi.useFakeTimers();
+    try {
+      const service = new ScriptedModelsService();
+      service.register('hang', { kind: 'hang' });
+      const abort = new AbortController();
+      const hanging = service.createClient('hang').streamText({
+        messages,
+        abortSignal: abort.signal,
+      }).text;
+      abort.abort('cancelled');
+      await expect(hanging).rejects.toThrow(/Aborted|cancelled/iu);
+
+      service.register('delayed', {
+        kind: 'complete',
+        text: 'later',
+        delayMs: 1000,
+      });
+      const delayedAbort = new AbortController();
+      const delayed = service.createClient('delayed').streamText({
+        messages,
+        abortSignal: delayedAbort.signal,
+      }).text;
+      delayedAbort.abort();
+      await expect(delayed).rejects.toThrow(/Aborted|cancelled/iu);
+      await vi.runAllTimersAsync();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('passes the scripted query and the searched source coordinates to each tool turn', async () => {
+    const service = new ScriptedModelsService();
+    service.register('recall-args', {
+      kind: 'conversation-recall',
+      query: 'needle',
+      continueRead: true,
+    });
+    const searchArgs: Array<unknown> = [];
+    const readArgs: Array<unknown> = [];
+    const tools = recallTools();
+    tools.search_conversations.execute = (input) => {
+      searchArgs.push(input);
+      return sourceResult;
+    };
+    tools.conversation_read.execute = (input) => {
+      readArgs.push(input);
+      return { status: 'success' as const, nextOffset: 2 };
+    };
+
+    await service.createClient('recall-args').streamText({
+      messages,
+      tools,
+      maxSteps: 5,
+    }).text;
+
+    expect(searchArgs[0]).toEqual({ query: 'needle', limit: 5 });
+    expect(readArgs).toHaveLength(2);
+    expect(readArgs[0]).toEqual({
+      chatId: sourceResult.results[0].chatId,
+      messageSeq: 2,
+      offset: 0,
+      limit: 2,
+    });
+    // The continuation reuses the searched coordinates but advances to the
+    // offset the previous read reported.
+    expect(readArgs[1]).toEqual({
+      chatId: sourceResult.results[0].chatId,
+      messageSeq: 2,
+      offset: 2,
+      limit: 2,
+    });
+  });
+
+  it('reads the source exactly once when continuation is not scripted', async () => {
+    const service = new ScriptedModelsService();
+    service.register('recall-once', {
+      kind: 'conversation-recall',
+      query: 'needle',
+    });
+    const readArgs: Array<unknown> = [];
+    const tools = recallTools();
+    tools.conversation_read.execute = (input) => {
+      readArgs.push(input);
+      return { status: 'success' as const, nextOffset: 2 };
+    };
+
+    await expect(
+      service.createClient('recall-once').streamText({
+        messages,
+        tools,
+        maxSteps: 5,
+      }).text,
+    ).resolves.toBe('The source was read.');
+    expect(readArgs).toHaveLength(1);
+    expect(readArgs[0]).toMatchObject({ offset: 0 });
+  });
+
+  it('returns final text when a recall prompt contains invalid prior tool output', async () => {
+    const service = new ScriptedModelsService();
+    service.register('invalid-recall', {
+      kind: 'conversation-recall',
+      query: 'needle',
+      finalText: 'closed',
+    });
+    const priorMessages: Array<ModelMessage> = [
+      ...messages,
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'search-call',
+            toolName: 'search_conversations',
+            input: '{}',
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'search-call',
+            toolName: 'search_conversations',
+            output: { type: 'text', value: 'not-json' },
+          },
+        ],
+      },
+    ];
+
+    const search = vi.fn(() => sourceResult);
+    await expect(
+      service.createClient('invalid-recall').streamText({
+        messages: priorMessages,
+        tools: recallTools(search),
+      }).text,
+    ).resolves.toBe('closed');
+    expect(search).toHaveBeenCalledOnce();
+  });
+});
+
+describe('ScriptedModelsService observable contract', () => {
+  const chatId = '0b6f5499-dde4-43cf-89fe-037998a0fe64';
+
+  const priorSearchMessages = (toolName: string): Array<ModelMessage> => [
+    ...messages,
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'prior-call',
+          toolName,
+          input: {},
+        },
+      ],
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'prior-call',
+          toolName,
+          output: { type: 'text', value: JSON.stringify(sourceResult) },
+        },
+      ],
+    },
+  ];
+
+  it('exposes the harness identity, selection, and title configuration verbatim', () => {
+    const service = new ScriptedModelsService();
+    service.register('gpt-fixture', { kind: 'complete' });
+    const client = service.createClient('gpt-fixture');
+
+    expect(client.provider).toBe('fake');
+    expect(client.model).toBe('gpt-fixture');
+    expect(client.contextWindowTokens).toBe(128_000);
+    expect(service.validateModelSelection('gpt-fixture')).toStrictEqual({
+      id: 'gpt-fixture',
+      source: 'system',
+      contextWindowTokens: 128_000,
+      provider: 'openai',
+      providerModelId: 'gpt-fixture',
+      systemPromptTemplate: 'Harness prompt for gpt-fixture',
+      systemPromptSource: 'project_default',
+    });
+    expect(service.resolveTitleModelConfig()).toStrictEqual({
+      id: 'system:openai:gpt-5.4-nano',
+      source: 'system',
+      provider: 'openai',
+      providerModelId: 'gpt-5.4-nano',
+    });
+  });
+
+  it('uses the packaged provider-error text when no message is configured', async () => {
+    const service = new ScriptedModelsService();
+    service.register('provider-error', { kind: 'provider-error' });
+    const errors: Array<unknown> = [];
+
+    await expect(
+      service.createClient('provider-error').streamText({
+        messages,
+        onError: ({ error }) => {
+          errors.push(error);
+        },
+      }).text,
+    ).rejects.toThrow('No output generated');
+    expect(errors).toEqual([
+      expect.objectContaining({ message: 'simulated provider failure' }),
+    ]);
+  });
+
+  it('reports one tool-calls step per scripted call and a final stop step', async () => {
+    const service = new ScriptedModelsService();
+    service.register('recall', {
+      kind: 'conversation-recall',
+      query: 'needle',
+      continueRead: true,
+      finalText: 'source read',
+    });
+
+    const searchCalls: Array<{ query: string; limit: number }> = [];
+    const readCalls: Array<{
+      chatId: string;
+      messageSeq: number;
+      offset?: number;
+      limit: number;
+    }> = [];
+    const result = service.createClient('recall').streamText({
+      messages,
+      tools: {
+        search_conversations: tool({
+          inputSchema: z.object({ query: z.string(), limit: z.number() }),
+          execute: (args) => {
+            searchCalls.push(args);
+            return sourceResult;
+          },
+        }),
+        conversation_read: tool({
+          inputSchema: z.object({
+            chatId: z.string(),
+            messageSeq: z.number(),
+            offset: z.number().optional(),
+            limit: z.number(),
+          }),
+          execute: (args) => {
+            readCalls.push(args);
+            return { status: 'success' as const, nextOffset: 2 };
+          },
+        }),
+      },
+      maxSteps: 5,
+    });
+    await expect(result.text).resolves.toBe('source read');
+
+    const steps = await result.steps;
+    expect(steps.map((step) => step.finishReason)).toEqual([
+      'tool-calls',
+      'tool-calls',
+      'tool-calls',
+      'stop',
+    ]);
+    expect(
+      steps.flatMap((step) => step.toolCalls.map((call) => call.toolCallId)),
+    ).toEqual([
+      'conversation-search',
+      'conversation-read-1',
+      'conversation-read-2',
+    ]);
+    expect(searchCalls).toEqual([{ query: 'needle', limit: 5 }]);
+    expect(readCalls).toEqual([
+      { chatId, messageSeq: 2, offset: 0, limit: 2 },
+      { chatId, messageSeq: 2, offset: 2, limit: 2 },
+    ]);
+    expect(steps.at(-1)?.content).toEqual([
+      { type: 'text', text: 'source read' },
+    ]);
+  });
+
+  it('stops requesting reads when the continuation is not scripted', async () => {
+    const service = new ScriptedModelsService();
+    service.register('single-read', {
+      kind: 'conversation-recall',
+      query: 'needle',
+      finalText: 'one read only',
+    });
+
+    const result = service.createClient('single-read').streamText({
+      messages,
+      tools: recallTools(),
+      maxSteps: 5,
+    });
+    await expect(result.text).resolves.toBe('one read only');
+
+    const steps = await result.steps;
+    expect(
+      steps.flatMap((step) => step.toolCalls.map((call) => call.toolCallId)),
+    ).toEqual(['conversation-search', 'conversation-read-1']);
+    expect(steps.map((step) => step.finishReason)).toEqual([
+      'tool-calls',
+      'tool-calls',
+      'stop',
+    ]);
+  });
+
+  it('reads a prior search result carried as JSON text instead of re-searching', async () => {
+    const service = new ScriptedModelsService();
+    service.register('text-output-recall', {
+      kind: 'conversation-recall',
+      query: 'needle',
+      finalText: 'resumed',
+    });
+    const search = vi.fn(() => sourceResult);
+
+    const result = service.createClient('text-output-recall').streamText({
+      messages: priorSearchMessages('search_conversations'),
+      tools: recallTools(search),
+      maxSteps: 5,
+    });
+    await expect(result.text).resolves.toBe('resumed');
+
+    const steps = await result.steps;
+    expect(
+      steps.flatMap((step) => step.toolCalls.map((call) => call.toolCallId)),
+    ).toEqual(['conversation-read-1']);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('ignores a search-shaped payload returned by a different tool', async () => {
+    const service = new ScriptedModelsService();
+    service.register('foreign-output-recall', {
+      kind: 'conversation-recall',
+      query: 'needle',
+      finalText: 'searched anyway',
+    });
+
+    const result = service.createClient('foreign-output-recall').streamText({
+      messages: priorSearchMessages('conversation_read'),
+      tools: recallTools(),
+      maxSteps: 5,
+    });
+    await expect(result.text).resolves.toBe('searched anyway');
+
+    const steps = await result.steps;
+    expect(
+      steps.flatMap((step) => step.toolCalls.map((call) => call.toolCallId)),
+    ).toEqual(['conversation-search']);
+  });
+
+  it('withholds a delayed completion until its delay elapses', async () => {
+    // Fake timers, not a real 1.1s sleep: the assertions are about ordering
+    // around the delay, and every mutant re-runs this file.
+    vi.useFakeTimers();
+    try {
+      const service = new ScriptedModelsService();
+      service.register('delayed', {
+        kind: 'complete',
+        text: 'later',
+        delayMs: 1000,
+      });
+      let settled = false;
+      const pending = service
+        .createClient('delayed')
+        .streamText({ messages }).text;
+      void pending.then(() => {
+        settled = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(100);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(900);
+      await expect(pending).resolves.toBe('later');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears a delayed completion timer when the stream is aborted', async () => {
+    vi.useFakeTimers();
+    try {
+      const service = new ScriptedModelsService();
+      service.register('delayed', {
+        kind: 'complete',
+        text: 'later',
+        delayMs: 1000,
+      });
+      const abort = new AbortController();
+      const pending = service.createClient('delayed').streamText({
+        messages,
+        abortSignal: abort.signal,
+      }).text;
+      abort.abort();
+
+      await expect(pending).rejects.toThrow(/abort/iu);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('offers no tool loop budget when the turn carries no tools', async () => {
+    const service = new ScriptedModelsService();
+    service.register('recall-without-tools', {
+      kind: 'conversation-recall',
+      query: 'needle',
+    });
+
+    const result = service.createClient('recall-without-tools').streamText({
+      messages,
+      maxSteps: 1,
+    });
+    await expect(result.text).resolves.toBe('');
+    expect(await result.steps).toHaveLength(1);
+  });
+
+  it('ignores a tool choice offered without a tool set', async () => {
+    const service = new ScriptedModelsService();
+    service.register('choice-without-tools', { kind: 'complete' });
+
+    await expect(
+      service.createClient('choice-without-tools').streamText({
+        messages,
+        toolChoice: 'required',
+      }).text,
+    ).resolves.toBe('ok');
+  });
+});

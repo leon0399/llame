@@ -1,6 +1,7 @@
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
 import {
   configureApp,
+  getAllowedWebOrigins,
   getTrustProxySetting,
   type AppSetupApplication,
 } from './app.setup';
@@ -132,6 +133,21 @@ describe('configureApp', () => {
         process.env.WEB_ORIGIN = originalWebOrigin;
       }
     }
+  });
+
+  it.each(['ftp://app.example.com', 'file://app.example.com'])(
+    'fails closed when a web origin uses a non-http protocol: %s',
+    (origin) => {
+      expect(() => getAllowedWebOrigins({ WEB_ORIGIN: origin })).toThrow(
+        /http\(s\)/u,
+      );
+    },
+  );
+
+  it('uses the localhost origin outside production when no origin is configured', () => {
+    expect(getAllowedWebOrigins({ NODE_ENV: 'test' })).toEqual([
+      'http://localhost:3000',
+    ]);
   });
 
   it('does not touch the Express trust-proxy setting when no trustProxy value is resolved', () => {
