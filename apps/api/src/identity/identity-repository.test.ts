@@ -1,9 +1,11 @@
+import { is, SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
 import type { ExternalIdentity, Membership, OrgUnit } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
-import { isRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '../unknown-record';
 import {
   ExternalIdentitiesRepository,
   MembershipsRepository,
@@ -368,5 +370,236 @@ describe('ExternalIdentitiesRepository', () => {
     expect(select).toHaveBeenCalledOnce();
     expect(insert).toHaveBeenCalledOnce();
     expect(remove).toHaveBeenCalledOnce();
+  });
+});
+
+/** Ids of the rows locked FOR UPDATE, in acquisition order. */
+function lockedIdsInOrder(calls: Array<QueryCall>): Array<string> {
+  const dialect = new PgDialect();
+  const ids: Array<string> = [];
+  calls.forEach((call, index) => {
+    if (call.method !== 'for') return;
+    const predicate = calls[index - 1]?.args[0];
+    if (!is(predicate, SQL)) {
+      throw new Error('expected a where predicate before the row lock');
+    }
+    ids.push(String(dialect.sqlToQuery(predicate).params[0]));
+  });
+  return ids;
+}
+
+function insertValues(calls: Array<QueryCall>): UnknownRecord {
+  const values = calls.find(({ method }) => method === 'values')?.args[0];
+  if (!isRecord(values)) {
+    throw new Error('expected insert values');
+  }
+  return values;
+}
+
+describe('OrgUnitsRepository insert shape', () => {
+  it('defaults a root to organization and nests settings under their own key', async () => {
+    const { db, calls } = makeDb({ insert: [[root]] });
+
+    await new OrgUnitsRepository(db).createRoot({
+      name: 'Root',
+      createdBy: 'owner-1',
+      settings: { region: 'eu' },
+    });
+
+    const values = insertValues(calls);
+    // A root IS an organization, not the column default 'group'.
+    expect(values['type']).toBe('organization');
+    expect(values['settings']).toStrictEqual({ region: 'eu' });
+    // `|| { settings }` would spread the raw record's own keys instead.
+    expect(values).not.toHaveProperty('region');
+  });
+
+  it('keeps an explicit root type and omits settings entirely when absent', async () => {
+    const { db, calls } = makeDb({ insert: [[root]] });
+
+    await new OrgUnitsRepository(db).createRoot({
+      name: 'Root',
+      type: 'group',
+      createdBy: 'owner-1',
+    });
+
+    const values = insertValues(calls);
+    expect(values['type']).toBe('group');
+    expect(values).not.toHaveProperty('settings');
+  });
+
+  it('carries a child type and settings through, and omits both when absent', async () => {
+    const typed = makeDb({ insert: [[child]] });
+    await new OrgUnitsRepository(typed.db).createChild({
+      parent: root,
+      name: 'Child',
+      type: 'team',
+      createdBy: 'owner-1',
+      settings: { region: 'eu' },
+    });
+    const typedValues = insertValues(typed.calls);
+    expect(typedValues['type']).toBe('team');
+    expect(typedValues['settings']).toStrictEqual({ region: 'eu' });
+    expect(typedValues).not.toHaveProperty('region');
+
+    const bare = makeDb({ insert: [[child]] });
+    await new OrgUnitsRepository(bare.db).createChild({
+      parent: root,
+      name: 'Child',
+      createdBy: 'owner-1',
+    });
+    const bareValues = insertValues(bare.calls);
+    // The column default owns the child type; no key must be written.
+    expect(bareValues).not.toHaveProperty('type');
+    expect(bareValues).not.toHaveProperty('settings');
+  });
+});
+
+describe('OrgUnitsRepository tree-root locking', () => {
+  it('locks the unit tree root FOR UPDATE before returning it', async () => {
+    const { db, calls } = makeDb({ select: [[child], [root], [child]] });
+
+    await expect(
+      new OrgUnitsRepository(db).findByIdInLockedTree(child.id),
+    ).resolves.toBe(child);
+
+    // Reading without taking the tree mutex is the race D1/F4 exists to close.
+    expect(lockedIdsInOrder(calls)).toStrictEqual([root.id]);
+  });
+
+  it('locks both implicated tree roots in sorted id order', async () => {
+    const otherRoot: OrgUnit = {
+      ...root,
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      path: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    };
+    const otherChild: OrgUnit = {
+      ...child,
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      parentId: otherRoot.id,
+      path: `${otherRoot.path}/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`,
+    };
+    const { db, calls } = makeDb({
+      select: [
+        [otherChild],
+        [child],
+        [root],
+        [otherRoot],
+        [otherChild],
+        [child],
+      ],
+      update: [[], [otherChild]],
+    });
+
+    await new OrgUnitsRepository(db).move({ id: otherChild.id }, child);
+
+    // Discovery order is [otherRoot, root]; the lock order must be sorted, or
+    // two concurrent cross-tree moves deadlock against each other.
+    expect(lockedIdsInOrder(calls)).toStrictEqual([root.id, otherRoot.id]);
+  });
+});
+
+describe('OrgUnitsRepository move guards', () => {
+  it('names the missing unit when it vanished before the lock', async () => {
+    const { db } = makeDb({ select: [[], [root], [root], [], [root]] });
+
+    await expect(
+      new OrgUnitsRepository(db).move({ id: 'missing-unit' }, root),
+    ).rejects.toThrow('Org unit missing-unit not found');
+  });
+
+  it('names the missing destination parent', async () => {
+    const { db } = makeDb({ select: [[child], [], [root], [child], []] });
+
+    await expect(
+      new OrgUnitsRepository(db).move(
+        { id: child.id },
+        { id: 'missing-parent', path: 'missing-parent' },
+      ),
+    ).rejects.toThrow('Org unit missing-parent not found');
+  });
+
+  it('rejects a destination sharing the unit path even under a different id', async () => {
+    const twin: OrgUnit = {
+      ...child,
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    };
+    const { db } = makeDb({
+      select: [[child], [twin], [root], [child], [twin]],
+      update: [[], [child]],
+    });
+
+    await expect(
+      new OrgUnitsRepository(db).move({ id: child.id }, twin),
+    ).rejects.toThrow('Cannot move an org unit into its own subtree.');
+  });
+});
+
+describe('OrgUnitsRepository subtree rebase SQL', () => {
+  it('rewrites the path prefix with substr past the old prefix, bounded to it', async () => {
+    const queries: Array<LoggedQuery> = [];
+    const db: Db = drizzle.mock({
+      schema,
+      logger: { logQuery: (sql, params) => queries.push({ sql, params }) },
+    });
+    const selectResults: Array<QueryRows> = [
+      [child],
+      [root],
+      [root],
+      [child],
+      [root],
+    ];
+    vi.spyOn(db, 'select').mockImplementation(() =>
+      asQuery(queryResult(selectResults.shift() ?? [], [])),
+    );
+
+    await new OrgUnitsRepository(db)
+      .move({ id: child.id }, root)
+      .catch(() => undefined);
+
+    const rewrite = queries.find(({ sql }) => sql.startsWith('update'));
+    // substr(text, int), NOT substring(x from y) — the POSIX-REGEX spelling
+    // silently yields NULL (#44).
+    expect(rewrite?.sql).toContain('substr(');
+    // Cut PAST the old prefix; length - 1 would keep its last character.
+    expect(rewrite?.params).toContain(child.path.length + 1);
+    // The subtree bound, not an empty pattern that would match every row.
+    expect(rewrite?.params).toContain(`${child.path}/%`);
+  });
+
+  it('returns the deleted ids so a blocked delete cannot report success', async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new OrgUnitsRepository(db).delete(child.id).catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain('returning "id"');
+  });
+});
+
+describe('MembershipsRepository write shape', () => {
+  it('sets exactly the new role', async () => {
+    const { db, calls } = makeDb({ update: [[membership]] });
+
+    await new MembershipsRepository(db).changeRole(
+      'member-1',
+      root.id,
+      'admin',
+    );
+
+    expect(calls.find(({ method }) => method === 'set')?.args[0]).toStrictEqual(
+      {
+        role: 'admin',
+      },
+    );
+  });
+
+  it('returns the revoked ids so a denied revoke cannot report success', async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new MembershipsRepository(db)
+      .revoke('member-1', root.id)
+      .catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain('returning "id"');
   });
 });

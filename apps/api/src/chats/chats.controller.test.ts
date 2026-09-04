@@ -8,6 +8,7 @@ import {
   ChatsController,
   type ChatsControllerService,
 } from './chats.controller';
+import { CHAT_MESSAGES_DEFAULT_LIMIT } from './dto/chats.dto';
 import type { ChatLoopService } from './chat-loop.service';
 import * as schema from '../db/schema';
 import type { Chat, Compaction, Message } from '../db/schema';
@@ -650,5 +651,306 @@ describe('ChatsController', () => {
     await expect(
       controller.getChatById('verified-user', chat.id),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('ChatsController response plumbing', () => {
+  function makeWritableResponse() {
+    const chunks: Array<string> = [];
+    const response = Object.assign(
+      new Writable({
+        write(chunk: Buffer | string, _encoding, callback) {
+          chunks.push(String(chunk));
+          callback();
+        },
+      }),
+      {
+        status: vi.fn(),
+        setHeader: vi.fn(),
+        headersSent: false,
+      },
+    );
+    response.status.mockReturnValue(response);
+    response.setHeader.mockReturnValue(response);
+    return Object.assign(response, { chunks });
+  }
+
+  function makeController() {
+    const chatsService = {
+      listChatsWithLastMessage: vi
+        .fn<ChatsControllerService['listChatsWithLastMessage']>()
+        .mockResolvedValue([]),
+      searchChats: vi.fn<ChatsControllerService['searchChats']>(),
+      getChatById: vi
+        .fn<ChatsControllerService['getChatById']>()
+        .mockResolvedValue(undefined),
+      getChatMessages: vi
+        .fn<ChatsControllerService['getChatMessages']>()
+        .mockResolvedValue(undefined),
+      updateChat: vi
+        .fn<ChatsControllerService['updateChat']>()
+        .mockResolvedValue(undefined),
+      deleteChat: vi
+        .fn<ChatsControllerService['deleteChat']>()
+        .mockResolvedValue(false),
+      forkChat: vi.fn<ChatsControllerService['forkChat']>(),
+    } satisfies ChatsControllerService;
+    const chatLoopService = {
+      createMessageStream: vi.fn<ChatLoopService['createMessageStream']>(),
+    } satisfies Pick<ChatLoopService, 'createMessageStream'>;
+    const tx: Db = drizzle.mock({ schema });
+    const tenantDb: TenantRunner = {
+      runAs: async <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>
+        callback(tx),
+    };
+    const runAsSpy = vi.spyOn(tenantDb, 'runAs');
+    const bridge = {
+      createUiMessageStreamResponse:
+        vi.fn<RunStreamResponder['createUiMessageStreamResponse']>(),
+    } satisfies RunStreamResponder;
+    return {
+      controller: new ChatsController(
+        chatsService,
+        chatLoopService,
+        tenantDb,
+        bridge,
+      ),
+      chatsService,
+      chatLoopService,
+      runAsSpy,
+      bridge,
+    };
+  }
+
+  const chatId = '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10';
+
+  it('names the chat in every owner-scoped 404', async () => {
+    const { controller } = makeController();
+
+    await expect(controller.getChatById('u', chatId)).rejects.toThrow(
+      `Chat ${chatId} not found`,
+    );
+    await expect(
+      controller.getChatMessages('u', chatId, {
+        limit: CHAT_MESSAGES_DEFAULT_LIMIT,
+      }),
+    ).rejects.toThrow(`Chat ${chatId} not found`);
+    await expect(
+      controller.updateChat('u', chatId, { title: 'x' }),
+    ).rejects.toThrow(`Chat ${chatId} not found`);
+    await expect(controller.deleteChat('u', chatId)).rejects.toThrow(
+      `Chat ${chatId} not found`,
+    );
+  });
+
+  it('forwards every list filter to the service verbatim', async () => {
+    const { controller, chatsService } = makeController();
+
+    await controller.getChats('u', {
+      projectId: 'p-1',
+      archived: 'only',
+      pinned: 'exclude',
+    });
+
+    expect(chatsService.listChatsWithLastMessage).toHaveBeenCalledWith('u', {
+      projectId: 'p-1',
+      archived: 'only',
+      pinned: 'exclude',
+    });
+  });
+
+  it('forwards history pagination verbatim', async () => {
+    const { controller, chatsService } = makeController();
+    chatsService.getChatMessages.mockResolvedValue({
+      messages: [],
+      compaction: undefined,
+      absorbedMessageCount: null,
+    });
+
+    await controller.getChatMessages('u', chatId, {
+      limit: 25,
+      beforeSeq: 7,
+      targetSeq: 3,
+    });
+
+    expect(chatsService.getChatMessages).toHaveBeenCalledWith(chatId, 'u', {
+      limit: 25,
+      beforeSeq: 7,
+      targetSeq: 3,
+    });
+  });
+
+  it('copies the bridged status and every header onto the Express response', async () => {
+    const { controller, runAsSpy, bridge } = makeController();
+    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    bridge.createUiMessageStreamResponse.mockReturnValue(
+      new Response('replayed', {
+        status: 201,
+        headers: {
+          'content-type': 'text/event-stream',
+          'x-vendor': 'llame',
+        },
+      }),
+    );
+    const response = makeWritableResponse();
+
+    await controller.resumeChatStream('u', chatId, response);
+
+    expect(response.status).toHaveBeenCalledWith(201);
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'content-type',
+      'text/event-stream',
+    );
+    expect(response.setHeader).toHaveBeenCalledWith('x-vendor', 'llame');
+    expect(response.chunks.join('')).toBe('replayed');
+  });
+
+  it('ends the response without piping when the bridged response has no body', async () => {
+    const { controller, runAsSpy, bridge } = makeController();
+    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    bridge.createUiMessageStreamResponse.mockReturnValue(
+      new Response(null, { status: 204 }),
+    );
+    const response = makeWritableResponse();
+    const end = vi.spyOn(response, 'end');
+
+    await controller.resumeChatStream('u', chatId, response);
+
+    expect(response.status).toHaveBeenCalledWith(204);
+    expect(end).toHaveBeenCalled();
+    expect(response.chunks).toEqual([]);
+  });
+
+  it('destroys the connection instead of rethrowing when the stream fails after headers', async () => {
+    const { controller, runAsSpy, bridge } = makeController();
+    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    bridge.createUiMessageStreamResponse.mockReturnValue(
+      new Response(
+        new ReadableStream({
+          start(stream) {
+            stream.error(new Error('upstream died'));
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const response = makeWritableResponse();
+    // A finished writable never arms the disconnect abort, so the failure is
+    // classified by headersSent alone.
+    Object.defineProperty(response, 'writableEnded', {
+      value: true,
+      configurable: true,
+    });
+    response.headersSent = true;
+
+    await expect(
+      controller.resumeChatStream('u', chatId, response),
+    ).resolves.toBeUndefined();
+    expect(response.destroyed).toBe(true);
+  });
+
+  it('rethrows a stream failure that happened before any header was flushed', async () => {
+    const { controller, runAsSpy, bridge } = makeController();
+    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    bridge.createUiMessageStreamResponse.mockReturnValue(
+      new Response(
+        new ReadableStream({
+          start(stream) {
+            stream.error(new Error('upstream died'));
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const response = makeWritableResponse();
+    Object.defineProperty(response, 'writableEnded', {
+      value: true,
+      configurable: true,
+    });
+
+    await expect(
+      controller.resumeChatStream('u', chatId, response),
+    ).rejects.toThrow('upstream died');
+  });
+
+  it('swallows a stream failure that is really the client having disconnected', async () => {
+    const { controller, runAsSpy, bridge } = makeController();
+    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    bridge.createUiMessageStreamResponse.mockReturnValue(
+      new Response(
+        new ReadableStream({
+          start(stream) {
+            stream.error(new Error('client went away'));
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    // Headers were never flushed, so only the abort tells this apart from a
+    // genuine pre-header failure — which must still reach the exception filter.
+    const response = makeWritableResponse();
+
+    await expect(
+      controller.resumeChatStream('u', chatId, response),
+    ).resolves.toBeUndefined();
+  });
+
+  it('removes its close listener once the handler returns', async () => {
+    const { controller, runAsSpy, bridge } = makeController();
+    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    bridge.createUiMessageStreamResponse.mockReturnValue(
+      new Response(null, { status: 200 }),
+    );
+    const response = makeWritableResponse();
+
+    await controller.resumeChatStream('u', chatId, response);
+
+    expect(response.listenerCount('close')).toBe(0);
+  });
+
+  it('aborts the bridged stream when the client disconnects mid-stream', async () => {
+    const { controller, runAsSpy, bridge } = makeController();
+    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    let captured: AbortSignal | undefined;
+    bridge.createUiMessageStreamResponse.mockImplementation((input) => {
+      captured = input.abortSignal;
+      return new Response(null, { status: 200 });
+    });
+    const response = makeWritableResponse();
+
+    await controller.resumeChatStream('u', chatId, response);
+    expect(captured?.aborted).toBe(false);
+
+    // The listener is detached on return, so a fresh handler proves the wiring.
+    const live = makeWritableResponse();
+    let liveSignal: AbortSignal | undefined;
+    bridge.createUiMessageStreamResponse.mockImplementation((input) => {
+      liveSignal = input.abortSignal;
+      live.emit('close');
+      return new Response(null, { status: 200 });
+    });
+    await controller.resumeChatStream('u', chatId, live);
+
+    expect(liveSignal?.aborted).toBe(true);
+  });
+
+  it('does not abort when the response closed only because it finished writing', async () => {
+    const { controller, runAsSpy, bridge } = makeController();
+    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    const response = makeWritableResponse();
+    Object.defineProperty(response, 'writableEnded', {
+      value: true,
+      configurable: true,
+    });
+    let captured: AbortSignal | undefined;
+    bridge.createUiMessageStreamResponse.mockImplementation((input) => {
+      captured = input.abortSignal;
+      response.emit('close');
+      return new Response(null, { status: 200 });
+    });
+
+    await controller.resumeChatStream('u', chatId, response);
+
+    expect(captured?.aborted).toBe(false);
   });
 });

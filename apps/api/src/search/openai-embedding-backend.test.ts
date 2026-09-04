@@ -579,3 +579,231 @@ describe('classifyEmbeddingFailure — terminal vs transient (task 5.7)', () => 
     }
   });
 });
+
+describe('classifyEmbeddingFailure — exact operator-visible wording', () => {
+  function apiCallError(statusCode: number | undefined): APICallError {
+    return new APICallError({
+      message: 'boom',
+      url: 'https://example.test/v1/embeddings',
+      requestBodyValues: { input: ['doc'] },
+      statusCode,
+    });
+  }
+
+  it('names the HTTP status when the provider supplied one', () => {
+    const classified = classifyEmbeddingFailure(apiCallError(400));
+    expect(classified.message).toBe(
+      'embedding provider request failed (HTTP 400)',
+    );
+    expect(classified.name).toBe('EmbeddingBackendError');
+  });
+
+  it('omits the status clause entirely when the provider supplied none', () => {
+    const classified = classifyEmbeddingFailure(apiCallError(undefined));
+    expect(classified.message).toBe('embedding provider request failed');
+    expect(classified.terminal).toBe(false);
+  });
+
+  it('uses the same bare wording for a non-API failure', () => {
+    expect(
+      classifyEmbeddingFailure(new TypeError('socket hang up')).message,
+    ).toBe('embedding provider request failed');
+  });
+
+  it('treats each side of the terminal 4xx window as its boundary demands', () => {
+    expect(classifyEmbeddingFailure(apiCallError(399)).terminal).toBe(false);
+    expect(classifyEmbeddingFailure(apiCallError(400)).terminal).toBe(true);
+    expect(classifyEmbeddingFailure(apiCallError(499)).terminal).toBe(true);
+    expect(classifyEmbeddingFailure(apiCallError(500)).terminal).toBe(false);
+  });
+
+  it('passes an already-classified backend error through untouched', () => {
+    const original = new EmbeddingBackendError('order not verified', false);
+    expect(classifyEmbeddingFailure(original)).toBe(original);
+  });
+});
+
+describe('createOpenAIEmbeddingBackend — batch size validation', () => {
+  it('refuses a batch size below one, naming the value it was given', () => {
+    const { dependencies } = withModel({ embeddings: [embeddingOf(1)] });
+
+    expect(() =>
+      createOpenAIEmbeddingBackend(
+        {
+          providerModelId: 'text-embedding-3-small',
+          dimensions: 3,
+          batchSize: 0,
+        },
+        dependencies,
+      ),
+    ).toThrow('createOpenAIEmbeddingBackend: batchSize must be >= 1, got 0');
+
+    expect(() =>
+      createOpenAIEmbeddingBackend(
+        {
+          providerModelId: 'text-embedding-3-small',
+          dimensions: 3,
+          batchSize: -4,
+        },
+        dependencies,
+      ),
+    ).toThrow('createOpenAIEmbeddingBackend: batchSize must be >= 1, got -4');
+  });
+
+  it('accepts a batch size of exactly one', () => {
+    const { dependencies } = withModel({ embeddings: [embeddingOf(1)] });
+
+    expect(() =>
+      createOpenAIEmbeddingBackend(
+        {
+          providerModelId: 'text-embedding-3-small',
+          dimensions: 3,
+          batchSize: 1,
+        },
+        dependencies,
+      ),
+    ).not.toThrow();
+  });
+});
+
+describe('createOpenAIEmbeddingBackend — embedQuery', () => {
+  it('returns the single vector the provider produced for the query', async () => {
+    const { dependencies } = withModel({ embeddings: [embeddingOf(9)] });
+    const backend = createOpenAIEmbeddingBackend(
+      { providerModelId: 'text-embedding-3-small', dimensions: 3 },
+      dependencies,
+    );
+
+    await expect(backend.embedQuery('needle')).resolves.toEqual(embeddingOf(9));
+  });
+
+  it('reports an empty query response with its own message, not the document one', async () => {
+    const { dependencies } = withModel({ embeddings: [] });
+    const backend = createOpenAIEmbeddingBackend(
+      { providerModelId: 'text-embedding-3-small', dimensions: 3 },
+      dependencies,
+    );
+
+    await expect(backend.embedQuery('needle')).rejects.toThrow(
+      'embedding provider returned no vector for the query',
+    );
+    await expect(backend.embedQuery('needle')).rejects.toMatchObject({
+      terminal: false,
+    });
+  });
+
+  it('sends nothing to the provider for an empty document list', async () => {
+    const calls: Array<DoEmbedOptions> = [];
+    const { dependencies } = withModel((options) => {
+      calls.push(options);
+      return { embeddings: [] };
+    });
+    const backend = createOpenAIEmbeddingBackend(
+      { providerModelId: 'text-embedding-3-small', dimensions: 3 },
+      dependencies,
+    );
+
+    await expect(backend.embedDocuments([])).resolves.toEqual([]);
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('createOpenAIEmbeddingBackend — vector rejection wording', () => {
+  it('names a missing vector distinctly from a mis-sized one', async () => {
+    const short = withModel({ embeddings: [embeddingOf(1, 2)] });
+    const shortBackend = createOpenAIEmbeddingBackend(
+      { providerModelId: 'm', dimensions: 3 },
+      short.dependencies,
+    );
+    await expect(
+      shortBackend.embedDocuments([
+        { documentId: 'd1', contentHash: 'h1', content: 'a' },
+      ]),
+    ).rejects.toThrow(
+      'embedding provider returned a vector of length 2, expected 3 — check the configured "dimensions" for this model',
+    );
+
+    const nonFinite = withModel({ embeddings: [[1, Number.NaN, 3]] });
+    const nonFiniteBackend = createOpenAIEmbeddingBackend(
+      { providerModelId: 'm', dimensions: 3 },
+      nonFinite.dependencies,
+    );
+    await expect(
+      nonFiniteBackend.embedDocuments([
+        { documentId: 'd1', contentHash: 'h1', content: 'a' },
+      ]),
+    ).rejects.toThrow(
+      'embedding provider returned a non-finite value in the vector',
+    );
+  });
+});
+
+describe('createOpenAIEmbeddingBackend — order verification is all-or-nothing', () => {
+  const documents = [
+    { documentId: 'd0', contentHash: 'h0', content: 'A' },
+    { documentId: 'd1', contentHash: 'h1', content: 'B' },
+    { documentId: 'd2', contentHash: 'h2', content: 'C' },
+  ];
+
+  function backendFor(responseBody: UnknownRecord, status = 200) {
+    return createOpenAIEmbeddingBackend(
+      { providerModelId: 'text-embedding-3-small', dimensions: 3 },
+      {
+        createOpenAI: (settings: Parameters<typeof createOpenAI>[0]) =>
+          createOpenAI(settings),
+        fetch: fakeEmbeddingHttpFetch(responseBody, status),
+      },
+    );
+  }
+
+  it('rejects a response where only some items sit at their claimed index', async () => {
+    // Item 0 is where it says it is; the last two are swapped. Trusting a
+    // partial agreement would still write d1's vector onto d2's row.
+    const backend = backendFor({
+      model: 'text-embedding-3-small',
+      data: [
+        { object: 'embedding', index: 0, embedding: embeddingOf(100) },
+        { object: 'embedding', index: 2, embedding: embeddingOf(300) },
+        { object: 'embedding', index: 1, embedding: embeddingOf(200) },
+      ],
+    });
+
+    await expect(backend.embedDocuments(documents)).rejects.toThrow(
+      'embedding provider response order could not be verified',
+    );
+  });
+
+  it('accepts a fully in-order response and pairs each vector with its document', async () => {
+    const backend = backendFor({
+      model: 'text-embedding-3-small',
+      data: [
+        { object: 'embedding', index: 0, embedding: embeddingOf(100) },
+        { object: 'embedding', index: 1, embedding: embeddingOf(200) },
+        { object: 'embedding', index: 2, embedding: embeddingOf(300) },
+      ],
+    });
+
+    await expect(backend.embedDocuments(documents)).resolves.toEqual([
+      { documentId: 'd0', contentHash: 'h0', embedding: embeddingOf(100) },
+      { documentId: 'd1', contentHash: 'h1', embedding: embeddingOf(200) },
+      { documentId: 'd2', contentHash: 'h2', embedding: embeddingOf(300) },
+    ]);
+  });
+
+  it('lets the SDK classify an error response even when its body would fail verification', async () => {
+    const backend = backendFor(
+      {
+        error: { message: 'bad request' },
+        data: [{ object: 'embedding', index: 7, embedding: embeddingOf(1) }],
+      },
+      400,
+    );
+
+    await expect(backend.embedDocuments(documents)).rejects.toThrow(
+      'embedding provider request failed (HTTP 400)',
+    );
+    await expect(backend.embedDocuments(documents)).rejects.toMatchObject({
+      terminal: true,
+    });
+  });
+});

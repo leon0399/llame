@@ -391,3 +391,283 @@ describe('ScriptedModelsService', () => {
     expect(search).toHaveBeenCalledOnce();
   });
 });
+
+describe('ScriptedModelsService observable contract', () => {
+  const chatId = '0b6f5499-dde4-43cf-89fe-037998a0fe64';
+
+  const priorSearchMessages = (toolName: string): Array<ModelMessage> => [
+    ...messages,
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'prior-call',
+          toolName,
+          input: {},
+        },
+      ],
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'prior-call',
+          toolName,
+          output: { type: 'text', value: JSON.stringify(sourceResult) },
+        },
+      ],
+    },
+  ];
+
+  it('exposes the harness identity, selection, and title configuration verbatim', () => {
+    const service = new ScriptedModelsService();
+    service.register('gpt-fixture', { kind: 'complete' });
+    const client = service.createClient('gpt-fixture');
+
+    expect(client.provider).toBe('fake');
+    expect(client.model).toBe('gpt-fixture');
+    expect(client.contextWindowTokens).toBe(128_000);
+    expect(service.validateModelSelection('gpt-fixture')).toStrictEqual({
+      id: 'gpt-fixture',
+      source: 'system',
+      contextWindowTokens: 128_000,
+      provider: 'openai',
+      providerModelId: 'gpt-fixture',
+      systemPromptTemplate: 'Harness prompt for gpt-fixture',
+      systemPromptSource: 'project_default',
+    });
+    expect(service.resolveTitleModelConfig()).toStrictEqual({
+      id: 'system:openai:gpt-5.4-nano',
+      source: 'system',
+      provider: 'openai',
+      providerModelId: 'gpt-5.4-nano',
+    });
+  });
+
+  it('uses the packaged provider-error text when no message is configured', async () => {
+    const service = new ScriptedModelsService();
+    service.register('provider-error', { kind: 'provider-error' });
+    const errors: Array<unknown> = [];
+
+    await expect(
+      service.createClient('provider-error').streamText({
+        messages,
+        onError: ({ error }) => {
+          errors.push(error);
+        },
+      }).text,
+    ).rejects.toThrow('No output generated');
+    expect(errors).toEqual([
+      expect.objectContaining({ message: 'simulated provider failure' }),
+    ]);
+  });
+
+  it('reports one tool-calls step per scripted call and a final stop step', async () => {
+    const service = new ScriptedModelsService();
+    service.register('recall', {
+      kind: 'conversation-recall',
+      query: 'needle',
+      continueRead: true,
+      finalText: 'source read',
+    });
+
+    const searchCalls: Array<{ query: string; limit: number }> = [];
+    const readCalls: Array<{
+      chatId: string;
+      messageSeq: number;
+      offset?: number;
+      limit: number;
+    }> = [];
+    const result = service.createClient('recall').streamText({
+      messages,
+      tools: {
+        search_conversations: tool({
+          inputSchema: z.object({ query: z.string(), limit: z.number() }),
+          execute: (args) => {
+            searchCalls.push(args);
+            return sourceResult;
+          },
+        }),
+        conversation_read: tool({
+          inputSchema: z.object({
+            chatId: z.string(),
+            messageSeq: z.number(),
+            offset: z.number().optional(),
+            limit: z.number(),
+          }),
+          execute: (args) => {
+            readCalls.push(args);
+            return { status: 'success' as const, nextOffset: 2 };
+          },
+        }),
+      },
+      maxSteps: 5,
+    });
+    await expect(result.text).resolves.toBe('source read');
+
+    const steps = await result.steps;
+    expect(steps.map((step) => step.finishReason)).toEqual([
+      'tool-calls',
+      'tool-calls',
+      'tool-calls',
+      'stop',
+    ]);
+    expect(
+      steps.flatMap((step) => step.toolCalls.map((call) => call.toolCallId)),
+    ).toEqual([
+      'conversation-search',
+      'conversation-read-1',
+      'conversation-read-2',
+    ]);
+    expect(searchCalls).toEqual([{ query: 'needle', limit: 5 }]);
+    expect(readCalls).toEqual([
+      { chatId, messageSeq: 2, offset: 0, limit: 2 },
+      { chatId, messageSeq: 2, offset: 2, limit: 2 },
+    ]);
+    expect(steps.at(-1)?.content).toEqual([
+      { type: 'text', text: 'source read' },
+    ]);
+  });
+
+  it('stops requesting reads when the continuation is not scripted', async () => {
+    const service = new ScriptedModelsService();
+    service.register('single-read', {
+      kind: 'conversation-recall',
+      query: 'needle',
+      finalText: 'one read only',
+    });
+
+    const result = service.createClient('single-read').streamText({
+      messages,
+      tools: recallTools(),
+      maxSteps: 5,
+    });
+    await expect(result.text).resolves.toBe('one read only');
+
+    const steps = await result.steps;
+    expect(
+      steps.flatMap((step) => step.toolCalls.map((call) => call.toolCallId)),
+    ).toEqual(['conversation-search', 'conversation-read-1']);
+    expect(steps.map((step) => step.finishReason)).toEqual([
+      'tool-calls',
+      'tool-calls',
+      'stop',
+    ]);
+  });
+
+  it('reads a prior search result carried as JSON text instead of re-searching', async () => {
+    const service = new ScriptedModelsService();
+    service.register('text-output-recall', {
+      kind: 'conversation-recall',
+      query: 'needle',
+      finalText: 'resumed',
+    });
+    const search = vi.fn(() => sourceResult);
+
+    const result = service.createClient('text-output-recall').streamText({
+      messages: priorSearchMessages('search_conversations'),
+      tools: recallTools(search),
+      maxSteps: 5,
+    });
+    await expect(result.text).resolves.toBe('resumed');
+
+    const steps = await result.steps;
+    expect(
+      steps.flatMap((step) => step.toolCalls.map((call) => call.toolCallId)),
+    ).toEqual(['conversation-read-1']);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('ignores a search-shaped payload returned by a different tool', async () => {
+    const service = new ScriptedModelsService();
+    service.register('foreign-output-recall', {
+      kind: 'conversation-recall',
+      query: 'needle',
+      finalText: 'searched anyway',
+    });
+
+    const result = service.createClient('foreign-output-recall').streamText({
+      messages: priorSearchMessages('conversation_read'),
+      tools: recallTools(),
+      maxSteps: 5,
+    });
+    await expect(result.text).resolves.toBe('searched anyway');
+
+    const steps = await result.steps;
+    expect(
+      steps.flatMap((step) => step.toolCalls.map((call) => call.toolCallId)),
+    ).toEqual(['conversation-search']);
+  });
+
+  it('withholds a delayed completion until its delay elapses', async () => {
+    const service = new ScriptedModelsService();
+    service.register('delayed', {
+      kind: 'complete',
+      text: 'later',
+      delayMs: 1000,
+    });
+    let settled = false;
+    const pending = service
+      .createClient('delayed')
+      .streamText({ messages }).text;
+    void pending.then(() => {
+      settled = true;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(settled).toBe(false);
+    await expect(pending).resolves.toBe('later');
+  });
+
+  it('clears a delayed completion timer when the stream is aborted', async () => {
+    vi.useFakeTimers();
+    try {
+      const service = new ScriptedModelsService();
+      service.register('delayed', {
+        kind: 'complete',
+        text: 'later',
+        delayMs: 1000,
+      });
+      const abort = new AbortController();
+      const pending = service.createClient('delayed').streamText({
+        messages,
+        abortSignal: abort.signal,
+      }).text;
+      abort.abort();
+
+      await expect(pending).rejects.toThrow(/abort/iu);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('offers no tool loop budget when the turn carries no tools', async () => {
+    const service = new ScriptedModelsService();
+    service.register('recall-without-tools', {
+      kind: 'conversation-recall',
+      query: 'needle',
+    });
+
+    const result = service.createClient('recall-without-tools').streamText({
+      messages,
+      maxSteps: 1,
+    });
+    await expect(result.text).resolves.toBe('');
+    expect(await result.steps).toHaveLength(1);
+  });
+
+  it('ignores a tool choice offered without a tool set', async () => {
+    const service = new ScriptedModelsService();
+    service.register('choice-without-tools', { kind: 'complete' });
+
+    await expect(
+      service.createClient('choice-without-tools').streamText({
+        messages,
+        toolChoice: 'required',
+      }).text,
+    ).resolves.toBe('ok');
+  });
+});

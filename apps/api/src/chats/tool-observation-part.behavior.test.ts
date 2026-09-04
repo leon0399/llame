@@ -7,6 +7,7 @@ import {
   projectToolObservations,
   TOOL_OUTCOME_MAX_LENGTH,
   TOOL_REPLAY_CALL_LIMIT,
+  TOOL_REPLAY_TURN_LIMIT,
 } from './tool-observation-part';
 import type { MessagePart, StoredMessage } from './context-builder';
 import { isRecord, isString, type UnknownRecord } from '../unknown-record';
@@ -397,5 +398,173 @@ describe('buildCompactionToolReplacementRecords edge paths', () => {
       'earlier tool observations omitted',
     );
     expect(JSON.stringify(records)).toContain('[3 earlier tool observations');
+  });
+});
+
+describe('projectToolObservations replay contract', () => {
+  const outcomeLine = (parts: Array<MessagePart>): string => {
+    const projection = projectToolObservations(parts);
+    const pair = projection?.pairs[0];
+    if (pair === undefined) throw new Error('Expected one projected pair');
+    return toolOutputText(pair.toolResultPart.output);
+  };
+
+  const knowledgePart = (overrides: UnknownRecord = {}): MessagePart => ({
+    type: 'tool-knowledge_search',
+    toolCallId: 'call-k',
+    state: 'output-available',
+    input: { query: 'needle' },
+    output: { status: 'success', complete: false, body: 'k'.repeat(9000) },
+    outcome: 'success',
+    ...overrides,
+  });
+
+  it('ignores a tool-shaped part that carries no type discriminator', () => {
+    expect(
+      projectToolObservations([
+        { toolCallId: 'call-1', state: 'output-available', input: {} },
+      ]),
+    ).toBeNull();
+  });
+
+  it('defaults an available observation with no stored outcome to success', () => {
+    expect(
+      outcomeLine([
+        {
+          type: 'tool-search_conversations',
+          toolCallId: 'call-1',
+          state: 'output-available',
+          input: {},
+          output: { hits: 1 },
+        },
+      ]),
+    ).toContain('Outcome: success');
+  });
+
+  it('replays an unserializable payload as the null literal', () => {
+    expect(
+      outcomeLine([
+        {
+          type: 'tool-search_conversations',
+          toolCallId: 'call-1',
+          state: 'output-available',
+          input: {},
+          output: () => undefined,
+          outcome: 'success',
+        },
+      ]),
+    ).toBe(`${untrustedLabel}\nOutcome: success\nPayload:\nnull`);
+  });
+
+  it('clears an oversized payload without omitting the pair', () => {
+    const projection = projectToolObservations([
+      toolPart({ output: { status: 'success', body: 'z'.repeat(9000) } }),
+    ]);
+
+    expect(projection?.omittedCount).toBe(0);
+    expect(projection?.omissionPartIndex).toBeNull();
+    expect(projection?.pairs).toHaveLength(1);
+    expect(toolOutputText(projection?.pairs[0]?.toolResultPart.output)).toBe(
+      `${untrustedLabel}\nOutcome: success`,
+    );
+  });
+
+  it.each([
+    ['every condition holds', {}, 'incomplete'],
+    ['a different Knowledge tool', { type: 'tool-knowledge_read' }, 'success'],
+    [
+      'an errored observation',
+      { state: 'output-error', errorText: 'e'.repeat(9000) },
+      'success',
+    ],
+    ['a non-success outcome', { outcome: 'partial' }, 'partial'],
+    ['a non-record payload', { output: 'p'.repeat(9000) }, 'success'],
+    [
+      'a failed payload status',
+      { output: { status: 'error', complete: false, body: 'k'.repeat(9000) } },
+      'success',
+    ],
+    [
+      'a complete payload',
+      { output: { status: 'success', complete: true, body: 'k'.repeat(9000) } },
+      'success',
+    ],
+  ] satisfies ReadonlyArray<[string, UnknownRecord, string]>)(
+    'marks a cleared Knowledge payload incomplete only when %s',
+    (_name, overrides, expected) => {
+      expect(outcomeLine([knowledgePart(overrides)])).toBe(
+        `${untrustedLabel}\nOutcome: ${expected}`,
+      );
+    },
+  );
+});
+
+describe('tool observation replay budgets', () => {
+  const sizedPart = (
+    payloadLength: number,
+    outcome = 'success',
+  ): MessagePart => ({
+    type: 'tool-search_conversations',
+    toolCallId: 'call-1',
+    state: 'output-available',
+    input: {},
+    output: 'p'.repeat(payloadLength),
+    outcome,
+  });
+
+  /** The exact envelope one projected pair contributes, read back from the
+   *  projection itself so a budget case can be sized onto a limit boundary. */
+  const envelopeSize = (part: MessagePart): number => {
+    const pair = projectToolObservations([part])?.pairs[0];
+    if (pair === undefined) throw new Error('Expected one projected pair');
+    return JSON.stringify([
+      { role: 'assistant', content: [pair.toolCallPart] },
+      { role: 'tool', content: [pair.toolResultPart] },
+    ]).length;
+  };
+
+  const emptyPayloadSize = envelopeSize(sizedPart(0));
+
+  it('retains a payload whose call envelope lands exactly on the call limit', () => {
+    const part = sizedPart(TOOL_REPLAY_CALL_LIMIT - emptyPayloadSize);
+    expect(envelopeSize(part)).toBe(TOOL_REPLAY_CALL_LIMIT);
+
+    const projection = projectToolObservations([part]);
+    expect(projection?.pairs).toHaveLength(1);
+    expect(
+      toolOutputText(projection?.pairs[0]?.toolResultPart.output),
+    ).toContain('\nPayload:\np');
+  });
+
+  it('retains every payload when the turn envelope lands exactly on the turn limit', () => {
+    const pairCount = 11;
+    const perPair = (TOOL_REPLAY_TURN_LIMIT - 1) / pairCount + 1;
+    const parts = Array.from({ length: pairCount }, () =>
+      sizedPart(perPair - emptyPayloadSize),
+    );
+
+    const projection = projectToolObservations(parts);
+    expect(projection?.omittedCount).toBe(0);
+    expect(projection?.omissionPartIndex).toBeNull();
+    expect(projection?.pairs).toHaveLength(pairCount);
+    expect(
+      projection?.pairs.every((pair) =>
+        toolOutputText(pair.toolResultPart.output).includes('\nPayload:\np'),
+      ),
+    ).toBe(true);
+  });
+
+  it('drops the oldest cleared pairs until the turn envelope fits', () => {
+    // The outcome length sets each cleared pair's width so that the omission
+    // marker's own size decides the final drop: a projection that leaves the
+    // marker out of its measurement keeps one pair more than fits.
+    const parts = Array.from({ length: 150 }, () =>
+      sizedPart(9000, 'retried_v2'),
+    );
+
+    const projection = projectToolObservations(parts);
+    expect(projection?.omittedCount).toBe(69);
+    expect(projection?.pairs).toHaveLength(150 - 69);
+    expect(projection?.omissionPartIndex).toBe(0);
   });
 });

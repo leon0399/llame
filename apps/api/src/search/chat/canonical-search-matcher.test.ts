@@ -3,6 +3,7 @@ import type {
   CanonicalSearchMessage,
 } from './canonical-search-matcher';
 import {
+  CANONICAL_SEARCH_MAX_PASSAGE_LINES,
   evaluateCanonicalLinePredicates,
   matchCanonicalSearchPreview,
   scanCanonicalLogicalLines,
@@ -658,6 +659,213 @@ describe('matchCanonicalSearchPreview', () => {
     ).resolves.toMatchObject({
       message: { messageSeq: 10 },
       lines: [{ text: 'first term' }],
+    });
+  });
+});
+
+describe('matchCanonicalSearchPreview — candidate construction', () => {
+  it('numbers candidates contiguously from zero in canonical message order', async () => {
+    const seen: Array<{
+      normalizedQuery: string;
+      normalizedLines: ReadonlyArray<string>;
+    }> = [];
+    const ids: Array<number> = [];
+    await matchCanonicalSearchPreview(
+      {
+        chatId: 'chat-1',
+        messages: [
+          message(30, 'gamma one\ngamma two'),
+          message(10, 'alpha one'),
+          message(20, 'beta one\nbeta two'),
+        ],
+      },
+      'needle',
+      (normalizedQuery, lines) => {
+        seen.push({
+          normalizedQuery,
+          normalizedLines: lines.map((line) => line.normalizedText),
+        });
+        ids.push(...lines.map((line) => line.id));
+        return Promise.resolve(new Set<number>());
+      },
+    );
+
+    expect(seen).toEqual([
+      {
+        normalizedQuery: 'needle',
+        normalizedLines: [
+          'alpha one',
+          'beta one',
+          'beta two',
+          'gamma one',
+          'gamma two',
+        ],
+      },
+    ]);
+    expect(ids).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('breaks a canonical-sequence tie by document order, not by index arithmetic', async () => {
+    const normalizedLines: Array<string> = [];
+    await matchCanonicalSearchPreview(
+      {
+        chatId: 'chat-1',
+        messages: [
+          message(10, 'zulu'),
+          message(10, 'alpha'),
+          message(10, 'mike'),
+          message(10, 'bravo'),
+          message(5, 'mid'),
+        ],
+      },
+      'needle',
+      (_query, lines) => {
+        normalizedLines.push(...lines.map((line) => line.normalizedText));
+        return Promise.resolve(new Set<number>());
+      },
+    );
+
+    expect(normalizedLines).toEqual(['mid', 'zulu', 'alpha', 'mike', 'bravo']);
+  });
+
+  it('rejects a source range that runs past the visible text before evaluating', async () => {
+    const evaluate = vi.fn<CanonicalLinePredicateEvaluator>();
+
+    await expect(
+      matchCanonicalSearchPreview(
+        {
+          chatId: 'chat-1',
+          messages: [message(10, 'needle', 0, 'needle'.length + 1)],
+        },
+        'needle',
+        evaluate,
+      ),
+    ).resolves.toBeNull();
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it('accepts a source range that ends exactly at the visible text length', async () => {
+    const normalizedLines: Array<string> = [];
+    await matchCanonicalSearchPreview(
+      {
+        chatId: 'chat-1',
+        messages: [message(10, 'needle', 0, 'needle'.length)],
+      },
+      'needle',
+      (_query, lines) => {
+        normalizedLines.push(...lines.map((line) => line.normalizedText));
+        return Promise.resolve(new Set<number>());
+      },
+    );
+
+    expect(normalizedLines).toEqual(['needle']);
+  });
+
+  it('offers no candidate for a line that normalizes to nothing', async () => {
+    const normalizedLines: Array<string> = [];
+    const ids: Array<number> = [];
+    await matchCanonicalSearchPreview(
+      { chatId: 'chat-1', messages: [message(10, 'alpha\n   \n\nomega')] },
+      'needle',
+      (_query, lines) => {
+        normalizedLines.push(...lines.map((line) => line.normalizedText));
+        ids.push(...lines.map((line) => line.id));
+        return Promise.resolve(new Set<number>());
+      },
+    );
+
+    expect(normalizedLines).toEqual(['alpha', 'omega']);
+    expect(ids).toEqual([0, 1]);
+  });
+});
+
+describe('matchCanonicalSearchPreview — passage bounds', () => {
+  it('keeps a maximum-length window whole rather than partitioning it', async () => {
+    const lines = Array.from(
+      { length: CANONICAL_SEARCH_MAX_PASSAGE_LINES },
+      (_value, index) => `needle ${index}`,
+    );
+    const result = await matchCanonicalSearchPreview(
+      { chatId: 'chat-1', messages: [message(10, lines.join('\n'))] },
+      'needle',
+      matchingLines((line, normalizedQuery) => line.includes(normalizedQuery)),
+    );
+
+    expect(result?.offset).toBe(0);
+    expect(result?.limit).toBe(CANONICAL_SEARCH_MAX_PASSAGE_LINES);
+    expect(result?.lines).toHaveLength(CANONICAL_SEARCH_MAX_PASSAGE_LINES);
+    expect(result?.lines.at(-1)?.text).toBe(
+      `needle ${CANONICAL_SEARCH_MAX_PASSAGE_LINES - 1}`,
+    );
+  });
+
+  it('measures a partitioned window from its own start, not from line zero', async () => {
+    // The first match sits at line 5, so the merged interval starts at 4 and
+    // the cap must be counted from there.
+    const lines = Array.from(
+      { length: CANONICAL_SEARCH_MAX_PASSAGE_LINES + 20 },
+      (_value, index) => (index < 5 ? `quiet ${index}` : `needle ${index}`),
+    );
+    const result = await matchCanonicalSearchPreview(
+      { chatId: 'chat-1', messages: [message(10, lines.join('\n'))] },
+      'needle',
+      matchingLines((line, normalizedQuery) => line.includes(normalizedQuery)),
+    );
+
+    expect(result?.offset).toBe(4);
+    expect(result?.limit).toBe(CANONICAL_SEARCH_MAX_PASSAGE_LINES);
+    expect(result?.lines[0]).toMatchObject({ line: 4, text: 'quiet 4' });
+    expect(result?.anchor).toEqual({
+      line: 5,
+      startOffset: lines.slice(0, 5).join('\n').length + 1,
+      endOffsetExclusive: lines.slice(0, 5).join('\n').length + 1 + 6,
+      kind: 'exact',
+    });
+  });
+
+  it('returns the whole passage, message identity and anchor for a single hit', async () => {
+    const result = await matchCanonicalSearchPreview(
+      {
+        chatId: 'chat-1',
+        messages: [message(20, 'later'), message(7, 'one\ntwo needle\nthree')],
+      },
+      'needle',
+      matchingLines((line, normalizedQuery) => line.includes(normalizedQuery)),
+    );
+
+    expect(result).toEqual({
+      message: { messageSeq: 7, role: 'assistant', timestamp },
+      offset: 0,
+      limit: 3,
+      lines: [
+        {
+          line: 0,
+          text: 'one',
+          delimiter: '\n',
+          startOffset: 0,
+          endOffsetExclusive: 3,
+        },
+        {
+          line: 1,
+          text: 'two needle',
+          delimiter: '\n',
+          startOffset: 4,
+          endOffsetExclusive: 14,
+        },
+        {
+          line: 2,
+          text: 'three',
+          delimiter: '',
+          startOffset: 15,
+          endOffsetExclusive: 20,
+        },
+      ],
+      anchor: {
+        line: 1,
+        startOffset: 8,
+        endOffsetExclusive: 14,
+        kind: 'exact',
+      },
     });
   });
 });

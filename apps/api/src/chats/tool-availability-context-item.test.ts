@@ -262,3 +262,170 @@ describe('createToolAvailabilityItem', () => {
     ).toThrow(TypeError);
   });
 });
+
+describe('isToolAvailabilityPayload ordering and shape', () => {
+  it('accepts several code-point-ordered identifiers in one bucket', () => {
+    expect(
+      isToolAvailabilityPayload(
+        payload({ added: ['a_tool', 'b_tool', 'c_tool'] }),
+      ),
+    ).toBe(true);
+  });
+
+  it('accepts several code-point-ordered reason entries in one bucket', () => {
+    expect(
+      isToolAvailabilityPayload(
+        payload({
+          unavailable: [
+            { id: 'a_tool', reason: 'tool_missing' },
+            { id: 'b_tool', reason: 'tool_missing' },
+          ],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it('keeps each reason bucket distinct when checking for duplicate ids', () => {
+    expect(
+      isToolAvailabilityPayload(
+        payload({
+          unavailable: [
+            { id: 'down_one', reason: 'tool_missing' },
+            { id: 'down_two', reason: 'tool_missing' },
+          ],
+          becameUnavailable: [
+            { id: 'gone_one', reason: 'declaration_refused' },
+            { id: 'gone_two', reason: 'declaration_refused' },
+          ],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    ['a non-array reason field', { ...payload(), unavailable: 'nope' }],
+    [
+      'an initial payload naming a became-unavailable transition',
+      {
+        ...payload({ kind: 'initial' }),
+        becameUnavailable: [{ id: 'gone_tool', reason: 'tool_missing' }],
+      },
+    ],
+    [
+      'an initial payload naming a recovery',
+      {
+        ...payload({ kind: 'initial' }),
+        nowAvailable: [{ id: 'back_tool', reason: 'tool_restored' }],
+      },
+    ],
+  ] as const)('rejects %s', (_description, value) => {
+    expect(isToolAvailabilityPayload(value)).toBe(false);
+  });
+});
+
+describe('deriveToolAvailabilityPayload single-transition deltas', () => {
+  it.each([
+    [
+      'an addition alone',
+      manifest([available('kept_tool')]),
+      manifest([available('kept_tool'), available('new_tool')]),
+      { added: ['new_tool'] },
+    ],
+    [
+      'a removal alone',
+      manifest([available('kept_tool'), available('old_tool')]),
+      manifest([available('kept_tool')]),
+      { removed: ['old_tool'] },
+    ],
+    [
+      'a newly-appearing unavailable tool alone',
+      manifest([available('kept_tool')]),
+      manifest([
+        available('kept_tool'),
+        unavailable('down_tool', 'tool_missing'),
+      ]),
+      { unavailable: [{ id: 'down_tool', reason: 'tool_missing' }] },
+    ],
+    [
+      'a newly-unavailable tool alone',
+      manifest([available('kept_tool'), available('down_tool')]),
+      manifest([
+        available('kept_tool'),
+        unavailable('down_tool', 'source_disconnected'),
+      ]),
+      {
+        becameUnavailable: [{ id: 'down_tool', reason: 'source_disconnected' }],
+      },
+    ],
+    [
+      'a recovery alone',
+      manifest([
+        available('kept_tool'),
+        unavailable('back_tool', 'tool_missing'),
+      ]),
+      manifest([available('kept_tool'), available('back_tool')]),
+      { nowAvailable: [{ id: 'back_tool', reason: 'tool_restored' }] },
+    ],
+  ] as const)(
+    'still reports %s when every other bucket is empty',
+    (_description, previous, current, expected) => {
+      expect(
+        deriveToolAvailabilityPayload({ current, previous }),
+      ).toStrictEqual(payload(expected));
+    },
+  );
+
+  it('reports every addition against a manifest that kept one tool', () => {
+    const derived = deriveToolAvailabilityPayload({
+      previous: manifest([available('c_tool')]),
+      current: manifest([
+        available('a_tool'),
+        available('b_tool'),
+        available('c_tool'),
+      ]),
+    });
+
+    expect(derived).toStrictEqual(payload({ added: ['a_tool', 'b_tool'] }));
+  });
+
+  it('names the manifest that must be observed', () => {
+    expect(() =>
+      deriveToolAvailabilityPayload({
+        // @ts-expect-error Exercise the runtime guard for a persisted v0 value.
+        current: TOOL_AVAILABILITY_UNOBSERVED,
+      }),
+    ).toThrow('Current tool availability must be observed');
+  });
+});
+
+describe('createToolAvailabilityItem rendering', () => {
+  it('separates each group with a blank line and closes with the standing instruction', () => {
+    const item = createToolAvailabilityItem({
+      runId: RUN_ID,
+      payload: payload({
+        added: ['added_tool'],
+        unavailable: [{ id: 'down_tool', reason: 'source_disconnected' }],
+      }),
+    });
+
+    expect(item.data.text).toContain(
+      [
+        'The available tools were changed since the last turn:',
+        '',
+        'Added tools:',
+        '- `added_tool`',
+        '',
+        'Unavailable tools:',
+        '- `down_tool`: "server disconnected"',
+        '',
+        'Do not simulate removed or unavailable tools or invent their results.',
+      ].join('\n'),
+    );
+  });
+
+  it('names the rejected server-authored payload', () => {
+    expect(() =>
+      createToolAvailabilityItem({ runId: RUN_ID, payload: payload() }),
+    ).toThrow('Invalid server-authored tool availability metadata');
+  });
+});

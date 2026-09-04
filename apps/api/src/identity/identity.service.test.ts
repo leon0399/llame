@@ -512,3 +512,478 @@ describe('IdentityService organization operations', () => {
     });
   });
 });
+
+/**
+ * Every failure this service maps is an operator- and API-facing contract:
+ * the status, the `code` on a conflict, AND the message a caller reads. The
+ * suite above pins the first two; these pin the exact wording and the
+ * existence-vs-permission split that decides which one is produced.
+ */
+describe('IdentityService failure messages', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('names the missing parent when creating a child under an invisible unit', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      OrgUnitsRepository.prototype,
+      'findByIdInLockedTree',
+    ).mockResolvedValue(undefined);
+    const createChild = vi.spyOn(OrgUnitsRepository.prototype, 'createChild');
+
+    await expect(
+      service.createChildOrg({
+        userId: ownerId,
+        parentId: root.id,
+        name: 'Child',
+      }),
+    ).rejects.toThrow(`Org unit ${root.id} not found`);
+    expect(createChild).not.toHaveBeenCalled();
+  });
+
+  it('maps a deferred path-integrity violation on child creation to a retryable conflict', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      OrgUnitsRepository.prototype,
+      'findByIdInLockedTree',
+    ).mockResolvedValue(root);
+    vi.spyOn(OrgUnitsRepository.prototype, 'createChild').mockRejectedValue(
+      Object.assign(new Error('deferred check'), { code: '23514' }),
+    );
+
+    await expect(
+      service.createChildOrg({
+        userId: ownerId,
+        parentId: root.id,
+        name: 'Child',
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        statusCode: 409,
+        error: 'Conflict',
+        code: ORG_UNITS_ERROR_CODES.concurrentTreeChange,
+        message: 'Org tree changed concurrently — retry the request',
+      },
+    });
+  });
+
+  it('rethrows an unmapped child-creation failure unchanged', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      OrgUnitsRepository.prototype,
+      'findByIdInLockedTree',
+    ).mockResolvedValue(root);
+    const unmapped = Object.assign(new Error('disk on fire'), {
+      code: '58030',
+    });
+    vi.spyOn(OrgUnitsRepository.prototype, 'createChild').mockRejectedValue(
+      unmapped,
+    );
+
+    await expect(
+      service.createChildOrg({
+        userId: ownerId,
+        parentId: root.id,
+        name: 'Child',
+      }),
+    ).rejects.toBe(unmapped);
+  });
+
+  it('names the missing unit when the update target is invisible', async () => {
+    const { service } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(
+      undefined,
+    );
+
+    await expect(
+      service.updateOrgUnit({
+        userId: ownerId,
+        orgUnitId: child.id,
+        name: 'x',
+      }),
+    ).rejects.toThrow(`Org unit ${child.id} not found`);
+  });
+
+  it('names the missing unit when it vanishes between the write and the reread', async () => {
+    const { service } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById')
+      .mockResolvedValueOnce(child)
+      .mockResolvedValueOnce(undefined);
+    vi.spyOn(OrgUnitsRepository.prototype, 'rename').mockResolvedValue(child);
+
+    await expect(
+      service.updateOrgUnit({
+        userId: ownerId,
+        orgUnitId: child.id,
+        name: 'x',
+      }),
+    ).rejects.toThrow(`Org unit ${child.id} not found`);
+  });
+
+  it('distinguishes a denied rename from a denied settings write', async () => {
+    const { service } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(child);
+    vi.spyOn(OrgUnitsRepository.prototype, 'rename').mockResolvedValue(
+      undefined,
+    );
+    await expect(
+      service.updateOrgUnit({
+        userId: ownerId,
+        orgUnitId: child.id,
+        name: 'x',
+      }),
+    ).rejects.toThrow('Not permitted to rename this org unit');
+
+    const { service: settings } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(child);
+    vi.spyOn(OrgUnitsRepository.prototype, 'updateSettings').mockResolvedValue(
+      undefined,
+    );
+    await expect(
+      settings.updateOrgUnit({
+        userId: ownerId,
+        orgUnitId: child.id,
+        settings: { theme: 'dark' },
+      }),
+    ).rejects.toThrow('Not permitted to update settings on this org unit');
+  });
+
+  it('reports a denied move to root and a denied move under a parent identically', async () => {
+    const { service } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(child);
+    vi.spyOn(OrgUnitsRepository.prototype, 'moveToRoot').mockResolvedValue(
+      undefined,
+    );
+    await expect(
+      service.updateOrgUnit({
+        userId: ownerId,
+        orgUnitId: child.id,
+        parentId: null,
+      }),
+    ).rejects.toThrow('Not permitted to move this org unit');
+
+    const { service: underParent } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById')
+      .mockResolvedValueOnce(child)
+      .mockResolvedValueOnce(root);
+    vi.spyOn(OrgUnitsRepository.prototype, 'move').mockResolvedValue(undefined);
+    await expect(
+      underParent.updateOrgUnit({
+        userId: ownerId,
+        orgUnitId: child.id,
+        parentId: root.id,
+      }),
+    ).rejects.toThrow('Not permitted to move this org unit');
+  });
+
+  it('names the missing new parent when moving under an invisible unit', async () => {
+    const { service } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById')
+      .mockResolvedValueOnce(child)
+      .mockResolvedValueOnce(undefined);
+    const move = vi.spyOn(OrgUnitsRepository.prototype, 'move');
+
+    await expect(
+      service.updateOrgUnit({
+        userId: ownerId,
+        orgUnitId: child.id,
+        parentId: root.id,
+      }),
+    ).rejects.toThrow(`Org unit ${root.id} not found`);
+    expect(move).not.toHaveBeenCalled();
+  });
+
+  it('leaves the tree untouched when the update names no field to change', async () => {
+    const { service } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(child);
+    const rename = vi.spyOn(OrgUnitsRepository.prototype, 'rename');
+    const updateSettings = vi.spyOn(
+      OrgUnitsRepository.prototype,
+      'updateSettings',
+    );
+    const moveToRoot = vi.spyOn(OrgUnitsRepository.prototype, 'moveToRoot');
+    vi.spyOn(MembershipsRepository.prototype, 'summarize').mockResolvedValue(
+      summaryFor(child, 'admin'),
+    );
+
+    await expect(
+      service.updateOrgUnit({ userId: ownerId, orgUnitId: child.id }),
+    ).resolves.toMatchObject({ id: child.id, directRole: 'admin' });
+    expect(rename).not.toHaveBeenCalled();
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(moveToRoot).not.toHaveBeenCalled();
+  });
+
+  it('maps an RLS refusal on update to a permission message, not the write-level one', async () => {
+    const { service } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(child);
+    vi.spyOn(OrgUnitsRepository.prototype, 'rename').mockRejectedValue(
+      Object.assign(new Error('rls'), { code: '42501' }),
+    );
+
+    await expect(
+      service.updateOrgUnit({
+        userId: ownerId,
+        orgUnitId: child.id,
+        name: 'x',
+      }),
+    ).rejects.toThrow('Not permitted to update this org unit');
+  });
+
+  it('separates an absent delete target from an unauthorized delete', async () => {
+    const { service } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(
+      undefined,
+    );
+    const remove = vi.spyOn(OrgUnitsRepository.prototype, 'delete');
+    await expect(
+      service.deleteOrgUnit({ userId: ownerId, orgUnitId: child.id }),
+    ).rejects.toThrow(`Org unit ${child.id} not found`);
+    expect(remove).not.toHaveBeenCalled();
+
+    const { service: denied } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(child);
+    vi.spyOn(OrgUnitsRepository.prototype, 'delete').mockResolvedValue(false);
+    await expect(
+      denied.deleteOrgUnit({ userId: ownerId, orgUnitId: child.id }),
+    ).rejects.toThrow('Owner-tier required to delete this org unit');
+  });
+
+  it('maps an FK restrict on delete to a has-children conflict', async () => {
+    const { service } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(root);
+    vi.spyOn(OrgUnitsRepository.prototype, 'delete').mockRejectedValue(
+      Object.assign(new Error('fk'), { code: '23503' }),
+    );
+
+    await expect(
+      service.deleteOrgUnit({ userId: ownerId, orgUnitId: root.id }),
+    ).rejects.toMatchObject({
+      response: {
+        statusCode: 409,
+        error: 'Conflict',
+        code: ORG_UNITS_ERROR_CODES.hasChildren,
+        message: 'Org unit has child units — delete them first',
+      },
+    });
+  });
+
+  it('separates an absent membership from a refused role change', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      MembershipsRepository.prototype,
+      'findByUserAndUnit',
+    ).mockResolvedValue(undefined);
+    const changeRole = vi.spyOn(MembershipsRepository.prototype, 'changeRole');
+    await expect(
+      service.changeMembershipRole({
+        callerId: ownerId,
+        userId: memberId,
+        orgUnitId: root.id,
+        role: 'admin',
+      }),
+    ).rejects.toThrow('Membership not found');
+    expect(changeRole).not.toHaveBeenCalled();
+
+    const { service: denied } = makeService();
+    vi.spyOn(
+      MembershipsRepository.prototype,
+      'findByUserAndUnit',
+    ).mockResolvedValue(membership);
+    vi.spyOn(MembershipsRepository.prototype, 'changeRole').mockResolvedValue(
+      undefined,
+    );
+    await expect(
+      denied.changeMembershipRole({
+        callerId: ownerId,
+        userId: memberId,
+        orgUnitId: root.id,
+        role: 'admin',
+      }),
+    ).rejects.toThrow('Not permitted to change this membership’s role');
+  });
+
+  it('separates an absent membership from a refused revoke', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      MembershipsRepository.prototype,
+      'findByUserAndUnit',
+    ).mockResolvedValue(undefined);
+    const revoke = vi.spyOn(MembershipsRepository.prototype, 'revoke');
+    await expect(
+      service.revokeMembership({
+        callerId: ownerId,
+        userId: memberId,
+        orgUnitId: root.id,
+      }),
+    ).rejects.toThrow('Membership not found');
+    expect(revoke).not.toHaveBeenCalled();
+
+    const { service: denied } = makeService();
+    vi.spyOn(
+      MembershipsRepository.prototype,
+      'findByUserAndUnit',
+    ).mockResolvedValue(membership);
+    vi.spyOn(MembershipsRepository.prototype, 'revoke').mockResolvedValue(
+      false,
+    );
+    await expect(
+      denied.revokeMembership({
+        callerId: ownerId,
+        userId: memberId,
+        orgUnitId: root.id,
+      }),
+    ).rejects.toThrow('Not permitted to revoke this membership');
+  });
+
+  it('maps an RLS refusal on a membership write to that operation’s own message', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      MembershipsRepository.prototype,
+      'findByUserAndUnit',
+    ).mockResolvedValue(membership);
+    vi.spyOn(MembershipsRepository.prototype, 'revoke').mockRejectedValue(
+      Object.assign(new Error('rls'), { code: '42501' }),
+    );
+
+    await expect(
+      service.revokeMembership({
+        callerId: ownerId,
+        userId: memberId,
+        orgUnitId: root.id,
+      }),
+    ).rejects.toThrow('Not permitted to revoke this membership');
+  });
+
+  it('maps the last-owner trigger to a transfer-ownership conflict', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      MembershipsRepository.prototype,
+      'findByUserAndUnit',
+    ).mockResolvedValue(membership);
+    vi.spyOn(MembershipsRepository.prototype, 'revoke').mockRejectedValue(
+      Object.assign(new Error('last owner'), { code: 'OW001' }),
+    );
+
+    await expect(
+      service.revokeMembership({
+        callerId: ownerId,
+        userId: memberId,
+        orgUnitId: root.id,
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        statusCode: 409,
+        error: 'Conflict',
+        code: ORG_UNITS_ERROR_CODES.lastOwner,
+        message:
+          'Cannot remove the last owner of this org — transfer ownership first',
+      },
+    });
+  });
+
+  it('rethrows an unmapped membership-write failure unchanged', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      MembershipsRepository.prototype,
+      'findByUserAndUnit',
+    ).mockResolvedValue(membership);
+    const unmapped = Object.assign(new Error('deadlock'), { code: '40P01' });
+    vi.spyOn(MembershipsRepository.prototype, 'revoke').mockRejectedValue(
+      unmapped,
+    );
+
+    await expect(
+      service.revokeMembership({
+        callerId: ownerId,
+        userId: memberId,
+        orgUnitId: root.id,
+      }),
+    ).rejects.toBe(unmapped);
+  });
+
+  it('maps every grant failure class to its own message', async () => {
+    const duplicate = makeService();
+    vi.spyOn(MembershipsRepository.prototype, 'grant').mockRejectedValue(
+      Object.assign(new Error('unique'), { code: '23505' }),
+    );
+    await expect(
+      duplicate.service.grantMembership({
+        callerId: ownerId,
+        userId: memberId,
+        orgUnitId: root.id,
+        role: 'member',
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        statusCode: 409,
+        error: 'Conflict',
+        code: ORG_UNITS_ERROR_CODES.duplicateMembership,
+        message: 'User is already a member of this org unit',
+      },
+    });
+
+    const missing = makeService();
+    vi.spyOn(MembershipsRepository.prototype, 'grant').mockRejectedValue(
+      Object.assign(new Error('fk'), { code: '23503' }),
+    );
+    await expect(
+      missing.service.grantMembership({
+        callerId: ownerId,
+        userId: memberId,
+        orgUnitId: root.id,
+        role: 'member',
+      }),
+    ).rejects.toThrow('User or org unit not found');
+
+    const denied = makeService();
+    vi.spyOn(MembershipsRepository.prototype, 'grant').mockRejectedValue(
+      Object.assign(new Error('rls'), { code: '42501' }),
+    );
+    await expect(
+      denied.service.grantMembership({
+        callerId: ownerId,
+        userId: memberId,
+        orgUnitId: root.id,
+        role: 'member',
+      }),
+    ).rejects.toThrow('Not permitted to grant membership on this org unit');
+  });
+
+  it('grants in the caller’s tenant scope and rethrows an unmapped failure', async () => {
+    const { service, runAs } = makeService();
+    const grant = vi
+      .spyOn(MembershipsRepository.prototype, 'grant')
+      .mockResolvedValue(undefined);
+
+    await expect(
+      service.grantMembership({
+        callerId: ownerId,
+        userId: memberId,
+        orgUnitId: root.id,
+        role: 'admin',
+      }),
+    ).resolves.toBeUndefined();
+    expect(runAs).toHaveBeenCalledWith(ownerId, expect.any(Function));
+    expect(grant).toHaveBeenCalledWith({
+      userId: memberId,
+      orgUnitId: root.id,
+      role: 'admin',
+    });
+
+    const unmappedService = makeService();
+    const unmapped = Object.assign(new Error('timeout'), { code: '57014' });
+    vi.spyOn(MembershipsRepository.prototype, 'grant').mockRejectedValue(
+      unmapped,
+    );
+    await expect(
+      unmappedService.service.grantMembership({
+        callerId: ownerId,
+        userId: memberId,
+        orgUnitId: root.id,
+        role: 'member',
+      }),
+    ).rejects.toBe(unmapped);
+  });
+});
