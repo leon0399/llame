@@ -1,0 +1,32 @@
+openspec/changes/hybrid-vector-retrieval/proposal.md
+  5426730252a0ebe9 1-6,7,8-37
+openspec/changes/hybrid-vector-retrieval/design.md
+  5426730252a0ebe9 1-34,35,36-40,42-56,58,62-84,86-97
+openspec/changes/hybrid-vector-retrieval/tasks.md
+  5426730252a0ebe9 1-35,38-47,48,49-50,51,52-58,60-72,74,75,76-85
+openspec/changes/hybrid-vector-retrieval/specs/instance-config/spec.md
+  5426730252a0ebe9 5
+openspec/changes/hybrid-vector-retrieval/specs/search-embeddings/spec.md
+  5426730252a0ebe9 5
+openspec/changes/hybrid-vector-retrieval/specs/chat-search/spec.md
+  5426730252a0ebe9 31,156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "b76d5c47b7f637f8c8ce33592a18c836245cd0ef",
+  "prompts": {
+    "5426730252a0ebe9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bba12494-ac2a-483c-985e-92592b6d3597",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 216,
+      "total_deletions": 0,
+      "accepted_lines": 216,
+      "overriden_lines": 0
+    }
+  }
+}
