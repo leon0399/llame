@@ -32,7 +32,7 @@ Decisions D1–D8 below were settled with Leo on 2026-09-05 before this proposal
 
 ### D1. The vector leg is an optional third document leg in `search/core/fusion.ts`
 
-`HybridSearchConfig` gains an optional `vector` block: the query vector, the active model key, the column names (`embedding`, `embeddingModelKey`, `embeddedContentHash`, `contentHash`), a weight, and a candidate cap. When present, a `vec_c` CTE ranks `embedding <=> <query>` ascending over rows matching the scope predicate, `embedding_model_key = <active>` and `embedded_content_hash = content_hash`, and `doc_fused` unions its term. When absent, the emitted SQL is byte-identical to today's. The query vector is bound as a typed `vector` literal, never interpolated as text.
+`HybridSearchConfig` gains an optional `vector` block: the query vector, the active model key, the current `EMBED_INPUT_VERSION`, the column names (`embedding`, `embeddingModelKey`, `embeddedContentHash`, `embedInputVersion`, `contentHash`), a weight, and a candidate cap. When present, a `vec_c` CTE ranks `embedding <=> <query>` ascending over rows matching the same scope predicates as the other document legs (`scope.document` and `scope.parent`), `embedding_model_key = <active>`, `embedded_content_hash = content_hash`, and `embed_input_version = EMBED_INPUT_VERSION`, and `doc_fused` unions its term. When absent, the emitted SQL is byte-identical to today's. The query vector is bound as a typed `vector` literal, never interpolated as text.
 
 Alternative: build the vector CTE in `chats-repository.ts`. Rejected — the builder is the shared kernel and #546 would copy the leg, the validity filter, and the fusion term.
 
