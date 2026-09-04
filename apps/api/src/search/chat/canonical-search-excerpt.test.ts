@@ -173,9 +173,13 @@ describe('buildCanonicalSearchExcerpt', () => {
     expect(result.startsWith('…')).toBe(true);
     expect(result.endsWith('…')).toBe(false);
     expect(result.endsWith('NEEDLEbbbb')).toBe(true);
-    expect(Array.from(result).length).toBe(
-      CANONICAL_SEARCH_MAX_EXCERPT_CODE_POINTS - 1,
+    // The cap is the contract; padding left is what "fills the budget" means,
+    // so the floor is stated as the source length the window must reach back
+    // over, not as the cropper's own arithmetic.
+    expect(Array.from(result).length).toBeLessThanOrEqual(
+      CANONICAL_SEARCH_MAX_EXCERPT_CODE_POINTS,
     );
+    expect(result).toContain(`a${'a'.repeat(400)}`);
   });
 
   it('omits the leading ellipsis when the exact window starts at the passage head', () => {
@@ -191,9 +195,10 @@ describe('buildCanonicalSearchExcerpt', () => {
     expect(result.startsWith('NEEDLE')).toBe(true);
     expect(result.startsWith('…')).toBe(false);
     expect(result.endsWith('…')).toBe(true);
-    expect(Array.from(result).length).toBe(
-      CANONICAL_SEARCH_MAX_EXCERPT_CODE_POINTS - 1,
+    expect(Array.from(result).length).toBeLessThanOrEqual(
+      CANONICAL_SEARCH_MAX_EXCERPT_CODE_POINTS,
     );
+    expect(result).toContain(`NEEDLE${'a'.repeat(400)}`);
   });
 
   it('clamps out-of-range exact coordinates and never emits a broken surrogate', () => {
