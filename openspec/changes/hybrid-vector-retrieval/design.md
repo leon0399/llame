@@ -56,9 +56,9 @@ Alternative: `search.chats.queryEmbedTimeoutSeconds`. Rejected as speculative co
 
 When the canonical-line matcher yields no passage for a hydrated winning document, `search_conversations` returns `kind: "content"` anchored to the document's **first** message: `messageSeq = first_seq`, `offset` = the logical line containing `first_message_text_offset`, `limit` to the end of that message's eligible visible text (or to `last_message_text_offset_exclusive` when the document starts and ends in the same message), and an excerpt cropped at the window start under the existing 500-code-point cap. Documents are multi-message chunks, and the #609 result shape names one message, so a rule is required; anchoring to the first message keeps the recall the leg exists for, and the rest of the chunk is one `conversation_read` away. This is the existing "fixed crop fallback" applied to a message window instead of a qualifying line.
 
-Alternative: omit multi-message vector-only winners, mirroring the cross-message lexical rule. Rejected — most chunks span messages, so the tool would lose most of the lift. No new result kind, no `matchedBy` in the public shape. #198 owns any later shaping. Documents that fail hydration are omitted exactly as today.
+No new result kind, no `matchedBy` in the public shape. #198 owns any later shaping. Documents that fail hydration are omitted exactly as today.
 
-Alternative: `kind: "metadata"`. Rejected — it forces the model to guess a read range. Alternative: omit until #198. Rejected — AC4 would have nothing to test and the tool could not exercise the leg.
+Alternative: omit multi-message vector-only winners, mirroring the cross-message lexical rule. Rejected — most chunks span messages, so the tool would lose most of the lift. Alternative: `kind: "metadata"`. Rejected — it forces the model to guess a read range. Alternative: omit until #198. Rejected — AC4 would have nothing to test and the tool could not exercise the leg.
 
 ### D6. Fusion and grouping constants are chosen by one recorded comparison, then fixed
 
