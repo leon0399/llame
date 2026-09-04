@@ -137,12 +137,21 @@ function installHarnessModule() {
   };
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
+// CI exports TEST_DATABASE_URL and LLAME_TEST_SCHEMA_PREFIX for the integration
+// suite, so each test must start from a known-empty environment rather than
+// inheriting whatever the runner set.
+function clearHarnessEnvironment() {
   delete process.env.TEST_DATABASE_URL;
   delete process.env.POSTGRES_URL;
   delete process.env.PGBOSS_SCHEMA;
   delete process.env.LLAME_TEST_SCHEMA_PREFIX;
+}
+
+beforeEach(clearHarnessEnvironment);
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  clearHarnessEnvironment();
 });
 
 describe('bootWorkerHarness', () => {

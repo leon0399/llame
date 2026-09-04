@@ -294,7 +294,9 @@ describe('McpServerClient transport protocol', () => {
     } finally {
       await client.close();
     }
-  });
+    // Four pages of 256 declarations exercise the catalog cap for real, which
+    // costs more than the 5s default this suite runs under outside Stryker.
+  }, 30_000);
 
   it('refuses a schema nested past depth 64 through array branches', async () => {
     const { client } = await connectStub({
