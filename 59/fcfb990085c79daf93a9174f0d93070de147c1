@@ -1,0 +1,28 @@
+apps/api/src/instance-config/llame.config.schema.json
+  5426730252a0ebe9 424,428
+apps/api/llame.config.json.example
+  5426730252a0ebe9 261,263
+apps/api/src/instance-config/llame-config.ts
+  5426730252a0ebe9 368-369
+apps/api/src/instance-config/config-loader.test.ts
+  5426730252a0ebe9 183,184,428,432-433
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "59fcfb990085c79daf93a9174f0d93070de147c1",
+  "prompts": {
+    "5426730252a0ebe9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bba12494-ac2a-483c-985e-92592b6d3597",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 10,
+      "total_deletions": 10,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  }
+}
