@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The **embedding layer** is a derived, fully rebuildable vector representation of the lexical search projection: at most one embedding per document chunk, produced asynchronously through a provider-neutral backend and valid only while the content it was derived from is unchanged. It covers the operator-declared embedding-model catalog and per-corpus model selection, the content-hash validity rule that keeps stale and deleted content unrecoverable, asynchronous production and operator-invoked bulk work, terminal-failure handling, and fail-closed degrade when no model is configured. It produces vectors only; the query path does not read them in this capability.
+The **embedding layer** is a derived, fully rebuildable vector representation of the lexical search projection: at most one embedding per document chunk, produced asynchronously through a provider-neutral backend and valid only while the content it was derived from is unchanged. It covers the operator-declared embedding-model catalog and per-corpus model selection, the content-hash validity rule that keeps stale and deleted content unrecoverable, asynchronous production and operator-invoked bulk work, terminal-failure handling, and fail-closed degrade when no model is configured. It produces vectors and constrains how the query path reads them: model-key and content-hash validity, the input-version filter, and the corpus binding the query is embedded under.
 
 ## Requirements
 

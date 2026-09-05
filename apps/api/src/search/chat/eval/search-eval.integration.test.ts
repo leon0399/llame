@@ -137,8 +137,15 @@ describeIfDb('chat search — relevance eval', () => {
         `),
       );
       for (const doc of docs) {
-        const vector = await backend.embedQuery(String(doc.content));
-        if (vector.length === dims) {
+        const results = await backend.embedDocuments([
+          {
+            documentId: String(doc.id),
+            contentHash: 'eval',
+            content: String(doc.content),
+          },
+        ]);
+        const vector = results[0]?.embedding;
+        if (vector && vector.length === dims) {
           const vecLiteral = JSON.stringify(Array.from(vector));
           await tenantDb.runAs(u, (tx) =>
             tx.execute(sql`
