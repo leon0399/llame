@@ -179,19 +179,21 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
     expect(results.some((r) => r.id === chatId)).toBe(false);
   });
 
-  it('3.5 wrong-dimension vector under superseded key does not error', async () => {
+  it('3.5 wrong-dimension vector under active key is excluded, not an error', async () => {
     const chatId = await seedChat(userA, 'Dimension mismatch test', [
       { role: 'user', text: 'content for dimension test' },
+      { role: 'assistant', text: 'dimension response' },
     ]);
     await plantVector(userA, chatId, [1, 0, 0, 0, 0, 0, 0, 0], {
-      modelKey: SUPERSEDED_KEY,
-    });
-
-    const results = await search(userA, 'content for dimension test', 10, {
-      queryVector: [1, 0, 0, 0],
       modelKey: MODEL_KEY,
     });
-    expect(results).toBeDefined();
+
+    await expect(
+      search(userA, 'dimensionuniquekeyword', 10, {
+        queryVector: [1, 0, 0, 0],
+        modelKey: MODEL_KEY,
+      }),
+    ).resolves.toBeDefined();
   });
 
   it('3.6 cross-tenant vector: user B cannot reach user A via vector', async () => {

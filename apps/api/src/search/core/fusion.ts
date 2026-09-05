@@ -241,6 +241,7 @@ function buildVectorLeg(
           ${dEmbed} <=> ${vecLiteral} AS dist
         FROM ${dTable} CROSS JOIN q
         WHERE (${config.scope.document})
+          AND ${dEmbed} IS NOT NULL
           AND ${dModelKey} = ${v.activeModelKey}
           AND ${dHash} = ${dContentHash}
           AND ${dVersion} = ${v.currentInputVersion}
