@@ -131,9 +131,9 @@ deterministic; secrets never reach logs, errors, model context, or owner output.
 ## Storybook MCP
 
 When connected, Storybook tools are authoritative for props and stories. Read
-story instructions before editing; verify props through documentation; after a
-rendered UI change, run story tests and return preview URLs. Resolve consumer
-stories for shared files with no story of their own.
+story instructions before editing. After a rendered UI change, run story tests
+and return preview URLs. For shared files without their own story, use consumer
+stories.
 
 ## Security
 

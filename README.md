@@ -1,41 +1,37 @@
 # llame
 
-llame is a self-hosted, personal-first AI assistant platform. It keeps chat and
-agent execution durable on infrastructure you control, while retaining the
-multi-user isolation needed for a household, team, or organization.
+llame is a self-hosted, personal-first AI assistant platform. Durable chat and
+agent execution on your infrastructure, with multi-user isolation for
+households, teams, or organizations.
 
 ## What runs today
 
-- Authenticated multi-user operation with opaque sessions, datastore-enforced
-  row-level security, and an organizational identity foundation.
-- Durable chat Runs processed through a pg-boss worker. Progress is persisted and
-  can be replayed after refresh or reconnect.
-- Operator-managed provider, model, and per-model system-prompt configuration in
-  `llame.config.json`, with support for OpenAI-compatible endpoints.
-- Owner-only Projects for organizing chats, plus pinning and reversible archival.
-- A bounded read-only tool loop with native `search_conversations` and optional
-  exact, line-ranged `conversation_read`, plus operator-configured Streamable
-  HTTP MCP tools.
-- Owner-scoped personal Markdown Knowledge Spaces with bounded
-  `knowledge_search` and `knowledge_read` tools over live files, including
-  uncommitted changes, when the operator configures and allowlists the
-  capability.
-- Optional owner-scoped chat recency digests: an owner can opt in to send a
-  bounded list of their other chats' titles and opening excerpts to the
-  operator-configured model provider.
+- Multi-user with opaque sessions, RLS-enforced tenant isolation, and
+  organizational identity.
+- Durable chat Runs via pg-boss. Progress persists and replays after refresh or
+  reconnect.
+- Operator-managed providers, models, and per-model system prompts in
+  `llame.config.json`, supporting OpenAI-compatible endpoints.
+- Owner-only Projects for organizing chats, with pinning and reversible archive.
+- Bounded read-only tool loop: `search_conversations`, optional line-ranged
+  `conversation_read`, and operator-configured Streamable HTTP MCP tools.
+- Owner-scoped Markdown Knowledge Spaces: `knowledge_search` and
+  `knowledge_read` over live files (including uncommitted changes),
+  operator-configured and allowlisted.
+- Optional owner-scoped chat recency digests: an owner opts in to send a bounded
+  list of their other chats' titles and opening excerpts to the configured
+  provider.
 
-Agent-authored knowledge writes, Git-backed recovery, user BYOK, fine-grained
-tool permissions, and subagents are not shipped yet. The next release slices
-are tracked in [ROADMAP.md](ROADMAP.md). See
-[docs/conversation-recall.md](docs/conversation-recall.md) and
-[docs/knowledge.md](docs/knowledge.md) for operator setup and deployment
-boundaries.
+Not yet shipped: agent-authored knowledge writes, Git-backed recovery, user
+BYOK, fine-grained tool permissions, subagents. See [ROADMAP.md](ROADMAP.md).
+Operator setup: [docs/conversation-recall.md](docs/conversation-recall.md),
+[docs/knowledge.md](docs/knowledge.md).
 
 ## Direction
 
-llame is being built toward an assistant that can use external tools, maintain a
-Git-backed Markdown knowledge base, recall prior work, and improve its future
-context through recoverable changes. The current Knowledge slice reads live
+llame targets an assistant with external tools, a Git-backed Markdown knowledge
+base, prior-work recall, and self-improving context through recoverable writes.
+Knowledge currently reads live
 owner-scoped files; Git-backed writes begin in #212. Workspaces, artifacts, child
 agents, automation, external coding harnesses, and messaging channels follow
 only after that core loop works. See [VISION.md](VISION.md).
@@ -54,60 +50,54 @@ pnpm dev
 
 `apps/api` needs `POSTGRES_URL` and any provider credentials referenced by
 `llame.config.json`. `apps/web` is a thin client configured with
-`NEXT_PUBLIC_API_URL`. See [AGENTS.md](AGENTS.md) for the complete development
-setup and commands.
+`NEXT_PUBLIC_API_URL`. See [AGENTS.md](AGENTS.md) for development setup and
+commands.
 
 Personal Knowledge is opt-in. Set an absolute `knowledge.root` in the operator
 configuration, mount the same logical stable-ID child directories into every
 process that can provision or consume Runs, and add both Knowledge tool IDs to
-`tools.allowed`. Every API that authors Runs must declare the setting for
-consistent accept-time availability, even if an authoring-only process does not
-mount it. Configuration loading does not probe the root; provisioning and worker
+`tools.allowed`. Every Run-authoring API must declare the setting for consistent
+accept-time availability, even if it does not mount the root. Configuration
+loading does not probe the root; provisioning and worker
 execution fail closed when their mount is missing. The root and local binding
 never enter model context or owner-facing results. See [docs/knowledge.md](docs/knowledge.md).
 
-Self-hosted Postgres must ship the `vector` extension (pgvector), alongside the
-already-required `pg_trgm`, for embeddings-backed search. The bundled `pnpm
-db:up` compose service already provides it. This is a **breaking** requirement
-for existing self-hosters running their own Postgres: move to a
-pgvector-capable image, or an equivalent managed Postgres that ships `vector`,
-before upgrading — otherwise the migration that creates the extension fails.
+Self-hosted Postgres needs `vector` (pgvector) and `pg_trgm` for
+embeddings-backed search. `pnpm db:up` provides both. **Breaking** for
+self-hosters on their own Postgres: switch to a pgvector-capable image before
+upgrading, or the extension migration fails.
 
-Each `models[]` entry may set `systemPromptFile` to a complete prompt file; an
-omitted setting uses llame's packaged project default. Relative paths resolve
-from the active config file, invalid overrides fail startup without fallback,
+`models[]` entries can set `systemPromptFile` to a prompt file; omitting it uses
+the packaged default. Relative paths resolve from the active config file,
+invalid overrides fail startup without fallback,
 and prompt contents must be safe for the chat owner to inspect. Each Run binds
 an immutable receipt of the effective prompt and advertised tools. The owner UI
-surfaces model switches and loads that receipt only on demand; host file paths
-never enter the public model catalog or receipt. The exact authoring surface is
-documented in [apps/api/AGENTS.md](apps/api/AGENTS.md).
+shows model switches and loads the receipt on demand; host file paths never
+enter the model catalog or receipt. Authoring:
+[apps/api/AGENTS.md](apps/api/AGENTS.md).
 
-`shareRecentChats` defaults off. When an owner enables it, the packaged prompt
-can send a frozen, capped digest of their other chats' titles and opening
-excerpts to the configured provider; enabling is retroactive over their existing
-eligible chats. Disabling stops new baselines, re-bakes, and updates, but does
+`shareRecentChats` defaults off. Enabling sends a frozen, capped digest of the
+owner's other chats' titles and opening excerpts to the configured provider;
+retroactive over existing eligible chats. Disabling stops new baselines,
+re-bakes, and updates, but does
 not remove a digest already bound to another chat; deleting a source chat is not
 erasure from those existing prompts or receipts. The digest is framed as
-untrusted data and has no chat identifiers. Compaction instructs the
-summarizing model to leave the digest out of the checkpoint it writes; that
-exclusion, like the framing itself, is carried by instruction and model
-compliance rather than structurally enforced.
+untrusted data and has no chat identifiers. Compaction excludes the digest from
+checkpoints by instruction, not structural enforcement.
 
 MCP servers use a top-level `.mcp.json`-shaped `mcpServers` map in
 `llame.config.json`, with two transports. A remote entry is exactly
 `{ type, url, headers? }`, where `http` and `streamable-http` both select
-Streamable HTTP. A local entry is `{ type: "stdio", command, args?, env?, cwd? }`
-and llame runs it as a child process — the shape most of the ecosystem ships,
-including servers with no HTTP mode.
+Streamable HTTP. A local entry is `{ type: "stdio", command, args?, env?, cwd? }`,
+run as a child process — the shape most MCP servers ship.
 
-Secrets use llame's `{env:...}` and `{path:...}` interpolation, and interpolating
-a value is what marks it secret: resolved values are redacted from diagnostics,
-results, and errors, and are never visible to users or models. A stdio child
-receives only its declared `env` over the MCP SDK's small base allowlist, so
-llame's own credentials do not reach it, and it runs unsandboxed as the llame
-user. Operators must explicitly allowlist each namespaced tool as read-only. See
-[docs/mcp-tools.md](docs/mcp-tools.md) for configuration, supported protocol
-revisions, trust boundaries, rollout, and troubleshooting.
+Secrets use `{env:...}` and `{path:...}` interpolation. Interpolation marks a
+value secret: resolved values are redacted from diagnostics, results, and
+errors, never visible to users or models. A stdio child receives only its
+declared `env` plus the MCP SDK's base allowlist — llame's own credentials do
+not reach it. Runs unsandboxed as the
+llame user. Operators must explicitly allowlist each namespaced tool as
+read-only. See [docs/mcp-tools.md](docs/mcp-tools.md).
 
 ## Documentation
 
@@ -119,5 +109,5 @@ revisions, trust boundaries, rollout, and troubleshooting.
 - [docs/knowledge.md](docs/knowledge.md): personal Knowledge operator runbook
 - [docs/mcp-tools.md](docs/mcp-tools.md): remote MCP operator runbook
 
-The monorepo is TypeScript end to end: Next.js in `apps/web`, NestJS and the
-worker in `apps/api`, and shared UI components in `packages/ui`.
+TypeScript throughout: Next.js (`apps/web`), NestJS + worker (`apps/api`),
+shared components (`packages/ui`).
