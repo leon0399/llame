@@ -1,6 +1,6 @@
 # llame current architecture
 
-**Status:** Current cross-cutting contract. Updated 2026-08-24.
+**Status:** Current cross-cutting contract. Updated 2026-09-05.
 
 This file records system boundaries and invariants that span capabilities. It is not a future feature inventory, release plan, API catalogue, schema sketch, or research report.
 
@@ -32,9 +32,37 @@ Future behavior belongs in [VISION.md](VISION.md) until sequenced in the roadmap
 
 ### 1.1 Distributed direction is not current architecture
 
-The future Surface, Node, Personal Realm, Workspace, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. No first-party CLI or Android Node, standalone personal store, Node enrollment, Personal Realm mirroring, remote Workspace registry, cross-node execution placement or handoff, or foreign-authority mount ships.
+The future Surface, Node, Personal Realm, Workspace, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. The first-party CLI and its standalone conversation store ship in the limited form described in §1.2. Android Nodes, cryptographic Node enrollment, Personal Realm mirroring, remote Workspace registries, cross-node execution placement or handoff, and foreign-authority mounts remain unshipped.
 
 The current web, API, and worker processes form one installation and one PostgreSQL ownership boundary. A dedicated worker is an operational process role inside that installation, not an autonomous personal Node. A current Project is not a filesystem Workspace, Knowledge Space, Personal Realm, or security boundary. The hosted Knowledge Space ID is a portable logical identity, while its owner row and configured filesystem child remain installation-local bindings. Future terminology must not be projected onto present APIs, database rows, or deployment roles without a shipped capability spec.
+
+### 1.2 First-party terminal and standalone runtime
+
+`apps/cli` has two explicit modes. Remote mode is an HTTP client of the existing
+API and its opaque session, model, Chat and durable Run contracts; it does not
+connect to Postgres or execute the remote node's tools locally. Standalone mode
+owns a separate single-user SQLite database and a bounded OpenAI-compatible
+Chat Completions loop. It uses explicit local provider configuration and needs
+no Hub account. A local UUID is stable runtime identity, not cryptographic Node
+enrollment. Logging in does not synchronize resources or change execution mode.
+
+The standalone runtime can expose one operator-selected startup directory as a
+native Workspace. The model enters it explicitly; edits and native processes
+need individual terminal approval. Native grants OS-user authority, not sandbox
+confinement. A local executor interrupted by process death records an unknown
+outcome and does not replay side effects. It does not claim the Hub's durable
+worker continuation guarantee. Context, tool and model changes are represented
+in immutable local Run snapshots and model-visible runtime instructions.
+
+Pure redaction, Unicode clipping and structured tool-result bounds live in
+`packages/runtime-safety`, moved from the API and consumed by both runtimes.
+Operator secret interpolation remains in `packages/config-interpolation`.
+The API's provider SDK, Postgres schema, authentication authority and RLS stay
+server-owned. Unless explicitly stated otherwise, subsequent sections describe
+that hosted API/worker contract, not full feature parity in standalone mode.
+
+See [`cli`](openspec/specs/cli/spec.md), the [operator guide](apps/cli/README.md),
+and [authentication research](docs/research/cli/2026-09-05-authentication-and-harness.md).
 
 ## 2. Conversation continuity
 
@@ -70,7 +98,7 @@ Current roles are `owner`, `admin`, `maintainer`, `member`, `viewer`, `guest`, a
 
 ### 7.5 Approvals
 
-No general approval workflow or per-tool allow/ask/deny policy ships. Authentication, RLS, tool classification, and the static `tools.allowed` gate remain mandatory.
+No hosted general approval workflow or per-tool allow/ask/deny policy ships; the standalone CLI separately requires per-action terminal approval for native writes/processes. Authentication, RLS, tool classification, and the static `tools.allowed` gate remain mandatory.
 
 ## 9. Chats and durable Runs
 

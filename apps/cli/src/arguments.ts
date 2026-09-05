@@ -36,6 +36,7 @@ export function argumentsFor(argv: string[], env: NodeJS.ProcessEnv): Options {
   } catch { throw new CliError('arguments', 'Invalid arguments. Use --help; passwords and tokens are not accepted as command-line values.'); }
   const value = (name: string) => {
     const result = parsed.values[name];
+    if (isString(result) && result.length === 0) throw new CliError('arguments', 'Option values must not be empty.');
     return isString(result) ? result : undefined;
   };
   const flag = (name: string) => parsed.values[name] === true;

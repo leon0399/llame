@@ -22,4 +22,4 @@ for (const name of shared) {
 }
 writeFileSync(join(output, 'package.json'), JSON.stringify({ name: 'llame-cli-standalone', version: '0.0.1', private: true, bin: { llame: 'bin/llame.cjs' }, engines: { node: '>=22.19' } }, null, 2) + '\n');
 cpSync(join(cli, 'README.md'), join(output, 'README.md'));
-console.log(output);
+process.stdout.write(output + '\n');

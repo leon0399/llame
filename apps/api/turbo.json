@@ -24,6 +24,7 @@
     // root "nothing tests consume is built" rule has an exception here.
     // Local equivalent: pnpm --filter @workspace/config-interpolation --filter @workspace/runtime-safety build
     // (bypasses turbo's cache entirely).
+    "dev": { "dependsOn": ["^build"] },
     "lint": { "dependsOn": ["^build"] },
     "typecheck": { "dependsOn": ["^build"] },
     "test": { "dependsOn": ["^build"] }

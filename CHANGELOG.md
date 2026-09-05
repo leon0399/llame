@@ -1,5 +1,21 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-05
+
+- **First-party CLI**: explicit standalone and remote execution, streaming text
+  and JSONL, conversational continuation, model selection and inspectable Runs.
+- **Standalone runtime**: private SQLite state and one advancing executor,
+  explicit native Workspace entry, hash-guarded approved edits, individually
+  approved bounded processes, lazy instruction-only skills and no action replay
+  after an interrupted executor.
+- **Remote client**: existing revocable Bearer-session login/import/logout,
+  authority/account-bound credentials, cursor-based reconnection and explicit
+  remote cancellation. OAuth/OIDC, Node enrollment and synchronization remain
+  separate, unimplemented protocols.
+- **Shared runtime safety**: moved existing API redaction, Unicode clipping,
+  structured output bounds and their tests into `@workspace/runtime-safety`;
+  API consumers reuse the package and its coverage/mutation gates.
+
 # 2026-09-03
 
 - **UTC-stable auth timestamps**: the remaining naive auth timestamp columns

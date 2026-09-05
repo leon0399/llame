@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { invoke, server, completion, tool, config, directory, workspace, events, key, start } from './helpers.mjs';
+import { invoke, server, completion, tool, config, directory, workspace, events, frames, key, start } from './helpers.mjs';
 
 const env = { TEST_PROVIDER_KEY: key };
 
@@ -155,4 +155,41 @@ test('private config validation is strict and config init refuses overwrite', as
   assert.equal((await invoke(['--config', path, 'config', 'init'], { dir })).code, 1);
   writeFileSync(path, JSON.stringify({ version: 1, models: [], stealth: true }));
   const bad = await invoke(['--config', path, 'models'], { dir }); assert.equal(bad.code, 1); assert.match(bad.stderr, /unknown_field/);
+});
+
+
+test('an explicitly empty remote or config option cannot silently select another mode', async () => {
+  for (const option of ['--remote', '--config']) {
+    const result = await invoke([option, '', 'run', 'must not execute']);
+    assert.equal(result.code, 1); assert.match(result.stderr, /Option values must not be empty/);
+    assert.equal(existsSync(join(result.dir, 'state/state.sqlite')), false);
+  }
+});
+
+test('malformed tool JSON is recorded as an error instead of being executed', async (t) => {
+  const dir = directory(); const cwd = workspace(dir); let step = 0;
+  const provider = await server(t, (request, response) => {
+    if (step++ === 0) return frames(response, [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'malformed', type: 'function', function: { name: 'process_run', arguments: '{broken' } }] }, finish_reason: null }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }, '[DONE]',
+    ]);
+    const observation = request.body.messages.at(-1);
+    assert.equal(observation.role, 'tool'); assert.equal(observation.tool_call_id, 'malformed');
+    assert.equal(JSON.parse(observation.content).type, 'invalid_json');
+    completion(response, 'Malformed call was rejected.');
+  });
+  const result = await invoke(['--config', config(dir, provider.base), '--native', '--cwd', cwd, '--json', 'run', 'test'], { dir, env });
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(events(result.stdout).filter((event) => event.eventType === 'side_effect.started').length, 0);
+});
+
+test('SIGINT interrupts a pipeline waiting for stdin without waiting for EOF', async () => {
+  const { setTimeout: delay } = await import('node:timers/promises');
+  const dir = directory(); const running = start(['run', '-'], { dir, input: null });
+  const deadline = Date.now() + 5000;
+  while (!existsSync(join(dir, 'state/state.sqlite')) && Date.now() < deadline) await delay(10);
+  assert.ok(existsSync(join(dir, 'state/state.sqlite')));
+  running.child.kill('SIGINT');
+  const result = await running.result;
+  assert.equal(result.code, 130, result.stderr); assert.match(result.stderr, /Input cancelled/);
 });

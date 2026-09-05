@@ -50,7 +50,7 @@ expected values come from that same list.
 
 ## Mutation testing
 
-Mutation covers API and config-interpolation business logic. Web/UI, tooling,
+Mutation covers API, config-interpolation and extracted runtime-safety business logic. Web/UI, tooling,
 browser, integration, and E2E behavior stay in their existing gates.
 
 ```bash
@@ -86,3 +86,32 @@ unit ------+-> build ---------+
   only after equivalent story assertions exist.
 - Remove dead in-file DB guards when touching those suites.
 - Enable remaining Vitest style rules one at a time and repair their scope.
+
+## First-party CLI distribution checks
+
+`apps/cli/tests/*.test.mjs` are Node test-runner checks of the **built distribution**,
+not an alternate runner for `*.test.ts` unit suites. They launch compiled CLI
+processes against real loopback HTTP fixtures, local SQLite, files and native
+child processes. No external model credential, Hub deployment or Postgres is
+required. A wire-contract test compares remote paths and request fields with the
+API's checked-in emitted OpenAPI. This does not replace live-node acceptance or
+RLS integration testing.
+
+```sh
+pnpm exec turbo run test --filter=cli --concurrency=1
+pnpm exec turbo run typecheck --filter=cli --concurrency=1
+pnpm exec turbo run package:standalone --filter=cli --concurrency=1
+```
+
+The test task builds the CLI and its workspace dependencies before executing and
+is never cached. Existing tests moved into `packages/runtime-safety/src` remain
+Vitest unit tests; CI retains their coverage floor and adds a package mutation
+gate. Test failures are not skipped when a CLI fixture cannot bind or start.
+Platform-specific native process execution is currently POSIX-only. The real-PTY
+regression uses util-linux `script`; the suite targets Linux/WSL and fails rather
+than silently skipping if that utility is unavailable.
+
+The [implementation verification record](cli-verification.md) distinguishes
+executed distribution/PTY checks from repository gates unavailable in the
+implementation environment. A fixture-backed pass is not a claim of live vendor
+compatibility or an executed full CI run.

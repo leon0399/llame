@@ -19,7 +19,7 @@ export function start(args, { dir = directory(), env = {}, input = '', timeout =
   const child = spawn(process.execPath, [cli, '--data-dir', join(dir, 'state'), ...args], {
     env: { PATH: process.env.PATH, HOME: dir, ...env }, stdio: ['pipe', 'pipe', 'pipe'],
   });
-  child.stdin.end(input);
+  if (input !== null) child.stdin.end(input);
   let stdout = ''; let stderr = '';
   child.stdout.on('data', (data) => { stdout += data; });
   child.stderr.on('data', (data) => { stderr += data; });

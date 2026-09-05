@@ -44,8 +44,10 @@ export function approvals(output: Output): Approval {
 export async function password(signal: AbortSignal): Promise<string> {
   aborted(signal);
   if (!process.stdin.isTTY || !process.stderr.isTTY) throw new CliError('tty_required', 'Use --password-stdin in a noninteractive process.');
-  process.stderr.write('Password: ');
-  const wasRaw = process.stdin.isRaw; process.stdin.setRawMode(true); process.stdin.resume();
+  const wasRaw = process.stdin.isRaw;
+  // Disable echo BEFORE advertising readiness. Another process (or a fast
+  // paste) can send the password as soon as the prompt reaches the terminal.
+  process.stdin.setRawMode(true);
   return new Promise((resolve, reject) => {
     let value = ''; const decoder = new StringDecoder('utf8');
     const cleanup = () => {
@@ -64,5 +66,6 @@ export async function password(signal: AbortSignal): Promise<string> {
     };
     process.stdin.on('data', onData); signal.addEventListener('abort', onAbort, { once: true });
     if (signal.aborted) onAbort();
+    else { process.stderr.write('Password: '); process.stdin.resume(); }
   });
 }

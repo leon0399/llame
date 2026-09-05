@@ -259,6 +259,8 @@ pnpm exec turbo run test:coverage --filter=@workspace/runtime-safety --concurren
 pnpm --filter @workspace/runtime-safety test:mutation
 ```
 
+The distribution suite currently targets Linux/WSL and needs util-linux `script`
+for its real-PTY regression. A missing PTY utility fails instead of skipping.
 The CLI distribution tests launch compiled code against real loopback HTTP
 fixtures, SQLite, files and child processes. Remote wire fixtures are checked
 against the repository's emitted OpenAPI; they are **not** a live deployed-node
