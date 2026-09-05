@@ -20,7 +20,7 @@ import {
   type SearchConversationsContentResult,
 } from './search-conversations';
 import { parseConversationSourceCoordinates } from './conversation-source-coordinates';
-import { isZodSchema } from './schema-utils';
+import { isZodSchema, resolveJsonSchema } from './schema-utils';
 import { type ToolContext, type ToolResult } from './types';
 import { isRecord, isString } from '../unknown-record';
 
@@ -508,5 +508,91 @@ describe('search_conversations', () => {
       query: 'x',
       limit: 3,
     });
+  });
+
+  it('admitted JSON Schema has root type object with no anyOf/oneOf/allOf/not (task 2.2)', async () => {
+    const jsonSchema = await resolveJsonSchema(
+      searchConversationsTool.inputSchema,
+    );
+    expect(jsonSchema['type']).toBe('object');
+    expect(jsonSchema['additionalProperties']).toBe(false);
+    expect(jsonSchema).not.toHaveProperty('anyOf');
+    expect(jsonSchema).not.toHaveProperty('oneOf');
+    expect(jsonSchema).not.toHaveProperty('allOf');
+    expect(jsonSchema).not.toHaveProperty('not');
+    expect(jsonSchema).not.toHaveProperty('enum');
+    expect(jsonSchema).not.toHaveProperty('const');
+  });
+
+  it('few-shot calls in the tool description parse successfully (task 2.2)', () => {
+    const schema = searchConversationsTool.inputSchema;
+    if (!isZodSchema(schema)) throw new Error('Expected Zod');
+    const desc = searchConversationsTool.description;
+    const examples = [...desc.matchAll(/\{[^}]+\}/g)].map((m) => m[0]);
+    expect(examples.length).toBeGreaterThanOrEqual(2);
+    for (const example of examples) {
+      const parsed = schema.safeParse(JSON.parse(example));
+      expect(parsed.success, `Failed to parse: ${example}`).toBe(true);
+    }
+  });
+
+  it('invalid mode and field combinations are rejected before retrieval (task 2.1)', async () => {
+    const spy = vi.spyOn(ChatsRepository.prototype, 'searchByOwner');
+    const ctx = fakeContext([]);
+    const cases = [
+      { mode: 'timeline', query: 'x' },
+      { mode: 'timeline' },
+      {
+        mode: 'timeline',
+        constraint: 'required',
+        after: '2026-01-01T00:00:00Z',
+      },
+      { mode: 'content' },
+      {
+        mode: 'content',
+        query: 'x',
+        after: '2026-01-01T00:00:00Z',
+      },
+      {
+        mode: 'content',
+        query: 'x',
+        constraint: 'required',
+      },
+      { mode: 'content', query: 'x', limit: 50 },
+    ];
+    for (const input of cases) {
+      const result = await searchConversationsTool.execute(
+        ctx,
+        // SAFETY: intentionally invalid inputs to test superRefine rejection
+        // eslint-disable-next-line typescript/no-unsafe-type-assertion
+        input as never,
+      );
+      expect(
+        result.status,
+        `Expected rejection for ${JSON.stringify(input)}`,
+      ).toBe('error');
+    }
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('success results carry no diagnostic keys (task 2.6)', async () => {
+    const result = await searchConversationsTool.execute(
+      fakeContext([
+        {
+          id: 'c1',
+          title: 'T',
+          snippet: null,
+          updatedAt: new Date(),
+          bestDocumentId: null,
+        },
+      ]),
+      { mode: 'content', query: 'test', limit: 5 },
+    );
+    expect(result.status).toBe('success');
+    const serialized = JSON.stringify(result);
+    for (const key of ['matchedBy', 'score', 'rank', 'omissionReason']) {
+      expect(serialized).not.toContain(`"${key}"`);
+    }
   });
 });
