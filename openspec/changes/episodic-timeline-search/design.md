@@ -7,9 +7,9 @@ See proposal.md for motivation. Current state that shapes the approach:
 - Projection documents carry `first_message_at` and `last_message_at`. Canonical `messages` carry `created_at`, an immutable chat-local `seq`, and the evidence-eligibility predicate that `messages-repository.ts` already mirrors in SQL (user rows; assistant rows whose `usage.status` is absent or `completed`).
 - `conversation_read` reads one message by `{ chatId, messageSeq, offset, limit }` and returns `previousMessageSeq` / `nextMessageSeq` for eligible neighbors. The conversation-reads spec forbids concatenating messages into one source string and forbids new opaque locators.
 - The packaged default prompt (`apps/api/src/prompts/chat-default.md`) already renders `context.systemTime` and `context.systemTimezone` and carries one recall paragraph.
-- Tool input schemas travel Zod → AI SDK `asSchema().jsonSchema` → ajv → provider. The OpenAI client always sends `strict: false`.
+- A Zod tool schema is converted once at admission (`asSchema().jsonSchema`) into the JSON Schema that is snapshotted, sent to the provider, and compiled by ajv for argument validation at execution. Zod refinements do not survive that conversion, so cross-field rules a tool needs at runtime must be re-parsed inside the tool, as `conversation_read` already does. The OpenAI client always sends `strict: false`.
 
-Decisions D1–D13 were settled with Leo on 2026-09-05 before this proposal was written.
+Decisions D1–D13 were settled with Leo on 2026-09-05 before this proposal was written; D14 and the `w_pref` magnitude in D5 came out of the first review round.
 
 ## Goals / Non-Goals
 
@@ -32,7 +32,7 @@ Both modes are gated exactly as today: exact `tools.allowed` entry, `read_only`,
 
 ### D2. Timeline returns `firstSeq` / `lastSeq`; the model walks `conversation_read`
 
-Each timeline region carries the first and last eligible `messageSeq` inside the range. The model reads a message and follows `nextMessageSeq`. Zero reader changes, and the conversation-reads spec's per-message attribution and line space stay intact. Alternatives: extend `conversation_read` to a `messageSeq..toSeq` range returning per-message blocks (a conversation-reads spec change, deferred until the step cost is shown to matter); a new `read_conversation_range` tool (a second tool for the same read authority). Known cost: a long day is many reads under `tools.maxStepsPerRun`; the prompt tells the model a listing may stop at metadata.
+Each timeline region carries `firstSeq` and `lastSeq`, defined as `MIN(seq)` and `MAX(seq)` over the eligible messages inside the range (a user message and its reply can share one `created_at`, so the sequence, not the instant, is the boundary). The model reads a message and follows `nextMessageSeq`. Zero reader changes, and the conversation-reads spec's per-message attribution and line space stay intact. Alternatives: extend `conversation_read` to a `messageSeq..toSeq` range returning per-message blocks (a conversation-reads spec change, deferred until the step cost is shown to matter); a new `read_conversation_range` tool (a second tool for the same read authority). Known cost: a long day is many reads under `tools.maxStepsPerRun`; the prompt tells the model a listing may stop at metadata.
 
 ### D3. Shipped names and plain coordinates
 
@@ -40,22 +40,22 @@ Each timeline region carries the first and last eligible `messageSeq` inside the
 
 ### D4. `required` filters at two points
 
-1. **Candidate legs:** the range predicate on the document is `first_message_at < before AND last_message_at >= after` (each half omitted when its bound is absent), composed into `scope.document`. The parent predicate gains `EXISTS (eligible message in chat with created_at in range)`, composed into `scope.parent`, so a title-only winner is returned as `kind: "metadata"` only when the chat actually had eligible activity in the range. No fusion change; the legs already accept an arbitrary scope predicate.
-2. **After hydration:** a chunk that overlaps the range may resolve to a passage in a message outside it. The resolved message's `created_at` is checked against the range; a miss omits the row exactly like a failed hydration. This also drops a vector-only winner whose first-message anchor falls outside the range even when a later message in the same chunk was inside it. That is a known limitation inherited from #197 D5 and is preferable to returning a dated row that contradicts the filter.
+1. **Candidate legs:** the range predicate on the document is `first_message_at < before AND last_message_at >= after` (each half omitted when its bound is absent), composed into `scope.document`, which every document leg already applies. The parent predicate gains `EXISTS (eligible message in the chat with created_at in range)`, composed into `scope.parent`, which the kernel applies twice: in the title leg and again in the final `ranked` CTE, so the EXISTS gates every returned chat, not only title-only winners. A title-only winner is therefore returned as `kind: "metadata"` only when the chat had eligible activity in the range. No fusion change; the legs already accept an arbitrary scope predicate. Every `messages` predicate reuses the SQL eligibility mirror from `messages-repository.ts`, extracted into one shared fragment, together with its identity guard (see D14).
+2. **Passage selection:** a chunk that overlaps the range may contain the matching line in a message outside it. The hydrated document carries per-message timestamps, so the canonical-line matcher considers only messages inside the range before selecting the earliest passage; a lexical winner whose only in-range occurrence is later in the chunk is therefore still returned. A vector-only winner has no matching line and keeps #197 D5's first-message anchor; when that anchor is outside the range the row is omitted even if a later message in the chunk was inside it. That is a known limitation inherited from D5 and is preferable to returning a dated row that contradicts the filter.
 
-Alternative considered: filter only in SQL. Rejected: a chunk-level overlap is not a message-level guarantee, and the row carries the message timestamp the model will reason from.
+Alternative considered: filter only in SQL, or re-check the already-selected passage after hydration. Rejected: a chunk-level overlap is not a message-level guarantee, and re-checking after selection silently drops a chat whose in-range match was simply not the earliest passage.
 
 ### D5. `preferred` is one additive RRF-style term
 
-In `doc_fused`, a document inside the preferred range gains `1 / (k + 1)` (`k = 60`), the contribution it would earn by ranking first in one extra leg. The term is bounded by construction, so a clear winner outside the range keeps its place while a near-tie inside the range moves up. Alternatives: a lexicographic "in-range first" sort key (makes a weak in-range hit beat an exact out-of-range one; violates the issue's retrievability clause); no `preferred` at all (leaves the model choosing between a hard filter and no filter). The constant is a hypothesis; the eval layer records its effect on the new fixtures but does not tune it in this change.
+In `doc_fused`, a document whose span overlaps the preferred range (the same predicate as D4's document filter) gains one additive term `w_pref / (k + 1)` with `k = 60`. The term excludes nothing: it can only reorder documents that already matched a leg, so a preferred range never admits a chat the query did not reach. It is bounded by construction, but the bound is a design choice, not a free property: with the shipped leg weights (fts 1, trgm 0.35, title 1, vector 1) the whole fts leg spans `1/61 - 1/160 ≈ 0.0101`, so `w_pref = 1` (`≈ 0.0164`) would rank every in-range fts hit above every out-of-range lexical winner, which is the "in-range first" tier this decision rejects. The recorded hypothesis is `w_pref = 0.25` (`≈ 0.0041`), which lets an in-range document overtake an out-of-range one roughly twenty fts positions above it and no more. Because the term enters `doc_fused`, it also participates in the per-chat top-3 rollup (chat-level effect up to `(w1 + w2 + w3) · w_pref / (k + 1)`) and can change which document within a chat becomes `best_doc_id`, so a preferred range may move the hydrated passage to an in-range document of the same chat; that is intended. The range predicate needs the document's timestamps, so `doc_fused` joins back to the document table only when the block is present; the emitted SQL without it stays byte-identical. Alternatives: a lexicographic "in-range first" sort key (rejected: a weak in-range hit beats an exact out-of-range one); no `preferred` at all (leaves the model choosing between a hard filter and no filter). `w_pref` is a hypothesis recorded with its fixture effect; tuning belongs to #600.
 
 ### D6. Envelope carries `appliedRange` and `truncated`; rows carry nothing new
 
-`appliedRange` echoes exactly the bounds passed (a missing bound is absent, not filled with "now"), plus the constraint in content mode. `truncated` is set when the repository returned `limit + 1` rows. Per-leg ranks, fused scores, `matchedBy`, and leg names go to the existing `search_conversations` log line, never to the model. Rationale: a field the model sees is a field it rationalizes about; #197 D5 already excluded `matchedBy` and the spec forbids score exposure.
+`appliedRange` echoes exactly the bounds passed (a missing bound is absent, not filled with "now"), plus the constraint in content mode. `truncated` means candidate overflow before shaping: the repository fetches `limit + 1` candidates, the extra one is discarded before hydration, and `truncated: true` states that at least one further ranked candidate existed. Hydration may still drop rows, so `truncated: true` can accompany fewer than `limit` rows; the flag answers "was the candidate list cut", not "were exactly `limit` rows shown". Per-leg ranks, fused scores, and matched-by legs stay where they are today: retained on the internal result for the eval harness and never serialized to the model. No log line is added. Rationale: a field the model sees is a field it rationalizes about; #197 D5 already excluded `matchedBy` and the spec forbids score exposure.
 
 ### D7. Limits
 
-Content: `limit` 1–10, default 5 (unchanged). Timeline: 1–50, default 20. Both fetch `limit + 1` to compute `truncated`.
+Content: `limit` 1–10, default 5 (unchanged). Timeline: 1–50, default 20. Both fetch `limit + 1` to compute `truncated`. The advertised JSON Schema can only carry one `maximum` (50); the `limit` description states the per-mode range, and a content `limit` above 10 is rejected by the in-tool parse rather than clamped. The issue asked for server clamping; rejection is chosen so the model learns the bound instead of silently receiving fewer rows.
 
 ### D8. Minimal eval
 
@@ -86,9 +86,11 @@ z.object({
   .superRefine(/* mode rules, ordering, per-mode limit cap */);
 ```
 
-`superRefine` enforces: `content` requires a non-blank `query` and requires `constraint` when any bound is present; `timeline` forbids `query` and `constraint` and requires at least one bound; `after < before` when both present; `limit <= 10` in content mode. The `mode` description carries the two-shape contract and the tool description carries two few-shot calls. Alternative: nested `{ content?: {...}, timeline?: {...} }` with exactly-one. Rejected: exactly-one over optional objects is a shape models get wrong more often than an enum, and it cannot be expressed at the root either.
+Validation runs in two layers. The snapshotted JSON Schema (compiled by ajv at execution, advertised to the provider) enforces shape: known fields only, types, enum values, `limit` 1–50. The cross-field rules live in `superRefine` and do not survive the JSON Schema conversion, so the tool re-parses its input with the full Zod schema at the top of `execute`, exactly as `conversation_read` does, and returns the `invalid_input` observation on failure. Those rules are: `content` requires a non-blank `query`, requires `constraint` when any bound is present and forbids `constraint` when none is; `timeline` forbids `query` and `constraint` and requires at least one bound; `after < before` when both present; `limit <= 10` in content mode. Both layers reject before any retrieval statement; the spec's "never reach retrieval" scenario covers both. The `mode` description carries the two-shape contract and the tool description carries two few-shot calls. Alternative: nested `{ content?: {...}, timeline?: {...} }` with exactly-one. Rejected: exactly-one over optional objects is a shape models get wrong more often than an enum, and it cannot be expressed at the root either.
 
 ### D12. Stack
+
+Every layer is a `$gh-stack` layer implemented with `$openspec-apply-change`.
 
 ```text
 (master) <- episodic-timeline-search/proposal
@@ -104,18 +106,22 @@ After the `sql` layer merges, nothing user-visible changes: the new parameters a
 
 `chat-default.md` gains one paragraph after the existing recall paragraph, anchored on the temporal anchor already rendered there. The tool description stays short because it is bound into every receipt and resent every step. Until #454 ships, relative phrases resolve against the instance timezone; that is an accuracy limitation, not a blocker.
 
+### D14. `messages` predicates carry the reader's identity guard
+
+`messages` has a permissive `messages_public_read` policy for the empty identity over public chats. The existing reader defends against it twice: it throws on an empty owner id and adds `current_setting('app.current_user_id', true) = <owner>` inside the statement. Both new `messages` predicates (the D4 `EXISTS` and the timeline query) carry the same two guards, so an empty-identity call with a real owner id as the parameter returns no region and no metadata row even when that owner has a public chat. The projection tables need no such guard: their owner policy already requires a non-empty identity.
+
 ## Risks / Trade-offs
 
 - [The timeline query is a new owner-scoped scan over `messages` grouped by chat] → owner predicate plus RLS inside the statement, `messages_chat_created_idx`, `limit + 1`, and the same `SET LOCAL statement_timeout = 3000`; a timeout is a structured `search_failed` observation like today.
-- [Post-hydration range check can drop a vector-only winner whose match was in-range but whose anchor was not] → recorded as a known limitation; the fix is #197 D5's anchor rule, not this change.
-- [The `preferred` constant is untuned] → recorded as a hypothesis with its fixture effect; tuning is eval-epic work.
-- [Declaration change fails in-flight Runs bound to the old snapshot] → pre-launch, deploy quiesced; the tool-calling spec's fail-closed drift rule is the intended behavior.
+- [A required range drops a vector-only winner whose first-message anchor is outside the range while a later in-range message carried the match] → recorded as a known limitation; the fix is #197 D5's anchor rule, not this change.
+- [`w_pref` is untuned] → recorded as a hypothesis with its fixture effect; tuning is #600's work. The fixture asserts retrievability (out-of-range exact match stays in the top 10) and one near-tie reorder; it cannot prove the constant is right.
+- [Changing a code-owned conversation declaration] → the tool-calling requirement "Conversation read uses the existing immutable read-only tool loop" mandates quiesce, drain, deploy matching declarations, resume; the Migration Plan follows it. The fail-closed drift rule is the backstop, not the plan.
 - [Model calls timeline for "recently" with no bound] → schema rejects with a bounded invalid-argument observation; prompt guidance names the materialize-or-ask rule.
-- [Provider handling of the `format: date-time` keyword varies] → the keyword is advisory to the provider; the instant grammar is enforced by Zod at execution and by ajv at admission, and a malformed instant is a bounded invalid-argument observation.
+- [Provider handling of the `format: date-time` keyword varies] → the keyword is advisory to the provider; the instant grammar is enforced by ajv (`format` via ajv-formats) and by the in-tool Zod parse, and a malformed instant is a bounded invalid-argument observation.
 
 ## Migration Plan
 
-No data migration. Deploy API and worker together with no Runs in flight (pre-launch). Rollback is a redeploy of the prior binaries; no persisted shape depends on the new input because tool inputs are recorded as authored and replayed without re-validation.
+No data migration. Per the tool-calling declaration-cutover requirement: stop accepting new Runs, drain Runs bound to the prior `search_conversations` declaration, deploy API and worker with the matching declaration and executor, resume. Rollback is the same sequence with the prior binaries. Persisted `tool-search_conversations` parts authored under `{ query, limit }` replay as recorded: the context builder forwards `part.input` without re-validating historical tool inputs, and result neutralization touches results only.
 
 ## Open Questions
 

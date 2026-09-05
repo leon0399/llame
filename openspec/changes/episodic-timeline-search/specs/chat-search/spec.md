@@ -1,5 +1,45 @@
 ## MODIFIED Requirements
 
+### Requirement: Search matches titles and conversation text, case- and typo-tolerantly
+
+Chat search SHALL match a user's chats by title and by the text content of user/assistant turns, combining full-text matching (`simple` configuration, `websearch_to_tsquery` semantics) with trigram matching (`word_similarity`) so that case differences, inflections partially, typos, and partial words still retrieve the chat. Synthetic structural role labels used to format snippets MUST NOT match or affect ranking; literal occurrences of those words in a title or user/assistant message body SHALL remain searchable. No language detection SHALL be performed; matching MUST behave consistently for English, Russian, Spanish, and mixed-language content.
+
+#### Scenario: Exact title in different case
+
+- **WHEN** a user searches the exact title of one of their chats in all-lowercase (including a Cyrillic title)
+- **THEN** that chat is returned
+
+#### Scenario: Typo'd content term
+
+- **WHEN** a user searches a content word with a small typo or as an incomplete prefix
+- **THEN** the chat containing the correct form is returned via the trigram leg
+
+#### Scenario: Blank query
+
+- **WHEN** the web palette submits an empty or whitespace-only query
+- **THEN** the result is an empty list and no table scan is performed
+- **AND** the model tool instead returns its invalid-argument observation for a blank content query, as defined by the ranking-and-shaping requirement
+
+#### Scenario: Synthetic role label does not match
+
+- **WHEN** a user searches `user` or `assistant` and those words occur only as synthetic chunk role labels
+- **THEN** the chat is not returned and its labels do not influence relevance ranking
+
+#### Scenario: Synthetic role-label prefix does not match
+
+- **WHEN** a user searches a prefix such as `assis` that occurs only within a synthetic chunk role label
+- **THEN** the chat is not returned and the trigram substring path does not contribute the label to ranking
+
+#### Scenario: Synthetic role-label typo does not match
+
+- **WHEN** a user searches a small typo such as `assistnt` that is similar only to a synthetic chunk role label
+- **THEN** the chat is not returned and the trigram fuzzy path does not contribute the label to ranking
+
+#### Scenario: Literal role word remains searchable
+
+- **WHEN** a user searches `assistant` and that literal word occurs in a title or user/assistant message body
+- **THEN** the chat is returned through the corresponding title or content match path
+
 ### Requirement: Results are ranked by fused relevance with canonical model shaping
 
 Search SHALL rank candidates by Reciprocal Rank Fusion over independent retrieval legs (never by mixing raw scores), aggregate document matches into Chats with weighted top-N scoring, and produce a deterministic order with stable tie-breaking. The document legs SHALL be full-text, trigram, and — when the corpus has a selected embedding model and the query was embedded — an owner-filtered exact cosine scan over stored vectors. The vector leg SHALL rank only documents whose recorded model key equals the corpus's current selection, whose embedded content hash equals the live content hash, and whose recorded input version equals the current `EMBED_INPUT_VERSION`; every other document contributes nothing to that leg. Fusion weights and the rank constant SHALL be fixed values chosen by a recorded comparison, not runtime settings. Per-leg ranks and the set of legs a Chat matched on MAY be retained for logs and evaluation but SHALL NOT be exposed as a confidence value on any surface; raw cosine distance, lexical rank, and fused score SHALL NOT appear in web or model responses. The web response contract (`id`, nullable `title`, nullable `snippet`, `updatedAt`) SHALL be preserved. The `search_conversations` model input SHALL be the strict two-mode contract defined below; the prior `{ query, limit }` shape SHALL NOT be accepted or aliased. A web content match SHALL continue to receive the derived best-region snippet with presentation role attribution; a title-only web match SHALL yield a `null` snippet. A web Chat that won through the vector leg with no lexical match SHALL receive the unhighlighted leading fragment of its winning document as its snippet rather than `null`.
@@ -16,11 +56,11 @@ Only one passage SHALL be returned per Chat in this iteration. A title-only mode
 
 A winning document that ranked without any individually qualifying canonical line — a vector-only winner — SHALL still be reauthorized and hydrated through the same canonical source contract. When hydration succeeds, model shaping SHALL return a `kind: "content"` result anchored to the winning document's **first** message: `messageSeq` is that message's sequence, `offset` is the logical line containing the document's first-message text offset, and `limit` runs to the end of that message's eligible visible text — or to the document's exclusive end offset when the document begins and ends in the same message. The excerpt SHALL be a fixed crop at the start of that window, framed exactly like every other content result. A document spanning several messages therefore yields the window of its first message only; the remaining messages are reachable through `conversation_read`, not implied by the coordinates. It SHALL NOT invent a match span, a semantic quote, a relevance explanation, or a score, and SHALL NOT be distinguishable to the model as "semantic" beyond the absence of a highlighted term. When hydration fails, it SHALL be omitted like any other stale candidate. This anchor is retained unchanged by the timeline-and-range contract; its interaction with a required range is defined below.
 
-`search_conversations` SHALL accept exactly one strict object with unknown properties rejected: `mode` (`content` or `timeline`), optional `query`, optional `after` and `before` (absolute timezone-explicit instants forming the half-open interval `[after, before)`), optional `constraint` (`required` or `preferred`), and optional integer `limit`. In `content` mode `query` SHALL be present and non-blank, `constraint` SHALL be present when any bound is present and absent otherwise, and `limit` SHALL be 1–10 with default 5. In `timeline` mode `query` and `constraint` SHALL be absent, at least one bound SHALL be present, and `limit` SHALL be 1–50 with default 20. When both bounds are present `after` SHALL be strictly earlier than `before`. A bound MAY be omitted on either side; a missing bound imposes no clause and SHALL NOT be silently filled with the current instant. Every violation — unknown field, blank query, missing query, query or constraint in timeline mode, no bound in timeline mode, bound without constraint in content mode, reversed or empty range, malformed instant, out-of-range limit — SHALL return a bounded invalid-argument observation before any retrieval statement executes. The tool SHALL NOT parse natural-language dates.
+`search_conversations` SHALL accept exactly one strict object with unknown properties rejected: `mode` (`content` or `timeline`), optional `query`, optional `after` and `before` (absolute timezone-explicit instants forming the half-open interval `[after, before)`), optional `constraint` (`required` or `preferred`), and optional integer `limit`. In `content` mode `query` SHALL be present and non-blank, `constraint` SHALL be present when any bound is present and absent otherwise, and `limit` SHALL be 1–10 with default 5. In `timeline` mode `query` and `constraint` SHALL be absent, at least one bound SHALL be present, and `limit` SHALL be 1–50 with default 20. When both bounds are present `after` SHALL be strictly earlier than `before`. A bound MAY be omitted on either side; a missing bound imposes no clause and SHALL NOT be silently filled with the current instant. Every violation — unknown field, blank query, missing query, query or constraint in timeline mode, no bound in timeline mode, bound without constraint or constraint without bound in content mode, reversed or empty range, malformed instant, out-of-range limit — SHALL return a bounded invalid-argument observation before any retrieval statement executes, whether the violation is caught by the advertised schema or by the tool's own strict parse of its arguments. The tool SHALL NOT parse natural-language dates.
 
-A `required` range SHALL exclude candidates whose canonical eligible message timestamps fall outside `[after, before)` before ranking, and a resolved content passage whose own message timestamp falls outside the range SHALL be omitted after hydration even when its projection document overlapped the range. A title-only candidate under a required range SHALL be returned as `kind: "metadata"` only when the Chat has at least one eligible message inside the range. A `preferred` range SHALL NOT exclude any candidate; it SHALL add one bounded additive rank-fusion contribution — no greater than the contribution a document earns by ranking first in a single leg — to documents whose message timestamps fall inside the range, so a strong match outside the range remains retrievable in its ordinary position relative to clearly weaker in-range matches and carries its actual timestamp. With no range, content mode SHALL preserve the global relevance order and SHALL NOT apply a recency decay.
+A `required` range SHALL exclude candidates whose canonical eligible message timestamps fall outside `[after, before)` before ranking. When a winning document is hydrated, canonical-line passage selection SHALL consider only messages whose timestamps fall inside the range, so a returned content passage always carries an in-range timestamp; a vector-only winner whose first-message anchor falls outside the range SHALL be omitted. A title-only candidate under a required range SHALL be returned as `kind: "metadata"` only when the Chat has at least one eligible message inside the range. A `preferred` range SHALL NOT exclude any candidate and SHALL NOT admit one: it SHALL add one fixed additive rank-fusion contribution to documents whose span overlaps the range, smaller than the contribution a document earns by ranking first in a single leg, so that an exact match outside the range remains retrievable within `limit` and carries its actual timestamp while in-range documents may overtake out-of-range documents ranked moderately above them. The magnitude SHALL be a recorded constant, not a runtime setting. With no range, content mode SHALL preserve the global relevance order and SHALL NOT apply a recency decay.
 
-Every success SHALL carry an envelope with the closed untrusted-history notice, `appliedRange` echoing exactly the bounds and constraint received (an omitted bound is absent), and `truncated: true` when at least one further qualifying result existed beyond `limit`. Per-leg ranks, fused scores, matched-by legs, and the reason a candidate was omitted SHALL NOT appear in any row or in the envelope.
+Every success SHALL carry an envelope with the closed untrusted-history notice, `appliedRange` echoing exactly the bounds and constraint received (an omitted bound is absent), and `truncated: true` when the ranked candidate list held at least one further candidate beyond `limit` before shaping; because shaping may omit candidates, `truncated: true` MAY accompany fewer than `limit` rows. Per-leg ranks, fused scores, matched-by legs, and the reason a candidate was omitted SHALL NOT appear in any row or in the envelope.
 
 #### Scenario: Content match returns a highlighted snippet
 
@@ -162,8 +202,8 @@ Every success SHALL carry an envelope with the closed untrusted-history notice, 
 #### Scenario: Preferred range cannot hide a strong match
 
 - **WHEN** a content query with `constraint: "preferred"` has an exact match outside the range and only weak matches inside it
-- **THEN** the exact match remains in the results in its ordinary position with its actual timestamp
-- **AND** two near-tied matches are ordered with the in-range one first
+- **THEN** the exact match remains within the returned results with its actual timestamp
+- **AND** an in-range document ranked moderately below an out-of-range document overtakes it while a document far below does not
 
 #### Scenario: One-sided range is a single clause
 
@@ -174,12 +214,12 @@ Every success SHALL carry an envelope with the closed untrusted-history notice, 
 #### Scenario: Envelope reports coverage without diagnostics
 
 - **WHEN** more qualifying results exist than `limit`
-- **THEN** the success carries `truncated: true` and the echoed `appliedRange`
+- **THEN** the success carries `truncated: true` and the echoed `appliedRange` even if shaping returned fewer than `limit` rows
 - **AND** no row or envelope field carries a score, rank, leg name, or omission reason
 
 ### Requirement: Search never crosses the tenant boundary
 
-The search path SHALL return only chats owned by the requesting user. Another user's content MUST NOT be reachable through search even when it matches the query exactly, and a `visibility = 'public'` chat of another user MUST NOT surface in search results. System prompts, tool payloads, and model reasoning MUST NOT be matched or surfaced in snippets. Isolation SHALL be enforced by RLS on the underlying tables (owner filters remain as defense-in-depth) and proven by negative tests in the RLS harness. The vector leg SHALL carry the same explicit owner predicate inside its candidate query and SHALL be covered by the same negative tests, including the empty-identity case, so a stored vector is never reachable across a tenant boundary that lexical retrieval already enforces. Timeline discovery SHALL qualify Chats only through the requesting owner's eligible messages under the same RLS and explicit owner predicate, and SHALL be covered by the same negative tests: another owner's activity, another owner's public Chat, and the empty-identity case yield no region, no count, and no title.
+The search path SHALL return only chats owned by the requesting user. Another user's content MUST NOT be reachable through search even when it matches the query exactly, and a `visibility = 'public'` chat of another user MUST NOT surface in search results. System prompts, tool payloads, and model reasoning MUST NOT be matched or surfaced in snippets. Isolation SHALL be enforced by RLS on the underlying tables (owner filters remain as defense-in-depth) and proven by negative tests in the RLS harness. The vector leg SHALL carry the same explicit owner predicate inside its candidate query and SHALL be covered by the same negative tests, including the empty-identity case, so a stored vector is never reachable across a tenant boundary that lexical retrieval already enforces. Every predicate this capability evaluates over canonical messages — timeline discovery and required-range activity checks — SHALL carry the same identity guard as `conversation_read`: it SHALL refuse an empty trusted identity and SHALL require inside the statement that the session identity equals the owner predicate, so the public-read message policy can never satisfy an owner-scoped query. These predicates SHALL be covered by the same negative tests: another owner's activity, another owner's public Chat, and an empty identity combined with a real owner id yield no region, no count, no metadata row, and no title.
 
 #### Scenario: Cross-tenant exclusion
 
@@ -198,8 +238,8 @@ The search path SHALL return only chats owned by the requesting user. Another us
 
 #### Scenario: Timeline discovery respects the tenant boundary
 
-- **WHEN** user B requests a timeline range during which only user A had activity, including in a public Chat, or the request runs with no identity
-- **THEN** the result contains no region, count, title, or sequence from user A's Chats
+- **WHEN** user B requests a timeline range or required-range search during which only user A had activity, including in a public Chat, or the request runs with an empty identity while naming user A as owner
+- **THEN** the result contains no region, count, metadata row, title, or sequence from user A's Chats
 
 ### Requirement: Retrieval quality is measured against a versioned eval baseline
 
@@ -230,7 +270,7 @@ The repository SHALL contain a small versioned relevance dataset (exact phrases,
 
 ### Requirement: Timeline discovery returns canonical activity pointers without excerpts
 
-In `timeline` mode `search_conversations` SHALL qualify a Chat by the timestamps of its canonical evidence-eligible messages inside `[after, before)`, never by Chat creation time or a generic last-updated value. For each qualifying Chat it SHALL return exactly one region containing `chatId`, the nullable title, `firstActivityAt` and `lastActivityAt` (the earliest and latest eligible message instants inside the range), `messageCount` (eligible messages inside the range), and `firstSeq` and `lastSeq` (the Chat-local sequences of those boundary messages), each directly acceptable as `conversation_read` `messageSeq`. Regions SHALL be ordered by `lastActivityAt` descending with `chatId` as the stable tie-break, bounded by `limit`, with `truncated` reported in the envelope. A region SHALL carry no excerpt, opening text, message body, snippet, score, matched-by value, embedding, summary, or generated text. Timeline mode SHALL execute no query embedding and SHALL NOT read the search projection. Owner identity SHALL come only from trusted Run context.
+In `timeline` mode `search_conversations` SHALL qualify a Chat by the timestamps of its canonical evidence-eligible messages inside `[after, before)`, never by Chat creation time or a generic last-updated value. For each qualifying Chat it SHALL return exactly one region containing `chatId`, the nullable title, `firstActivityAt` and `lastActivityAt` (the earliest and latest eligible message instants inside the range), `messageCount` (eligible messages inside the range), and `firstSeq` and `lastSeq` (the minimum and maximum Chat-local sequence among eligible messages inside the range, since a message and its reply may share one instant), each directly acceptable as `conversation_read` `messageSeq`. Regions SHALL be ordered by `lastActivityAt` descending with `chatId` as the stable tie-break, bounded by `limit`, with `truncated` reported in the envelope. A region SHALL carry no excerpt, opening text, message body, snippet, score, matched-by value, embedding, summary, or generated text. Timeline mode SHALL execute no query embedding and SHALL NOT read the search projection. Owner identity SHALL come only from trusted Run context.
 
 #### Scenario: Recap of a day yields pointers, then reads
 
