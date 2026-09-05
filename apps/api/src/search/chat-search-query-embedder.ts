@@ -123,19 +123,20 @@ function embedWithBudget(
   return Promise.race([
     backend.embedQuery(text),
     new Promise<never>((_resolve, reject) => {
+      // Always reject with a fixed AbortError, never `combined.reason` —
+      // that reason's shape depends on whoever aborted the source signal.
+      // AbortSignal.timeout() yields a DOMException, but a run's wall-clock
+      // timeout aborts with the plain string RUN_TIMEOUT_ABORT_REASON
+      // (run-execution.service.ts), which `embedQueryForSearch`'s catch
+      // block below would otherwise fail to recognize as an abort and
+      // misreport as `provider_error`.
+      const onAbort = () =>
+        reject(new DOMException('Query embed budget exceeded', 'AbortError'));
       if (combined.aborted) {
-        reject(toError(combined.reason));
+        onAbort();
         return;
       }
-      combined.addEventListener(
-        'abort',
-        () => reject(toError(combined.reason)),
-        { once: true },
-      );
+      combined.addEventListener('abort', onAbort, { once: true });
     }),
   ]);
-}
-
-function toError(reason: unknown): Error {
-  return reason instanceof Error ? reason : new Error(String(reason));
 }

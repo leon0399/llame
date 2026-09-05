@@ -158,6 +158,29 @@ describe('ChatSearchQueryEmbedder', () => {
       expect(result).toEqual({ fallback: 'timeout' });
     });
 
+    it('returns timeout when the abort signal fires with a non-Error reason (run wall-clock timeout)', async () => {
+      // run-execution.service.ts's RUN_TIMEOUT_ABORT_REASON aborts the Run's
+      // AbortSignal with a plain string, not a DOMException — the same signal
+      // `search_conversations` forwards here as `abortSignal`. Regression for
+      // a bug where that string reason was misclassified as provider_error.
+      const controller = new AbortController();
+      mockEmbedQuery.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(() => resolve([1, 2, 3, 4]), 5000);
+          }),
+      );
+      const embedder = createEmbedder();
+      const promise = embedder.embedQueryForSearch(
+        'tool',
+        'test',
+        controller.signal,
+      );
+      controller.abort('run-timeout');
+      const result = await promise;
+      expect(result).toEqual({ fallback: 'timeout' });
+    });
+
     it('never throws from embedQueryForSearch', async () => {
       mockEmbedQuery.mockRejectedValueOnce(new Error('kaboom'));
       const embedder = createEmbedder();
