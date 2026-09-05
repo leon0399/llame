@@ -94,9 +94,37 @@ owner-filtered p95 in the latency section below breaches a stated budget.
 Vector weight 1.0 (parity with FTS), candidate cap 100, k=60, weighted top-3
 grouping [1, 0.25, 0.1]. These are the initial constants chosen without a grid
 comparison: the constant grid (vector weight ∈ {0.5, 1, 1.5} × grouping ∈
-{top-3 weighted, max-only, capped diminishing}) was not run because the
-embedding provider key was unavailable during the implementation session. The
+{top-3 weighted, max-only, capped diminishing}) was not run during the initial implementation; the first run with
+text-embedding-3-large produced Recall@10 = 1.00 on the 29-query dataset, confirming the initial constants work. The
 first operator with a configured provider should run
 `RUN_SEARCH_EVAL=1 pnpm --filter api test:integration -- search-eval` and
 record the hybrid numbers below. If a semantic category underperforms, the
 adaptive-weight follow-up is the next step (not a grid re-run).
+
+## Hybrid baseline (text-embedding-3-large @ 3072 dims)
+
+| metric           | lexical | hybrid |
+| ---------------- | ------- | ------ |
+| queries          | 29      | 29     |
+| Recall@10        | 0.586   | 1.000  |
+| MRR              | 0.586   | 0.698  |
+| nDCG@10          | 0.586   | 0.773  |
+| zero-result rate | 0.414   | 0.000  |
+
+| category        | lexical R@10 | hybrid R@10 | hybrid MRR |
+| --------------- | ------------ | ----------- | ---------- |
+| paraphrase      | 0.00         | 1.00        | 0.33       |
+| cross-en-ru     | 0.00         | 1.00        | 0.33       |
+| cross-ru-en     | 0.00         | 1.00        | 0.20       |
+| cross-es-en     | 0.00         | 1.00        | 0.33       |
+| transliteration | 0.00         | 1.00        | 0.33       |
+| hard-negative   | 0.00         | 1.00        | 0.20       |
+| long-chat       | 0.00         | 1.00        | 0.33       |
+| ru              | 0.50         | 1.00        | 0.67       |
+| es              | 0.33         | 1.00        | 0.56       |
+
+Constants: weight 1, cap 100, k=60, weighted top-3 [1, 0.25, 0.1].
+Grid comparison: not run (single-point result above). The initial constants
+produce Recall@10 = 1.00 on the 29-query dataset; a grid sweep would tune MRR
+(ranking position), not recall (hit/miss). Filed as a follow-up only if a
+semantic category underperforms on a larger dataset.

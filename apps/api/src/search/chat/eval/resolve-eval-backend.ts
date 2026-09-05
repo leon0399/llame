@@ -16,10 +16,12 @@ export type EvalEmbedBackend = {
 
 function resolveEnv(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined;
-  const m = /^\{env:([^}]+)\}$/.exec(v);
+  const m = /^\{env:([^}:]+)(?::-(.*))?\}$/.exec(v);
   if (!m) return v;
   const envKey = m[1];
-  return envKey ? process.env[envKey] : undefined;
+  if (!envKey) return undefined;
+  const envVal = process.env[envKey];
+  return envVal ?? m[2] ?? undefined;
 }
 
 export function resolveEvalEmbedBackend(): EvalEmbedBackend | undefined {
