@@ -255,7 +255,7 @@ function textThenToolCallResponse(
       type: 'tool-call',
       toolCallId: 'call-1',
       toolName: 'search_conversations',
-      input: JSON.stringify({ query }),
+      input: JSON.stringify({ mode: 'content', query }),
     },
     {
       type: 'finish',
@@ -283,7 +283,7 @@ function reasoningTextThenToolCallResponse(
       type: 'tool-call',
       toolCallId: 'call-1',
       toolName: 'search_conversations',
-      input: JSON.stringify({ query }),
+      input: JSON.stringify({ mode: 'content', query }),
     },
     {
       type: 'finish',
@@ -307,7 +307,7 @@ function unlistedToolCallResponse(
       type: 'tool-call',
       toolCallId: 'call-bad',
       toolName,
-      input: JSON.stringify({ query }),
+      input: JSON.stringify({ mode: 'content', query }),
     },
     {
       type: 'finish',
@@ -355,7 +355,7 @@ function alwaysToolCallResponse(
       type: 'tool-call',
       toolCallId: callId,
       toolName: 'search_conversations',
-      input: JSON.stringify({ query }),
+      input: JSON.stringify({ mode: 'content', query }),
     },
     {
       type: 'finish',
@@ -1050,6 +1050,181 @@ describeIfDb('executeRun tool-loop persistence', () => {
     } finally {
       await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
       await sql`DELETE FROM chats WHERE id = ${sourceChatId}`;
+    }
+  });
+
+  it('timeline mode then conversation_read persists appliedRange, truncated, and every region verbatim (task 2.9)', async () => {
+    const sourceChatId = crypto.randomUUID();
+    let sourceMessage: Awaited<ReturnType<MessagesRepository['create']>>;
+    await tenantDb.runAs(userId, async (tx) => {
+      await new ChatsRepository(tx).createIfAbsent({
+        id: sourceChatId,
+        ownerUserId: userId,
+        title: 'Timeline source',
+      });
+      sourceMessage = await new MessagesRepository(tx).create({
+        chatId: sourceChatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [{ type: 'text', text: 'Yesterday I planned the launch.' }],
+      });
+    });
+
+    const after = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const before = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    const seeded = await seedBoundRun(
+      `timeline-then-read-${crypto.randomUUID()}`,
+      ['search_conversations', 'conversation_read'],
+    );
+    const service = serviceWithTools({
+      allowed: ['search_conversations', 'conversation_read'],
+    });
+
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        if (turn === 1) {
+          return Promise.resolve(
+            jsonToolCallResponse('timeline-call', 'search_conversations', {
+              mode: 'timeline',
+              after,
+              before,
+            }),
+          );
+        }
+        if (turn === 2) {
+          return Promise.resolve(
+            jsonToolCallResponse('read-call', 'conversation_read', {
+              chatId: sourceChatId,
+              messageSeq: sourceMessage!.seq,
+              offset: 0,
+              limit: 1,
+            }),
+          );
+        }
+        return Promise.resolve(
+          textResponse('Yesterday you planned the launch.'),
+        );
+      },
+    });
+
+    try {
+      const result = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await result.consumeStream?.();
+
+      expect(turn).toBe(3);
+
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+      );
+      const assistant = messages.find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.inReplyTo === seeded.userMessage.id,
+      );
+      const parts = assistant?.parts.filter(isTypedPart) ?? [];
+
+      const searchPart = parts.find(
+        (part) => part.type === 'tool-search_conversations',
+      );
+      expect(searchPart).toMatchObject({
+        toolCallId: 'timeline-call',
+        state: 'output-available',
+        output: {
+          status: 'success',
+          appliedRange: { after, before },
+          truncated: false,
+          results: expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'timeline',
+              chatId: sourceChatId,
+              messageCount: 1,
+              firstSeq: sourceMessage!.seq,
+              lastSeq: sourceMessage!.seq,
+            }),
+          ]),
+        },
+      });
+
+      const readPart = parts.find(
+        (part) => part.type === 'tool-conversation_read',
+      );
+      expect(readPart).toMatchObject({
+        toolCallId: 'read-call',
+        state: 'output-available',
+        output: {
+          status: 'success',
+          chatId: sourceChatId,
+          messageSeq: sourceMessage!.seq,
+        },
+      });
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      await sql`DELETE FROM chats WHERE id = ${sourceChatId}`;
+    }
+  });
+
+  it('timeline mode with no bound receives invalid_input and the Run continues (task 2.9)', async () => {
+    const seeded = await seedBoundRun(
+      `timeline-no-bound-${crypto.randomUUID()}`,
+    );
+    const service = serviceWithTools();
+
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        return Promise.resolve(
+          turn === 1
+            ? jsonToolCallResponse('timeline-invalid', 'search_conversations', {
+                mode: 'timeline',
+              })
+            : textResponse('I could not run that timeline query.'),
+        );
+      },
+    });
+
+    try {
+      const result = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await result.consumeStream?.();
+
+      expect(turn).toBe(2);
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      expect(
+        events.filter((event) => event.eventType === 'run.completed'),
+      ).toHaveLength(1);
+
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+      );
+      const assistant = messages.find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.inReplyTo === seeded.userMessage.id,
+      );
+      expect(assistant?.parts).toContainEqual(
+        expect.objectContaining({
+          type: 'tool-search_conversations',
+          toolCallId: 'timeline-invalid',
+          state: 'output-error',
+          outcome: 'invalid_input',
+        }),
+      );
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
     }
   });
 

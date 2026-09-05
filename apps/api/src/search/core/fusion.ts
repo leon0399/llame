@@ -286,6 +286,11 @@ function buildDocumentRollup(config: HybridSearchConfig, refs: QueryRefs) {
   const { term, groupTopNWeights } = refs;
   const [w1, w2, w3] = groupTopNWeights;
 
+  // Both optional fragments below are glued onto the trgm_c line with no
+  // literal whitespace of their own so an absent vector leg or absent
+  // rangePreference contributes NOTHING here — required for the
+  // byte-identical-when-absent guarantee on `HybridSearchConfig.vector` and
+  // `HybridSearchConfig.rangePreference`.
   const vectorUnion = config.vector
     ? sql`
         UNION ALL
