@@ -36,7 +36,7 @@ test('production HTTP MCP pages declarations, validates calls, enforces allowlis
   const dir = directory(); let step = 0;
   const mcp = await mcpServer(t, { result: { content: [{ type: 'text', text: `private output ${mcpKey}` }] } });
   const provider = await server(t, (req, res) => {
-    assert.deepEqual(req.body.tools.map(item => item.function.name), ['mcp__notes__read']);
+    assert.deepEqual(req.body.tools.map(item => item.function.name), ['search_conversations', 'conversation_read', 'mcp__notes__read']);
     assert.ok(!JSON.stringify(req.body).includes(mcpKey));
     assert.ok(!JSON.stringify(req.body).includes(key));
     if (step++ === 0) return tool(res, 'mcp__notes__read', { id: 'not an integer' }, 'invalid');

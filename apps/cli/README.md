@@ -2,8 +2,10 @@
 
 A first-party TypeScript terminal with two execution modes and a saved user-selected default:
 
-- **Local:** its own configuration, model endpoint, SQLite conversations and
-  bounded agent loop. No llame account, Hub, Postgres or running web app.
+- **Local:** a thin client of a personal Node that owns configuration resolution,
+  the model/tool loop, SQLite conversations, recall and live Knowledge reads.
+  The Node starts automatically as a separate process. No llame account, Hub,
+  Postgres, network listener or manually started service is required.
 - **Remote:** a thin authenticated client of an existing llame API node. That
   node owns execution, providers, policy and durable Runs.
 
@@ -44,6 +46,103 @@ dependencies, when installed, are copied for the build platform, not cross-compi
 It contains no model, provider configuration or credentials. The CLI is not
 published to npm by this change. Node 22's built-in SQLite emits an experimental
 warning; it goes to stderr, not JSONL stdout.
+
+## Local Node: automatic or persistent
+
+Ordinary local commands start a private Node subprocess over stdio, or connect to
+an already-running Node in the selected data directory. The terminal never opens
+SQLite or runs the model/tool loop itself. Configuration-management and remote
+authentication commands remain client-side operations.
+
+```sh
+# No service setup: start a child Node automatically.
+llame --local run "Explain this design"
+llame node status
+
+# Terminal A: explicitly keep the same Node alive independently of terminals.
+llame node serve
+
+# Terminal B: automatically attach to its private endpoint.
+llame --local run "Continue working on my notes"
+llame --local runs list
+llame --local runs follow RUN_UUID --after 0
+llame --local runs cancel RUN_UUID
+```
+
+`node` management commands address the local Node even when a remote default is
+saved. `node status` can start a temporary Node; it is not a promise that a daemon
+was already running. `node serve` stays in the foreground; this release does not
+install a service, detach a daemon or open a TCP port. Persistent mode uses a Unix
+socket (`node.sock`, 0600) under the private 0700 data directory and requires
+Linux/WSL or another compatible Unix platform. A stale, wrong-owner or insecure
+endpoint is an error, never a silent fallback to another executor. After an actual
+Node crash, `llame node recover` checks the recorded process before removing its
+endpoint, then `llame --local recover` reconciles interrupted Runs.
+
+The Node owns its startup environment and configuration path. A Surface cannot
+send provider credentials or substitute a different config through the protocol.
+Restart a persistent Node to change its inherited environment. Configuration
+content is loaded for each operation; changing the path requires restarting or
+selecting the same path on the client. State and resource reads require no model
+configuration. Native Workspace authority also belongs to the Node's boot grant:
+
+```sh
+# Terminal A: no native authority exists unless explicitly granted here.
+llame --native --cwd /absolute/project node serve
+# Terminal B: opt into that exact grant for this Run.
+llame --local --native --cwd /absolute/project run "Inspect this project"
+```
+
+A client cannot extend this grant to another directory. Read the
+[local protocol contract](../../docs/node/local-protocol.md) for negotiation,
+approval-channel provenance, cancellation and event replay. The OS user is the
+local principal; filesystem permissions do not isolate hostile same-user code or
+prove that a third-party client displayed a human approval prompt.
+
+## Local recall and live Markdown Knowledge
+
+Local Runs now have native `search_conversations` and `conversation_read` tools,
+without MCP or `--native`. They retrieve only visible user/assistant text from
+this personal Node. Search is a literal, multilingual SQLite FTS5 trigram search
+with a three-character minimum, not semantic/vector search. The current Chat is
+excluded from model search; exact read coordinates contain Chat ID, dense
+Chat-local message sequence, message UUID and logical-line offset. Tool results,
+system content and hidden reasoning are not indexed.
+
+```sh
+llame --local chats search "indexing"
+llame --local chats read CHAT_UUID MESSAGE_SEQUENCE 0 40
+llame --local search rebuild
+llame --local run "Find the indexing decision from my earlier conversations"
+
+llame --local knowledge create "Personal notes"
+llame --local knowledge list
+llame --local knowledge show SPACE_UUID
+llame --local knowledge search "indexing"
+llame --local knowledge read SPACE_UUID notes.md 0 40
+llame --local run "Search my Knowledge Spaces for the indexing note"
+```
+
+`knowledge create` returns the private directory in which to put ordinary UTF-8
+Markdown files. The owner edits those files with their usual editor; this cut
+provides no agent-authored writes. Live changes are visible on later reads without
+an ingestion job. Each space has a stable UUID; duplicate display names do not
+merge resources. The Node provisions directories beneath its managed Knowledge
+root instead of accepting arbitrary host paths from a client or model.
+
+Knowledge tools reuse the hosted filesystem adapter's bounded Markdown search,
+logical-line reads, path/symlink checks and coverage diagnostics. A Run binds its
+space IDs before inference; a concurrently created space is not silently added.
+An unreadable source or exhausted search budget is reported, not converted into
+"no matching content." A search projection rebuild leaves source messages intact.
+All local reads remain subject to configured inference egress: retrieved personal
+text may be sent to the model endpoint you selected. They are untrusted source
+data, not new instructions or tool permissions.
+
+This is local capability, not a mirror of hosted resources. Local and hosted recall
+share concepts and names but do not yet share every DTO, ranking rule or receipt.
+There is no Personal Realm synchronization, remote Knowledge cache, Profile Space
+binding, tool gateway, automatic retention or semantic embedding pipeline here.
 
 ## Persistent remote default
 
@@ -145,8 +244,9 @@ IDs are printed on stderr and included in JSONL Run events.
 
 ## Workspace execution and approvals
 
-Without enabled MCP servers, local mode is text-only by default. To advertise the startup directory as an
-explicitly authorized **native** Workspace:
+Local recall and provisioned Knowledge reads are available without generic host
+file/process access. To advertise the startup directory as an explicitly
+authorized **native** Workspace:
 
 ```sh
 cd /path/to/project
@@ -199,16 +299,25 @@ llame recover
 
 State defaults to `$XDG_DATA_HOME/llame`, falling back to `~/.local/share/llame`.
 `--data-dir` or `LLAME_DATA_DIR` selects another **local** directory. SQLite stores
-ordered messages, Run snapshots, append-only events and remote replay cursors.
+ordered messages, Run snapshots, append-only events and rebuildable recall indexes.
+Remote replay cursors are disposable, private client files under `remote-cursors/`;
+the legacy SQLite cursor table is retained but no longer used by the CLI.
 Snapshots bind the model, prompt, advertised tools and bounds. Credentials live
 in separate authority-bound files, not SQLite. A `0700` state directory and
 `0600` files are required on POSIX. Do not put this state on a shared network
 filesystem. Permissions are not encryption; use appropriate disk protection and
 Windows account ACLs.
 
-One executor may advance a state directory at a time. Ctrl-C cancels a local Run
-and records its outcome; it exits the REPL. A killed process does not keep working.
-`recover` removes a lock only after the recorded PID is dead, marks incomplete
+One executor may advance a state directory at a time. Ctrl-C requests cancellation
+of the initiating local Run and exits the REPL. A temporary Node cancels when its
+Surface disappears. A persistent Node instead continues inference after client
+disconnection, with replay/inspection and cancellation available to another
+client. Pending and future interactive approvals fail closed after disconnect;
+a new client cannot take over the lost connection's approval rights. Explicit
+configured MCP auto-approval grants are unchanged.
+
+Killing the actual Node is different: execution stops, and no automatic restart
+replays the work. `recover` removes a lock only after the recorded PID is dead, marks incomplete
 Runs `interrupted` and records `outcome_unknown` for outstanding tool calls.
 It **never replays a side effect**. Inspect the Workspace before deciding to retry.
 A reused PID is treated conservatively as live. Recovery itself uses a lock; if
@@ -220,7 +329,7 @@ After the step cap it makes one explicitly tool-free final request. Context
 admission is a conservative serialized-byte budget, **not exact token counting**;
 there is no automatic compaction or silent history dropping. History is refused
 above a separate 8 MiB read guard. This release has no automatic retention policy.
-Stop the CLI and copy the whole state directory for a backup, including any WAL
+Stop the Node and all clients before copying the whole state directory for a backup, including any WAL
 files; protect credential files separately. Do not assume copying a live SQLite
 main file alone is a consistent backup.
 
@@ -278,7 +387,7 @@ Remote commands expose existing server capabilities only. The supplied node's
 read-only policy is not relaxed, and this CLI does not invent a remote approval
 endpoint or execute remote tool requests on your laptop.
 
-## Connected tools, episodic recall and Knowledge
+## Remote-node tools, episodic recall and Knowledge
 
 A connected Run is an ordinary node-owned Run. Its available `search_conversations`
 and `conversation_read`, `knowledge_search` and `knowledge_read`, and node-managed
@@ -296,8 +405,8 @@ llame runs tools RUN_UUID
 llame run "Search my earlier conversations and Knowledge Spaces for the decision"
 ```
 
-`chats search` is the existing chat-list search endpoint, not a CLI implementation
-of the richer agent recall tool. Knowledge commands list/show metadata; content
+In remote mode, `chats search` uses the existing chat-list search endpoint, not a
+replacement for the richer agent recall tool. Remote Knowledge commands list/show metadata; content
 reads/search use the assistant's governed tools. `runs tools` projects historical
 bound declarations and available/unavailable states without exposing the whole
 system prompt. It does not claim current permission or a generic invocation API.
@@ -311,8 +420,9 @@ separate contracts; Personal Realm is not being smuggled in as a tool transport.
 
 ## Standalone MCP tools
 
-Local Runs can use explicitly configured **stdio** and **Streamable HTTP** MCP
-servers without `--native`. The native flag grants generic Workspace tools; MCP
+The personal Node hosts explicitly configured **stdio** and **Streamable HTTP**
+MCP servers for local Runs without `--native`. The CLI only renders events and
+participates in approval requests; it does not execute MCP calls itself. The native flag grants generic Workspace tools; MCP
 is independently configured. Add an `mcp` map to your user configuration:
 
 ```json
@@ -418,11 +528,11 @@ Exit statuses are 0 for success, 1 for validation/protocol/action failure,
 observation; the overall Run may still complete with a truthful explanation.
 
 ```sh
-pnpm exec turbo run test --filter=cli --concurrency=1
-pnpm exec turbo run typecheck --filter=cli --concurrency=1
-pnpm exec turbo run test:coverage --filter=@workspace/runtime-safety --filter=@workspace/tool-runtime --concurrency=1
+pnpm exec turbo run build test typecheck --filter=cli --filter=@workspace/personal-node --concurrency=1
+pnpm exec turbo run test:coverage --filter=@workspace/runtime-safety --filter=@workspace/tool-runtime --filter=@workspace/knowledge-filesystem --concurrency=1
 pnpm --filter @workspace/runtime-safety test:mutation
 pnpm --filter @workspace/tool-runtime test:mutation
+pnpm --filter @workspace/knowledge-filesystem test:mutation
 ```
 
 The distribution suite currently targets Linux/WSL and needs util-linux `script`
@@ -438,7 +548,7 @@ real SDK transports and must not skip when dependencies are missing. `test:core`
 is the explicitly narrower dependency-light suite; it includes an injected MCP
 connection-port/model-loop test, not proof of the production SDK wire path.
 `test:mcp` runs the wire suite alone after builds. See the checked-in
-[round-two verification record](../../docs/research/cli/2026-09-05-round-two-verification.md)
+[round-three verification record](../../docs/research/cli/2026-09-05-round-three-verification.md)
 for what was actually executed in the implementation environment, and the
 [connection/MCP decisions](../../docs/research/cli/2026-09-05-persistent-connection-and-mcp.md)
 for sources and deferred boundaries.

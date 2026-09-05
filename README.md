@@ -29,11 +29,13 @@ Operator setup: [docs/conversation-recall.md](docs/conversation-recall.md),
 
 ## Terminal client
 
-The [first-party CLI](apps/cli/README.md) runs standalone against a user-managed
-OpenAI-compatible endpoint, or connects to an existing llame API with its current
-revocable Bearer sessions. Standalone mode has private SQLite conversations,
-streaming, bounded tools and per-action terminal approvals for explicitly enabled
-native Workspace edits/processes. Remote mode keeps execution on the API node.
+The [first-party CLI](apps/cli/README.md) is a thin terminal for a personal Node or
+an authenticated hosted llame API node. Local commands automatically launch a
+private Node process, which owns inference, tools, SQLite history, multilingual
+lexical recall and live Markdown Knowledge reads. `llame node serve` optionally
+keeps that Node alive independently of terminals, on a private Unix socket.
+Native Workspace writes/processes still require explicit placement and per-action
+approval. Remote configuration persists without making a remote account mandatory.
 
 ```sh
 pnpm install --frozen-lockfile

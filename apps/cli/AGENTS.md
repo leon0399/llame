@@ -11,7 +11,9 @@ pnpm exec turbo run package:standalone --filter=cli --concurrency=1
 ```
 
 Remote code consumes the API; it must not import API implementation/DB modules.
-Local SQLite is single-user runtime state, not a second client of Hub Postgres.
+Ordinary local commands use `@workspace/personal-node` IPC; never import its
+store, model loop or tool executor into the client. `node serve` alone launches
+the server role. SQLite belongs to that single-owner runtime, not the CLI or Hub.
 Only `env.ts` reads process environment in production. Credentials, human
 sessions and future cryptographic Node enrollment remain distinct boundaries.
 

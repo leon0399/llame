@@ -2,6 +2,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-05
 
+- **Personal Node boundary**: local CLI commands use a negotiated private Node
+  process; optional foreground `node serve` persists execution across terminal
+  disconnects. The runtime/store/tool host move into `@workspace/personal-node`.
+  No required hosted account, TCP listener or Personal Realm synchronization.
+- **Connection-scoped approvals**: explicit Node boot Workspace grants, one-use
+  initiating-channel decisions, recorded approval provenance, bounded RPC and
+  cursor-paged event replay. Disconnection never transfers approval authority;
+  interrupted executors require recovery rather than action replay.
+- **Native local recall and Knowledge**: source-attributed multilingual lexical
+  search/read tools, migrated stable message IDs and Chat-local sequence, and
+  rebuildable FTS5 projection. Live read-only Markdown spaces reuse the existing
+  hosted filesystem adapter, moved with its tests into `@workspace/knowledge-filesystem`.
+- **Round-three verification**: process/SQLite/recall/protocol checks are separate
+  from production SDK transport checks. See the checked-in round-three record for
+  executed checks and unresolved dependency/toolchain limits.
+
 - **Persistent CLI connection**: saved remote default, one-run `--local` override,
   explicit enable/disable, no auth/network fallback to another authority.
 - **CLI credential storage**: XDG data-home auth files, strict POSIX ownership and

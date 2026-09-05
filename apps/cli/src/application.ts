@@ -1,3 +1,5 @@
+import { isNumber } from '@workspace/runtime-safety';
+import { type UnknownRecord } from '@workspace/runtime-safety';
 import { mcpCommand } from './mcp-commands';
 import { randomUUID } from 'node:crypto';
 import { type Options } from './arguments';
@@ -29,7 +31,7 @@ export class Application {
     return this.node;
   }
 
-  private async local(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+  private async local(method: string, params: UnknownRecord = {}): Promise<unknown> {
     return (await this.localClient()).call(method, params, this.signal);
   }
 
@@ -183,7 +185,7 @@ export class Application {
       if (!Array.isArray(page.events)) throw new CliError('node_protocol', 'Invalid events page.');
       for (const event of page.events) {
         const entry = record(event, 'event');
-        if (typeof entry.sequence !== 'number' || entry.sequence <= after) throw new CliError('node_protocol', 'Invalid event sequence.');
+        if (!isNumber(entry.sequence) || entry.sequence <= after) throw new CliError('node_protocol', 'Invalid event sequence.');
         this.output.value(entry); after = entry.sequence;
       }
       if (page.hasMore === true) continue;

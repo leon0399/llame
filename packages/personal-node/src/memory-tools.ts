@@ -1,3 +1,4 @@
+import { type UnknownRecord } from '@workspace/runtime-safety';
 import { type ToolResult, isRecord } from '@workspace/runtime-safety';
 import { type ToolDefinition } from './types';
 import { type LocalStore } from './store';
@@ -7,7 +8,7 @@ import { CliError, aborted } from './errors';
 
 const searchProperties = { query: { type: 'string', minLength: 1, maxLength: 200 }, limit: { type: 'integer', minimum: 1, maximum: 10 } };
 const rangeProperties = { offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 2000 } };
-function definition(name: string, description: string, properties: Record<string, unknown>, required: string[]): ToolDefinition {
+function definition(name: string, description: string, properties: UnknownRecord, required: string[]): ToolDefinition {
   return { type: 'function', function: { name, description, parameters: { type: 'object', properties, required, additionalProperties: false } } };
 }
 const recallTools = [

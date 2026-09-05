@@ -1,4 +1,6 @@
-import { isBoolean, redactProtectedString, normalizeProtectedValues, sanitizeProtectedValueJson } from '@workspace/runtime-safety';
+import { createHash } from 'node:crypto';
+import { type UnknownRecord } from '@workspace/runtime-safety';
+import { isBoolean, isRecord, isString, redactProtectedString, normalizeProtectedValues, sanitizeProtectedValueJson } from '@workspace/runtime-safety';
 import { PersonalKnowledge } from './knowledge';
 import { ConversationRecall } from './recall';
 import { rebuildSearch } from './store-migration';
@@ -25,6 +27,7 @@ export interface NodeBoot {
 }
 
 export interface RequestContext {
+  readonly channelId: string;
   readonly signal: AbortSignal;
   readonly controller: AbortController;
   readonly approve: Approval;
@@ -40,7 +43,7 @@ export class NodeService {
 
   constructor(readonly boot: NodeBoot) { this.store = new LocalStore(boot.data); }
 
-  hello(params: Record<string, unknown>): NodeHello {
+  hello(params: UnknownRecord): NodeHello {
     keys(params, ['version'], 'core.hello');
     if (params.version !== 1) throw new CliError('protocol_version', 'This Node requires protocol version 1.');
     return { version: 1, nodeId: this.store.nodeId, principal: 'local-owner', transport: this.boot.transport,
@@ -50,7 +53,7 @@ export class NodeService {
       synchronization: false };
   }
 
-  async dispatch(method: string, params: Record<string, unknown>, context: RequestContext): Promise<unknown> {
+  async dispatch(method: string, params: UnknownRecord, context: RequestContext): Promise<unknown> {
     switch (method) {
       case 'core.status': keys(params, [], method); return { nodeId: this.store.nodeId, transport: this.boot.transport, enrolled: false, synchronization: false };
       case 'realm.models.list': return this.models(params);
@@ -75,11 +78,11 @@ export class NodeService {
     }
   }
 
-  private configuration(params: Record<string, unknown>): void {
+  private configuration(params: UnknownRecord): void {
     if (params.configIdentity !== pathIdentity(this.boot.config)) throw new CliError('node_config_mismatch', 'The running Node owns a different config. Stop it or use its configuration path; no credentials were resolved.');
   }
 
-  private models(params: Record<string, unknown>): unknown {
+  private models(params: UnknownRecord): unknown {
     keys(params, ['configIdentity'], 'realm.models.list'); this.configuration(params);
     const config = loadConfig(this.boot.config, this.boot.env);
     const value = { defaultModel: config.defaultModel ?? null, models: config.models.map(({ id, model, baseUrl }) => ({ id, model, baseUrl })) };
@@ -88,7 +91,7 @@ export class NodeService {
     return safe.value;
   }
 
-  private async execute(params: Record<string, unknown>, context: RequestContext): Promise<unknown> {
+  private async execute(params: UnknownRecord, context: RequestContext): Promise<unknown> {
     keys(params, ['chatId', 'prompt', 'model', 'native', 'workspaceIdentity', 'configIdentity'], 'execution.run');
     this.configuration(params);
     if (!isBoolean(params.native)) throw new CliError('arguments', 'native must be a boolean.');
@@ -101,35 +104,44 @@ export class NodeService {
     const config = loadConfig(this.boot.config, this.boot.env);
     let runId: string | undefined;
     const output = new NodeOutput((kind, value) => {
-      if (kind === 'event' && typeof value === 'object' && value !== null && 'runId' in value && typeof value.runId === 'string') {
+      if (kind === 'event' && isRecord(value) && isString(value.runId)) {
         runId = value.runId; this.active.set(runId, context.controller);
       }
       context.emit(kind, value);
     });
+    const model = selectModel(config, params.model === undefined ? undefined : text(params.model, 'model', 200));
     this.controllers.add(context.controller);
-    const promise = runLocal({ store: this.store, config, model: selectModel(config, params.model === undefined ? undefined : text(params.model, 'model', 200)),
+    const promise = runLocal({ store: this.store, config, model,
       chatId, prompt, cwd: this.boot.cwd, configPath: this.boot.config, native: params.native,
-      approve: (description, signal) => context.approve(redactProtectedString(description, config.protectedValues), signal), processEnv: commandEnvironment(this.boot.env), signal: context.signal, output });
+      approve: async (description, signal) => {
+        const prompt = redactProtectedString(description, config.protectedValues);
+        const approved = await context.approve(prompt, signal);
+        if (runId) output.event({ ...this.store.event(runId, 'surface.approval.decided', {
+          principal: 'local-owner', channelId: context.channelId, transport: this.boot.transport,
+          promptHash: createHash('sha256').update(prompt).digest('hex'), approved,
+        }), chatId });
+        return approved;
+      }, processEnv: commandEnvironment(this.boot.env), signal: context.signal, output });
     this.jobs.add(promise);
     try { return { runId: await promise }; }
     finally { this.controllers.delete(context.controller); this.jobs.delete(promise); if (runId) this.active.delete(runId); }
   }
 
-  private cancel(params: Record<string, unknown>): unknown {
+  private cancel(params: UnknownRecord): unknown {
     keys(params, ['runId'], 'execution.runs.cancel'); const id = uuid(params.runId);
     const controller = this.active.get(id);
     if (controller) controller.abort();
     return { runId: id, cancellationRequested: !!controller, run: this.store.run(id) };
   }
 
-  private recover(params: Record<string, unknown>): unknown {
+  private recover(params: UnknownRecord): unknown {
     keys(params, [], 'admin.recover'); removeDeadLock(this.store.directory);
     const unlock = executionLock(this.store.directory);
     try { this.store.recover(); } finally { unlock(); }
     return { recovered: true, actionsReplayed: false };
   }
 
-  private async mcp(params: Record<string, unknown>, context: RequestContext): Promise<unknown> {
+  private async mcp(params: UnknownRecord, context: RequestContext): Promise<unknown> {
     keys(params, ['id', 'configIdentity'], 'admin.mcp.discover'); this.configuration(params);
     const secrets: string[] = [];
     const servers = parseMcpServers(configDocument(this.boot.config).mcp, this.boot.env, this.boot.config, secrets,

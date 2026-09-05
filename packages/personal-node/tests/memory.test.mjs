@@ -46,8 +46,8 @@ test('FTS operators are literal and tool/system/hidden reasoning is not searchab
     assert.equal(recall.search({ query }).results.length, 0, query);
   }
   assert.equal(recall.search({ query: 'operator OR literal' }).results.length, 1);
-  const tool = db.db.prepare("SELECT seq,chat_id FROM messages WHERE json_extract(body,'$.role')='tool'").get();
-  assert.throws(() => recall.read({ chatId: tool.chat_id, messageSeq: tool.seq }), { code: 'conversation_source_not_found' });
+  const tool = db.db.prepare("SELECT chat_seq,chat_id FROM messages WHERE json_extract(body,'$.role')='tool'").get();
+  assert.throws(() => recall.read({ chatId: tool.chat_id, messageSeq: tool.chat_seq }), { code: 'conversation_source_not_found' });
 });
 
 test('conversation reads preserve shared CRLF/blank-line coordinates, bounds and source ownership', t => {
@@ -58,7 +58,8 @@ test('conversation reads preserve shared CRLF/blank-line coordinates, bounds and
   const read = recall.read({ chatId: first.chatId, messageSeq: hit.messageSeq, offset: 1, limit: 2 });
   assert.equal(read.content, '\r\nпривет\n'); assert.equal(read.lineCount, 2); assert.equal(read.nextOffset, 3);
   assert.equal(read.messageId, hit.messageId); assert.equal(read.cutReason, 'line_limit');
-  assert.throws(() => recall.read({ chatId: other.chatId, messageSeq: hit.messageSeq }), { code: 'conversation_source_not_found' });
+  assert.throws(() => recall.read({ chatId: randomUUID(), messageSeq: hit.messageSeq }), { code: 'conversation_source_not_found' });
+  assert.equal(recall.read({ chatId: other.chatId, messageSeq: hit.messageSeq }).content, 'separate conversation');
   assert.throws(() => recall.read({ chatId: first.chatId, messageSeq: hit.messageSeq, offset: 4 }), { code: 'conversation_range_invalid' });
   assert.throws(() => recall.read({ chatId: first.chatId, messageSeq: hit.messageSeq, limit: 2001 }), { code: 'invalid_data' });
   add(db, 'oversized ' + 'x'.repeat(15000));
@@ -70,7 +71,7 @@ test('conversation reads preserve shared CRLF/blank-line coordinates, bounds and
 test('derived recall index is transactionally maintained and rebuilt without changing sources', t => {
   const db = store(t); const recall = new ConversationRecall(db); add(db, 'original phrase');
   const hit = recall.search({ query: 'original' }).results[0];
-  db.db.prepare('UPDATE messages SET body=? WHERE seq=?').run(JSON.stringify({ role: 'assistant', content: 'replacement phrase' }), hit.messageSeq);
+  db.db.prepare('UPDATE messages SET body=? WHERE id=?').run(JSON.stringify({ role: 'assistant', content: 'replacement phrase' }), hit.messageId);
   assert.equal(recall.search({ query: 'original' }).results.length, 0);
   assert.equal(recall.search({ query: 'replacement' }).results[0].messageId, hit.messageId);
   const before = db.db.prepare('SELECT * FROM messages ORDER BY seq').all();
@@ -78,7 +79,7 @@ test('derived recall index is transactionally maintained and rebuilt without cha
   db.transaction(() => rebuildSearch(db.db));
   assert.deepEqual(db.db.prepare('SELECT * FROM messages ORDER BY seq').all(), before);
   assert.equal(recall.search({ query: 'replacement' }).results.length, 1);
-  db.db.prepare('DELETE FROM messages WHERE seq=?').run(hit.messageSeq);
+  db.db.prepare('DELETE FROM messages WHERE id=?').run(hit.messageId);
   assert.equal(recall.search({ query: 'replacement' }).results.length, 0);
 });
 
@@ -152,4 +153,14 @@ test('event replay is bounded, ordered and retains terminal status across every 
   }
   assert.deepEqual(collected.map(e => e.sequence), Array.from({ length: 150 }, (_, i) => i + 1));
   assert.throws(() => db.eventPage(randomUUID()), { code: 'not_found' });
+});
+
+ test('source sequences are dense within each Chat, never global database row IDs', t => {
+  const db = store(t); const recall = new ConversationRecall(db);
+  const first = add(db, 'first independent source'); const second = add(db, 'second independent source');
+  const one = recall.search({ query: 'first independent' }).results[0];
+  const two = recall.search({ query: 'second independent' }).results[0];
+  assert.equal(one.messageSeq, 2); assert.equal(two.messageSeq, 2); assert.notEqual(one.messageId, two.messageId);
+  assert.equal(recall.read({ chatId: first.chatId, messageSeq: 2 }).content, 'first independent source');
+  assert.equal(recall.read({ chatId: second.chatId, messageSeq: 2 }).content, 'second independent source');
 });

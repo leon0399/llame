@@ -56,7 +56,9 @@ export class LocalStore {
   }
 
   message(chatId: string, runId: string, message: Message): void {
-    this.db.prepare('INSERT INTO messages(id,chat_id,run_id,body) VALUES (?,?,?,?)').run(randomUUID(), chatId, runId, JSON.stringify(message));
+    this.db.prepare(`INSERT INTO messages(id,chat_id,run_id,body,chat_seq)
+      SELECT ?,?,?,?,COALESCE(MAX(chat_seq),0)+1 FROM messages WHERE chat_id=?`)
+      .run(randomUUID(), chatId, runId, JSON.stringify(message), chatId);
   }
 
   history(chatId: string): Message[] {
@@ -135,12 +137,4 @@ export class LocalStore {
     });
   }
 
-  cursor(authority: string, user: string, run: string): number {
-    const row = this.db.prepare('SELECT sequence FROM remote_cursors WHERE authority=? AND user_id=? AND run_id=?').get(authority, user, run);
-    return Number(row?.sequence ?? 0);
-  }
-  saveCursor(authority: string, user: string, run: string, chat: string, sequence: number): void {
-    this.db.prepare(`INSERT INTO remote_cursors VALUES (?,?,?,?,?) ON CONFLICT(authority,user_id,run_id)
-      DO UPDATE SET sequence=MAX(sequence,excluded.sequence)`).run(authority, user, run, chat, sequence);
-  }
 }

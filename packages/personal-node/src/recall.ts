@@ -15,7 +15,7 @@ export class ConversationRecall {
     if (Array.from(query).length < 3) throw new CliError('query_too_short', 'Local trigram search requires at least three characters. No semantic search was performed.');
     const limit = integer(args.limit ?? 5, 'limit', 1, 10);
     // Always quote the literal query: FTS operators and quotes are data.
-    const rows = this.store.db.prepare(`SELECT m.seq,m.id,m.chat_id,m.body,c.title,r.created_at
+    const rows = this.store.db.prepare(`SELECT m.seq,m.chat_seq,m.id,m.chat_id,m.body,c.title,r.created_at
       FROM message_search JOIN messages m ON m.seq=message_search.rowid
       JOIN chats c ON c.id=m.chat_id JOIN runs r ON r.id=m.run_id
       WHERE message_search MATCH ? AND m.chat_id<>? ORDER BY rank,m.seq DESC LIMIT ?`)
@@ -25,7 +25,7 @@ export class ConversationRecall {
       const lines = scanConversationLogicalLines(content);
       const matched = lines.findIndex(line => line.text.toLowerCase().includes(query.toLowerCase()));
       const offset = Math.max(0, matched - 1);
-      return { chatId: row.chat_id, messageSeq: row.seq, messageId: row.id, title: row.title, timestamp: row.created_at,
+      return { chatId: row.chat_id, messageSeq: row.chat_seq, messageId: row.id, title: row.title, timestamp: row.created_at,
         offset, limit: 8, excerpt: lines.slice(offset, offset + 3).map(line => line.text).join('\n').slice(0, 800),
         source: this.source(String(row.chat_id), String(row.id)) };
     });
@@ -38,7 +38,7 @@ export class ConversationRecall {
     const chatId = uuid(args.chatId); const seq = integer(args.messageSeq, 'messageSeq', 1, Number.MAX_SAFE_INTEGER);
     const offset = integer(args.offset ?? 0, 'offset', 0, Number.MAX_SAFE_INTEGER);
     const limit = integer(args.limit ?? 100, 'limit', 1, 2000);
-    const row = this.store.db.prepare(`SELECT m.id,m.body,r.created_at FROM messages m JOIN runs r ON r.id=m.run_id WHERE m.chat_id=? AND m.seq=?`).get(chatId, seq);
+    const row = this.store.db.prepare(`SELECT m.id,m.body,r.created_at FROM messages m JOIN runs r ON r.id=m.run_id WHERE m.chat_id=? AND m.chat_seq=?`).get(chatId, seq);
     if (!row) throw new CliError('conversation_source_not_found', 'Conversation source not found on this Node.');
     const message = parseMessage(parseJson(String(row.body)));
     if (message.role !== 'user' && message.role !== 'assistant') throw new CliError('conversation_source_not_found', 'Only visible conversation text is recallable.');

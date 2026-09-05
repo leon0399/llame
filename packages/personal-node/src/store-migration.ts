@@ -20,11 +20,15 @@ export function migrateState(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS remote_cursors(authority TEXT NOT NULL, user_id TEXT NOT NULL, run_id TEXT NOT NULL,
       chat_id TEXT NOT NULL, sequence INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(authority,user_id,run_id));
     ALTER TABLE messages ADD COLUMN id TEXT;
+    ALTER TABLE messages ADD COLUMN chat_seq INTEGER;
     CREATE TABLE knowledge_spaces(id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL);
   `);
   const update = db.prepare('UPDATE messages SET id=? WHERE seq=?');
   for (const row of db.prepare('SELECT seq FROM messages').iterate()) update.run(randomUUID(), Number(row.seq));
-  db.exec(`CREATE UNIQUE INDEX messages_identity ON messages(id);
+  db.exec(`WITH ordinals AS (SELECT seq,ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY seq) AS ordinal FROM messages)
+    UPDATE messages SET chat_seq=(SELECT ordinal FROM ordinals WHERE ordinals.seq=messages.seq);
+    CREATE UNIQUE INDEX messages_chat_sequence ON messages(chat_id,chat_seq);
+    CREATE UNIQUE INDEX messages_identity ON messages(id);
     CREATE VIRTUAL TABLE message_search USING fts5(text, tokenize='trigram');
     CREATE TRIGGER message_search_insert AFTER INSERT ON messages BEGIN
       INSERT INTO message_search(rowid,text) SELECT new.seq,json_extract(new.body,'$.content')

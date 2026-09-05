@@ -1,13 +1,13 @@
+import { type UnknownRecord } from '@workspace/runtime-safety';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { connect } from 'node:net';
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { type Readable, type Writable } from 'node:stream';
-import { isRecord, isString } from '@workspace/runtime-safety';
+import { isRecord, isString, isNumber } from '@workspace/runtime-safety';
 import { CliError } from '@workspace/personal-node/errors';
 import { privateDirectory } from '@workspace/personal-node/private-files';
-import { assertPrivateSocket, socketPath } from '@workspace/personal-node/socket';
+import { assertPrivateSocket, socketPath, entryExists } from '@workspace/personal-node/socket';
 import { JsonLines } from '@workspace/personal-node/json-lines';
 import { MAX_RESPONSE_BYTES } from '@workspace/personal-node/protocol';
 import { record, text, uuid } from '@workspace/personal-node/validation';
@@ -51,14 +51,14 @@ export class NodeClient {
 
   static async open(options: Options, env: NodeJS.ProcessEnv, output: Output, approve: Approval, signal: AbortSignal): Promise<NodeClient> {
     privateDirectory(options.data);
-    const path = process.platform === 'win32' ? undefined : socketPath(options.data);
+    const path = process.platform === 'win32' ? undefined : join(options.data, 'node.sock');
     let client: NodeClient;
-    if (path && existsSync(path)) {
+    if (path && entryExists(path)) {
       assertPrivateSocket(path);
-      const socket = connect(path);
+      const socket = connect(socketPath(options.data));
       client = new NodeClient(socket, socket, output, approve);
     } else {
-      if (existsSync(join(options.data, 'node-server.json'))) throw new CliError('node_unavailable', 'The configured local Node is starting or stopped uncleanly. Inspect it and use node recover; no other executor was selected.');
+      if (entryExists(join(options.data, 'node-server.json'))) throw new CliError('node_unavailable', 'The configured local Node is starting or stopped uncleanly. Inspect it and use node recover; no other executor was selected.');
       const args = [require.resolve('@workspace/personal-node/server'), '--stdio', '--config', options.config,
         '--data-dir', options.data, '--cwd', options.cwd, ...(options.native ? ['--native'] : [])];
       const child = spawn(process.execPath, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -74,7 +74,7 @@ export class NodeClient {
     } catch (error) { await client.close(); throw error; }
   }
 
-  async call(method: string, params: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
+  async call(method: string, params: UnknownRecord, signal: AbortSignal): Promise<unknown> {
     if (signal.aborted) throw new CliError('cancelled', 'Local request cancelled.', 130);
     if (this.failure) throw this.failure;
     const id = randomUUID();
@@ -113,12 +113,12 @@ export class NodeClient {
     if (frame.error !== undefined) {
       const error = record(frame.error, 'error'); const data = record(error.data, 'error data');
       pending.reject(new CliError(text(data.code, 'code', 100), text(error.message, 'error message', 2000),
-        typeof data.exitCode === 'number' && Number.isInteger(data.exitCode) && data.exitCode > 0 && data.exitCode <= 255 ? data.exitCode : 1));
+        isNumber(data.exitCode) && Number.isInteger(data.exitCode) && data.exitCode > 0 && data.exitCode <= 255 ? data.exitCode : 1));
     } else if (pending.signal.aborted) pending.reject(new CliError('cancelled', 'Local request cancelled.', 130));
     else pending.resolve(frame.result);
   }
 
-  private notification(method: string, params: Record<string, unknown>): void {
+  private notification(method: string, params: UnknownRecord): void {
     const pending = this.pending.get(text(params.requestId, 'request id', 100));
     if (!pending || pending.method !== 'execution.run') return;
     if (method === 'execution.approval.requested') {
@@ -136,7 +136,7 @@ export class NodeClient {
       const event = record(params.value, 'event');
       this.output.event({ eventType: text(event.eventType, 'eventType', 100), payload: event.payload,
         runId: event.runId === undefined ? undefined : uuid(event.runId), chatId: event.chatId === undefined ? undefined : uuid(event.chatId),
-        sequence: typeof event.sequence === 'number' ? event.sequence : undefined }); return;
+        sequence: isNumber(event.sequence) ? event.sequence : undefined }); return;
     }
     throw new CliError('node_protocol', 'Invalid Node output notification.');
   }

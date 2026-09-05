@@ -9,6 +9,7 @@ import { nodeRequest, MAX_CONNECTION_REQUESTS, MAX_PENDING_REQUESTS, MAX_REQUEST
 
 /** One authenticated local-owner channel. Approval decisions never cross it. */
 export class NodeSession {
+  private readonly channelId = randomUUID();
   private closed = false;
   private initialized = false;
   private readonly seen = new Set<string>();
@@ -92,7 +93,7 @@ export class NodeSession {
       resolve(params.approved); return { accepted: true };
     }
     return this.service.dispatch(method, params, {
-      controller, signal: controller.signal,
+      channelId: this.channelId, controller, signal: controller.signal,
       approve: (prompt, signal) => this.ask(request.id, prompt, signal),
       emit: (kind, value) => this.send({ jsonrpc: '2.0', method: 'execution.output', params: { requestId: request.id, kind, value } }),
     });

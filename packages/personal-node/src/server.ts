@@ -6,7 +6,7 @@ import { environment, defaultPaths } from './env';
 import { CliError } from './errors';
 import { NodeService, type NodeBoot } from './node-service';
 import { NodeSession } from './node-session';
-import { claimServer, socketPath } from './socket';
+import { claimServer, socketPath, entryExists } from './socket';
 
 export async function serveNode(boot: NodeBoot): Promise<void> {
   process.umask(0o077);
@@ -30,7 +30,7 @@ async function serveSocket(boot: NodeBoot): Promise<void> {
   const sessions = new Set<NodeSession>();
   const sockets = new Set<Socket>();
   try {
-    if (existsSync(path)) throw new CliError('node_socket_exists', 'An endpoint already exists. It was not replaced.');
+    if (entryExists(path)) throw new CliError('node_socket_exists', 'An endpoint already exists. It was not replaced.');
     const node = new NodeService(boot); service = node;
     const server = createServer(socket => {
       if (sockets.size >= 16) { socket.destroy(); return; }

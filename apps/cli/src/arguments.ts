@@ -82,6 +82,8 @@ Usage:
   llame --local mcp list | mcp enable/disable ID | mcp tools [ID]
   llame models                        List configured/available models
   llame chats list | chats show UUID | chats search QUERY   Inspect chat history
+  llame --local chats read UUID SEQUENCE [OFFSET] [LIMIT]
+  llame --local search rebuild        Rebuild recall projection, preserve source
   llame --local runs list | runs follow UUID [--after N]
   llame runs show UUID                Inspect a run and its execution snapshot
   llame runs events UUID [--after N]   Replay local events or follow remote events
@@ -113,7 +115,8 @@ Options:
 
 Interactive: /help, /new, /model ID, /history, /exit.
 Local commands use the private Node service (auto-launched when absent).
-Ctrl-C cancels local work. A disconnected remote run continues; use runs cancel.
+Ctrl-C cancels initiating local work. Persistent Nodes survive a lost terminal.
+Remote Ctrl-C only disconnects; use runs cancel for explicit cancellation.
 No provider/model downloads, telemetry, automatic remote fallback, or Node enrollment.
 `;
 

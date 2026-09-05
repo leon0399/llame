@@ -32,37 +32,51 @@ Future behavior belongs in [VISION.md](VISION.md) until sequenced in the roadmap
 
 ### 1.1 Distributed direction is not current architecture
 
-The future Surface, Node, Personal Realm, Workspace, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. The first-party CLI and its standalone conversation store ship in the limited form described in §1.2. Android Nodes, cryptographic Node enrollment, Personal Realm mirroring, remote Workspace registries, cross-node execution placement or handoff, and foreign-authority mounts remain unshipped.
+The future Surface, Node, Personal Realm, Workspace, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. The first-party CLI and independently operable personal Node ship in the limited form described in §1.2. Android Nodes, cryptographic Node enrollment, Personal Realm mirroring, remote Workspace registries, cross-node execution placement or handoff, and foreign-authority mounts remain unshipped.
 
 The current web, API, and worker processes form one installation and one PostgreSQL ownership boundary. A dedicated worker is an operational process role inside that installation, not an autonomous personal Node. A current Project is not a filesystem Workspace, Knowledge Space, Personal Realm, or security boundary. The hosted Knowledge Space ID is a portable logical identity, while its owner row and configured filesystem child remain installation-local bindings. Future terminology must not be projected onto present APIs, database rows, or deployment roles without a shipped capability spec.
 
-### 1.2 First-party terminal and standalone runtime
+### 1.2 Thin terminal and independently operable personal Node
 
-`apps/cli` has two explicit modes. Remote mode is an HTTP client of the existing
-API and its opaque session, model, Chat and durable Run contracts; it does not
-connect to Postgres or execute the remote node's tools locally. Standalone mode
-owns a separate single-user SQLite database and a bounded OpenAI-compatible
-Chat Completions loop. It uses explicit local provider configuration and needs
-no Hub account. A local UUID is stable runtime identity, not cryptographic Node
-enrollment. Logging in does not synchronize resources or change execution mode.
+`apps/cli` is a Surface, not the owner of local model execution or SQLite. In
+local mode it launches or attaches to the private service in
+`packages/personal-node`. The Node owns configuration resolution, the bounded
+OpenAI-compatible loop, one advancing executor, durable messages/events/receipts,
+native/MCP tool execution, local lexical recall and managed live Markdown
+Knowledge Spaces. No account, Postgres, inference download or daemon setup is
+required. The default service is a temporary stdio child. Explicit `node serve`
+is an independently persistent foreground service on a private Unix socket.
 
-The standalone runtime can expose one operator-selected startup directory as a
-native Workspace. The model enters it explicitly; edits and native processes
-need individual terminal approval. Native grants OS-user authority, not sandbox
-confinement. A local executor interrupted by process death records an unknown
-outcome and does not replay side effects. It does not claim the Hub's durable
-worker continuation guarantee. Context, tool and model changes are represented
-in immutable local Run snapshots and model-visible runtime instructions.
+Remote mode retains the hosted HTTP/SSE/Bearer adapter. It does not access the
+Node's SQLite, execute remote tools locally, or import the API implementation.
+The saved remote remains the default until disabled or overridden with --local.
+There is no automatic authority or provider fallback. Human remote sessions,
+local runtime UUIDs and future cryptographic Node enrollment remain distinct.
 
-Pure redaction, Unicode clipping and structured tool-result bounds live in
-`packages/runtime-safety`, moved from the API and consumed by both runtimes.
-Operator secret interpolation remains in `packages/config-interpolation`.
-The API's provider SDK, Postgres schema, authentication authority and RLS stay
-server-owned. Unless explicitly stated otherwise, subsequent sections describe
-that hosted API/worker contract, not full feature parity in standalone mode.
+The local protocol negotiates only implemented module versions. Local authority
+comes from private process IPC or a 0600 socket beneath owned 0700 storage. Native
+placement is fixed at Node boot and must be explicitly selected by the initiating
+Surface. Per-operation approvals belong to that channel; disconnection denies
+pending/future approvals. A persistent Node can finish inference after losing a
+Surface; a temporary stdio Node cancels. Neither a crash nor event replay retries
+an uncertain side effect. This is not hosted worker recovery or full feature parity.
 
-See [`cli`](openspec/specs/cli/spec.md), the [operator guide](apps/cli/README.md),
-and [authentication research](docs/research/cli/2026-09-05-authentication-and-harness.md).
+SQLite schema version 2 preserves existing transcripts and Node/Chat/Run IDs,
+adds message UUIDs and Chat-local locators, and maintains a rebuildable visible-text
+trigram index. Knowledge IDs are bound into each Run and read using the existing
+bounded hosted filesystem adapter, extracted to `packages/knowledge-filesystem`.
+Logical-line scanning, redaction and result bounds remain shared runtime safety.
+The CLI's authority/account-bound remote cursors are disposable private files,
+not runtime-owned source state. Local read results may reach the configured
+inference provider; filesystem privacy is not an egress policy or encryption.
+
+See [`personal-node`](openspec/specs/personal-node/spec.md),
+[`cli`](openspec/specs/cli/spec.md), the [protocol](docs/node/local-protocol.md),
+the [operator guide](apps/cli/README.md), and the
+[architecture decision](docs/research/cli/2026-09-05-personal-node-boundary.md).
+Unless explicitly stated otherwise, subsequent sections describe the hosted
+API/worker contract. Personal Realm replication and hosted/local protocol parity
+remain separate, unimplemented capabilities.
 
 ## 2. Conversation continuity
 

@@ -38,7 +38,7 @@ export function recoverServer(directory: string): void {
   const path = join(directory, 'node-server.json');
   withPrivateLock(path, () => {
     if (!existsSync(path)) {
-      if (existsSync(socketPath(directory))) throw new CliError('node_unowned', 'An endpoint exists without an ownership record. Inspect it manually; it was not removed.');
+      if (entryExists(socketPath(directory))) throw new CliError('node_unowned', 'An endpoint exists without an ownership record. Inspect it manually; it was not removed.');
       return;
     }
     const original = readPrivate(path, 4096);
@@ -49,10 +49,16 @@ export function recoverServer(directory: string): void {
       if (errorCode(error) !== 'ESRCH') throw new CliError('node_busy', 'Cannot prove that the Node process stopped.');
       if (readPrivate(path, 4096) !== original) throw new CliError('node_busy', 'Node ownership changed.');
       const socket = socketPath(directory);
-      if (existsSync(socket)) { assertPrivateSocket(socket); unlinkSync(socket); }
+      if (entryExists(socket)) { assertPrivateSocket(socket); unlinkSync(socket); }
       // Release ownership last: a new server cannot acquire it before the old socket is gone.
       unlinkSync(path); return;
     }
     throw new CliError('node_busy', 'The recorded Node process is still alive.');
   });
+}
+
+/** Unlike existsSync, a dangling symlink is still an occupied endpoint. */
+export function entryExists(path: string): boolean {
+  try { lstatSync(path); return true; }
+  catch (error) { if (errorCode(error) === 'ENOENT') return false; throw error; }
 }

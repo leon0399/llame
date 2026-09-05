@@ -2,9 +2,9 @@
 
 ## Purpose
 
-A first-party terminal that is independently useful with user-operated model
-inference and local state, and can alternatively act as a thin client of an
-existing llame API node. This capability does not imply personal-store mirroring,
+A first-party thin terminal of an independently operable local personal Node
+or an existing llame API node. Local commands use a private negotiated service;
+its runtime requirements are defined in [personal-node](../personal-node/spec.md). This capability does not imply personal-store mirroring,
 Node enrollment, hosted Workspace execution or full Hub feature parity.
 
 ## Requirements
@@ -100,7 +100,8 @@ With it, only the startup directory SHALL be offered, and the model SHALL call
 relative-path, sensitive-path, symlink/hardlink and size restrictions. Native
 placement SHALL be disclosed as OS-user authority, not a sandbox.
 
-Every write and process SHALL require a separate terminal approval. Piped input
+Every write and process SHALL require a separate initiating-Surface approval;
+the first-party CLI SHALL present it through a real terminal. Piped input
 SHALL NOT approve. Writes SHALL revalidate the expected whole-file hash after
 approval and before replacement. Processes SHALL use a minimal environment and
 bounded duration/output. POSIX process-group cleanup SHALL NOT be represented as
@@ -120,7 +121,7 @@ hostile-process containment; unsupported Windows process execution SHALL fail.
 
 ### Requirement: Skills are lazy instruction context, not executable grants
 
-The local CLI SHALL list and explicitly load bounded `.agents/skills/*/SKILL.md`
+The personal Node behind the CLI SHALL list and explicitly load bounded `.agents/skills/*/SKILL.md`
 instructions with source and content hash. Its documented metadata subset SHALL
 NOT imply general YAML support. It SHALL NOT run skill scripts/hooks, install
 packages, fetch a marketplace, or trust author-declared permissions.
@@ -231,7 +232,7 @@ use that saved identity.
 
 ### Requirement: Standalone MCP reuses the node transport and admission substrate
 
-The CLI SHALL host explicitly enabled user-configured stdio and Streamable HTTP
+The personal Node SHALL host explicitly enabled user-configured stdio and Streamable HTTP
 MCP tools using the shared node MCP client and schema admission code. It SHALL
 NOT import API services or Postgres. Configuration SHALL NOT come from project
 files, model output or skills. A configured stdio executable SHALL be disclosed
@@ -245,7 +246,7 @@ requiring inference. Disabled servers SHALL NOT resolve credential references.
 #### Scenario: A local MCP tool is called without native Workspace authority
 
 - **WHEN** a local Run has an enabled MCP server but no `--native` grant
-- **THEN** only its admitted MCP tools are advertised, not native Workspace tools
+- **THEN** its admitted MCP and Node-native recall/Knowledge tools may be advertised, but no native Workspace tools
 - **AND** the call still requires schema validation and configured/terminal approval
 
 #### Scenario: A remote Run has local MCP configuration
@@ -264,7 +265,7 @@ explicit `allowTools` list when present. Server annotations SHALL NOT grant trus
 The stdout/stderr, headers, arguments, declarations and results SHALL retain the
 existing bounded/redacted transport behavior; credentials SHALL NOT be snapshotted.
 
-The CLI SHALL bound servers, admitted tools, discovery, calls and Run duration,
+The personal Node SHALL bound servers, admitted tools, discovery, calls and Run duration,
 close connections after the Run, and refuse in-Run reconnect/action replay after
 a disconnect. Initialization failure SHALL close already-open connections before
 any model request. Native process approval rules SHALL remain unchanged.

@@ -52,7 +52,7 @@ export class PersonalKnowledge {
     for (const space of spaces) {
       aborted(signal);
       try {
-        const matches = await this.adapter(space.id).search(query, limit, { signal, budget });
+        const matches = await this.adapter(space.id).search(query, limit, { signal, budget, maxResults: limit + 1 });
         resultCount += matches.length;
         for (const match of matches) if (results.length < limit) results.push({ knowledgeSpaceId: space.id, name: space.name, ...match });
       } catch (error) {
@@ -61,7 +61,7 @@ export class PersonalKnowledge {
         failures.push({ knowledgeSpaceId: space.id, code: error.code });
       }
     }
-    return { status: 'success', query, results, truncated: resultCount >= limit,
+    return { status: 'success', query, results, truncated: resultCount > limit,
       coverage: { kind: 'live-local-markdown', spaces: spaces.map(space => space.id), complete: failures.length === 0, failures }, notice: KNOWLEDGE_NOTICE };
   }
 

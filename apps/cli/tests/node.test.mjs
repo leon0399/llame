@@ -111,6 +111,9 @@ test('native approval is connection-bound, one-use, and executes only after its 
   const completed = await pending; assert.equal(readFileSync(join(cwd, 'approved.txt'), 'utf8'), 'approved by initiating Surface');
   const page = await other.call('execution.runs.events', { runId: completed.runId });
   assert.ok(page.events.some(e => e.eventType === 'approval.decided' && e.payload.approved));
+  const decision = page.events.find(e => e.eventType === 'surface.approval.decided');
+  assert.equal(decision.payload.principal, 'local-owner'); assert.equal(decision.payload.transport, 'unix');
+  assert.match(decision.payload.channelId, /^[a-f0-9-]{36}$/); assert.match(decision.payload.promptHash, /^[a-f0-9]{64}$/);
 });
 
 test('disconnect while awaiting native approval records denial and never executes the action', async t => {
@@ -162,4 +165,13 @@ test('a linked endpoint is rejected instead of following it', async t => {
   const other = directory(); await invoke(['--json', 'status'], { dir: other });
   symlinkSync(join(owner, 'state/node.sock'), join(other, 'state/node.sock'));
   const result = await invoke(['--json', 'status'], { dir: other }); assert.equal(result.code, 1); assert.match(result.stderr, /unsafe_socket/);
+});
+
+test('standalone stdio still works with a long data path; dangling endpoints never choose another Node', async () => {
+  const dir = directory(); const long = join(dir, 'long-directory-name-'.repeat(6));
+  const normal = await invoke(['--data-dir', long, '--json', 'status'], { dir }); assert.equal(normal.code, 0, normal.stderr);
+  assert.equal(JSON.parse(normal.stdout).transport, 'stdio');
+  await invoke(['--json', 'status'], { dir });
+  symlinkSync(join(dir, 'missing.sock'), join(dir, 'state/node.sock'));
+  const dangling = await invoke(['--json', 'status'], { dir }); assert.equal(dangling.code, 1); assert.match(dangling.stderr, /unsafe_socket/);
 });

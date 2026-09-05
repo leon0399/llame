@@ -1,3 +1,4 @@
+import { type UnknownRecord } from '@workspace/runtime-safety';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { keys, record, text } from './validation';
@@ -14,7 +15,7 @@ export interface NodeRequest {
   readonly jsonrpc: '2.0';
   readonly id: string;
   readonly method: string;
-  readonly params: Record<string, unknown>;
+  readonly params: UnknownRecord;
 }
 
 export interface NodeHello {
