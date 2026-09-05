@@ -379,6 +379,33 @@ export class ChatsRepository {
     };
   }
 
+  /**
+   * User-facing chat search: the owner's chats matching by TITLE or by message
+   * CONTENT (text parts of USER/ASSISTANT turns only — never system prompts or
+   * tool internals), ranked by relevance, with a highlighted snippet from the
+   * best-matching chunk (null for a title-only match).
+   *
+   * Phase 1 of #194 (#195): hybrid lexical retrieval over the derived
+   * `search_chat_documents` projection — full-text (`simple` config) + trigram
+   * (`word_similarity`) legs, plus a live title leg over `chats`, fused by
+   * Reciprocal Rank Fusion via the shared search/core builder (mandatory scope
+   * predicate = fail-closed tenant isolation). Ordering is PURE RELEVANCE with a
+   * recency + id tie-break (replacing the MVP's recency-first order). RLS
+   * (chats_owner / search_chat_documents_owner, FORCE) is the tenant guard; the in-CTE
+   * `owner_user_id = ${ownerUserId}` seatbelt is defense-in-depth. Blank query →
+   * [] (no full-table dump). `title` is nullable (#78) — a still-untitled chat
+   * can match by content alone. The internal result also retains
+   * `bestDocumentId` for canonical model shaping; public adapters must project
+   * that field explicitly. `options.timeRange` (#198) composes an additional
+   * required filter or preferred rank-fusion term via `resolveSearchScopes`;
+   * omitted, the emitted SQL and results are unchanged from before #198.
+   *
+   * MUST be called with a transaction-scoped `Db` (constructed inside a
+   * `TenantDbService.runAs` callback) — `SET LOCAL statement_timeout` reverts at
+   * transaction end only inside one. Two call sites, both already inside `runAs`:
+   * `ChatsService.searchChats` (web chat search) and the `search_conversations`
+   * tool, which calls this SAME method (tool-calling D7 — one search path).
+   */
   async searchByOwner(
     ownerUserId: string,
     query: string,
