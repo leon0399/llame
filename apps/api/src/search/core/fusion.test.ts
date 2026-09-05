@@ -235,4 +235,58 @@ describe('buildHybridSearchQuery', () => {
     expect(text).not.toContain('chat_id');
     expect(text).not.toContain('chat_title');
   });
+
+  const VECTOR_BLOCK: HybridSearchConfig['vector'] = {
+    queryVector: [0.1, 0.2, 0.3],
+    activeModelKey: 'model-x',
+    currentInputVersion: 3,
+    columns: {
+      embedding: 'embedding',
+      embeddingModelKey: 'embedding_model_key',
+      embeddedContentHash: 'embedded_content_hash',
+      embedInputVersion: 'embed_input_version',
+      contentHash: 'content_hash',
+    },
+    weight: 0.9,
+    limit: 77,
+  };
+
+  it('emits SQL byte-identical to the lexical-only query when the vector block is absent (design D1, #197)', () => {
+    const { sql: text } = compile();
+
+    expect(text).not.toContain('vec_c');
+    expect(text).not.toContain('<=>');
+    // Regression: the two optional-vector splice points (the doc_fused UNION
+    // ALL and the top-level CTE list) used to leave a whitespace-only line
+    // behind even when `config.vector` was absent — each pinned here against
+    // its exact byte-identical (pre-vector-leg) shape.
+    expect(text).toMatch(
+      /AS t FROM trgm_c\n {6}\) u GROUP BY group_id, doc_id/,
+    );
+    expect(text).toContain(') s\n    )\n  ,\n    \n    doc_fused AS (');
+  });
+
+  it('adds a vec_c candidate leg, scoped and fused like the lexical legs, when a vector block is configured (design D1, #197)', () => {
+    const { sql: text, params } = compile(config({ vector: VECTOR_BLOCK }));
+
+    expect(text).toContain('vec_c AS (');
+    expect(text).toContain('"d"."embedding" <=>');
+    expect(text).toContain('"d"."embedding_model_key" =');
+    expect(text).toContain('"d"."embedded_content_hash" = "d"."content_hash"');
+    expect(text).toContain('"d"."embed_input_version" =');
+    expect(text).toContain('UNION ALL');
+    expect(text).toContain('FROM vec_c');
+    // A fourth RRF term: fts, trgm, vec, and title all fuse through the same
+    // formula, so the vector leg must add one more occurrence to the count
+    // the "one RRF term per leg" test already pins at 3 without it.
+    expect(text.split('::double precision + rank)').length - 1).toBe(4);
+    // The vec_c leg is scoped by the SAME document predicate as fts_c/trgm_c
+    // (structural tenant-isolation guard) — a third occurrence.
+    expect(text.split('d.owner_user_id').length - 1).toBe(3);
+    expect(params).toContain('model-x');
+    expect(params).toContain(3);
+    expect(params).toContain(0.9);
+    expect(params).toContain(77);
+    expect(params).toContain(JSON.stringify([0.1, 0.2, 0.3]));
+  });
 });

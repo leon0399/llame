@@ -120,23 +120,32 @@ function embedWithBudget(
   if (externalSignal) signals.push(externalSignal);
   const combined = AbortSignal.any(signals);
 
-  return Promise.race([
-    backend.embedQuery(text),
-    new Promise<never>((_resolve, reject) => {
-      // Always reject with a fixed AbortError, never `combined.reason` —
-      // that reason's shape depends on whoever aborted the source signal.
-      // AbortSignal.timeout() yields a DOMException, but a run's wall-clock
-      // timeout aborts with the plain string RUN_TIMEOUT_ABORT_REASON
-      // (run-execution.service.ts), which `embedQueryForSearch`'s catch
-      // block below would otherwise fail to recognize as an abort and
-      // misreport as `provider_error`.
-      const onAbort = () =>
-        reject(new DOMException('Query embed budget exceeded', 'AbortError'));
-      if (combined.aborted) {
-        onAbort();
-        return;
-      }
-      combined.addEventListener('abort', onAbort, { once: true });
-    }),
-  ]);
+  const embedding = backend.embedQuery(text);
+  const budget = new Promise<never>((_resolve, reject) => {
+    // Always reject with a fixed AbortError, never `combined.reason` — that
+    // reason's shape depends on whoever aborted the source signal.
+    // AbortSignal.timeout() yields a DOMException, but a run's wall-clock
+    // timeout aborts with the plain string RUN_TIMEOUT_ABORT_REASON
+    // (run-execution.service.ts), which `embedQueryForSearch`'s catch block
+    // below would otherwise fail to recognize as an abort and misreport as
+    // `provider_error`.
+    const onAbort = () =>
+      reject(new DOMException('Query embed budget exceeded', 'AbortError'));
+    if (combined.aborted) {
+      onAbort();
+      return;
+    }
+    combined.addEventListener('abort', onAbort, { once: true });
+
+    // Stop listening once `embedding` itself settles (mirrors runner.ts's
+    // `withAbort`) — otherwise `AbortSignal.timeout(budgetMs)`'s internal
+    // timer keeps this listener (and the closure it captures) alive for the
+    // rest of the budget after every successful embed, not just the ones
+    // that actually hit it. `embedding`'s own settlement (value or error)
+    // reaches the caller via the `Promise.race` below, unmodified.
+    const stopListening = () => combined.removeEventListener('abort', onAbort);
+    embedding.then(stopListening, stopListening);
+  });
+
+  return Promise.race([embedding, budget]);
 }

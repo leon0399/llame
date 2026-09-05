@@ -11,7 +11,10 @@ import {
   hydrateCanonicalSearchCandidate,
   type HydratedCanonicalSearchDocument,
 } from '../search/chat/canonical-search-hydrator';
-import { scanConversationLogicalLines } from '../chats/conversation-logical-lines';
+import {
+  scanConversationLogicalLines,
+  type ConversationLogicalLine,
+} from '../chats/conversation-logical-lines';
 import {
   evaluateCanonicalLinePredicates,
   matchCanonicalSearchPreview,
@@ -219,6 +222,18 @@ function contentResult(
 
 const EXCERPT_MAX_CODE_POINTS = 500;
 
+/** The logical line containing `charOffset` (clamped to the last line for an
+ *  offset at or past the text's end, e.g. an exclusive end boundary). */
+function lineIndexAtOffset(
+  lines: ReadonlyArray<ConversationLogicalLine>,
+  charOffset: number,
+): number {
+  for (const line of lines) {
+    if (charOffset < line.endOffsetExclusive) return line.line;
+  }
+  return Math.max(lines.length - 1, 0);
+}
+
 function vectorOnlyContentResult(
   row: HybridSearchResult,
   document: HydratedCanonicalSearchDocument,
@@ -226,22 +241,36 @@ function vectorOnlyContentResult(
   const firstMessage = document.messages[0];
   if (!firstMessage) return null;
 
+  // The hydrated first message's `visibleText` is the FULL message; this
+  // document's own span is `[sourceStart, sourceEndExclusive)` (a proper
+  // subrange whenever a long message was chunked across multiple
+  // `search_chat_documents` rows — see conversation-chunker.ts). Anchoring
+  // at the full message's line 0 would point conversation_read, and the
+  // excerpt, at content this document never matched on.
   const lines = scanConversationLogicalLines(firstMessage.visibleText);
-  const lineCount = lines.length || 1;
-  const limit = Math.min(lineCount, 2000);
+  const offset = lineIndexAtOffset(lines, firstMessage.sourceStart);
+  const lastLine = lineIndexAtOffset(
+    lines,
+    Math.max(firstMessage.sourceEndExclusive - 1, firstMessage.sourceStart),
+  );
+  const limit = Math.max(1, Math.min(lastLine - offset + 1, 2000));
 
   const coordinates = conversationSourceCoordinatesSchema.safeParse({
     chatId: row.id,
     messageSeq: firstMessage.messageSeq,
-    offset: 0,
+    offset,
     limit,
   });
   if (!coordinates.success) return null;
 
-  const codePoints = Array.from(firstMessage.visibleText);
+  const windowText = firstMessage.visibleText.slice(
+    firstMessage.sourceStart,
+    firstMessage.sourceEndExclusive,
+  );
+  const codePoints = Array.from(windowText);
   const excerpt =
     codePoints.length <= EXCERPT_MAX_CODE_POINTS
-      ? firstMessage.visibleText
+      ? windowText
       : `${codePoints.slice(0, EXCERPT_MAX_CODE_POINTS).join('')}…`;
 
   return {
