@@ -365,8 +365,8 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   },
   tools: {
     allowed: [],
-    maxStepsPerRun: 8,
-    callTimeoutSeconds: 15,
+    maxStepsPerRun: 20,
+    callTimeoutSeconds: 120,
   },
   mcpServers: {},
   knowledge: {},
