@@ -41,6 +41,7 @@ import {
   RRF_DEFAULT_K,
   type HybridSearchResult,
 } from '../search/core';
+import { EMBED_INPUT_VERSION } from '../search/embed-input-version';
 
 export {
   MessagesRepository,
@@ -52,6 +53,30 @@ export {
 } from './compactions-repository';
 
 const DEFAULT_CHAT_VISIBILITY = 'private';
+
+const CHAT_DOCUMENT_COLUMNS = {
+  table: 'search_chat_documents',
+  groupId: 'chat_id',
+  id: 'id',
+  fts: 'fts',
+  normalized: 'normalized_content',
+  content: 'content',
+} as const;
+
+const CHAT_PARENT_COLUMNS = {
+  table: 'chats',
+  id: 'id',
+  title: 'title',
+  recency: 'updated_at',
+} as const;
+
+const CHAT_VECTOR_COLUMNS = {
+  embedding: 'embedding',
+  embeddingModelKey: 'embedding_model_key',
+  embeddedContentHash: 'embedded_content_hash',
+  embedInputVersion: 'embed_input_version',
+  contentHash: 'content_hash',
+} as const;
 
 const SNIPPET_MAX = 160;
 
@@ -327,28 +352,28 @@ export class ChatsRepository {
     normalizedQuery: string,
     likePattern: string,
     limit: number,
+    vectorParams?: { queryVector: ReadonlyArray<number>; modelKey: string },
   ) {
     return buildHybridSearchQuery({
       query: normalizedQuery,
       likePattern,
-      document: {
-        table: 'search_chat_documents',
-        groupId: 'chat_id',
-        id: 'id',
-        fts: 'fts',
-        normalized: 'normalized_content',
-        content: 'content',
-      },
-      parent: {
-        table: 'chats',
-        id: 'id',
-        title: 'title',
-        recency: 'updated_at',
-      },
+      document: CHAT_DOCUMENT_COLUMNS,
+      parent: CHAT_PARENT_COLUMNS,
       scope: {
         document: sql`d.owner_user_id = ${ownerUserId}`,
         parent: sql`c.owner_user_id = ${ownerUserId}`,
       },
+      // ponytail: hypothesis constants pending eval layer 5
+      vector: vectorParams
+        ? {
+            queryVector: vectorParams.queryVector,
+            activeModelKey: vectorParams.modelKey,
+            currentInputVersion: EMBED_INPUT_VERSION,
+            columns: CHAT_VECTOR_COLUMNS,
+            weight: 1,
+            limit: 100,
+          }
+        : undefined,
       weights: { fts: 1, trgm: 0.35, title: 1 },
       limits: { fts: 100, trgm: 40, title: 50 },
       rrfK: RRF_DEFAULT_K,
@@ -374,19 +399,13 @@ export class ChatsRepository {
     ownerUserId: string,
     query: string,
     limit: number,
-    _queryVector?: ReadonlyArray<number>,
+    vectorParams?: { queryVector: ReadonlyArray<number>; modelKey: string },
   ): Promise<Array<HybridSearchResult>> {
     const trimmed = query.trim();
     if (trimmed.length === 0) {
       return [];
     }
     await this.db.execute(sql`SET LOCAL statement_timeout = 3000`);
-    // Normalize the query the SAME way the corpus was normalized (lowercase, NFKC,
-    // whitespace-collapse) BEFORE it reaches the trigram leg: `word_similarity` is
-    // case-sensitive, and `normalized_content` is always lowercased, so a raw-cased
-    // query would score near zero on the fuzzy leg. FTS ('simple') lowercases
-    // internally, so this is a no-op there. The LIKE pattern is escaped from the
-    // normalized form for the trigram leg's substring match.
     const normalizedQuery = normalizeForSearch(trimmed);
     const likePattern = `%${normalizedQuery.replaceAll(/[\\%_]/g, String.raw`\$&`)}%`;
 
@@ -395,6 +414,7 @@ export class ChatsRepository {
       normalizedQuery,
       likePattern,
       limit,
+      vectorParams,
     );
 
     const rows = await this.db.execute<HybridSearchResult>(search);

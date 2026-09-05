@@ -44,7 +44,7 @@ import {
 } from '../../chats/chats-repository';
 import { type UnknownRecord } from '../../unknown-record';
 import { assertDiscoveryFunctionProvisioned } from '../discovery-provisioning';
-import { EMBED_INPUT_VERSION } from '../search-embed.worker';
+import { EMBED_INPUT_VERSION } from '../embed-input-version';
 import { SearchIndexService } from '../search-index.service';
 import { runBackfill } from './backfill';
 import { getEmbeddingCoverageReport } from './coverage-report';

@@ -20,7 +20,7 @@ export type EmbedFallbackReason =
   | 'dimension_mismatch';
 
 export type QueryEmbedResult =
-  | { readonly vector: ReadonlyArray<number> }
+  | { readonly vector: ReadonlyArray<number>; readonly modelKey: string }
   | { readonly fallback: EmbedFallbackReason };
 
 /** Narrow capability for consumers that only need query embedding. */
@@ -92,7 +92,7 @@ export class ChatSearchQueryEmbedder {
         return { fallback: 'dimension_mismatch' };
       }
 
-      return { vector };
+      return { vector, modelKey: this.modelKey! };
     } catch (error) {
       const isAbortLike =
         error instanceof DOMException &&
