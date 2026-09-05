@@ -140,8 +140,8 @@ test('Node negotiation fails closed on versions, injected ownership, config and 
   await persistent(t, { dir, config: path });
   const rpc = await Rpc.open(dir, false); t.after(() => rpc.close());
   await assert.rejects(rpc.call('realm.chats.list'), { code: 'handshake_required' });
-  await assert.rejects(rpc.call('core.hello', { version: 2 }), { code: 'protocol_version' });
-  const hello = await rpc.call('core.hello', { version: 1 }); assert.equal(hello.synchronization, false); assert.equal(hello.modules.sync, undefined);
+  await assert.rejects(rpc.call('core.hello', { version: 1 }), { code: 'protocol_version' });
+  const hello = await rpc.call('core.hello', { version: 2 }); assert.equal(hello.synchronization, false); assert.equal(hello.modules.sync, undefined);
   await assert.rejects(rpc.call('realm.chats.list', { userId: randomUUID() }), { code: 'unknown_field' });
   await assert.rejects(rpc.call('realm.models.list', { configIdentity: identity(join(dir, 'another.json')) }), { code: 'node_config_mismatch' });
   await assert.rejects(rpc.call('execution.run', { chatId: randomUUID(), prompt: 'Escalate', native: true, configIdentity: identity(path), workspaceIdentity: identity(cwd) }), { code: 'workspace_grant' });

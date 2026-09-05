@@ -1,3 +1,5 @@
+import { NodeAccessClient } from '@workspace/node-client/access';
+import { type QueryMethod } from '@workspace/node-protocol';
 import { isNumber } from '@workspace/runtime-safety';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 import { mcpCommand } from './mcp-commands';
@@ -6,12 +8,12 @@ import { type Options } from './arguments';
 import { initializeConfig, configDocument, remoteConfiguration, configureRemote } from '@workspace/personal-node/config';
 import { CliError } from '@workspace/personal-node/errors';
 import { Output } from './output';
-import { Auth } from './auth';
-import { Remote } from './remote';
+import { Auth } from '@workspace/node-client/auth';
+import { Remote } from '@workspace/node-client/remote';
 import { approvals, password, question, readStdin } from './terminal';
 import { record, text, uuid } from '@workspace/personal-node/validation';
-import { NodeClient } from './node-client';
-import { RemoteCursors } from './remote-cursors';
+import { NodeClient } from '@workspace/node-client/local';
+import { RemoteCursors } from '@workspace/node-client/remote-cursors';
 import { pathIdentity } from '@workspace/personal-node/protocol';
 import { recoverServer } from '@workspace/personal-node/socket';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -50,14 +52,19 @@ export class Application {
 
   private async nodeCommand(): Promise<void> {
     const [, action = 'status', ...extra] = this.options.positionals;
-    if (extra.length || this.options.remote) throw new CliError('arguments', 'Use node serve/status/recover locally.');
+    if (extra.length) throw new CliError('arguments', 'Use node serve/status/recover/capabilities.');
+    if (action === 'capabilities') {
+      const remote = this.options.remote ? new Remote(await this.authClient().credential(this.env, this.signal), new RemoteCursors(this.options.data), this.output) : undefined;
+      this.output.value({ ...await (await this.access(remote)).describe(this.signal), authority: remote?.authority ?? null }); return;
+    }
+    if (this.options.remote) throw new CliError('arguments', 'Use node serve/status/recover locally; use node capabilities for the selected remote.');
     if (action === 'serve') {
-      const { serveNode } = await import('@workspace/personal-node/server');
+      const { serveNode } = await import('@workspace/node/server');
       await serveNode({ data: this.options.data, config: this.options.config, cwd: this.options.cwd,
         native: this.options.native, transport: 'unix', env: this.env }); return;
     }
     if (action === 'recover') { recoverServer(this.options.data); this.output.value({ endpointRecovered: true, actionsReplayed: false }); return; }
-    if (action !== 'status') throw new CliError('command', 'Use node serve, node status, or node recover.');
+    if (action !== 'status') throw new CliError('command', 'Use node serve/status/recover or node capabilities.');
     this.output.value(await this.local('core.status'));
   }
 
@@ -99,6 +106,16 @@ export class Application {
       configIdentity: pathIdentity(this.options.config), workspaceIdentity: this.options.native ? pathIdentity(this.options.cwd) : undefined });
   }
 
+  private async access(remote?: Remote): Promise<NodeAccessClient> {
+    return new NodeAccessClient(remote ?? await this.localClient(), remote
+      ? { kind: 'shared-instance', principalId: remote.principalId } : { kind: 'personal-node' });
+  }
+
+  private async query(remote: Remote | undefined, method: QueryMethod, params: UnknownRecord): Promise<void> {
+    const result = await (await this.access(remote)).query(method, params, this.signal);
+    this.output.value({ ...result.data, node: { ...result.source, principal: result.principal, authority: remote?.authority ?? null } });
+  }
+
   private async models(remote?: Remote): Promise<void> {
     this.output.value(remote ? await remote.json('/api/v1/models', this.signal)
       : await this.local('realm.models.list', { configIdentity: pathIdentity(this.options.config) }));
@@ -109,13 +126,13 @@ export class Application {
     if (action === 'search') {
       const query = text(this.options.positionals.slice(2).join(' '), 'search query', 200).trim();
       if (!query) throw new CliError('query_required', 'Use chats search QUERY.');
-      this.output.value(remote ? await remote.json(`/api/v1/chats/search?${new URLSearchParams({ q: query, limit: '20' })}`, this.signal) : await this.local('realm.chats.search', { query })); return;
+      await this.query(remote, 'realm.conversations.search', { query }); return;
     }
-    if (action === 'read' && !remote) {
+    if (action === 'read') {
       const args = this.options.positionals.slice(2);
       if (args.length < 2 || args.length > 4) throw new CliError('arguments', 'Use chats read UUID SEQ [OFFSET] [LIMIT].');
-      this.output.value(await this.local('realm.conversations.read', { chatId: uuid(id), messageSeq: Number(args[1]),
-        offset: args[2] === undefined ? undefined : Number(args[2]), limit: args[3] === undefined ? undefined : Number(args[3]) })); return;
+      await this.query(remote, 'realm.conversations.read', { chatId: uuid(id), messageSeq: Number(args[1]),
+        ...(args[2] === undefined ? {} : { offset: Number(args[2]) }), ...(args[3] === undefined ? {} : { limit: Number(args[3]) }) }); return;
     }
     if (action !== 'show') throw new CliError('command', 'Use chats list, chats show UUID, or chats search QUERY.');
     const chatId = uuid(id);
@@ -123,6 +140,12 @@ export class Application {
   }
 
   private async knowledge(remote: Remote | undefined, action = 'list', id?: string): Promise<void> {
+    const args = this.options.positionals.slice(2);
+    if (action === 'search') { await this.query(remote, 'realm.knowledge.search', { query: text(args.join(' '), 'query', 200) }); return; }
+    if (action === 'read' && args.length >= 2 && args.length <= 4) {
+      await this.query(remote, 'realm.knowledge.read', { knowledgeSpaceId: uuid(id), path: args[1],
+        ...(args[2] === undefined ? {} : { offset: Number(args[2]) }), ...(args[3] === undefined ? {} : { limit: Number(args[3]) }) }); return;
+    }
     if (!remote) { await this.localKnowledge(action, id); return; }
     if (this.options.positionals.length > 3) throw new CliError('arguments', 'Use knowledge list [CURSOR] or knowledge show UUID.');
     if (action === 'list') {
@@ -131,7 +154,7 @@ export class Application {
       this.output.value(await remote.json(`/api/v1/knowledge-spaces?${query}`, this.signal)); return;
     }
     if (action === 'show') { this.output.value(await remote.json(`/api/v1/knowledge-spaces/${uuid(id)}`, this.signal)); return; }
-    throw new CliError('command', 'Use knowledge list [CURSOR] or knowledge show UUID. Ask the remote assistant to search/read their contents.');
+    throw new CliError('command', 'Use knowledge list/show/search/read; create is local-only in this CLI.');
   }
 
   private async localKnowledge(action: string, id?: string): Promise<void> {
@@ -139,11 +162,6 @@ export class Application {
     if (action === 'list' && !args.length) { this.output.value(await this.local('realm.knowledge.list')); return; }
     if (action === 'create') { this.output.value(await this.local('realm.knowledge.create', { name: text(args.join(' '), 'Knowledge name', 100) })); return; }
     if (action === 'show' && args.length === 1) { this.output.value(await this.local('realm.knowledge.get', { knowledgeSpaceId: uuid(id) })); return; }
-    if (action === 'search') { this.output.value(await this.local('realm.knowledge.search', { query: text(args.join(' '), 'query', 200) })); return; }
-    if (action === 'read' && args.length >= 2 && args.length <= 4) {
-      this.output.value(await this.local('realm.knowledge.read', { knowledgeSpaceId: uuid(id), path: args[1],
-        offset: args[2] === undefined ? undefined : Number(args[2]), limit: args[3] === undefined ? undefined : Number(args[3]) })); return;
-    }
     throw new CliError('command', 'Use knowledge list/create NAME/show UUID/search QUERY/read UUID PATH [OFFSET] [LIMIT].');
   }
 

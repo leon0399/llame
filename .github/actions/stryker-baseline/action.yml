@@ -48,6 +48,7 @@ runs:
             'packages/runtime-safety/{package.json,src/**,tsconfig*.json}',
             'packages/tool-runtime/{package.json,src/**,tsconfig*.json}',
             'packages/knowledge-filesystem/{package.json,src/**,tsconfig*.json}',
+            'packages/node-protocol/{package.json,src/**,tsconfig*.json}',
             'packages/config-typescript/{package.json,base.json}'
           ) }}
       run: |

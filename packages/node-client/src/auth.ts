@@ -5,7 +5,7 @@ import { privateDirectory, readPrivate, writePrivate, withPrivateLock } from '@w
 import { authority, keys, parseJson, record, text, uuid } from '@workspace/personal-node/validation';
 import { request, readJson } from '@workspace/personal-node/http';
 import { CliError } from '@workspace/personal-node/errors';
-import { Output } from './output';
+import { type ClientOutput } from './types';
 
 export interface Credential {
   readonly authority: string;
@@ -24,7 +24,7 @@ export interface SessionMaterial {
 export class Auth {
   readonly remote: string;
   private readonly file: string;
-  constructor(remote: string, directory: string, private readonly output: Output) {
+  constructor(remote: string, directory: string, private readonly output: ClientOutput) {
     this.remote = authority(remote);
     const authDirectory = privateDirectory(join(privateDirectory(directory), 'auth'));
     this.file = join(authDirectory, `${createHash('sha256').update(this.remote).digest('hex')}.json`);

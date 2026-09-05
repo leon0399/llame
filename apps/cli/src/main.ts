@@ -1,3 +1,4 @@
+import { NodeProtocolError } from '@workspace/node-protocol';
 import { Application } from './application';
 import { argumentsFor, help } from './arguments';
 import { environment } from '@workspace/personal-node/env';
@@ -18,7 +19,7 @@ async function main(): Promise<void> {
     if (options.positionals[0] === 'version') { process.stdout.write('llame 0.0.1\n'); return; }
     await new Application(options, env, output, controller.signal).execute();
   } catch (error) {
-    const failure = error instanceof CliError ? error : new CliError('operation_failed', 'Operation failed. No automatic retry or mode switch was performed.');
+    const failure = error instanceof CliError ? error : error instanceof NodeProtocolError ? new CliError(error.code, error.message) : new CliError('operation_failed', 'Operation failed. No automatic retry or mode switch was performed.');
     output.event({ eventType: 'client.error', payload: { code: failure.code, message: failure.message } });
     output.notice(`${failure.code}: ${failure.message}`);
     process.exitCode = controller.signal.aborted ? 130 : failure.exitCode;

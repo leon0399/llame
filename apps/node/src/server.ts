@@ -2,11 +2,11 @@ import { createServer, type Socket } from 'node:net';
 import { chmodSync, existsSync, lstatSync, unlinkSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { resolve } from 'node:path';
-import { environment, defaultPaths } from './env';
-import { CliError } from './errors';
-import { NodeService, type NodeBoot } from './node-service';
-import { NodeSession } from './node-session';
-import { claimServer, socketPath, entryExists } from './socket';
+import { environment, defaultPaths } from '@workspace/personal-node/env';
+import { CliError } from '@workspace/personal-node/errors';
+import { NodeService, type NodeBoot } from '@workspace/personal-node/node-service';
+import { NodeSession } from '@workspace/personal-node/node-session';
+import { claimServer, socketPath, entryExists } from '@workspace/personal-node/socket';
 
 export async function serveNode(boot: NodeBoot): Promise<void> {
   process.umask(0o077);
@@ -64,16 +64,22 @@ async function serveSocket(boot: NodeBoot): Promise<void> {
   }
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const env = environment(); const defaults = defaultPaths(env);
   const { values } = parseArgs({ strict: true, options: { config: { type: 'string' }, 'data-dir': { type: 'string' },
-    cwd: { type: 'string' }, native: { type: 'boolean' }, stdio: { type: 'boolean' } } });
+    cwd: { type: 'string' }, native: { type: 'boolean' }, stdio: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
+  if (values.help) {
+    process.stdout.write('llame-node [--stdio] [--config FILE] [--data-dir DIR] [--native --cwd DIR]\nStarts an independent personal Node; default transport is a private Unix socket.\n');
+    return;
+  }
   await serveNode({ config: resolve(values.config ?? defaults.config), data: resolve(values['data-dir'] ?? defaults.data),
     cwd: resolve(values.cwd ?? process.cwd()), native: values.native === true, transport: values.stdio ? 'stdio' : 'unix', env });
 }
 
-if (require.main === module) void main().catch((error: unknown) => {
+export function runMain(): void { void main().catch((error: unknown) => {
   const failure = error instanceof CliError ? error : new CliError('node_start_failed', 'Local Node could not start. No action was retried.');
   process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'core.error', params: { code: failure.code, message: failure.message } }) + '\n');
   process.exitCode = failure.exitCode;
-});
+}); }
+
+if (require.main === module) runMain();

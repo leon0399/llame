@@ -1,3 +1,4 @@
+import { accessRequest, QUERY_METHODS } from '../../../packages/node-protocol/dist/index.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, readdirSync, existsSync, statSync } from 'node:fs';
@@ -41,11 +42,11 @@ test('remote run consumes the existing contract and reconnects by cursor without
   const { hub, dir } = await authenticated(t, (request, response) => {
     assert.equal(request.headers.authorization, `Bearer ${token}`);
     if (request.path === '/api/v1/models') return json(response, { defaultModelId: 'remote-model', models: [{ id: 'remote-model' }] });
-    if (request.path.endsWith('/messages')) {
+    if (request.path === '/api/v1/runs') {
       assert.equal(request.method, 'POST'); assert.equal(request.body.modelId, 'remote-model');
       assert.deepEqual(request.body.message.parts, [{ type: 'text', text: 'hello remote' }]);
-      assert.deepEqual(Object.keys(request.body).sort(), ['message', 'modelId']);
-      return frames(response, [{ type: 'start', messageId: runId }]);
+      assert.deepEqual(Object.keys(request.body).sort(), ['chatId', 'message', 'modelId']); assert.equal(request.body.chatId, chatId);
+      return json(response, { runId, chatId, messageId: request.body.message.id }, 202);
     }
     if (request.path === `/api/v1/runs/${runId}`) return json(response, { id: runId, chatId, status: 'completed' });
     if (request.path.includes('/events')) {
@@ -63,7 +64,7 @@ test('remote run consumes the existing contract and reconnects by cursor without
   });
   const result = await invoke(['--remote', hub.base, '--chat', chatId, 'run', 'hello remote'], { dir });
   assert.equal(result.code, 0, result.stderr); assert.equal(result.stdout, 'Hello\n');
-  assert.equal(eventConnections, 2); assert.equal(hub.requests.filter((req) => req.method === 'POST' && req.path.endsWith('/messages')).length, 1);
+  assert.equal(eventConnections, 2); assert.equal(hub.requests.filter((req) => req.method === 'POST' && req.path === '/api/v1/runs').length, 1);
   const resumed = await invoke(['--remote', hub.base, '--json', 'runs', 'events', runId], { dir });
   // A terminal tail replay is empty and succeeds from the persisted cursor.
   assert.ok(hub.requests.some((req) => req.path.endsWith('?after_sequence=4')));
@@ -73,12 +74,12 @@ test('remote run consumes the existing contract and reconnects by cursor without
 test('ambiguous message submission is not retried and preserves an inspectable chat ID', async (t) => {
   const { hub, dir } = await authenticated(t, (request, response) => {
     if (request.path === '/api/v1/models') return json(response, { defaultModelId: 'm', models: [{ id: 'm' }] });
-    if (request.path.endsWith('/messages')) { response.writeHead(200, { 'content-type': 'text/event-stream' }); response.end(); return; }
+    if (request.path === '/api/v1/runs') { response.writeHead(200, { 'content-type': 'text/event-stream' }); response.end(); return; }
     json(response, {}, 404);
   });
   const result = await invoke(['--remote', hub.base, '--chat', chatId, 'run', 'submit once'], { dir });
   assert.equal(result.code, 1); assert.match(result.stderr, /submission_uncertain/); assert.ok(result.stderr.includes(chatId));
-  assert.equal(hub.requests.filter((req) => req.path.endsWith('/messages')).length, 1);
+  assert.equal(hub.requests.filter((req) => req.path === '/api/v1/runs').length, 1);
 });
 
 test('remote cancellation uses PATCH and logout revokes before removing the saved credential', async (t) => {
@@ -134,7 +135,7 @@ test('the checked-in OpenAPI includes the exact existing paths and request DTOs 
   const spec = JSON.parse(readFileSync(apiSpec, 'utf8'));
   for (const [path, method] of [
     ['/auth/v1/login', 'post'], ['/auth/v1/me', 'get'], ['/auth/v1/sessions/current', 'delete'],
-    ['/api/v1/models', 'get'], ['/api/v1/chats/{id}/messages', 'post'], ['/api/v1/chats/{id}/stream', 'get'],
+    ['/api/v1/models', 'get'], ['/api/v1/runs', 'post'], ['/api/v1/node/requests', 'post'], ['/api/v1/chats/{id}/messages', 'post'], ['/api/v1/chats/{id}/stream', 'get'],
     ['/api/v1/runs/{id}', 'patch'], ['/api/v1/runs/{id}/events', 'get'], ['/api/v1/runs/{id}/context-receipt', 'get'],
   ]) assert.ok(spec.paths[path]?.[method], `${method} ${path}`);
   const login = spec.components.schemas.LoginDto;
@@ -179,11 +180,16 @@ test('persistent remote exposes owner-scoped chat search and paged Knowledge met
   const { hub, dir } = await authenticated(t, (request, response) => {
     assert.equal(request.headers.authorization, `Bearer ${token}`);
     const url = new URL(request.path, 'http://fixture');
-    if (url.pathname === '/api/v1/chats/search') {
-      assert.equal(url.searchParams.get('q'), query);
-      assert.equal(url.searchParams.get('limit'), '20');
-      assert.equal(url.searchParams.has('userId'), false);
-      return json(response, { results: [{ id: chatId, title: 'recuerdo', snippet: 'source text', updatedAt: '2026-09-05T00:00:00Z' }] });
+    if (url.pathname === '/api/v1/node/requests') {
+      assert.equal(request.headers['x-llame-node-principal'], userId);
+      const description = { version: 1, kind: 'shared-instance', nodeId: null, principal: { kind: 'session-user', id: userId }, modules: { core: 1, realm: 1 },
+        methods: ['core.describe', ...QUERY_METHODS], execution: 'hosted-queued', synchronization: false, enrollment: false,
+        recall: { strategy: 'canonical-postgres', minimumQueryCharacters: 1 }, knowledge: 'live-markdown' };
+      return accessRequest(request.body, { describe: () => description, query: async operation => {
+        assert.equal(operation.method, 'realm.conversations.search'); assert.equal(operation.params.query, query);
+        assert.equal(operation.params.limit, 5); assert.equal(operation.params.userId, undefined);
+        return { status: 'success', results: [{ chatId, title: 'recuerdo', excerpt: 'source text', messageSeq: 1, offset: 0, limit: 5 }] };
+      } }, AbortSignal.timeout(5000)).then(value => json(response, value));
     }
     if (url.pathname === '/api/v1/knowledge-spaces') {
       assert.equal(url.searchParams.get('limit'), '50');
@@ -194,7 +200,7 @@ test('persistent remote exposes owner-scoped chat search and paged Knowledge met
   });
   assert.equal((await invoke(['remote', 'enable', hub.base], { dir })).code, 0);
   const found = await invoke(['--json', 'chats', 'search', query], { dir });
-  assert.equal(found.code, 0, found.stderr); assert.equal(JSON.parse(found.stdout).results[0].id, chatId);
+  assert.equal(found.code, 0, found.stderr); assert.equal(JSON.parse(found.stdout).results[0].chatId, chatId);
   const page = await invoke(['--json', 'knowledge', 'list'], { dir });
   assert.equal(page.code, 0, page.stderr); assert.equal(JSON.parse(page.stdout).nextCursor, cursor);
   const next = await invoke(['--json', 'knowledge', 'list', cursor], { dir });
@@ -239,7 +245,7 @@ test('inspection commands are bound to existing OpenAPI resources, not a fabrica
 });
 
 test('logout after a concurrent new login revokes only the old token and retains the newer local credential', async t => {
-  const { Auth } = await import('../dist/auth.js');
+  const { Auth } = await import('../../../packages/node-client/dist/auth.js');
   const { Output } = await import('../dist/output.js');
   const dir = directory(); let release; let deleting;
   const started = new Promise(resolve => { deleting = resolve; });

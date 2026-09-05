@@ -40,7 +40,7 @@ test('request schema rejects caller identity injection, batches and invalid JSON
 });
 
 test('duplicate request IDs cannot replay a resource mutation and incomplete EOF does not execute', async t => {
-  const s = session(t); s.send('hello', 'core.hello', { version: 1 }); await delay(0);
+  const s = session(t); s.send('hello', 'core.hello', { version: 2 }); await delay(0);
   s.send('create', 'realm.knowledge.create', { name: 'One resource' }); await delay(0);
   s.send('create', 'realm.knowledge.create', { name: 'Replay' }); await delay(0);
   s.input.write('{"jsonrpc":"2.0","id":"partial","method":"realm.knowledge.create","params":{"name":"Not framed"}}');
@@ -53,10 +53,10 @@ test('duplicate request IDs cannot replay a resource mutation and incomplete EOF
 });
 
 test('core negotiation cannot be repeated and unsupported capabilities are explicit', async t => {
-  const s = session(t); s.send('first', 'core.hello', { version: 1 }); await delay(0);
+  const s = session(t); s.send('first', 'core.hello', { version: 2 }); await delay(0);
   const hello = s.frames.find(frame => frame.id === 'first').result;
   assert.deepEqual(Object.keys(hello.modules), ['core', 'realm', 'execution', 'admin']); assert.equal(hello.synchronization, false);
-  s.send('again', 'core.hello', { version: 1 }); s.send('missing', 'sync.exchange'); await delay(0);
+  s.send('again', 'core.hello', { version: 2 }); s.send('missing', 'sync.exchange'); await delay(0);
   assert.equal(s.frames.find(frame => frame.id === 'again').error.data.code, 'protocol_sequence');
   assert.equal(s.frames.find(frame => frame.id === 'missing').error.code, -32601);
 });

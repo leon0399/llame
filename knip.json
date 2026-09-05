@@ -129,7 +129,7 @@
     },
     "packages/personal-node": {
       "entry": [
-        "src/server.ts",
+        "src/node-service.ts",
         "tests/*.test.mjs",
         "src/protocol.ts"
       ],
@@ -145,6 +145,36 @@
       ],
       "project": [
         "src/**/*.ts"
+      ]
+    },
+    "apps/node": {
+      "entry": [
+        "src/server.ts",
+        "tests/*.test.mjs"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.mjs"
+      ]
+    },
+    "packages/node-client": {
+      "entry": [
+        "src/index.ts",
+        "tests/*.test.mjs"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.mjs"
+      ]
+    },
+    "packages/node-protocol": {
+      "entry": [
+        "src/index.ts",
+        "tests/*.test.mjs"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.mjs"
       ]
     }
   },

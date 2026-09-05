@@ -76,7 +76,8 @@
     "zod": "catalog:",
     "@workspace/runtime-safety": "workspace:*",
     "@workspace/tool-runtime": "workspace:*",
-    "@workspace/knowledge-filesystem": "workspace:*"
+    "@workspace/knowledge-filesystem": "workspace:*",
+    "@workspace/node-protocol": "workspace:*"
   },
   "devDependencies": {
     "@ai-sdk/provider": "3.0.15",

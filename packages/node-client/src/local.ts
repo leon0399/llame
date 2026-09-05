@@ -9,11 +9,11 @@ import { CliError } from '@workspace/personal-node/errors';
 import { privateDirectory } from '@workspace/personal-node/private-files';
 import { assertPrivateSocket, socketPath, entryExists } from '@workspace/personal-node/socket';
 import { JsonLines } from '@workspace/personal-node/json-lines';
-import { MAX_RESPONSE_BYTES } from '@workspace/personal-node/protocol';
+import { MAX_RESPONSE_BYTES, NODE_PROTOCOL_VERSION } from '@workspace/personal-node/protocol';
 import { record, text, uuid } from '@workspace/personal-node/validation';
 import { type Approval } from '@workspace/personal-node/types';
-import { type Options } from './arguments';
-import { Output } from './output';
+import { type LocalConnectionOptions } from './types';
+import { type ClientOutput } from './types';
 
 interface Pending {
   readonly method: string;
@@ -31,7 +31,7 @@ export class NodeClient {
   private failure?: CliError;
   private readonly exited?: Promise<void>;
 
-  private constructor(input: Readable, private readonly writer: Writable, private readonly output: Output,
+  private constructor(input: Readable, private readonly writer: Writable, private readonly output: ClientOutput,
     private readonly approve: Approval, private readonly child?: ChildProcessWithoutNullStreams) {
     const reader = new JsonLines(MAX_RESPONSE_BYTES, value => this.receive(value));
     input.on('data', (data: Buffer) => {
@@ -49,7 +49,7 @@ export class NodeClient {
     }
   }
 
-  static async open(options: Options, env: NodeJS.ProcessEnv, output: Output, approve: Approval, signal: AbortSignal): Promise<NodeClient> {
+  static async open(options: LocalConnectionOptions, env: NodeJS.ProcessEnv, output: ClientOutput, approve: Approval, signal: AbortSignal): Promise<NodeClient> {
     privateDirectory(options.data);
     const path = process.platform === 'win32' ? undefined : join(options.data, 'node.sock');
     let client: NodeClient;
@@ -59,14 +59,14 @@ export class NodeClient {
       client = new NodeClient(socket, socket, output, approve);
     } else {
       if (entryExists(join(options.data, 'node-server.json'))) throw new CliError('node_unavailable', 'The configured local Node is starting or stopped uncleanly. Inspect it and use node recover; no other executor was selected.');
-      const args = [require.resolve('@workspace/personal-node/server'), '--stdio', '--config', options.config,
+      const args = [require.resolve('@workspace/node/server'), '--stdio', '--config', options.config,
         '--data-dir', options.data, '--cwd', options.cwd, ...(options.native ? ['--native'] : [])];
       const child = spawn(process.execPath, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
       client = new NodeClient(child.stdout, child.stdin, output, approve, child);
     }
     try {
-      const hello = record(await client.call('core.hello', { version: 1 }, AbortSignal.any([signal, AbortSignal.timeout(5000)])), 'Node hello');
-      if (hello.version !== 1 || hello.principal !== 'local-owner' || !isRecord(hello.modules) || hello.modules.core !== 1) {
+      const hello = record(await client.call('core.hello', { version: NODE_PROTOCOL_VERSION }, AbortSignal.any([signal, AbortSignal.timeout(5000)])), 'Node hello');
+      if (hello.version !== NODE_PROTOCOL_VERSION || hello.principal !== 'local-owner' || !isRecord(hello.modules) || hello.modules.core !== 1) {
         throw new CliError('protocol_version', 'Incompatible local Node protocol.');
       }
       uuid(hello.nodeId);

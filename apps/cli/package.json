@@ -22,7 +22,10 @@
   },
   "dependencies": {
     "@workspace/personal-node": "workspace:*",
-    "@workspace/runtime-safety": "workspace:*"
+    "@workspace/runtime-safety": "workspace:*",
+    "@workspace/node-protocol": "workspace:*",
+    "@workspace/node-client": "workspace:*",
+    "@workspace/node": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

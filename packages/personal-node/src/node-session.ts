@@ -1,3 +1,4 @@
+import { NodeProtocolError, protocolError } from '@workspace/node-protocol';
 import { randomUUID } from 'node:crypto';
 import { type Readable, type Writable } from 'node:stream';
 import { isBoolean } from '@workspace/runtime-safety';
@@ -41,6 +42,7 @@ export class NodeSession {
   }
 
   private failure(id: string | null, error: unknown): void {
+    if (error instanceof NodeProtocolError) { this.send({ jsonrpc: '2.0', id, error: protocolError(error) }); return; }
     const failure = error instanceof CliError ? error : new CliError('node_operation_failed', 'Node operation failed. Inspect durable state before retrying.');
     this.send({ jsonrpc: '2.0', id, error: { code: failure.code === 'method_unknown' ? -32601 : -32000,
       message: failure.message, data: { code: failure.code, exitCode: failure.exitCode } } });

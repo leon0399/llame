@@ -50,7 +50,7 @@ export function argumentsFor(argv: string[], env: NodeJS.ProcessEnv): Options {
   // Explicit flags, help and configuration repair do not depend on a readable
   // default configuration. A normal invocation fails closed on malformed config.
   const direct = flag('local') || value('remote') !== undefined;
-  const bypass = direct || flag('help') || flag('version') || ['config', 'remote', 'node'].includes(parsed.positionals[0] ?? '');
+  const bypass = direct || flag('help') || flag('version') || (['config', 'remote'].includes(parsed.positionals[0] ?? '') || (parsed.positionals[0] === 'node' && parsed.positionals[1] !== 'capabilities'));
   const saved = bypass ? { enabled: false } : remoteConfiguration(configDocument(config));
   const remote = value('remote') ? authority(value('remote')!) : saved.enabled ? saved.url : undefined;
   if (remote && (flag('native') || value('cwd'))) throw new CliError('mode_conflict', 'Remote execution cannot receive local Workspace grants. Use --local to override the saved remote.');

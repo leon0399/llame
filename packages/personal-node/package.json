@@ -19,7 +19,8 @@
     "@workspace/config-interpolation": "workspace:*",
     "@workspace/runtime-safety": "workspace:*",
     "@workspace/tool-runtime": "workspace:*",
-    "@workspace/knowledge-filesystem": "workspace:*"
+    "@workspace/knowledge-filesystem": "workspace:*",
+    "@workspace/node-protocol": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

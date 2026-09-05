@@ -1,3 +1,4 @@
+import { NodeModule } from './node/node.module';
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -57,6 +58,7 @@ const API_RATE_LIMIT_PER_MINUTE = (() => {
     SearchModule,
     IdentityModule,
     KnowledgeModule,
+    NodeModule,
   ],
   controllers: [AppController],
   providers: [

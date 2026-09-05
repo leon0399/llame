@@ -19,7 +19,7 @@ export async function request(url: string, init: RequestInit, signal: AbortSigna
   }
 }
 
-export async function readJson(response: Response): Promise<unknown> {
+export async function readJson(response: Response, maxBytes = 4_194_304): Promise<unknown> {
   if (!response.body) throw new CliError('empty_response', 'Expected a JSON response.');
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -29,7 +29,7 @@ export async function readJson(response: Response): Promise<unknown> {
       const next = await reader.read();
       if (next.done) break;
       size += next.value.byteLength;
-      if (size > 4_194_304) throw new CliError('response_limit', 'HTTP response exceeds 4 MiB.');
+      if (size > maxBytes) throw new CliError('response_limit', 'HTTP response exceeds the permitted size.');
       chunks.push(next.value);
     }
   } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }

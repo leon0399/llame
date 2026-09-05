@@ -42,7 +42,7 @@ export class Rpc {
   static async open(dir, negotiate = true) {
     const socket = connect(join(dir, 'state/node.sock')); const rpc = new Rpc(socket);
     await new Promise((done, reject) => { socket.once('connect', done); socket.once('error', reject); });
-    if (negotiate) rpc.hello = await rpc.call('core.hello', { version: 1 });
+    if (negotiate) rpc.hello = await rpc.call('core.hello', { version: 2 });
     return rpc;
   }
   call(method, params = {}, id = randomUUID()) {

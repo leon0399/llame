@@ -1,8 +1,9 @@
+import { accessOperation, isQueryMethod } from '@workspace/node-protocol';
+import { PersonalNodeAccess } from './node-access';
 import { createHash } from 'node:crypto';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 import { isBoolean, isRecord, isString, redactProtectedString, normalizeProtectedValues, sanitizeProtectedValueJson } from '@workspace/runtime-safety';
 import { PersonalKnowledge } from './knowledge';
-import { ConversationRecall } from './recall';
 import { rebuildSearch } from './store-migration';
 import { loadConfig, selectModel, configDocument } from './config';
 import { commandEnvironment } from './env';
@@ -15,7 +16,7 @@ import { McpHost } from './mcp-host';
 import { parseMcpServers } from './mcp-config';
 import { NodeOutput } from './node-output';
 import { type Approval } from './types';
-import { pathIdentity, type NodeHello } from './protocol';
+import { pathIdentity, NODE_PROTOCOL_VERSION, type NodeHello } from './protocol';
 
 export interface NodeBoot {
   readonly data: string;
@@ -45,8 +46,8 @@ export class NodeService {
 
   hello(params: UnknownRecord): NodeHello {
     keys(params, ['version'], 'core.hello');
-    if (params.version !== 1) throw new CliError('protocol_version', 'This Node requires protocol version 1.');
-    return { version: 1, nodeId: this.store.nodeId, principal: 'local-owner', transport: this.boot.transport,
+    if (params.version !== NODE_PROTOCOL_VERSION) throw new CliError('protocol_version', `This Node requires private protocol version ${NODE_PROTOCOL_VERSION}. Restart older Nodes; no fallback was attempted.`);
+    return { version: NODE_PROTOCOL_VERSION, nodeId: this.store.nodeId, principal: 'local-owner', transport: this.boot.transport,
       modules: { core: 1, realm: 1, execution: 1, admin: 1 },
       capabilities: ['chats', 'runs', 'mcp', 'approvals', 'run-cancellation', 'event-replay', 'conversation-recall', 'local-markdown-knowledge'],
       configIdentity: pathIdentity(this.boot.config), workspaceIdentity: this.boot.native ? pathIdentity(this.boot.cwd) : null,
@@ -54,16 +55,15 @@ export class NodeService {
   }
 
   async dispatch(method: string, params: UnknownRecord, context: RequestContext): Promise<unknown> {
+    if (method === 'core.describe' || isQueryMethod(method)) {
+      return accessOperation({ method, params }, new PersonalNodeAccess(this.store), context.signal);
+    }
     switch (method) {
       case 'core.status': keys(params, [], method); return { nodeId: this.store.nodeId, transport: this.boot.transport, enrolled: false, synchronization: false };
       case 'realm.models.list': return this.models(params);
-      case 'realm.chats.search': return new ConversationRecall(this.store).search(params);
-      case 'realm.conversations.read': return new ConversationRecall(this.store).read(params);
       case 'realm.knowledge.create': return new PersonalKnowledge(this.store).create(params);
       case 'realm.knowledge.list': keys(params, [], method); return { items: new PersonalKnowledge(this.store).list(), nextCursor: null };
       case 'realm.knowledge.get': keys(params, ['knowledgeSpaceId'], method); return new PersonalKnowledge(this.store).get(uuid(params.knowledgeSpaceId));
-      case 'realm.knowledge.search': return new PersonalKnowledge(this.store).search(params, context.signal);
-      case 'realm.knowledge.read': return new PersonalKnowledge(this.store).read(params, context.signal);
       case 'realm.chats.list': keys(params, [], method); return this.store.chats();
       case 'realm.chats.read': keys(params, ['chatId'], method); return this.store.history(uuid(params.chatId));
       case 'execution.run': return this.execute(params, context);

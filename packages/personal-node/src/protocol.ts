@@ -5,7 +5,7 @@ import { keys, record, text } from './validation';
 import { CliError } from './errors';
 
 /** Local slice of the Node protocol family. Not MCP, ACP, or hosted REST. */
-export const NODE_PROTOCOL_VERSION = 1;
+export const NODE_PROTOCOL_VERSION = 2;
 export const MAX_REQUEST_BYTES = 1_048_576;
 export const MAX_RESPONSE_BYTES = 12_582_912;
 export const MAX_PENDING_REQUESTS = 16;
@@ -19,7 +19,7 @@ export interface NodeRequest {
 }
 
 export interface NodeHello {
-  readonly version: 1;
+  readonly version: typeof NODE_PROTOCOL_VERSION;
   readonly nodeId: string;
   readonly principal: 'local-owner';
   readonly transport: 'stdio' | 'unix';
