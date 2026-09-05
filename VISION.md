@@ -182,6 +182,46 @@ distinct rather than being merged by name. Unlinking revokes that cryptographic
 enrollment but neither logs the local owner out nor promises remote erasure of
 already retained copies.
 
+### One protocol, plural runtimes
+
+First-party Surfaces use one versioned, capability-negotiated Node Protocol; they
+do not grow separate in-process and network feature paths. This is a shared
+product contract, not a requirement to deploy one server stack everywhere. A
+Surface and Node may be packaged together, but the logical boundary remains.
+
+The hosted multi-user hub retains NestJS, PostgreSQL, RLS, and pg-boss. A desktop
+or CLI-hosted personal Node uses a lightweight single-owner runtime and an
+embedded transactional store. Android implements an honestly limited native Node
+subset rather than carrying the server stack or pretending to provide Workspace
+execution. Executor adapters may implement only the execution capabilities they
+own.
+
+The shared boundary is schemas, stable semantics, generated clients where useful,
+and cross-implementation conformance fixtures. Storage layouts, ORM repositories,
+queues, dependency injection, and tenancy enforcement remain implementation
+details. Pure domain algorithms become shared code only after real reuse proves
+their boundary; llame will not pre-build a universal storage abstraction.
+
+Nodes upgrade independently. Compatibility is negotiated per protocol module,
+portable resource schema, policy semantics, snapshot format, and executor
+capability rather than inferred from one product version. Negotiation establishes
+technical compatibility, not write authority. The governing authority activates a
+new semantic writer only after fencing writers that cannot preserve its meaning.
+
+A replica advances its applied frontier only after understanding and applying a
+complete semantic batch. Unknown authorization, policy, control, provenance, or
+required resource operations fail closed; an affected resource may become
+read-only, incomplete, or update-required while compatible modules continue. A
+snapshot cannot replace valid state unless its schema and coverage are understood.
+Compatibility is finite: rebuildable local projections may version independently,
+but llame will not preserve every historical semantic writer forever or hide
+meaningful incompatibility behind permissive decoding.
+
+In-process dispatch, local IPC or loopback, direct network connections, and
+authenticated reverse tunnels preserve the same operation, authorization,
+idempotency, error, and recovery semantics. A cheaper local transport does not
+grant a Surface a privileged alternate agent loop.
+
 ### Execution follows intent and capability
 
 Surface, Node, executor, Workspace, and Sandbox remain separate boundaries. A
@@ -231,6 +271,25 @@ synchronize through an application protocol. Live execution streams, executor
 recovery journals, and portable semantic checkpoints are separate layers rather
 than one replicated process log.
 
+Portable resource identity is namespace-scoped:
+`(namespace_id, resource_kind, resource_id)`. A separate versioned Authority
+Binding names the logical authority currently allowed to govern that resource.
+This lets an authenticated authority transfer or Personal Realm join preserve
+Chat and message identities while fencing the prior authority. A Personal Realm's
+ID is its initial namespace and authority; after an explicit join it may govern
+retained predecessor namespaces. llame-owned resources use opaque
+offline-generated UUIDs inside their namespace. Names, URLs, provider locators,
+database sequences, and timestamps remain metadata or local projections.
+
+Portable episodic mutations are immutable atomic semantic batches from
+authority-scoped writer streams. Writer streams are distinct from nodes, replicas,
+and users: retention does not grant authorship, disposable node credentials do not
+rewrite history, and a multi-user hub does not expose one cross-tenant writer
+sequence. Batches carry typed operations, causal dependencies, stable resource
+references, and integrity evidence. There is no generic row patch or wall-clock
+last-write-wins rule. Concurrent Chat continuations become explicit branches;
+deletion is an explicit retained record, never inferred from absence.
+
 A Personal Realm may present resources from work, family, school, community, or
 other authorities without merging their accounts, ownership, or policy. Foreign
 resources are mounted into the user's view; each retains one governing authority
@@ -238,16 +297,97 @@ for membership, accepted revisions, retention, replication, and information flow
 Offline shared writes remain proposals unless that authority defines a stronger
 merge contract.
 
+Personal Replica Enrollment and foreign Authority Connections are different trust
+relationships. Enrollment admits one node profile to the same Personal Realm for
+mirroring and explicitly granted authorship. A connection authenticates one local
+profile as one authority-local subject and routes exact mounted resources; it does
+not merge identities or enroll the foreign authority as a personal replica. A
+profile may hold several separately brokered connections, including different
+subjects at one authority, and every mount selects one explicitly.
+
+When two populated profiles with different Personal Realm identities link, llame
+does not hide an authority merge inside first synchronization. The user approves a
+fenced Realm join that selects one destination authority, transfers the source
+namespaces' Authority Bindings, retires source writer grants, and preserves every
+resource and historical batch identity. Ordinary reconciliation starts only after
+that identity transition. An empty side simply adopts the populated Realm.
+
+A Writer Grant is durable non-secret authority state binding one author stream to
+specific resources, operations, and online or offline behavior. Current node or
+subject credentials prove who may exercise it; caller-supplied grant IDs never
+authorize themselves.
+
+A Personal Realm has no canonical physical home, but its governance is not an
+equal-writer CRDT. Full replicas exchange and independently retain the portable
+personal core, and granted writer streams may author eligible data offline. One
+transferable Realm Control Coordinator epoch orders enrollment, revocation,
+Writer Grants, Authority Binding changes, protected-acceptance policy, and
+destructive retention decisions. Ordinary personal Git ref movement remains a
+grant-scoped data operation and may reconcile through explicit divergence and
+merge. The initial linked topology uses the hub as coordinator; a standalone node
+coordinates itself. Coordinator loss blocks new governance, not read access or
+already granted offline work, and never silently elects a successor.
+
+Identity-preserving recovery is a separate pre-authorized authority path. A
+versioned Recovery Policy may disable recovery, name one offline recovery
+principal, or require a threshold of independent principals. A valid recovery
+transition advances a generation that fences every prior coordinator. Possession
+of a full mirror, ordinary account login, or a copied node key does not grant this
+authority; without a configured recovery threshold, permanent coordinator loss
+creates a visibly new Realm rather than a forged successor.
+
+Recovery, operational control, node identity, writer attribution, broker secrets,
+and backup encryption are distinct key roles. Routine node keys remain local and
+disposable: loss or unlink revokes the principal, and re-enrollment creates a new
+one. Recovery-policy rotation chains from the previous threshold and proves the
+new policy. The first personal-node slice does not implement threshold recovery;
+it preserves the honest fork behavior while leaving this trust chain possible.
+
+“Full mirror” means logical fidelity for portable personal state, not secret or
+process replication. Credentials, Workspace contents, Sandbox images,
+executor-local recovery state, rebuildable indexes, and foreign data forbidden by
+its authority remain local or referenced. Synchronization may route through a hub
+or directly between enrolled peers; neither forwarding nor retention grants
+control or execution authority.
+
 Long-lived foreign and inference-provider credentials stay at their owning Node
 or broker. An executor receives a proxied operation or narrow delegation, not the
 reusable upstream secret. Credential secrecy does not imply data locality:
 Workspace policy must separately decide whether context may reach an upstream
 model and whether that requires approval.
 
+Every Chat branch and Run declares one destination authority. System-mediated
+observations carry trusted source authority, resource, revision, grant, policy,
+freshness, and permitted-sink metadata outside model-controlled text. The harness
+checks the exact executor, model, tool, Workspace, persistence, replication, log,
+or export sink before exposure. When sources combine, provenance accumulates and
+permissions intersect; a permissive source never relaxes a restrictive one.
+
+Derived answers, summaries, memories, embeddings, artifacts, tool arguments, and
+compaction state inherit source provenance and restrictions. Transformation,
+prompt removal, and compaction are not declassification. An incompatible flow
+moves to an eligible context, excludes a source, or splits into authority-scoped
+branches. Cross-authority export is explicit, creates destination-owned identity
+with source provenance, and requires every source authority to permit the sink.
+
 Decision provenance and rejected alternatives remain in the
-[local-node and distributed-execution research](docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md)
+[local-node and distributed-execution research](docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md),
+the
+[multi-authority federation research](docs/research/product-vision/2026-08-21-multi-authority-federation-models.md),
+the
+[federated runtime topology decision](docs/research/product-vision/2026-08-22-federated-runtime-topology.md),
+the
+[federated resource identity decision](docs/research/product-vision/2026-08-22-federated-resource-identity-and-change-envelope.md),
+the
+[authority connections and writer grants decision](docs/research/product-vision/2026-08-22-authority-connections-and-writer-grants.md),
+the
+[Personal Realm control and replication decision](docs/research/product-vision/2026-08-22-personal-realm-control-and-replication-topology.md),
+the
+[cross-authority information-flow decision](docs/research/product-vision/2026-08-22-cross-authority-information-flow-and-derived-data.md),
+the
+[federated schema-evolution decision](docs/research/product-vision/2026-08-22-federated-schema-evolution-and-compatibility.md),
 and the
-[multi-authority federation research](docs/research/product-vision/2026-08-21-multi-authority-federation-models.md).
+[Personal Realm recovery decision](docs/research/product-vision/2026-08-22-personal-realm-recovery-and-key-lifecycle.md).
 
 ## Staged horizons
 

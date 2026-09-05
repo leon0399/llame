@@ -293,6 +293,51 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-22
 
+- **Personal Realm recovery authority**: selected a versioned, pre-authorized
+  Recovery Policy and generation fence that separates rare same-Realm succession
+  from routine coordinator control. Distinguished recovery principals, node and
+  writer keys, broker secrets, and backup encryption; retained disposable node
+  identities and honest new-Realm fallback for the simple first slice; and
+  recorded optional offline and threshold custody as north-star profiles without
+  changing shipped behavior, specifications, or roadmap.
+- **Federated schema evolution**: selected layered capability negotiation,
+  authority-fenced semantic writer activation, atomic batch/frontier rules,
+  fail-closed handling of unknown policy and control semantics, compatible
+  snapshot recovery, and honest per-resource degraded modes. Separated portable
+  semantic migration from rebuildable local projections and rejected both
+  federation-wide lockstep upgrades and indefinite permissive decoding without
+  changing shipped behavior, specifications, or roadmap.
+- **Cross-authority information flow**: selected destination-first Runs, trusted
+  source provenance and policy metadata, exact sink checks before exposure,
+  restrictive multi-source composition, and conservative propagation through
+  summaries, memory, tools, artifacts, and compaction. Defined explicit export,
+  clean-context, enforcement-boundary, and failure behavior without changing
+  shipped behavior, specifications, or roadmap.
+- **Personal Realm control topology**: separated offline-capable replicated
+  personal data from a single transferable, epoch-fenced Realm control head.
+  Defined full logical mirror scope, initial hub and standalone coordinator roles,
+  peer replication, authority transfer, coordinator-outage behavior, and the
+  honest fork boundary after unrecoverable control loss without changing shipped
+  behavior, specifications, or roadmap.
+- **Federated authority connections**: separated Personal Replica Enrollment,
+  foreign Authority Connections, non-secret Writer Grants, and broker-local
+  credentials. Defined explicit populated-Realm joining before ordinary sync,
+  exact multi-account mount selection, narrow executor delegation, and honest
+  revocation/failure behavior without changing the shipped authentication system,
+  specification, or roadmap.
+- **Federated resource identity**: selected namespace-scoped resource references,
+  versioned current-authority bindings, and immutable causal semantic batches from
+  authority-scoped writer streams. Clarified that UUIDs prevent accidental create
+  collisions but do not supply governance, conflict, deletion, or completeness
+  semantics; separated namespace, authority, node, user, replica, writer,
+  provider, and resource identities; and recorded automatic Chat-fork and explicit
+  deletion-record behavior without changing the shipped schema or roadmap.
+- **Federated runtime topology**: selected one capability-negotiated Node Protocol
+  and conformance boundary with implementation-specific runtimes. The hosted hub
+  retains NestJS/PostgreSQL/RLS/pg-boss; personal desktop and Android Nodes remain
+  lightweight, single-owner, and offline-capable. Recorded concrete CLI, Android,
+  remote-control, hub, and external-executor scenarios without promoting the
+  decision into the shipped specification or roadmap.
 - **Distributed agent direction**: recorded the local-node, Workspace, Sandbox,
   execution-handoff, Personal Realm, and multi-authority federation discussion;
   promoted the durable north-star boundaries into `VISION.md`; sequenced the
