@@ -26,6 +26,7 @@ const TEST_MODEL: EmbeddingModelCatalogEntry = {
 };
 
 describe('ChatSearchQueryEmbedder', () => {
+  afterEach(() => vi.restoreAllMocks());
   it('returns no_model when no embedding model is configured', async () => {
     const embedder = new ChatSearchQueryEmbedder(configWith());
     const result = await embedder.embedQueryForSearch('web', 'test query');
@@ -36,7 +37,6 @@ describe('ChatSearchQueryEmbedder', () => {
     const spy = vi.spyOn(openaiBackend, 'createOpenAIEmbeddingBackend');
     new ChatSearchQueryEmbedder(configWith());
     expect(spy).not.toHaveBeenCalled();
-    spy.mockRestore();
   });
 
   it('constructs a backend when a model is selected, regardless of worker profile', () => {
@@ -58,7 +58,6 @@ describe('ChatSearchQueryEmbedder', () => {
     );
 
     expect(spy).toHaveBeenCalledOnce();
-    spy.mockRestore();
   });
 
   it('returns empty fallback for blank query on a configured instance', async () => {
@@ -204,8 +203,6 @@ describe('ChatSearchQueryEmbedder', () => {
       expect(logMessage).toContain('tool');
       expect(logMessage).toContain('test-embed');
       expect(logMessage).not.toContain('sensitive query text');
-
-      warnSpy.mockRestore();
     });
   });
 });
