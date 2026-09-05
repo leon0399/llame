@@ -10,7 +10,7 @@ import {
   matchesCodeOwnedToolId,
 } from './tool-id';
 import { type Tool } from './types';
-import { isString } from '../unknown-record';
+import { isString } from '@workspace/runtime-safety';
 
 /** Every tool the harness knows about (design D2: in-code registry). */
 export const TOOLS: ReadonlyArray<Tool> = [

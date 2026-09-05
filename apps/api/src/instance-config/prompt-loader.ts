@@ -3,9 +3,9 @@ import path from 'node:path';
 
 import Handlebars from 'handlebars';
 
-import { sanitizeAuthoredText } from './authored-text';
+import { sanitizeAuthoredText } from '@workspace/runtime-safety';
 import { InstanceConfigError } from '@workspace/config-interpolation';
-import { isString } from '../unknown-record';
+import { isString } from '@workspace/runtime-safety';
 import type {
   PromptChatDigestEntry,
   PromptChatsInput,

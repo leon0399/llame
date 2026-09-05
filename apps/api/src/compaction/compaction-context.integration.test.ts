@@ -69,7 +69,7 @@ import {
   TransitionCompactionError,
 } from './compaction.service';
 import { type KnowledgeToolResolver } from '../tools/types';
-import { isRecord, isString, type UnknownRecord } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '@workspace/runtime-safety';
 import { contentText } from '../testing/support';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];

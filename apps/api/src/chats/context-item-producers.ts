@@ -21,7 +21,7 @@ import {
   type ContextItemForm,
   type ContextItemPart,
 } from './context-item';
-import { sanitizeAuthoredText } from '../instance-config/authored-text';
+import { sanitizeAuthoredText } from '@workspace/runtime-safety';
 import {
   formatTemporalAnchor,
   isIanaTimeZone,
@@ -32,7 +32,7 @@ import {
   isNumber,
   isString,
   type UnknownRecord,
-} from '../unknown-record';
+} from '@workspace/runtime-safety';
 import {
   createRenderedContextItem,
   isExactRecord,

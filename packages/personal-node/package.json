@@ -1,0 +1,31 @@
+{
+  "name": "@workspace/personal-node",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Independently operable single-owner Node runtime and local protocol, not a terminal UI.",
+  "exports": {
+    "./*": "./dist/*.js"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "lint": "oxlint --deny-warnings --report-unused-disable-directives"
+  },
+  "dependencies": {
+    "@workspace/config-interpolation": "workspace:*",
+    "@workspace/runtime-safety": "workspace:*",
+    "@workspace/tool-runtime": "workspace:*",
+    "@workspace/knowledge-filesystem": "workspace:*",
+    "@workspace/node-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@workspace/config-typescript": "workspace:*",
+    "oxlint": "catalog:",
+    "typescript": "catalog:"
+  }
+}

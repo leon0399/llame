@@ -27,7 +27,7 @@ import {
 } from '../models/models.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { type MessagePart } from './context-builder';
-import { isRecord, isString, type UnknownRecord } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '@workspace/runtime-safety';
 import { RunAbortRegistry, type RunAborter } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
 import {
@@ -137,7 +137,7 @@ type PersistUserMessageAndRunResult = {
   supersededRunIds: Array<string>;
 };
 
-type CreateMessageStreamInput = {
+export type CreateMessageStreamInput = {
   chatId: string;
   userId: string;
   modelId: string;
@@ -145,6 +145,10 @@ type CreateMessageStreamInput = {
   effort?: string;
   message: ChatMessageInput;
   abortSignal?: AbortSignal;
+};
+
+export type AcceptedMessageRun = {
+  readonly runId: string; readonly chatId: string; readonly messageId: string;
 };
 
 /**
@@ -191,6 +195,15 @@ export class ChatLoopService {
   async createMessageStream(
     input: CreateMessageStreamInput,
   ): Promise<ChatMessageStream> {
+    const accepted = await this.acceptMessage(input);
+    const response = this.bridge.createUiMessageStreamResponse({
+      runId: accepted.runId, userId: input.userId, abortSignal: input.abortSignal,
+    });
+    return { toUIMessageStreamResponse: () => response };
+  }
+
+  /** Admit exactly once; the caller chooses JSON admission or the existing UI bridge. */
+  async acceptMessage(input: CreateMessageStreamInput): Promise<AcceptedMessageRun> {
     const model = this.models.validateModelSelection(input.modelId);
     // Resolved from the already-validated model, so an unavailable model is
     // reported without the effort ever being considered.
@@ -233,15 +246,15 @@ export class ChatLoopService {
         digestCandidate,
       });
 
-    return this.finalizeAcceptedRun({
+    await this.finalizeAcceptedRun({
       runId,
       userMessage,
       supersededRunIds,
       chatId: input.chatId,
       userId: input.userId,
       modelId: input.modelId,
-      abortSignal: input.abortSignal,
     });
+    return { runId, chatId: input.chatId, messageId: userMessage.id };
   }
 
   private sanitizeAndValidateMessage(
@@ -288,8 +301,8 @@ export class ChatLoopService {
    * in-process model call a superseded retry left running (after the tx
    * committed, so the superseded run is already terminally cancelled — first
    * writer wins), dispatch the durable execution (#50 — queue mechanics and
-   * enqueue-failure handling live in RunDispatchService), and answer with the
-   * run-event stream bridge. The HTTP connection is a viewport onto the
+   * enqueue-failure handling live in RunDispatchService). The caller then
+   * returns JSON admission or attaches the run-event stream bridge. The HTTP connection is a viewport onto the
    * durable run — closing it does not kill the turn. No inline index here:
    * the assistant finalize re-indexes the whole chat (incl. this message); an
    * orphaned user-only turn (failed run) is caught by the discovery sweep.
@@ -301,8 +314,7 @@ export class ChatLoopService {
     chatId: string;
     userId: string;
     modelId: string;
-    abortSignal?: AbortSignal;
-  }): Promise<ChatMessageStream> {
+  }): Promise<void> {
     for (const supersededRunId of input.supersededRunIds) {
       this.aborts.abort(supersededRunId);
     }
@@ -315,16 +327,6 @@ export class ChatLoopService {
       userMessage: input.userMessage,
     });
 
-    const response = this.bridge.createUiMessageStreamResponse({
-      runId: input.runId,
-      userId: input.userId,
-      abortSignal: input.abortSignal,
-    });
-    // The controller consumes only this one-method stream surface; the
-    // bridge's Response satisfies it without claiming a full streamText result.
-    return {
-      toUIMessageStreamResponse: () => response,
-    };
   }
 
   private async persistUserMessageAndRun(

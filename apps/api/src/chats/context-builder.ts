@@ -33,7 +33,7 @@ import {
   renderCompactionCheckpoint,
 } from './context-item-producers';
 import { resolveForm } from './context-item';
-import type { UnknownRecord } from '../unknown-record';
+import type { UnknownRecord } from '@workspace/runtime-safety';
 import {
   projectToolObservations,
   type ToolObservationProjection,

@@ -1,10 +1,10 @@
 import { type ModelToolDeclaration } from '../db/schema';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/runtime-safety';
 import { TOOL_REGISTRY } from '../tools/registry';
-import { resolveJsonSchema, toFlexibleSchema } from '../tools/schema-utils';
+import { resolveJsonSchema, toFlexibleSchema } from '@workspace/tool-runtime/schema-utils';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
 import { type Tool } from '../tools/types';
-import { canonicalJson } from '../canonical-json';
+import { canonicalJson } from '@workspace/runtime-safety';
 
 export class ModelContextExecutionError extends Error {
   readonly code: string = 'model_context_incompatible';

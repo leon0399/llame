@@ -1,6 +1,6 @@
 # llame current architecture
 
-**Status:** Current cross-cutting contract. Updated 2026-08-24.
+**Status:** Current cross-cutting contract. Updated 2026-09-05.
 
 This file records system boundaries and invariants that span capabilities. It is not a future feature inventory, release plan, API catalogue, schema sketch, or research report.
 
@@ -32,9 +32,74 @@ Future behavior belongs in [VISION.md](VISION.md) until sequenced in the roadmap
 
 ### 1.1 Distributed direction is not current architecture
 
-The future Surface, Node, Personal Realm, Workspace, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. No first-party CLI or Android Node, standalone personal store, Node enrollment, Personal Realm mirroring, remote Workspace registry, cross-node execution placement or handoff, or foreign-authority mount ships.
+The future Surface, Node, Personal Realm, Workspace, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. The first-party CLI and independently operable personal Node ship in the limited form described in §1.2. Android Nodes, cryptographic Node enrollment, Personal Realm mirroring, remote Workspace registries, cross-node execution placement or handoff, and foreign-authority mounts remain unshipped.
 
 The current web, API, and worker processes form one installation and one PostgreSQL ownership boundary. A dedicated worker is an operational process role inside that installation, not an autonomous personal Node. A current Project is not a filesystem Workspace, Knowledge Space, Personal Realm, or security boundary. The hosted Knowledge Space ID is a portable logical identity, while its owner row and configured filesystem child remain installation-local bindings. Future terminology must not be projected onto present APIs, database rows, or deployment roles without a shipped capability spec.
+
+### 1.2 Thin terminal and independently operable personal Node
+
+`apps/cli` is a Surface, not the owner of local model execution or SQLite. In
+local mode it launches or attaches to the private application in
+`apps/node`, which composes `packages/personal-node`. The personal application also
+has an independent `llame-node` executable. The Node owns configuration resolution, the bounded
+OpenAI-compatible loop, one advancing executor, durable messages/events/receipts,
+native/MCP tool execution, local lexical recall and managed live Markdown
+Knowledge Spaces. No account, Postgres, inference download or daemon setup is
+required. The default service is a temporary stdio child. Explicit `node serve`
+is an independently persistent foreground service on a private Unix socket.
+
+Remote mode retains the hosted HTTP/SSE/Bearer adapter. It does not access the
+Node's SQLite, execute remote tools locally, or import the API implementation.
+The saved remote remains the default until disabled or overridden with --local.
+There is no automatic authority or provider fallback. Human remote sessions,
+local runtime UUIDs and future cryptographic Node enrollment remain distinct.
+
+The local protocol negotiates only implemented module versions. Local authority
+comes from private process IPC or a 0600 socket beneath owned 0700 storage. Native
+placement is fixed at Node boot and must be explicitly selected by the initiating
+Surface. Per-operation approvals belong to that channel; disconnection denies
+pending/future approvals. A persistent Node can finish inference after losing a
+Surface; a temporary stdio Node cancels. Neither a crash nor event replay retries
+an uncertain side effect. This is not hosted worker recovery or full feature parity.
+
+SQLite schema version 2 preserves existing transcripts and Node/Chat/Run IDs,
+adds message UUIDs and Chat-local locators, and maintains a rebuildable visible-text
+trigram index. Knowledge IDs are bound into each Run and read using the existing
+bounded hosted filesystem adapter, extracted to `packages/knowledge-filesystem`.
+Logical-line scanning, redaction and result bounds remain shared runtime safety.
+The CLI's authority/account-bound remote cursors are disposable private files,
+not runtime-owned source state. Local read results may reach the configured
+inference provider; filesystem privacy is not an egress policy or encryption.
+
+See [`personal-node`](openspec/specs/personal-node/spec.md),
+[`cli`](openspec/specs/cli/spec.md), the [protocol](docs/node/local-protocol.md),
+the [operator guide](apps/cli/README.md), and the
+[architecture decision](docs/research/cli/2026-09-05-personal-node-boundary.md).
+Unless explicitly stated otherwise, subsequent sections describe the hosted
+API/worker contract. Personal Realm replication and full execution/admin protocol
+parity remain separate, unimplemented capabilities.
+
+### 1.3 Common owner access and explicit admission
+
+`packages/node-protocol` owns version-1 discovery and conversation/Knowledge
+search/read contracts implemented by both runtimes. `packages/node-client` owns
+reusable private-IPC and authenticated HTTP clients, separate from CLI rendering.
+The hosted adapter exposes `POST /api/v1/node/requests` under existing session,
+code-owned read-only gates, and RLS; the personal adapter uses private IPC version
+2. An expected-principal header asserts the session identity, never selects one.
+Capability declarations are rechecked at invocation. Native evidence and coverage
+remain deployment-specific; the common envelope binds method, principal and source.
+
+`POST /api/v1/runs` admits a hosted message with HTTP 202 and returns its durable
+identities. Both this route and the existing web stream call the same acceptance
+transaction and queue dispatcher. Losing admission is uncertain and never triggers
+an automatic retry or alternate route. There is no request-thread agent loop.
+
+Shared access does not enroll replicas, merge Home, proxy local tools to hosted
+Runs, share databases, or synchronize credentials/files/events. Hosted descriptions
+use the session-user identity, not a fabricated portable Node ID. See the
+[node-access spec](openspec/specs/node-access/spec.md),
+[contract](docs/node/shared-access.md), and [integration guide](docs/node/integration.md).
 
 ## 2. Conversation continuity
 
@@ -70,7 +135,7 @@ Current roles are `owner`, `admin`, `maintainer`, `member`, `viewer`, `guest`, a
 
 ### 7.5 Approvals
 
-No general approval workflow or per-tool allow/ask/deny policy ships. Authentication, RLS, tool classification, and the static `tools.allowed` gate remain mandatory.
+No hosted general approval workflow or per-tool allow/ask/deny policy ships; the standalone CLI separately requires per-action terminal approval for native writes/processes. Authentication, RLS, tool classification, and the static `tools.allowed` gate remain mandatory.
 
 ## 9. Chats and durable Runs
 
@@ -92,7 +157,7 @@ Persisted event families currently cover Run lifecycle (`run.created`, `run.star
 
 Every chat message executes through pg-boss and `RunExecutionService`; there is no inline request-thread mode. A no-HTTP worker entrypoint ships, and worker profiles support co-located consumers. See [`durable-runs`](openspec/specs/durable-runs/spec.md), [`job-queue`](openspec/specs/job-queue/spec.md), and [docs/scaling.md](docs/scaling.md).
 
-All current workers coordinate through the same installation's queue and database authority. No Node Protocol, user-machine enrollment, direct or tunneled remote executor API, Workspace mount handoff, or cross-node execution-authority transfer ships.
+All current workers coordinate through the same installation's queue and database authority. The common owner-access slice in §1.3 is not a distributed execution protocol. No user-machine enrollment, direct or tunneled remote executor API, Workspace mount handoff, or cross-node execution-authority transfer ships.
 
 ### 9.6 Queue delivery and recovery
 

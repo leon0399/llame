@@ -20,7 +20,7 @@ import {
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { childPath, isDescendantPath, pathIds, rootPath } from './org-path';
-import { type UnknownRecord } from '../unknown-record';
+import { type UnknownRecord } from '@workspace/runtime-safety';
 
 /**
  * A row this structural write depends on vanished between the caller's

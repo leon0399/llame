@@ -25,7 +25,7 @@ import 'reflect-metadata';
 
 import { PgBossService } from '@wavezync/nestjs-pgboss';
 
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 import { PgBossQueueService } from './pgboss-queue.service';
 import { defineQueue } from './queue';
 

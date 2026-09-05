@@ -2,10 +2,13 @@ import { Logger } from '@nestjs/common';
 import { z } from 'zod';
 
 import { type TenantRunner } from '../db/tenant-db.service';
-import { RESULT_TRUNCATE_CHARS } from './result-truncation';
+import {
+  RESULT_TRUNCATE_CHARS,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 import { runTool } from './runner';
 import { type Tool, type ToolContext } from './types';
-import { type UnknownRecord } from '../unknown-record';
+
 
 function fakeContext(userId = 'user-A'): ToolContext {
   const tenantDb: TenantRunner = {

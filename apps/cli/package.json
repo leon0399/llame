@@ -1,0 +1,36 @@
+{
+  "name": "cli",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Thin terminal for local personal Nodes and authenticated hosted execution",
+  "bin": {
+    "llame": "bin/llame.cjs"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node bin/llame.cjs",
+    "test": "node --test tests/*.test.mjs tests/integration/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --deny-warnings --report-unused-disable-directives",
+    "lint:fix": "oxlint --deny-warnings --fix",
+    "package:standalone": "node scripts/package.mjs",
+    "test:core": "node --test tests/*.test.mjs",
+    "test:mcp": "node --test tests/integration/*.test.mjs"
+  },
+  "dependencies": {
+    "@workspace/personal-node": "workspace:*",
+    "@workspace/runtime-safety": "workspace:*",
+    "@workspace/node-protocol": "workspace:*",
+    "@workspace/node-client": "workspace:*",
+    "@workspace/node": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@workspace/config-typescript": "workspace:*",
+    "oxlint": "catalog:",
+    "typescript": "catalog:"
+  }
+}

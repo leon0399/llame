@@ -4,10 +4,10 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { McpServerClient } from './mcp-server-client';
+import { McpServerClient } from '@workspace/tool-runtime/mcp-server-client';
 import { loadInstanceConfig } from '../instance-config/config-loader';
 
-const FIXTURE = join(__dirname, 'mcp-stdio-test-fixture.mjs');
+const FIXTURE = join(__dirname, '../../../../packages/tool-runtime/src/mcp-stdio-test-fixture.mjs');
 
 /**
  * Spans the seam this stack deliberately split: the config layer derives

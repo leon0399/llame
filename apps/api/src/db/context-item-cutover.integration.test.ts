@@ -18,7 +18,7 @@ import { type Sql } from 'postgres';
 import * as schema from './schema';
 import { TenantDbService } from './tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;

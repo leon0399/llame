@@ -29,7 +29,7 @@ import {
 } from '../models/model-client';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { isTextPart, type TextPart } from './context-builder';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
 import type { CompactionCapability } from '../compaction/compaction.service';

@@ -17,9 +17,9 @@ import {
 } from '../search/chat/canonical-search-matcher';
 import { searchConversationsTool } from './search-conversations';
 import { parseConversationSourceCoordinates } from './conversation-source-coordinates';
-import { isZodSchema } from './schema-utils';
+import { isZodSchema } from '@workspace/tool-runtime/schema-utils';
 import { type ToolContext } from './types';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 /**
  * Unit tests with a FAKE ToolContext (no real DB; the repository read is

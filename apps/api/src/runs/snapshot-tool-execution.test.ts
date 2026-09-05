@@ -5,7 +5,7 @@ import { type ModelToolDeclaration } from '../db/schema';
 import { type TenantRunner } from '../db/tenant-db.service';
 import { type Tool, type JsonSchemaDocument } from '../tools/types';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 import { resolveBoundExecutableTools } from './snapshot-tool-execution';
 
 /** The not-available executor path below never reaches `.runAs`. */
@@ -49,7 +49,7 @@ function makeJsonSchemaTool(
 }
 
 async function makeDeclaration(tool: Tool): Promise<ModelToolDeclaration> {
-  const { resolveJsonSchema } = await import('../tools/schema-utils.js');
+  const { resolveJsonSchema } = await import('@workspace/tool-runtime/schema-utils');
   const { canonicalJson } = await import('./effective-context-resolver.js');
   const declaration: unknown = JSON.parse(
     canonicalJson({

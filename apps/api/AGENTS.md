@@ -10,6 +10,7 @@ boundaries, and traps. DB work follows [`src/db/AGENTS.md`](src/db/AGENTS.md).
 | ---------------------- | ----------------------------------------------------- |
 | `src/runs/`            | dispatch, execution, workers, stream bridge           |
 | `src/queue/`           | pg-boss for Runs, search workers, and session cleanup |
+| `src/node/`            | authenticated common owner access; delegates existing capabilities |
 | `src/chats/`           | Chat/message API; dispatches via `RunDispatchService` |
 | `src/db/`              | schema, migrations, global `TenantDbService`          |
 | `src/tools/`           | registry and advertised-tool gate                     |
@@ -148,3 +149,14 @@ and the chat-search/search-projection/conversation-read OpenSpecs.
   Vitest types.
 - API uses tsgo type-aware lint. Keep explicit node/vitest types and no
   `baseUrl`.
+
+## Common Node access
+
+`src/node` uses the existing session guard and trusted subject. A principal header
+is only an assertion; never accept it as tenant selection. Its read-only method
+allowlist is fixed. Keep raw execution/admin/MCP invocation out of that route.
+`ChatLoopService.acceptMessage` owns both JSON Run admission and the web stream
+entrypoint; do not duplicate its transaction or dispatcher. Shared protocol
+OpenAPI extensions are generated from `@workspace/node-protocol`, extending the
+existing emitted message DTO. Run the Node/API integration tests under the real
+Postgres harness; protocol fixtures are not RLS or complete API proof.

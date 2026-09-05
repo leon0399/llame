@@ -1,3 +1,7 @@
+import {
+  type ToolResult,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 import { type z } from 'zod';
 
 import { type TenantRunner } from '../db/tenant-db.service';
@@ -5,15 +9,16 @@ import { type KnowledgeSpaceCursor } from '../knowledge/knowledge-space.cursor';
 import {
   type KnowledgeFilesystemAdapterPort,
   type KnowledgeFilesystemBinding,
-} from '../knowledge/knowledge-filesystem';
-import { type UnknownRecord } from '../unknown-record';
+} from '@workspace/knowledge-filesystem/knowledge-filesystem';
+
 
 /**
  * A JSON Schema document used as a tool's input schema. Accepted as-is from
  * external sources (D2: "accepted as the source ships it"). Distinct from
  * `z.ZodTypeAny` which is the code-authored schema form.
  */
-export type JsonSchemaDocument = UnknownRecord;
+export type { JsonSchemaDocument } from '@workspace/tool-runtime/types';
+import type { JsonSchemaDocument } from '@workspace/tool-runtime/types';
 
 /** Trusted, worker-bound capability for live owner Knowledge access. */
 export type KnowledgeToolSpaceReference = {
@@ -82,9 +87,7 @@ export type ToolClassification =
  * `status` discriminant lets the model react to failures as data, not
  * exceptions (D6: tool failure is an observation, not a crash).
  */
-export type ToolResult =
-  | ({ status: 'success' } & UnknownRecord)
-  | { status: 'error'; type: string; message: string };
+export type { ToolResult } from '@workspace/runtime-safety';
 
 /**
  * A registered tool (design D2): `{ id, description, inputSchema,

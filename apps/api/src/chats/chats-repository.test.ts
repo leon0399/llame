@@ -18,7 +18,7 @@ import {
 import { MessagesRepository } from './messages-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import * as schema from '../db/schema';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 type LoggedQuery = {
   sql: string;

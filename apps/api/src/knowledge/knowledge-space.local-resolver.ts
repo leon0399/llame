@@ -1,7 +1,7 @@
 import { lstatSync, mkdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 export const KNOWLEDGE_SPACE_UNAVAILABLE = 'knowledge_space_unavailable';
 

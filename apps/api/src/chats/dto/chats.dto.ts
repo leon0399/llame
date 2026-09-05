@@ -29,7 +29,7 @@ import {
   isRecord,
   isString,
   type UnknownRecord,
-} from '../../unknown-record';
+} from '@workspace/runtime-safety';
 import { isTextPart } from '../context-builder';
 import type { TurnTelemetry } from '../turn-telemetry';
 

@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "extends": [
+    "../../.oxlintrc.json"
+  ],
+  "options": {
+    "typeAware": true
+  },
+  "env": {
+    "node": true,
+    "vitest": true
+  },
+  "ignorePatterns": [
+    "dist/**"
+  ],
+  "overrides": [
+    {
+      "files": [
+        "src/mcp-server-client.ts"
+      ],
+      "rules": {
+        "max-lines": "off"
+      }
+    },
+    {
+      "files": [
+        "src/mcp-stdio-test-fixture.mjs"
+      ],
+      "rules": {
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off"
+      }
+    }
+  ]
+}

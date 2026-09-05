@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import * as schema from '../db/schema';
 import type { Chat, Message } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
-import { type UnknownRecord } from '../unknown-record';
+import { type UnknownRecord } from '@workspace/runtime-safety';
 import { MessagesRepository } from './messages-repository';
 
 type QueryValue = ReadonlyArray<unknown>;

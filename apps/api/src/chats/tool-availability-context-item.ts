@@ -6,7 +6,7 @@
  * context-item-producers.ts so existing importers are unaffected.
  */
 import { type AuthoredContextItemPart } from './context-item';
-import { compareCodePoints } from '../canonical-json';
+import { compareCodePoints } from '@workspace/runtime-safety';
 import { isToolId } from '../tools/tool-id';
 import {
   parseToolAvailabilityManifest,
@@ -17,7 +17,7 @@ import {
   type ToolAvailabilityManifestV1,
   type ToolUnavailableReason,
 } from '../tools/turn-tool-catalog';
-import { isString, type UnknownRecord } from '../unknown-record';
+import { isString, type UnknownRecord } from '@workspace/runtime-safety';
 import {
   createRenderedContextItem,
   isExactRecord,

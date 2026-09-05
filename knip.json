@@ -10,9 +10,15 @@
         "e2e/support/mcp-stdio-server.mjs",
         "e2e/support/run-after-ready.ts"
       ],
-      "project": ["e2e/**/*.ts"],
-      "ignoreDependencies": ["tsx"],
-      "ignoreBinaries": ["psql"]
+      "project": [
+        "e2e/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "tsx"
+      ],
+      "ignoreBinaries": [
+        "psql"
+      ]
     },
     "apps/api": {
       "entry": [
@@ -26,7 +32,10 @@
         "stryker.config.json",
         "src/instance-config/prompt-built-runtime.contract.ts"
       ],
-      "project": ["src/**/*.ts", "evals/**/*.ts"]
+      "project": [
+        "src/**/*.ts",
+        "evals/**/*.ts"
+      ]
     },
     "apps/web": {
       "entry": [
@@ -37,25 +46,50 @@
         "**/__mocks__/**",
         "**/parked/*.tsx"
       ],
-      "project": ["**/*.{ts,tsx}"],
-      "ignoreDependencies": ["@tailwindcss/postcss"]
+      "project": [
+        "**/*.{ts,tsx}"
+      ],
+      "ignoreDependencies": [
+        "@tailwindcss/postcss"
+      ]
     },
     "packages/ui": {
-      "entry": ["src/**/*.stories.tsx", "src/**/*.test.{ts,tsx}"],
-      "project": ["src/**/*.{ts,tsx}"]
+      "entry": [
+        "src/**/*.stories.tsx",
+        "src/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}"
+      ]
     },
     "packages/config-interpolation": {
-      "entry": ["src/index.ts", "src/**/*.test.ts"],
-      "project": ["src/**/*.ts"]
+      "entry": [
+        "src/index.ts",
+        "src/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
     },
     "packages/oxlint-plugin-anti-slop": {
-      "entry": ["rules/**/*.test.ts"],
-      "project": ["**/*.ts", "**/*.mjs"],
-      "ignore": ["vendor/**"]
+      "entry": [
+        "rules/**/*.test.ts"
+      ],
+      "project": [
+        "**/*.ts",
+        "**/*.mjs"
+      ],
+      "ignore": [
+        "vendor/**"
+      ]
     },
     "apps/storybook": {
-      "entry": [".storybook/**/*.{ts,tsx}"],
-      "project": ["**/*.{ts,tsx}"],
+      "entry": [
+        ".storybook/**/*.{ts,tsx}"
+      ],
+      "project": [
+        "**/*.{ts,tsx}"
+      ],
       "ignoreDependencies": [
         "@tailwindcss/postcss",
         "@tailwindcss/typography",
@@ -70,12 +104,87 @@
         "use-stick-to-bottom",
         "zod"
       ]
+    },
+    "apps/cli": {
+      "entry": [
+        "src/main.ts",
+        "tests/*.test.mjs",
+        "scripts/package.mjs",
+        "tests/integration/*.test.mjs"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.mjs",
+        "scripts/**/*.mjs"
+      ]
+    },
+    "packages/runtime-safety": {
+      "entry": [
+        "src/index.ts",
+        "src/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/personal-node": {
+      "entry": [
+        "src/node-service.ts",
+        "tests/*.test.mjs",
+        "src/protocol.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.mjs"
+      ]
+    },
+    "packages/knowledge-filesystem": {
+      "entry": [
+        "src/**/*.test.ts",
+        "src/knowledge-filesystem.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "apps/node": {
+      "entry": [
+        "src/server.ts",
+        "tests/*.test.mjs"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.mjs"
+      ]
+    },
+    "packages/node-client": {
+      "entry": [
+        "src/index.ts",
+        "tests/*.test.mjs"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.mjs"
+      ]
+    },
+    "packages/node-protocol": {
+      "entry": [
+        "src/index.ts",
+        "tests/*.test.mjs"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.mjs"
+      ]
     }
   },
   "ignore": [
     "apps/web/lib/api/generated/**",
     "packages/oxlint-plugin-anti-slop/vendor/**"
   ],
-  "ignoreDependencies": ["next", "shadcn"],
+  "ignoreDependencies": [
+    "next",
+    "shadcn"
+  ],
   "ignoreExportsUsedInFile": true
 }

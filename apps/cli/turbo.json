@@ -1,0 +1,37 @@
+{
+  "$schema": "https://turbo.dev/schema.json",
+  "extends": [
+    "//"
+  ],
+  "tasks": {
+    "build": {
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "typecheck": {
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "test": {
+      "dependsOn": [
+        "build"
+      ],
+      "cache": false
+    },
+    "lint": {
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "package:standalone": {
+      "dependsOn": [
+        "build"
+      ],
+      "outputs": [
+        "standalone/**"
+      ]
+    }
+  }
+}

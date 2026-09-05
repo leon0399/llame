@@ -1,5 +1,49 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-05
+
+- **Personal Node boundary**: local CLI commands use a negotiated private Node
+  process; optional foreground `node serve` persists execution across terminal
+  disconnects. The runtime/store/tool host move into `@workspace/personal-node`.
+  No required hosted account, TCP listener or Personal Realm synchronization.
+- **Connection-scoped approvals**: explicit Node boot Workspace grants, one-use
+  initiating-channel decisions, recorded approval provenance, bounded RPC and
+  cursor-paged event replay. Disconnection never transfers approval authority;
+  interrupted executors require recovery rather than action replay.
+- **Native local recall and Knowledge**: source-attributed multilingual lexical
+  search/read tools, migrated stable message IDs and Chat-local sequence, and
+  rebuildable FTS5 projection. Live read-only Markdown spaces reuse the existing
+  hosted filesystem adapter, moved with its tests into `@workspace/knowledge-filesystem`.
+- **Round-three verification**: process/SQLite/recall/protocol checks are separate
+  from production SDK transport checks. See the checked-in round-three record for
+  executed checks and unresolved dependency/toolchain limits.
+
+- **Persistent CLI connection**: saved remote default, one-run `--local` override,
+  explicit enable/disable, no auth/network fallback to another authority.
+- **CLI credential storage**: XDG data-home auth files, strict POSIX ownership and
+  permissions, symlink/hardlink rejection and concurrent-logout protection.
+- **Connected discovery**: existing chat search and Knowledge metadata endpoints,
+  plus historical `runs tools` receipts; no Realm sync or tool gateway implied.
+- **Standalone MCP implementation**: explicit stdio/Streamable HTTP servers,
+  bounded admitted catalogs, schema-checked calls and per-call approvals with
+  optional exact-name config grants. Existing API client and tests moved into
+  shared `@workspace/tool-runtime`. Production transport verification remains
+  pending in the implementation environment; see the round-two verification note.
+
+- **First-party CLI**: explicit standalone and remote execution, streaming text
+  and JSONL, conversational continuation, model selection and inspectable Runs.
+- **Standalone runtime**: private SQLite state and one advancing executor,
+  explicit native Workspace entry, hash-guarded approved edits, individually
+  approved bounded processes, lazy instruction-only skills and no action replay
+  after an interrupted executor.
+- **Remote client**: existing revocable Bearer-session login/import/logout,
+  authority/account-bound credentials, cursor-based reconnection and explicit
+  remote cancellation. OAuth/OIDC, Node enrollment and synchronization remain
+  separate, unimplemented protocols.
+- **Shared runtime safety**: moved existing API redaction, Unicode clipping,
+  structured output bounds and their tests into `@workspace/runtime-safety`;
+  API consumers reuse the package and its coverage/mutation gates.
+
 # 2026-09-03
 
 - **UTC-stable auth timestamps**: the remaining naive auth timestamp columns

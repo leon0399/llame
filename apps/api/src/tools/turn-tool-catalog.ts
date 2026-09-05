@@ -5,10 +5,10 @@ import {
   canonicalize,
   compareCodePoints,
   hashWithDomain,
-} from '../canonical-json';
+} from '@workspace/runtime-safety';
 import { type ModelToolDeclaration } from '../db/schema';
-import { isRecord, isString, type UnknownRecord } from '../unknown-record';
-import { admitToolInputSchema } from './schema-utils';
+import { isRecord, isString, type UnknownRecord } from '@workspace/runtime-safety';
+import { admitToolInputSchema } from '@workspace/tool-runtime/schema-utils';
 import {
   asciiCaseFoldToolId,
   isToolId,

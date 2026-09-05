@@ -20,9 +20,9 @@
  * valid but inert.
  */
 
-import { compareCodePoints } from '../canonical-json';
-import { sanitizeAuthoredText } from '../instance-config/authored-text';
-import { isRecord, isString, type UnknownRecord } from '../unknown-record';
+import { compareCodePoints } from '@workspace/runtime-safety';
+import { sanitizeAuthoredText } from '@workspace/runtime-safety';
+import { isRecord, isString, type UnknownRecord } from '@workspace/runtime-safety';
 
 /**
  * Forms with a producer in this revision. A form is NOT defined ahead of a

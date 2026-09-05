@@ -361,6 +361,23 @@ describe('isInflightUniqueViolation', () => {
   });
 });
 
+describe('ChatLoopService.acceptMessage', () => {
+  it('returns durable identities after dispatch without opening a UI stream', async () => {
+    const f = makeService();
+    const accepted = await f.service.acceptMessage(input);
+    expect(accepted).toEqual({ runId: run.id, chatId: chat.id, messageId: userMessage.id });
+    expect(f.dispatchRun).toHaveBeenCalledTimes(1);
+    expect(f.createUiMessageStreamResponse).not.toHaveBeenCalled();
+    expect(f.createUserMessageIfAbsent).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not claim acceptance when dispatch fails and never attaches a stream', async () => {
+    const f = makeService(); f.dispatchRun.mockRejectedValueOnce(new Error('dispatch unavailable'));
+    await expect(f.service.acceptMessage(input)).rejects.toThrow('dispatch unavailable');
+    expect(f.createUiMessageStreamResponse).not.toHaveBeenCalled();
+  });
+});
+
 describe('ChatLoopService.createMessageStream', () => {
   it('rejects a message that sanitizes to no text parts with the exact 400', async () => {
     const { service, runAs } = makeService();

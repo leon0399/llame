@@ -49,13 +49,13 @@ import {
   McpRuntimeModule,
 } from './mcp-runtime.module';
 import { McpRuntimeService } from './mcp-runtime.service';
-import { type UnknownRecord } from '../unknown-record';
+import { type UnknownRecord } from '@workspace/runtime-safety';
 import { type KnowledgeToolResolver } from '../tools/types';
 import {
   createMcpTestFixture,
   mcpStreamableHttpInitialize,
   type McpFixtureResponse,
-} from './mcp-test-fixture';
+} from '@workspace/tool-runtime/mcp-test-fixture';
 
 const TOOL_ID = 'mcp__web__search';
 const HEADER_SENTINEL = 'AUTH-HEADER-SENTINEL';

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://turbo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // Consumers resolve this package's exports from ./dist, and downstream
+    // checks (api lint/type-aware oxlint) read its declaration files — so
+    // the build must declare (and cache) its outputs, unlike the root
+    // default. A cache hit with no restored dist would break every
+    // downstream gate on fresh runners.
+    "build": { "outputs": ["dist/**"] }
+  }
+}

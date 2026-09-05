@@ -47,7 +47,7 @@ import {
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
 import { invalidCallResult, refusalResult, runTool } from '../tools/runner';
-import { toFlexibleSchema } from '../tools/schema-utils';
+import { toFlexibleSchema } from '@workspace/tool-runtime/schema-utils';
 import {
   type KnowledgeToolResolver,
   type ToolContext,

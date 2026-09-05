@@ -13,7 +13,7 @@ import {
   McpProtocolUnsupportedError,
   type McpDiscoveredTool,
   type McpDiscoveryResult,
-} from './mcp-server-client';
+} from '@workspace/tool-runtime/mcp-server-client';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
 import { type TenantRunner } from '../db/tenant-db.service';
 

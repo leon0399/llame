@@ -17,6 +17,14 @@ const SOURCE_GLOBS = [
   "apps/web/{app,lib,components,contexts,hooks,utils}/**/*.{ts,tsx}",
   "packages/ui/src/**/*.{ts,tsx}",
   "packages/config-interpolation/src/**/*.ts",
+  "packages/runtime-safety/src/**/*.ts",
+  "packages/tool-runtime/src/**/*.ts",
+  "packages/knowledge-filesystem/src/**/*.ts",
+  "packages/personal-node/src/**/*.ts",
+  "apps/cli/src/**/*.ts",
+  "apps/node/src/**/*.ts",
+  "packages/node-client/src/**/*.ts",
+  "packages/node-protocol/src/**/*.ts",
 ];
 
 const EXCLUDE = [

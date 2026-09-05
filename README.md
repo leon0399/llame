@@ -27,6 +27,34 @@ BYOK, fine-grained tool permissions, subagents. See [ROADMAP.md](ROADMAP.md).
 Operator setup: [docs/conversation-recall.md](docs/conversation-recall.md),
 [docs/knowledge.md](docs/knowledge.md).
 
+## Terminal client
+
+The [first-party CLI](apps/cli/README.md) is a thin terminal for a personal Node or
+an authenticated hosted llame API node. Local commands automatically launch a
+private Node process, which owns inference, tools, SQLite history, multilingual
+lexical recall and live Markdown Knowledge reads. `llame node serve` optionally
+keeps that Node alive independently of terminals, on a private Unix socket.
+The same server is independently launchable through `apps/node/bin/llame-node.cjs`.
+The [Node integration contract](docs/node/integration.md) and reusable
+`@workspace/node-client` now bind common discovery/owner retrieval across the
+personal runtime and hosted API. Hosted admission returns a durable Run ID before
+event attachment; the existing web streaming endpoint uses the same admission
+operation. Search and Knowledge reads do not require a model or replication.
+Native Workspace writes/processes still require explicit placement and per-action
+approval. Remote configuration persists without making a remote account mandatory.
+
+```sh
+pnpm install --frozen-lockfile
+pnpm exec turbo run build --filter=cli --concurrency=1
+node apps/cli/bin/llame.cjs config init
+node apps/cli/bin/llame.cjs --help
+```
+
+Set the installed model name in the generated config before inference. No Hub
+account, Postgres or llame-managed model runtime is required in local mode.
+This cut does **not** ship Node enrollment, personal-store synchronization,
+Profile Spaces, a sandbox, or a remote Workspace execution bridge.
+
 ## Direction
 
 llame targets an assistant with external tools, a Git-backed Markdown knowledge
@@ -110,4 +138,4 @@ read-only. See [docs/mcp-tools.md](docs/mcp-tools.md).
 - [docs/mcp-tools.md](docs/mcp-tools.md): remote MCP operator runbook
 
 TypeScript throughout: Next.js (`apps/web`), NestJS + worker (`apps/api`),
-shared components (`packages/ui`).
+shared components (`packages/ui`), and the terminal (`apps/cli`).

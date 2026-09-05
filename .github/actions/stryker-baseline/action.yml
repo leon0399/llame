@@ -45,6 +45,10 @@ runs:
             'apps/api/tsconfig*.json',
             'apps/api/{openapi.json,nest-cli.json,llame.config.json.example,src/instance-config/llame.config.schema.json,src/prompts/chat-default.md,src/search/chat/eval/BASELINE.md,src/search/chat/eval/dataset.ts,src/mcp/**/*.mjs,src/testing/**,src/db/migrations/**/*.sql,src/db/migrations/meta/**/*.json}',
             'packages/config-interpolation/{package.json,src/**,tsconfig*.json}',
+            'packages/runtime-safety/{package.json,src/**,tsconfig*.json}',
+            'packages/tool-runtime/{package.json,src/**,tsconfig*.json}',
+            'packages/knowledge-filesystem/{package.json,src/**,tsconfig*.json}',
+            'packages/node-protocol/{package.json,src/**,tsconfig*.json}',
             'packages/config-typescript/{package.json,base.json}'
           ) }}
       run: |

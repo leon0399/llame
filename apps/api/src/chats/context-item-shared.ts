@@ -11,8 +11,8 @@ import {
   type AuthoredContextItemPart,
   type ContextItemForm,
 } from './context-item';
-import { compareCodePoints } from '../canonical-json';
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import { compareCodePoints } from '@workspace/runtime-safety';
+import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 
 export function isExactRecord(
   value: unknown,

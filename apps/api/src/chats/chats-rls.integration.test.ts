@@ -42,7 +42,7 @@ import {
 import { TenantDbService } from '../db/tenant-db.service';
 import { SessionsRepository } from '../auth/sessions.repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 import { ChatsService } from './chats.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];

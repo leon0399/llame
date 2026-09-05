@@ -5,7 +5,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import type { ExternalIdentity, Membership, OrgUnit } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 import {
   ExternalIdentitiesRepository,
   MembershipsRepository,

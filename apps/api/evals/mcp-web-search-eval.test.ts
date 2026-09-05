@@ -19,8 +19,8 @@
 import {
   McpServerClient,
   type McpDiscoveredTool,
-} from '../src/mcp/mcp-server-client';
-import { isRecord } from '../src/unknown-record';
+} from '@workspace/tool-runtime/mcp-server-client';
+import { isRecord } from '@workspace/runtime-safety';
 
 const ENV_NAMES = [
   'MCP_WEB_SEARCH_URL',

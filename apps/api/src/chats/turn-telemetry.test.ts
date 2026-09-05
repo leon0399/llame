@@ -6,7 +6,7 @@ import {
   type TokenPrice,
   type TurnTelemetryLogger,
 } from './turn-telemetry';
-import { type UnknownRecord } from '../unknown-record';
+import { type UnknownRecord } from '@workspace/runtime-safety';
 
 describe('TurnTelemetry', () => {
   const price = {

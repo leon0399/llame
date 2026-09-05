@@ -278,6 +278,12 @@ control-plane state outside those files.
 
 ### Next: standalone personal operation
 
+The initial CLI slice now separates a thin Surface from an automatically launched
+personal Node, with optional persistent Unix-socket service, local episodic recall
+and live read-only Markdown Knowledge. See [SPEC §1.2](SPEC.md#12-thin-terminal-and-independently-operable-personal-node).
+This does not yet establish Profile binding, full hosted/local protocol parity or
+Personal Realm replication; the broader contract below remains the direction.
+
 A first-party CLI and lightweight single-owner personal Node reuse the same Chat,
 Run, Profile Space, and Knowledge Space contracts. They work without a llame
 account using user-configured inference providers. The first useful CLI cut may

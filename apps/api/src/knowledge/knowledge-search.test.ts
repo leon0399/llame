@@ -1,4 +1,4 @@
-import { collectKnowledgePassages } from './knowledge-filesystem';
+import { collectKnowledgePassages } from '@workspace/knowledge-filesystem/knowledge-filesystem';
 
 describe('collectKnowledgePassages', () => {
   it('collects literal occurrences with one-line context and deduplicates a matching line', async () => {
