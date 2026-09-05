@@ -25,7 +25,13 @@ export type EvalCategory =
   | 'ru'
   | 'es'
   | 'mixed'
-  | 'oversized';
+  | 'oversized'
+  | 'cross-en-ru'
+  | 'cross-ru-en'
+  | 'cross-es-en'
+  | 'transliteration'
+  | 'hard-negative'
+  | 'long-chat';
 
 export interface EvalQuery {
   query: string;
@@ -140,6 +146,56 @@ export const EVAL_FIXTURES: Array<EvalFixture> = [
       { role: 'assistant', text: 'Got it, I will follow up on those items.' },
     ],
   },
+  {
+    key: 'auth-security',
+    title: 'Session auth vs JWT design',
+    messages: [
+      {
+        role: 'user',
+        text: 'what are the tradeoffs between session cookies and JWT for our auth system',
+      },
+      {
+        role: 'assistant',
+        text: 'session cookies store state server-side and are revocable immediately; JWTs are stateless but cannot be invalidated until expiry without a blocklist',
+      },
+    ],
+  },
+  {
+    key: 'hard-negative-decoy',
+    title: 'API rate limiting strategy',
+    messages: [
+      {
+        role: 'user',
+        text: 'how should we handle rate limiting for our API endpoints',
+      },
+      {
+        role: 'assistant',
+        text: 'use token bucket per client with sliding window counters; set separate limits for authenticated and anonymous requests',
+      },
+    ],
+  },
+  {
+    key: 'long-chat-target',
+    title: 'Quick database backup note',
+    messages: [
+      { role: 'user', text: 'reminder: run pg_dump every night at 3am UTC' },
+      { role: 'assistant', text: 'noted, I will set up the cron job' },
+    ],
+  },
+  {
+    key: 'long-chat-noise',
+    title: 'Extended infrastructure planning',
+    messages: Array.from({ length: 20 }, (_, i) => [
+      {
+        role: 'user' as const,
+        text: `infrastructure topic ${i + 1}: we discussed scaling the database cluster, migrating to newer hardware, reviewing backup procedures, and optimizing query performance for the reporting dashboard`,
+      },
+      {
+        role: 'assistant' as const,
+        text: `regarding topic ${i + 1}: the database cluster can handle the current load but we should plan for growth, the hardware migration is scheduled for next quarter, backup procedures need documentation, and the reporting queries need index optimization`,
+      },
+    ]).flat(),
+  },
 ];
 
 export const EVAL_QUERIES: Array<EvalQuery> = [
@@ -243,6 +299,42 @@ export const EVAL_QUERIES: Array<EvalQuery> = [
     query: 'project Nightjar-7',
     category: 'oversized',
     expect: ['oversized-transcript'],
+  },
+  // cross-language: English query → Russian fixture
+  {
+    query: 'planning a trip to Spain with stops in Madrid and Barcelona',
+    category: 'cross-en-ru',
+    expect: ['ru-travel'],
+  },
+  // cross-language: Russian query → English fixture (auth-security uses English)
+  {
+    query: 'защита от кражи токенов аутентификации',
+    category: 'cross-ru-en',
+    expect: ['auth-security'],
+  },
+  // cross-language: Spanish query → English fixture
+  {
+    query: 'diferencias entre sesiones y tokens JWT para autenticación',
+    category: 'cross-es-en',
+    expect: ['auth-security'],
+  },
+  // transliteration: Latin-script query for a Cyrillic fixture
+  {
+    query: 'poezdka v Ispaniyu cherez Madrid',
+    category: 'transliteration',
+    expect: ['ru-travel'],
+  },
+  // hard negative: semantically adjacent decoy (rate limiting) vs. real target (auth)
+  {
+    query: 'how to prevent unauthorized access to API endpoints',
+    category: 'hard-negative',
+    expect: ['auth-security'],
+  },
+  // long chat: short exact target vs. many correlated chunks in a longer chat
+  {
+    query: 'pg_dump cron backup',
+    category: 'long-chat',
+    expect: ['long-chat-target'],
   },
 ];
 
