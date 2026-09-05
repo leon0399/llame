@@ -389,9 +389,9 @@ describeIfDb(
 
     // --- Task 1.8: RLS negatives ---
 
-    it('user B cannot see user A activity through required-range search', async () => {
+    it('user B requesting user A as owner through required-range search gets no results', async () => {
       const results = await tenantDb.runAs(userB, (tx) =>
-        new ChatsRepository(tx).searchByOwner(userB, 'database', {
+        new ChatsRepository(tx).searchByOwner(userA, 'database', {
           limit: 20,
           timeRange: {
             after: FEB_01,
@@ -400,18 +400,18 @@ describeIfDb(
           },
         }),
       );
-      expect(results.every((r) => r.id !== inRangeChat)).toBe(true);
+      expect(results).toEqual([]);
     });
 
-    it('user B cannot see user A activity through timeline', async () => {
+    it('user B requesting user A as owner through timeline gets no regions', async () => {
       const regions = await tenantDb.runAs(userB, (tx) =>
-        timelineByOwner(tx, userB, {
+        timelineByOwner(tx, userA, {
           after: FEB_01,
           before: MAR_01,
           limit: 50,
         }),
       );
-      expect(regions.every((r) => r.chatId !== inRangeChat)).toBe(true);
+      expect(regions).toEqual([]);
     });
 
     it('empty-identity timeline returns zero regions even with a real owner id and a public chat', async () => {
