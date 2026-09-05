@@ -1,0 +1,58 @@
+# Reusable: the static checks that decompose per workspace — today just Oxlint,
+# each workspace against its own `.oxlintrc.json` (which extends the root rule
+# set). Called once per workspace from lint.yml's matrix, so a red X names the
+# workspace that broke instead of one grab-bag failing for all of them.
+#
+# Runs through `turbo run lint --filter` rather than the package's script
+# directly: api and config-interpolation lint with type-aware rules, so Oxlint
+# needs a dependency's built types on disk (config-interpolation exports only
+# `dist/`). turbo's task graph builds those first — a bare `pnpm run lint` in
+# the workspace would see unresolved `error`-typed imports and fail. No
+# turbo-cache: a reusable workflow can't read `matrix.*` to give each cell its
+# own cache slot, and a single package's build + Oxlint finishes in seconds.
+#
+# Whole-repo checks that need the full graph or a single shared config
+# (Prettier, Markdown, OpenAPI, knip, jscpd, complexity) cannot be split this
+# way; they stay in lint.yml's `global` matrix.
+#
+# One job per tool, like _lint-php.yaml — a second per-workspace tool becomes a
+# second job here and every workspace gets it for free. In-repo reuse only:
+# `./.github/actions/setup` resolves against the CALLER's checkout, so this is
+# not portable to other repositories the way _workflow-lint.yaml is.
+#
+# Actions are pinned to commit SHAs (comment = the release tag they resolve to).
+
+name: Lint workspace (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        description: >-
+          Workspace package name to lint, as turbo's `--filter` sees it (e.g.
+          "api" or "@workspace/ui").
+        required: true
+        type: string
+
+jobs:
+  oxlint:
+    name: Oxlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      # The package's own `lint` task, isolated to one runner so its verdict
+      # stands alone — the same per-package command the monolithic
+      # `turbo run lint` fans out. turbo builds any dependency types first.
+      - run: pnpm exec turbo run lint --filter="$PACKAGE"
+        env:
+          # Indirected through env, not interpolated into the shell line — the
+          # value is a fixed matrix entry, but this keeps run: free of `${{ }}`.
+          PACKAGE: ${{ inputs.package }}

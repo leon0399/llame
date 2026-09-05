@@ -2,6 +2,22 @@
 # cheapest feedback in the pipeline, deliberately its own workflow so a
 # formatting nit reports separately from a failing test.
 #
+# Two matrices, every cell its own runner, all in parallel:
+#
+#   workspace  one _lint-workspace.yaml run per workspace → Oxlint, each
+#              verdict standing alone so a red X names the workspace that broke.
+#   global     one job per whole-repo check that cannot be split per workspace
+#              — Prettier, Markdown, OpenAPI, knip, jscpd, complexity, and the
+#              root-file Oxlint pass — so those tools run in parallel too, each
+#              its own red X.
+#
+# Only Oxlint decomposes cleanly per workspace (each package has its own `lint`
+# script and rule set). Prettier is one root config over the whole tree; knip
+# and jscpd need the full graph to judge dead code and duplication; the
+# complexity globs and the OpenAPI spec are cross-workspace. Splitting those
+# per workspace would either miss root-level files or duplicate one config N
+# times, so they stay global.
+#
 # The workflows themselves are linted by workflow-lint.yml (actionlint,
 # zizmor, pinact).
 #
@@ -25,34 +41,63 @@ env:
   TURBO_TELEMETRY_DISABLED: "1"
 
 jobs:
-  lint:
-    name: Lint
+  workspace:
+    name: Workspace
+    strategy:
+      # One workspace's lint failure must not cancel the others — each red X is
+      # independent signal, like the mutation shards.
+      fail-fast: false
+      matrix:
+        # Every workspace with a `lint` script, by turbo package name.
+        # config-typescript has none (types only), so it is absent by design,
+        # not omission.
+        package:
+          - api
+          - web
+          - storybook
+          - "@workspace/ui"
+          - "@workspace/config-interpolation"
+          - "@workspace/oxlint-plugin-anti-slop"
+    uses: ./.github/workflows/_lint-workspace.yaml
+    with:
+      package: ${{ matrix.package }}
+
+  # The whole-repo checks that cannot be split per workspace, each on its own
+  # runner so they run in parallel with each other and with the matrix — and so
+  # a red X names the tool. The job name is the script it runs.
+  #
+  #   lint:code:root  root-level source the workspace matrix never sees (the
+  #                   E2E suite and Playwright config live outside any package)
+  #   format:check    whole repo via the root .prettierignore — the same
+  #                   surface the lefthook pre-commit hook gates per staged
+  #                   file (#175)
+  #   lint:dead-code  knip, and lint:duplicates (jscpd): cross-workspace
+  #                   verdicts by nature
+  global:
+    name: ${{ matrix.script }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        script:
+          - lint:code:root
+          - format:check
+          - lint:markdown
+          - lint:openapi
+          - lint:dead-code
+          - lint:duplicates
+          - lint:complexity
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
       - uses: ./.github/actions/setup
-        with:
-          turbo-cache: lint
 
-      # Canonical static gate: root and workspace Oxlint, Markdown, OpenAPI,
-      # dead code, duplication, and Halstead difficulty.
-      - run: pnpm lint
-
-  format:
-    name: Format
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/setup
-
-      # Whole repo via the root .prettierignore — the same surface the
-      # lefthook pre-commit hook gates per staged file (#175).
-      - run: pnpm run format:check
+      - run: pnpm run "$SCRIPT"
+        env:
+          # Indirected through env, not interpolated into the shell line — the
+          # value is a fixed matrix entry, but this keeps run: free of any
+          # `${{ }}` expansion on principle.
+          SCRIPT: ${{ matrix.script }}
