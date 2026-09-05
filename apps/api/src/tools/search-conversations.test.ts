@@ -389,12 +389,15 @@ describe('search_conversations', () => {
       { query: 'canonical', limit: 5 },
     );
 
-    expect(result).toMatchObject({
-      status: 'success',
-      results: [expect.objectContaining({ kind: 'content', chatId: CHAT_ID })],
-    });
+    expect(result.status).toBe('success');
     if (result.status !== 'success') return;
-    expect(result.results).toHaveLength(1);
+    // Hydration-failed candidate omitted; matcher-failed candidate now
+    // returned as a vector-only first-message-anchored result (#197 D5).
+    expect(result.results).toHaveLength(2);
+    expect(result.results[0]).toMatchObject({
+      kind: 'content',
+      chatId: CHAT_ID,
+    });
     expect(JSON.stringify(result)).not.toContain('must never be returned');
     expect(JSON.stringify(result)).not.toContain('projection text');
   });

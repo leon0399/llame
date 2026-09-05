@@ -56,10 +56,10 @@ no provider is contacted.
 
 ## 4. `hybrid-vector-retrieval/tool-shaping` — the vector-only model result (design D5)
 
-- [ ] 4.1 In `tools/search-conversations.ts`, when `matchCanonicalSearchPreview` returns `null` for a successfully hydrated winning document, build a `kind: "content"` result anchored to the document's first message (`messageSeq = first_seq`, `offset` = line containing `first_message_text_offset`, `limit` to that message's end or to the document's exclusive end offset when single-message) with an excerpt cropped at the window start under the existing 500-code-point cap; verify by unit test for a single-message and a multi-message document that the shape is identical to a lexical content result minus a highlighted term
-- [ ] 4.2 Verify by integration test that a vector-only winner's coordinates are accepted directly by `conversation_read`, and that a winner whose hydration fails is still omitted
-- [ ] 4.3 Verify the result carries no score, match span, generated quote, or `matchedBy`, and that the `SEARCH_CONVERSATIONS_CANONICAL_NOTICE` framing is unchanged
-- [ ] 4.4 **Exit:** verify `pnpm --filter api build` regenerates `openapi.json` with no diff (the tool schema is unchanged) and `test:integration` passes
+- [x] 4.1 In `tools/search-conversations.ts`, when `matchCanonicalSearchPreview` returns `null` for a successfully hydrated winning document, build a `kind: "content"` result anchored to the document's first message (`messageSeq = first_seq`, `offset` = line containing `first_message_text_offset`, `limit` to that message's end or to the document's exclusive end offset when single-message) with an excerpt cropped at the window start under the existing 500-code-point cap; verify by unit test for a single-message and a multi-message document that the shape is identical to a lexical content result minus a highlighted term
+- [x] 4.2 Verify by integration test that a vector-only winner's coordinates are accepted directly by `conversation_read`, and that a winner whose hydration fails is still omitted
+- [x] 4.3 Verify the result carries no score, match span, generated quote, or `matchedBy`, and that the `SEARCH_CONVERSATIONS_CANONICAL_NOTICE` framing is unchanged
+- [x] 4.4 **Exit:** verify `pnpm --filter api build` regenerates `openapi.json` with no diff (the tool schema is unchanged) and `test:integration` passes
 
 ## 5. `hybrid-vector-retrieval/eval` — evidence, constants, and latency (design D6–D8)
 
