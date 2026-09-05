@@ -6,14 +6,14 @@ The **embedding layer** is a derived, fully rebuildable vector representation of
 
 ## Requirements
 
-### Requirement: The embedding layer is derived state that never changes search behavior
+### Requirement: The embedding layer is derived state that enhances but never gates search
 
-Embeddings SHALL be derived from the lexical search projection, which is itself derived from canonical `chats`/`messages`. The layer MUST be fully rebuildable at any time from that canonical content, and MUST NOT modify canonical tables or any document's lexical content. Retrieval behavior SHALL degrade gracefully — not into an error — when embeddings are absent; a partially embedded corpus remains fully searchable by its lexical representations.
+Embeddings SHALL be derived from the lexical search projection, which is itself derived from canonical `chats`/`messages`. The layer MUST be fully rebuildable at any time from that canonical content, and MUST NOT modify canonical tables or any document's lexical content. Retrieval behavior SHALL degrade gracefully — not into an error — when embeddings are absent; a partially embedded corpus remains fully searchable by its lexical representations. Lexical recall floors SHALL hold with and without vectors.
 
-#### Scenario: Search results are unchanged by the presence of embeddings
+#### Scenario: Lexical floors hold without embeddings
 
-- **WHEN** the recorded relevance eval runs on an instance with a fully embedded corpus and again on one with no embeddings at all
-- **THEN** both runs produce the same ranked results and the same recorded metrics
+- **WHEN** the recorded relevance eval runs on an instance with no embeddings at all
+- **THEN** every floor category (exact-title, exact-content, substring, code, typo) still places the expected chat in the top 10
 
 #### Scenario: Full rebuild reproduces the vector layer
 
