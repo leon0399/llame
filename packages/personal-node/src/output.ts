@@ -1,34 +1,51 @@
-import { normalizeProtectedValues } from '@workspace/runtime-safety';
-import { codePointSafeCutIndex } from '@workspace/runtime-safety';
+import { normalizeProtectedValues } from "@workspace/runtime-safety";
+import { codePointSafeCutIndex } from "@workspace/runtime-safety";
 
 /** Remove terminal commands and bidi controls even across arbitrary chunks. */
 export function terminalText(value: string): string {
-  return value.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, '');
+  return value.replace(
+    /[\x00-\x08\x0b-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
+    "",
+  );
 }
 
 /** Delays incomplete secret prefixes, preventing split-delta credential leaks. */
 export class SecretStream {
-  private pending = '';
+  private pending = "";
   private readonly secrets: readonly string[];
 
-  constructor(values: readonly string[]) { this.secrets = normalizeProtectedValues(values); }
+  constructor(values: readonly string[]) {
+    this.secrets = normalizeProtectedValues(values);
+  }
 
-  hasPending(): boolean { return this.pending.length > 0; }
+  hasPending(): boolean {
+    return this.pending.length > 0;
+  }
 
   push(delta: string, final = false): string {
     this.pending += delta;
-    let output = '';
+    let output = "";
     while (this.pending.length) {
-      const possible = this.secrets.find((secret) => secret.startsWith(this.pending));
+      const possible = this.secrets.find((secret) =>
+        secret.startsWith(this.pending),
+      );
       if (!final && possible && possible.length > this.pending.length) break;
-      const match = this.secrets.find((secret) => this.pending.startsWith(secret));
+      const match = this.secrets.find((secret) =>
+        this.pending.startsWith(secret),
+      );
       if (match) {
-        output += '[REDACTED]';
+        output += "[REDACTED]";
         this.pending = this.pending.slice(match.length);
       } else {
         const point = this.pending.codePointAt(0);
         const width = point !== undefined && point > 0xffff ? 2 : 1;
-        if (!final && width === 1 && /[\ud800-\udbff]/.test(this.pending[0]!) && this.pending.length === 1) break;
+        if (
+          !final &&
+          width === 1 &&
+          /[\ud800-\udbff]/.test(this.pending[0]!) &&
+          this.pending.length === 1
+        )
+          break;
         output += this.pending.slice(0, width);
         this.pending = this.pending.slice(width);
       }

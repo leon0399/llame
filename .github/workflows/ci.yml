@@ -241,6 +241,15 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm --filter @workspace/runtime-safety test:mutation
 
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mutation-report-runtime-safety
+          path: packages/runtime-safety/reports/mutation/
+          retention-days: 14
+          if-no-files-found: warn
+
   mutation-tool-runtime:
     name: Mutation testing (Shared MCP runtime)
     runs-on: ubuntu-latest
@@ -253,6 +262,15 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm --filter @workspace/tool-runtime test:mutation
 
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mutation-report-tool-runtime
+          path: packages/tool-runtime/reports/mutation/
+          retention-days: 14
+          if-no-files-found: warn
+
   mutation-knowledge-filesystem:
     name: Mutation testing (Shared Knowledge filesystem)
     runs-on: ubuntu-latest
@@ -264,6 +282,15 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
       - run: pnpm --filter @workspace/knowledge-filesystem test:mutation
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mutation-report-knowledge-filesystem
+          path: packages/knowledge-filesystem/reports/mutation/
+          retention-days: 14
+          if-no-files-found: warn
 
   component:
     name: Component tests (Storybook)

@@ -50,7 +50,8 @@ expected values come from that same list.
 
 ## Mutation testing
 
-Mutation covers API, config-interpolation and extracted runtime-safety business logic. Web/UI, tooling,
+Mutation covers API, config-interpolation, and extracted runtime-safety,
+tool-runtime and knowledge-filesystem business logic. Web/UI, tooling,
 browser, integration, and E2E behavior stay in their existing gates.
 
 ```bash
