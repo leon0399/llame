@@ -27,6 +27,7 @@ import {
 import { type Message, type MessageRole, chats, messages } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { isString, type UnknownRecord } from '../unknown-record';
+import { eligibleMessagePredicate } from './message-eligibility';
 
 // Fixed application budget, not operator configuration. Current writers are
 // bounded to assistant finalization/salvage after accepted-turn admission has
@@ -214,18 +215,7 @@ export class MessagesRepository {
         WHERE m.chat_id = ${chatId}
           AND c.owner_user_id = ${ownerUserId}
           AND current_setting('app.current_user_id', true) = ${ownerUserId}
-          AND (
-            m.role = 'user'
-            OR (
-              m.role = 'assistant'
-              AND (
-                m.usage IS NULL
-                OR jsonb_typeof(m.usage) <> 'object'
-                OR NOT (m.usage ? 'status')
-                OR m.usage ->> 'status' = 'completed'
-              )
-            )
-          )
+          AND ${eligibleMessagePredicate('m')}
       ), target AS (
         SELECT *
         FROM eligible

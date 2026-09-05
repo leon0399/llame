@@ -124,8 +124,7 @@ export const searchConversationsTool: Tool<{ query: string; limit: number }> = {
         const rows = await new ChatsRepository(tx).searchByOwner(
           context.userId,
           query,
-          limit,
-          vectorParams,
+          { limit, vector: vectorParams },
         );
         return canonicalSuccess(tx, context.userId, query, rows);
       });
