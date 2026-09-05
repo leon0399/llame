@@ -43,14 +43,8 @@ import {
 } from '../search/core';
 import { EMBED_INPUT_VERSION } from '../search/embed-input-version';
 import { resolveSearchScopes } from './chats-search-scope';
-export type { SearchByOwnerOptions, TimeRange } from './chats-search-scope';
 import type { SearchByOwnerOptions } from './chats-search-scope';
 
-export {
-  timelineByOwner,
-  type TimelineByOwnerOptions,
-  type TimelineRegionRow,
-} from './chats-timeline-repository';
 export {
   MessagesRepository,
   type ConversationMessageLookup,
