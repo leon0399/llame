@@ -313,13 +313,14 @@ async function executeTimeline(
       }),
     );
 
-    return {
+    const success: SearchConversationsCanonicalSuccess = {
       status: 'success',
       notice: SEARCH_CONVERSATIONS_CANONICAL_NOTICE,
       appliedRange: buildAppliedRange(input),
       truncated,
       results,
     };
+    return success;
   });
 }
 
@@ -368,13 +369,14 @@ async function executeContent(
       candidates,
       requiredRange,
     });
-    return {
+    const success: SearchConversationsCanonicalSuccess = {
       status: 'success',
       notice: SEARCH_CONVERSATIONS_CANONICAL_NOTICE,
       appliedRange: buildAppliedRange(input),
       truncated,
       results,
     };
+    return success;
   });
 }
 
