@@ -18,7 +18,6 @@ import {
 } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactNode } from "react";
 
 import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
 
@@ -28,13 +27,6 @@ const routerMock = { push: vi.fn(), replace: vi.fn() };
 vi.mock("next/navigation", () => ({
   useRouter: () => routerMock,
 }));
-
-let useChatMessages: Array<{
-  id: string;
-  role: "user" | "assistant";
-  parts: Array<unknown>;
-  metadata?: { seq?: number };
-}> = [];
 
 vi.mock("@ai-sdk/react", () => ({
   useChat: () => ({
@@ -63,11 +55,13 @@ import {
   type ChatMarkdownRenderers,
 } from "./use-chat-markdown-ready";
 
+let useChatMessages: ReturnType<typeof toChatUiMessages> = [];
+
 const CHAT_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
 
 const STUB_RENDERERS: ChatMarkdownRenderers = {
-  MessageResponse: ({ children }: { children?: ReactNode }) => <>{children}</>,
-  ReasoningContent: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  MessageResponse: ({ children }) => <>{children}</>,
+  ReasoningContent: ({ children }) => <>{children}</>,
 };
 
 let resolveRenderers: ((renderers: ChatMarkdownRenderers) => void) | null =
@@ -256,13 +250,10 @@ describe("ChatPage markdown loading shell", () => {
     await waitFor(() => {
       expect(screen.queryByRole("status", { name: "Loading" })).toBeNull();
     });
+    const unlocked = screen.getByPlaceholderText(
+      "What would you like to know?",
+    );
     // SAFETY: placeholder uniquely identifies the remounted unlocked textarea.
-    expect(
-      (
-        screen.getByPlaceholderText(
-          "What would you like to know?",
-        ) as HTMLTextAreaElement
-      ).disabled,
-    ).toBe(false);
+    expect((unlocked as HTMLTextAreaElement).disabled).toBe(false);
   });
 });

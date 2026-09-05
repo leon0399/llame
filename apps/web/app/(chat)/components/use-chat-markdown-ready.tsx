@@ -9,9 +9,12 @@ import {
   type ReactNode,
 } from "react";
 
+import type { MessageResponseProps } from "@workspace/ui/components/ai-elements/message-response";
+import type { ReasoningContentProps } from "@workspace/ui/components/ai-elements/reasoning-content";
+
 export type ChatMarkdownRenderers = {
-  MessageResponse: ComponentType<{ children?: ReactNode; className?: string }>;
-  ReasoningContent: ComponentType<{ children?: ReactNode; className?: string }>;
+  MessageResponse: ComponentType<MessageResponseProps>;
+  ReasoningContent: ComponentType<ReasoningContentProps>;
 };
 
 const ChatMarkdownContext = createContext<ChatMarkdownRenderers | null>(null);
@@ -25,18 +28,17 @@ let loadOverride: (() => Promise<ChatMarkdownRenderers>) | null = null;
 function loadChatMarkdownRenderers(): Promise<ChatMarkdownRenderers> {
   if (loadOverride) return loadOverride();
   if (cachedRenderers) return Promise.resolve(cachedRenderers);
-  if (!loadPromise) {
-    loadPromise = Promise.all([
-      import("@workspace/ui/components/ai-elements/message-response"),
-      import("@workspace/ui/components/ai-elements/reasoning-content"),
-    ]).then(([messageResponse, reasoningContent]) => {
-      cachedRenderers = {
-        MessageResponse: messageResponse.MessageResponse,
-        ReasoningContent: reasoningContent.ReasoningContent,
-      };
-      return cachedRenderers;
-    });
-  }
+  loadPromise ??= Promise.all([
+    import("@workspace/ui/components/ai-elements/message-response"),
+    import("@workspace/ui/components/ai-elements/reasoning-content"),
+  ]).then(([messageResponse, reasoningContent]) => {
+    const loaded: ChatMarkdownRenderers = {
+      MessageResponse: messageResponse.MessageResponse,
+      ReasoningContent: reasoningContent.ReasoningContent,
+    };
+    cachedRenderers = loaded;
+    return loaded;
+  });
   return loadPromise;
 }
 
