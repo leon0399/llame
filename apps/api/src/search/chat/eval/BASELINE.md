@@ -95,10 +95,9 @@ Vector weight 1.0 (parity with FTS), candidate cap 100, k=60, weighted top-3
 grouping [1, 0.25, 0.1]. These are the initial constants chosen without a grid
 comparison: the constant grid (vector weight ∈ {0.5, 1, 1.5} × grouping ∈
 {top-3 weighted, max-only, capped diminishing}) was not run during the initial implementation; the first run with
-text-embedding-3-large produced Recall@10 = 1.00 on the 29-query dataset, confirming the initial constants work. The
-first operator with a configured provider should run
-`RUN_SEARCH_EVAL=1 pnpm --filter api test:integration -- search-eval` and
-record the hybrid numbers below. If a semantic category underperforms, the
+text-embedding-3-large produced Recall@10 = 1.00 on the 29-query dataset,
+confirming the initial constants work. The hybrid baseline is recorded in the
+section below. If a semantic category underperforms on a larger dataset, the
 adaptive-weight follow-up is the next step (not a grid re-run).
 
 ## Hybrid baseline (text-embedding-3-large @ 3072 dims)
@@ -113,6 +112,15 @@ adaptive-weight follow-up is the next step (not a grid re-run).
 
 | category        | lexical R@10 | hybrid R@10 | hybrid MRR |
 | --------------- | ------------ | ----------- | ---------- |
+| exact-title     | 1.00         | 1.00        | 0.83       |
+| exact-content   | 1.00         | 1.00        | 1.00       |
+| substring       | 1.00         | 1.00        | 1.00       |
+| code            | 1.00         | 1.00        | 1.00       |
+| typo            | 1.00         | 1.00        | 1.00       |
+| ru              | 0.50         | 1.00        | 0.67       |
+| es              | 0.33         | 1.00        | 0.56       |
+| mixed           | 1.00         | 1.00        | 1.00       |
+| oversized       | 1.00         | 1.00        | 1.00       |
 | paraphrase      | 0.00         | 1.00        | 0.33       |
 | cross-en-ru     | 0.00         | 1.00        | 0.33       |
 | cross-ru-en     | 0.00         | 1.00        | 0.20       |
@@ -120,8 +128,6 @@ adaptive-weight follow-up is the next step (not a grid re-run).
 | transliteration | 0.00         | 1.00        | 0.33       |
 | hard-negative   | 0.00         | 1.00        | 0.20       |
 | long-chat       | 0.00         | 1.00        | 0.33       |
-| ru              | 0.50         | 1.00        | 0.67       |
-| es              | 0.33         | 1.00        | 0.56       |
 
 Constants: weight 1, cap 100, k=60, weighted top-3 [1, 0.25, 0.1].
 Grid comparison: not run (single-point result above). The initial constants

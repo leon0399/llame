@@ -8,7 +8,7 @@ The **embedding layer** is a derived, fully rebuildable vector representation of
 
 ### Requirement: The embedding layer is derived state that never changes search behavior
 
-Embeddings SHALL be derived from the lexical search projection, which is itself derived from canonical `chats`/`messages`. The layer MUST be fully rebuildable at any time from that canonical content, and MUST NOT modify canonical tables or any document's lexical content. Retrieval behavior — matching semantics, ranking, snippets, and result contract — SHALL be identical with and without embeddings present; no query path reads a vector in this capability.
+Embeddings SHALL be derived from the lexical search projection, which is itself derived from canonical `chats`/`messages`. The layer MUST be fully rebuildable at any time from that canonical content, and MUST NOT modify canonical tables or any document's lexical content. Retrieval behavior SHALL degrade gracefully — not into an error — when embeddings are absent; a partially embedded corpus remains fully searchable by its lexical representations.
 
 #### Scenario: Search results are unchanged by the presence of embeddings
 

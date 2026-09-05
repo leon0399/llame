@@ -64,8 +64,11 @@ export function resolveEvalEmbedBackend(): EvalEmbedBackend | undefined {
   const dims = Number(model['dimensions']);
   if (!Number.isFinite(dims) || dims <= 0) return undefined;
 
+  const providerModelId = model['providerModelId'];
+  if (typeof providerModelId !== 'string') return undefined;
+
   const config: OpenAIEmbeddingBackendConfig = {
-    providerModelId: String(model['providerModelId']),
+    providerModelId,
     dimensions: dims,
     batchSize: Number(model['batchSize'] ?? 64),
     credential,
