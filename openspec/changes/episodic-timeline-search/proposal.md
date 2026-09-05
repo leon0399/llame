@@ -1,0 +1,32 @@
+## Why
+
+`search_conversations` answers one question: "which of my chats mention these words?" It cannot answer "what did I discuss yesterday?" or "find the Postgres decision, I think it was in July": there is no way to bound a search by time, and no way to list activity in a period without a keyword. The hybrid candidate pipeline (#197) and the canonical source contract (#609) are shipped, so the remaining gap is the tool's input contract and one query-less discovery path. This change makes `search_conversations` the single citation-safe episodic discovery tool for both content and bounded timeline queries, followed by the existing `conversation_read` for exact text. Issue #198; it subsumes the closed duplicate #327 (`recent_chats`).
+
+## What Changes
+
+- **BREAKING (pre-launch): `search_conversations` input is replaced.** The tool takes one strict object with a `mode` discriminator: `content` (keyword search, optional time range with a `required` or `preferred` constraint) or `timeline` (time range, no query). Unknown properties, blank queries, reversed or empty ranges, malformed instants, and mode/field mismatches are rejected before any scan. The prior `{ query, limit }` shape stops existing; there is no alias.
+- **Time ranges are absolute, half-open `[after, before)`, and may be one-sided.** A missing bound is simply no clause; the result echoes the range actually applied. The tool parses no natural-language dates. Timeline mode requires at least one bound; content mode with no range keeps today's global relevance order with no recency decay.
+- **`required` ranges filter, `preferred` ranges nudge.** A required range removes candidates whose canonical message timestamps fall outside it before ranking, then re-checks the resolved passage's own message timestamp after hydration. A preferred range adds one bounded additive rank-fusion term to in-range candidates, so an uncertain recollection reorders near-ties without hiding a strong match from another period.
+- **Timeline mode returns activity pointers, never excerpts.** One region per qualifying chat: `chatId`, title, first and last eligible message instants inside the range, the eligible message count inside it, and the first and last eligible `messageSeq` inside it as plain `conversation_read` coordinates. No snippets, scores, or generated text; ordered by last activity descending; `truncated` reported explicitly.
+- **Result envelope gains `appliedRange` and `truncated`.** Rows gain nothing. Per-leg ranks, scores, and matched-by diagnostics stay in logs.
+- **Temporal interpretation moves into the packaged default prompt**, next to the existing recall guidance, anchored on the already-rendered `context.systemTime` / `context.systemTimezone`: exact phrases use timeline or `required`; uncertain recollections use `preferred`; "recently" with no finite period is materialized into a finite range or clarified with the owner.
+- **Not changed:** `conversation_read` (name, input, one-message reads), the web command palette contract, the projection schema, the vector-only first-message anchor from #197 D5, the recency digest, tool allowlisting. No `recent_chats` tool, no operator search syntax, no reranker, no owner-level episodic toggle (#326 is decoupled and no longer blocks #198).
+
+## Capabilities
+
+### New Capabilities
+
+None.
+
+### Modified Capabilities
+
+- `chat-search`: the ranking-and-shaping requirement replaces the frozen `{ query, limit }` model input with the strict two-mode contract, adds the required-filter and preferred-boost semantics, the envelope fields, and the timeline activity-region result; the tenant-isolation requirement extends its negatives to timeline discovery; the eval requirement gains dated fixtures for range filtering, range preference, and timeline coverage under the same CI-only floors discipline.
+
+## Impact
+
+- **Code:** `apps/api/src/search/core/fusion.ts` gains an optional range-preference term; `chats-repository.ts` composes the required-range predicate into the existing document and parent scope predicates and gains one owner-scoped timeline query over `messages`; `tools/search-conversations.ts` owns the new schema, mode dispatch, envelope, and post-hydration range check; `apps/api/src/prompts/chat-default.md` gains the temporal guidance paragraph; scripted-model tests that emit `{ query, limit }` move to the new shape.
+- **Schema:** none. No migration. The timeline query uses the existing `messages_chat_created_idx` and owner RLS.
+- **Runtime cutover:** changing a code-owned declaration is fail-closed for Runs bound to the prior snapshot (tool-calling spec). Pre-launch: deploy with no in-flight Runs; a Run that was mid-loop on the old declaration fails its next step rather than executing a changed contract.
+- **Web:** `searchByOwner` grows optional parameters; the palette passes none and is byte-identical.
+- **Docs:** `docs/conversation-recall.md` contract section, `SPEC.md` §20 search sentence, `apps/api/AGENTS.md` tool note, `CHANGELOG.md`, and the `ROADMAP.md` deferred-backlog line for #198.
+- **Issues:** #198 is closed by the finalize layer. #331 (single-chat narrowing) and #454 (owner timezone) remain separate and unblocked.
