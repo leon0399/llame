@@ -194,3 +194,26 @@ cryptographic Node enrollment. This capability SHALL NOT claim OAuth/OIDC IdP
 exchange, a device authorization endpoint, Node keypair registration, Personal
 Realm synchronization, Profile/Knowledge replication, or cross-node execution.
 These require separate capability contracts.
+
+### Requirement: Connected Runs retain the node's governed capabilities
+
+Remote execution MUST create ordinary authenticated node Runs, rather than importing
+server tools into the local executor. The node MUST continue to resolve tool and
+Knowledge ownership/policy. Personal Realm synchronization MUST NOT be a prerequisite
+for using remote episodic retrieval, Knowledge tools, or node-managed MCP tools.
+
+#### Scenario: Inspect actual tool availability
+
+- **WHEN** the user invokes `runs tools UUID`
+- **THEN** the CLI projects the Run's exact bound declarations and availability receipt
+- **AND** unavailable/unobserved states remain distinguishable
+- **AND** it identifies this as historical availability, not a live permission grant.
+
+#### Scenario: Browse connected Knowledge and conversations
+
+- **WHEN** the user invokes `knowledge list [CURSOR]`, `knowledge show UUID`, or
+  `chats search QUERY` with remote enabled
+- **THEN** the CLI uses the existing authenticated, owner-scoped API resources
+- **AND** forwards opaque pagination cursors without replacing authorization identity
+- **AND** chat-list search is not presented as the richer agent episodic retrieval tool
+- **AND** no local mirror, synchronization, or generic remote tool gateway is implied.

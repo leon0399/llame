@@ -172,3 +172,66 @@ test('a saved session cannot silently switch account identity', async (t) => {
   assert.equal(result.code, 1); assert.match(result.stderr, /account_changed/);
   assert.equal(hub.requests.filter((entry) => entry.path === '/api/v1/models').length, 0);
 });
+
+test('persistent remote exposes owner-scoped chat search and paged Knowledge metadata', async (t) => {
+  const query = 'archivo & 日本語 = заметка';
+  const cursor = 'opaque_cursor-value=';
+  const { hub, dir } = await authenticated(t, (request, response) => {
+    assert.equal(request.headers.authorization, `Bearer ${token}`);
+    const url = new URL(request.path, 'http://fixture');
+    if (url.pathname === '/api/v1/chats/search') {
+      assert.equal(url.searchParams.get('q'), query);
+      assert.equal(url.searchParams.get('limit'), '20');
+      assert.equal(url.searchParams.has('userId'), false);
+      return json(response, { results: [{ id: chatId, title: 'recuerdo', snippet: 'source text', updatedAt: '2026-09-05T00:00:00Z' }] });
+    }
+    if (url.pathname === '/api/v1/knowledge-spaces') {
+      assert.equal(url.searchParams.get('limit'), '50');
+      return json(response, { items: url.searchParams.has('after') ? [] : [{ id: chatId, name: 'Notes' }], nextCursor: url.searchParams.has('after') ? null : cursor });
+    }
+    if (url.pathname === `/api/v1/knowledge-spaces/${chatId}`) return json(response, { id: chatId, name: 'Notes' });
+    json(response, {}, 404);
+  });
+  assert.equal((await invoke(['remote', 'enable', hub.base], { dir })).code, 0);
+  const found = await invoke(['--json', 'chats', 'search', query], { dir });
+  assert.equal(found.code, 0, found.stderr); assert.equal(JSON.parse(found.stdout).results[0].id, chatId);
+  const page = await invoke(['--json', 'knowledge', 'list'], { dir });
+  assert.equal(page.code, 0, page.stderr); assert.equal(JSON.parse(page.stdout).nextCursor, cursor);
+  const next = await invoke(['--json', 'knowledge', 'list', cursor], { dir });
+  assert.equal(next.code, 0, next.stderr); assert.equal(JSON.parse(next.stdout).nextCursor, null);
+  const shown = await invoke(['--json', 'knowledge', 'show', chatId], { dir });
+  assert.equal(shown.code, 0, shown.stderr); assert.equal(JSON.parse(shown.stdout).name, 'Notes');
+  const local = await invoke(['--local', 'knowledge', 'list'], { dir });
+  assert.equal(local.code, 1); assert.match(local.stderr, /remote_required/);
+});
+
+test('run tools reports exact historical availability without fabricating or importing remote tools', async (t) => {
+  const tools = ['search_conversations', 'conversation_read', 'knowledge_search', 'knowledge_read', 'mcp__fixture__read'].map(id => ({ id, description: 'fixture', inputSchema: { type: 'object' } }));
+  const availability = { version: 1, entries: [
+    { id: 'search_conversations', state: 'available', declarationHash: '123', label: 'available' },
+    { id: 'mcp__offline__read', state: 'unavailable', reason: 'source_disconnected', label: 'source unavailable' },
+  ] };
+  const { hub, dir } = await authenticated(t, (request, response) => {
+    assert.equal(request.path, `/api/v1/runs/${runId}/context-receipt`);
+    return json(response, { tools, toolAvailability: availability, availabilityHash: 'receipt-hash', systemPrompt: 'not shown by tools command' });
+  });
+  const result = await invoke(['--remote', hub.base, '--json', 'runs', 'tools', runId], { dir });
+  assert.equal(result.code, 0, result.stderr);
+  const data = JSON.parse(result.stdout);
+  assert.deepEqual(data.tools, tools); assert.deepEqual(data.toolAvailability, availability);
+  assert.equal(data.historical, true); assert.equal(data.systemPrompt, undefined);
+  const untrusted = await invoke(['--remote', hub.base, 'runs', 'tools', '../another-owner'], { dir });
+  assert.equal(untrusted.code, 1); assert.match(untrusted.stderr, /invalid_/);
+  assert.equal(hub.requests.filter(entry => entry.path.includes('context-receipt')).length, 1);
+});
+
+test('inspection commands are bound to existing OpenAPI resources, not a fabricated generic tool gateway', () => {
+  const spec = JSON.parse(readFileSync(apiSpec, 'utf8'));
+  for (const path of ['/api/v1/chats/search', '/api/v1/knowledge-spaces', '/api/v1/knowledge-spaces/{id}', '/api/v1/runs/{id}/context-receipt']) {
+    assert.ok(spec.paths[path]?.get, path);
+  }
+  assert.ok(spec.components.schemas.KnowledgeSpaceCollectionResponse.required.includes('nextCursor'));
+  assert.ok(spec.components.schemas.ContextReceiptResponse.required.includes('toolAvailability'));
+  const parameters = spec.paths['/api/v1/chats/search'].get.parameters;
+  assert.ok(parameters.some(parameter => parameter.name === 'q' && parameter.in === 'query'));
+});

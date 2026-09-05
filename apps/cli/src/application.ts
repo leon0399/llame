@@ -9,7 +9,7 @@ import { runLocal } from './local-run';
 import { Auth } from './auth';
 import { Remote } from './remote';
 import { approvals, password, question, readStdin } from './terminal';
-import { text, uuid } from './validation';
+import { record, text, uuid } from './validation';
 import { executionLock, removeDeadLock } from './execution-lock';
 
 export class Application {
@@ -42,6 +42,7 @@ export class Application {
     }
     const remote = this.options.remote ? new Remote(await this.authClient().credential(this.env, this.signal), store, this.output) : undefined;
     if (command === 'models') { await this.models(remote); return; }
+    if (command === 'knowledge') { await this.knowledge(remote, action, id); return; }
     if (command === 'chats') { await this.chats(store, remote, action, id); return; }
     if (command === 'runs') { await this.runs(store, remote, action, id); return; }
     if (command && command !== 'run') throw new CliError('command', 'Unknown command. Use --help.');
@@ -73,9 +74,27 @@ export class Application {
 
   private async chats(store: LocalStore, remote: Remote | undefined, action?: string, id?: string): Promise<void> {
     if (!action || action === 'list') { this.output.value(remote ? await remote.json('/api/v1/chats', this.signal) : store.chats()); return; }
-    if (action !== 'show') throw new CliError('command', 'Use chats list or chats show UUID.');
+    if (action === 'search') {
+      if (!remote) throw new CliError('remote_required', 'Chat search uses the connected node. Standalone semantic/episodic indexing is not implemented.');
+      const query = text(this.options.positionals.slice(2).join(' '), 'search query', 200).trim();
+      if (!query) throw new CliError('query_required', 'Use chats search QUERY.');
+      this.output.value(await remote.json(`/api/v1/chats/search?${new URLSearchParams({ q: query, limit: '20' })}`, this.signal)); return;
+    }
+    if (action !== 'show') throw new CliError('command', 'Use chats list, chats show UUID, or chats search QUERY.');
     const chatId = uuid(id);
     this.output.value(remote ? await remote.json(`/api/v1/chats/${chatId}/messages`, this.signal) : store.history(chatId));
+  }
+
+  private async knowledge(remote: Remote | undefined, action = 'list', id?: string): Promise<void> {
+    if (!remote) throw new CliError('remote_required', 'Knowledge Spaces belong to the connected node. Local MCP resources are not a Personal Realm mirror.');
+    if (this.options.positionals.length > 3) throw new CliError('arguments', 'Use knowledge list [CURSOR] or knowledge show UUID.');
+    if (action === 'list') {
+      const query = new URLSearchParams({ limit: '50' });
+      if (id) query.set('after', text(id, 'Knowledge Space cursor', 2048));
+      this.output.value(await remote.json(`/api/v1/knowledge-spaces?${query}`, this.signal)); return;
+    }
+    if (action === 'show') { this.output.value(await remote.json(`/api/v1/knowledge-spaces/${uuid(id)}`, this.signal)); return; }
+    throw new CliError('command', 'Use knowledge list [CURSOR] or knowledge show UUID. Ask the remote assistant to search/read their contents.');
   }
 
   private async runs(store: LocalStore, remote: Remote | undefined, action?: string, id?: string): Promise<void> {
@@ -86,9 +105,21 @@ export class Application {
       else for (const event of store.events(runId, this.options.after)) this.output.value(event);
       return;
     }
-    if (!remote) throw new CliError('command', 'Use runs show/events locally. Cancel a local executor with Ctrl-C.');
+    if (action === 'tools' || action === 'receipt') {
+      if (this.options.positionals.length !== 3) throw new CliError('arguments', 'Use runs tools/receipt UUID.');
+      const receipt = remote
+        ? record(await remote.json(`/api/v1/runs/${runId}/context-receipt`, this.signal), 'context receipt')
+        : record(record(store.run(runId), 'local Run').snapshot, 'local context receipt');
+      this.output.value(action === 'receipt' ? receipt : {
+        runId, mode: remote ? 'remote' : 'local',
+        tools: receipt.tools,
+        toolAvailability: receipt.toolAvailability ?? { version: 0, state: 'unobserved' },
+        availabilityHash: receipt.availabilityHash ?? null,
+        historical: true,
+      }); return;
+    }
+    if (!remote) throw new CliError('command', 'Use runs show/events/tools/receipt locally. Cancel a local executor with Ctrl-C.');
     if (action === 'attach') { await remote.attach(runId, this.signal); return; }
-    if (action === 'receipt') { this.output.value(await remote.json(`/api/v1/runs/${runId}/context-receipt`, this.signal)); return; }
     if (action === 'cancel') { this.output.value(await remote.json(`/api/v1/runs/${runId}`, this.signal, 'PATCH', { status: 'cancelled' })); return; }
     throw new CliError('command', 'Unknown runs command. Use --help.');
   }

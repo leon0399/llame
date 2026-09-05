@@ -74,11 +74,12 @@ Usage:
   llame remote disable                Use local by default; retain saved login
   llame remote status                 Inspect saved connection settings
   llame config init                   Create a private local config, no overwrite
+  llame knowledge list [CURSOR] | knowledge show UUID
   llame models                        List configured/available models
-  llame chats list | chats show UUID   Inspect chat history
+  llame chats list | chats show UUID | chats search QUERY   Inspect chat history
   llame runs show UUID                Inspect a run and its execution snapshot
   llame runs events UUID [--after N]   Replay local events or follow remote events
-  llame runs receipt UUID             Inspect remote effective-context receipt
+  llame runs receipt UUID | runs tools UUID             Inspect bound tools or full context (local/remote)
   llame runs cancel UUID              Request remote cancellation
   llame runs attach CHAT_UUID         Attach to the chat's active remote run
   llame recover                       Recover interrupted local runs, never replay actions
