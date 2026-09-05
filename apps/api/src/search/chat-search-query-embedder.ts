@@ -77,12 +77,11 @@ export class ChatSearchQueryEmbedder {
       return { fallback: 'empty' };
     }
 
-    const budgetMs = QUERY_EMBED_BUDGET_MS[surface];
-
     try {
-      const vector = await withBudget(
-        () => this.backend!.embedQuery(trimmed),
-        budgetMs,
+      const vector = await embedWithBudget(
+        this.backend,
+        trimmed,
+        QUERY_EMBED_BUDGET_MS[surface],
         abortSignal,
       );
 
@@ -95,12 +94,13 @@ export class ChatSearchQueryEmbedder {
 
       return { vector };
     } catch (error) {
-      const isTimeout =
-        error instanceof Error && error.message === 'query_embed_timeout';
-      const isAbort = error instanceof Error && error.name === 'AbortError';
+      const isAbortLike =
+        error instanceof DOMException &&
+        (error.name === 'TimeoutError' || error.name === 'AbortError');
 
-      const reason: EmbedFallbackReason =
-        isTimeout || isAbort ? 'timeout' : 'provider_error';
+      const reason: EmbedFallbackReason = isAbortLike
+        ? 'timeout'
+        : 'provider_error';
 
       this.logger.warn(
         `Query embed fallback: reason=${reason}, surface=${surface}, model=${this.modelKey}`,
@@ -110,48 +110,32 @@ export class ChatSearchQueryEmbedder {
   }
 }
 
-function withBudget<T>(
-  fn: () => Promise<T>,
+function embedWithBudget(
+  backend: EmbeddingBackend,
+  text: string,
   budgetMs: number,
   externalSignal?: AbortSignal,
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const controller = new AbortController();
+): Promise<ReadonlyArray<number>> {
+  const signals: Array<AbortSignal> = [AbortSignal.timeout(budgetMs)];
+  if (externalSignal) signals.push(externalSignal);
+  const combined = AbortSignal.any(signals);
 
-    const timer = setTimeout(() => {
-      controller.abort();
-      reject(new Error('query_embed_timeout'));
-    }, budgetMs);
+  return Promise.race([
+    backend.embedQuery(text),
+    new Promise<never>((_resolve, reject) => {
+      if (combined.aborted) {
+        reject(toError(combined.reason));
+        return;
+      }
+      combined.addEventListener(
+        'abort',
+        () => reject(toError(combined.reason)),
+        { once: true },
+      );
+    }),
+  ]);
+}
 
-    const onExternalAbort = () => {
-      controller.abort();
-      clearTimeout(timer);
-      reject(new DOMException('Query embed aborted', 'AbortError'));
-    };
-
-    if (externalSignal?.aborted) {
-      clearTimeout(timer);
-      reject(new DOMException('Query embed aborted', 'AbortError'));
-      return;
-    }
-
-    externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
-
-    fn().then(
-      (result) => {
-        clearTimeout(timer);
-        externalSignal?.removeEventListener('abort', onExternalAbort);
-        resolve(result);
-      },
-      (error: unknown) => {
-        clearTimeout(timer);
-        externalSignal?.removeEventListener('abort', onExternalAbort);
-        if (controller.signal.aborted) {
-          reject(new Error('query_embed_timeout'));
-        } else {
-          reject(error instanceof Error ? error : new Error(String(error)));
-        }
-      },
-    );
-  });
+function toError(reason: unknown): Error {
+  return reason instanceof Error ? reason : new Error(String(reason));
 }
