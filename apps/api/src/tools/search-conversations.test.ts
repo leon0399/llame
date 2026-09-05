@@ -155,13 +155,9 @@ function passage(
 describe('search_conversations', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('is read-only and takes only query/limit from the model', () => {
+  it('is read-only and takes mode + optional fields from the model', () => {
     expect(searchConversationsTool.classification).toBe('read_only');
-    expect(searchConversationsTool.description).toContain(
-      'bounded discovery excerpts',
-    );
     expect(searchConversationsTool.description).toContain('conversation_read');
-    expect(searchConversationsTool.description).toContain('when available');
     expect(searchConversationsTool.description).toContain('untrusted');
     expect(searchConversationsTool.description).not.toMatch(
       /bestDocumentId|hash|partId|projection|version/u,
@@ -170,11 +166,13 @@ describe('search_conversations', () => {
     if (!isZodSchema(schema)) {
       throw new Error('Expected a Zod input schema');
     }
-    expect(schema.parse({ query: 'hi' })).toEqual({
+    expect(schema.parse({ mode: 'content', query: 'hi' })).toEqual({
+      mode: 'content',
       query: 'hi',
-      limit: 5,
     });
-    expect(() => schema.parse({ query: 'hi', userId: 'x' })).toThrow(ZodError);
+    expect(() =>
+      schema.parse({ mode: 'content', query: 'hi', userId: 'x' }),
+    ).toThrow(ZodError);
   });
 
   it('scopes canonical metadata results to the context userId without an activation flag', async () => {
@@ -193,6 +191,7 @@ describe('search_conversations', () => {
     );
 
     const result = await searchConversationsTool.execute(context, {
+      mode: 'content',
       query: 'typescript',
       limit: 5,
     });
@@ -215,6 +214,7 @@ describe('search_conversations', () => {
 
   it('returns success with an empty list when nothing matches', async () => {
     const result = await searchConversationsTool.execute(fakeContext([]), {
+      mode: 'content',
       query: 'nothing',
       limit: 5,
     });
@@ -322,7 +322,7 @@ describe('search_conversations', () => {
         undefined,
         [[hydrationRow(text)], [{ line_id: 0 }]],
       ),
-      { query: 'decided', limit: 5 },
+      { mode: 'content', query: 'decided', limit: 5 },
     );
 
     expect(result).toMatchObject({
@@ -412,7 +412,7 @@ describe('search_conversations', () => {
           [],
         ],
       ),
-      { query: 'canonical', limit: 5 },
+      { mode: 'content', query: 'canonical', limit: 5 },
     );
 
     expect(result.status).toBe('success');
@@ -466,7 +466,7 @@ describe('search_conversations', () => {
         ],
         [], // no lexical line match -> vector-only fallback
       ]),
-      { query: 'unmatched lexically', limit: 5 },
+      { mode: 'content', query: 'unmatched lexically', limit: 5 },
     );
 
     expect(result.status).toBe('success');
@@ -499,11 +499,12 @@ describe('search_conversations', () => {
       'partId',
       'cursor',
     ]) {
-      expect(() => schema.parse({ query: 'x', [field]: 'future' })).toThrow(
-        ZodError,
-      );
+      expect(() =>
+        schema.parse({ mode: 'content', query: 'x', [field]: 'future' }),
+      ).toThrow(ZodError);
     }
-    expect(schema.parse({ query: 'x', limit: 3 })).toEqual({
+    expect(schema.parse({ mode: 'content', query: 'x', limit: 3 })).toEqual({
+      mode: 'content',
       query: 'x',
       limit: 3,
     });

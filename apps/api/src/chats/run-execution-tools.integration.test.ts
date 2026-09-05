@@ -255,7 +255,7 @@ function textThenToolCallResponse(
       type: 'tool-call',
       toolCallId: 'call-1',
       toolName: 'search_conversations',
-      input: JSON.stringify({ query }),
+      input: JSON.stringify({ mode: 'content', query }),
     },
     {
       type: 'finish',
@@ -283,7 +283,7 @@ function reasoningTextThenToolCallResponse(
       type: 'tool-call',
       toolCallId: 'call-1',
       toolName: 'search_conversations',
-      input: JSON.stringify({ query }),
+      input: JSON.stringify({ mode: 'content', query }),
     },
     {
       type: 'finish',
@@ -307,7 +307,7 @@ function unlistedToolCallResponse(
       type: 'tool-call',
       toolCallId: 'call-bad',
       toolName,
-      input: JSON.stringify({ query }),
+      input: JSON.stringify({ mode: 'content', query }),
     },
     {
       type: 'finish',
@@ -355,7 +355,7 @@ function alwaysToolCallResponse(
       type: 'tool-call',
       toolCallId: callId,
       toolName: 'search_conversations',
-      input: JSON.stringify({ query }),
+      input: JSON.stringify({ mode: 'content', query }),
     },
     {
       type: 'finish',
