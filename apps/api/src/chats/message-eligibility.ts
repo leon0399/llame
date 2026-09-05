@@ -9,6 +9,11 @@ import { sql, type SQL } from 'drizzle-orm';
  * @param alias — the table alias for `messages` in the surrounding query
  *                (e.g. `"m"` in `FROM messages AS m`)
  */
+/** Drizzle sql`` with postgres.js doesn't serialize Date objects; cast via ISO string. */
+export function timestamptzParam(d: Date): SQL {
+  return sql`${d.toISOString()}::timestamptz`;
+}
+
 export function eligibleMessagePredicate(alias: string): SQL {
   const role = sql`${sql.identifier(alias)}.role`;
   const usage = sql`${sql.identifier(alias)}.usage`;

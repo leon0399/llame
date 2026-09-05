@@ -1,6 +1,9 @@
 import { sql, type SQL } from 'drizzle-orm';
 
-import { eligibleMessagePredicate } from './message-eligibility';
+import {
+  eligibleMessagePredicate,
+  timestamptzParam as tstz,
+} from './message-eligibility';
 
 export type TimeRange = {
   after?: Date;
@@ -13,10 +16,6 @@ export type SearchByOwnerOptions = {
   vector?: { queryVector: ReadonlyArray<number>; modelKey: string };
   timeRange?: TimeRange;
 };
-
-function tstz(d: Date): SQL {
-  return sql`${d.toISOString()}::timestamptz`;
-}
 
 function withRequiredDocumentRange(ownerScope: SQL, range: TimeRange): SQL {
   const clauses: Array<SQL> = [ownerScope];

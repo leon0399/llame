@@ -1,7 +1,10 @@
 import { sql, type SQL } from 'drizzle-orm';
 
 import { type Db } from '../db/tenant-db.service';
-import { eligibleMessagePredicate } from './message-eligibility';
+import {
+  eligibleMessagePredicate,
+  timestamptzParam as tstz,
+} from './message-eligibility';
 
 export type TimelineByOwnerOptions = {
   after?: Date;
@@ -28,10 +31,6 @@ type TimelineRawRow = {
   first_seq: string;
   last_seq: string;
 };
-
-function tstz(d: Date): SQL {
-  return sql`${d.toISOString()}::timestamptz`;
-}
 
 function buildMessageRangeFilter(options: {
   after?: Date;
