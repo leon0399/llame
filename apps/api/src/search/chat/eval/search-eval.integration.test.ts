@@ -11,6 +11,7 @@
  */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
 
 import * as schema from '../../../db/schema';
@@ -20,6 +21,7 @@ import {
   MessagesRepository,
 } from '../../../chats/chats-repository';
 import { summarizeEval, type EvalQueryResult } from '../../core';
+import { resolveEvalEmbedBackend } from './resolve-eval-backend';
 import { SearchIndexService } from '../../search-index.service';
 import { CHUNK_MAX_CHARS } from '../conversation-chunker';
 import {
@@ -118,4 +120,73 @@ describeIfDb('chat search — relevance eval', () => {
     expect(summary.recallAtK).toBe(1);
     expect(summary.zeroResultRate).toBe(0);
   });
+
+  it('runs the hybrid eval when an embedding provider is configured', async () => {
+    if (!process.env['RUN_SEARCH_EVAL']) return;
+
+    const resolved = resolveEvalEmbedBackend();
+    if (!resolved) return;
+    const { backend, modelKey, dimensions: dims } = resolved;
+
+    // Embed all fixture documents
+    for (const [, chatId] of chatIdByKey) {
+      const docs = await tenantDb.runAs(u, (tx) =>
+        tx.execute(sql`
+          SELECT id, content FROM search_chat_documents
+          WHERE chat_id = ${chatId} AND embedding IS NULL
+        `),
+      );
+      for (const doc of docs) {
+        const vector = await backend.embedQuery(String(doc.content));
+        if (vector.length === dims) {
+          const vecLiteral = JSON.stringify(Array.from(vector));
+          await tenantDb.runAs(u, (tx) =>
+            tx.execute(sql`
+              UPDATE search_chat_documents
+              SET embedding = ${vecLiteral}::vector,
+                  embedding_model_key = ${modelKey},
+                  embedded_content_hash = content_hash,
+                  embed_input_version = 1
+              WHERE id = ${String(doc.id)}
+            `),
+          );
+        }
+      }
+    }
+
+    // Run hybrid searches
+    const hybridResults: Array<EvalQueryResult> = [];
+    for (const q of EVAL_QUERIES) {
+      let vectorParams:
+        | { queryVector: ReadonlyArray<number>; modelKey: string }
+        | undefined;
+      try {
+        const qv = await backend.embedQuery(q.query);
+        if (qv.length === dims) {
+          vectorParams = { queryVector: qv, modelKey };
+        }
+      } catch {
+        // provider error on this query — skip vector leg
+      }
+      const rows = await tenantDb.runAs(u, (tx) =>
+        new ChatsRepository(tx).searchByOwner(u, q.query, K, vectorParams),
+      );
+      hybridResults.push({
+        category: q.category,
+        rankedIds: rows.map((r) => r.id),
+        relevant: new Set(q.expect.map((k) => chatIdByKey.get(k)!)),
+      });
+    }
+
+    const hybridSummary = summarizeEval(hybridResults, K);
+    console.log(
+      '\n[search-eval] hybrid\n' + JSON.stringify(hybridSummary, null, 2),
+    );
+
+    // Floors must hold with the vector leg too
+    const floors: ReadonlySet<string> = FLOOR_CATEGORIES;
+    const floorResults = hybridResults.filter((r) => floors.has(r.category));
+    const floorSummary = summarizeEval(floorResults, K);
+    expect(floorSummary.recallAtK).toBe(1);
+  }, 120_000);
 });
