@@ -91,6 +91,7 @@ import {
 } from "@/lib/services/chat/history";
 
 import { ChatPage } from "./chat-page";
+import { ensureChatMarkdownRenderersLoaded } from "./use-chat-markdown-ready";
 
 const NO_STATS: CompactionStats = {
   absorbedMessageCount: null,
@@ -99,7 +100,8 @@ const NO_STATS: CompactionStats = {
   modelId: null,
 };
 
-beforeAll(() => {
+beforeAll(async () => {
+  await ensureChatMarkdownRenderersLoaded();
   if (!Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
   }
@@ -208,7 +210,7 @@ function renderChatPage(
 }
 
 describe("ChatPage — compaction checkpoint render", () => {
-  it("renders the checkpoint when the chat history + compaction are both already cached (mirrors a real SSR-hydrated reload)", () => {
+  it("renders the checkpoint when the chat history + compaction are both already cached (mirrors a real SSR-hydrated reload)", async () => {
     const chatId = "chat-bbc4f06e";
     useChatMessages = [
       {
@@ -242,13 +244,13 @@ describe("ChatPage — compaction checkpoint render", () => {
     });
 
     expect(
-      screen.getByRole("button", {
+      await screen.findByRole("button", {
         name: /context compacted/i,
       }),
     ).toBeTruthy();
   });
 
-  it("renders the checkpoint at the TOP when the loaded window is entirely post-boundary", () => {
+  it("renders the checkpoint at the TOP when the loaded window is entirely post-boundary", async () => {
     const chatId = "chat-top-case";
     useChatMessages = [
       {
@@ -276,13 +278,13 @@ describe("ChatPage — compaction checkpoint render", () => {
     });
 
     expect(
-      screen.getByRole("button", {
+      await screen.findByRole("button", {
         name: /context compacted/i,
       }),
     ).toBeTruthy();
   });
 
-  it("renders the checkpoint at the BOTTOM when every loaded message is within the summarized span (Leo's reported scenario: uptoSeq near the end of a long history)", () => {
+  it("renders the checkpoint at the BOTTOM when every loaded message is within the summarized span (Leo's reported scenario: uptoSeq near the end of a long history)", async () => {
     const chatId = "chat-bbc4f06e";
     useChatMessages = [
       {
@@ -316,13 +318,13 @@ describe("ChatPage — compaction checkpoint render", () => {
     });
 
     expect(
-      screen.getByRole("button", {
+      await screen.findByRole("button", {
         name: /context compacted/i,
       }),
     ).toBeTruthy();
   });
 
-  it("reload parity: a compaction present in the RAW api-shaped messages payload (the real toChatUiMessages mapping, not a hand-shaped fixture) still renders after being routed through the same cache seeding a real reload uses", () => {
+  it("reload parity: a compaction present in the RAW api-shaped messages payload (the real toChatUiMessages mapping, not a hand-shaped fixture) still renders after being routed through the same cache seeding a real reload uses", async () => {
     const chatId = "chat-reload-parity";
     const rawMessages: Array<ChatMessageResponse> = [
       {
@@ -374,11 +376,11 @@ describe("ChatPage — compaction checkpoint render", () => {
     });
 
     expect(
-      screen.getByRole("button", { name: /context compacted/i }),
+      await screen.findByRole("button", { name: /context compacted/i }),
     ).toBeTruthy();
   });
 
-  it("invalidates the chat messages query (which now carries compaction embedded) on a finished turn, so a compaction landing mid-conversation doesn't require a reload", () => {
+  it("invalidates the chat messages query (which now carries compaction embedded) on a finished turn, so a compaction landing mid-conversation doesn't require a reload", async () => {
     const chatId = "chat-mid-session-compaction";
     useChatMessages = [
       {
@@ -453,12 +455,10 @@ describe("ChatPage — model context transparency", () => {
       compaction: null,
     });
 
-    const switchTrigger = screen.getByRole("button", {
+    const switchTrigger = await screen.findByRole("button", {
       name: "Model changed from model-a to model-b",
     });
-    // findByText, not getByText: MessageResponse is a next/dynamic, ssr:false
-    // chunk (chat-message-row.tsx's documented #187/#417 client-only-chunk
-    // gap) — its text is absent from the first synchronous render.
+    // Body text waits on ChatMarkdownProvider the same way.
     const userText = await screen.findByText(
       "Triggering request",
       {},
@@ -560,12 +560,8 @@ describe("ChatPage — model context transparency", () => {
       compaction: null,
     });
 
-    // findByText, not getByText: MessageResponse is a next/dynamic, ssr:false
-    // chunk (chat-message-row.tsx's documented #187/#417 client-only-chunk
-    // gap) — its text is absent from the first synchronous render.
-    expect(
-      await screen.findByText("Owner question", {}, { timeout: 5000 }),
-    ).toBeTruthy();
+    // Bodies are immediate once beforeAll warmed ChatMarkdownProvider.
+    expect(await screen.findByText("Owner question")).toBeTruthy();
     expect(screen.queryByText(/unsupported part type/i)).toBeNull();
     // The digest's own content is prompt-side only; it must never surface as
     // chat content the owner reads back.
@@ -576,7 +572,7 @@ describe("ChatPage — model context transparency", () => {
     expect(screen.queryByText(/<system-reminder/)).toBeNull();
   });
 
-  it("shows a run receipt action on a same-model assistant turn without inventing a switch boundary", () => {
+  it("shows a run receipt action on a same-model assistant turn without inventing a switch boundary", async () => {
     const chatId = "chat-same-model";
     useChatMessages = [
       {
@@ -602,7 +598,7 @@ describe("ChatPage — model context transparency", () => {
     });
 
     expect(
-      screen.getByRole("button", { name: "Effective context" }),
+      await screen.findByRole("button", { name: "Effective context" }),
     ).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /model changed from/i }),

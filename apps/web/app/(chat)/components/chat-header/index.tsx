@@ -28,12 +28,9 @@ function isResolvedTitle(title: string | null | undefined): title is string {
 
 /** Resolves the active chat's title from the sidebar list caches, falling
  *  back to a direct fetch for archived-unpinned chats those caches drop. */
-function useResolvedChatTitle(): string | null | undefined {
-  const pathname = usePathname();
-  const chatId = pathname.startsWith("/chat/")
-    ? pathname.split("/")[2]
-    : undefined;
-
+function useResolvedChatTitle(
+  chatId: string | undefined,
+): string | null | undefined {
   // Prefer the sidebar list caches when the active chat is in them — rename /
   // title-generation invalidate lists(), so the header stays in lockstep.
   const { data: pinnedData } = useChatsQuery({
@@ -86,14 +83,26 @@ function useDocumentTitleSync(settledTitle: string | null | undefined): void {
   }, []);
 }
 
+/**
+ * Typewriter is remounted per chat (`key={chatId}` on the caller) so opening
+ * a chat, reloading, or switching chats snaps the title. Animation only runs
+ * when the same chat's title changes (generation / rename).
+ */
+function ChatHeaderTitle({ title }: { title: string }) {
+  const display = useTypewriter(title);
+  return (
+    <span className="max-w-[60ch] truncate pl-1 text-sm font-semibold">
+      {display}
+    </span>
+  );
+}
+
 export function ChatHeader({ className }: ChatHeaderProps) {
   const pathname = usePathname();
-  const settledTitle = useResolvedChatTitle();
-
-  const target = isResolvedTitle(settledTitle) ? settledTitle : "";
-  const display = useTypewriter(target, {
-    enabled: isResolvedTitle(settledTitle),
-  });
+  const chatId = pathname.startsWith("/chat/")
+    ? pathname.split("/")[2]
+    : undefined;
+  const settledTitle = useResolvedChatTitle(chatId);
 
   useDocumentTitleSync(settledTitle);
 
@@ -110,10 +119,8 @@ export function ChatHeader({ className }: ChatHeaderProps) {
       {/* Mobile-only: opens the sidebar sheet; the desktop rail has its own toggle. */}
       <SidebarTrigger className="md:hidden" />
 
-      {isResolvedTitle(settledTitle) ? (
-        <span className="max-w-[60ch] truncate pl-1 text-sm font-semibold">
-          {display}
-        </span>
+      {chatId && isResolvedTitle(settledTitle) ? (
+        <ChatHeaderTitle key={chatId} title={settledTitle} />
       ) : null}
     </header>
   );
