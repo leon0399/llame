@@ -134,7 +134,7 @@ export class Application {
       await this.query(remote, 'realm.conversations.read', { chatId: uuid(id), messageSeq: Number(args[1]),
         ...(args[2] === undefined ? {} : { offset: Number(args[2]) }), ...(args[3] === undefined ? {} : { limit: Number(args[3]) }) }); return;
     }
-    if (action !== 'show') throw new CliError('command', 'Use chats list, chats show UUID, or chats search QUERY.');
+    if (action !== 'show') throw new CliError('command', 'Use chats list, chats show UUID, chats search QUERY, or chats read UUID SEQ.');
     const chatId = uuid(id);
     this.output.value(remote ? await remote.json(`/api/v1/chats/${chatId}/messages`, this.signal) : await this.local('realm.chats.read', { chatId }));
   }

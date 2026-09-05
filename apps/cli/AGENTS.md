@@ -11,9 +11,10 @@ pnpm exec turbo run package:standalone --filter=cli --concurrency=1
 ```
 
 Remote code consumes the API; it must not import API implementation/DB modules.
-Ordinary local commands use `@workspace/personal-node` IPC; never import its
-store, model loop or tool executor into the client. `node serve` alone launches
-the server role. SQLite belongs to that single-owner runtime, not the CLI or Hub.
+Client adapters live in `@workspace/node-client`. Ordinary local commands use
+the private `@workspace/node` application channel; never import its
+store, model loop or tool executor into the client. `node serve` delegates to the independent application; `node capabilities`
+negotiates the selected owner contract. SQLite belongs to that single-owner runtime, not the CLI or Hub.
 Only `env.ts` reads process environment in production. Credentials, human
 sessions and future cryptographic Node enrollment remain distinct boundaries.
 

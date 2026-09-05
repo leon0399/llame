@@ -16,7 +16,7 @@ const signal = () => AbortSignal.timeout(1000);
 
 test('shared schema rejects batches, notifications, identity fields and unknown methods', () => {
   for (const input of [[], null, { jsonrpc: '2.0', method: 'core.describe' }, { jsonrpc: '1.0', id: 'a', method: 'core.describe' },
-    { jsonrpc: '2.0', id: 'a', method: 'core.describe', userId: other }]) assert.throws(() => parseNodeRequest(input));
+    { jsonrpc: '2.0', id: 'a', method: 'core.describe', userId: other }, { jsonrpc: '2.0', id: 'a', method: 'core.describe', params: null }]) assert.throws(() => parseNodeRequest(input));
   for (const field of ['userId', 'principal', 'token', 'tools', 'root', 'native']) {
     assert.throws(() => queryParams('realm.conversations.search', { query: 'notes', [field]: other }));
   }
@@ -27,11 +27,14 @@ test('shared schema rejects batches, notifications, identity fields and unknown 
 
 test('range, path and multilingual query validation preserve literal source coordinates', () => {
   assert.deepEqual(queryParams('realm.conversations.search', { query: '日本語 и notas' }).params, { query: '日本語 и notas', limit: 5 });
+  assert.throws(() => queryParams('realm.conversations.search', { query: 'notes', limit: null }));
+  assert.equal(queryParams('realm.conversations.search', { query: '🌍'.repeat(200) }).params.query, '🌍'.repeat(200));
+  assert.throws(() => queryParams('realm.conversations.search', { query: '🌍'.repeat(201) }));
   for (const query of ['', ' ', 'a'.repeat(201)]) assert.throws(() => queryParams('realm.knowledge.search', { query }));
   for (const path of ['/etc/passwd', '../secret', 'notes/../secret', 'C:/secret', 'a\\b', 'a//b', '.', 'a/./b']) {
     assert.throws(() => queryParams('realm.knowledge.read', { knowledgeSpaceId: owner, path }));
   }
-  for (const params of [{ chatId: other, messageSeq: 0 }, { chatId: owner, messageSeq: 1, limit: 2001 },
+  for (const params of [{ chatId: other, messageSeq: 0 }, { chatId: owner, messageSeq: 1, offset: null }, { chatId: owner, messageSeq: 1, limit: null }, { chatId: owner, messageSeq: 1, limit: 2001 },
     { chatId: owner, messageSeq: 1, offset: Number.MAX_SAFE_INTEGER + 1 }, { chatId: 'foreign', messageSeq: 1 }]) {
     assert.throws(() => queryParams('realm.conversations.read', params));
   }

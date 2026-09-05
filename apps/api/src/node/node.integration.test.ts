@@ -14,8 +14,6 @@ import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
 
-if (!process.env.POSTGRES_URL) throw new Error('Node API integration requires the repository integration database harness.');
-
 describe('Node HTTP adapter through the real session and tenant boundaries', () => {
   let app: INestApplication<import('http').Server>;
   let http: import('http').Server;

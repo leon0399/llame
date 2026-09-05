@@ -295,3 +295,18 @@ Local receipts SHALL identify their availability schema as
 they SHALL NOT masquerade as hashed server receipts. The normal CLI test command
 SHALL include production MCP wire tests; an injected-port test or core-only run
 SHALL NOT be reported as proof that those transport tests passed.
+
+### Requirement: Selected Node access is shared and inspectable
+
+`node capabilities` SHALL follow explicit routing or the saved remote default;
+`node serve/status/recover` SHALL remain local management. Conversation search/read
+and Knowledge search/read SHALL use [node-access](../node-access/spec.md) on either
+deployment. Printed observations SHALL preserve native evidence and append
+trusted client-selected Node/account/authority provenance. Remote read commands
+SHALL NOT start a personal database or resolve local provider/MCP credentials.
+
+#### Scenario: Canonical remote Knowledge read
+
+- **WHEN** an authenticated owner invokes `knowledge read` on an enabled remote
+- **THEN** the shared HTTP adapter calls its existing governed Knowledge read
+- **AND** no model request or Personal Realm synchronization is required

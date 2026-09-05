@@ -10,13 +10,23 @@ import { AcceptedNodeRunResponse, CreateNodeRunDto } from './node-runs.dto';
 @ApiExcludeController()
 @Controller('api/v1/runs')
 export class NodeRunsController {
-  constructor(@Inject(ChatLoopService) private readonly loop: Pick<ChatLoopService, 'acceptMessage'>) {}
+  constructor(
+    @Inject(ChatLoopService)
+    private readonly loop: Pick<ChatLoopService, 'acceptMessage'>,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.ACCEPTED)
-  async create(@CurrentUser() userId: string, @Body() input: CreateNodeRunDto,
-    @Req() request: Pick<Request, 'headers'>,
-    @Res({ passthrough: true }) response: { setHeader(name: string, value: string): void }): Promise<AcceptedNodeRunResponse> {
+  async create(
+    @CurrentUser()
+    userId: string,
+    @Body()
+    input: CreateNodeRunDto,
+    @Req()
+    request: Pick<Request, 'headers'>,
+    @Res({ passthrough: true })
+    response: { setHeader(name: string, value: string): void },
+  ): Promise<AcceptedNodeRunResponse> {
     response.setHeader('Cache-Control', 'no-store');
     try {
       assertHttpBinding(userId, request.headers[NODE_PRINCIPAL_HEADER], request.headers[NODE_VERSION_HEADER], 'execution.runs.create');

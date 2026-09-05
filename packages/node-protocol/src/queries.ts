@@ -37,11 +37,11 @@ function search(params: UnknownRecord): SearchParams {
   exactKeys(params, ['query', 'limit']);
   const query = string(params.query, 'query', 200).trim();
   if (!query) throw new NodeProtocolError('invalid_params', 'Query must not be blank.');
-  return { query, limit: integer(params.limit ?? 5, 'result limit', 1, 10) };
+  return { query, limit: integer(params.limit === undefined ? 5 : params.limit, 'result limit', 1, 10) };
 }
 function range(params: UnknownRecord) {
-  return { offset: integer(params.offset ?? 0, 'line offset', 0, Number.MAX_SAFE_INTEGER),
-    limit: integer(params.limit ?? 100, 'line limit', 1, 2000) };
+  return { offset: integer(params.offset === undefined ? 0 : params.offset, 'line offset', 0, Number.MAX_SAFE_INTEGER),
+    limit: integer(params.limit === undefined ? 100 : params.limit, 'line limit', 1, 2000) };
 }
 function relativePath(value: unknown): string {
   const path = string(value, 'Knowledge-relative path', 1024);

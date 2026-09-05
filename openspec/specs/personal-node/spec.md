@@ -96,3 +96,12 @@ bridging, Profile Space synchronization or a common hosted execution engine.
 Local source identity SHALL NOT be presented as cryptographic ownership. Secrets,
 configuration, host paths, raw Run events and derived indexes SHALL NOT be
 implicitly made portable merely because they live beneath the data directory.
+
+### Requirement: Independent application and common owner access
+
+The runtime SHALL be launchable through `apps/node/bin/llame-node.cjs` without
+starting the CLI. Shared core/realm version 1 access SHALL be available on the
+version-2 private channel, following [node-access](../node-access/spec.md).
+Transport composition SHALL NOT move source state into a Surface or introduce a
+hosted account prerequisite. Existing SQLite schema and source identities SHALL
+survive this integration without content rewriting.

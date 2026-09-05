@@ -11,7 +11,7 @@ export function exactKeys(value: UnknownRecord, allowed: readonly string[]): voi
   }
 }
 export function string(value: unknown, label: string, max = 200): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > max || value.includes('\0')) {
+  if (typeof value !== 'string' || value.length === 0 || [...value].length > max || value.includes('\0')) {
     throw new NodeProtocolError('invalid_params', `Invalid ${label}.`);
   }
   return value;

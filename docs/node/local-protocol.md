@@ -1,4 +1,4 @@
-# Personal Node protocol, local version 1
+# Personal Node private protocol, version 2
 
 This is the implemented local slice of the module family described in the
 product-vision research, not the hosted OpenAPI, MCP, ACP, or a synchronization
@@ -8,7 +8,7 @@ service and domain handlers. CLI process-contract tests exercise this boundary.
 
 ## Ownership and transport
 
-Ordinary local CLI commands spawn `@workspace/personal-node/server --stdio`, or
+Ordinary local CLI commands spawn `@workspace/node/server --stdio`, or
 attach to an explicitly running `llame node serve` under the same data directory.
 The former owns its child lifetime; the latter is a foreground, independently
 operable process. The CLI never opens the Node database or executes model tools.
@@ -23,9 +23,15 @@ surfaces are trusted local clients and must present their own consent UI.
 Windows has only the stdio path in this implementation; persistent Unix sockets
 and native processes were tested on Linux, not Windows or macOS.
 
-The existing remote client remains HTTP/SSE with authority-bound revocable
-Bearer sessions and its server-owned capabilities. It does not speak this local
-protocol. Neither adapter silently falls back to the other.
+The independent entrypoint is `apps/node/bin/llame-node.cjs`. Private transport
+version 2 rejects round-three version-1 daemons; stop/restart them before upgrade.
+Data schema version 2 and existing source state are unchanged by this iteration.
+
+The [shared owner protocol](shared-access.md) has its own core/realm version 1.
+Its `core.describe` and four retrieval methods work on this private channel and
+the authenticated hosted adapter. Execution/admin remain transport-specific;
+HTTP never exposes arbitrary private methods. Neither adapter silently falls
+back to the other.
 
 ## Framing and negotiation
 
@@ -33,7 +39,7 @@ One UTF-8 JSON-RPC 2.0 object per newline, string request IDs, no batches. Requi
 `core.hello` before domain requests:
 
 ```json
-{"jsonrpc":"2.0","id":"hello-1","method":"core.hello","params":{"version":1}}
+{"jsonrpc":"2.0","id":"hello-1","method":"core.hello","params":{"version":2}}
 ```
 
 The response identifies `version`, `nodeId`, `principal: local-owner`, transport,
@@ -53,12 +59,15 @@ inspect uncertain Runs instead of resubmitting an execution after disconnection.
 
 ## Implemented modules
 
-`core.hello {version}`, `core.status {}`, and `core.cancel {requestId}` negotiate,
+`core.hello {version}`, `core.describe {}`, `core.status {}`, and `core.cancel {requestId}` negotiate,
 inspect, and cancel a request belonging to the same channel.
 
 `realm.models.list {configIdentity}`, `realm.chats.list {}`,
-`realm.chats.read {chatId}`, `realm.chats.search {query, limit?}`, and
+`realm.chats.read {chatId}`, `realm.conversations.search {query, limit?}`, and
 `realm.conversations.read {chatId, messageSeq, offset?, limit?}` serve local state.
+The four shared retrieval methods return the versioned observation envelope
+specified in [shared access](shared-access.md); the CLI prints its native `data`
+plus Node provenance. Other private methods retain their existing results.
 Search is literal trigram search over user/assistant visible text, minimum three
 characters, maximum ten message hits. It excludes tool observations, system
 messages and hidden reasoning. Model-invoked search also excludes its current

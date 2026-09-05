@@ -3,7 +3,8 @@
 Read the repository AGENTS.md and docs/node/local-protocol.md first.
 
 - This package owns personal SQLite, provider resolution, execution and tool
-  authorization. Terminal prompts and rendering belong to apps/cli.
+  authorization. Terminal prompts and rendering belong to apps/cli. Process composition/launch
+  belongs to apps/node; the shared owner contract is packages/node-protocol.
 - Source transcripts and filesystem Knowledge are authoritative; search indexes
   are derived. Never synchronize secrets, host paths or raw token/event progress.
 - Client requests cannot change the Node's boot config path or native Workspace

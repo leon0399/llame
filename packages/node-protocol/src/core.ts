@@ -41,7 +41,7 @@ export function parseNodeRequest(value: unknown): NodeRequest {
   exactKeys(input, ['jsonrpc', 'id', 'method', 'params']);
   if (input.jsonrpc !== '2.0') throw new NodeProtocolError('invalid_request', 'Expected JSON-RPC 2.0.', -32600);
   return { jsonrpc: '2.0', id: string(input.id, 'request ID', 100),
-    method: string(input.method, 'method', 100), params: object(input.params ?? {}) };
+    method: string(input.method, 'method', 100), params: object(input.params === undefined ? {} : input.params) };
 }
 export function nodeDescription(input: unknown): NodeDescription {
   const value = object(input);

@@ -1,3 +1,9 @@
+> **Node integration:** the CLI now consumes `@workspace/node-client`; the
+> independent executable is `apps/node/bin/llame-node.cjs`. See
+> [integration and upgrade](../../docs/node/integration.md). Shared access is
+> version 1; the private IPC handshake is version 2. Restart older personal
+> daemons and upgrade the hosted API before using the new admission/read routes.
+
 # llame CLI
 
 A first-party TypeScript terminal with two execution modes and a saved user-selected default:
@@ -69,7 +75,7 @@ llame --local runs follow RUN_UUID --after 0
 llame --local runs cancel RUN_UUID
 ```
 
-`node` management commands address the local Node even when a remote default is
+`node serve/status/recover` management commands address the local Node even when a remote default is
 saved. `node status` can start a temporary Node; it is not a promise that a daemon
 was already running. `node serve` stays in the foreground; this release does not
 install a service, detach a daemon or open a TCP port. Persistent mode uses a Unix
@@ -376,7 +382,8 @@ environment token, remove it from the parent environment yourself after logout.
 No refresh token or automatic reauthentication is claimed.
 
 Remote mode does not load local provider configuration and rejects native/cwd
-options. A POST submits a message once, obtains the existing Run ID and switches
+options. `POST /api/v1/runs` submits a message once, receives a `202` admission
+with Run/Chat/Message identities (checked against the submission), and switches
 to the durable cursor-based SSE event stream. Reconnects deduplicate observed
 sequences. Cursors are keyed by authority, account and Run. An ambiguous POST is
 not automatically repeated: inspect the printed chat/submission ID or attach to
@@ -392,12 +399,16 @@ endpoint or execute remote tool requests on your laptop.
 A connected Run is an ordinary node-owned Run. Its available `search_conversations`
 and `conversation_read`, `knowledge_search` and `knowledge_read`, and node-managed
 MCP tools remain governed by that node's ownership, configuration and policy.
-Neither a CLI-specific tool bridge nor Personal Realm synchronization is required.
+Neither model execution for a read nor Personal Realm synchronization is required.
 They execute **on the node**, not on your laptop. Their presence is not guaranteed
 merely because a connection exists: inspect the exact Run receipt.
 
 ```sh
+llame node capabilities
 llame chats search "the decision about indexing"
+llame chats read CHAT_UUID MESSAGE_SEQUENCE 0 40
+llame knowledge search "indexing"
+llame knowledge read SPACE_UUID notes.md 0 40
 llame knowledge list
 llame knowledge list OPAQUE_NEXT_CURSOR
 llame knowledge show SPACE_UUID
@@ -405,9 +416,16 @@ llame runs tools RUN_UUID
 llame run "Search my earlier conversations and Knowledge Spaces for the decision"
 ```
 
-In remote mode, `chats search` uses the existing chat-list search endpoint, not a
-replacement for the richer agent recall tool. Remote Knowledge commands list/show metadata; content
-reads/search use the assistant's governed tools. `runs tools` projects historical
+`node capabilities` follows the saved selected authority and shows the versioned
+owner contract before a query. `chats search/read` and `knowledge search/read`
+use the same common methods on either deployment. Hosted queries adapt the actual
+`search_conversations`, `conversation_read`, `knowledge_search`, and
+`knowledge_read` implementations; configured allowlists, read-only classification,
+owner scope and RLS still apply. The terminal does not start a model to retrieve
+content. This common cut exposes bounded first-page searches, not every optional
+filter/cursor of the hosted tools. Local and hosted ranking and evidence formats
+remain explicit, not falsely identical. Every printed observation includes its
+Node/account/authority provenance. `runs tools` projects historical
 bound declarations and available/unavailable states without exposing the whole
 system prompt. It does not claim current permission or a generic invocation API.
 Use `runs receipt` for the full owner-visible receipt.

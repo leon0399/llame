@@ -34,6 +34,12 @@ an authenticated hosted llame API node. Local commands automatically launch a
 private Node process, which owns inference, tools, SQLite history, multilingual
 lexical recall and live Markdown Knowledge reads. `llame node serve` optionally
 keeps that Node alive independently of terminals, on a private Unix socket.
+The same server is independently launchable through `apps/node/bin/llame-node.cjs`.
+The [Node integration contract](docs/node/integration.md) and reusable
+`@workspace/node-client` now bind common discovery/owner retrieval across the
+personal runtime and hosted API. Hosted admission returns a durable Run ID before
+event attachment; the existing web streaming endpoint uses the same admission
+operation. Search and Knowledge reads do not require a model or replication.
 Native Workspace writes/processes still require explicit placement and per-action
 approval. Remote configuration persists without making a remote account mandatory.
 

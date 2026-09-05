@@ -74,15 +74,17 @@ Usage:
   llame remote disable                Use local by default; retain saved login
   llame remote status                 Inspect saved connection settings
   llame node serve                   Serve a persistent private local Node (foreground)
-  llame node status | node recover    Inspect Node or remove a proven-dead endpoint
+  llame node status | node recover    Inspect local Node or remove a proven-dead endpoint
+  llame node capabilities             Discover the selected local/remote owner contract
   llame config init                   Create a private local config, no overwrite
   llame knowledge list [CURSOR] | knowledge show UUID
-  llame --local knowledge create NAME | knowledge search QUERY
-  llame --local knowledge read UUID PATH [OFFSET] [LIMIT]
+  llame --local knowledge create NAME
+  llame knowledge search QUERY
+  llame knowledge read UUID PATH [OFFSET] [LIMIT]
   llame --local mcp list | mcp enable/disable ID | mcp tools [ID]
   llame models                        List configured/available models
   llame chats list | chats show UUID | chats search QUERY   Inspect chat history
-  llame --local chats read UUID SEQUENCE [OFFSET] [LIMIT]
+  llame chats read UUID SEQUENCE [OFFSET] [LIMIT]
   llame --local search rebuild        Rebuild recall projection, preserve source
   llame --local runs list | runs follow UUID [--after N]
   llame runs show UUID                Inspect a run and its execution snapshot

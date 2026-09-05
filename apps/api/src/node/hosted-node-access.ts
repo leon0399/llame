@@ -17,6 +17,13 @@ import { conversationReadTool } from '../tools/conversation-read';
 import { matchesCodeOwnedToolId } from '../tools/tool-id';
 import { type KnowledgeToolResolver, type ToolContext } from '../tools/types';
 
+const nativeCapabilities = {
+  'realm.conversations.search': searchConversationsTool,
+  'realm.conversations.read': conversationReadTool,
+  'realm.knowledge.search': knowledgeSearchTool,
+  'realm.knowledge.read': knowledgeReadTool,
+};
+
 /** Adapts existing owner-scoped capabilities. Does not instantiate another agent. */
 @Injectable()
 export class HostedNodeAccess {
@@ -38,7 +45,9 @@ export class HostedNodeAccess {
 
   private describe(userId: string): NodeDescription {
     const methods = QUERY_METHODS.filter(method => {
-      if (!matchesCodeOwnedToolId(QUERY_TOOL_IDS[method], this.instance.config.tools.allowed)) return false;
+      const tool = nativeCapabilities[method];
+      if (tool.classification !== 'read_only' || tool.id !== QUERY_TOOL_IDS[method] ||
+        !matchesCodeOwnedToolId(tool.id, this.instance.config.tools.allowed)) return false;
       return !method.startsWith('realm.knowledge.') || this.instance.config.knowledge.root !== undefined;
     });
     return { version: 1, kind: 'shared-instance', nodeId: null,

@@ -4,7 +4,6 @@ import {
   Delete,
   Get,
   HttpCode,
-  HttpStatus,
   Inject,
   Logger,
   NotFoundException,

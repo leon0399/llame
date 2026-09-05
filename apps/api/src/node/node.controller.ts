@@ -20,10 +20,14 @@ export class NodeController {
   @Post('requests')
   @HttpCode(HttpStatus.OK)
   async request(
-    @CurrentUser() userId: string,
-    @Body() body: Record<string, unknown>,
-    @Req() request: Pick<Request, 'headers'>,
-    @Res({ passthrough: true }) response: {
+    @CurrentUser()
+    userId: string,
+    @Body()
+    body: Record<string, unknown>,
+    @Req()
+    request: Pick<Request, 'headers'>,
+    @Res({ passthrough: true })
+    response: {
       setHeader(name: string, value: string): void;
       once(event: 'close', listener: () => void): void;
       off(event: 'close', listener: () => void): void;

@@ -39,8 +39,9 @@ The current web, API, and worker processes form one installation and one Postgre
 ### 1.2 Thin terminal and independently operable personal Node
 
 `apps/cli` is a Surface, not the owner of local model execution or SQLite. In
-local mode it launches or attaches to the private service in
-`packages/personal-node`. The Node owns configuration resolution, the bounded
+local mode it launches or attaches to the private application in
+`apps/node`, which composes `packages/personal-node`. The personal application also
+has an independent `llame-node` executable. The Node owns configuration resolution, the bounded
 OpenAI-compatible loop, one advancing executor, durable messages/events/receipts,
 native/MCP tool execution, local lexical recall and managed live Markdown
 Knowledge Spaces. No account, Postgres, inference download or daemon setup is
@@ -75,8 +76,30 @@ See [`personal-node`](openspec/specs/personal-node/spec.md),
 the [operator guide](apps/cli/README.md), and the
 [architecture decision](docs/research/cli/2026-09-05-personal-node-boundary.md).
 Unless explicitly stated otherwise, subsequent sections describe the hosted
-API/worker contract. Personal Realm replication and hosted/local protocol parity
-remain separate, unimplemented capabilities.
+API/worker contract. Personal Realm replication and full execution/admin protocol
+parity remain separate, unimplemented capabilities.
+
+### 1.3 Common owner access and explicit admission
+
+`packages/node-protocol` owns version-1 discovery and conversation/Knowledge
+search/read contracts implemented by both runtimes. `packages/node-client` owns
+reusable private-IPC and authenticated HTTP clients, separate from CLI rendering.
+The hosted adapter exposes `POST /api/v1/node/requests` under existing session,
+code-owned read-only gates, and RLS; the personal adapter uses private IPC version
+2. An expected-principal header asserts the session identity, never selects one.
+Capability declarations are rechecked at invocation. Native evidence and coverage
+remain deployment-specific; the common envelope binds method, principal and source.
+
+`POST /api/v1/runs` admits a hosted message with HTTP 202 and returns its durable
+identities. Both this route and the existing web stream call the same acceptance
+transaction and queue dispatcher. Losing admission is uncertain and never triggers
+an automatic retry or alternate route. There is no request-thread agent loop.
+
+Shared access does not enroll replicas, merge Home, proxy local tools to hosted
+Runs, share databases, or synchronize credentials/files/events. Hosted descriptions
+use the session-user identity, not a fabricated portable Node ID. See the
+[node-access spec](openspec/specs/node-access/spec.md),
+[contract](docs/node/shared-access.md), and [integration guide](docs/node/integration.md).
 
 ## 2. Conversation continuity
 
@@ -134,7 +157,7 @@ Persisted event families currently cover Run lifecycle (`run.created`, `run.star
 
 Every chat message executes through pg-boss and `RunExecutionService`; there is no inline request-thread mode. A no-HTTP worker entrypoint ships, and worker profiles support co-located consumers. See [`durable-runs`](openspec/specs/durable-runs/spec.md), [`job-queue`](openspec/specs/job-queue/spec.md), and [docs/scaling.md](docs/scaling.md).
 
-All current workers coordinate through the same installation's queue and database authority. No Node Protocol, user-machine enrollment, direct or tunneled remote executor API, Workspace mount handoff, or cross-node execution-authority transfer ships.
+All current workers coordinate through the same installation's queue and database authority. The common owner-access slice in §1.3 is not a distributed execution protocol. No user-machine enrollment, direct or tunneled remote executor API, Workspace mount handoff, or cross-node execution-authority transfer ships.
 
 ### 9.6 Queue delivery and recovery
 

@@ -40,7 +40,11 @@ pnpm 11 + Turborepo; TypeScript throughout; Node >=22.19 (`.node-version` pins
 | ---------------------------- | --------------------------------------------------------- |
 | `apps/api`                   | API, services, database, co-located and dedicated workers |
 | `apps/web`                   | thin Next.js client; no database                          |
-| `apps/cli`                  | first-party terminal, separate local SQLite, remote HTTP client |
+| `apps/cli`                   | thin terminal; no model/tool execution or database access |
+| `apps/node`                  | independently launchable personal Node application |
+| `packages/personal-node`     | single-owner runtime, SQLite, execution and private protocol |
+| `packages/node-client`       | reusable IPC/HTTP/session/cursor clients |
+| `packages/node-protocol`     | versioned common owner contract and transport schemas |
 | `apps/storybook`             | Storybook runtime and browser tests                       |
 | `packages/ui`                | shared shadcn components and stories                      |
 | `packages/config-typescript` | shared tsconfig presets                                   |
