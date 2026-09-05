@@ -5,6 +5,7 @@ import * as schema from '../db/schema';
 import type { Chat, Compaction, Message, Run } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
+import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { RunsRepository } from '../runs/runs-repository';
@@ -42,6 +43,7 @@ describe('ChatsService.searchChats', () => {
       new RunAbortRegistry(),
       noopReindexDispatch(),
       noopEmbedDispatch(),
+      noopQueryEmbedder(),
     );
 
     await expect(service.searchChats('user-1', 'matching', 5)).resolves.toEqual(
@@ -101,6 +103,7 @@ describe('ChatsService.getChatMessages targetSeq', () => {
       new RunAbortRegistry(),
       noopReindexDispatch(),
       noopEmbedDispatch(),
+      noopQueryEmbedder(),
     );
   }
 
@@ -271,6 +274,7 @@ describe('ChatsService message windows, updates and forks', () => {
         aborts,
         noopReindexDispatch(),
         noopEmbedDispatch(),
+        noopQueryEmbedder(),
       ),
       aborts,
     };
