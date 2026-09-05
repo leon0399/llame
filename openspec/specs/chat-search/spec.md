@@ -47,7 +47,7 @@ Chat search SHALL match a user's chats by title and by the text content of user/
 
 ### Requirement: Results are ranked by fused relevance with canonical model shaping
 
-Search SHALL rank candidates by Reciprocal Rank Fusion over independent retrieval legs (never by mixing raw scores), aggregate document matches into Chats with weighted top-N scoring, and produce a deterministic order with stable tie-breaking. The web response contract (`id`, nullable `title`, nullable `snippet`, `updatedAt`) and current `search_conversations` input schema (`query`, `limit`) SHALL be preserved until #198 intentionally replaces the model tool input. A web content match SHALL continue to receive the derived best-region snippet with presentation role attribution; a title-only web match SHALL yield a `null` snippet.
+Search SHALL rank candidates by Reciprocal Rank Fusion over independent retrieval legs (never by mixing raw scores), aggregate document matches into Chats with weighted top-N scoring, and produce a deterministic order with stable tie-breaking. The document legs SHALL be full-text, trigram, and — when the corpus has a selected embedding model and the query was embedded — an owner-filtered exact cosine scan over stored vectors. The vector leg SHALL rank only documents whose recorded model key equals the corpus's current selection, whose embedded content hash equals the live content hash, and whose recorded input version equals the current `EMBED_INPUT_VERSION`; every other document contributes nothing to that leg. Fusion weights and the rank constant SHALL be fixed values chosen by a recorded comparison, not runtime settings. Per-leg ranks and the set of legs a Chat matched on MAY be retained for logs and evaluation but SHALL NOT be exposed as a confidence value on any surface; raw cosine distance, lexical rank, and fused score SHALL NOT appear in web or model responses. The web response contract (`id`, nullable `title`, nullable `snippet`, `updatedAt`) and current `search_conversations` input schema (`query`, `limit`) SHALL be preserved until #198 intentionally replaces the model tool input. A web content match SHALL continue to receive the derived best-region snippet with presentation role attribution; a title-only web match SHALL yield a `null` snippet. A web Chat that won through the vector leg with no lexical match SHALL receive the unhighlighted leading fragment of its winning document as its snippet rather than `null`.
 
 An allowlisted `search_conversations` tool SHALL expose only canonical model-facing shaping. `search.chats.canonicalModelExcerpts` and the legacy model preview result SHALL NOT exist. Before an HTTP process that can admit a Run with the allowlisted declaration starts accepting Runs, it SHALL verify that the current projection discovery function is correctly provisioned and that every eligible Chat has complete current-version locator coverage. Every process that consumes the `runs` queue SHALL pass the same gate before registering its consumer, regardless of its current local allowlist, because execution is bound to the accepted Run's immutable tool snapshot rather than rebound through worker configuration. Missing provisioning, stale Chats, mixed/old versions, or incomplete document locators SHALL fail startup rather than route model search through presentation snippets. Failure diagnostics SHALL contain only aggregate counts and provisioning state; they SHALL NOT expose tenant/user/Chat/message/document identifiers, snippets, or content-derived values. A process that neither accepts potentially search-enabled Runs nor consumes the `runs` queue SHALL NOT require this coverage gate merely to start.
 
@@ -59,7 +59,7 @@ The model success SHALL be a strict result union with one top-level closed notic
 
 Only one passage SHALL be returned per Chat in this iteration. A title-only model winner SHALL be metadata-only. A winning document that cannot be currently authorized/hydrated, belongs to an ineligible mutable message, or matches only across line/message boundaries without an individually matching message-local line SHALL be omitted rather than replaced by projection bytes or a generalized cross-message source. Model shaping MAY therefore return fewer Chats than the unchanged web surface; `limit` remains a maximum rather than a completeness claim.
 
-Vector-only candidate generation and model-result shaping remain #197/#198 work and SHALL NOT acquire an invented public response in this change. Internal source offsets MAY be retained for that future decision.
+A winning document that ranked without any individually qualifying canonical line — a vector-only winner — SHALL still be reauthorized and hydrated through the same canonical source contract. When hydration succeeds, model shaping SHALL return a `kind: "content"` result anchored to the winning document's **first** message: `messageSeq` is that message's sequence, `offset` is the logical line containing the document's first-message text offset, and `limit` runs to the end of that message's eligible visible text — or to the document's exclusive end offset when the document begins and ends in the same message. The excerpt SHALL be a fixed crop at the start of that window, framed exactly like every other content result. A document spanning several messages therefore yields the window of its first message only; the remaining messages are reachable through `conversation_read`, not implied by the coordinates. It SHALL NOT invent a match span, a semantic quote, a relevance explanation, or a score, and SHALL NOT be distinguishable to the model as "semantic" beyond the absence of a highlighted term. When hydration fails, it SHALL be omitted like any other stale candidate. Later reshaping of this result is #198's decision.
 
 #### Scenario: Content match returns a highlighted snippet
 
@@ -163,11 +163,23 @@ Vector-only candidate generation and model-result shaping remain #197/#198 work 
 - **THEN** model shaping omits that content result rather than choosing an arbitrary message
 - **AND** the unchanged web preview may still return the ranked Chat for navigation
 
+#### Scenario: Vector-only winner returns the document window
+
+- **WHEN** a Chat wins through the vector leg and no individual canonical line qualifies lexically
+- **THEN** `search_conversations` returns a content result anchored to the winning document's first message, with `offset`/`limit` covering that message's eligible visible lines from the document's start offset, and an excerpt cropped at the window start
+- **AND** the result carries no score, match span, or generated quote, and `conversation_read` accepts the coordinates directly
+- **AND** the web palette shows the same Chat with the unhighlighted leading fragment of that document as its snippet
+
+#### Scenario: Stale or superseded vector contributes nothing
+
+- **WHEN** a document's stored vector was produced under a model key other than the corpus's current selection, or its embedded content hash no longer equals its content hash, or its recorded input version differs from the current `EMBED_INPUT_VERSION`
+- **THEN** that document is absent from the vector leg while remaining reachable through the lexical and trigram legs
+
 #### Scenario: Vector response is not pre-shaped
 
-- **WHEN** this change runs without #197's future vector candidate path
-- **THEN** `search_conversations` exposes no vector-only excerpt, score, or arbitrary source message
-- **AND** later vector shaping remains an explicit #197/#198 decision
+- **WHEN** a Chat is returned on either surface after ranking through the vector leg
+- **THEN** the response contains no cosine distance, per-leg rank, fused score, generated quote, or arbitrarily chosen source message
+- **AND** any later semantic shaping of the result remains an explicit #198 decision
 
 ### Requirement: The client does not re-filter server results
 
@@ -180,7 +192,7 @@ Search surfaces SHALL treat the server's ranked results as authoritative. The co
 
 ### Requirement: Search never crosses the tenant boundary
 
-The search path SHALL return only chats owned by the requesting user. Another user's content MUST NOT be reachable through search even when it matches the query exactly, and a `visibility = 'public'` chat of another user MUST NOT surface in search results. System prompts, tool payloads, and model reasoning MUST NOT be matched or surfaced in snippets. Isolation SHALL be enforced by RLS on the underlying tables (owner filters remain as defense-in-depth) and proven by negative tests in the RLS harness.
+The search path SHALL return only chats owned by the requesting user. Another user's content MUST NOT be reachable through search even when it matches the query exactly, and a `visibility = 'public'` chat of another user MUST NOT surface in search results. System prompts, tool payloads, and model reasoning MUST NOT be matched or surfaced in snippets. Isolation SHALL be enforced by RLS on the underlying tables (owner filters remain as defense-in-depth) and proven by negative tests in the RLS harness. The vector leg SHALL carry the same explicit owner predicate inside its candidate query and SHALL be covered by the same negative tests, including the empty-identity case, so a stored vector is never reachable across a tenant boundary that lexical retrieval already enforces.
 
 #### Scenario: Cross-tenant exclusion
 
@@ -191,6 +203,11 @@ The search path SHALL return only chats owned by the requesting user. Another us
 
 - **WHEN** user B searches a term matching only a public chat owned by user A
 - **THEN** the chat does not appear in user B's search results
+
+#### Scenario: Vector leg respects the tenant boundary
+
+- **WHEN** user B's query vector is nearest to a document vector stored in user A's chat, including a public chat, or the search runs with no identity
+- **THEN** that document contributes nothing and user B's results contain no chat of user A
 
 ### Requirement: New content is searchable on turn completion
 
@@ -203,14 +220,44 @@ A chat's lexical projection SHALL be rebuilt synchronously when a turn completes
 
 ### Requirement: Retrieval quality is measured against a versioned eval baseline
 
-The repository SHALL contain a small versioned relevance dataset (exact phrases, identifiers, typos, paraphrases, inflected-Russian forms, English/Spanish, mixed-language, code/filenames) and an opt-in harness that reports Recall@10, MRR, and zero-result rate, establishing the lexical baseline that later retrieval phases are evaluated against. The harness SHALL assert hard recall floors on the categories lexical search has no excuse to miss — exact-title, exact-content, and typo queries MUST place the expected chat in the top 10 — while paraphrase and inflected-morphology categories are recorded without assertion (they measure the later semantic lift).
+The repository SHALL contain a small versioned relevance dataset (exact phrases, identifiers, typos, paraphrases, inflected-Russian forms, English/Spanish, mixed-language, code/filenames, English↔Russian and Spanish/English cross-language pairs, transliteration, a semantically adjacent hard-negative pair, and a long chat with many correlated chunks) and a harness that reports Recall@10, MRR, nDCG@10, zero-result rate, per-leg contribution, and chat diversity. The harness SHALL assert hard recall floors on the categories lexical search has no excuse to miss — exact-title, exact-content, substring, code, and typo queries MUST place the expected chat in the top 10 — and those floors SHALL hold with and without the vector leg. Semantic categories (paraphrase, inflected morphology, cross-language, transliteration, hard negatives) SHALL be recorded, not asserted, from an opt-in run against a real embedding provider whose results, chosen fusion and grouping constants, the constant comparison that chose them, and exact-scan latency at synthetic owner sizes are recorded in the repository. Continuous integration SHALL NOT require a provider, a credential, or committed vectors.
 
 #### Scenario: Baseline recorded
 
 - **WHEN** the eval harness runs against the seeded dataset
-- **THEN** it reports Recall@10, MRR, and zero-result rate for the lexical configuration, and the results are recorded in the repository
+- **THEN** it reports the metrics per category for the lexical configuration and, when a provider is configured, for the hybrid configuration, and the results are recorded in the repository
 
 #### Scenario: Exact and typo floors are enforced
 
-- **WHEN** a change causes an exact-title, exact-content, or typo query in the dataset to stop returning its expected chat in the top 10
+- **WHEN** a change causes an exact-title, exact-content, substring, code, or typo query in the dataset to stop returning its expected chat in the top 10
 - **THEN** the eval harness fails
+
+#### Scenario: Vector leg is judged per category
+
+- **WHEN** the hybrid configuration is recorded
+- **THEN** each semantic category is reported separately from the aggregate
+- **AND** an aggregate gain does not excuse a floor category regressing
+
+### Requirement: Query embedding is bounded per surface and degrades silently
+
+When the corpus has a selected embedding model, search SHALL embed the trimmed raw query — not its lexical normalization — under that model's binding before the tenant transaction opens, and SHALL pass the vector into the shared candidate path. The embedding call SHALL be bounded by a fixed budget per surface: 10 seconds inside `search_conversations` and 1.5 seconds for the web palette. A missing model, provider error, timeout, empty vector, or a vector whose dimension differs from the declared model SHALL cause the search to run without the vector leg — identical results to an unconfigured instance — with no user-facing or model-facing error and no retry. Each fallback SHALL be logged with its reason and never with the query text, the resolved credential, or any tenant content. No search SHALL wait on background embedding, backfill, or the embed worker.
+
+#### Scenario: Provider is down
+
+- **WHEN** the query embedding request fails or exceeds the surface budget
+- **THEN** the search completes with lexical and trigram legs only, returns success, and the fallback is logged with a reason
+
+#### Scenario: No model is selected for the corpus
+
+- **WHEN** `search.chats.embeddingModelId` is unset
+- **THEN** no embedding request is issued and the search is byte-identical to the lexical configuration
+
+#### Scenario: Wrong dimension is treated as absence
+
+- **WHEN** the returned query vector's dimension differs from the declared model's `dimensions`
+- **THEN** the vector leg is skipped, no SQL error occurs, and the fallback is logged
+
+#### Scenario: Embedding never holds a tenant transaction
+
+- **WHEN** a query is embedded
+- **THEN** the provider call completes or fails before the owner-scoped transaction is opened

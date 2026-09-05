@@ -2,18 +2,18 @@
 
 ## Purpose
 
-The **embedding layer** is a derived, fully rebuildable vector representation of the lexical search projection: at most one embedding per document chunk, produced asynchronously through a provider-neutral backend and valid only while the content it was derived from is unchanged. It covers the operator-declared embedding-model catalog and per-corpus model selection, the content-hash validity rule that keeps stale and deleted content unrecoverable, asynchronous production and operator-invoked bulk work, terminal-failure handling, and fail-closed degrade when no model is configured. It produces vectors only; the query path does not read them in this capability.
+The **embedding layer** is a derived, fully rebuildable vector representation of the lexical search projection: at most one embedding per document chunk, produced asynchronously through a provider-neutral backend and valid only while the content it was derived from is unchanged. It covers the operator-declared embedding-model catalog and per-corpus model selection, the content-hash validity rule that keeps stale and deleted content unrecoverable, asynchronous production and operator-invoked bulk work, terminal-failure handling, and fail-closed degrade when no model is configured. It produces vectors and constrains how the query path reads them: model-key and content-hash validity, the input-version filter, and the corpus binding the query is embedded under.
 
 ## Requirements
 
-### Requirement: The embedding layer is derived state that never changes search behavior
+### Requirement: The embedding layer is derived state that enhances but never gates search
 
-Embeddings SHALL be derived from the lexical search projection, which is itself derived from canonical `chats`/`messages`. The layer MUST be fully rebuildable at any time from that canonical content, and MUST NOT modify canonical tables or any document's lexical content. Retrieval behavior — matching semantics, ranking, snippets, and result contract — SHALL be identical with and without embeddings present; no query path reads a vector in this capability.
+Embeddings SHALL be derived from the lexical search projection, which is itself derived from canonical `chats`/`messages`. The layer MUST be fully rebuildable at any time from that canonical content, and MUST NOT modify canonical tables or any document's lexical content. Retrieval behavior SHALL degrade gracefully — not into an error — when embeddings are absent; a partially embedded corpus remains fully searchable by its lexical representations. Lexical recall floors SHALL hold with and without vectors.
 
-#### Scenario: Search results are unchanged by the presence of embeddings
+#### Scenario: Lexical floors hold without embeddings
 
-- **WHEN** the recorded relevance eval runs on an instance with a fully embedded corpus and again on one with no embeddings at all
-- **THEN** both runs produce the same ranked results and the same recorded metrics
+- **WHEN** the recorded relevance eval runs on an instance with no embeddings at all
+- **THEN** every floor category (exact-title, exact-content, substring, code, typo) still places the expected chat in the top 10
 
 #### Scenario: Full rebuild reproduces the vector layer
 
@@ -52,9 +52,7 @@ Model selection SHALL be per corpus rather than one instance-wide flag, so corpo
 
 ### Requirement: Retrieval degrades rather than gates, and never mixes embedding spaces
 
-This requirement constrains whichever capability first reads a vector at query time. No query path reads a vector in **this** capability, so today it holds vacuously — it is stated here, with the write path, because these are the properties the storage model must already make possible, not behavior that ships with it.
-
-There SHALL be no completeness gate: a partially embedded corpus SHALL remain retrievable, with the vector contribution present for documents that have a usable vector and absent for those that do not — retrieval degrades in quality, never into an error or a refusal. Any query reading vectors SHALL restrict itself to documents whose recorded model key matches the corpus's current selection, so vectors produced by different models are never compared within one ranking.
+There SHALL be no completeness gate: a partially embedded corpus SHALL remain retrievable, with the vector contribution present for documents that have a usable vector and absent for those that do not — retrieval degrades in quality, never into an error or a refusal. Any query reading vectors SHALL restrict itself to documents whose recorded model key matches the corpus's current selection, whose embedded content hash equals the live content hash, and whose recorded input version equals the current `EMBED_INPUT_VERSION`, so vectors produced by different models, for superseded content, or under a superseded input derivation are never compared within one ranking. The query SHALL be embedded under the same binding as the stored vectors — the corpus's selected model key, its revision, its query-side prefix, and its declared dimensions — and a query vector whose dimension differs from the declaration SHALL be treated as absent rather than compared.
 
 #### Scenario: A partially embedded corpus is still fully searchable
 
@@ -63,9 +61,14 @@ There SHALL be no completeness gate: a partially embedded corpus SHALL remain re
 
 #### Scenario: Vectors from a superseded model never enter a ranking
 
-- **WHEN** a corpus's model has changed, some documents still carry vectors from the previous key, and a capability that reads vectors is in place
+- **WHEN** a corpus's model has changed and some documents still carry vectors from the previous key
 - **THEN** those vectors contribute nothing, and the ranking contains no comparison between vectors of different models
-- **AND** until such a capability exists, this holds because no ranking reads a vector at all
+
+#### Scenario: Query is embedded under the corpus binding
+
+- **WHEN** a search embeds its query
+- **THEN** the request uses the corpus's selected model key, revision, and query-side prefix
+- **AND** a returned vector whose dimension differs from the declared `dimensions` is discarded and the vector leg is skipped
 
 ### Requirement: Embedding storage inherits the projection's tenant isolation
 

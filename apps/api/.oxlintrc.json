@@ -6,6 +6,18 @@
   "ignorePatterns": ["dist/**", "src/db/migrations/**"],
   "overrides": [
     {
+      // Eval config parser reads raw JSONC from disk with no schema;
+      // anti-slop's I/O-boundary and typeof rules don't apply here.
+      "files": ["src/search/chat/eval/resolve-eval-backend.ts"],
+      "rules": {
+        "max-lines-per-function": "off",
+        "anti-slop/no-runtime-typeof": "off",
+        "anti-slop/no-unknown-parameters": "off",
+        "anti-slop/forbid-process-env-outside-env-ts": "off",
+        "typescript/no-unsafe-assignment": "off"
+      }
+    },
+    {
       // Nest DI and decorated handlers own these signatures.
       "files": [
         "src/chats/chat-loop.service.ts",

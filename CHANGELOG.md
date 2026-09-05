@@ -1,5 +1,16 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-05
+
+- **Hybrid vector retrieval (#197)**: a vector candidate leg joins the shared
+  hybrid search builder, fused by RRF with the existing FTS and trigram legs.
+  Query embedding is synchronous at request time with per-surface budgets
+  (10 s tool, 1.5 s web) and silent lexical fallback. A vector-only model
+  result is anchored to the winning document's first message. No ANN index;
+  exact cosine scan ships first.
+- **Tool default bump**: `tools.callTimeoutSeconds` 15 → 120 and
+  `tools.maxStepsPerRun` 8 → 20.
+
 # 2026-09-03
 
 - **UTC-stable auth timestamps**: the remaining naive auth timestamp columns

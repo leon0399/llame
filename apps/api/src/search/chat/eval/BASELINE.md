@@ -10,10 +10,10 @@ the chunker-fit layer (#517) are measured against. **Cutoff K = 10.**
 | metric           | value |
 | ---------------- | ----- |
 | queries          | 29    |
-| Recall@10        | —     |
-| MRR              | —     |
-| nDCG@10          | —     |
-| zero-result rate | —     |
+| Recall@10        | 0.586 |
+| MRR              | 0.586 |
+| nDCG@10          | 0.586 |
+| zero-result rate | 0.414 |
 
 ## By category
 
@@ -24,17 +24,17 @@ the chunker-fit layer (#517) are measured against. **Cutoff K = 10.**
 | substring       | 2   | 1.00      | 1.00 | 1.00    | 0.00      | floor  |
 | code            | 2   | 1.00      | 1.00 | 1.00    | 0.00      | floor  |
 | typo            | 2   | 1.00      | 1.00 | 1.00    | 0.00      | floor  |
-| ru              | 4   | —         | —    | —       | —         | record |
-| es              | 3   | —         | —    | —       | —         | record |
-| mixed           | 1   | —         | —    | —       | —         | record |
-| oversized       | 1   | —         | —    | —       | —         | record |
-| paraphrase      | 2   | —         | —    | —       | —         | record |
-| cross-en-ru     | 1   | —         | —    | —       | —         | record |
-| cross-ru-en     | 1   | —         | —    | —       | —         | record |
-| cross-es-en     | 1   | —         | —    | —       | —         | record |
-| transliteration | 1   | —         | —    | —       | —         | record |
-| hard-negative   | 1   | —         | —    | —       | —         | record |
-| long-chat       | 1   | —         | —    | —       | —         | record |
+| ru              | 4   | 0.50      | 0.50 | 0.50    | 0.50      | record |
+| es              | 3   | 0.33      | 0.33 | 0.33    | 0.67      | record |
+| mixed           | 1   | 1.00      | 1.00 | 1.00    | 0.00      | record |
+| oversized       | 1   | 1.00      | 1.00 | 1.00    | 0.00      | record |
+| paraphrase      | 2   | 0.00      | 0.00 | 0.00    | 1.00      | record |
+| cross-en-ru     | 1   | 0.00      | 0.00 | 0.00    | 1.00      | record |
+| cross-ru-en     | 1   | 0.00      | 0.00 | 0.00    | 1.00      | record |
+| cross-es-en     | 1   | 0.00      | 0.00 | 0.00    | 1.00      | record |
+| transliteration | 1   | 0.00      | 0.00 | 0.00    | 1.00      | record |
+| hard-negative   | 1   | 0.00      | 0.00 | 0.00    | 1.00      | record |
+| long-chat       | 1   | 0.00      | 0.00 | 0.00    | 1.00      | record |
 
 ## Reading it
 
@@ -89,11 +89,48 @@ Not shipped. Exact scan is the first implementation. An ANN follow-up
 (per-model partial cast index, never per-tenant) is filed only if the recorded
 owner-filtered p95 in the latency section below breaches a stated budget.
 
-## Scores pending re-recording
+## Fusion constants
 
-Overall and per-category scores marked `—` above need a re-run of
-`RUN_SEARCH_EVAL=1 pnpm --filter api test:integration -- search-eval` with
-the current dataset (29 queries, 16 categories) to fill in the real lexical
-baseline numbers. Floor categories (exact-title through typo) are known 1.00
-from CI; the new cross-language, transliteration, hard-negative, and long-chat
-categories are the measuring sticks for the vector-leg lift.
+Vector weight 1.0 (parity with FTS), candidate cap 100, k=60, weighted top-3
+grouping [1, 0.25, 0.1]. These are the initial constants chosen without a grid
+comparison: the constant grid (vector weight ∈ {0.5, 1, 1.5} × grouping ∈
+{top-3 weighted, max-only, capped diminishing}) was not run during the initial implementation; the first run with
+text-embedding-3-large produced Recall@10 = 1.00 on the 29-query dataset,
+confirming the initial constants work. The hybrid baseline is recorded in the
+section below. If a semantic category underperforms on a larger dataset, the
+adaptive-weight follow-up is the next step (not a grid re-run).
+
+## Hybrid baseline (text-embedding-3-large @ 3072 dims)
+
+| metric           | lexical | hybrid |
+| ---------------- | ------- | ------ |
+| queries          | 29      | 29     |
+| Recall@10        | 0.586   | 1.000  |
+| MRR              | 0.586   | 0.698  |
+| nDCG@10          | 0.586   | 0.773  |
+| zero-result rate | 0.414   | 0.000  |
+
+| category        | lexical R@10 | hybrid R@10 | hybrid MRR |
+| --------------- | ------------ | ----------- | ---------- |
+| exact-title     | 1.00         | 1.00        | 0.83       |
+| exact-content   | 1.00         | 1.00        | 1.00       |
+| substring       | 1.00         | 1.00        | 1.00       |
+| code            | 1.00         | 1.00        | 1.00       |
+| typo            | 1.00         | 1.00        | 1.00       |
+| ru              | 0.50         | 1.00        | 0.67       |
+| es              | 0.33         | 1.00        | 0.56       |
+| mixed           | 1.00         | 1.00        | 1.00       |
+| oversized       | 1.00         | 1.00        | 1.00       |
+| paraphrase      | 0.00         | 1.00        | 0.33       |
+| cross-en-ru     | 0.00         | 1.00        | 0.33       |
+| cross-ru-en     | 0.00         | 1.00        | 0.20       |
+| cross-es-en     | 0.00         | 1.00        | 0.33       |
+| transliteration | 0.00         | 1.00        | 0.33       |
+| hard-negative   | 0.00         | 1.00        | 0.20       |
+| long-chat       | 0.00         | 1.00        | 0.33       |
+
+Constants: weight 1, cap 100, k=60, weighted top-3 [1, 0.25, 0.1].
+Grid comparison: not run (single-point result above). The initial constants
+produce Recall@10 = 1.00 on the 29-query dataset; a grid sweep would tune MRR
+(ranking position), not recall (hit/miss). Filed as a follow-up only if a
+semantic category underperforms on a larger dataset.

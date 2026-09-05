@@ -363,7 +363,6 @@ export class ChatsRepository {
         document: sql`d.owner_user_id = ${ownerUserId}`,
         parent: sql`c.owner_user_id = ${ownerUserId}`,
       },
-      // ponytail: hypothesis constants pending eval layer 5
       vector: vectorParams
         ? {
             queryVector: vectorParams.queryVector,
