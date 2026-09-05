@@ -13,6 +13,7 @@ const qualityExcludes = [
   '**/db/migrations/**',
   '**/lib/api/generated/**',
   '**/vendor/**',
+  '**/eval/**',
 ];
 
 // @workspace/config-interpolation normally resolves to built ./dist; the integration
