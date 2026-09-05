@@ -181,6 +181,7 @@ describe('loadInstanceConfig — file presence', () => {
     expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
     expect(config.tools.allowed).toContain('search_conversations');
     expect(config.tools.maxStepsPerRun).toBe(20);
+    expect(config.tools.callTimeoutSeconds).toBe(120);
   });
 
   it('accepts comments and trailing commas (JSONC)', () => {
