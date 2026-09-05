@@ -98,6 +98,21 @@ export interface HybridSearchConfig {
    * document side, `c` for the parent), e.g. `sql\`d.owner_user_id = ${uid}\``.
    */
   scope: { document: SQL; parent: SQL };
+  /** Optional vector leg (design D1, #197). When absent, the emitted SQL is byte-identical to the lexical-only query. */
+  vector?: {
+    queryVector: ReadonlyArray<number>;
+    activeModelKey: string;
+    currentInputVersion: number;
+    columns: {
+      embedding: string;
+      embeddingModelKey: string;
+      embeddedContentHash: string;
+      embedInputVersion: string;
+      contentHash: string;
+    };
+    weight: number;
+    limit: number;
+  };
   weights: { fts: number; trgm: number; title: number };
   limits: { fts: number; trgm: number; title: number };
   rrfK: number;
@@ -197,20 +212,68 @@ function buildDocumentScoreLegs(config: HybridSearchConfig, refs: QueryRefs) {
 }
 
 /**
- * RRF-fuses `fts_c`/`trgm_c` into one per-document score, ranks documents
- * within their parent group, then rolls the top 3 up to the parent with
- * `groupTopNWeights` — the document side of the search, from raw legs to one
- * `content_score`/`best_doc_id` row per group.
+ * Optional vector-candidate leg (design D1, #197): exact cosine scan over
+ * stored embeddings, filtered by the same scope predicates as the lexical
+ * legs, plus model key, content hash, and input version validity.
+ */
+function buildVectorLeg(
+  config: HybridSearchConfig,
+  refs: QueryRefs,
+): SQL | undefined {
+  if (!config.vector) return undefined;
+  const { dTable } = refs;
+  const v = config.vector;
+  const dGroup = col('d', config.document.groupId);
+  const dId = col('d', config.document.id);
+  const dEmbed = col('d', v.columns.embedding);
+  const dModelKey = col('d', v.columns.embeddingModelKey);
+  const dHash = col('d', v.columns.embeddedContentHash);
+  const dVersion = col('d', v.columns.embedInputVersion);
+  const dContentHash = col('d', v.columns.contentHash);
+  const vecLiteral = sql`${JSON.stringify(Array.from(v.queryVector))}::vector`;
+
+  return sql`
+    vec_c AS (
+      SELECT group_id, doc_id,
+        row_number() OVER (ORDER BY dist, doc_id) AS rank
+      FROM (
+        SELECT ${dGroup} AS group_id, ${dId} AS doc_id,
+          ${dEmbed} <=> ${vecLiteral} AS dist
+        FROM ${dTable} CROSS JOIN q
+        WHERE (${config.scope.document})
+          AND ${dEmbed} IS NOT NULL
+          AND vector_dims(${dEmbed}) = ${v.queryVector.length}
+          AND ${dModelKey} = ${v.activeModelKey}
+          AND ${dHash} = ${dContentHash}
+          AND ${dVersion} = ${v.currentInputVersion}
+        ORDER BY dist, doc_id
+        LIMIT ${v.limit}
+      ) s
+    )
+  `;
+}
+
+/**
+ * RRF-fuses `fts_c`/`trgm_c` (and optionally `vec_c`) into one per-document
+ * score, ranks documents within their parent group, then rolls the top 3 up
+ * to the parent with `groupTopNWeights`.
  */
 function buildDocumentRollup(config: HybridSearchConfig, refs: QueryRefs) {
   const { term, groupTopNWeights } = refs;
   const [w1, w2, w3] = groupTopNWeights;
+
+  const vectorUnion = config.vector
+    ? sql`UNION ALL
+        SELECT group_id, doc_id, ${term(config.vector.weight, sql`rank`)} AS t FROM vec_c`
+    : sql``;
+
   return sql`
     doc_fused AS (
       SELECT group_id, doc_id, sum(t) AS doc_score FROM (
         SELECT group_id, doc_id, ${term(config.weights.fts, sql`rank`)} AS t FROM fts_c
         UNION ALL
         SELECT group_id, doc_id, ${term(config.weights.trgm, sql`rank`)} AS t FROM trgm_c
+        ${vectorUnion}
       ) u GROUP BY group_id, doc_id
     ),
     doc_ranked AS (
@@ -283,6 +346,7 @@ export function buildHybridSearchQuery(config: HybridSearchConfig): SQL {
 
   const refs = resolveQueryRefs(config);
   const { dContent, dId, dTable } = refs;
+  const vecCte = buildVectorLeg(config, refs);
 
   return sql`
     WITH q AS (
@@ -292,6 +356,7 @@ export function buildHybridSearchQuery(config: HybridSearchConfig): SQL {
         ${config.likePattern}::text AS like_pat
     ),
     ${buildDocumentScoreLegs(config, refs)},
+    ${vecCte ? sql`${vecCte},` : sql``}
     ${buildDocumentRollup(config, refs)},
     ${buildTitleLeg(config, refs)},
     ${buildFusedRanked(config, refs)}

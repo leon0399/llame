@@ -105,15 +105,20 @@ export const searchConversationsTool: Tool<{ query: string; limit: number }> = {
             context.abortSignal,
           )
         : { fallback: 'no_model' as const };
-      const queryVector =
-        'vector' in embedResult ? embedResult.vector : undefined;
+      const vectorParams =
+        'vector' in embedResult
+          ? {
+              queryVector: embedResult.vector,
+              modelKey: embedResult.modelKey,
+            }
+          : undefined;
 
       return await context.tenantDb.runAs(context.userId, async (tx) => {
         const rows = await new ChatsRepository(tx).searchByOwner(
           context.userId,
           query,
           limit,
-          queryVector,
+          vectorParams,
         );
         return canonicalSuccess(tx, context.userId, query, rows);
       });

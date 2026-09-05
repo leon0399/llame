@@ -102,7 +102,7 @@ describe('ChatSearchQueryEmbedder', () => {
       mockEmbedQuery.mockResolvedValueOnce([1, 2, 3, 4]);
       const embedder = createEmbedder();
       const result = await embedder.embedQueryForSearch('tool', 'hello');
-      expect(result).toEqual({ vector: [1, 2, 3, 4] });
+      expect(result).toEqual({ vector: [1, 2, 3, 4], modelKey: 'test-embed' });
     });
 
     it('receives the trimmed raw query, not normalized', async () => {

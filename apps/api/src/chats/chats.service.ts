@@ -292,15 +292,17 @@ export class ChatsService {
       'web',
       query,
     );
-    const queryVector =
-      'vector' in embedResult ? embedResult.vector : undefined;
+    const vectorParams =
+      'vector' in embedResult
+        ? { queryVector: embedResult.vector, modelKey: embedResult.modelKey }
+        : undefined;
 
     return this.tenantDb.runAs(userId, async (tx) => {
       const rows = await new ChatsRepository(tx).searchByOwner(
         userId,
         query,
         limit,
-        queryVector,
+        vectorParams,
       );
 
       return rows.map(({ id, title, snippet, updatedAt }) => ({

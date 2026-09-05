@@ -45,14 +45,14 @@ timeout-facing code.
 The tenancy-sensitive layer. All tests here plant vectors directly through a fake backend or SQL;
 no provider is contacted.
 
-- [ ] 3.1 Add the optional `vector` block to `HybridSearchConfig` in `apps/api/src/search/core/fusion.ts` (query vector bound as a typed `vector` literal, active model key, column names, weight, candidate cap) and the `vec_c` CTE with the owner scope predicates (`scope.document` and `scope.parent`), `embedding_model_key = <active>`, `embedded_content_hash = content_hash`, and `embed_input_version = EMBED_INPUT_VERSION` in the same `WHERE` as the `<=>` operator; verify by unit test that the emitted SQL without the block is byte-identical to today's and that the builder still throws without a scope predicate
-- [ ] 3.2 Union the vector term into `doc_fused` and wire `chats-repository.ts` to pass the block when `queryVector` is present, using the starting constants (weight 1, cap 100, `k = 60`) with a comment naming them as hypotheses pending layer 5; verify `fusion.test.ts` covers the three-leg `rrfScore`
-- [ ] 3.3 Integration test: plant a nearest-neighbor vector on a document that shares no token with the query and verify the chat is returned only when the vector leg is on, and is absent with `queryVector` undefined
-- [ ] 3.4 Integration test: plant vectors under a superseded model key, under a stale `embedded_content_hash`, and under a stale `embed_input_version`, and verify none contributes while the same documents stay reachable lexically
-- [ ] 3.5 Integration test: plant a wrong-dimension vector under a superseded key in the same owner's corpus and verify the search neither errors nor ranks it
-- [ ] 3.6 Extend the RLS negatives: user B's query vector nearest to user A's document (private and `visibility = 'public'`), and the empty-identity case; verify they fail when the owner policy is removed and pass with it
-- [ ] 3.7 Verify no web or model response field carries cosine distance, per-leg rank, or fused score, and that `HybridSearchResult` retains internal per-leg ranks only where the eval and logs read them
-- [ ] 3.8 **Exit:** verify `test:integration` passes with the lexical floors intact and `RUN_SEARCH_EVAL=1` without a provider reproduces `BASELINE.md` byte-identically
+- [x] 3.1 Add the optional `vector` block to `HybridSearchConfig` in `apps/api/src/search/core/fusion.ts` (query vector bound as a typed `vector` literal, active model key, column names, weight, candidate cap) and the `vec_c` CTE with the owner scope predicates (`scope.document` and `scope.parent`), `embedding_model_key = <active>`, `embedded_content_hash = content_hash`, and `embed_input_version = EMBED_INPUT_VERSION` in the same `WHERE` as the `<=>` operator; verify by unit test that the emitted SQL without the block is byte-identical to today's and that the builder still throws without a scope predicate
+- [x] 3.2 Union the vector term into `doc_fused` and wire `chats-repository.ts` to pass the block when `queryVector` is present, using the starting constants (weight 1, cap 100, `k = 60`) with a comment naming them as hypotheses pending layer 5; verify `fusion.test.ts` covers the three-leg `rrfScore`
+- [x] 3.3 Integration test: plant a nearest-neighbor vector on a document that shares no token with the query and verify the chat is returned only when the vector leg is on, and is absent with `queryVector` undefined
+- [x] 3.4 Integration test: plant vectors under a superseded model key, under a stale `embedded_content_hash`, and under a stale `embed_input_version`, and verify none contributes while the same documents stay reachable lexically
+- [x] 3.5 Integration test: plant a wrong-dimension vector under a superseded key in the same owner's corpus and verify the search neither errors nor ranks it
+- [x] 3.6 Extend the RLS negatives: user B's query vector nearest to user A's document (private and `visibility = 'public'`), and the empty-identity case; verify they fail when the owner policy is removed and pass with it
+- [x] 3.7 Verify no web or model response field carries cosine distance, per-leg rank, or fused score, and that `HybridSearchResult` retains internal per-leg ranks only where the eval and logs read them
+- [x] 3.8 **Exit:** verify `test:integration` passes with the lexical floors intact and `RUN_SEARCH_EVAL=1` without a provider reproduces `BASELINE.md` byte-identically
 
 ## 4. `hybrid-vector-retrieval/tool-shaping` — the vector-only model result (design D5)
 
