@@ -13,7 +13,7 @@ import {
   MAX_STDIO_MESSAGE_BYTES,
   McpStdioMessageLimitError,
 } from './mcp-stdio-transport';
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 
 const FIXTURE = join(__dirname, 'mcp-stdio-test-fixture.mjs');
 

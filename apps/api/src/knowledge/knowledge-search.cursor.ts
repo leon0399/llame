@@ -1,4 +1,4 @@
-import { isNumber, isRecord, isString } from '../unknown-record';
+import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 
 export type KnowledgeSearchCursor = {
   readonly version: 1;

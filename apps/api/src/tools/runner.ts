@@ -1,10 +1,14 @@
 import { Logger } from '@nestjs/common';
 
-import { truncateOversizedResult } from './result-truncation';
+import {
+  isRecord,
+  truncateOversizedResult,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 import { safeParseArgs } from './schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
-import { isRecord, type UnknownRecord } from '../unknown-record';
+
 
 const logger = new Logger('ToolRunner');
 

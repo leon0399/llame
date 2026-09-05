@@ -8,8 +8,11 @@ import {
 } from '@modelcontextprotocol/sdk/shared/stdio.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
-import { redactProtectedString } from './protected-values';
-import { isString } from '../unknown-record';
+import {
+  isString,
+  redactProtectedString,
+} from '@workspace/runtime-safety';
+
 
 /**
  * Upper bound on diagnostic text retained per server, in UTF-16 code units —

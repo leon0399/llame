@@ -1,5 +1,5 @@
 import type { CompactionReplacementMessage } from '../db/schema/chats';
-import { isRecord, isString, type UnknownRecord } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '@workspace/runtime-safety';
 
 const TOOL_PART_PREFIX = 'tool-';
 const TOOL_CALL_ID_MAX_LENGTH = 1024;

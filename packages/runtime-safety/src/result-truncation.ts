@@ -1,11 +1,11 @@
-import { cutStringAtCodePointBoundary } from '../code-point-boundary';
+import { cutStringAtCodePointBoundary } from './code-point-boundary';
 import {
   isBoolean,
   isNumber,
   isRecord,
   isString,
   type UnknownRecord,
-} from '../unknown-record';
+} from './unknown-record';
 import { type ToolResult } from './types';
 
 /** ~16KB result cap (D5/D6): oversized tool output is truncated, visibly. */

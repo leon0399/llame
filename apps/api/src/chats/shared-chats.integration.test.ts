@@ -18,7 +18,7 @@ import { CanonicalSearchCoverageService } from '../search/canonical-search-activ
 import { configureApp } from '../app.setup';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository } from '../chats/chats-repository';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
 
 const hasDb = !!process.env.POSTGRES_URL;

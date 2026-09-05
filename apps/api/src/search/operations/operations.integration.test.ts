@@ -42,7 +42,7 @@ import {
   ChatsRepository,
   MessagesRepository,
 } from '../../chats/chats-repository';
-import { type UnknownRecord } from '../../unknown-record';
+import { type UnknownRecord } from '@workspace/runtime-safety';
 import { assertDiscoveryFunctionProvisioned } from '../discovery-provisioning';
 import { EMBED_INPUT_VERSION } from '../search-embed.worker';
 import { SearchIndexService } from '../search-index.service';

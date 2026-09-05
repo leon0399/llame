@@ -49,7 +49,7 @@ import {
   McpRuntimeModule,
 } from './mcp-runtime.module';
 import { McpRuntimeService } from './mcp-runtime.service';
-import { type UnknownRecord } from '../unknown-record';
+import { type UnknownRecord } from '@workspace/runtime-safety';
 import { type KnowledgeToolResolver } from '../tools/types';
 import {
   createMcpTestFixture,

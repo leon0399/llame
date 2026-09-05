@@ -4,7 +4,7 @@ import {
   isRecord,
   isString,
   type UnknownRecord,
-} from '../unknown-record';
+} from './unknown-record';
 
 export const PROTECTED_VALUE_REDACTION_MARKER = '[REDACTED]';
 

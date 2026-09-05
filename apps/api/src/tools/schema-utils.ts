@@ -11,7 +11,7 @@ import { type FlexibleSchema, asSchema, jsonSchema } from 'ai';
 import { type z } from 'zod';
 
 import { type JsonSchemaDocument } from './types';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 export function isZodSchema(
   schema: z.ZodTypeAny | JsonSchemaDocument,

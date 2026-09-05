@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { composeTurnToolCatalog } from '../tools/turn-tool-catalog';
 import { safeParseArgs } from '../tools/schema-utils';
 import { type Tool } from '../tools/types';
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 import {
   MCP_REDACTION_MARKER,
   admitMcpToolDefinitions,

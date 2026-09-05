@@ -4,7 +4,7 @@ import { and, eq, gte, ne, or, sql } from 'drizzle-orm';
 import { type Db, TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { searchChatDocuments } from '../db/schema/search';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 import {
   CHUNKER_VERSION,
   chunkConversation,

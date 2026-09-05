@@ -24,7 +24,7 @@ import {
 } from './identity-repository';
 import { pathIds } from './org-path';
 import { resolveEffectiveRole, type EffectiveRole } from './role-resolution';
-import { type UnknownRecord } from '../unknown-record';
+import { type UnknownRecord } from '@workspace/runtime-safety';
 import { pgErrorCode } from '../db/pg-error';
 
 /**

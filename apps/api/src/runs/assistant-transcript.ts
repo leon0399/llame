@@ -17,7 +17,7 @@
  * transform over events/deltas, which is what makes it unit-testable without
  * the full executeRun path (see `chats/reasoning-parts.test.ts`).
  */
-import { isNumber, isRecord, isString } from '../unknown-record';
+import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { type RunEvent } from '../db/schema';
 import { type MessagePart } from '../chats/context-builder';
 import { normalizeToolObservationOutcome } from '../chats/tool-observation-part';

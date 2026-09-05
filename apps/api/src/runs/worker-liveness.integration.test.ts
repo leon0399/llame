@@ -34,7 +34,7 @@
 
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 import { waitFor } from '../testing/support';
 import {
   bootWorkerHarness,

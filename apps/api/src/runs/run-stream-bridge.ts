@@ -13,7 +13,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { isNumber, isRecord, isString } from '../unknown-record';
+import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
 /** UI-message stream chunk subset the bridge emits (AI SDK v1 protocol). */

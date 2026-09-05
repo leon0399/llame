@@ -5,7 +5,7 @@
  */
 import { sql, type SQLWrapper } from 'drizzle-orm';
 
-import { isNumber, isRecord, type UnknownRecord } from '../../unknown-record';
+import { isNumber, isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 
 export type ProjectionCoverage = {
   chunkerVersion: number;

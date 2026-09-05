@@ -2,17 +2,19 @@ import { canonicalize } from '../canonical-json';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { admitToolInputSchema } from '../tools/schema-utils';
 import { type JsonSchemaDocument } from '../tools/types';
-import { isRecord, isString } from '../unknown-record';
+import {
+  PROTECTED_VALUE_REDACTION_MARKER,
+  containsProtectedValueJson,
+  isRecord,
+  isString,
+  normalizeProtectedValues,
+  sanitizeProtectedValueJson,
+} from '@workspace/runtime-safety';
 import {
   createMcpToolId,
   findAsciiCaseFoldedCollisionIndexes,
 } from './tool-id';
-import {
-  PROTECTED_VALUE_REDACTION_MARKER,
-  containsProtectedValueJson,
-  normalizeProtectedValues,
-  sanitizeProtectedValueJson,
-} from './protected-values';
+
 
 export const MCP_REDACTION_MARKER = PROTECTED_VALUE_REDACTION_MARKER;
 

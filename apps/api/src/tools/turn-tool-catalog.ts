@@ -7,7 +7,7 @@ import {
   hashWithDomain,
 } from '../canonical-json';
 import { type ModelToolDeclaration } from '../db/schema';
-import { isRecord, isString, type UnknownRecord } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '@workspace/runtime-safety';
 import { admitToolInputSchema } from './schema-utils';
 import {
   asciiCaseFoldToolId,

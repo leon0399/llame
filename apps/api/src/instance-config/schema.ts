@@ -4,7 +4,7 @@ import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020';
 
 import { InstanceConfigError } from '@workspace/config-interpolation';
 import type { RawInstanceConfig } from './llame-config';
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 
 /**
  * The published JSON Schema (D2/D3) — editors bind to it via the config

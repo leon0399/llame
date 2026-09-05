@@ -58,6 +58,7 @@ const unitProject = {
 export default defineConfig({
   resolve: {
     alias: [
+      { find: /^@workspace\/runtime-safety$/, replacement: pkgSrc('runtime-safety') },
       {
         find: /^@workspace\/config-interpolation$/,
         replacement: pkgSrc('config-interpolation'),

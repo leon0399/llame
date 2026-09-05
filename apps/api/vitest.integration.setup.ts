@@ -1,4 +1,4 @@
-import { isRecord, isString } from './src/unknown-record';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 /**
  * Per-suite pg-boss schema (see queue.module.ts): integration suites run

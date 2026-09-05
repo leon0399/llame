@@ -7,7 +7,7 @@ import {
 } from '../chats/chats-repository';
 import { visibleMessageText } from '../chats/conversation-evidence';
 import * as schema from '../db/schema';
-import { truncateOversizedResult } from './result-truncation';
+import { truncateOversizedResult } from '@workspace/runtime-safety';
 import {
   CONVERSATION_HISTORY_NOTICE,
   CONVERSATION_READ_RESULT_MAX_CODE_UNITS,

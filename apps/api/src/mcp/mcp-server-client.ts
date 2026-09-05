@@ -6,11 +6,14 @@ import {
 
 import { type ToolResult } from '../tools/types';
 import {
+  containsProtectedValueJson,
   isNumber,
   isRecord,
   isString,
+  normalizeProtectedValues,
+  sanitizeProtectedValueJson,
   type UnknownRecord,
-} from '../unknown-record';
+} from '@workspace/runtime-safety';
 import {
   admitMcpToolDefinitions,
   type AdmittedMcpToolDefinition,
@@ -28,11 +31,7 @@ import {
   type McpFailureKind,
   type McpFailureStage,
 } from './mcp-failure-policy';
-import {
-  containsProtectedValueJson,
-  normalizeProtectedValues,
-  sanitizeProtectedValueJson,
-} from './protected-values';
+
 import {
   type BoundedStdioTransport,
   DiagnosticBuffer,

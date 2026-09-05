@@ -13,7 +13,7 @@ import {
   SCHEMA_PATH,
   type SchemaFileAccess,
 } from './schema';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 
 function assertIsString(
   value: unknown,

@@ -23,7 +23,7 @@ import { PasswordService } from './password.service';
 import type { User } from '../db/schema';
 import { PublicUserResponse } from '../users/public-user.response';
 import { toPublicUser, UsersService } from '../users/users.service';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 
 export type SessionMetadata = {
   userAgent?: string;

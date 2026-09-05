@@ -16,7 +16,7 @@ import type {
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { canonicalize, type CanonicalJsonValue } from '../canonical-json';
 import type { CompactionReplacementMessage } from '../db/schema/chats';
-import { isRecord, isString, type UnknownRecord } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '@workspace/runtime-safety';
 import { type ToolResult } from '../tools/types';
 import type { MessagePart, StoredMessage } from './context-builder';
 import {

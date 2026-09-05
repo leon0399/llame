@@ -15,7 +15,7 @@ import type { InstanceConfigReader } from '../instance-config/instance-config.se
 import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
 import type { KnowledgeToolResolver, Tool, ToolResult } from '../tools/types';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/runtime-safety';
 import {
   ChatsRepository,
   CompactionsRepository,

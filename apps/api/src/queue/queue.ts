@@ -16,7 +16,7 @@
  * with a mismatched handler, is a compile error, not a runtime surprise.
  */
 
-import { isRecord, isString, type UnknownRecord } from '../unknown-record';
+import { isRecord, isString, type UnknownRecord } from '@workspace/runtime-safety';
 
 /** DI token for the Queue implementation (NestJS has no interface tokens). */
 export const QUEUE = Symbol('QUEUE');

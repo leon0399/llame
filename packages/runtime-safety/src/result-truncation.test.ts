@@ -5,7 +5,7 @@ import {
   truncateOversizedResult,
 } from './result-truncation';
 import { type ToolResult } from './types';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from './unknown-record';
 
 function size(result: ToolResult): number {
   return JSON.stringify(result).length;

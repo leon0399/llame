@@ -33,7 +33,7 @@ import {
   type QueueDefinition,
 } from './queue';
 import { waitFor } from '../testing/support';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;

@@ -20,7 +20,7 @@ import {
   McpServerClient,
   type McpDiscoveredTool,
 } from '../src/mcp/mcp-server-client';
-import { isRecord } from '../src/unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 
 const ENV_NAMES = [
   'MCP_WEB_SEARCH_URL',
