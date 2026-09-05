@@ -1,5 +1,14 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-05
+
+- **Per-workspace lint fan-out**: the single `lint` job splits into a reusable
+  `_lint-workspace.yaml` run once per workspace in a matrix (Oxlint, isolated
+  so a red X names the workspace) plus one `global` job for the whole-repo
+  checks that cannot be split — Prettier, Markdown, OpenAPI, knip, jscpd,
+  complexity, and the root-file Oxlint pass. New `lint:code:root` script backs
+  the root pass without duplicating flags.
+
 # 2026-09-03
 
 - **UTC-stable auth timestamps**: the remaining naive auth timestamp columns
