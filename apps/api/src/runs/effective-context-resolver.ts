@@ -2,7 +2,7 @@ import {
   canonicalJson,
   compareCodePoints,
   hashWithDomain,
-} from '../canonical-json';
+} from '@workspace/runtime-safety';
 import { type ModelToolDeclaration } from '../db/schema';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { TOOL_REGISTRY } from '../tools/registry';
@@ -14,7 +14,7 @@ import {
 } from '../tools/turn-tool-catalog';
 import { type Tool } from '../tools/types';
 
-export { canonicalJson } from '../canonical-json';
+export { canonicalJson } from '@workspace/runtime-safety';
 
 /** Code-owned candidates when the caller doesn't supply pre-classified ones. */
 function defaultCodeOwnedCandidates(

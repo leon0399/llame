@@ -31,7 +31,7 @@ import {
 } from '@workspace/config-interpolation';
 import { createModelPromptLoader } from './prompt-loader';
 import { getRegisteredToolIds } from '../tools/registry';
-import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
+import { createMcpToolId, parseMcpToolId } from '@workspace/tool-runtime/tool-id';
 import type {
   EffortLevel,
   ModelReasoning,

@@ -18,6 +18,7 @@ const SOURCE_GLOBS = [
   "packages/ui/src/**/*.{ts,tsx}",
   "packages/config-interpolation/src/**/*.ts",
   "packages/runtime-safety/src/**/*.ts",
+  "packages/tool-runtime/src/**/*.ts",
   "apps/cli/src/**/*.ts",
 ];
 

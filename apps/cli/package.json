@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "@workspace/config-interpolation": "workspace:*",
-    "@workspace/runtime-safety": "workspace:*"
+    "@workspace/runtime-safety": "workspace:*",
+    "@workspace/tool-runtime": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

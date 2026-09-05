@@ -52,7 +52,6 @@
         "src/instance-config/prompt-loader.ts",
         "src/knowledge/knowledge-tools.ts",
         "src/mcp/mcp-runtime.service.ts",
-        "src/mcp/mcp-server-client.ts",
         "src/runs/run-execution.service.ts"
       ],
       "rules": {
@@ -64,17 +63,6 @@
       "files": ["src/queue/pgboss-queue.service.ts", "src/queue/queue.ts"],
       "rules": {
         "typescript/no-explicit-any": "off"
-      }
-    },
-    {
-      // Plain JS child fixture; it is outside the TypeScript program.
-      "files": ["src/mcp/mcp-stdio-test-fixture.mjs"],
-      "rules": {
-        "typescript/no-unsafe-argument": "off",
-        "typescript/no-unsafe-assignment": "off",
-        "typescript/no-unsafe-call": "off",
-        "typescript/no-unsafe-member-access": "off",
-        "typescript/no-unsafe-return": "off"
       }
     }
   ]

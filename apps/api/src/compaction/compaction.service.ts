@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { tool, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { toFlexibleSchema } from '../tools/schema-utils';
+import { toFlexibleSchema } from '@workspace/tool-runtime/schema-utils';
 import { type ModelClient } from '../models/model-client';
 import {
   ModelsService,

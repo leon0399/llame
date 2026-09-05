@@ -191,6 +191,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@workspace/tool-runtime':
+        specifier: workspace:*
+        version: link:../../packages/tool-runtime
       '@ai-sdk/mcp':
         specifier: 'catalog:'
         version: 1.0.71(zod@3.25.76)
@@ -472,6 +475,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@workspace/tool-runtime':
+        specifier: workspace:*
+        version: link:../../packages/tool-runtime
       '@workspace/config-interpolation':
         specifier: workspace:*
         version: link:../../packages/config-interpolation
@@ -825,6 +831,64 @@ importers:
       tailwindcss:
         specifier: ^4.1.0
         version: 4.3.2
+      typescript:
+        specifier: 'catalog:'
+        version: 5.7.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.16.5)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(jsdom@28.1.0(@noble/hashes@1.8.0)(supports-color@8.1.1))(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.2)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/tool-runtime:
+    dependencies:
+      '@ai-sdk/mcp':
+        specifier: 'catalog:'
+        version: 1.0.71(zod@3.25.76)
+      '@modelcontextprotocol/sdk':
+        specifier: 'catalog:'
+        version: 1.29.0(supports-color@8.1.1)(zod@3.25.76)
+      ai:
+        specifier: 'catalog:'
+        version: 6.0.256(zod@3.25.76)
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
+      ajv-formats:
+        specifier: ^3.0.1
+        version: 3.0.1(ajv@8.20.0)
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
+      '@workspace/runtime-safety':
+        specifier: workspace:*
+        version: link:../runtime-safety
+    devDependencies:
+      '@stryker-mutator/core':
+        specifier: 'catalog:'
+        version: 9.6.1(@types/node@22.16.5)(supports-color@8.1.1)
+      '@stryker-mutator/typescript-checker':
+        specifier: 'catalog:'
+        version: 9.6.1(@stryker-mutator/core@9.6.1(@types/node@22.16.5)(supports-color@8.1.1))(typescript@5.7.3)
+      '@stryker-mutator/vitest-runner':
+        specifier: 'catalog:'
+        version: 9.6.1(@stryker-mutator/core@9.6.1(@types/node@22.16.5)(supports-color@8.1.1))(vitest@4.1.10)
+      '@barney-media/crap-typescript':
+        specifier: 'catalog:'
+        version: 0.5.1
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.16.5
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
+      '@workspace/config-typescript':
+        specifier: workspace:*
+        version: link:../config-typescript
+      oxlint:
+        specifier: 'catalog:'
+        version: 1.78.0(oxlint-tsgolint@7.0.2001)
+      oxlint-tsgolint:
+        specifier: 'catalog:'
+        version: 7.0.2001
       typescript:
         specifier: 'catalog:'
         version: 5.7.3

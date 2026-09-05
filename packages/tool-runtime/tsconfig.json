@@ -1,0 +1,9 @@
+{
+  "extends": "@workspace/config-typescript/base.json",
+  // Globals: extracted tests use Vitest's global describe/it/expect, as in apps/api.
+  "compilerOptions": {
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

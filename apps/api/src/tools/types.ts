@@ -17,7 +17,8 @@ import {
  * external sources (D2: "accepted as the source ships it"). Distinct from
  * `z.ZodTypeAny` which is the code-authored schema form.
  */
-export type JsonSchemaDocument = UnknownRecord;
+export type { JsonSchemaDocument } from '@workspace/tool-runtime/types';
+import type { JsonSchemaDocument } from '@workspace/tool-runtime/types';
 
 /** Trusted, worker-bound capability for live owner Knowledge access. */
 export type KnowledgeToolSpaceReference = {

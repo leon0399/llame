@@ -58,6 +58,7 @@ const unitProject = {
 export default defineConfig({
   resolve: {
     alias: [
+      { find: /^@workspace\/tool-runtime\/(.+)$/, replacement: path.resolve(import.meta.dirname, '../../packages/tool-runtime/src/$1.ts') },
       { find: /^@workspace\/runtime-safety$/, replacement: pkgSrc('runtime-safety') },
       {
         find: /^@workspace\/config-interpolation$/,

@@ -13,8 +13,8 @@ import type {
   ToolResultPart as SdkToolResultPart,
 } from 'ai';
 
-import { sanitizeAuthoredText } from '../instance-config/authored-text';
-import { canonicalize, type CanonicalJsonValue } from '../canonical-json';
+import { sanitizeAuthoredText } from '@workspace/runtime-safety';
+import { canonicalize, type CanonicalJsonValue } from '@workspace/runtime-safety';
 import type { CompactionReplacementMessage } from '../db/schema/chats';
 import { isRecord, isString, type UnknownRecord } from '@workspace/runtime-safety';
 import { type ToolResult } from '../tools/types';

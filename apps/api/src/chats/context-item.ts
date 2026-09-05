@@ -20,8 +20,8 @@
  * valid but inert.
  */
 
-import { compareCodePoints } from '../canonical-json';
-import { sanitizeAuthoredText } from '../instance-config/authored-text';
+import { compareCodePoints } from '@workspace/runtime-safety';
+import { sanitizeAuthoredText } from '@workspace/runtime-safety';
 import { isRecord, isString, type UnknownRecord } from '@workspace/runtime-safety';
 
 /**

@@ -4,7 +4,7 @@ import {
   type MCPClient,
 } from '@ai-sdk/mcp';
 
-import { type ToolResult } from '../tools/types';
+import { type ToolResult } from '@workspace/runtime-safety';
 import {
   containsProtectedValueJson,
   isNumber,

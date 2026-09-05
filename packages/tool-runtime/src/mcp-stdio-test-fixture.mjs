@@ -17,6 +17,7 @@
 //   stderrPreInit    boolean  write those chunks before answering `initialize`
 //   stderrDelayMs    number   delay between stderr chunks (to force chunk splits)
 //   envDumpPath      string   write `process.env` here as JSON, then continue
+//   pidDumpPath      string   write process.pid here
 //   argvDumpPath     string   write `process.argv.slice(2)` here as JSON
 //   cwdDumpPath      string   write `process.cwd()` here
 //   exitAfterInit    boolean  exit non-zero once initialized
@@ -27,6 +28,8 @@
 import { writeFileSync } from 'node:fs';
 
 const config = JSON.parse(process.env.MCP_FIXTURE ?? '{}');
+
+if (config.pidDumpPath) writeFileSync(config.pidDumpPath, String(process.pid), 'utf8');
 
 if (config.envDumpPath) {
   writeFileSync(config.envDumpPath, JSON.stringify(process.env), 'utf8');

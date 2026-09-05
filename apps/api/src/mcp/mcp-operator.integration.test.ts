@@ -55,7 +55,7 @@ import {
   createMcpTestFixture,
   mcpStreamableHttpInitialize,
   type McpFixtureResponse,
-} from './mcp-test-fixture';
+} from '@workspace/tool-runtime/mcp-test-fixture';
 
 const TOOL_ID = 'mcp__web__search';
 const HEADER_SENTINEL = 'AUTH-HEADER-SENTINEL';

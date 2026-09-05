@@ -49,7 +49,7 @@ function makeJsonSchemaTool(
 }
 
 async function makeDeclaration(tool: Tool): Promise<ModelToolDeclaration> {
-  const { resolveJsonSchema } = await import('../tools/schema-utils.js');
+  const { resolveJsonSchema } = await import('@workspace/tool-runtime/schema-utils');
   const { canonicalJson } = await import('./effective-context-resolver.js');
   const declaration: unknown = JSON.parse(
     canonicalJson({

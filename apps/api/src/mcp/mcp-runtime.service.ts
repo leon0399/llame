@@ -11,8 +11,8 @@ import {
   type McpDiscoveryResult,
   type McpServerClientConfig,
   type McpStdioServerClientConfig,
-} from './mcp-server-client';
-import { parseMcpToolId } from './tool-id';
+} from '@workspace/tool-runtime/mcp-server-client';
+import { parseMcpToolId } from '@workspace/tool-runtime/tool-id';
 import {
   type DynamicToolExecutorResolver,
   type DynamicToolResolution,

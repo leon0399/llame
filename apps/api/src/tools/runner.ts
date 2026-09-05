@@ -5,7 +5,7 @@ import {
   truncateOversizedResult,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
-import { safeParseArgs } from './schema-utils';
+import { safeParseArgs } from '@workspace/tool-runtime/schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 

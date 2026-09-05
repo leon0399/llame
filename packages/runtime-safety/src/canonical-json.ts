@@ -6,7 +6,7 @@ import {
   isRecord,
   isString,
   type UnknownRecord,
-} from '@workspace/runtime-safety';
+} from './unknown-record';
 
 export const compareCodePoints = (left: string, right: string): number => {
   const leftScalars = Array.from(left, (scalar) => scalar.codePointAt(0) ?? 0);

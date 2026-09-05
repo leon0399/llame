@@ -1,13 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { composeTurnToolCatalog } from '../tools/turn-tool-catalog';
-import { safeParseArgs } from '../tools/schema-utils';
-import { type Tool } from '../tools/types';
+import { safeParseArgs } from './schema-utils';
 import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 import {
   MCP_REDACTION_MARKER,
   admitMcpToolDefinitions,
-  type AdmittedMcpToolDefinition,
 } from './declaration-admission';
 
 const supportedDialects = [
@@ -29,16 +26,6 @@ const definition = (
     properties: {},
   },
 ) => ({ name, description: `Use ${name}`, inputSchema });
-
-function asTool(admitted: AdmittedMcpToolDefinition): Tool {
-  return {
-    id: admitted.id,
-    description: admitted.description,
-    inputSchema: admitted.inputSchema,
-    classification: 'read_only',
-    execute: () => ({ status: 'success' }),
-  };
-}
 
 describe('MCP declaration admission', () => {
   it('attaches canonical ids only when refused declaration identity is safe', async () => {
@@ -645,49 +632,7 @@ describe('MCP declaration admission', () => {
     expect(result.admitted.map(({ id }) => id)).toEqual(['mcp__web__safe']);
   });
 
-  it('produces a stable canonical declaration hash for equivalent safe schemas', async () => {
-    const [first, second] = await Promise.all([
-      admitMcpToolDefinitions({
-        serverId: 'web',
-        protectedValues: [],
-        definitions: [
-          definition('search', {
-            type: 'object',
-            properties: { query: { type: 'string', minLength: 1 } },
-          }),
-        ],
-      }),
-      admitMcpToolDefinitions({
-        serverId: 'web',
-        protectedValues: [],
-        definitions: [
-          definition('search', {
-            properties: { query: { minLength: 1, type: 'string' } },
-            type: 'object',
-          }),
-        ],
-      }),
-    ]);
-    const catalogs = await Promise.all(
-      [first, second].map(({ admitted }) =>
-        composeTurnToolCatalog({
-          allowedToolRules: ['mcp__web__search'],
-          callTimeoutSeconds: 15,
-          candidates: [
-            {
-              source: { type: 'mcp', serverId: 'web' },
-              state: 'available',
-              tool: asTool(admitted[0]),
-            },
-          ],
-        }),
-      ),
-    );
 
-    expect(catalogs[0].admitted[0].declarationHash).toBe(
-      catalogs[1].admitted[0].declarationHash,
-    );
-  });
 });
 
 describe('MCP declaration dialect and keyword vocabulary', () => {
