@@ -8,7 +8,7 @@
 - [x] Add native local episodic recall and source-attributed reads.
 - [x] Reuse live Knowledge filesystem access for local personal spaces.
 - [x] Exercise transport, persistence, isolation, recovery and recall with real processes.
-- [ ] Publish the final bundle and verification evidence (operator/spec docs updated).
+- [x] Record verification and create a full-history bundle; fresh clone reproduces results.
 
 Delivery stack: design -> runtime/protocol -> local recall/Knowledge -> verification.
 Existing MCP production wire checks remain mandatory and must be reported
