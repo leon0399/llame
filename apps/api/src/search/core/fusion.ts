@@ -242,6 +242,7 @@ function buildVectorLeg(
         FROM ${dTable} CROSS JOIN q
         WHERE (${config.scope.document})
           AND ${dEmbed} IS NOT NULL
+          AND vector_dims(${dEmbed}) = ${v.queryVector.length}
           AND ${dModelKey} = ${v.activeModelKey}
           AND ${dHash} = ${dContentHash}
           AND ${dVersion} = ${v.currentInputVersion}
