@@ -15,11 +15,33 @@ import {
   matchCanonicalSearchPreview,
   scanCanonicalLogicalLines,
 } from '../search/chat/canonical-search-matcher';
-import { searchConversationsTool } from './search-conversations';
+import {
+  searchConversationsTool,
+  type SearchConversationsContentResult,
+} from './search-conversations';
 import { parseConversationSourceCoordinates } from './conversation-source-coordinates';
 import { isZodSchema } from './schema-utils';
-import { type ToolContext } from './types';
+import { type ToolContext, type ToolResult } from './types';
 import { isRecord, isString } from '../unknown-record';
+
+/**
+ * `ToolResult`'s success variant is `{ status: 'success' } & UnknownRecord`
+ * (shared across every tool), so `result.results` is `unknown` even after
+ * narrowing on `status`. These two helpers narrow it back to this tool's own
+ * result shape at the boundary instead of asserting it away.
+ */
+function successResults(result: ToolResult): ReadonlyArray<unknown> {
+  if (result.status !== 'success' || !Array.isArray(result.results)) {
+    throw new Error('Expected a successful result with an array `results`.');
+  }
+  return result.results;
+}
+
+function isContentResult(
+  value: unknown,
+): value is SearchConversationsContentResult {
+  return isRecord(value) && value['kind'] === 'content';
+}
 
 /**
  * Unit tests with a FAKE ToolContext (no real DB; the repository read is
@@ -83,7 +105,11 @@ const CHAT_ID = '00000000-0000-4000-8000-000000000001';
 const DOCUMENT_ID = '00000000-0000-4000-8000-000000000002';
 const MESSAGE_ID = '00000000-0000-4000-8000-000000000003';
 
-function hydrationRow(text: string, chatId = CHAT_ID): CanonicalHydrationRow {
+function hydrationRow(
+  text: string,
+  chatId = CHAT_ID,
+  offsets?: { start: number; endExclusive: number },
+): CanonicalHydrationRow {
   return {
     message_id: MESSAGE_ID,
     message_chat_id: chatId,
@@ -96,8 +122,8 @@ function hydrationRow(text: string, chatId = CHAT_ID): CanonicalHydrationRow {
     last_message_id: MESSAGE_ID,
     first_seq: '7',
     last_seq: '7',
-    first_message_text_offset: 0,
-    last_message_text_offset_exclusive: text.length,
+    first_message_text_offset: offsets?.start ?? 0,
+    last_message_text_offset_exclusive: offsets?.endExclusive ?? text.length,
   };
 }
 
@@ -389,14 +415,71 @@ describe('search_conversations', () => {
       { query: 'canonical', limit: 5 },
     );
 
-    expect(result).toMatchObject({
-      status: 'success',
-      results: [expect.objectContaining({ kind: 'content', chatId: CHAT_ID })],
-    });
+    expect(result.status).toBe('success');
     if (result.status !== 'success') return;
-    expect(result.results).toHaveLength(1);
+    // Hydration-failed candidate omitted; matcher-failed candidate now
+    // returned as a vector-only first-message-anchored result (#197 D5).
+    expect(result.results).toHaveLength(2);
+    expect(successResults(result)[0]).toMatchObject({
+      kind: 'content',
+      chatId: CHAT_ID,
+    });
     expect(JSON.stringify(result)).not.toContain('must never be returned');
     expect(JSON.stringify(result)).not.toContain('projection text');
+  });
+
+  it('anchors a vector-only result to the matched chunk, not the start of the full message (#197 D5)', async () => {
+    // A message long enough to have been chunked across multiple
+    // `search_chat_documents` rows (conversation-chunker.ts splits messages
+    // over CHUNK_MAX_CHARS): the winning document here covers only the
+    // SECOND chunk (`first_message_text_offset` starts mid-message).
+    const text =
+      'line0 first chunk content\n' +
+      'line1 more first chunk\n' +
+      'line2 second chunk starts here\n' +
+      'line3 second chunk continues';
+    const chunkStart = text.indexOf('line2');
+    const allLines = scanCanonicalLogicalLines(text);
+    const expectedOffset = allLines.findIndex(
+      (line) => line.startOffset === chunkStart,
+    );
+    if (expectedOffset === -1) {
+      throw new Error('Fixture text must place the chunk on a line boundary.');
+    }
+    const expectedLimit = allLines.length - expectedOffset;
+
+    const row: Row = {
+      id: CHAT_ID,
+      title: 'Chunked message',
+      snippet: null,
+      updatedAt: new Date('2026-08-27T15:00:00.000Z'),
+      bestDocumentId: DOCUMENT_ID,
+    };
+
+    const result = await searchConversationsTool.execute(
+      fakeContext([row], undefined, [
+        [
+          hydrationRow(text, CHAT_ID, {
+            start: chunkStart,
+            endExclusive: text.length,
+          }),
+        ],
+        [], // no lexical line match -> vector-only fallback
+      ]),
+      { query: 'unmatched lexically', limit: 5 },
+    );
+
+    expect(result.status).toBe('success');
+    if (result.status !== 'success') return;
+    expect(result.results).toHaveLength(1);
+    const [content] = successResults(result);
+    if (!isContentResult(content)) {
+      throw new Error('Expected a content result.');
+    }
+    expect(content.offset).toBe(expectedOffset);
+    expect(content.limit).toBe(expectedLimit);
+    expect(content.excerpt.startsWith('line2')).toBe(true);
+    expect(content.excerpt).not.toContain('line0');
   });
 
   it('keeps search_conversations input and declaration surface strict and vector-free', () => {

@@ -262,8 +262,12 @@ function buildDocumentRollup(config: HybridSearchConfig, refs: QueryRefs) {
   const { term, groupTopNWeights } = refs;
   const [w1, w2, w3] = groupTopNWeights;
 
+  // Glued onto the trgm_c line with no literal whitespace of its own so an
+  // absent vector leg contributes NOTHING here — required for the
+  // byte-identical-when-absent guarantee on `HybridSearchConfig.vector`.
   const vectorUnion = config.vector
-    ? sql`UNION ALL
+    ? sql`
+        UNION ALL
         SELECT group_id, doc_id, ${term(config.vector.weight, sql`rank`)} AS t FROM vec_c`
     : sql``;
 
@@ -272,8 +276,7 @@ function buildDocumentRollup(config: HybridSearchConfig, refs: QueryRefs) {
       SELECT group_id, doc_id, sum(t) AS doc_score FROM (
         SELECT group_id, doc_id, ${term(config.weights.fts, sql`rank`)} AS t FROM fts_c
         UNION ALL
-        SELECT group_id, doc_id, ${term(config.weights.trgm, sql`rank`)} AS t FROM trgm_c
-        ${vectorUnion}
+        SELECT group_id, doc_id, ${term(config.weights.trgm, sql`rank`)} AS t FROM trgm_c${vectorUnion}
       ) u GROUP BY group_id, doc_id
     ),
     doc_ranked AS (
@@ -355,8 +358,7 @@ export function buildHybridSearchQuery(config: HybridSearchConfig): SQL {
         ${config.query}::text AS raw,
         ${config.likePattern}::text AS like_pat
     ),
-    ${buildDocumentScoreLegs(config, refs)},
-    ${vecCte ? sql`${vecCte},` : sql``}
+    ${buildDocumentScoreLegs(config, refs)},${vecCte ? sql` ${vecCte},` : sql``}
     ${buildDocumentRollup(config, refs)},
     ${buildTitleLeg(config, refs)},
     ${buildFusedRanked(config, refs)}

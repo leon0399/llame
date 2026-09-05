@@ -7,7 +7,14 @@ import {
   CONVERSATION_HISTORY_UNTRUSTED_NOTICE,
 } from '../chats/conversation-evidence';
 import { type Db } from '../db/tenant-db.service';
-import { hydrateCanonicalSearchCandidate } from '../search/chat/canonical-search-hydrator';
+import {
+  hydrateCanonicalSearchCandidate,
+  type HydratedCanonicalSearchDocument,
+} from '../search/chat/canonical-search-hydrator';
+import {
+  scanConversationLogicalLines,
+  type ConversationLogicalLine,
+} from '../chats/conversation-logical-lines';
 import {
   evaluateCanonicalLinePredicates,
   matchCanonicalSearchPreview,
@@ -148,40 +155,46 @@ async function canonicalSuccess(
 ): Promise<SearchConversationsCanonicalSuccess> {
   const results: Array<SearchConversationsCanonicalResult> = [];
   for (const row of rows) {
-    const updatedAt = toIsoString(row.updatedAt);
-    if (row.bestDocumentId === null) {
-      results.push({
-        kind: 'metadata',
-        chatId: row.id,
-        title: row.title,
-        updatedAt,
-      });
-      continue;
-    }
-
-    const document = await hydrateCanonicalSearchCandidate(tx, ownerUserId, {
-      chatId: row.id,
-      bestDocumentId: row.bestDocumentId,
-    });
-    if (document === null) continue;
-
-    const passage = await matchCanonicalSearchPreview(
-      document,
-      query,
-      (normalizedQuery, candidates) =>
-        evaluateCanonicalLinePredicates(tx, normalizedQuery, candidates),
-    );
-    if (passage === null) continue;
-
-    const result = contentResult(row, passage);
+    const result = await resolveCanonicalRow(tx, ownerUserId, query, row);
     if (result !== null) results.push(result);
   }
-
   return {
     status: 'success',
     notice: SEARCH_CONVERSATIONS_CANONICAL_NOTICE,
     results,
   };
+}
+
+async function resolveCanonicalRow(
+  tx: Db,
+  ownerUserId: string,
+  query: string,
+  row: HybridSearchResult,
+): Promise<SearchConversationsCanonicalResult | null> {
+  if (row.bestDocumentId === null) {
+    return {
+      kind: 'metadata',
+      chatId: row.id,
+      title: row.title,
+      updatedAt: toIsoString(row.updatedAt),
+    };
+  }
+
+  const document = await hydrateCanonicalSearchCandidate(tx, ownerUserId, {
+    chatId: row.id,
+    bestDocumentId: row.bestDocumentId,
+  });
+  if (document === null) return null;
+
+  const passage = await matchCanonicalSearchPreview(
+    document,
+    query,
+    (normalizedQuery, candidates) =>
+      evaluateCanonicalLinePredicates(tx, normalizedQuery, candidates),
+  );
+
+  if (passage !== null) return contentResult(row, passage);
+  return vectorOnlyContentResult(row, document);
 }
 
 function contentResult(
@@ -204,6 +217,70 @@ function contentResult(
     role: passage.message.role,
     timestamp: passage.message.timestamp.toISOString(),
     excerpt: buildCanonicalSearchExcerpt(passage),
+  };
+}
+
+const EXCERPT_MAX_CODE_POINTS = 500;
+
+/** The logical line containing `charOffset` (clamped to the last line for an
+ *  offset at or past the text's end, e.g. an exclusive end boundary). */
+function lineIndexAtOffset(
+  lines: ReadonlyArray<ConversationLogicalLine>,
+  charOffset: number,
+): number {
+  for (const line of lines) {
+    if (charOffset < line.endOffsetExclusive) return line.line;
+  }
+  return Math.max(lines.length - 1, 0);
+}
+
+function vectorOnlyContentResult(
+  row: HybridSearchResult,
+  document: HydratedCanonicalSearchDocument,
+): SearchConversationsContentResult | null {
+  const firstMessage = document.messages[0];
+  if (!firstMessage) return null;
+
+  // The hydrated first message's `visibleText` is the FULL message; this
+  // document's own span is `[sourceStart, sourceEndExclusive)` (a proper
+  // subrange whenever a long message was chunked across multiple
+  // `search_chat_documents` rows — see conversation-chunker.ts). Anchoring
+  // at the full message's line 0 would point conversation_read, and the
+  // excerpt, at content this document never matched on.
+  const lines = scanConversationLogicalLines(firstMessage.visibleText);
+  const offset = lineIndexAtOffset(lines, firstMessage.sourceStart);
+  const lastLine = lineIndexAtOffset(
+    lines,
+    Math.max(firstMessage.sourceEndExclusive - 1, firstMessage.sourceStart),
+  );
+  const limit = Math.max(1, Math.min(lastLine - offset + 1, 2000));
+
+  const coordinates = conversationSourceCoordinatesSchema.safeParse({
+    chatId: row.id,
+    messageSeq: firstMessage.messageSeq,
+    offset,
+    limit,
+  });
+  if (!coordinates.success) return null;
+
+  const windowText = firstMessage.visibleText.slice(
+    firstMessage.sourceStart,
+    firstMessage.sourceEndExclusive,
+  );
+  const codePoints = Array.from(windowText);
+  const excerpt =
+    codePoints.length <= EXCERPT_MAX_CODE_POINTS
+      ? windowText
+      : `${codePoints.slice(0, EXCERPT_MAX_CODE_POINTS).join('')}…`;
+
+  return {
+    kind: 'content',
+    ...coordinates.data,
+    title: row.title,
+    updatedAt: toIsoString(row.updatedAt),
+    role: firstMessage.role,
+    timestamp: firstMessage.timestamp.toISOString(),
+    excerpt,
   };
 }
 
