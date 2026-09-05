@@ -59,7 +59,7 @@ Owns the eval dataset, `BASELINE.md`, and product documentation. No application 
 
 Documentation and spec promotion only; never application fixes.
 
-- [ ] 4.1 Run `$openspec-sync-specs` to promote the `chat-search` delta into `openspec/specs/chat-search/spec.md`; verify `pnpm exec openspec validate --specs --strict` passes
-- [ ] 4.2 Confirm every task above is `- [x]` and `openspec status --change episodic-timeline-search --json` reports every artifact complete; stop if not
-- [ ] 4.3 Run `$openspec-archive-change`; verify `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check` pass
-- [ ] 4.4 **Exit:** the finalize PR body carries `Closes #198`, and the stack is merged only with Leo's explicit permission via `gh stack merge`
+- [x] 4.1 Run `$openspec-sync-specs` to promote the `chat-search` delta into `openspec/specs/chat-search/spec.md`; verify `pnpm exec openspec validate --specs --strict` passes
+- [x] 4.2 Confirm every task above is `- [x]` and `openspec status --change episodic-timeline-search --json` reports every artifact complete; stop if not
+- [x] 4.3 Run `$openspec-archive-change`; verify `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check` pass
+- [x] 4.4 **Exit:** the finalize PR body carries `Closes #198`, and the stack is merged only with Leo's explicit permission via `gh stack merge`
