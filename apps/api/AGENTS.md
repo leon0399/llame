@@ -119,8 +119,9 @@ Specs: [tool calling](../../openspec/specs/tool-calling/spec.md) and
 
 ## Search and recall
 
-Lexical FTS/trigram/title search is live; embeddings are produced but not read
-until #197. Embeddings default off. Once a vector key persists, its provider,
+Hybrid FTS/trigram/title/vector search is live. The vector leg embeds the query
+at request time (bounded per surface: 10 s tool, 1.5 s web) and falls back to
+lexical silently on any failure. Embeddings default off. Once a vector key persists, its provider,
 model, revision, dimensions, metric, and prefixes cannot be redefined. To move
 a corpus: declare a new ID, repoint, backfill, verify coverage, remove the old
 entry, then prune.

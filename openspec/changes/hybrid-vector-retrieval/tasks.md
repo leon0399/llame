@@ -78,8 +78,8 @@ The only layer that contacts a provider, and only under `RUN_SEARCH_EVAL=1` agai
 
 Documentation and spec promotion only; never application fixes.
 
-- [ ] 6.1 Update `SPEC.md` (search section no longer says vector retrieval does not ship), `apps/api/CLAUDE.md` ("embeddings are produced but not read until #197"), `docs/conversation-recall.md` (query embedding, budgets, fallback, and what an operator sees in logs), and `README.md`; verify `pnpm lint:markdown` passes
-- [ ] 6.2 Add the dated `CHANGELOG.md` entry covering the vector leg, the vector-only tool result, and the tool default changes, and remove the completed `ROADMAP.md` item if one exists
-- [ ] 6.3 Run `$openspec-sync-specs` and verify the promoted `chat-search`, `search-embeddings`, `tool-calling`, and `instance-config` specs read as whole contracts with no delta headers left
-- [ ] 6.4 Run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify all pass
+- [x] 6.1 Update `SPEC.md` (search section no longer says vector retrieval does not ship), `apps/api/CLAUDE.md` ("embeddings are produced but not read until #197"), `docs/conversation-recall.md` (query embedding, budgets, fallback, and what an operator sees in logs), and `README.md`; verify `pnpm lint:markdown` passes
+- [x] 6.2 Add the dated `CHANGELOG.md` entry covering the vector leg, the vector-only tool result, and the tool default changes, and remove the completed `ROADMAP.md` item if one exists
+- [x] 6.3 Run `$openspec-sync-specs` and verify the promoted `chat-search`, `search-embeddings`, `tool-calling`, and `instance-config` specs read as whole contracts with no delta headers left
+- [x] 6.4 Run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify all pass
 - [ ] 6.5 **Exit:** confirm every task above is `- [x]`, run `$openspec-archive-change`, and verify `openspec list` shows no active change. This layer's PR carries `Closes #197`
