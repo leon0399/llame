@@ -92,9 +92,3 @@ export function setChatMarkdownLoadForTests(
   cachedRenderers = null;
   loadPromise = null;
 }
-
-/** Test-only: drop the tab cache between suites. */
-export function resetChatMarkdownRenderersCacheForTests(): void {
-  cachedRenderers = null;
-  loadPromise = null;
-}
