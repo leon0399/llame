@@ -482,6 +482,58 @@ describe('search_conversations', () => {
     expect(content.excerpt).not.toContain('line0');
   });
 
+  it('omits a vector-only winner whose anchor is outside a required range, and returns it with no range or a satisfied one (task 2.3, task 2.10)', async () => {
+    const text = 'vector-only fallback content';
+    const row: Row = {
+      id: CHAT_ID,
+      title: 'Vector-only source',
+      snippet: null,
+      updatedAt: new Date('2026-08-27T15:00:00.000Z'),
+      bestDocumentId: DOCUMENT_ID,
+    };
+    // hydrationRow's fixed message_created_at is 2026-08-27T10:00:00.000Z.
+    const executeRows: Array<
+      Array<CanonicalHydrationRow | { line_id: number }>
+    > = [[hydrationRow(text)], []]; // no lexical line match -> vector-only fallback
+
+    const outsideRange = await searchConversationsTool.execute(
+      fakeContext([row], undefined, executeRows),
+      {
+        mode: 'content',
+        query: 'unmatched lexically',
+        limit: 5,
+        constraint: 'required',
+        after: '2026-08-28T00:00:00.000Z',
+      },
+    );
+    expect(outsideRange.status).toBe('success');
+    expect(successResults(outsideRange)).toHaveLength(0);
+
+    const insideRange = await searchConversationsTool.execute(
+      fakeContext([row], undefined, executeRows),
+      {
+        mode: 'content',
+        query: 'unmatched lexically',
+        limit: 5,
+        constraint: 'required',
+        before: '2026-08-28T00:00:00.000Z',
+      },
+    );
+    expect(insideRange.status).toBe('success');
+    expect(successResults(insideRange)).toHaveLength(1);
+    expect(successResults(insideRange)[0]).toMatchObject({
+      kind: 'content',
+      chatId: CHAT_ID,
+    });
+
+    const noRange = await searchConversationsTool.execute(
+      fakeContext([row], undefined, executeRows),
+      { mode: 'content', query: 'unmatched lexically', limit: 5 },
+    );
+    expect(noRange.status).toBe('success');
+    expect(successResults(noRange)).toHaveLength(1);
+  });
+
   it('keeps search_conversations input and declaration surface strict and vector-free', () => {
     const schema = searchConversationsTool.inputSchema;
     if (!isZodSchema(schema)) {
