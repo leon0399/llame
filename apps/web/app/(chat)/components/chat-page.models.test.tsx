@@ -50,13 +50,15 @@ import { ActiveRunsProvider } from "@/contexts/active-runs-context";
 import { ChatProvider } from "@/contexts/chat-context";
 
 import { ChatPage } from "./chat-page";
+import { ensureChatMarkdownRenderersLoaded } from "./use-chat-markdown-ready";
 
 let fetchMock: Mock<typeof fetch>;
 // Left unresolved by default — GET /api/v1/models stays pending until a test
 // overrides this, mirroring useModelsQuery's real isPending state.
 let modelsHandler: () => Promise<Response>;
 
-beforeAll(() => {
+beforeAll(async () => {
+  await ensureChatMarkdownRenderersLoaded();
   if (!Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
   }

@@ -107,6 +107,66 @@ function ChatComposerControls({
   );
 }
 
+type ChatComposerFormProps = {
+  input: string;
+  onInputChange: (value: string) => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  status: ChatStatus;
+  onStop: () => void;
+  modelReadyForSend: boolean;
+  disabled: boolean;
+};
+
+function preventWhenDisabled(
+  disabled: boolean,
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void,
+) {
+  return (event: React.FormEvent<HTMLFormElement>) => {
+    if (disabled) {
+      event.preventDefault();
+      return;
+    }
+    onSubmit(event);
+  };
+}
+
+/** Prompt chrome locked via fieldset while markdown chunks load. */
+function ChatComposerForm({
+  input,
+  onInputChange,
+  onSubmit,
+  status,
+  onStop,
+  modelReadyForSend,
+  disabled,
+}: ChatComposerFormProps) {
+  return (
+    <fieldset disabled={disabled} className="m-0 min-w-0 border-0 p-0">
+      <PromptInput onSubmit={preventWhenDisabled(disabled, onSubmit)}>
+        {/* Remount on unlock so autofocus applies (attr updates do not). */}
+        <PromptInputTextarea
+          key={disabled ? "locked" : "ready"}
+          name="message"
+          value={input}
+          onChange={(e) => onInputChange(e.target.value)}
+          placeholder="What would you like to know?"
+          disabled={disabled}
+          // Deliberate: chat page sole purpose is this composer.
+          // oxlint-disable-next-line jsx-a11y/no-autofocus
+          autoFocus={!disabled}
+        />
+        <PromptInputToolbar>
+          <ChatComposerControls
+            status={status}
+            onStop={onStop}
+            modelReadyForSend={modelReadyForSend && !disabled}
+          />
+        </PromptInputToolbar>
+      </PromptInput>
+    </fieldset>
+  );
+}
+
 type ChatComposerProps = {
   input: string;
   onInputChange: (value: string) => void;
@@ -115,6 +175,8 @@ type ChatComposerProps = {
   onStop: () => void;
   modelReadyForSend: boolean;
   modelSendUnavailableReason: string | null;
+  /** Whole composer locked (e.g. markdown renderers still loading). */
+  disabled?: boolean;
 };
 
 /** The bottom composer bar: the message textarea, model/effort selectors,
@@ -128,6 +190,7 @@ export function ChatComposer({
   onStop,
   modelReadyForSend,
   modelSendUnavailableReason,
+  disabled = false,
 }: ChatComposerProps) {
   return (
     <div className="bg-background z-10 shrink-0 px-3 pb-3 md:px-5 md:pb-5">
@@ -137,26 +200,15 @@ export function ChatComposer({
             {modelSendUnavailableReason}
           </p>
         )}
-        <PromptInput onSubmit={onSubmit}>
-          <PromptInputTextarea
-            name="message"
-            value={input}
-            onChange={(e) => onInputChange(e.target.value)}
-            placeholder="What would you like to know?"
-            // Deliberate: the chat page's sole purpose is this composer,
-            // so autofocusing it on load matches established chat-UI
-            // convention (this is not a modal interrupting other content).
-            // oxlint-disable-next-line jsx-a11y/no-autofocus
-            autoFocus
-          />
-          <PromptInputToolbar>
-            <ChatComposerControls
-              status={status}
-              onStop={onStop}
-              modelReadyForSend={modelReadyForSend}
-            />
-          </PromptInputToolbar>
-        </PromptInput>
+        <ChatComposerForm
+          input={input}
+          onInputChange={onInputChange}
+          onSubmit={onSubmit}
+          status={status}
+          onStop={onStop}
+          modelReadyForSend={modelReadyForSend}
+          disabled={disabled}
+        />
       </div>
     </div>
   );

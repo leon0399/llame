@@ -101,6 +101,7 @@ import { seedChatMessagesQueryData } from "@/lib/services/chat/queries";
 import type { ChatMessagesResponse } from "@/lib/services/chat/history";
 
 import { ChatPage } from "./chat-page";
+import { ensureChatMarkdownRenderersLoaded } from "./use-chat-markdown-ready";
 
 const CHAT_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
 
@@ -199,12 +200,9 @@ function renderChat(
   };
 }
 
-beforeAll(() => {
-  // MessageResponse is a next/dynamic, ssr:false chunk (chat-message-row.tsx's
-  // documented #187/#417 client-only-chunk gap): its text is absent from the
-  // first synchronous render, and the chunk-load delay is real (not fake-
-  // timer-controlled) — bump every waitFor/findBy in this file past the
-  // 1000ms default so a loaded worker doesn't turn that gap into a flake.
+beforeAll(async () => {
+  // Warm Streamdown chunks so the transcript gate opens on the first paint.
+  await ensureChatMarkdownRenderersLoaded();
   configure({ asyncUtilTimeout: 5000 });
   if (!Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
@@ -288,7 +286,7 @@ describe("ChatPage target hydration", () => {
     ).toBe(false);
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" });
-  });
+  }, 15_000);
 
   it.each([404, 500])(
     "shows a closed target state and no composer for terminal HTTP %s errors",

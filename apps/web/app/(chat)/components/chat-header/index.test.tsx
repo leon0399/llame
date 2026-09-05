@@ -98,7 +98,7 @@ function renderHeader(
       </SidebarProvider>
     </QueryClientProvider>,
   );
-  return { fetchMock, ...view };
+  return { fetchMock, queryClient, ...view };
 }
 
 beforeEach(() => {
@@ -188,5 +188,39 @@ describe("ChatHeader", () => {
 
     unmount();
     expect(document.title).toBe("llame");
+  });
+
+  it("snaps the title when switching chats instead of retyping", async () => {
+    // `ChatHeaderTitle` remounts per chatId. With reduced motion on, that
+    // means the new title appears in full immediately — no leftover glyphs
+    // from the previous chat (the bug when one typewriter instance spanned
+    // chat switches).
+    usePathnameMock.mockReturnValue("/chat/chat-1");
+    const { rerender, queryClient } = renderHeader(
+      {
+        all: [
+          chatRow({ id: "chat-1", title: "First chat title" }),
+          chatRow({ id: "chat-2", title: "Second chat title" }),
+        ],
+      },
+      { seedAllCache: true },
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("First chat title")).toBeTruthy(),
+    );
+
+    usePathnameMock.mockReturnValue("/chat/chat-2");
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <SidebarProvider>
+          <ChatHeader />
+        </SidebarProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Second chat title")).toBeTruthy();
+    expect(screen.queryByText("First chat title")).toBeNull();
+    expect(document.title).toBe("Second chat title");
   });
 });

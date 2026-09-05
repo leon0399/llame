@@ -1,4 +1,3 @@
-import dynamic from "next/dynamic";
 import type { ReactNode } from "react";
 
 import {
@@ -26,6 +25,10 @@ import { EffectiveContextAction } from "./effective-context-inspector";
 import { MessageForkButton } from "./message-fork-button";
 import { MessageUsage } from "./message-usage";
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
+import {
+  useChatMarkdownRenderers,
+  type ChatMarkdownRenderers,
+} from "./use-chat-markdown-ready";
 
 import type { AvailableModel } from "@/lib/services/models/queries";
 import {
@@ -35,27 +38,11 @@ import {
   type Compaction,
 } from "@/lib/services/chat/history";
 
-// TODO(#187/#417): these client-only chunks leave EMPTY message bubbles on a
-// hard reload until they load — the transcript SSRs as shells (reasoning
-// accordions, buttons, no bodies). The principled fix is server-rendered
-// markdown per message under 'use cache' (messages are immutable, so the
-// render caches perfectly), which belongs to the #417 Cache Components
-// adoption; a chunk preload or skeleton placeholder is the acceptable
-// stopgap until then. Do NOT paper over it with raw-text fallbacks.
-const MessageResponse = dynamic(
-  () =>
-    import("@workspace/ui/components/ai-elements/message-response").then(
-      (module) => module.MessageResponse,
-    ),
-  { ssr: false },
-);
-const ReasoningContent = dynamic(
-  () =>
-    import("@workspace/ui/components/ai-elements/reasoning-content").then(
-      (module) => module.ReasoningContent,
-    ),
-  { ssr: false },
-);
+// Markdown/reasoning bodies come from `ChatMarkdownProvider` — never
+// next/dynamic here. Dynamic still mounts an empty shell on first paint even
+// after a bare import() preload; the page gates the transcript on these
+// handles so bodies land in one paint. TODO(#417): server-rendered markdown
+// per message under 'use cache' removes the client wait.
 
 /** A tool call/result part — its own component since a tool's header + input
  *  + output block carries real internal structure. */
@@ -94,8 +81,15 @@ function ToolPartView({ part }: { part: UIMessage["parts"][number] }) {
 
 /** Renders one message part — reasoning, text, a tool call/result, a
  *  step-cap notice, or a server-authored context item (never visible). */
-function MessagePartView({ part }: { part: UIMessage["parts"][number] }) {
+function MessagePartView({
+  part,
+  renderers,
+}: {
+  part: UIMessage["parts"][number];
+  renderers: ChatMarkdownRenderers;
+}) {
   if (part.type === "reasoning") {
+    const ReasoningContent = renderers.ReasoningContent;
     return (
       <Reasoning isStreaming={part.state === "streaming"} defaultOpen={false}>
         <ReasoningTrigger />
@@ -104,6 +98,7 @@ function MessagePartView({ part }: { part: UIMessage["parts"][number] }) {
     );
   }
   if (part.type === "text") {
+    const MessageResponse = renderers.MessageResponse;
     return <MessageResponse>{part.text}</MessageResponse>;
   }
   if (isToolUIPart(part)) {
@@ -202,6 +197,10 @@ export function ChatMessageRow({
 }: ChatMessageRowProps) {
   const { message } = footerProps;
   const messageSeq = messageSeqFromMetadata(message.metadata);
+  const renderers = useChatMarkdownRenderers();
+  // Parent gates the transcript on renderers !== null; fail closed if a row
+  // somehow mounts earlier rather than painting empty Streamdown shells.
+  if (renderers === null) return null;
 
   return (
     <>
@@ -219,6 +218,7 @@ export function ChatMessageRow({
             <MessagePartView
               key={`message-part-${renderKey}-${partIndex}`}
               part={part}
+              renderers={renderers}
             />
           ))}
         </MessageContent>
