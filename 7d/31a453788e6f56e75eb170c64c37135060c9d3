@@ -1,0 +1,24 @@
+README.md
+  dbd80b2ec8fc1c7d 3-5,9,11,13-23,25-27,32-34,59-60,65-68,70-71,75-76,79-82,85-86,91-92,94-98,112-113
+AGENTS.md
+  dbd80b2ec8fc1c7d 134-136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "7d31a453788e6f56e75eb170c64c37135060c9d3",
+  "prompts": {
+    "dbd80b2ec8fc1c7d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72761fcd-b220-4c65-b97f-d74aae1cd4b8",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 72,
+      "total_deletions": 82,
+      "accepted_lines": 50,
+      "overriden_lines": 0
+    }
+  }
+}
