@@ -70,11 +70,11 @@ jobs:
       # own `test:integration` task, evals are opt-in behind RUN_MODEL_EVALS.
       - run: pnpm test:metrics
 
-      - run: pnpm exec turbo run test --filter='!api' --filter='!web' --filter='!@workspace/config-interpolation'
+      - run: pnpm exec turbo run test --filter='!api' --filter='!web' --filter='!@workspace/config-interpolation' --filter='!@workspace/runtime-safety'
 
       # Coverage and function-level CRAP replace the plain test command for
       # these workspaces, so the suite runs once and both thresholds gate CI.
-      - run: pnpm exec turbo run test:coverage --filter=web --filter=@workspace/config-interpolation
+      - run: pnpm exec turbo run test:coverage --filter=web --filter=@workspace/config-interpolation --filter=@workspace/runtime-safety
 
   build:
     name: Build
@@ -228,6 +228,18 @@ jobs:
           path: packages/config-interpolation/reports/mutation/
           retention-days: 14
           if-no-files-found: warn
+
+  mutation-runtime-safety:
+    name: Mutation testing (Runtime safety)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [typecheck, unit]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: pnpm --filter @workspace/runtime-safety test:mutation
 
   component:
     name: Component tests (Storybook)

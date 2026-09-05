@@ -19,10 +19,10 @@
     "test:evals": {
       "cache": false
     },
-    // This workspace consumes @workspace/config-interpolation as built dist
+    // This workspace consumes shared configuration and runtime-safety as built dist
     // (exports → ./dist), so its checks need the upstream build first — the
     // root "nothing tests consume is built" rule has an exception here.
-    // Local equivalent: pnpm --filter @workspace/config-interpolation build
+    // Local equivalent: pnpm --filter @workspace/config-interpolation --filter @workspace/runtime-safety build
     // (bypasses turbo's cache entirely).
     "lint": { "dependsOn": ["^build"] },
     "typecheck": { "dependsOn": ["^build"] },
