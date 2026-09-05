@@ -18,12 +18,16 @@ function parse(relativePath: string): ts.SourceFile {
 }
 
 function staticImports(source: ts.SourceFile): Array<string> {
-  return source.statements.flatMap((statement) =>
-    ts.isImportDeclaration(statement) &&
-    ts.isStringLiteral(statement.moduleSpecifier)
-      ? [statement.moduleSpecifier.text]
-      : [],
-  );
+  return source.statements.flatMap((statement) => {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.importClause?.isTypeOnly
+    ) {
+      return [];
+    }
+    return [statement.moduleSpecifier.text];
+  });
 }
 
 function dynamicImports(source: ts.SourceFile): Array<string> {
