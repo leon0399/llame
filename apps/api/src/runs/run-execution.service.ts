@@ -22,6 +22,10 @@ import {
 import { requestFitsContextWindow } from '../compaction/compaction';
 import { SearchIndexService } from '../search/search-index.service';
 import {
+  ChatSearchQueryEmbedder,
+  type QueryEmbedderPort,
+} from '../search/chat-search-query-embedder';
+import {
   SearchEmbedDispatchService,
   type ChatEmbedDispatcher,
 } from '../search/search-embed-dispatch.service';
@@ -194,6 +198,8 @@ export class RunExecutionService {
 
     @Inject(SearchEmbedDispatchService)
     private readonly embedDispatch: ChatEmbedDispatcher,
+    @Inject(ChatSearchQueryEmbedder)
+    private readonly queryEmbedder: QueryEmbedderPort,
     @Optional()
     @Inject(DYNAMIC_TOOL_EXECUTOR_RESOLVER)
     private readonly dynamicToolResolver?: DynamicToolExecutorResolver,
@@ -475,6 +481,7 @@ export class RunExecutionService {
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
+      queryEmbedder: this.queryEmbedder,
     };
 
     const { maxStepsPerRun, callTimeoutSeconds } =

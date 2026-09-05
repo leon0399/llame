@@ -98,11 +98,22 @@ export const searchConversationsTool: Tool<{ query: string; limit: number }> = {
     { query, limit }: { query: string; limit: number },
   ): Promise<ToolResult> {
     try {
+      const embedResult = context.queryEmbedder
+        ? await context.queryEmbedder.embedQueryForSearch(
+            'tool',
+            query,
+            context.abortSignal,
+          )
+        : { fallback: 'no_model' as const };
+      const queryVector =
+        'vector' in embedResult ? embedResult.vector : undefined;
+
       return await context.tenantDb.runAs(context.userId, async (tx) => {
         const rows = await new ChatsRepository(tx).searchByOwner(
           context.userId,
           query,
           limit,
+          queryVector,
         );
         return canonicalSuccess(tx, context.userId, query, rows);
       });

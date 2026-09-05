@@ -374,6 +374,7 @@ export class ChatsRepository {
     ownerUserId: string,
     query: string,
     limit: number,
+    _queryVector?: ReadonlyArray<number>,
   ): Promise<Array<HybridSearchResult>> {
     const trimmed = query.trim();
     if (trimmed.length === 0) {

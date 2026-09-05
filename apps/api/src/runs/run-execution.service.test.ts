@@ -1,4 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 
 import type {
   Chat,
@@ -216,6 +217,7 @@ function makeExecutionService(
     reindexDispatch,
     knowledgeResolver,
     embedDispatch,
+    noopQueryEmbedder(),
     dynamicToolResolver,
   );
   return {

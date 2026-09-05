@@ -6,6 +6,7 @@ import {
   type KnowledgeFilesystemAdapterPort,
   type KnowledgeFilesystemBinding,
 } from '../knowledge/knowledge-filesystem';
+import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
 import { type UnknownRecord } from '../unknown-record';
 
 /**
@@ -59,6 +60,8 @@ export interface ToolContext {
   readonly toolCallId?: string;
   /** Trusted worker-bound Knowledge capability; never model supplied. */
   readonly knowledgeResolver?: KnowledgeToolResolver;
+  /** Process-wide query embedder for search; undefined when no model is configured. */
+  readonly queryEmbedder?: QueryEmbedderPort;
 }
 
 /**

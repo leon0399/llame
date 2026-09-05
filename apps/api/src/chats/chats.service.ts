@@ -12,6 +12,10 @@ import {
 } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
+  ChatSearchQueryEmbedder,
+  type QueryEmbedderPort,
+} from '../search/chat-search-query-embedder';
+import {
   SearchEmbedDispatchService,
   type ChatEmbedDispatcher,
 } from '../search/search-embed-dispatch.service';
@@ -43,6 +47,8 @@ export class ChatsService {
     private readonly reindexDispatch: ChatReindexDispatcher,
     @Inject(SearchEmbedDispatchService)
     private readonly embedDispatch: ChatEmbedDispatcher,
+    @Inject(ChatSearchQueryEmbedder)
+    private readonly queryEmbedder: QueryEmbedderPort,
   ) {}
 
   /**
@@ -282,11 +288,19 @@ export class ChatsService {
       updatedAt: Date;
     }>
   > {
+    const embedResult = await this.queryEmbedder.embedQueryForSearch(
+      'web',
+      query,
+    );
+    const queryVector =
+      'vector' in embedResult ? embedResult.vector : undefined;
+
     return this.tenantDb.runAs(userId, async (tx) => {
       const rows = await new ChatsRepository(tx).searchByOwner(
         userId,
         query,
         limit,
+        queryVector,
       );
 
       return rows.map(({ id, title, snippet, updatedAt }) => ({
