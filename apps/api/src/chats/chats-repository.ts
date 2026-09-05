@@ -42,7 +42,15 @@ import {
   type HybridSearchResult,
 } from '../search/core';
 import { EMBED_INPUT_VERSION } from '../search/embed-input-version';
+import { resolveSearchScopes } from './chats-search-scope';
+export type { SearchByOwnerOptions, TimeRange } from './chats-search-scope';
+import type { SearchByOwnerOptions } from './chats-search-scope';
 
+export {
+  timelineByOwner,
+  type TimelineByOwnerOptions,
+  type TimelineRegionRow,
+} from './chats-timeline-repository';
 export {
   MessagesRepository,
   type ConversationMessageLookup,
@@ -322,62 +330,39 @@ export class ChatsRepository {
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
   }
 
-  /**
-   * User-facing chat search: the owner's chats matching by TITLE or by message
-   * CONTENT (text parts of USER/ASSISTANT turns only — never system prompts or
-   * tool internals), ranked by relevance, with a highlighted snippet from the
-   * best-matching chunk (null for a title-only match).
-   *
-   * Phase 1 of #194 (#195): hybrid lexical retrieval over the derived
-   * `search_chat_documents` projection — full-text (`simple` config) + trigram
-   * (`word_similarity`) legs, plus a live title leg over `chats`, fused by
-   * Reciprocal Rank Fusion via the shared search/core builder (mandatory scope
-   * predicate = fail-closed tenant isolation). Ordering is PURE RELEVANCE with a
-   * recency + id tie-break (replacing the MVP's recency-first order). RLS
-   * (chats_owner / search_chat_documents_owner, FORCE) is the tenant guard; the in-CTE
-   * `owner_user_id = ${ownerUserId}` seatbelt is defense-in-depth. Blank query →
-   * [] (no full-table dump). `title` is nullable (#78) — a still-untitled chat
-   * can match by content alone. The internal result also retains
-   * `bestDocumentId` for canonical model shaping; public adapters must project
-   * that field explicitly.
-   *
-   * MUST be called with a transaction-scoped `Db` (constructed inside a
-   * `TenantDbService.runAs` callback) — `SET LOCAL statement_timeout` reverts at
-   * transaction end only inside one. Two call sites, both already inside `runAs`:
-   * `ChatsService.searchChats` (web chat search) and the `search_conversations`
-   * tool, which calls this SAME method (tool-calling D7 — one search path).
-   */
+  /** Hybrid lexical+vector search query over the projection, scoped to an owner. */
   private buildChatSearchQuery(
     ownerUserId: string,
     normalizedQuery: string,
     likePattern: string,
-    limit: number,
-    vectorParams?: { queryVector: ReadonlyArray<number>; modelKey: string },
+    options: SearchByOwnerOptions,
   ) {
+    const { scope, rangePreference } = resolveSearchScopes(
+      ownerUserId,
+      options.timeRange,
+    );
     return buildHybridSearchQuery({
       query: normalizedQuery,
       likePattern,
       document: CHAT_DOCUMENT_COLUMNS,
       parent: CHAT_PARENT_COLUMNS,
-      scope: {
-        document: sql`d.owner_user_id = ${ownerUserId}`,
-        parent: sql`c.owner_user_id = ${ownerUserId}`,
-      },
-      vector: vectorParams
+      scope,
+      vector: options.vector
         ? {
-            queryVector: vectorParams.queryVector,
-            activeModelKey: vectorParams.modelKey,
+            queryVector: options.vector.queryVector,
+            activeModelKey: options.vector.modelKey,
             currentInputVersion: EMBED_INPUT_VERSION,
             columns: CHAT_VECTOR_COLUMNS,
             weight: 1,
             limit: 100,
           }
         : undefined,
+      rangePreference,
       weights: { fts: 1, trgm: 0.35, title: 1 },
       limits: { fts: 100, trgm: 40, title: 50 },
       rrfK: RRF_DEFAULT_K,
       groupTopNWeights: [1, 0.25, 0.1],
-      limit,
+      limit: options.limit,
     });
   }
 
@@ -397,8 +382,7 @@ export class ChatsRepository {
   async searchByOwner(
     ownerUserId: string,
     query: string,
-    limit: number,
-    vectorParams?: { queryVector: ReadonlyArray<number>; modelKey: string },
+    options: SearchByOwnerOptions,
   ): Promise<Array<HybridSearchResult>> {
     const trimmed = query.trim();
     if (trimmed.length === 0) {
@@ -412,8 +396,7 @@ export class ChatsRepository {
       ownerUserId,
       normalizedQuery,
       likePattern,
-      limit,
-      vectorParams,
+      options,
     );
 
     const rows = await this.db.execute<HybridSearchResult>(search);

@@ -1,7 +1,11 @@
 import { sql } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
-import { buildHybridSearchQuery, type HybridSearchConfig } from './fusion';
+import {
+  buildHybridSearchQuery,
+  rrfScore,
+  type HybridSearchConfig,
+} from './fusion';
 
 /** Distinctive names so every rendered identifier is unambiguous in assertions. */
 function config(
@@ -288,5 +292,49 @@ describe('buildHybridSearchQuery', () => {
     expect(params).toContain(0.9);
     expect(params).toContain(77);
     expect(params).toContain(JSON.stringify([0.1, 0.2, 0.3]));
+  });
+
+  it('emits SQL byte-identical to the lexical-only query when rangePreference is absent (#198 D5)', () => {
+    const withoutRange = compile();
+    const withUndefined = compile(config({ rangePreference: undefined }));
+    expect(withoutRange.sql).toBe(withUndefined.sql);
+    expect(withoutRange.params).toStrictEqual(withUndefined.params);
+  });
+
+  it('adds a range-preference bonus UNION ALL in doc_fused when rangePreference is configured (#198 D5)', () => {
+    const rangePred = sql`d.first_message_at < ${'2026-09-01'} AND d.last_message_at >= ${'2026-08-01'}`;
+    const { sql: text, params } = compile(
+      config({ rangePreference: { predicate: rangePred, weight: 0.25 } }),
+    );
+
+    expect(text).toContain('CASE WHEN');
+    expect(text).toContain('THEN');
+    expect(text).toContain('ELSE 0 END AS t');
+    expect(text).toContain('DISTINCT group_id, doc_id');
+    expect(params).toContain(0.25);
+    expect(params).toContain('2026-09-01');
+    expect(params).toContain('2026-08-01');
+  });
+});
+
+describe('rrfScore — preferred range arithmetic (#198 D5)', () => {
+  const K = 60;
+  const W = { fts: 1, trgm: 0.35, title: 1 };
+  const W_PREF = 0.25;
+
+  it('an in-range fts doc ~20 ranks below an out-of-range one overtakes it', () => {
+    const outOfRange = rrfScore([{ weight: W.fts, rank: 1 }], K);
+    const inRange =
+      rrfScore([{ weight: W.fts, rank: 21 }], K) + W_PREF / (K + 1);
+
+    expect(inRange).toBeGreaterThan(outOfRange);
+  });
+
+  it('an in-range fts doc ~100 ranks below an out-of-range one does not overtake it', () => {
+    const outOfRange = rrfScore([{ weight: W.fts, rank: 1 }], K);
+    const inRange =
+      rrfScore([{ weight: W.fts, rank: 101 }], K) + W_PREF / (K + 1);
+
+    expect(inRange).toBeLessThan(outOfRange);
   });
 });

@@ -298,12 +298,10 @@ export class ChatsService {
         : undefined;
 
     return this.tenantDb.runAs(userId, async (tx) => {
-      const rows = await new ChatsRepository(tx).searchByOwner(
-        userId,
-        query,
+      const rows = await new ChatsRepository(tx).searchByOwner(userId, query, {
         limit,
-        vectorParams,
-      );
+        vector: vectorParams,
+      });
 
       return rows.map(({ id, title, snippet, updatedAt }) => ({
         id,

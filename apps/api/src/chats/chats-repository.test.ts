@@ -476,7 +476,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
   it('searchByOwner returns no rows for a blank query and does not touch the database', async () => {
     const { db, queries } = makeMockDb();
     await expect(
-      new ChatsRepository(db).searchByOwner(ownerUserId, '   ', 10),
+      new ChatsRepository(db).searchByOwner(ownerUserId, '   ', { limit: 10 }),
     ).resolves.toEqual([]);
     expect(queries).toHaveLength(0);
   });
@@ -492,7 +492,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     await new ChatsRepository(db).searchByOwner(
       ownerUserId,
       'hello_world%plus',
-      5,
+      { limit: 5 },
     );
 
     const strings: Array<string> = [];
@@ -545,7 +545,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     const [hit] = await new ChatsRepository(db).searchByOwner(
       ownerUserId,
       'bravo',
-      5,
+      { limit: 5 },
     );
 
     expect(hit?.snippet).not.toContain('  ');
@@ -573,7 +573,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       );
 
     await expect(
-      new ChatsRepository(db).searchByOwner(ownerUserId, 'title', 5),
+      new ChatsRepository(db).searchByOwner(ownerUserId, 'title', { limit: 5 }),
     ).resolves.toEqual([
       {
         id: chatId,
