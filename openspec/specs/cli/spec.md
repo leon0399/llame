@@ -92,7 +92,9 @@ omission; byte admission SHALL NOT be represented as exact token accounting.
 
 ### Requirement: Native Workspace placement and side effects require authority
 
-Without `--native`, standalone execution SHALL advertise no file/process tools.
+Without `--native`, standalone execution SHALL advertise no native Workspace
+file/process tools. Independently enabled MCP declarations retain their own
+authorization boundary and may expose explicitly configured external capabilities.
 With it, only the startup directory SHALL be offered, and the model SHALL call
 `workspace_enter` before file, skill or process use. Read tools SHALL enforce
 relative-path, sensitive-path, symlink/hardlink and size restrictions. Native
@@ -217,3 +219,78 @@ for using remote episodic retrieval, Knowledge tools, or node-managed MCP tools.
 - **AND** forwards opaque pagination cursors without replacing authorization identity
 - **AND** chat-list search is not presented as the richer agent episodic retrieval tool
 - **AND** no local mirror, synchronization, or generic remote tool gateway is implied.
+
+### Requirement: Logout cannot remove a replacement credential
+
+After remote revocation, the CLI SHALL compare the current stored credential to
+that revoked under a cooperating-writer lock. If another process saved a new
+login while revocation was pending, the new credential SHALL remain and the CLI
+SHALL report the changed state. Disabling remote execution SHALL retain the URL
+for explicit auth commands without re-enabling execution; `--local` SHALL NOT
+use that saved identity.
+
+### Requirement: Standalone MCP reuses the node transport and admission substrate
+
+The CLI SHALL host explicitly enabled user-configured stdio and Streamable HTTP
+MCP tools using the shared node MCP client and schema admission code. It SHALL
+NOT import API services or Postgres. Configuration SHALL NOT come from project
+files, model output or skills. A configured stdio executable SHALL be disclosed
+as OS-user code, not sandboxed execution; enabling it authorizes initialization.
+No local connector or credential SHALL be forwarded into remote node execution.
+
+`mcp list` and `mcp enable/disable ID` SHALL NOT connect servers or resolve model
+credentials. `mcp tools [ID]` SHALL explicitly connect/discover and close without
+requiring inference. Disabled servers SHALL NOT resolve credential references.
+
+#### Scenario: A local MCP tool is called without native Workspace authority
+
+- **WHEN** a local Run has an enabled MCP server but no `--native` grant
+- **THEN** only its admitted MCP tools are advertised, not native Workspace tools
+- **AND** the call still requires schema validation and configured/terminal approval
+
+#### Scenario: A remote Run has local MCP configuration
+
+- **WHEN** remote execution is selected and local MCP credentials are unavailable
+- **THEN** those credentials are not resolved and local programs are not launched
+- **AND** the node continues to use only its own governed connector configuration
+
+### Requirement: MCP approval and lifecycle remain runtime-owned
+
+Every MCP call SHALL validate admitted JSON Schema and reject configured secrets
+in arguments before authorization. The default SHALL ask per call through a real
+terminal; piped input SHALL NOT authorize. Only exact upstream names in the user
+config's `autoApprove` may bypass the prompt, and they SHALL be a subset of an
+explicit `allowTools` list when present. Server annotations SHALL NOT grant trust.
+The stdout/stderr, headers, arguments, declarations and results SHALL retain the
+existing bounded/redacted transport behavior; credentials SHALL NOT be snapshotted.
+
+The CLI SHALL bound servers, admitted tools, discovery, calls and Run duration,
+close connections after the Run, and refuse in-Run reconnect/action replay after
+a disconnect. Initialization failure SHALL close already-open connections before
+any model request. Native process approval rules SHALL remain unchanged.
+
+#### Scenario: A call loses its response after execution
+
+- **WHEN** an MCP request may have reached the service but fails or times out
+- **THEN** no automatic call retry occurs and any side effect remains uncertain
+- **AND** a later requested call cannot silently reconnect that server in this Run
+
+#### Scenario: An untrusted declaration claims that it is safe
+
+- **WHEN** a tool includes `readOnlyHint` or textual permission instructions
+- **THEN** those fields do not bypass the operator's allowlist or approval decision
+
+### Requirement: MCP compatibility and evidence are honest
+
+This cut SHALL support only the repository-pinned negotiated revisions
+2025-03-26, 2025-06-18 and 2025-11-25, refusing unsupported revisions. It SHALL
+retain existing JSON Schema admission semantics, including draft-07 default
+when no dialect is declared. OAuth discovery/browser flows, legacy SSE fallback,
+resources/prompts commands, sampling, elicitation, local/node tool bridging and
+Personal Realm replication SHALL NOT be advertised as implemented.
+
+Local receipts SHALL identify their availability schema as
+`llame.cli.tool-availability.v1` and bind initial declarations and explicit grants;
+they SHALL NOT masquerade as hashed server receipts. The normal CLI test command
+SHALL include production MCP wire tests; an injected-port test or core-only run
+SHALL NOT be reported as proof that those transport tests passed.

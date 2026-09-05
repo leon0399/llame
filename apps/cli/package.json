@@ -12,11 +12,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "start": "node bin/llame.cjs",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --test tests/*.test.mjs tests/integration/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "lint:fix": "oxlint --deny-warnings --fix",
-    "package:standalone": "node scripts/package.mjs"
+    "package:standalone": "node scripts/package.mjs",
+    "test:core": "node --test tests/*.test.mjs",
+    "test:mcp": "node --test tests/integration/*.test.mjs"
   },
   "dependencies": {
     "@workspace/config-interpolation": "workspace:*",

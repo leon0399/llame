@@ -1,38 +1,6 @@
-# Persistent connection update
-
-Enable a remote once, then use ordinary commands without repeating its URL:
-
-```sh
-llame remote enable https://api.example.com
-llame auth login --email you@example.com
-llame run "Use my node's configured tools"
-llame --local run "Use only my local configuration for this invocation"
-llame remote disable
-```
-
-`remote enable` changes routing, not authentication. `remote disable` retains the
-URL and saved login; `remote enable` with no URL re-enables it. Use
-`llame --remote https://api.example.com auth logout` to revoke while disabled.
-`--remote URL` and `--local` override routing for one invocation. Failures never
-change mode. Only the selected config's `remote` fields are inspected for remote
-routing; local provider/MCP secrets are not resolved or transmitted.
-
-```json
-{ "version": 1, "models": [], "remote": { "enabled": true, "url": "https://api.example.com" } }
-```
-
-The default data directory is now `$XDG_DATA_HOME/llame` or
-`~/.local/share/llame`; credentials are individual `auth/<authority-sha256>.json`
-files, separate from `~/.config/llame/cli.json` and from `state.sqlite`. The entire
-data directory is 0700 and credential files are 0600, owned by the current OS
-user. This is filesystem access control, not encryption/keychain storage.
-Do not sync the auth directory with a Personal Realm or a public dotfiles repo.
-To continue using round-one state in `~/.local/state/llame`, explicitly select it
-with `--data-dir` or `LLAME_DATA_DIR`; there is no silent copying of credentials.
-
 # llame CLI
 
-A first-party TypeScript terminal with two explicit modes:
+A first-party TypeScript terminal with two execution modes and a saved user-selected default:
 
 - **Local:** its own configuration, model endpoint, SQLite conversations and
   bounded agent loop. No llame account, Hub, Postgres or running web app.
@@ -67,11 +35,48 @@ pnpm exec turbo run package:standalone --filter=cli --concurrency=1
 node apps/cli/standalone/bin/llame.cjs --help
 ```
 
-Copy the **whole** `standalone` directory, including its two bundled workspace
-packages, to another machine. It needs Node but no npm install or database server.
+Copy the **whole** `standalone` directory, including its production dependency
+closure, to a compatible machine. It needs Node but no npm install or database server.
+Packaging requires installed dependencies and successful workspace builds. It fails
+closed on a missing production dependency, retaining an existing distribution.
+Third-party package licenses/notices are included; platform-specific optional
+dependencies, when installed, are copied for the build platform, not cross-compiled.
 It contains no model, provider configuration or credentials. The CLI is not
 published to npm by this change. Node 22's built-in SQLite emits an experimental
 warning; it goes to stderr, not JSONL stdout.
+
+## Persistent remote default
+
+Enable a remote once, then use ordinary commands without repeating its URL:
+
+```sh
+llame remote enable https://api.example.com
+llame auth login --email you@example.com
+llame run "Use my node's configured tools"
+llame --local run "Use only my local configuration for this invocation"
+llame remote disable
+```
+
+`remote enable` changes routing, not authentication. `remote disable` retains the
+URL and saved login; `remote enable` with no URL re-enables it. Use
+`llame auth logout` to revoke even while disabled; auth commands retain the saved
+authority independently of the execution default. Explicit `--local` has no auth.
+`--remote URL` and `--local` override routing for one invocation. Failures never
+change mode. Only the selected config's `remote` fields are inspected for remote
+routing; local provider/MCP secrets are not resolved or transmitted.
+
+```json
+{ "version": 1, "models": [], "remote": { "enabled": true, "url": "https://api.example.com" } }
+```
+
+The default data directory is now `$XDG_DATA_HOME/llame` or
+`~/.local/share/llame`; credentials are individual `auth/<authority-sha256>.json`
+files, separate from `~/.config/llame/cli.json` and from `state.sqlite`. The entire
+data directory is 0700 and credential files are 0600, owned by the current OS
+user. This is filesystem access control, not encryption/keychain storage.
+Do not sync the auth directory with a Personal Realm or a public dotfiles repo.
+To continue using round-one state in `~/.local/state/llame`, explicitly select it
+with `--data-dir` or `LLAME_DATA_DIR`; there is no silent copying of credentials.
 
 ## Standalone configuration
 
@@ -140,7 +145,7 @@ IDs are printed on stderr and included in JSONL Run events.
 
 ## Workspace execution and approvals
 
-Local mode is text-only by default. To advertise the startup directory as an
+Without enabled MCP servers, local mode is text-only by default. To advertise the startup directory as an
 explicitly authorized **native** Workspace:
 
 ```sh
@@ -162,9 +167,9 @@ Review the exact executable and arguments before approving. Repository content
 and tool results remain untrusted model input, not operator authorization.
 
 Read/list operations are bounded. A write requires the exact whole-file SHA-256
-from a prior read, or `absent` for creation. Each proposed edit and each process
+from a prior read, or `absent` for creation. Each proposed native edit and each native process
 requires a separate terminal approval; the default is **No**. Stale edits fail
-rather than overwriting a concurrent change. There is no `--yes`, approve-all,
+rather than overwriting a concurrent change. For native tools there is no `--yes`, approve-all,
 script/hook execution or prompt-derived permission mode. Piped input cannot
 approve, including when its text happens to say `yes`.
 
@@ -224,16 +229,17 @@ main file alone is a consistent backup.
 Use the **API** origin, not a web-only hostname, and a pre-existing llame account:
 
 ```sh
-llame --remote https://api.example auth login --email you@example.com
-llame --remote https://api.example auth status
-llame --remote https://api.example models
-llame --remote https://api.example run "Use the node's configured tools"
-llame --remote https://api.example --chat CHAT_UUID run "Continue"
-llame --remote https://api.example runs attach CHAT_UUID
-llame --remote https://api.example runs events RUN_UUID
-llame --remote https://api.example runs receipt RUN_UUID
-llame --remote https://api.example runs cancel RUN_UUID
-llame --remote https://api.example auth logout
+llame remote enable https://api.example.com
+llame auth login --email you@example.com
+llame auth status
+llame models
+llame run "Use the node's configured tools"
+llame --chat CHAT_UUID run "Continue"
+llame runs attach CHAT_UUID
+llame runs events RUN_UUID
+llame runs receipt RUN_UUID
+llame runs cancel RUN_UUID
+llame auth logout
 ```
 
 The password is prompted without echo. `--password-stdin` is available for a
@@ -253,7 +259,9 @@ identity boundary and separate proof-of-key Node enrollment.
 Each saved token is bound to its normalized authority and user ID. Requests do
 not follow redirects. Logout revokes the current server session before removing
 its local file; an already-expired/revoked session is also safely forgotten.
-A network/server failure retains the file so revocation can be retried. With an
+A network/server failure retains the file so revocation can be retried.
+A concurrent new login is not deleted by completion of an older logout; the
+credential change is reported and the newer file is retained. With an
 environment token, remove it from the parent environment yourself after logout.
 `auth forget` explicitly removes only the saved local copy and does **not** revoke.
 No refresh token or automatic reauthentication is claimed.
@@ -269,6 +277,131 @@ keeps executing. Only `runs cancel` requests remote cancellation.
 Remote commands expose existing server capabilities only. The supplied node's
 read-only policy is not relaxed, and this CLI does not invent a remote approval
 endpoint or execute remote tool requests on your laptop.
+
+## Connected tools, episodic recall and Knowledge
+
+A connected Run is an ordinary node-owned Run. Its available `search_conversations`
+and `conversation_read`, `knowledge_search` and `knowledge_read`, and node-managed
+MCP tools remain governed by that node's ownership, configuration and policy.
+Neither a CLI-specific tool bridge nor Personal Realm synchronization is required.
+They execute **on the node**, not on your laptop. Their presence is not guaranteed
+merely because a connection exists: inspect the exact Run receipt.
+
+```sh
+llame chats search "the decision about indexing"
+llame knowledge list
+llame knowledge list OPAQUE_NEXT_CURSOR
+llame knowledge show SPACE_UUID
+llame runs tools RUN_UUID
+llame run "Search my earlier conversations and Knowledge Spaces for the decision"
+```
+
+`chats search` is the existing chat-list search endpoint, not a CLI implementation
+of the richer agent recall tool. Knowledge commands list/show metadata; content
+reads/search use the assistant's governed tools. `runs tools` projects historical
+bound declarations and available/unavailable states without exposing the whole
+system prompt. It does not claim current permission or a generic invocation API.
+Use `runs receipt` for the full owner-visible receipt.
+
+Standalone MCP and node-managed MCP remain distinct. The CLI never uploads local
+MCP configuration/credentials to the node, imports remote tools into local Runs,
+or grants a remote assistant access to local files. Replication, offline remote
+Knowledge, cross-node execution and an authenticated remote-tool gateway need
+separate contracts; Personal Realm is not being smuggled in as a tool transport.
+
+## Standalone MCP tools
+
+Local Runs can use explicitly configured **stdio** and **Streamable HTTP** MCP
+servers without `--native`. The native flag grants generic Workspace tools; MCP
+is independently configured. Add an `mcp` map to your user configuration:
+
+```json
+{
+  "mcp": {
+    "notes": {
+      "enabled": true,
+      "transport": "http",
+      "url": "https://notes.example.com/mcp",
+      "headers": { "Authorization": "Bearer {env:NOTES_API_TOKEN}" },
+      "allowTools": ["search_notes", "read_note"],
+      "autoApprove": [],
+      "callTimeoutSeconds": 30
+    },
+    "localdocs": {
+      "enabled": false,
+      "transport": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/trusted-server.mjs"],
+      "cwd": "/absolute/path/to/documents",
+      "env": { "DOCUMENT_TOKEN": "{env:DOCUMENT_TOKEN}" },
+      "allowTools": ["read_document"],
+      "autoApprove": []
+    }
+  }
+}
+```
+
+This is a **fragment**, merged into the existing version-1 file with `models`.
+`allowTools` and `autoApprove` contain exact upstream names, not namespaced model
+IDs. Omitting `allowTools` admits all valid declarations up to the global cap;
+an empty list exposes none. Server IDs are lower-case ASCII, begin with a letter,
+are at most 32 characters and cannot contain `__`. Model tool IDs reuse the node's
+canonical `mcp__SERVER__TOOL` mapping and collision refusal.
+
+```sh
+llame --local mcp list
+llame --local mcp enable localdocs
+llame --local mcp tools localdocs
+llame --local run "Find the note about indexing"
+llame --local mcp disable localdocs
+```
+
+Listing and enable/disable only inspect/change configuration; no server launches,
+no provider credentials resolve. `mcp tools` connects and discovers **now** without
+requiring a model. `mcp` commands in effective remote mode fail with instructions
+to use `--local` or inspect the node's historical receipt instead.
+
+**Enabling stdio is permission to launch that configured executable** on a local
+Run or explicit discovery. Initialization is executable code, before any tool
+approval. Only configure trusted programs. They have OS-user authority, not a
+sandbox; per-tool approval cannot contain a malicious server. The environment is
+minimal (`PATH`, `LANG`, optional `SystemRoot`) plus explicit `env`; no ambient
+HOME, node session or model key is inherited. `cwd` defaults to the config
+file's directory, not the current repository. Commands/arguments must be literal;
+put credential references in `env`, never argv. A child can still read accessible
+host files: environment isolation is not OS isolation.
+
+Calls require valid admitted JSON Schema **then individual terminal approval**.
+Piped stdin cannot approve. `autoApprove` is an optional, exact-name user grant
+for trusted tools; it is empty by default. It must be a subset of `allowTools`
+when an allowlist is present. Server `readOnlyHint`/other annotations, model text,
+repository skills and retrieved documents cannot set this grant. Do not blindly
+mark every installed tool auto-approved.
+
+The host reuses `@workspace/tool-runtime`, extracted from the existing API with
+its admission, JSON Schema validators, bounded HTTP/stdio, protocol negotiation,
+result handling and tests. There are at most 16 configured servers and 128
+admitted model tools. Calls default to 30 seconds (configurable 1–300), within the
+Run deadline. Discovery failures, collisions and catalog-limit violations fail before model
+submission; individual invalid declarations are refused without granting tools. In-Run disconnects
+never reconnect or replay actions; uncertain side effects remain uncertain.
+Connections close after completion/failure/cancellation. Approval decisions,
+results and the admitted catalog are inspectable in local Run evidence. Local
+availability uses `llame.cli.tool-availability.v1`, not the node's hashed receipt
+schema; remote receipts are projected unchanged. Receipts describe initial
+availability, not a live authorization check.
+
+Compatibility is deliberately the repository's pinned client: negotiated
+`2025-03-26`, `2025-06-18`, or `2025-11-25`. This is not a claim of support for every
+current/future MCP revision. Explicit draft-07, 2019-09 and 2020-12 JSON Schemas
+use the existing validator; absent `$schema` retains its draft-07 behavior.
+
+Not implemented here: MCP OAuth discovery/browser login/token refresh, legacy
+HTTP+SSE fallback, resources/prompts as standalone CLI operations, server-requested
+sampling/elicitation, marketplace installation or automatic project `.mcp.json`
+loading. HTTP credentials use explicit header references, independent of llame
+node login. A provider that requires MCP OAuth cannot be made to work merely by
+running `llame auth login`.
 
 ## Output and verification
 
@@ -287,8 +420,9 @@ observation; the overall Run may still complete with a truthful explanation.
 ```sh
 pnpm exec turbo run test --filter=cli --concurrency=1
 pnpm exec turbo run typecheck --filter=cli --concurrency=1
-pnpm exec turbo run test:coverage --filter=@workspace/runtime-safety --concurrency=1
+pnpm exec turbo run test:coverage --filter=@workspace/runtime-safety --filter=@workspace/tool-runtime --concurrency=1
 pnpm --filter @workspace/runtime-safety test:mutation
+pnpm --filter @workspace/tool-runtime test:mutation
 ```
 
 The distribution suite currently targets Linux/WSL and needs util-linux `script`
@@ -298,3 +432,13 @@ fixtures, SQLite, files and child processes. Remote wire fixtures are checked
 against the repository's emitted OpenAPI; they are **not** a live deployed-node
 or billable-provider acceptance test. Existing moved shared-helper unit tests
 remain Vitest tests and retain coverage/mutation gates.
+
+The normal `test` command includes `tests/integration/mcp.test.mjs`, which uses
+real SDK transports and must not skip when dependencies are missing. `test:core`
+is the explicitly narrower dependency-light suite; it includes an injected MCP
+connection-port/model-loop test, not proof of the production SDK wire path.
+`test:mcp` runs the wire suite alone after builds. See the checked-in
+[round-two verification record](../../docs/research/cli/2026-09-05-round-two-verification.md)
+for what was actually executed in the implementation environment, and the
+[connection/MCP decisions](../../docs/research/cli/2026-09-05-persistent-connection-and-mcp.md)
+for sources and deferred boundaries.

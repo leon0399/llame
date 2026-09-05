@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { privateDirectory, readPrivate, writePrivate } from './private-files';
+import { privateDirectory, readPrivate, writePrivate, withPrivateLock } from './private-files';
 import { authority, keys, parseJson, record, text, uuid } from './validation';
 import { request, readJson } from './http';
 import { CliError } from './errors';
@@ -80,7 +80,7 @@ export class Auth {
   }
 
   private save(credential: Credential): Credential {
-    writePrivate(this.file, JSON.stringify({ version: 1, authority: this.remote, token: credential.token, userId: credential.userId }) + '\n', false);
+    withPrivateLock(this.file, () => writePrivate(this.file, JSON.stringify({ version: 1, authority: this.remote, token: credential.token, userId: credential.userId }) + '\n', false));
     return { ...credential, source: 'file' };
   }
   private ensureNotStored(): void {
@@ -98,10 +98,19 @@ export class Auth {
       // the credential available for a future revocation attempt.
       if (!(error instanceof CliError && error.code === 'http_401')) throw error;
     }
-    if (credential.source === 'file') this.forget();
+    if (credential.source === 'file') withPrivateLock(this.file, () => {
+      if (!existsSync(this.file)) return;
+      const current = this.session({});
+      if (current.token !== credential.token || current.expectedUserId !== credential.expectedUserId) {
+        throw new CliError('credential_changed', 'The old remote session was revoked, but a newer local login exists and was retained.');
+      }
+      unlinkSync(this.file);
+    });
   }
 
   forget(): void {
-    if (existsSync(this.file)) { readPrivate(this.file, 16_384); unlinkSync(this.file); }
+    withPrivateLock(this.file, () => {
+      if (existsSync(this.file)) { readPrivate(this.file, 16_384); unlinkSync(this.file); }
+    });
   }
 }

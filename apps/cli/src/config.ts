@@ -1,6 +1,7 @@
+import { parseMcpServers, type McpServer } from './mcp-config';
 import { existsSync } from 'node:fs';
 import { interpolateStringWithSubstitutions } from '@workspace/config-interpolation';
-import { normalizeProtectedValues } from '@workspace/runtime-safety';
+import { isBoolean, normalizeProtectedValues } from '@workspace/runtime-safety';
 import { authority, integer, keys, parseJson, record, text } from './validation';
 import { readPrivate, writePrivate, updatePrivate } from './private-files';
 import { CliError } from './errors';
@@ -15,6 +16,7 @@ export interface LocalModel {
 
 export interface LocalConfig {
   readonly defaultModel?: string;
+  readonly mcp: readonly McpServer[];
   readonly models: readonly LocalModel[];
   readonly maxSteps: number;
   readonly maxOutputTokens: number;
@@ -40,7 +42,7 @@ function parseModel(value: unknown, env: NodeJS.ProcessEnv, secrets: string[]): 
 /** Routing is parsed without resolving provider or MCP secrets. */
 export function configDocument(path: string): UnknownRecord {
   const input = record(existsSync(path) ? parseJson(readPrivate(path)) : { version: 1, models: [] }, 'config');
-  keys(input, ['version', 'remote', 'defaultModel', 'models', 'maxSteps', 'maxOutputTokens', 'maxContextBytes', 'timeoutSeconds'], 'config');
+  keys(input, ['version', 'remote', 'mcp', 'defaultModel', 'models', 'maxSteps', 'maxOutputTokens', 'maxContextBytes', 'timeoutSeconds'], 'config');
   if (input.version !== 1) throw new CliError('config_version', 'Only CLI config version 1 is supported.');
   return input;
 }
@@ -54,7 +56,7 @@ export function remoteConfiguration(input: UnknownRecord): RemoteConfiguration {
   if (input.remote === undefined) return { enabled: false };
   const remote = record(input.remote, 'remote');
   keys(remote, ['enabled', 'url'], 'remote');
-  if (typeof remote.enabled !== 'boolean') throw new CliError('invalid_remote', 'remote.enabled must be a boolean.');
+  if (!isBoolean(remote.enabled)) throw new CliError('invalid_remote', 'remote.enabled must be a boolean.');
   const url = remote.url === undefined ? undefined : authority(text(remote.url, 'remote.url', 2048));
   if (remote.enabled && !url) throw new CliError('invalid_remote', 'An enabled remote needs remote.url.');
   return { enabled: remote.enabled, url };
@@ -86,7 +88,8 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv): LocalConfig {
   if (defaultModel && !models.some((model) => model.id === defaultModel)) {
     throw new CliError('unknown_model', 'defaultModel must name a configured model.');
   }
-  return { models, defaultModel, protectedValues: normalizeProtectedValues(secrets),
+  const mcp = parseMcpServers(input.mcp, env, path, secrets);
+  return { models, defaultModel, mcp, protectedValues: normalizeProtectedValues(secrets),
     maxSteps: integer(input.maxSteps ?? 8, 'maxSteps', 1, 32),
     maxOutputTokens: integer(input.maxOutputTokens ?? 4096, 'maxOutputTokens', 64, 65_536),
     maxContextBytes: integer(input.maxContextBytes ?? 100_000, 'maxContextBytes', 4096, 2_000_000),

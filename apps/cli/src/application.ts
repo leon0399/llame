@@ -1,3 +1,4 @@
+import { mcpCommand } from './mcp-commands';
 import { randomUUID } from 'node:crypto';
 import { type Options } from './arguments';
 import { initializeConfig, loadConfig, selectModel, configDocument, remoteConfiguration, configureRemote } from './config';
@@ -18,6 +19,7 @@ export class Application {
 
   async execute(): Promise<void> {
     const { positionals } = this.options;
+    if (positionals[0] === 'mcp') { await mcpCommand(this.options, this.env, this.output, this.signal); return; }
     if (positionals[0] === 'remote') { this.connection(); return; }
     if (positionals[0] === 'auth') { await this.auth(positionals[1] || 'status'); return; }
     if (positionals[0] === 'config') {
@@ -157,8 +159,10 @@ export class Application {
   }
 
   private authClient(): Auth {
-    if (!this.options.remote) throw new CliError('remote_required', 'Enable a remote with remote enable URL or supply --remote URL. Standalone mode has no account.');
-    return new Auth(this.options.remote, this.options.data, this.output);
+    const remote = this.options.remote ?? (this.options.modeSource !== 'flag'
+      ? remoteConfiguration(configDocument(this.options.config)).url : undefined);
+    if (!remote) throw new CliError('remote_required', 'Configure a remote with remote enable URL or supply --remote URL. Standalone mode has no account.');
+    return new Auth(remote, this.options.data, this.output);
   }
 
   private async auth(action: string): Promise<void> {

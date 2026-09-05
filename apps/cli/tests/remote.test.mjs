@@ -235,3 +235,53 @@ test('inspection commands are bound to existing OpenAPI resources, not a fabrica
   const parameters = spec.paths['/api/v1/chats/search'].get.parameters;
   assert.ok(parameters.some(parameter => parameter.name === 'q' && parameter.in === 'query'));
 });
+
+test('logout after a concurrent new login revokes only the old token and retains the newer local credential', async t => {
+  const { Auth } = await import('../dist/auth.js');
+  const { Output } = await import('../dist/output.js');
+  const dir = directory(); let release; let deleting;
+  const started = new Promise(resolve => { deleting = resolve; });
+  const hub = await server(t, (request, response) => {
+    if (request.path === '/auth/v1/me') return json(response, { id: userId });
+    if (request.path === '/auth/v1/sessions/current') {
+      assert.equal(request.headers.authorization, `Bearer ${token}`);
+      release = () => json(response, {}); deleting(); return;
+    }
+    json(response, {}, 404);
+  });
+  const auth = new Auth(hub.base, join(dir, 'data'), new Output(true));
+  await auth.importToken(token, AbortSignal.timeout(5000));
+  const logout = auth.logout(auth.session({}), AbortSignal.timeout(5000));
+  await started;
+  auth.forget();
+  const fresh = `${token}-replacement`;
+  await auth.importToken(fresh, AbortSignal.timeout(5000));
+  release();
+  await assert.rejects(logout, { code: 'credential_changed' });
+  assert.equal(auth.session({}).token, fresh);
+});
+
+test('auth remains addressable after remote disable, without enabling execution or resolving local MCP secrets', async t => {
+  const { hub, dir } = await authenticated(t, (_request, response) => json(response, {}, 404));
+  assert.equal((await invoke(['remote', 'enable', hub.base], { dir })).code, 0);
+  assert.equal((await invoke(['remote', 'disable'], { dir })).code, 0);
+  const status = await invoke(['--json', 'auth', 'status'], { dir });
+  assert.equal(status.code, 0, status.stderr); assert.equal(JSON.parse(status.stdout).authority, hub.base);
+  const execution = await invoke(['--json', 'status'], { dir });
+  assert.equal(JSON.parse(execution.stdout).mode, 'local');
+  const local = await invoke(['--local', 'auth', 'status'], { dir });
+  assert.equal(local.code, 1); assert.match(local.stderr, /remote_required/);
+});
+
+test('connected mode ignores enabled local MCP credentials and executable definitions', async t => {
+  const { hub, dir } = await authenticated(t, (request, response) => {
+    assert.equal(request.path, '/api/v1/models'); json(response, { models: [] });
+  });
+  const path = join(dir, 'cli.json');
+  writeFileSync(path, JSON.stringify({ version: 1, remote: { enabled: true, url: hub.base }, models: [], mcp: {
+    notes: { enabled: true, transport: 'stdio', command: 'MUST_NOT_EXECUTE', env: { TOKEN: '{env:NOT_PROVIDED}' } },
+  } }), { mode: 0o600 });
+  const result = await invoke(['--config', path, 'models'], { dir });
+  assert.equal(result.code, 0, result.stderr);
+  assert.ok(!JSON.stringify(hub.requests).includes('MUST_NOT_EXECUTE'));
+});

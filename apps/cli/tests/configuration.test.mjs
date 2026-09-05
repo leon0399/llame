@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, linkSync, unlinkSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { configDocument, configureRemote, remoteConfiguration } from '../dist/config.js';
 import { defaultPaths } from '../dist/env.js';
@@ -106,6 +106,9 @@ test('credential readers reject loose permissions, hardlinks and symlinked paren
   writePrivate(privateFile, '{}'); chmodSync(privateFile, 0o640);
   assert.throws(() => readPrivate(privateFile), /0600/);
   chmodSync(privateFile, 0o700); assert.throws(() => readPrivate(privateFile), /0600/);
+  chmodSync(privateFile, 0o600);
+  const alias = join(dir, 'credential-alias'); linkSync(privateFile, alias);
+  assert.throws(() => readPrivate(privateFile), /one link/); unlinkSync(alias);
   const real = join(dir, 'real'); mkdirSync(real, { mode: 0o700 });
   const link = join(dir, 'linked'); symlinkSync(real, link);
   assert.throws(() => privateDirectory(join(link, 'new')), /symbolic/);

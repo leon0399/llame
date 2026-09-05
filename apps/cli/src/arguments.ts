@@ -70,11 +70,12 @@ export const help = `llame — local personal runtime or remote durable-run clie
 Usage:
   llame [--local] [--native] [--model ID] [--chat UUID]
   llame [options] run "prompt"          One turn; '-' reads standard input
-  llame remote enable URL             Save the default remote (no login or upload)
+  llame remote enable [URL]           Save the default remote (no login or upload)
   llame remote disable                Use local by default; retain saved login
   llame remote status                 Inspect saved connection settings
   llame config init                   Create a private local config, no overwrite
   llame knowledge list [CURSOR] | knowledge show UUID
+  llame --local mcp list | mcp enable/disable ID | mcp tools [ID]
   llame models                        List configured/available models
   llame chats list | chats show UUID | chats search QUERY   Inspect chat history
   llame runs show UUID                Inspect a run and its execution snapshot
@@ -85,7 +86,7 @@ Usage:
   llame recover                       Recover interrupted local runs, never replay actions
   llame status                        Show mode and local node identity
 
-Remote authentication (saved enabled remote, or one-off --remote URL):
+Remote authentication (saved remote, even disabled, or one-off --remote URL):
   llame --remote URL auth login --email EMAIL [--password-stdin]
   llame --remote URL auth import --token-stdin
   llame --remote URL auth status

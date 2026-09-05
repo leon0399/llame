@@ -82,14 +82,19 @@ export function writePrivate(path: string, content: string, replace = true): voi
 
 /** Serialize read-modify-write commands without resolving secrets into config. */
 export function updatePrivate(path: string, update: () => string): void {
+  withPrivateLock(path, () => writePrivate(path, update()));
+}
+
+/** Serialize cooperating local writers; no network request holds this lock. */
+export function withPrivateLock<T>(path: string, operation: () => T): T {
   privateDirectory(dirname(path));
   const lock = `${path}.lock`;
   let fd: number;
   try { fd = openSync(lock, 'wx', 0o600); }
-  catch { throw new CliError('config_locked', 'Config is locked. Retry after the other writer exits; remove a stale .lock only after checking its process.'); }
+  catch { throw new CliError('storage_locked', 'Private storage is locked. Retry after the other writer exits; remove a stale .lock only after checking its process.'); }
   try {
     writeFileSync(fd, JSON.stringify({ pid: process.pid }) + '\n');
-    writePrivate(path, update());
+    return operation();
   } finally { closeSync(fd); unlinkSync(lock); }
 }
 

@@ -2,6 +2,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-05
 
+- **Persistent CLI connection**: saved remote default, one-run `--local` override,
+  explicit enable/disable, no auth/network fallback to another authority.
+- **CLI credential storage**: XDG data-home auth files, strict POSIX ownership and
+  permissions, symlink/hardlink rejection and concurrent-logout protection.
+- **Connected discovery**: existing chat search and Knowledge metadata endpoints,
+  plus historical `runs tools` receipts; no Realm sync or tool gateway implied.
+- **Standalone MCP implementation**: explicit stdio/Streamable HTTP servers,
+  bounded admitted catalogs, schema-checked calls and per-call approvals with
+  optional exact-name config grants. Existing API client and tests moved into
+  shared `@workspace/tool-runtime`. Production transport verification remains
+  pending in the implementation environment; see the round-two verification note.
+
 - **First-party CLI**: explicit standalone and remote execution, streaming text
   and JSONL, conversational continuation, model selection and inspectable Runs.
 - **Standalone runtime**: private SQLite state and one advancing executor,
