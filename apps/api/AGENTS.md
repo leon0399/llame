@@ -130,10 +130,12 @@ entry, then prune.
 closed when RLS discovery helpers are unprovisioned. `search:retry-failed` and
 `search:prune` use owner-scoped writes. Backfill only enqueues; it never calls a
 provider. Removing an embedding model does not delete vectors; prune explicitly.
-`search_conversations` always returns canonical results; HTTP admission and
-every `runs` consumer enforce projection coverage. `conversation_read` is
-independently allowlisted. See [the runbook](../../docs/conversation-recall.md)
-and the chat-search/search-projection/conversation-read OpenSpecs.
+`search_conversations` supports two modes (content keyword search with optional
+time ranges, and timeline activity-pointer discovery) and always returns
+canonical results; HTTP admission and every `runs` consumer enforce projection
+coverage. `conversation_read` is independently allowlisted. See
+[the runbook](../../docs/conversation-recall.md) and the
+chat-search/search-projection/conversation-read OpenSpecs.
 
 ## API conventions
 

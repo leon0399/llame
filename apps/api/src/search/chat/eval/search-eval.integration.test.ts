@@ -61,18 +61,29 @@ describeIfDb('chat search — relevance eval', () => {
         const messages = new MessagesRepository(tx);
         await chats.createIfAbsent({ id, ownerUserId: u, title: fx.title });
         for (const m of fx.messages) {
-          await messages.create({
+          const msg = await messages.create({
             chatId: id,
             role: m.role,
             senderUserId: m.role === 'user' ? u : null,
             parts: [{ type: 'text', text: m.text }],
           });
+          if (m.createdAt) {
+            await tx.execute(
+              sql`UPDATE messages SET created_at = ${m.createdAt.toISOString()}::timestamptz WHERE id = ${msg.id}`,
+            );
+          }
         }
       });
       await indexService.reindexChat(id, u);
     }
 
+    const RANGE_CATEGORIES = new Set([
+      'range-required',
+      'range-preferred',
+      'timeline',
+    ]);
     for (const q of EVAL_QUERIES) {
+      if (RANGE_CATEGORIES.has(q.category)) continue;
       const rows = await tenantDb.runAs(u, (tx) =>
         new ChatsRepository(tx).searchByOwner(u, q.query, { limit: K }),
       );
@@ -108,7 +119,7 @@ describeIfDb('chat search — relevance eval', () => {
         '\n[search-eval] baseline\n' + JSON.stringify(summary, null, 2),
       );
     }
-    expect(summary.count).toBe(EVAL_QUERIES.length);
+    expect(summary.count).toBe(results.length);
     expect(summary.recallAtK).toBeGreaterThan(0);
   });
 

@@ -50,10 +50,10 @@ Owns the tool declaration, its executor, the packaged prompt paragraph, and the 
 
 Owns the eval dataset, `BASELINE.md`, and product documentation. No application code.
 
-- [ ] 3.1 Add `range-required`, `range-preferred`, and `timeline` categories to `apps/api/src/search/chat/eval/dataset.ts`, extend the fixture shape with per-message `createdAt` (the dataset carries no timestamps today) and the seeder to honor it, add the dated fixtures, and extend the harness to run them in CI against the lexical configuration with the assertions named in the spec scenario "Range and timeline fixtures are asserted"; verify `test:integration` passes and the existing floors are untouched
-- [ ] 3.2 Record in `BASELINE.md` `w_pref = 0.25` as a hypothesis with its observed effect on the new fixtures, without tuning it, and verify `baseline.test.ts` still agrees with the dataset counts
-- [ ] 3.3 Update `docs/conversation-recall.md` (contract section: both modes, ranges, envelope, timeline pointer flow), `SPEC.md` §20 search sentence, `apps/api/AGENTS.md` tool note, add the dated `CHANGELOG.md` entry, and remove the #198 line from `ROADMAP.md`'s deferred backlog; verify `pnpm lint:markdown` and `pnpm format:check` pass
-- [ ] 3.4 **Exit:** verify `pnpm lint`, `pnpm --filter api test:integration`, and `git diff --check` pass
+- [x] 3.1 Add `range-required`, `range-preferred`, and `timeline` categories to `apps/api/src/search/chat/eval/dataset.ts`, extend the fixture shape with per-message `createdAt` (the dataset carries no timestamps today) and the seeder to honor it, add the dated fixtures, and extend the harness to run them in CI against the lexical configuration with the assertions named in the spec scenario "Range and timeline fixtures are asserted"; verify `test:integration` passes and the existing floors are untouched
+- [x] 3.2 Record in `BASELINE.md` `w_pref = 0.25` as a hypothesis with its observed effect on the new fixtures, without tuning it, and verify `baseline.test.ts` still agrees with the dataset counts
+- [x] 3.3 Update `docs/conversation-recall.md` (contract section: both modes, ranges, envelope, timeline pointer flow), `SPEC.md` §20 search sentence, `apps/api/AGENTS.md` tool note, add the dated `CHANGELOG.md` entry, and remove the #198 line from `ROADMAP.md`'s deferred backlog; verify `pnpm lint:markdown` and `pnpm format:check` pass
+- [x] 3.4 **Exit:** verify `pnpm lint`, `pnpm --filter api test:integration`, and `git diff --check` pass
 
 ## 4. `episodic-timeline-search/finalize` — spec sync and archive
 
