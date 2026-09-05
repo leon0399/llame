@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import {
   scanConversationLogicalLines,
   type ConversationLogicalLine,
-} from '../../chats/conversation-logical-lines';
+} from '@workspace/runtime-safety';
 import type { Db } from '../../db/tenant-db.service';
 import { normalizeForSearch } from '../core/text';
 import type {

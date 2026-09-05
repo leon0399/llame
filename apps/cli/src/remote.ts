@@ -2,11 +2,12 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { type Credential } from './auth';
-import { request, readJson, sse } from './http';
-import { LocalStore } from './store';
-import { Output, SecretStream } from './output';
-import { aborted, CliError } from './errors';
-import { integer, parseJson, record, text, uuid } from './validation';
+import { request, readJson, sse } from '@workspace/personal-node/http';
+import { RemoteCursors } from './remote-cursors';
+import { Output } from './output';
+import { SecretStream } from '@workspace/personal-node/output';
+import { aborted, CliError } from '@workspace/personal-node/errors';
+import { integer, parseJson, record, text, uuid } from '@workspace/personal-node/validation';
 
 const terminal = new Set(['completed', 'failed', 'cancelled', 'expired']);
 
@@ -14,7 +15,7 @@ const terminal = new Set(['completed', 'failed', 'cancelled', 'expired']);
 export class Remote {
   private readonly base: string;
   private readonly headers: { authorization: string };
-  constructor(private readonly credential: Credential, private readonly store: LocalStore, private readonly output: Output) {
+  constructor(private readonly credential: Credential, private readonly store: RemoteCursors, private readonly output: Output) {
     this.base = credential.authority; this.headers = { authorization: `Bearer ${credential.token}` };
     output.protect([credential.token]);
   }

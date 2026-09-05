@@ -201,8 +201,10 @@ test('persistent remote exposes owner-scoped chat search and paged Knowledge met
   assert.equal(next.code, 0, next.stderr); assert.equal(JSON.parse(next.stdout).nextCursor, null);
   const shown = await invoke(['--json', 'knowledge', 'show', chatId], { dir });
   assert.equal(shown.code, 0, shown.stderr); assert.equal(JSON.parse(shown.stdout).name, 'Notes');
-  const local = await invoke(['--local', 'knowledge', 'list'], { dir });
-  assert.equal(local.code, 1); assert.match(local.stderr, /remote_required/);
+  const requestsBeforeLocal = hub.requests.length;
+  const local = await invoke(['--local', '--json', 'knowledge', 'list'], { dir });
+  assert.equal(local.code, 0, local.stderr); assert.deepEqual(JSON.parse(local.stdout).items, []);
+  assert.equal(hub.requests.length, requestsBeforeLocal);
 });
 
 test('run tools reports exact historical availability without fabricating or importing remote tools', async (t) => {

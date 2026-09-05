@@ -2,7 +2,7 @@
   "name": "cli",
   "version": "0.0.1",
   "private": true,
-  "description": "llame terminal: standalone personal runtime and remote API client",
+  "description": "Thin terminal for local personal Nodes and authenticated hosted execution",
   "bin": {
     "llame": "bin/llame.cjs"
   },
@@ -21,9 +21,8 @@
     "test:mcp": "node --test tests/integration/*.test.mjs"
   },
   "dependencies": {
-    "@workspace/config-interpolation": "workspace:*",
-    "@workspace/runtime-safety": "workspace:*",
-    "@workspace/tool-runtime": "workspace:*"
+    "@workspace/personal-node": "workspace:*",
+    "@workspace/runtime-safety": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

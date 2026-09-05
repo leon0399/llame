@@ -11,7 +11,7 @@ import {
   type KnowledgeFilesystemAdapterPort,
   type KnowledgeFilesystemBinding,
   type KnowledgeFilesystemSearchOptions,
-} from './knowledge-filesystem';
+} from '@workspace/knowledge-filesystem/knowledge-filesystem';
 import { runTool } from '../tools/runner';
 import { isZodSchema } from '@workspace/tool-runtime/schema-utils';
 import { isString } from '@workspace/runtime-safety';

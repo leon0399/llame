@@ -19,6 +19,8 @@ const SOURCE_GLOBS = [
   "packages/config-interpolation/src/**/*.ts",
   "packages/runtime-safety/src/**/*.ts",
   "packages/tool-runtime/src/**/*.ts",
+  "packages/knowledge-filesystem/src/**/*.ts",
+  "packages/personal-node/src/**/*.ts",
   "apps/cli/src/**/*.ts",
 ];
 

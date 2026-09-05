@@ -1,3 +1,4 @@
+import { migrateState } from './store-migration';
 import { isNumber } from '@workspace/runtime-safety';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
@@ -19,7 +20,7 @@ export class LocalStore {
     for (const suffix of ['', '-wal', '-shm', '-journal']) {
       if (!existsSync(path + suffix)) continue;
       const stat = lstatSync(path + suffix);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || (process.platform !== 'win32' && (stat.mode & 0o077))) {
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || (process.platform !== 'win32' && ((stat.mode & 0o077) || (process.getuid && stat.uid !== process.getuid())))) {
         throw new CliError('unsafe_storage', 'State files must be private regular files, never symlinks or hardlinks.');
       }
     }
@@ -40,24 +41,7 @@ export class LocalStore {
   }
 
   private migrate(): void {
-    const row = this.db.prepare('PRAGMA user_version').get();
-    if (row?.user_version !== 0 && row?.user_version !== 1) throw new CliError('state_version', 'Unsupported local state version.');
-    this.transaction(() => {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS chats(id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, chat_id TEXT NOT NULL REFERENCES chats(id),
-          status TEXT NOT NULL, snapshot TEXT NOT NULL, created_at TEXT NOT NULL, finished_at TEXT);
-        CREATE TABLE IF NOT EXISTS messages(seq INTEGER PRIMARY KEY AUTOINCREMENT, chat_id TEXT NOT NULL REFERENCES chats(id),
-          run_id TEXT NOT NULL REFERENCES runs(id), body TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS events(run_id TEXT NOT NULL REFERENCES runs(id), sequence INTEGER NOT NULL,
-          event_type TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(run_id,sequence));
-        CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id,seq);
-        CREATE TABLE IF NOT EXISTS remote_cursors(authority TEXT NOT NULL, user_id TEXT NOT NULL, run_id TEXT NOT NULL,
-          chat_id TEXT NOT NULL, sequence INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(authority,user_id,run_id));
-        PRAGMA user_version=1;
-      `);
-    });
+    this.transaction(() => migrateState(this.db));
   }
 
   start(chatId: string, prompt: string, snapshot: unknown): string {
@@ -72,7 +56,7 @@ export class LocalStore {
   }
 
   message(chatId: string, runId: string, message: Message): void {
-    this.db.prepare('INSERT INTO messages(chat_id,run_id,body) VALUES (?,?,?)').run(chatId, runId, JSON.stringify(message));
+    this.db.prepare('INSERT INTO messages(id,chat_id,run_id,body) VALUES (?,?,?,?)').run(randomUUID(), chatId, runId, JSON.stringify(message));
   }
 
   history(chatId: string): Message[] {
@@ -103,6 +87,26 @@ export class LocalStore {
     if (!row) throw new CliError('not_found', 'Local run not found.');
     return { ...row, snapshot: parseJson(text(row.snapshot, 'snapshot', 4_194_304)) };
   }
+  runs(): unknown {
+    return this.db.prepare('SELECT id,chat_id,status,created_at,finished_at FROM runs ORDER BY created_at DESC LIMIT 100').all();
+  }
+
+  eventPage(id: string, after = 0): unknown {
+    const run = this.db.prepare('SELECT status FROM runs WHERE id=?').get(uuid(id));
+    if (!run) throw new CliError('not_found', 'Local Run not found.');
+    // All reads in this method are synchronous; the service cannot append between
+    // the status snapshot and this page. A terminal snapshot cannot omit its tail.
+    const rows = this.db.prepare('SELECT * FROM events WHERE run_id=? AND sequence>? ORDER BY sequence LIMIT 65').all(id, after);
+    const events: RunEvent[] = []; let bytes = 0;
+    for (const row of rows.slice(0, 64)) {
+      const payload = String(row.payload); const size = Buffer.byteLength(payload);
+      if (events.length && bytes + size > 4_194_304) break;
+      bytes += size;
+      events.push({ runId: id, sequence: Number(row.sequence), eventType: String(row.event_type), payload: parseJson(payload) });
+    }
+    return { events, hasMore: rows.length > events.length, status: run.status };
+  }
+
   events(id: string, after = 0): RunEvent[] {
     return this.db.prepare('SELECT * FROM events WHERE run_id=? AND sequence>? ORDER BY sequence').all(uuid(id), after)
       .map((row) => ({ runId: id, sequence: Number(row.sequence), eventType: String(row.event_type), payload: parseJson(String(row.payload)) }));

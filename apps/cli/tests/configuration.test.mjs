@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, linkSync, unlinkSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { configDocument, configureRemote, remoteConfiguration } from '../dist/config.js';
-import { defaultPaths } from '../dist/env.js';
-import { privateDirectory, readPrivate, writePrivate } from '../dist/private-files.js';
+import { configDocument, configureRemote, remoteConfiguration } from '@workspace/personal-node/config';
+import { defaultPaths } from '@workspace/personal-node/env';
+import { privateDirectory, readPrivate, writePrivate } from '@workspace/personal-node/private-files';
 import { directory, invoke, server, json, token, userId, config } from './helpers.mjs';
 
 const routing = (dir) => join(dir, '.config/llame/cli.json');

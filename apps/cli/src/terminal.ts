@@ -1,8 +1,9 @@
 import { StringDecoder } from 'node:string_decoder';
 import { createInterface } from 'node:readline/promises';
-import { CliError, aborted } from './errors';
-import { Output, terminalText } from './output';
-import { type Approval } from './types';
+import { CliError, aborted } from '@workspace/personal-node/errors';
+import { Output } from './output';
+import { terminalText } from '@workspace/personal-node/output';
+import { type Approval } from '@workspace/personal-node/types';
 
 export async function readStdin(maxBytes = 80_000, signal?: AbortSignal): Promise<string> {
   if (signal) aborted(signal);

@@ -142,7 +142,8 @@ test('a killed executor needs explicit recovery; it never replays an action', as
   await requested;
   const competing = await invoke(['--config', file, 'run', 'another'], { dir, env });
   assert.equal(competing.code, 1); assert.match(competing.stderr, /executor_busy/); assert.equal(provider.requests.length, 1);
-  running.child.kill('SIGKILL'); await running.result;
+  const executor = JSON.parse(readFileSync(join(dir, 'state/executor.lock'), 'utf8'));
+  process.kill(executor.pid, 'SIGKILL'); await running.result;
   const recovery = await invoke(['recover'], { dir }); assert.equal(recovery.code, 0, recovery.stderr);
   const db = new DatabaseSync(join(dir, 'state/state.sqlite'));
   assert.equal(db.prepare('SELECT status FROM runs').get().status, 'interrupted');
@@ -187,8 +188,9 @@ test('SIGINT interrupts a pipeline waiting for stdin without waiting for EOF', a
   const { setTimeout: delay } = await import('node:timers/promises');
   const dir = directory(); const running = start(['run', '-'], { dir, input: null });
   const deadline = Date.now() + 5000;
-  while (!existsSync(join(dir, 'state/state.sqlite')) && Date.now() < deadline) await delay(10);
-  assert.ok(existsSync(join(dir, 'state/state.sqlite')));
+  while (!running.stderr().includes('Reading prompt from standard input') && Date.now() < deadline) await delay(10);
+  assert.match(running.stderr(), /Reading prompt from standard input/);
+  assert.equal(existsSync(join(dir, 'state/state.sqlite')), false, 'Prompt input must not launch a Node or open its database');
   running.child.kill('SIGINT');
   const result = await running.result;
   assert.equal(result.code, 130, result.stderr); assert.match(result.stderr, /Input cancelled/);

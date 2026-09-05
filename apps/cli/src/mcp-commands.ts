@@ -1,14 +1,11 @@
-import { normalizeProtectedValues } from '@workspace/runtime-safety';
-import { configDocument } from './config';
-import { commandEnvironment } from './env';
-import { CliError } from './errors';
-import { mcpEntries, parseMcpServers } from './mcp-config';
-import { McpHost } from './mcp-host';
+import { configDocument } from '@workspace/personal-node/config';
+import { CliError } from '@workspace/personal-node/errors';
+import { mcpEntries } from '@workspace/personal-node/mcp-config';
 import { Output } from './output';
-import { updatePrivate } from './private-files';
+import { updatePrivate } from '@workspace/personal-node/private-files';
 import { type Options } from './arguments';
 
-export async function mcpCommand(options: Options, env: NodeJS.ProcessEnv, output: Output, signal: AbortSignal): Promise<void> {
+export async function mcpCommand(options: Options, output: Output, discover: (id?: string) => Promise<unknown>): Promise<void> {
   if (options.remote) throw new CliError('mode_conflict', 'mcp commands manage standalone connectors. Use --local mcp, or runs tools UUID to inspect node-managed tools.');
   const [, action = 'list', id, ...extra] = options.positionals;
   if (extra.length || (action === 'list' && id)) throw new CliError('arguments', 'Use mcp list, mcp enable/disable ID, or mcp tools [ID].');
@@ -28,10 +25,5 @@ export async function mcpCommand(options: Options, env: NodeJS.ProcessEnv, outpu
     output.notice('Saved. Enabling a stdio MCP authorizes launching its configured program on the next local Run/discovery; it is not a sandbox.'); return;
   }
   if (action !== 'tools') throw new CliError('command', 'Use mcp list, mcp enable/disable ID, or mcp tools [ID].');
-  const secrets: string[] = [];
-  const servers = parseMcpServers(configDocument(options.config).mcp, env, options.config, secrets, id);
-  const protectedValues = normalizeProtectedValues(secrets); output.protect(protectedValues);
-  const host = await McpHost.connect(servers, protectedValues, commandEnvironment(env), AbortSignal.any([signal, AbortSignal.timeout(30_000)]));
-  try { output.value({ scope: 'local', tools: host.catalog.map(tool => tool.function), availability: host.availability }); }
-  finally { await host.close(); }
+  output.value(await discover(id));
 }

@@ -1,7 +1,7 @@
 import { Application } from './application';
 import { argumentsFor, help } from './arguments';
-import { environment } from './env';
-import { CliError } from './errors';
+import { environment } from '@workspace/personal-node/env';
+import { CliError } from '@workspace/personal-node/errors';
 import { Output } from './output';
 
 async function main(): Promise<void> {

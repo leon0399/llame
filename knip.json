@@ -109,7 +109,8 @@
       "entry": [
         "src/main.ts",
         "tests/*.test.mjs",
-        "scripts/package.mjs"
+        "scripts/package.mjs",
+        "tests/integration/*.test.mjs"
       ],
       "project": [
         "src/**/*.ts",
@@ -121,6 +122,26 @@
       "entry": [
         "src/index.ts",
         "src/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/personal-node": {
+      "entry": [
+        "src/server.ts",
+        "tests/*.test.mjs",
+        "src/protocol.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.mjs"
+      ]
+    },
+    "packages/knowledge-filesystem": {
+      "entry": [
+        "src/**/*.test.ts",
+        "src/knowledge-filesystem.ts"
       ],
       "project": [
         "src/**/*.ts"

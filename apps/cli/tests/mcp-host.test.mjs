@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { McpHost } from '../dist/mcp-host.js';
-import { parseMcpServers } from '../dist/mcp-config.js';
-import { commandEnvironment } from '../dist/env.js';
-import { runLocal } from '../dist/local-run.js';
-import { LocalStore } from '../dist/store.js';
+import { McpHost } from '@workspace/personal-node/mcp-host';
+import { parseMcpServers } from '@workspace/personal-node/mcp-config';
+import { commandEnvironment } from '@workspace/personal-node/env';
+import { runLocal } from '@workspace/personal-node/local-run';
+import { LocalStore } from '@workspace/personal-node/store';
 import { Output } from '../dist/output.js';
-import { loadConfig } from '../dist/config.js';
+import { loadConfig } from '@workspace/personal-node/config';
 import { directory, config, key, invoke, server, completion, tool, chatId } from './helpers.mjs';
 
 const signal = () => new AbortController().signal;
@@ -123,7 +123,7 @@ test('local model loop executes admitted MCP without native Workspace and record
   const original = f.tools[0].execute;
   f.tools[0].execute = async (...args) => { const result = await original(...args); return { ...result, result: { status: 'success', content: key } }; };
   const provider = await server(t, (request, response) => {
-    assert.deepEqual(request.body.tools?.map(tool => tool.function.name), ['mcp__notes__read']);
+    assert.deepEqual(request.body.tools?.map(tool => tool.function.name), ['search_conversations', 'conversation_read', 'mcp__notes__read']);
     assert.ok(!JSON.stringify(request.body).includes(key));
     if (turns++ === 0) return tool(response, 'mcp__notes__read', { query: 'remember' });
     assert.equal(JSON.parse(request.body.messages.at(-1).content).status, 'success');
@@ -137,7 +137,7 @@ test('local model loop executes admitted MCP without native Workspace and record
     approve: async () => { throw new Error('explicit configuration already approved this tool'); }, processEnv: {}, signal: signal(), output, mcpConnector: f.connector });
   assert.equal(f.calls.length, 1); assert.equal(f.closed(), 1);
   const snapshot = store.run(id).snapshot;
-  assert.equal(snapshot.workspace, null); assert.equal(snapshot.tools[0].name, 'mcp__notes__read');
+  assert.equal(snapshot.workspace, null); assert.equal(snapshot.tools.find(tool => tool.name === 'mcp__notes__read').name, 'mcp__notes__read');
   assert.equal(snapshot.mcp[0].id, 'notes'); assert.ok(!JSON.stringify(snapshot).includes(key));
   const events = store.events(id); assert.ok(events.some(event => event.eventType === 'tool.approval_decided' && event.payload.approved));
   assert.ok(events.some(event => event.eventType === 'tool.completed' && event.payload.result.status === 'success'));

@@ -1,10 +1,10 @@
 import { isString } from '@workspace/runtime-safety';
 import { parseArgs } from 'node:util';
 import { resolve } from 'node:path';
-import { defaultPaths } from './env';
-import { configDocument, remoteConfiguration } from './config';
-import { CliError } from './errors';
-import { authority, uuid } from './validation';
+import { defaultPaths } from '@workspace/personal-node/env';
+import { configDocument, remoteConfiguration } from '@workspace/personal-node/config';
+import { CliError } from '@workspace/personal-node/errors';
+import { authority, uuid } from '@workspace/personal-node/validation';
 
 export interface Options {
   readonly positionals: string[];
@@ -50,7 +50,7 @@ export function argumentsFor(argv: string[], env: NodeJS.ProcessEnv): Options {
   // Explicit flags, help and configuration repair do not depend on a readable
   // default configuration. A normal invocation fails closed on malformed config.
   const direct = flag('local') || value('remote') !== undefined;
-  const bypass = direct || flag('help') || flag('version') || ['config', 'remote'].includes(parsed.positionals[0] ?? '');
+  const bypass = direct || flag('help') || flag('version') || ['config', 'remote', 'node'].includes(parsed.positionals[0] ?? '');
   const saved = bypass ? { enabled: false } : remoteConfiguration(configDocument(config));
   const remote = value('remote') ? authority(value('remote')!) : saved.enabled ? saved.url : undefined;
   if (remote && (flag('native') || value('cwd'))) throw new CliError('mode_conflict', 'Remote execution cannot receive local Workspace grants. Use --local to override the saved remote.');
@@ -73,15 +73,20 @@ Usage:
   llame remote enable [URL]           Save the default remote (no login or upload)
   llame remote disable                Use local by default; retain saved login
   llame remote status                 Inspect saved connection settings
+  llame node serve                   Serve a persistent private local Node (foreground)
+  llame node status | node recover    Inspect Node or remove a proven-dead endpoint
   llame config init                   Create a private local config, no overwrite
   llame knowledge list [CURSOR] | knowledge show UUID
+  llame --local knowledge create NAME | knowledge search QUERY
+  llame --local knowledge read UUID PATH [OFFSET] [LIMIT]
   llame --local mcp list | mcp enable/disable ID | mcp tools [ID]
   llame models                        List configured/available models
   llame chats list | chats show UUID | chats search QUERY   Inspect chat history
+  llame --local runs list | runs follow UUID [--after N]
   llame runs show UUID                Inspect a run and its execution snapshot
   llame runs events UUID [--after N]   Replay local events or follow remote events
   llame runs receipt UUID | runs tools UUID             Inspect bound tools or full context (local/remote)
-  llame runs cancel UUID              Request remote cancellation
+  llame runs cancel UUID              Request cancellation at the owning Node
   llame runs attach CHAT_UUID         Attach to the chat's active remote run
   llame recover                       Recover interrupted local runs, never replay actions
   llame status                        Show mode and local node identity
@@ -107,6 +112,7 @@ Options:
   --json         Newline-delimited JSON on stdout; diagnostics/prompts on stderr
 
 Interactive: /help, /new, /model ID, /history, /exit.
+Local commands use the private Node service (auto-launched when absent).
 Ctrl-C cancels local work. A disconnected remote run continues; use runs cancel.
 No provider/model downloads, telemetry, automatic remote fallback, or Node enrollment.
 `;
@@ -116,5 +122,5 @@ function validateCommandFlags(positionals: string[], value: (name: string) => st
   const tokenImport = positionals[0] === 'auth' && positionals[1] === 'import';
   if ((flag('password-stdin') || value('email')) && !login) throw new CliError('arguments', 'Password/email options apply only to auth login.');
   if (flag('token-stdin') && !tokenImport) throw new CliError('arguments', '--token-stdin applies only to auth import.');
-  if (value('after') && !(positionals[0] === 'runs' && positionals[1] === 'events')) throw new CliError('arguments', '--after applies only to runs events.');
+  if (value('after') && !(positionals[0] === 'runs' && ['events', 'follow'].includes(positionals[1] ?? ''))) throw new CliError('arguments', '--after applies only to runs events.');
 }

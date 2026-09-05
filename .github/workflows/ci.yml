@@ -70,11 +70,11 @@ jobs:
       # own `test:integration` task, evals are opt-in behind RUN_MODEL_EVALS.
       - run: pnpm test:metrics
 
-      - run: pnpm exec turbo run test --filter='!api' --filter='!web' --filter='!@workspace/config-interpolation' --filter='!@workspace/runtime-safety' --filter='!@workspace/tool-runtime'
+      - run: pnpm exec turbo run test --filter='!api' --filter='!web' --filter='!@workspace/config-interpolation' --filter='!@workspace/runtime-safety' --filter='!@workspace/tool-runtime' --filter='!@workspace/knowledge-filesystem'
 
       # Coverage and function-level CRAP replace the plain test command for
       # these workspaces, so the suite runs once and both thresholds gate CI.
-      - run: pnpm exec turbo run test:coverage --filter=web --filter=@workspace/config-interpolation --filter=@workspace/runtime-safety --filter=@workspace/tool-runtime
+      - run: pnpm exec turbo run test:coverage --filter=web --filter=@workspace/config-interpolation --filter=@workspace/runtime-safety --filter=@workspace/tool-runtime --filter=@workspace/knowledge-filesystem
 
   build:
     name: Build
@@ -252,6 +252,18 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
       - run: pnpm --filter @workspace/tool-runtime test:mutation
+
+  mutation-knowledge-filesystem:
+    name: Mutation testing (Shared Knowledge filesystem)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: [typecheck, unit]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: pnpm --filter @workspace/knowledge-filesystem test:mutation
 
   component:
     name: Component tests (Storybook)

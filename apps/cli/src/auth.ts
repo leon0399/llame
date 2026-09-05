@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { privateDirectory, readPrivate, writePrivate, withPrivateLock } from './private-files';
-import { authority, keys, parseJson, record, text, uuid } from './validation';
-import { request, readJson } from './http';
-import { CliError } from './errors';
+import { privateDirectory, readPrivate, writePrivate, withPrivateLock } from '@workspace/personal-node/private-files';
+import { authority, keys, parseJson, record, text, uuid } from '@workspace/personal-node/validation';
+import { request, readJson } from '@workspace/personal-node/http';
+import { CliError } from '@workspace/personal-node/errors';
 import { Output } from './output';
 
 export interface Credential {
