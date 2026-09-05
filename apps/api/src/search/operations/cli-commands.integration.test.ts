@@ -33,7 +33,7 @@ import {
 import { type InstanceConfigReader } from '../../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../../instance-config/llame-config';
 import { CHUNKER_VERSION } from '../chat/conversation-chunker';
-import { EMBED_INPUT_VERSION } from '../search-embed.worker';
+import { EMBED_INPUT_VERSION } from '../embed-input-version';
 import { SearchIndexService } from '../search-index.service';
 import {
   runBackfillCommand,

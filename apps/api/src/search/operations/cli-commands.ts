@@ -22,7 +22,7 @@ import { type TenantDbService } from '../../db/tenant-db.service';
 import { type InstanceConfigReader } from '../../instance-config/instance-config.service';
 import { assertDiscoveryFunctionProvisioned } from '../discovery-provisioning';
 import { CHUNKER_VERSION } from '../chat/conversation-chunker';
-import { EMBED_INPUT_VERSION } from '../search-embed.worker';
+import { EMBED_INPUT_VERSION } from '../embed-input-version';
 import { runBackfill } from './backfill';
 import { getEmbeddingCoverageReport } from './coverage-report';
 import { getProjectionCoverageReport } from './projection-coverage';

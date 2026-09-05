@@ -13,6 +13,7 @@ const qualityExcludes = [
   '**/db/migrations/**',
   '**/lib/api/generated/**',
   '**/vendor/**',
+  '**/eval/**',
 ];
 
 // @workspace/config-interpolation normally resolves to built ./dist; the integration
@@ -58,10 +59,28 @@ const unitProject = {
 export default defineConfig({
   resolve: {
     alias: [
-      { find: /^@workspace\/node-protocol$/, replacement: pkgSrc('node-protocol') },
-      { find: /^@workspace\/knowledge-filesystem\/(.+)$/, replacement: path.resolve(import.meta.dirname, '../../packages/knowledge-filesystem/src/$1.ts') },
-      { find: /^@workspace\/tool-runtime\/(.+)$/, replacement: path.resolve(import.meta.dirname, '../../packages/tool-runtime/src/$1.ts') },
-      { find: /^@workspace\/runtime-safety$/, replacement: pkgSrc('runtime-safety') },
+      {
+        find: /^@workspace\/node-protocol$/,
+        replacement: pkgSrc('node-protocol'),
+      },
+      {
+        find: /^@workspace\/knowledge-filesystem\/(.+)$/,
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../../packages/knowledge-filesystem/src/$1.ts',
+        ),
+      },
+      {
+        find: /^@workspace\/tool-runtime\/(.+)$/,
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../../packages/tool-runtime/src/$1.ts',
+        ),
+      },
+      {
+        find: /^@workspace\/runtime-safety$/,
+        replacement: pkgSrc('runtime-safety'),
+      },
       {
         find: /^@workspace\/config-interpolation$/,
         replacement: pkgSrc('config-interpolation'),

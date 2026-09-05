@@ -1,16 +1,13 @@
-import {
-  type ToolResult,
-  type UnknownRecord,
-} from '@workspace/runtime-safety';
+import { type ToolResult, type UnknownRecord } from '@workspace/runtime-safety';
 import { type z } from 'zod';
 
 import { type TenantRunner } from '../db/tenant-db.service';
 import { type KnowledgeSpaceCursor } from '../knowledge/knowledge-space.cursor';
+import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
 import {
   type KnowledgeFilesystemAdapterPort,
   type KnowledgeFilesystemBinding,
 } from '@workspace/knowledge-filesystem/knowledge-filesystem';
-
 
 /**
  * A JSON Schema document used as a tool's input schema. Accepted as-is from
@@ -64,6 +61,8 @@ export interface ToolContext {
   readonly toolCallId?: string;
   /** Trusted worker-bound Knowledge capability; never model supplied. */
   readonly knowledgeResolver?: KnowledgeToolResolver;
+  /** Process-wide query embedder for search; undefined when no model is configured. */
+  readonly queryEmbedder?: QueryEmbedderPort;
 }
 
 /**

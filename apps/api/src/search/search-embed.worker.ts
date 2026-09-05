@@ -35,17 +35,13 @@ import {
 } from './openai-embedding-backend';
 import { SEARCH_EMBED_QUEUE } from './reindex-queues';
 import { SearchEmbedDispatchService } from './search-embed-dispatch.service';
-
 /**
- * Embedding input-shape version (chat-search-embeddings design D11): the
- * document's `content` verbatim, role labels included — never
- * `normalized_content` (that column is the lexical matcher's, NFKC-folded
- * and role-free; lowercasing removes signal a transformer encoder uses).
- * Bumping this enumerates a future input-derivation change (e.g. #518's
- * model-generated chunk context) as a full re-embed even though no
- * `content_hash` changed — see the schema's `embed_input_version` comment.
+ * Embedding input-shape version — see embed-input-version.ts for the comment.
+ * Re-exported so existing importers of this constant from the worker continue
+ * to resolve without a path change.
  */
-export const EMBED_INPUT_VERSION = 1;
+import { EMBED_INPUT_VERSION } from './embed-input-version';
+export { EMBED_INPUT_VERSION };
 
 /**
  * A job processes at most this many batches before re-enqueuing itself for

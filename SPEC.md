@@ -85,8 +85,7 @@ parity remain separate, unimplemented capabilities.
 search/read contracts implemented by both runtimes. `packages/node-client` owns
 reusable private-IPC and authenticated HTTP clients, separate from CLI rendering.
 The hosted adapter exposes `POST /api/v1/node/requests` under existing session,
-code-owned read-only gates, and RLS; the personal adapter uses private IPC version
-2. An expected-principal header asserts the session identity, never selects one.
+code-owned read-only gates, and RLS; the personal adapter uses private IPC version 2. An expected-principal header asserts the session identity, never selects one.
 Capability declarations are rechecked at invocation. Native evidence and coverage
 remain deployment-specific; the common envelope binds method, principal and source.
 
@@ -289,7 +288,7 @@ The §7.1 mapping is reusable by future channels, but it does not authorize deli
 
 ## 20. Memory and search
 
-Chats, Runs, messages, and events form the episodic record. Hybrid chat search is a rebuildable projection used by the web UI and `search_conversations`. It indexes canonical human-authored user and ordinary assistant text, not model-switch metadata, system prompts, tool receipts, generated summaries, or checkpoint envelopes. Canonical model excerpts are coverage-gated and carry message-sequence plus logical-line coordinates reusable by the owner-authorized `conversation_read`; exact reads derive current visible text from stored message parts and return numbered, bounded content. Semantic facts, vector retrieval, and automatic injection do not ship. See [`chat-search`](openspec/specs/chat-search/spec.md), [`search-projection`](openspec/specs/search-projection/spec.md), and the [operator runbook](docs/conversation-recall.md).
+Chats, Runs, messages, and events form the episodic record. Hybrid chat search is a rebuildable projection used by the web UI and `search_conversations`. It indexes canonical human-authored user and ordinary assistant text, not model-switch metadata, system prompts, tool receipts, generated summaries, or checkpoint envelopes. Canonical model excerpts are coverage-gated and carry message-sequence plus logical-line coordinates reusable by the owner-authorized `conversation_read`; exact reads derive current visible text from stored message parts and return numbered, bounded content. Vector retrieval fuses a third cosine-scan leg with the existing FTS and trigram legs via RRF, with request-time query embedding bounded per surface and silent lexical fallback. Semantic facts and automatic injection do not ship. See [`chat-search`](openspec/specs/chat-search/spec.md), [`search-projection`](openspec/specs/search-projection/spec.md), and the [operator runbook](docs/conversation-recall.md).
 
 ### 20.1 Authored personalization
 

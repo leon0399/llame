@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { QueueModule } from '../queue/queue.module';
 import { CanonicalSearchCoverageService } from './canonical-search-activation.service';
+import { ChatSearchQueryEmbedder } from './chat-search-query-embedder';
 import { EmbeddingBindingBootCheckService } from './embedding-binding-boot-check.service';
 import { SearchEmbedDispatchService } from './search-embed-dispatch.service';
 import { SearchEmbedWorker } from './search-embed.worker';
@@ -41,12 +42,14 @@ import { SearchReindexWorker } from './search-reindex.worker';
     EmbeddingBindingBootCheckService,
     SearchEmbedDispatchService,
     SearchEmbedWorker,
+    ChatSearchQueryEmbedder,
   ],
   exports: [
     SearchIndexService,
     SearchReindexDispatchService,
     SearchEmbedDispatchService,
     CanonicalSearchCoverageService,
+    ChatSearchQueryEmbedder,
   ],
 })
 export class SearchModule {}

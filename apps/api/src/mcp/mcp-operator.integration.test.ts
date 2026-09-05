@@ -23,6 +23,7 @@ import {
 } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
+import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { SearchIndexService } from '../search/search-index.service';
 import {
@@ -277,6 +278,7 @@ function executionService(
     knowledgeResolver,
 
     noopEmbedDispatch(),
+    noopQueryEmbedder(),
     runtime,
   );
 }

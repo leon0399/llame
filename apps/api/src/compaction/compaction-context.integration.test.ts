@@ -34,6 +34,7 @@ import { type ModelClientFactory } from '../models/models.service';
 import { MemoryService } from '../memory/memory.service';
 import { SearchIndexService } from '../search/search-index.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
+import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import {
   ChatsRepository,
@@ -69,7 +70,11 @@ import {
   TransitionCompactionError,
 } from './compaction.service';
 import { type KnowledgeToolResolver } from '../tools/types';
-import { isRecord, isString, type UnknownRecord } from '@workspace/runtime-safety';
+import {
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 import { contentText } from '../testing/support';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -934,6 +939,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       knowledgeResolver,
 
       noopEmbedDispatch(),
+      noopQueryEmbedder(),
     );
   }
 

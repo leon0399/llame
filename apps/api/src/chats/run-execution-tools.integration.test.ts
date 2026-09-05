@@ -38,6 +38,7 @@ import type {
   LanguageModelV3Usage,
 } from '@ai-sdk/provider';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
+import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { type ChatEmbedDispatcher } from '../search/search-embed-dispatch.service';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { type ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
@@ -450,6 +451,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       overrides?.knowledgeResolver ?? knowledgeResolver,
 
       overrides?.embedDispatch ?? noopEmbedDispatch(),
+      noopQueryEmbedder(),
       overrides?.dynamicToolResolver,
     );
   }

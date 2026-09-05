@@ -25,14 +25,14 @@ has distinct semantic work and cannot be obtained merely by adding a server.
 
 ## External evidence (consulted 2026-09-05)
 
-- OpenCode server documentation: https://opencode.ai/docs/server/ — TUI and
+- OpenCode server documentation: <https://opencode.ai/docs/server/> — TUI and
   server are separate; a headless server exposes an OpenAPI surface. Adopt
   separation, not its optional network-auth defaults.
-- Codex app-server: https://developers.openai.com/codex/app-server — clients
+- Codex app-server: <https://developers.openai.com/codex/app-server> — clients
   use a bidirectional protocol for events and approvals.
-- OpenAI engineering account: https://openai.com/index/unlocking-the-codex-harness/
+- OpenAI engineering account: <https://openai.com/index/unlocking-the-codex-harness/>
   — separates protocol translation, thread management and core execution.
-- Goose architecture: https://goose-docs.ai/docs/goose-architecture/ — separates
+- Goose architecture: <https://goose-docs.ai/docs/goose-architecture/> — separates
   interface, agent and extensions. Process placement and runtime ownership are
   different decisions.
 

@@ -421,11 +421,11 @@
         },
         "maxStepsPerRun": {
           "$ref": "#/$defs/numberOrToken",
-          "description": "Hard cap on tool-requesting steps per run before the loop stops offering tools and drives the model to answer from accumulated context. Falls back to the built-in default, 8."
+          "description": "Hard cap on tool-requesting steps per run before the loop stops offering tools and drives the model to answer from accumulated context. Falls back to the built-in default, 20."
         },
         "callTimeoutSeconds": {
           "$ref": "#/$defs/numberOrToken",
-          "description": "Global timeout, in seconds, for a single tool call (a tool may declare a per-tool override at registration — a code-level property, not a config key). Falls back to the built-in default, 15."
+          "description": "Global timeout, in seconds, for a single tool call (a tool may declare a per-tool override at registration — a code-level property, not a config key). Falls back to the built-in default, 120."
         }
       }
     },

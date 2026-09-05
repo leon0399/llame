@@ -180,7 +180,8 @@ describe('loadInstanceConfig — file presence', () => {
     const config = loadInstanceConfig();
     expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
     expect(config.tools.allowed).toContain('search_conversations');
-    expect(config.tools.maxStepsPerRun).toBe(8);
+    expect(config.tools.maxStepsPerRun).toBe(20);
+    expect(config.tools.callTimeoutSeconds).toBe(120);
   });
 
   it('accepts comments and trailing commas (JSONC)', () => {
@@ -424,12 +425,12 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
 });
 
 describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', () => {
-  it('defaults to no tools, cap 8, timeout 15 when the file omits tools', () => {
+  it('defaults to no tools, cap 20, timeout 120 when the file omits tools', () => {
     const config = loadInstanceConfig();
     expect(config.tools).toEqual({
       allowed: [],
-      maxStepsPerRun: 8,
-      callTimeoutSeconds: 15,
+      maxStepsPerRun: 20,
+      callTimeoutSeconds: 120,
     });
   });
 

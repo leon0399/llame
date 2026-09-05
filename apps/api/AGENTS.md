@@ -6,17 +6,17 @@ boundaries, and traps. DB work follows [`src/db/AGENTS.md`](src/db/AGENTS.md).
 
 ## Ownership
 
-| Path                   | Owns                                                  |
-| ---------------------- | ----------------------------------------------------- |
-| `src/runs/`            | dispatch, execution, workers, stream bridge           |
-| `src/queue/`           | pg-boss for Runs, search workers, and session cleanup |
+| Path                   | Owns                                                               |
+| ---------------------- | ------------------------------------------------------------------ |
+| `src/runs/`            | dispatch, execution, workers, stream bridge                        |
+| `src/queue/`           | pg-boss for Runs, search workers, and session cleanup              |
 | `src/node/`            | authenticated common owner access; delegates existing capabilities |
-| `src/chats/`           | Chat/message API; dispatches via `RunDispatchService` |
-| `src/db/`              | schema, migrations, global `TenantDbService`          |
-| `src/tools/`           | registry and advertised-tool gate                     |
-| `src/instance-config/` | JSONC config, prompts, secret interpolation           |
-| `src/testing/`         | HTTP integration helpers; excluded from build         |
-| `evals/`               | opt-in model-graded tests; never CI                   |
+| `src/chats/`           | Chat/message API; dispatches via `RunDispatchService`              |
+| `src/db/`              | schema, migrations, global `TenantDbService`                       |
+| `src/tools/`           | registry and advertised-tool gate                                  |
+| `src/instance-config/` | JSONC config, prompts, secret interpolation                        |
+| `src/testing/`         | HTTP integration helpers; excluded from build                      |
+| `evals/`               | opt-in model-graded tests; never CI                                |
 
 Each feature owns one Nest module and exports services consumers need; never
 re-provide them. `RunExecutionService` stays transport-neutral. The current tool
@@ -59,7 +59,7 @@ Traps:
   presence of `models[].reasoning` declares availability.
 - Prompt context is an explicit projection, never a user/database record.
 - Never patch shared `Handlebars.Utils`. Sanitize in
-  `instance-config/authored-text.ts` and keep the web mirror byte-identical.
+  `packages/runtime-safety/src/authored-text.ts` and keep the web mirror byte-identical.
 - `SafeString("")` is truthy; omit absent/trimmed-empty keys.
 
 Specs: [instance config](../../openspec/specs/instance-config/spec.md),
@@ -120,8 +120,9 @@ Specs: [tool calling](../../openspec/specs/tool-calling/spec.md) and
 
 ## Search and recall
 
-Lexical FTS/trigram/title search is live; embeddings are produced but not read
-until #197. Embeddings default off. Once a vector key persists, its provider,
+Hybrid FTS/trigram/title/vector search is live. The vector leg embeds the query
+at request time (bounded per surface: 10 s tool, 1.5 s web) and falls back to
+lexical silently on any failure. Embeddings default off. Once a vector key persists, its provider,
 model, revision, dimensions, metric, and prefixes cannot be redefined. To move
 a corpus: declare a new ID, repoint, backfill, verify coverage, remove the old
 entry, then prune.

@@ -15,6 +15,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
+import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { and, eq } from 'drizzle-orm';
 
@@ -103,6 +104,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
       new RunAbortRegistry(),
       noopReindexDispatch(),
       noopEmbedDispatch(),
+      noopQueryEmbedder(),
     );
     owner = crypto.randomUUID();
     other = crypto.randomUUID();
