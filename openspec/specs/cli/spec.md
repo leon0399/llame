@@ -11,21 +11,31 @@ Node enrollment, hosted Workspace execution or full Hub feature parity.
 
 ### Requirement: Execution authority is explicit
 
-The CLI SHALL default to standalone execution. Remote execution SHALL require
-`--remote` on the invocation. A saved login SHALL NOT select remote mode or
-provide automatic failover. Remote mode SHALL NOT load local provider config,
-advertise a local Workspace or forward local provider credentials.
+The CLI SHALL select `--local` or `--remote URL` first, then a saved
+`remote.enabled: true` and `remote.url`, then standalone. `remote enable [URL]`
+and `remote disable` SHALL persist that setting atomically without writing or
+resolving credentials into configuration. Login alone SHALL NOT change mode.
+Authentication or connectivity failure SHALL NOT trigger local fallback.
+Remote mode SHALL parse routing settings without resolving local provider/MCP
+secrets, advertise no local Workspace, and forward no local credentials.
 
-#### Scenario: A logged-in operator starts a local turn
+#### Scenario: An operator enables a remote and restarts
 
-- **WHEN** the operator invokes `run` without `--remote`
-- **THEN** the CLI selects only the local configuration and runtime
-- **AND** it does not make an authenticated Hub request
+- **WHEN** the operator runs `remote enable URL` and later starts a fresh CLI
+- **THEN** that authority is the default for Runs, models, chats and auth
+- **AND** `--local` overrides it for one invocation without changing the setting
+
+#### Scenario: An operator disables the remote
+
+- **WHEN** the operator runs `remote disable`
+- **THEN** later invocations select standalone and retain the remote URL/session
+- **AND** session revocation remains an explicit `auth logout` operation
 
 #### Scenario: Local grants are attached to remote execution
 
-- **WHEN** `--remote` is combined with `--native`, `--cwd` or explicit `--config`
+- **WHEN** the selected remote is combined with `--native` or `--cwd`
 - **THEN** the CLI rejects the invocation instead of merging execution authority
+- **AND** `--config` may select the file containing remote routing settings
 
 ### Requirement: Standalone mode has independent configuration and state
 
@@ -122,14 +132,19 @@ packages, fetch a marketplace, or trust author-declared permissions.
 ### Requirement: Remote sessions remain authority/account-bound
 
 Remote authentication SHALL reuse the existing `/auth/v1/login`, `/me` and
-session revocation API. Tokens SHALL be stored separately from SQLite, bound to
+session revocation API. Tokens SHALL be stored separately from configuration and SQLite, bound to
 the exact normalized authority and verified account. Token import SHALL use
 stdin; environment credentials SHALL require matching `LLAME_TOKEN_FOR`.
 Passwords/tokens SHALL NOT be accepted as command-line option values.
 
 HTTPS SHALL be required except literal loopback development addresses. URL
 credentials, query/fragment and redirects SHALL be rejected. POSIX state and
-credential files SHALL be private. File modes SHALL NOT be called encryption.
+credential files SHALL be owned by the current OS user, with directory mode
+0700 and file mode 0600. Auth defaults to `$XDG_DATA_HOME/llame/auth` (or
+`~/.local/share/llame/auth`), not a config field. Relative XDG roots SHALL be
+ignored. Reads SHALL check opened file identity, size, ownership and link count;
+symlinked parents SHALL be refused before creating files. File modes SHALL NOT
+be called encryption or protection against processes running as the same user.
 
 #### Scenario: A saved token resolves to another account
 

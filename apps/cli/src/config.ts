@@ -2,8 +2,9 @@ import { existsSync } from 'node:fs';
 import { interpolateStringWithSubstitutions } from '@workspace/config-interpolation';
 import { normalizeProtectedValues } from '@workspace/runtime-safety';
 import { authority, integer, keys, parseJson, record, text } from './validation';
-import { readPrivate, writePrivate } from './private-files';
+import { readPrivate, writePrivate, updatePrivate } from './private-files';
 import { CliError } from './errors';
+import { type UnknownRecord } from '@workspace/runtime-safety';
 
 export interface LocalModel {
   readonly id: string;
@@ -36,10 +37,43 @@ function parseModel(value: unknown, env: NodeJS.ProcessEnv, secrets: string[]): 
     baseUrl: authority(text(input.baseUrl, 'model baseUrl', 2048)), apiKey };
 }
 
-export function loadConfig(path: string, env: NodeJS.ProcessEnv): LocalConfig {
+/** Routing is parsed without resolving provider or MCP secrets. */
+export function configDocument(path: string): UnknownRecord {
   const input = record(existsSync(path) ? parseJson(readPrivate(path)) : { version: 1, models: [] }, 'config');
-  keys(input, ['version', 'defaultModel', 'models', 'maxSteps', 'maxOutputTokens', 'maxContextBytes', 'timeoutSeconds'], 'config');
+  keys(input, ['version', 'remote', 'defaultModel', 'models', 'maxSteps', 'maxOutputTokens', 'maxContextBytes', 'timeoutSeconds'], 'config');
   if (input.version !== 1) throw new CliError('config_version', 'Only CLI config version 1 is supported.');
+  return input;
+}
+
+export interface RemoteConfiguration {
+  readonly enabled: boolean;
+  readonly url?: string;
+}
+
+export function remoteConfiguration(input: UnknownRecord): RemoteConfiguration {
+  if (input.remote === undefined) return { enabled: false };
+  const remote = record(input.remote, 'remote');
+  keys(remote, ['enabled', 'url'], 'remote');
+  if (typeof remote.enabled !== 'boolean') throw new CliError('invalid_remote', 'remote.enabled must be a boolean.');
+  const url = remote.url === undefined ? undefined : authority(text(remote.url, 'remote.url', 2048));
+  if (remote.enabled && !url) throw new CliError('invalid_remote', 'An enabled remote needs remote.url.');
+  return { enabled: remote.enabled, url };
+}
+
+export function configureRemote(path: string, enabled: boolean, url?: string): RemoteConfiguration {
+  let saved: RemoteConfiguration = { enabled: false };
+  updatePrivate(path, () => {
+    const input = configDocument(path);
+    const previous = remoteConfiguration(input);
+    saved = remoteConfiguration({ remote: { enabled, url: url ?? previous.url } });
+    return JSON.stringify({ ...input, remote: saved }, null, 2) + '\n';
+  });
+  return saved;
+}
+
+export function loadConfig(path: string, env: NodeJS.ProcessEnv): LocalConfig {
+  const input = configDocument(path);
+  remoteConfiguration(input);
   if (!Array.isArray(input.models) || input.models.length > 50) {
     throw new CliError('invalid_models', 'models must be an array with at most 50 entries.');
   }

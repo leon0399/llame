@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { type Options } from './arguments';
-import { initializeConfig, loadConfig, selectModel } from './config';
+import { initializeConfig, loadConfig, selectModel, configDocument, remoteConfiguration, configureRemote } from './config';
 import { commandEnvironment } from './env';
 import { CliError } from './errors';
 import { LocalStore } from './store';
@@ -18,6 +18,7 @@ export class Application {
 
   async execute(): Promise<void> {
     const { positionals } = this.options;
+    if (positionals[0] === 'remote') { this.connection(); return; }
     if (positionals[0] === 'auth') { await this.auth(positionals[1] || 'status'); return; }
     if (positionals[0] === 'config') {
       if (this.options.remote || positionals[1] !== 'init') throw new CliError('command', 'Use config init in local mode.');
@@ -31,7 +32,7 @@ export class Application {
   private async withStore(store: LocalStore): Promise<void> {
     const [command, action, id] = this.options.positionals;
     if (command === 'status') {
-      this.output.value({ mode: this.options.remote ? 'remote' : 'local', nodeId: store.nodeId, remote: this.options.remote ?? null, enrolled: false }); return;
+      this.output.value({ mode: this.options.remote ? 'remote' : 'local', modeSource: this.options.modeSource, nodeId: store.nodeId, remote: this.options.remote ?? null, enrolled: false }); return;
     }
     if (command === 'recover') {
       if (this.options.remote) throw new CliError('command', 'recover applies only to the local executor.');
@@ -112,8 +113,20 @@ export class Application {
     }
   }
 
+  private connection(): void {
+    const [, action = 'status', url, ...extra] = this.options.positionals;
+    if (extra.length || (action !== 'enable' && url)) throw new CliError('arguments', 'Use remote enable [URL], remote disable, or remote status.');
+    if (action === 'status') {
+      this.output.value({ remote: remoteConfiguration(configDocument(this.options.config)) }); return;
+    }
+    if (action !== 'enable' && action !== 'disable') throw new CliError('command', 'Use remote enable [URL], remote disable, or remote status.');
+    const remote = configureRemote(this.options.config, action === 'enable', url);
+    this.output.value({ remote, authentication: 'unchanged' });
+    this.output.notice(remote.enabled ? 'Remote is now the default. Use auth login to authenticate, or --local for one standalone invocation.' : 'Local is now the default. Saved remote credentials were retained; auth logout revokes a session.');
+  }
+
   private authClient(): Auth {
-    if (!this.options.remote) throw new CliError('remote_required', 'Authentication needs an explicit --remote URL. Standalone mode has no account.');
+    if (!this.options.remote) throw new CliError('remote_required', 'Enable a remote with remote enable URL or supply --remote URL. Standalone mode has no account.');
     return new Auth(this.options.remote, this.options.data, this.output);
   }
 

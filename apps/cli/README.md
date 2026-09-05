@@ -1,3 +1,35 @@
+# Persistent connection update
+
+Enable a remote once, then use ordinary commands without repeating its URL:
+
+```sh
+llame remote enable https://api.example.com
+llame auth login --email you@example.com
+llame run "Use my node's configured tools"
+llame --local run "Use only my local configuration for this invocation"
+llame remote disable
+```
+
+`remote enable` changes routing, not authentication. `remote disable` retains the
+URL and saved login; `remote enable` with no URL re-enables it. Use
+`llame --remote https://api.example.com auth logout` to revoke while disabled.
+`--remote URL` and `--local` override routing for one invocation. Failures never
+change mode. Only the selected config's `remote` fields are inspected for remote
+routing; local provider/MCP secrets are not resolved or transmitted.
+
+```json
+{ "version": 1, "models": [], "remote": { "enabled": true, "url": "https://api.example.com" } }
+```
+
+The default data directory is now `$XDG_DATA_HOME/llame` or
+`~/.local/share/llame`; credentials are individual `auth/<authority-sha256>.json`
+files, separate from `~/.config/llame/cli.json` and from `state.sqlite`. The entire
+data directory is 0700 and credential files are 0600, owned by the current OS
+user. This is filesystem access control, not encryption/keychain storage.
+Do not sync the auth directory with a Personal Realm or a public dotfiles repo.
+To continue using round-one state in `~/.local/state/llame`, explicitly select it
+with `--data-dir` or `LLAME_DATA_DIR`; there is no silent copying of credentials.
+
 # llame CLI
 
 A first-party TypeScript terminal with two explicit modes:
@@ -160,7 +192,7 @@ llame --chat CHAT_UUID run "Continue from the recorded observations"
 llame recover
 ```
 
-State defaults to `$XDG_STATE_HOME/llame`, falling back to `~/.local/state/llame`.
+State defaults to `$XDG_DATA_HOME/llame`, falling back to `~/.local/share/llame`.
 `--data-dir` or `LLAME_DATA_DIR` selects another **local** directory. SQLite stores
 ordered messages, Run snapshots, append-only events and remote replay cursors.
 Snapshots bind the model, prompt, advertised tools and bounds. Credentials live

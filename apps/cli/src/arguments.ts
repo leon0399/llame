@@ -2,6 +2,7 @@ import { isString } from '@workspace/runtime-safety';
 import { parseArgs } from 'node:util';
 import { resolve } from 'node:path';
 import { defaultPaths } from './env';
+import { configDocument, remoteConfiguration } from './config';
 import { CliError } from './errors';
 import { authority, uuid } from './validation';
 
@@ -11,6 +12,7 @@ export interface Options {
   readonly data: string;
   readonly cwd: string;
   readonly remote?: string;
+  readonly modeSource: 'flag' | 'config' | 'default';
   readonly model?: string;
   readonly chat?: string;
   readonly effort?: string;
@@ -41,15 +43,23 @@ export function argumentsFor(argv: string[], env: NodeJS.ProcessEnv): Options {
   };
   const flag = (name: string) => parsed.values[name] === true;
   if (flag('local') && value('remote')) throw new CliError('mode_conflict', 'Choose --local or --remote, not both.');
-  if (value('remote') && (flag('native') || value('cwd') || value('config'))) throw new CliError('mode_conflict', 'Local config, cwd and native tool grants cannot be attached to remote execution.');
-  if (!value('remote') && value('effort')) throw new CliError('mode_conflict', '--effort is supported only by remote execution.');
+
   validateCommandFlags(parsed.positionals, value, flag);
   const defaults = defaultPaths(env);
+  const config = resolve(value('config') || defaults.config);
+  // Explicit flags, help and configuration repair do not depend on a readable
+  // default configuration. A normal invocation fails closed on malformed config.
+  const direct = flag('local') || value('remote') !== undefined;
+  const bypass = direct || flag('help') || flag('version') || ['config', 'remote'].includes(parsed.positionals[0] ?? '');
+  const saved = bypass ? { enabled: false } : remoteConfiguration(configDocument(config));
+  const remote = value('remote') ? authority(value('remote')!) : saved.enabled ? saved.url : undefined;
+  if (remote && (flag('native') || value('cwd'))) throw new CliError('mode_conflict', 'Remote execution cannot receive local Workspace grants. Use --local to override the saved remote.');
+  if (!remote && value('effort')) throw new CliError('mode_conflict', '--effort is supported only by remote execution.');
   const after = value('after') === undefined ? undefined : Number(value('after'));
   if (after !== undefined && (!Number.isSafeInteger(after) || after < 0)) throw new CliError('cursor', '--after must be a nonnegative integer.');
   return { positionals: flag('version') ? ['version'] : parsed.positionals,
-    config: resolve(value('config') || defaults.config), data: resolve(value('data-dir') || defaults.data),
-    cwd: resolve(value('cwd') || process.cwd()), remote: value('remote') ? authority(value('remote')!) : undefined,
+    config, data: resolve(value('data-dir') || defaults.data),
+    cwd: resolve(value('cwd') || process.cwd()), remote, modeSource: direct ? 'flag' : saved.enabled ? 'config' : 'default',
     model: value('model'), chat: value('chat') ? uuid(value('chat')) : undefined,
     effort: value('effort'), after, email: value('email'), native: flag('native'), json: flag('json'),
     passwordStdin: flag('password-stdin'), tokenStdin: flag('token-stdin'), help: flag('help') };
@@ -60,6 +70,9 @@ export const help = `llame — local personal runtime or remote durable-run clie
 Usage:
   llame [--local] [--native] [--model ID] [--chat UUID]
   llame [options] run "prompt"          One turn; '-' reads standard input
+  llame remote enable URL             Save the default remote (no login or upload)
+  llame remote disable                Use local by default; retain saved login
+  llame remote status                 Inspect saved connection settings
   llame config init                   Create a private local config, no overwrite
   llame models                        List configured/available models
   llame chats list | chats show UUID   Inspect chat history
@@ -71,7 +84,7 @@ Usage:
   llame recover                       Recover interrupted local runs, never replay actions
   llame status                        Show mode and local node identity
 
-Remote authentication (requires --remote https://your-hub.example):
+Remote authentication (saved enabled remote, or one-off --remote URL):
   llame --remote URL auth login --email EMAIL [--password-stdin]
   llame --remote URL auth import --token-stdin
   llame --remote URL auth status
@@ -79,13 +92,13 @@ Remote authentication (requires --remote https://your-hub.example):
   llame --remote URL auth forget       Remove locally only; DOES NOT revoke remotely
 
 Options:
-  --config FILE   Local JSON config (default: XDG_CONFIG_HOME/llame/cli.json)
-  --data-dir DIR Private state (default: XDG_STATE_HOME/llame)
+  --config FILE   User JSON config (default: XDG_CONFIG_HOME/llame/cli.json)
+  --data-dir DIR Private state (default: XDG_DATA_HOME/llame)
   --cwd DIR      Advertised local startup Workspace; only used with --native
   --native       Explicit native Workspace placement, NOT an OS/network sandbox.
                  Writes and processes still require individual terminal approval.
-  --remote URL   Execute on the remote node. Never uploads local config or files.
-  --local        Explicit standalone mode (the default); no Hub/account required.
+  --remote URL   Override the saved remote for one invocation; does not save it.
+  --local        One-invocation standalone override, even with an enabled remote.
   --model ID     Select a local configuration ID or a remote model ID
   --effort VALUE Remote provider effort token, validated by the server
   --chat UUID    Continue that chat, otherwise a fresh chat is created
