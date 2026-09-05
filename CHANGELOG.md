@@ -15,6 +15,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - **UTC-stable auth timestamps**: the remaining naive auth timestamp columns
   migrate to `timestamptz` with explicit UTC conversion.
+- **Reasoning summaries**: native OpenAI Responses persist one reasoning part
+  per SDK part id (`summary_index`). Chat Completions persist-path unglue runs
+  once on the finished part, not per delta. Display still unglues a `****` run
+  for relays and history persisted before that boundary. Consecutive summaries
+  share one Thinking panel; a tool call still splits panels so occurrence
+  order is preserved.
 - **Repository quality gates**: standard lint, component-test, coverage, static
   analysis, and mutation commands now run through package scripts and CI.
 - **Mutation testing**: API mutation runs are sharded in CI and aggregated into

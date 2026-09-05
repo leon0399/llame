@@ -419,7 +419,7 @@ function scriptedStreamHandlers(
       if (chunk.type === 'text-delta') {
         input.onTextDelta?.(chunk.text);
       } else if (chunk.type === 'reasoning-delta') {
-        input.onReasoningDelta?.(chunk.text);
+        input.onReasoningDelta?.(chunk.text, chunk.id);
       }
     },
     onError: input.onError,

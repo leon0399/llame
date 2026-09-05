@@ -22,6 +22,7 @@ import { type RunEvent } from '../db/schema';
 import { type MessagePart } from '../chats/context-builder';
 import { normalizeToolObservationOutcome } from '../chats/tool-observation-part';
 import { type ToolResult } from '../tools/types';
+import { separateGluedReasoningBlocks } from './reasoning-summaries';
 
 /**
  * Cap on persisted reasoning text. Reasoning is display-only (stripped from
@@ -75,6 +76,8 @@ class AssistantPartCollectorImpl {
   // Ids whose outcome is already recorded, by either path. Settlement is
   // at-most-once per call (design D6, first writer wins).
   private readonly settledToolCallIds = new Set<string>();
+  private readonly idBackedReasoning = new Set<MessagePart>();
+  private openReasoningPartId: string | undefined;
 
   text(text: string): void {
     if (text.length === 0) return;
@@ -86,14 +89,32 @@ class AssistantPartCollectorImpl {
     this.collected.push({ type: 'text', text });
   }
 
-  reasoning(text: string): void {
+  reasoning(text: string, partId?: string): void {
     if (text.length === 0) return;
     const last = this.collected.at(-1);
-    if (last?.type === 'reasoning' && isString(last.text)) {
+    if (
+      last?.type === 'reasoning' &&
+      isString(last.text) &&
+      !this.isNewReasoningPart(partId)
+    ) {
       last.text += text;
+      this.openReasoningPartId = partId ?? this.openReasoningPartId;
       return;
     }
-    this.collected.push({ type: 'reasoning', text });
+    this.openReasoningPartId = partId;
+    const part: MessagePart = { type: 'reasoning', text };
+    if (partId !== undefined) {
+      this.idBackedReasoning.add(part);
+    }
+    this.collected.push(part);
+  }
+
+  private isNewReasoningPart(partId?: string): boolean {
+    return (
+      partId !== undefined &&
+      this.openReasoningPartId !== undefined &&
+      partId !== this.openReasoningPartId
+    );
   }
 
   toolRequested(toolCallId: string): void {
@@ -129,17 +150,21 @@ class AssistantPartCollectorImpl {
         // provider failure after tool.requested leaves the request in the
         // event log, while avoiding an invalid UI tool-part snapshot.
         .filter((part): part is MessagePart => part.type !== 'pending-tool')
-        .map((part) =>
-          part.type === 'reasoning' &&
-          isString(part.text) &&
-          part.text.length > REASONING_PERSIST_MAX
-            ? {
-                ...part,
-                text: `${part.text.slice(0, REASONING_PERSIST_MAX)}…`,
-              }
-            : part,
-        )
+        .map((part) => this.persistedPart(part))
     );
+  }
+
+  private persistedPart(part: MessagePart): MessagePart {
+    if (part.type !== 'reasoning' || !isString(part.text)) {
+      return part;
+    }
+    const text = this.idBackedReasoning.has(part)
+      ? part.text
+      : separateGluedReasoningBlocks(part.text);
+    if (text.length > REASONING_PERSIST_MAX) {
+      return { ...part, text: `${text.slice(0, REASONING_PERSIST_MAX)}…` };
+    }
+    return text === part.text ? part : { ...part, text };
   }
 }
 
@@ -227,6 +252,7 @@ class DurableAssistantReconstructor {
       case 'reasoning.delta':
         this.collector.reasoning(
           eventPayloadString(event.payload, 'text') ?? '',
+          eventPayloadString(event.payload, 'partId'),
         );
         return;
       case 'run.step_cap_reached':

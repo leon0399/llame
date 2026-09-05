@@ -219,10 +219,16 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     if (text.length === 0) {
       return [];
     }
+    const partId = payloadString(event.payload, 'partId');
     const chunks = [...this.prelude(), ...this.closeText()];
     if (this.openReasoningId === null) {
       this.reasoningPartCount += 1;
-      this.openReasoningId = `reasoning-${this.reasoningPartCount}`;
+      this.openReasoningId = partId ?? `reasoning-${this.reasoningPartCount}`;
+      chunks.push({ type: 'reasoning-start', id: this.openReasoningId });
+    } else if (partId !== undefined && partId !== this.openReasoningId) {
+      chunks.push({ type: 'reasoning-end', id: this.openReasoningId });
+      this.reasoningPartCount += 1;
+      this.openReasoningId = partId;
       chunks.push({ type: 'reasoning-start', id: this.openReasoningId });
     }
     chunks.push({
