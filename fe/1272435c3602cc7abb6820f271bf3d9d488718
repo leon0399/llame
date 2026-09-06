@@ -1,0 +1,352 @@
+CONTRIBUTING.md
+  c2a5c36dd9b7202b 6-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "fe1272435c3602cc7abb6820f271bf3d9d488718",
+  "prompts": {
+    "c2a5c36dd9b7202b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "76704c75-c803-4443-9ab1-dfb127e36c99",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "Make all skills in the @.claude/skills/ follow the same approach with canonical in the `.agent/skills` and symlinks to it (and also do it for the @.opencode/skills/ and @.codex/skills/). Create a branch, do it, and commit.",
+          "timestamp": "2026-09-06T20:43:48.888Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame; echo \"== git ==\"; git status --short; git branch --show-current; echo \"== top-level dotdirs ==\"; ls -la | grep -E '^\\.|^d' | head -40; echo \"== .agent* ==\"; ls -la .agent .agents 2>&1 | head -20",
+            "description": "Inspect repo layout and dotdirs"
+          },
+          "timestamp": "2026-09-06T20:43:55.553Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame; echo \"== .agents/skills ==\"; ls -la .agents/skills; echo \"== .claude/skills ==\"; ls -la .claude/skills; echo \"== .opencode/skills ==\"; ls -la .opencode/skills; echo \"== .codex/skills ==\"; ls -la .codex/skills",
+            "description": "List all skills directories with symlink info"
+          },
+          "timestamp": "2026-09-06T20:44:07.266Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame; for s in openspec-apply-change openspec-archive-change openspec-explore openspec-propose openspec-sync-specs; do echo \"== $s ==\"; diff -r .claude/skills/$s .opencode/skills/$s && echo \"claude==opencode\"; diff -r .claude/skills/$s .codex/skills/$s && echo \"claude==codex\"; done",
+            "description": "Diff openspec skills across the three harness dirs"
+          },
+          "timestamp": "2026-09-06T20:44:12.952Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame; echo \"== codex vs opencode ==\"; diff -r .codex/skills .opencode/skills; echo \"-- exit $? --\"; echo \"== prettierignore ==\"; cat .prettierignore 2>/dev/null; echo \"== markdownlint cfg files ==\"; ls -a | grep -iE 'markdown|prettier|editorconfig'; echo \"== lint scripts ==\"; sed -n '1,60p' package.json",
+            "description": "Compare codex vs opencode skills; inspect format/lint config"
+          },
+          "timestamp": "2026-09-06T20:44:23.822Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame; echo \"== .opencode tree ==\"; find .opencode -maxdepth 2 | head -30; echo \"== .codex tree ==\"; find .codex -maxdepth 2 | head -30; echo \"== .claude tree(1) ==\"; ls -la .claude; echo \"== .agents/skills tree ==\"; find .agents/skills -maxdepth 2 | head -40; echo \"== markdownlint cfg ==\"; cat .markdownlint-cli2.jsonc; echo \"== gitignore hits ==\"; grep -nE 'claude|codex|opencode|agents' .gitignore",
+            "description": "Inspect harness dirs, markdownlint config, gitignore"
+          },
+          "timestamp": "2026-09-06T20:44:44.952Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame; echo \"== openspec dep ==\"; grep -rn '\"openspec\"' package.json apps/*/package.json packages/*/package.json 2>/dev/null; ls node_modules/openspec 2>/dev/null | head; echo \"== openspec pkg version ==\"; node -e \"console.log(require('./node_modules/openspec/package.json').version)\" 2>&1; echo \"== does openspec ship skill templates? ==\"; grep -rln 'openspec-apply-change' node_modules/openspec 2>/dev/null | head -20",
+            "description": "Check whether openspec CLI generates these skill dirs"
+          },
+          "timestamp": "2026-09-06T20:45:10.551Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame; echo \"== devDeps tail ==\"; sed -n '60,100p' package.json; echo \"== openspec bin ==\"; ls node_modules/.bin | grep -i openspec; echo \"== git log skills ==\"; git log --oneline -8 -- .claude/skills .opencode/skills .codex/skills .agents/skills; echo \"== git ls-files symlink modes ==\"; git ls-files -s .claude/skills | head -20",
+            "description": "Find openspec dependency and skill dir history"
+          },
+          "timestamp": "2026-09-06T20:45:17.828Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame; command -v openspec; openspec --version 2>&1 | head -3; echo \"== help ==\"; openspec --help 2>&1 | head -40",
+            "description": "Check openspec CLI availability and commands"
+          },
+          "timestamp": "2026-09-06T20:45:27.059Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame; openspec update --help 2>&1 | head -30",
+            "description": "Read openspec update help"
+          },
+          "timestamp": "2026-09-06T20:45:41.392Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Skill",
+          "input": {
+            "args": "full",
+            "skill": "ponytail"
+          },
+          "timestamp": "2026-09-06T20:45:41.426Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.claude/skills/ponytail\n\n# Ponytail\n\nYou are a lazy senior developer. Lazy means efficient, not careless. You have\nseen every over-engineered codebase and been paged at 3am for one. The best\ncode is the code never written.\n\n## Persistence\n\nACTIVE EVERY RESPONSE. No drift back to over-building. Still active if\nunsure. Off only: \"stop ponytail\" / \"normal mode\". Default: **full**.\nSwitch: `/ponytail lite|full|ultra`.\n\n## The ladder\n\nStop at the first rung that holds:\n\n1. **Does this need to exist at all?** Speculative need = skip it, say so in one line. (YAGNI)\n2. **Already in this codebase?** A helper, util, type, or pattern that already lives here → reuse it. Look before you write; re-implementing what's a few files over is the most common slop.\n3. **Stdlib does it?** Use it.\n4. **Native platform feature covers it?** `<input type=\"date\">` over a picker lib, CSS over JS, DB constraint over app code.\n5. **Already-installed dependency solves it?** Use it. Never add a new one for what a few lines can do.\n6. **Can it be one line?** One line.\n7. **Only then:** the minimum code that works.\n\nThe ladder is a reflex, not a research project — but it runs *after* you\nunderstand the problem, not instead of it. Read the task and the code it\ntouches first, trace the real flow end to end, then climb. Two rungs work →\ntake the higher one and move on. The first lazy solution that works is the\nright one — once you actually know what the change has to touch.\n\n**Bug fix = root cause, not symptom.** A report names a symptom. Before you\nedit, grep every caller of the function you're about to touch. The lazy fix IS\nthe root-cause fix: one guard in the shared function is a smaller diff than a\nguard in every caller — and patching only the path the ticket names leaves\nevery sibling caller still broken. Fix it once, where all callers route through.\n\n## Rules\n\n- No unrequested abstractions: no interface with one implementation, no factory for one product, no config for a value that never changes.\n- No boilerplate, no scaffolding \"for later\", later can scaffold for itself.\n- Deletion over addition. Boring over clever, clever is what someone decodes at 3am.\n- Fewest files possible. Shortest working diff wins — but only once you understand the problem. The smallest change in the wrong place isn't lazy, it's a second bug.\n- Complex request? Ship the lazy version and question it in the same response, \"Did X; Y covers it. Need full X? Say so.\" Never stall on an answer you can default.\n- Two stdlib options, same size? Take the one that's correct on edge cases. Lazy means writing less code, not picking the flimsier algorithm.\n- Mark deliberate simplifications that cut a real corner with a known ceiling (global lock, O(n²) scan, naive heuristic) with a `ponytail:` comment naming the ceiling and upgrade path (`# ponytail: global lock, per-account locks if throughput matters`).\n\n## Output\n\nCode first. Then at most three short lines: what was skipped, when to add it.\nNo essays, no feature tours, no design notes. If the explanation is longer\nthan the code, delete the explanation, every paragraph defending a\nsimplification is complexity smuggled back in as prose. Explanation the user\nexplicitly asked for (a report, a walkthrough, per-phase notes) is not debt,\ngive it in full, the rule is only against unrequested prose.\n\nPattern: `[code] → skipped: [X], add when [Y].`\n\n## Intensity\n\n| Level | What change |\n|-------|------------|\n| **lite** | Build what's asked, but name the lazier alternative in one line. User picks. |\n| **full** | The ladder enforced. Stdlib and native first. Shortest diff, shortest explanation. Default. |\n| **ultra** | YAGNI extremist. Deletion before addition. Ship the one-liner and challenge the rest of the requirement in the same breath. |\n\nExample: \"Add a cache for these API responses.\"\n- lite: \"Done, cache added. FYI: `functools.lru_cache` covers this in one line if you'd rather not own a cache class.\"\n- full: \"`@lru_cache(maxsize=1000)` on the fetch function. Skipped custom cache class, add when lru_cache measurably falls short.\"\n- ultra: \"No cache until a profiler says so. When it does: `@lru_cache`. A hand-rolled TTL cache class is a bug farm with a hit rate.\"\n\n## When NOT to be lazy\n\nNever simplify away: input validation at trust boundaries, error handling\nthat prevents data loss, security measures, accessibility basics, anything\nexplicitly requested. User insists on the full version → build it, no\nre-arguing.\n\nNever lazy about understanding the problem. The ladder shortens the\nsolution, never the reading. Trace the whole thing first — every file the\nchange touches, the actual flow — before picking a rung. Laziness that skips\ncomprehension to ship a small diff is the dangerous kind: it dresses up as\nefficiency and ships a confident wrong fix. Read fully, then be lazy.\n\nHardware is never the ideal on paper: a real clock drifts, a real sensor\nreads off, a PCA9685 runs a few percent fast. Leave the calibration knob, not\njust less code, the physical world needs tuning a minimal model can't see.\n\nLazy code without its check is unfinished. Non-trivial logic (a branch, a\nloop, a parser, a money/security path) leaves ONE runnable check behind, the\nsmallest thing that fails if the logic breaks: an `assert`-based\n`demo()`/`__main__` self-check or one small `test_*.py`. No frameworks, no\nfixtures, no per-function suites unless asked. Trivial one-liners need no\ntest, YAGNI applies to tests too.\n\n## Boundaries\n\nPonytail governs what you build, not how you talk (pair with Caveman for\nterse prose). \"stop ponytail\" / \"normal mode\": revert. Level persists until\nchanged or session end.\n\nThe shortest path to done is the right path.\n\n\nARGUMENTS: full",
+          "timestamp": "2026-09-06T20:45:43.894Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame; git fetch --quiet origin 2>&1 | head -3; git switch -c chore/canonical-agent-skills 2>&1; echo \"== openspec pkg source ==\"; p=$(readlink -f $(command -v openspec)); echo \"$p\"; d=$(dirname $(dirname \"$p\")); echo \"$d\"; ls \"$d\" 2>/dev/null | head",
+            "description": "Create branch and locate openspec package dir"
+          },
+          "timestamp": "2026-09-06T20:47:28.068Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /nix/store/hkpvirr12h3qxxgx9ykh940n31b5m7j8-openspec-1.12.0; rg -l 'opsx-apply' . 2>/dev/null | head -5; echo \"-- dash hits above --\"; rg -l 'openspec-apply-change' . 2>/dev/null | head -5; echo \"-- skill-name hits above --\"",
+            "description": "Check if openspec ships dash-form opencode templates"
+          },
+          "timestamp": "2026-09-06T20:47:36.005Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame\nset -e\nfor s in openspec-apply-change openspec-archive-change openspec-explore openspec-propose openspec-sync-specs; do\n  git mv \".claude/skills/$s\" \".agents/skills/$s\"\n  git rm -rq \".opencode/skills/$s\" \".codex/skills/$s\"\n  for d in .claude .opencode .codex; do\n    ln -s \"../../.agents/skills/$s\" \"$d/skills/$s\"\n  done\ndone\necho \"== result ==\"\nls -la .claude/skills .opencode/skills .codex/skills",
+            "description": "Move openspec skills to .agents and create symlinks"
+          },
+          "timestamp": "2026-09-06T20:47:45.513Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame\necho \"== broken links? ==\"; find .claude/skills .opencode/skills .codex/skills -maxdepth 1 -xtype l -print | sed 's/^/BROKEN: /'; echo \"(none above = all resolve)\"\necho \"== canonical content spot-check ==\"; head -5 .agents/skills/openspec-propose/SKILL.md; wc -l .agents/skills/openspec-*/SKILL.md\ngit add -A .claude/skills .opencode/skills .codex/skills .agents/skills\necho \"== staged ==\"; git status --short",
+            "description": "Verify symlinks resolve and stage changes"
+          },
+          "timestamp": "2026-09-06T20:47:57.102Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame\nSC=/tmp/claude-1000/-home-leon0399-Projects-llame/76704c75-c803-4443-9ab1-dfb127e36c99/scratchpad\nmkdir -p \"$SC\"\necho \"== prettier traversal probe ==\"; pnpm exec prettier --check .opencode/skills .codex/skills > \"$SC/pfx.log\" 2>&1; echo \"exit=$?\"; cat \"$SC/pfx.log\"",
+            "description": "Probe whether prettier traverses the new symlinks"
+          },
+          "timestamp": "2026-09-06T20:48:02.793Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame\nSC=/tmp/claude-1000/-home-leon0399-Projects-llame/76704c75-c803-4443-9ab1-dfb127e36c99/scratchpad\npnpm format:check > \"$SC/fmt.log\" 2>&1; echo \"format:check exit=$?\"\npnpm lint:markdown > \"$SC/md.log\" 2>&1; echo \"lint:markdown exit=$?\"\ngit diff --check; echo \"diff --check exit=$?\"\necho \"== fmt tail ==\"; tail -6 \"$SC/fmt.log\"\necho \"== md tail ==\"; tail -6 \"$SC/md.log\"",
+            "description": "Run format:check, markdown lint, whitespace check"
+          },
+          "timestamp": "2026-09-06T20:48:23.239Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame\ngit commit -F - <<'EOF'\nchore(skills): dedupe openspec skills into .agents/skills\n\nThe five openspec-* skills existed as three near-identical copies under\n.claude, .opencode, and .codex, while every other skill already lived once\nin .agents/skills with symlinks per harness. Move them to .agents/skills\nand symlink all three harness directories at it.\n\nThe .claude copy becomes canonical: .agents/ is prettier-ignored, so it\ncarries openspec's raw generated text, while the .opencode and .codex\ncopies had drifted through `pnpm format`. This drops the one real content\ndifference, opencode's `/opsx-apply` dash form; its examples now read\n`/opsx:apply`.\n\n`openspec update` generates these files per tool (dist/utils/command-\nreferences.js), so a future run rewrites the symlinks as real files again,\nthe same way it would overwrite any local edit to them today.\n\nVerified: pnpm format:check, pnpm lint:markdown, git diff --check.\nPrettier does not traverse the new symlinks, so .prettierignore is\nunchanged.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_011ti5my3kue6mqBtAomRniv\nEOF\necho \"exit=$?\"",
+            "description": "Commit the deduplication"
+          },
+          "timestamp": "2026-09-06T20:50:06.133Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Done. Branch `chore/canonical-agent-skills`, commit `b87997d6` — 30 files, 1772 deletions, all five `openspec-*` skills now live once in `.agents/skills/` with `120000` symlinks from `.claude`, `.opencode`, and `.codex`.\n\nDecisions I made:\n\n- **Canonical = the `.claude` copy.** `.agents/` is prettier-ignored, so it holds openspec's raw generated text; the `.opencode`/`.codex` copies had drifted through `pnpm format`.\n- **Dropped opencode's `/opsx-apply` dash form** — the only real content difference (4 lines of example prose across 3 files). Its examples now read `/opsx:apply`. Hand-editing them back would make every future `openspec update` diff noisier for zero function.\n- **Converted only what already existed** (R1). `.opencode`/`.codex` still carry just the openspec five; mirroring `shadcn`, `turborepo`, `design-md`, `agents-best-practices`, `migrate-radix-to-base` into them is a capability change, not this dedup. Say the word and it's five more symlinks each.\n\nTwo things to know:\n\n- `openspec update` generates these per tool (`dist/utils/command-references.js` substitutes the command form), so a future run overwrites the symlinks with real files — same as it would overwrite any local edit today. In the commit body.\n- Claude Code demonstrably follows symlinked skill dirs (the pre-existing five load in this session). Whether OpenCode's and Codex's loaders do is **unverified from here** — worth opening either harness in the repo once to confirm.\n\nVerified: `pnpm format:check`, `pnpm lint:markdown`, `git diff --check` all clean; prettier does not traverse the new symlinks, so `.prettierignore` is unchanged. Not pushed, no PR.\n\nLeft alone: `agents-best-practices` still has a trailing slash on its symlink target, the one cosmetic outlier — fixing it is diff noise for no behavior change.",
+          "timestamp": "2026-09-06T20:50:33.236Z"
+        },
+        {
+          "type": "user",
+          "text": "fix it in a separate commit, and then sweep skills mentioned in the repo instructions (e.g., CONTRIBUTING and similar) and copy them to the `.agents/skills` and symlink to the `.claude/skills` - so the behavior is reproducible",
+          "timestamp": "2026-09-06T20:52:36.846Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame\ngit mv .claude/skills/agents-best-practices /tmp/claude-1000/-home-leon0399-Projects-llame/76704c75-c803-4443-9ab1-dfb127e36c99/scratchpad/x 2>/dev/null || true\nrm -f .claude/skills/agents-best-practices\nln -s ../../.agents/skills/agents-best-practices .claude/skills/agents-best-practices\nls -la .claude/skills/agents-best-practices\ngit add .claude/skills/agents-best-practices\ngit status --short",
+            "description": "Normalize agents-best-practices symlink target"
+          },
+          "timestamp": "2026-09-06T20:52:50.191Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame\necho \"== \\$skill refs in tracked md ==\"\ngit grep -nE '\\$[a-z][a-z0-9-]+' -- '*.md' ':!openspec/changes' ':!docs/research' ':!CHANGELOG.md' | grep -vE '\\$\\{|\\$[A-Z]' | head -40\necho \"== 'skill' word in root instruction files ==\"\ngit grep -niE 'skill' -- CONTRIBUTING.md AGENTS.md REVIEW_GUIDE.md SPEC.md VISION.md ROADMAP.md CODING_STANDARDS.md README.md DESIGN.md | head -40",
+            "description": "Sweep repo instructions for skill references"
+          },
+          "timestamp": "2026-09-06T20:52:53.324Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame\necho \"== broader sweep: skill-ish refs in tracked instruction md ==\"\ngit grep -nE '\\$[a-z][a-z0-9:-]{3,}|`/[a-z][a-z0-9:-]{3,}`|\\bskill\\b' -- '*AGENTS.md' '*REVIEW_GUIDE.md' 'CONTRIBUTING.md' 'CODING_STANDARDS.md' '.github/**' ':!.agents' | grep -viE 'json|\\$schema' | head -40\necho\necho \"== where do gh-stack / iterative-review-refinement live? ==\"\nfor s in gh-stack iterative-review-refinement; do echo \"-- $s --\"; find /home/leon0399/.claude /home/leon0399/.agents -maxdepth 6 -name \"$s\" -not -path '*/worktrees/*' 2>/dev/null; done",
+            "description": "Broader skill-reference sweep and locate external skills"
+          },
+          "timestamp": "2026-09-06T20:53:11.353Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "set -e\necho \"== links ==\"; ls -la /home/leon0399/.claude/skills/ | grep -E 'gh-stack|iterative-review'\necho \"== sizes / trees ==\"; du -sh /home/leon0399/.agents/skills/gh-stack /home/leon0399/.agents/skills/iterative-review-refinement\nfind /home/leon0399/.agents/skills/gh-stack /home/leon0399/.agents/skills/iterative-review-refinement -type f | head -30\necho \"== frontmatter ==\"\nhead -12 /home/leon0399/.agents/skills/gh-stack/SKILL.md\necho \"---8<---\"\nhead -12 /home/leon0399/.agents/skills/iterative-review-refinement/SKILL.md\necho \"== canonical source (dotfiles?) ==\"; readlink -f /home/leon0399/.agents/skills/gh-stack; readlink -f /home/leon0399/.agents/skills/iterative-review-refinement",
+            "description": "Inspect the two externally-referenced skills"
+          },
+          "timestamp": "2026-09-06T20:53:28.262Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "echo \"== gh-stack files ==\"; find -L /home/leon0399/.agents/skills/gh-stack -type f | head -20; echo; wc -l /home/leon0399/.agents/skills/gh-stack/SKILL.md /home/leon0399/.agents/skills/iterative-review-refinement/SKILL.md\necho \"== agent/plugin deps referenced by iterative-review-refinement ==\"\ngrep -nE 'agent|subagent|plugin:|Task tool|codex' /home/leon0399/.agents/skills/iterative-review-refinement/SKILL.md | head -20\necho \"== gh-stack external deps ==\"\ngrep -nE 'gh stack|npm|install|plugin:' /home/leon0399/.agents/skills/gh-stack/SKILL.md | head -10\necho \"== do those agents exist locally? ==\"\nls /home/leon0399/.claude/agents/ 2>/dev/null | grep -iE 'iterative|adversarial|review' ",
+            "description": "Inspect skill contents and their agent dependencies"
+          },
+          "timestamp": "2026-09-06T20:53:45.502Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame\ngit commit -q -F - <<'EOF'\nchore(skills): drop trailing slash from agents-best-practices symlink\n\nThe only skill symlink whose target ended in `/`. Cosmetic; every other\nlink in .claude/skills points at a bare directory path.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_011ti5my3kue6mqBtAomRniv\nEOF\necho \"exit=$?\"; git log --oneline -2\necho \"== gh-stack upstream provenance ==\"; cat /home/leon0399/.agents/skills/gh-stack/.upstream.json",
+            "description": "Commit symlink normalization; read gh-stack provenance"
+          },
+          "timestamp": "2026-09-06T20:54:05.666Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "grep -niE 'license|source|adapted|credit|http' /home/leon0399/.agents/skills/iterative-review-refinement/SKILL.md | head -10; echo \"-- none above means no attribution --\"; echo \"== tail ==\"; tail -12 /home/leon0399/.agents/skills/iterative-review-refinement/SKILL.md",
+            "description": "Check iterative-review-refinement provenance/license"
+          },
+          "timestamp": "2026-09-06T20:54:17.482Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame\necho \"== is it a known plugin/marketplace skill? ==\"\nfind /home/leon0399/.claude/plugins /home/leon0399/.claude/marketplaces -maxdepth 6 -name 'iterative-review-refinement*' 2>/dev/null | head -5\ngrep -rl \"One reviewer is anecdote\" /home/leon0399/.claude/plugins 2>/dev/null | head -3\necho \"(nothing above = not from an installed plugin)\"\necho \"== copy ==\"\ncp -r /home/leon0399/.agents/skills/gh-stack .agents/skills/gh-stack\nmkdir -p .agents/skills/iterative-review-refinement\ncp /home/leon0399/.agents/skills/iterative-review-refinement/SKILL.md .agents/skills/iterative-review-refinement/SKILL.md\nfor s in gh-stack iterative-review-refinement; do ln -s \"../../.agents/skills/$s\" \".claude/skills/$s\"; done\nfind .agents/skills/gh-stack .agents/skills/iterative-review-refinement -type f | sort\nls -la .claude/skills | grep -E 'gh-stack|iterative'",
+            "description": "Check provenance and vendor the two skills"
+          },
+          "timestamp": "2026-09-06T20:54:31.029Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame\nrm -rf .agents/skills/gh-stack\ncp -rL /home/leon0399/.agents/skills/gh-stack .agents/skills/gh-stack\nchmod -R u+w .agents/skills/gh-stack\nfind .agents/skills/gh-stack -type f | sort\necho \"== no symlinks/junk under canonical? ==\"; find .agents/skills/gh-stack .agents/skills/iterative-review-refinement \\( -type l -o -name '*Zone.Identifier*' \\) | sed 's/^/BAD: /'; echo \"(none above = clean)\"\necho \"== perms ==\"; ls -la .agents/skills/gh-stack",
+            "description": "Redo gh-stack copy dereferencing symlinks"
+          },
+          "timestamp": "2026-09-06T20:54:43.554Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame; ls -la .agents/skills/gh-stack; test -L .agents/skills/gh-stack && rm .agents/skills/gh-stack && echo \"removed symlink\"; ls .agents/skills",
+            "description": "Remove the dangling gh-stack symlink"
+          },
+          "timestamp": "2026-09-06T20:54:48.354Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame\ncp -rL /home/leon0399/.agents/skills/gh-stack .agents/skills/gh-stack\nchmod -R u+w .agents/skills/gh-stack\nfind .agents/skills/gh-stack -type f | sort\necho \"== junk/symlink check ==\"; find .agents/skills/gh-stack .agents/skills/iterative-review-refinement \\( -type l -o -name '*Zone.Identifier*' \\) | sed 's/^/BAD: /'; echo \"(none above = clean)\"\necho \"== link resolution ==\"; find .claude/skills -maxdepth 1 -xtype l | sed 's/^/BROKEN: /'; echo \"(none above = all resolve)\"\nhead -3 .claude/skills/gh-stack/SKILL.md",
+            "description": "Copy gh-stack dereferenced and verify"
+          },
+          "timestamp": "2026-09-06T20:54:54.127Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame; sed -n '1,45p' CONTRIBUTING.md",
+            "description": "Read CONTRIBUTING head for placement"
+          },
+          "timestamp": "2026-09-06T20:55:06.180Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame; cat .prettierrc* prettier.config* 2>/dev/null | head -20; grep -n '\"prettier\"' -A15 package.json | head -20",
+            "description": "Read prettier config for proseWrap"
+          },
+          "timestamp": "2026-09-06T20:55:11.395Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame; ls -a | grep -i prettier; cat .prettierrc.json 2>/dev/null; cat .prettierrc.yaml 2>/dev/null; find . -maxdepth 1 -name 'prettier*' -o -maxdepth 1 -name '.prettier*' | cat",
+            "description": "Locate prettier config file"
+          },
+          "timestamp": "2026-09-06T20:55:17.608Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/CONTRIBUTING.md",
+            "new_string": "This file owns delivery from issue through merge. The closest `AGENTS.md` owns\nimplementation details.\n\n`$name` below names an agent skill vendored in\n[`.agents/skills`](.agents/skills). Each harness directory —\n`.claude/skills`, `.opencode/skills`, `.codex/skills` — symlinks the skills it\nloads, so a clone carries every skill this file asks you to run.\n\n## Gates",
+            "old_string": "This file owns delivery from issue through merge. The closest `AGENTS.md` owns\nimplementation details.\n\n## Gates",
+            "replace_all": false
+          },
+          "timestamp": "2026-09-06T20:55:23.813Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame\nSC=/tmp/claude-1000/-home-leon0399-Projects-llame/76704c75-c803-4443-9ab1-dfb127e36c99/scratchpad\ngit add -A .agents/skills .claude/skills CONTRIBUTING.md\npnpm format:check > \"$SC/fmt2.log\" 2>&1; echo \"format:check exit=$?\"\npnpm lint:markdown > \"$SC/md2.log\" 2>&1; echo \"lint:markdown exit=$?\"\ngit diff --cached --check; echo \"diff --check exit=$?\"\ntail -3 \"$SC/fmt2.log\"; tail -3 \"$SC/md2.log\"\necho \"== staged ==\"; git status --short",
+            "description": "Verify formatting and lint before commit"
+          },
+          "timestamp": "2026-09-06T20:55:33.154Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame\ngit commit -q -F - <<'EOF'\nchore(skills): vendor the skills CONTRIBUTING tells you to run\n\nCONTRIBUTING.md names six skills with `$name`. Four were the openspec ones\nalready in .agents/skills; `$gh-stack` and `$iterative-review-refinement`\nexisted only in Leo's machine-level ~/.agents/skills, so the documented\nworkflow was unreproducible from a clone. Vendor both and symlink them into\n.claude/skills, and say in CONTRIBUTING what `$name` refers to.\n\ngh-stack keeps its .upstream.json (github/gh-stack @ 14fc42e).\niterative-review-refinement carries no provenance or license metadata —\nconfirm its source before this branch is published.\n\nNot vendored: the `iterative-review-reviewer` and\n`adversarial-reviewer-fallback` agent definitions the skill can use. It\nnames reviewer roles generically and degrades without them; vendoring\nagents is a separate decision from vendoring skills.\n\nVerified: pnpm format:check, pnpm lint:markdown, git diff --check.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_011ti5my3kue6mqBtAomRniv\nEOF\necho \"exit=$?\"; git log --oneline -3; git status --short",
+            "description": "Commit vendored skills and CONTRIBUTING note"
+          },
+          "timestamp": "2026-09-06T20:57:11.900Z"
+        }
+      ],
+      "total_additions": 5,
+      "total_deletions": 0,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  }
+}
