@@ -16,9 +16,13 @@ import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
 
-describe('Node HTTP adapter through the real session and tenant boundaries', () => {
+const hasDb = !!process.env.POSTGRES_URL;
+const d = hasDb ? describe : describe.skip;
+
+d('Node HTTP adapter through the real session and tenant boundaries', () => {
   let app: INestApplication<import('http').Server>;
   let http: import('http').Server;
   let root = '';
@@ -61,6 +65,8 @@ describe('Node HTTP adapter through the real session and tenant boundaries', () 
     const testingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
+      .overrideProvider(CanonicalSearchCoverageService)
+      .useValue({ assertReady: () => Promise.resolve() })
       .overrideProvider(InstanceConfigService)
       .useValue({
         config: {

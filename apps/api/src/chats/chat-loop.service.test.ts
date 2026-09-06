@@ -363,8 +363,10 @@ describe('ChatLoopService.acceptMessage', () => {
   it('returns durable identities after dispatch without opening a UI stream', async () => {
     const f = makeService();
     const accepted = await f.service.acceptMessage(input);
+    const createdId = f.createRun.mock.calls[0]?.[0]?.id;
+    expect(createdId).toEqual(expect.any(String));
     expect(accepted).toEqual({
-      runId: run.id,
+      runId: createdId,
       chatId: chat.id,
       messageId: userMessage.id,
     });

@@ -6,7 +6,10 @@
  * OpenAPI spec version: 0.1
  */
 import type {
+  AcceptedNodeRunResponse,
   ContextReceiptResponse,
+  CreateNodeRunDto,
+  ModelDomainErrorResponse,
   RunResponse,
   UpdateRunDto,
 } from "../models";
@@ -122,5 +125,57 @@ export const getRunContextReceipt = async (
     throw err;
   }
   const data: ContextReceiptResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type createNodeRunError =
+  | void
+  | void
+  | void
+  | void
+  | ModelDomainErrorResponse
+  | void
+  | ModelDomainErrorResponse;
+
+export const getCreateNodeRunUrl = () => {
+  return `/api/v1/runs`;
+};
+
+/**
+ * Same acceptance transaction and dispatcher as createChatMessage. Disconnect does not cancel execution. Duplicate message IDs conflict; clients must not automatically retry an uncertain submission.
+ * @summary Admit an owner message and queue its durable Run, independently of event attachment
+ */
+export const createNodeRun = async (
+  createNodeRunDto: CreateNodeRunDto,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<AcceptedNodeRunResponse> => {
+  const res = await fetchFn(getCreateNodeRunUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createNodeRunDto),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: createNodeRunError;
+      status?: number;
+    } = new globalThis.Error(
+      `POST ${getCreateNodeRunUrl()} failed (${res.status})`,
+    );
+    const data: createNodeRunError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: AcceptedNodeRunResponse = body ? JSON.parse(body) : {};
   return data;
 };
