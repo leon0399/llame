@@ -5,7 +5,7 @@
   "description": "Shared secret redaction, structured tool-result bounds and Unicode-safe clipping for llame runtimes.",
   "exports": {
     ".": "./dist/index.js",
-    "./authored-text": "./dist/authored-text.js"
+    "./authored-text": "./src/authored-text.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
