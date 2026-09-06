@@ -108,7 +108,7 @@ test("compiled CLI provisions live Knowledge and redacts secrets before model an
   assert.equal(created.code, 0, created.stderr);
   const space = JSON.parse(created.stdout);
   writeFileSync(
-    join(space.directory, "note.md"),
+    join(dir, "state", "knowledge", space.id, "note.md"),
     `Project note: indexing uses postgres. Secret ${key}`,
     { mode: 0o600 },
   );
