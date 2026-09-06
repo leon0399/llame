@@ -8,10 +8,12 @@ import {
   assertHttpBinding,
   QUERY_METHODS,
   nodeAdmissionSchemas,
+  nodeProtocolSchemas,
 } from "../dist/index.js";
 
 const owner = "11111111-1111-4111-8111-111111111111";
 const other = "22222222-2222-4222-8222-222222222222";
+const mixedCaseOwner = "A1111111-A111-4111-8111-111111111111";
 export function description(id = owner, methods = QUERY_METHODS) {
   return {
     version: 1,
@@ -131,6 +133,14 @@ test("identity header only asserts the session principal; discovery does not gra
   assert.doesNotThrow(() =>
     assertHttpBinding(owner, owner, "1", "realm.conversations.search"),
   );
+  assert.doesNotThrow(() =>
+    assertHttpBinding(
+      mixedCaseOwner.toLowerCase(),
+      mixedCaseOwner,
+      "1",
+      "realm.conversations.search",
+    ),
+  );
   for (const expected of [undefined, other, [owner, other]])
     assert.throws(() =>
       assertHttpBinding(owner, expected, "1", "realm.conversations.search"),
@@ -147,6 +157,54 @@ test("identity header only asserts the session principal; discovery does not gra
     { version: 2 },
   ])
     assert.throws(() => nodeDescription({ ...description(), ...patch }));
+});
+
+test("node descriptions reject unknown fields in every contract object", () => {
+  for (const patch of [
+    { unexpected: true },
+    { principal: { ...description().principal, unexpected: true } },
+    { modules: { ...description().modules, unexpected: true } },
+    { recall: { ...description().recall, unexpected: true } },
+  ]) {
+    assert.throws(() => nodeDescription({ ...description(), ...patch }));
+  }
+});
+
+test("OpenAPI closes every object in the node description contract", () => {
+  const schema = nodeProtocolSchemas().NodeDescription;
+  assert.equal(schema.additionalProperties, false);
+  for (const key of ["principal", "modules", "recall"])
+    assert.equal(schema.properties[key].additionalProperties, false);
+});
+
+test("access rejects host descriptions with unknown fields", async () => {
+  let calls = 0;
+  const reply = await accessRequest(
+    request("core.describe"),
+    {
+      describe: () => ({ ...description(), unexpected: true }),
+      query: async () => {
+        calls++;
+        return { status: "success" };
+      },
+    },
+    signal(),
+  );
+  assert.equal(reply.error.data.code, "invalid_params");
+  assert.equal(reply.result, undefined);
+  assert.equal(calls, 0);
+});
+
+test("access canonicalizes host descriptions before observation receipts", async () => {
+  const reply = await accessRequest(
+    request("realm.conversations.search", { query: "notes" }),
+    {
+      describe: () => description(mixedCaseOwner),
+      query: async () => ({ status: "success", results: [] }),
+    },
+    signal(),
+  );
+  assert.equal(reply.result.principal.id, mixedCaseOwner.toLowerCase());
 });
 
 test("bound port produces method/principal/source receipts and never calls unavailable operations", async () => {

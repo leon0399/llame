@@ -13,6 +13,19 @@ export const NODE_RESULT_MAX_BYTES = 131_072;
 export const NODE_REQUEST_PATH = "/api/v1/node/requests";
 export const NODE_PRINCIPAL_HEADER = "x-llame-node-principal";
 export const NODE_VERSION_HEADER = "x-llame-node-version";
+const NODE_DESCRIPTION_KEYS = [
+  "version",
+  "kind",
+  "nodeId",
+  "principal",
+  "modules",
+  "methods",
+  "execution",
+  "synchronization",
+  "enrollment",
+  "recall",
+  "knowledge",
+];
 export interface NodePrincipal {
   readonly kind: "local-owner" | "session-user";
   readonly id: string;
@@ -180,12 +193,18 @@ function requireDeploymentMatch(
 export function nodeDescription(input: unknown): NodeDescription {
   if (!isRecord(input))
     throw new NodeProtocolError("invalid_params", "Expected an object.");
+  exactKeys(input, NODE_DESCRIPTION_KEYS);
   const kind = requireVersionedKind(input);
   const principal = object(input.principal);
+  exactKeys(principal, ["kind", "id"]);
   const principalKind = requirePrincipalKind(principal);
-  requireModules(object(input.modules));
+  const modules = object(input.modules);
+  exactKeys(modules, ["core", "realm"]);
+  requireModules(modules);
   const methods = requireMethods(input);
-  const capabilities = requireCapabilities(input, object(input.recall));
+  const recall = object(input.recall);
+  exactKeys(recall, ["strategy", "minimumQueryCharacters"]);
+  const capabilities = requireCapabilities(input, recall);
   requireDeploymentMatch(input, principal);
   return {
     version: 1,

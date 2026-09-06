@@ -11,14 +11,15 @@ export function assertHttpBinding(
   version: NodeHttpHeaderValue,
   method: string,
 ): void {
-  uuid(authenticatedSubject);
+  const authenticatedId = uuid(authenticatedSubject);
   if (version !== "1")
     throw new NodeProtocolError(
       "protocol_version",
       "The Node endpoint requires version 1.",
     );
   if (method === "core.describe" && expectedSubject === undefined) return;
-  if (expectedSubject !== authenticatedSubject) {
+  const expectedId = uuid(expectedSubject);
+  if (expectedId !== authenticatedId) {
     throw new NodeProtocolError(
       "principal_mismatch",
       "Node request does not match the authenticated account.",

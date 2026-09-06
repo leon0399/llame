@@ -1,5 +1,6 @@
 import { type UnknownRecord, isRecord } from "@workspace/runtime-safety";
 import {
+  nodeDescription,
   type NodeDescription,
   type NodeRequest,
   type NodeOperationResult,
@@ -84,7 +85,7 @@ export async function accessOperation(
 ): Promise<NodeOperationResult> {
   assertNotCancelled(signal);
   assertRequestSize(request);
-  const description = port.describe();
+  const description = nodeDescription(port.describe());
   if (request.method === "core.describe") exactKeys(request.params, []);
   const result =
     request.method === "core.describe"

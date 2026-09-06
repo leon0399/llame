@@ -361,6 +361,7 @@ const nodeKind = {
 function recallSchema() {
   return {
     type: "object",
+    additionalProperties: false,
     required: ["strategy", "minimumQueryCharacters"],
     properties: {
       strategy: {
@@ -375,6 +376,7 @@ function recallSchema() {
 function modulesSchema() {
   return {
     type: "object",
+    additionalProperties: false,
     required: ["core", "realm"],
     properties: {
       core: { type: "integer", enum: [1] },
@@ -386,6 +388,7 @@ function modulesSchema() {
 function nodeDescriptionSchema() {
   return {
     type: "object",
+    additionalProperties: false,
     required: [
       "version",
       "kind",
