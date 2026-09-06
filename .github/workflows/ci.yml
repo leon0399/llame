@@ -117,7 +117,7 @@ jobs:
       # host Docker, hence no container image for this job.
       # Runs unit + integration once, then enforces coverage and function-level
       # CRAP from the fresh Istanbul report.
-      - run: pnpm --filter api test:coverage
+      - run: pnpm exec turbo run test:coverage --filter=api
 
   mutation-api-shard:
     name: Mutation testing (API shard ${{ matrix.shard }})

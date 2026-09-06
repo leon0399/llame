@@ -27,6 +27,7 @@
     "dev": { "dependsOn": ["^build"] },
     "lint": { "dependsOn": ["^build"] },
     "typecheck": { "dependsOn": ["^build"] },
-    "test": { "dependsOn": ["^build"] }
+    "test": { "dependsOn": ["^build"] },
+    "test:coverage": { "dependsOn": ["^build"] }
   }
 }
