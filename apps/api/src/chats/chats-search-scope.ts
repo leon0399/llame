@@ -17,11 +17,19 @@ export type SearchByOwnerOptions = {
   timeRange?: TimeRange;
 };
 
-function withRequiredDocumentRange(ownerScope: SQL, range: TimeRange): SQL {
-  const clauses: Array<SQL> = [ownerScope];
+/** The document-span overlap clauses shared by the required-range filter and
+ *  the preferred-range bonus predicate — kept as one builder so the two never
+ *  drift apart. */
+function documentSpanOverlapClauses(range: TimeRange): Array<SQL> {
+  const clauses: Array<SQL> = [];
   if (range.before)
     clauses.push(sql`d.first_message_at < ${tstz(range.before)}`);
   if (range.after) clauses.push(sql`d.last_message_at >= ${tstz(range.after)}`);
+  return clauses;
+}
+
+function withRequiredDocumentRange(ownerScope: SQL, range: TimeRange): SQL {
+  const clauses = [ownerScope, ...documentSpanOverlapClauses(range)];
   return sql`(${sql.join(clauses, sql` AND `)})`;
 }
 
@@ -48,10 +56,7 @@ function withRequiredParentRange(
 }
 
 function rangeOverlapPredicate(range: TimeRange): SQL {
-  const clauses: Array<SQL> = [];
-  if (range.before)
-    clauses.push(sql`d.first_message_at < ${tstz(range.before)}`);
-  if (range.after) clauses.push(sql`d.last_message_at >= ${tstz(range.after)}`);
+  const clauses = documentSpanOverlapClauses(range);
   return clauses.length > 0
     ? sql`(${sql.join(clauses, sql` AND `)})`
     : sql`true`;
