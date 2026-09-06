@@ -132,4 +132,25 @@ describe("ChatLoadOlder stick-on-resize", () => {
 
     expect(scroller.scrollTop).toBe(300);
   });
+
+  it("does not yank a reader who is selecting transcript text", () => {
+    const { scroller, content } = renderTranscript();
+    setGeometry(scroller, 2000);
+    scroller.scrollTop = 1400;
+    const text = content.querySelector("[data-message-key]")?.firstChild;
+    if (!text) throw new Error("message text missing");
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 3);
+    const selection = document.getSelection();
+    if (!selection) throw new Error("jsdom selection missing");
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    setGeometry(scroller, 2300);
+    fireContentResize(content, 2300);
+
+    expect(scroller.scrollTop).toBe(1400);
+    selection.removeAllRanges();
+  });
 });

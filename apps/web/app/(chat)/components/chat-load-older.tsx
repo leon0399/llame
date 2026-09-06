@@ -105,7 +105,10 @@ function usePrePaintBottomPin(oldestMessageKey: string | null) {
  * frame as the growth. The library's `scrollTop` setter records the write as
  * programmatic (`ignoreScrollToTop`), so its scroll handler cannot misread
  * it as reader input; a reader who scrolled away is left alone via the same
- * gate the library uses.
+ * gate the library uses, and a reader selecting text in the transcript is
+ * not yanked mid-drag (the library's own loop pauses for that too — its
+ * mouse-down check is module-private, so this checks the selection alone
+ * and degrades to the library's one-frame-late catch-up while it lingers).
  */
 function useSyncStickOnResize(
   contentRef: RefObject<HTMLElement | null>,
@@ -115,9 +118,16 @@ function useSyncStickOnResize(
     const content = contentRef.current;
     if (!content) return;
     const observer = new ResizeObserver(() => {
-      if (state.isAtBottom && !state.escapedFromLock) {
-        state.scrollTop = state.targetScrollTop;
+      if (!state.isAtBottom || state.escapedFromLock) return;
+      const selection = document.getSelection();
+      if (
+        selection &&
+        !selection.isCollapsed &&
+        content.contains(selection.anchorNode)
+      ) {
+        return;
       }
+      state.scrollTop = state.targetScrollTop;
     });
     observer.observe(content);
     return () => observer.disconnect();

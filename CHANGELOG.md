@@ -1,5 +1,16 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-06
+
+- **Chat load without layout shift** (#662): the transcript stays behind a
+  centered spinner with a disabled composer until the markdown and reasoning
+  renderer chunks are real module handles, so a reload no longer paints
+  empty bubbles that grow. Content growth after the mount pin (async code
+  highlighting, collapsibles, streaming) now re-pins to the bottom in the
+  same frame instead of one frame late, removing the single-frame
+  scroll-up flash. The header title snaps on open, reload, and chat switch;
+  the typewriter runs only for same-chat title updates.
+
 # 2026-09-05
 
 - **Hybrid vector retrieval (#197)**: a vector candidate leg joins the shared
