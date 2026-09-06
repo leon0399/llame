@@ -40,7 +40,9 @@ const unitTest = {
     // it fails on any machine whose local config names a server with an unset
     // secret — and Stryker refuses to start when the initial run has any
     // failure. A developer's personal config is not a mutation signal.
-    ...(underStryker ? ['src/mcp/mcp-runtime.module.test.ts'] : []),
+    ...(underStryker
+      ? ['src/mcp/mcp-runtime.module.test.ts', 'src/mcp/mcp-stdio-seam.test.ts']
+      : []),
   ],
   // Raised only under Stryker: instrumentation puts a counter on every
   // statement, so knowledge-filesystem's aggregate-search byte-budget test

@@ -10,6 +10,9 @@ export default defineConfig({
     exclude: [
       'src/**/*.integration.test.ts',
       'src/mcp/mcp-runtime.module.test.ts',
+      // Relocated under Stryker's sandbox, so the stdio fixture path misses
+      // and initialize fails. Covered by ordinary unit and coverage runs.
+      'src/mcp/mcp-stdio-seam.test.ts',
     ],
     maxWorkers: 4,
     testTimeout: 180_000,
