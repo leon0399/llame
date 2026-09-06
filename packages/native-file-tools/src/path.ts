@@ -43,11 +43,7 @@ function parseRange(value: string) {
 }
 
 export async function resolveReadTarget(input: string): Promise<ReadTarget> {
-  if (
-    !isAbsolute(input) ||
-    input.includes("\0") ||
-    Buffer.byteLength(input) > 1024
-  )
+  if (!isAbsolute(input) || input.includes("\0"))
     throw new NativeFileError("invalid_path");
   try {
     await lstat(input);
@@ -64,18 +60,13 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
 }
 
 function parseSelector(input: string): ReadTarget {
-  const rawIndex = input.lastIndexOf(":raw");
-  if (rawIndex >= 0 && !input.slice(rawIndex).includes("/")) {
-    const suffix = input.slice(rawIndex + 4);
-    if (suffix === "")
-      return { path: input.slice(0, rawIndex), offset: 0, raw: true };
-    if (!/^:\d+-\d+$/.test(suffix))
+  const raw = /:raw(?::([^:/]*))?$/.exec(input);
+  if (raw) {
+    const path = input.slice(0, raw.index);
+    if (raw[1] === undefined) return { path, offset: 0, raw: true };
+    if (!/^\d+-\d+$/.test(raw[1]))
       throw new NativeFileError("invalid_selector");
-    return {
-      path: input.slice(0, rawIndex),
-      ...parseRange(suffix.slice(1)),
-      raw: true,
-    };
+    return { path, ...parseRange(raw[1]), raw: true };
   }
   const colon = input.lastIndexOf(":");
   if (colon > input.lastIndexOf("/")) {

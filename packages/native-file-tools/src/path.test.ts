@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveReadTarget } from "./path";
@@ -65,6 +65,32 @@ describe("native read selectors", () => {
   it("rejects relative paths", async () => {
     await expect(resolveReadTarget("notes")).rejects.toMatchObject({
       type: "invalid_path",
+    });
+  });
+
+  it("parses a range on a filename containing a raw substring", async () => {
+    const path = join(directory, "report:raw-copy");
+    await writeFile(path, "source");
+    expect(await resolveReadTarget(`${path}:10-20`)).toEqual({
+      path,
+      offset: 9,
+      limit: 11,
+      raw: false,
+    });
+  });
+
+  it("accepts valid nested native paths beyond the Knowledge path limit", async () => {
+    const parent = join(
+      directory,
+      ...Array.from({ length: 8 }, () => "x".repeat(140)),
+    );
+    await mkdir(parent, { recursive: true });
+    const path = join(parent, "source");
+    await writeFile(path, "source");
+    expect(await resolveReadTarget(path)).toEqual({
+      path,
+      offset: 0,
+      raw: false,
     });
   });
 });
