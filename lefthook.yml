@@ -63,7 +63,7 @@ pre-push:
       run: pnpm format:check
 
     - name: lint
-      run: pnpm lint
+      run: GIT_WORK_TREE="$PWD" pnpm lint
 
     - name: typecheck
-      run: pnpm typecheck
+      run: GIT_WORK_TREE="$PWD" pnpm typecheck
