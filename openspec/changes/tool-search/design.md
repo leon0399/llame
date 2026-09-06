@@ -179,9 +179,12 @@ cap and listing them as `notLoaded`, so the recorded structured result is never 
 the single record of the loaded set. The worker persists each completed `tool_search` call as
 an occurrence record `{ step, position, ids }` keyed by `(step, position)` with an atomic,
 idempotent upsert on the Run row, and the ordered loaded set is derived from those records;
-parallel calls in one step settle in scheduler order and a retry replays the same occurrences,
-so neither changes the derived order (Codex and CodeRabbit findings). A Run that fails or is
-cancelled afterward still carries what it recorded.
+parallel calls in one step settle in scheduler order, so completion order does not change the
+derived order (Codex and CodeRabbit findings). A queue retry re-executes the loop from the
+first step and the model may search differently, so an attempt clears the Run's records before
+its first step; a stale record from a dead attempt would otherwise make a tool the current
+attempt never received callable under `openai` (Codex finding). A Run that fails or is
+cancelled afterward still carries what its last attempt recorded.
 
 llame's executor wrapper is the authority on the loaded set under every strategy: a call to a
 discoverable tool that is not in the Run's loaded set is refused with the recorded
@@ -191,9 +194,12 @@ request, so the wrapper is the only gate.
 
 Across Runs, acceptance already loads `previousRun` and `previousSnapshot` (`turn-context.ts`).
 The promotion candidates are the previous Run's recorded loaded ids (most recent first) followed
-by the previous snapshot's promoted ids (its declared MCP ids, present only when that snapshot
-had a non-empty discoverable list, so a Run that simply fit the budget promotes nothing:
-reviewer A-F2). Candidates are admitted in that order while the declared tier still fits the
+by the previous snapshot's promoted ids (its declared MCP ids, present only when that
+snapshot's partition was engaged: a non-empty discoverable list or at least one
+`declaration_budget_exceeded` cut, so a Run that simply fit the budget promotes nothing per
+reviewer A-F2, while a promotion that cut the whole remaining inventory still carries forward
+per a Codex finding). Candidates are admitted in that order while the declared tier still fits
+the
 budget; the rest stay discoverable (reviewer C-F3: promotion is bounded by the same budget that
 triggered deferral, so a long epoch cannot re-declare the whole catalog). Loads recorded on Runs
 before the active compaction checkpoint are never promoted. Compaction keeps the last messages
@@ -217,7 +223,8 @@ boundary. Rejected: BM25 (Codex's choice; a dependency for ≤1,000 short docume
 The registry refuses `tool_search` like it refuses `mcp__*`; it is never a `tools.allowed` entry
 and boot fails if listed. It is synthesized only when deferral engages, classified `read_only`,
 needs no tenant database access, is absent from the availability manifest (D2), and is shown in
-the receipt through the bound declarations. A step that only calls `tool_search` counts toward `maxStepsPerRun`;
+the receipt through the bound declarations. A step that only calls `tool_search` counts toward
+`maxStepsPerRun`;
 the cap still wins in `prepareStep`. The worker resolves it to a synthetic executor
 built from the snapshot at the same seam that binds every other declaration, validated by the
 same declaration hash (reviewer C-F6: `resolveBoundExecutableTools` throws for an id with no
