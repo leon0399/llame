@@ -63,6 +63,7 @@ function asChildProcess(child: ReturnType<typeof fakeChild>): never {
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("DiagnosticBuffer", () => {
@@ -188,6 +189,22 @@ describe("BoundedReadBuffer", () => {
 });
 
 describe("BoundedStdioTransport", () => {
+  it("uses only the supplied environment when the host owns the allowlist", async () => {
+    vi.stubEnv("PATH", "inherited-path-canary");
+    const child = fakeChild();
+    spawned.mockReturnValue(asChildProcess(child));
+    const transport = new BoundedStdioTransport({
+      command: "server",
+      env: { DECLARED: "value" },
+      inheritEnvironment: false,
+    });
+    const started = transport.start();
+    child.emit("spawn");
+    await started;
+    expect(spawned.mock.calls[0]?.[2]?.env).toEqual({ DECLARED: "value" });
+    await transport.close();
+  });
+
   it("starts once, merges env, and refuses a second start", async () => {
     const child = fakeChild();
     spawned.mockReturnValue(asChildProcess(child));

@@ -24,6 +24,8 @@ export type McpStdioTransportConfig = {
   readonly args?: ReadonlyArray<string>;
   readonly env?: Readonly<Record<string, string>>;
   readonly cwd?: string;
+  /** False when the host supplies the complete child environment. */
+  readonly inheritEnvironment?: boolean;
 };
 
 /**
@@ -273,7 +275,10 @@ export class BoundedStdioTransport {
         // Merged over the base allowlist, matching the pinned SDK's own
         // getDefaultEnvironment() — nothing else of llame's ambient
         // environment is passed through.
-        env: { ...getDefaultEnvironment(), ...this.config.env },
+        env:
+          this.config.inheritEnvironment === false
+            ? { ...this.config.env }
+            : { ...getDefaultEnvironment(), ...this.config.env },
         stdio: ["pipe", "pipe", "pipe"],
         shell: false,
         windowsHide: process.platform === "win32",

@@ -708,6 +708,9 @@ importers:
       '@workspace/runtime-safety':
         specifier: workspace:*
         version: link:../runtime-safety
+      '@workspace/tool-runtime':
+        specifier: workspace:*
+        version: link:../tool-runtime
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
