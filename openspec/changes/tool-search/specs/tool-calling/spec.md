@@ -22,7 +22,8 @@ additionally bind and declare the reserved harness tool `tool_search`, whose inp
 exact-id `select` list of at most 20 ids, a bounded keyword `query`, and a result `limit` with
 a default of 5 and a maximum of 20; under `harness` the `select` items are constrained to the
 discoverable ids. Inputs outside those bounds SHALL be refused as invalid input before the
-executor runs, so a result never exceeds the tool result size cap through its miss lists. The discoverable inventory SHALL be disclosed
+executor runs, so a result never exceeds the tool result size cap through its miss lists. The
+discoverable inventory SHALL be disclosed
 to the model only through provider-native tool declarations, never through a persisted per-turn
 prose inventory: under `harness` through that declaration's input schema, and under `openai`
 through the deferred provider tool entries themselves, as the strategy requirement states. That
@@ -47,14 +48,26 @@ SHALL take precedence over loading.
 
 Every Run SHALL record the ids it loaded as each `tool_search` call completes, through an
 atomic, idempotent update keyed by the authored call's occurrence (step, then position within
-the step), so that out-of-order completion of parallel calls, a cancellation after one
-completion, and queue-retry replay all yield the same occurrence-ordered set; a Run that later
-fails or is cancelled still carries what it loaded. At acceptance of a later Run in the
+the step), so that out-of-order completion of parallel calls and a cancellation after one
+completion yield the same occurrence-ordered set. Every execution attempt SHALL take an attempt
+token before its first step, and each record SHALL carry the token of the attempt that wrote
+it. Taking the token SHALL discard the records of earlier attempts, a write SHALL be rejected
+unless the Run still carries the writing attempt's token, and the loaded set SHALL be read only
+from records under the current token. A superseded worker that resumes after the queue
+redelivered its Run SHALL therefore neither widen the current attempt's loaded set nor
+contribute a promotion candidate, which a clear at attempt start alone would not prevent,
+because the run-claiming contract admits a transient overlap with a paused-but-not-dead worker.
+A Run that later fails or is cancelled still carries what its last attempt loaded. At
+acceptance of a later Run in the
 same disclosure epoch, promotion candidates SHALL be the previous accepted Run's recorded loaded
 ids, most recent first, followed by the previous snapshot's promoted ids (its declared MCP ids,
-present only when that snapshot had discoverable tools). Candidates still bound for the new Run
-SHALL be promoted into the declared tier in that order only while the declared tier plus the
-inventory still fits the budget; the remainder SHALL stay discoverable. Loads recorded on Runs
+present only when that snapshot's partition was engaged: it had discoverable tools or bound at
+least one id `unavailable` with reason `declaration_budget_exceeded`). Candidates still bound
+for the new Run
+SHALL be promoted into the declared tier in that order while the promoted MCP declarations
+alone still fit the budget, before the inventory is fitted, so a proven load SHALL outrank
+keeping an id discoverable; the remainder SHALL stay discoverable and SHALL then be subject to
+the cut rule below. Loads recorded on Runs
 before the active compaction checkpoint SHALL NOT be promoted. A search result that survives in
 the kept tail of a compaction is history only: callability SHALL be decided by the loaded set,
 never by history. A tool that is not bound for the Run SHALL be neither discoverable, loadable,
@@ -84,8 +97,8 @@ crossing SHALL produce no availability reminder), and SHALL be executed on the s
 declaration-hash match as every other bound tool, resolved to a harness-owned executor built
 from the snapshot at the same seam that binds every other declaration. Under every strategy the
 harness SHALL refuse a call to a discoverable tool outside the Run's loaded set before any
-executor runs. Queue retry SHALL reproduce the same tiers and the same loaded set from the bound
-snapshot and the replayed steps alone.
+executor runs. Queue retry SHALL reproduce the same tiers from the bound snapshot, and each
+attempt's loaded set SHALL come from that attempt's own steps alone.
 
 #### Scenario: Catalog within budget changes nothing
 
@@ -134,14 +147,20 @@ snapshot and the replayed steps alone.
 - **WHEN** the previous accepted Run in the same disclosure epoch loaded a tool through `tool_search` and that tool is still bound
 - **THEN** the new Run declares it on the first step without a new search
 - **AND** the new Run's snapshot records it outside the discoverable list
-- **AND** a previous Run that failed after loading still contributes its recorded loaded ids
+- **AND** a previous Run that failed after loading still contributes the ids its last attempt recorded
 - **AND** a previous Run whose catalog fit the budget contributes no promotion
 
 #### Scenario: Promotion is bounded by the budget
 
-- **WHEN** the previous Run's loaded ids and promoted ids together would push the declared tier plus the inventory over the budget
+- **WHEN** the previous Run's loaded ids and promoted ids together would push the promoted MCP declarations over the budget
 - **THEN** the most recently loaded ids are promoted first until the budget is met
-- **AND** the remainder are discoverable again
+- **AND** the remainder stay discoverable and are then subject to the inventory cut
+
+#### Scenario: Promotion survives an empty discoverable tier
+
+- **WHEN** promotion is admitted first and leaves too little budget for the inventory, so every remaining MCP id is cut and the new snapshot has no discoverable tools
+- **THEN** that Run binds no `tool_search` and loads nothing
+- **AND** the following Run of the epoch still promotes that declaration from the previous snapshot
 
 #### Scenario: Inventory alone exceeds the budget
 
@@ -190,7 +209,9 @@ snapshot and the replayed steps alone.
 #### Scenario: Queue retry reproduces the loaded set
 
 - **WHEN** a Run that loaded tools is retried by the queue
-- **THEN** every attempt starts from the bound tiers and re-derives the loaded set from its own replayed steps
+- **THEN** every attempt starts from the bound tiers with an empty loaded set and re-derives it from its own steps
+- **AND** a tool loaded only by an earlier attempt is neither callable in the retried attempt nor a promotion candidate
+- **AND** a write from a superseded attempt that resumes is rejected rather than joining the current attempt's loaded set
 - **AND** no attempt declares a tool the snapshot does not bind
 
 ### Requirement: The tool-search transport is a per-model strategy that preserves every invariant
