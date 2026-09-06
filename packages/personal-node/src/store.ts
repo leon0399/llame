@@ -103,12 +103,20 @@ export class LocalStore {
   }
 
   message(chatId: string, runId: string, message: Message): void {
+    const createdAt = new Date().toISOString();
     this.db
       .prepare(
-        `INSERT INTO messages(id,chat_id,run_id,body,chat_seq)
-      SELECT ?,?,?,?,COALESCE(MAX(chat_seq),0)+1 FROM messages WHERE chat_id=?`,
+        `INSERT INTO messages(id,chat_id,run_id,body,created_at,chat_seq)
+      SELECT ?,?,?,?,?,COALESCE(MAX(chat_seq),0)+1 FROM messages WHERE chat_id=?`,
       )
-      .run(randomUUID(), chatId, runId, JSON.stringify(message), chatId);
+      .run(
+        randomUUID(),
+        chatId,
+        runId,
+        JSON.stringify(message),
+        createdAt,
+        chatId,
+      );
   }
 
   history(chatId: string): Array<Message> {

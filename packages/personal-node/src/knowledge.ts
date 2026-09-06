@@ -7,6 +7,7 @@ import {
   createKnowledgeFilesystemSearchBudget,
   type KnowledgeFilesystemSearchMatch,
   type KnowledgeFilesystemReadResult,
+  type KnowledgeFilesystemSearchBudget,
 } from "@workspace/knowledge-filesystem/knowledge-filesystem";
 import { isRecord } from "@workspace/runtime-safety";
 import { type LocalStore } from "./store";
@@ -56,10 +57,14 @@ interface SearchWalk {
   resultCount: number;
 }
 
+interface SearchContext {
+  readonly signal: AbortSignal;
+  readonly budget: KnowledgeFilesystemSearchBudget;
+  readonly walk: SearchWalk;
+}
+
 /** Explicitly provisioned, single-owner Knowledge. No caller-provided roots. */
 export class PersonalKnowledge {
-  private walkBudget = createKnowledgeFilesystemSearchBudget();
-  private walk: SearchWalk = { results: [], failures: [], resultCount: 0 };
   constructor(private readonly store: LocalStore) {}
 
   list(): Array<Space> {
@@ -151,25 +156,21 @@ export class PersonalKnowledge {
     const spaces = this.list().filter(
       (space) => !boundIds || boundIds.includes(space.id),
     );
-    this.walkBudget = createKnowledgeFilesystemSearchBudget();
-    this.walk = { results: [], failures: [], resultCount: 0 };
+    const budget = createKnowledgeFilesystemSearchBudget();
+    const walk: SearchWalk = { results: [], failures: [], resultCount: 0 };
+    const context: SearchContext = { signal, budget, walk };
     for (const space of spaces)
-      this.walk.resultCount += await this.collectSpace(
-        space,
-        query,
-        limit,
-        signal,
-      );
+      walk.resultCount += await this.collectSpace(space, query, limit, context);
     return {
       status: "success",
       query,
-      results: this.walk.results,
-      truncated: this.walk.resultCount > limit,
+      results: walk.results,
+      truncated: walk.resultCount > limit,
       coverage: {
         kind: "live-local-markdown",
         spaces: spaces.map((space) => space.id),
-        complete: this.walk.failures.length === 0,
-        failures: this.walk.failures,
+        complete: walk.failures.length === 0,
+        failures: walk.failures,
       },
       notice: KNOWLEDGE_NOTICE,
     };
@@ -179,30 +180,26 @@ export class PersonalKnowledge {
     space: Space,
     query: string,
     limit: number,
-    signal: AbortSignal,
+    context: SearchContext,
   ): Promise<number> {
+    const { signal, budget, walk } = context;
     aborted(signal);
     try {
       const matches = await this.adapter(space.id).search(query, limit, {
         signal,
-        budget: this.walkBudget,
+        budget,
         maxResults: limit + 1,
       });
       for (const match of matches)
-        if (this.walk.results.length < limit)
-          this.walk.results.push({
+        if (walk.results.length < limit)
+          walk.results.push({
             knowledgeSpaceId: space.id,
             name: space.name,
             ...match,
           });
       return matches.length;
     } catch (error) {
-      return this.recordSearchFailure(
-        error,
-        space.id,
-        signal,
-        this.walk.failures,
-      );
+      return this.recordSearchFailure(error, space.id, signal, walk.failures);
     }
   }
 

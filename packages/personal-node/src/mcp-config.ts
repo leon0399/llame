@@ -353,7 +353,7 @@ function stdioServer(
     ],
     "stdio MCP server",
   );
-  const command = stdioCommand(item.command);
+  const command = stdioCommand(text(item.command, "MCP command", 2048));
   const cwd = stdioCwd(item.cwd, path);
   const args = stdioArgs(item.args);
   return {
@@ -366,9 +366,8 @@ function stdioServer(
   };
 }
 
-function stdioCommand(value: unknown): string {
-  if (isString(value)) return literalCommand(value);
-  return literalCommand(text(value, "MCP command", 2048));
+function stdioCommand(command: string): string {
+  return literalCommand(command);
 }
 
 function literalCommand(command: string): string {

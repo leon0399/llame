@@ -179,6 +179,37 @@ test("derived recall index is transactionally maintained and rebuilt without cha
   assert.equal(recall.search({ query: "replacement" }).results.length, 0);
 });
 
+test("recall uses each message authored timestamp instead of its Run timestamp", (t) => {
+  const db = store(t);
+  const recall = new ConversationRecall(db);
+  const chatId = randomUUID();
+  const runId = db.start(chatId, "question", {});
+  db.message(chatId, runId, {
+    role: "assistant",
+    content: "authored response",
+  });
+  const row = db.db
+    .prepare(
+      "SELECT id,chat_seq,created_at FROM messages WHERE chat_id=? AND json_extract(body,'$.content')=?",
+    )
+    .get(chatId, "authored response");
+  assert.match(
+    row.created_at,
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u,
+  );
+  db.db
+    .prepare("UPDATE runs SET created_at=? WHERE id=?")
+    .run("2000-01-01T00:00:00.000Z", runId);
+
+  const hit = recall.search({ query: "authored" }).results[0];
+  assert.equal(hit.timestamp, row.created_at);
+  assert.notEqual(hit.timestamp, "2000-01-01T00:00:00.000Z");
+  assert.equal(
+    recall.read({ chatId, messageSeq: row.chat_seq }).timestamp,
+    row.created_at,
+  );
+});
+
 test("version-one transcripts and source identities survive migration and reopen", () => {
   const dir = mkdtempSync(join(tmpdir(), "llame-node-migrate-"));
   const path = join(dir, "state.sqlite");
@@ -209,8 +240,9 @@ test("version-one transcripts and source identities survive migration and reopen
   const first = new LocalStore(dir);
   const row = first.db.prepare("SELECT * FROM messages").get();
   assert.equal(row.body, body);
+  assert.equal(row.created_at, "2026-01-01");
   assert.equal(first.nodeId, nodeId);
-  assert.equal(first.db.prepare("PRAGMA user_version").get().user_version, 2);
+  assert.equal(first.db.prepare("PRAGMA user_version").get().user_version, 3);
   assert.equal(
     new ConversationRecall(first).search({ query: "migration" }).results[0]
       .messageId,
@@ -218,8 +250,46 @@ test("version-one transcripts and source identities survive migration and reopen
   );
   first.close();
   const second = new LocalStore(dir);
-  assert.equal(second.db.prepare("SELECT id FROM messages").get().id, row.id);
+  const reopened = second.db
+    .prepare("SELECT id,created_at FROM messages")
+    .get();
+  assert.equal(reopened.id, row.id);
+  assert.equal(reopened.created_at, row.created_at);
   second.close();
+});
+
+test("version-two transcripts gain message timestamps during migration", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "llame-node-migrate-v2-"));
+  const path = join(dir, "state.sqlite");
+  const first = new LocalStore(dir);
+  const chatId = randomUUID();
+  const runId = first.start(chatId, "version two", {});
+  first.db
+    .prepare("UPDATE runs SET created_at=? WHERE id=?")
+    .run("2020-01-01T00:00:00.000Z", runId);
+  const messageId = first.db
+    .prepare("SELECT id FROM messages WHERE chat_id=?")
+    .get(chatId).id;
+  first.close();
+
+  const legacy = new DatabaseSync(path);
+  legacy.exec(
+    "ALTER TABLE messages DROP COLUMN created_at; PRAGMA user_version=2;",
+  );
+  legacy.close();
+
+  const migrated = new LocalStore(dir);
+  t.after(() => migrated.close());
+  assert.equal(
+    migrated.db.prepare("PRAGMA user_version").get().user_version,
+    3,
+  );
+  assert.equal(
+    migrated.db
+      .prepare("SELECT created_at FROM messages WHERE id=?")
+      .get(messageId).created_at,
+    "2020-01-01T00:00:00.000Z",
+  );
 });
 
 test("Knowledge is live, provider-independent and identities never merge by name", async (t) => {
@@ -253,6 +323,35 @@ test("Knowledge is live, provider-independent and identities never merge by name
   assert.throws(() => knowledge.create({ name: "Injected", directory: "/" }), {
     code: "unknown_field",
   });
+});
+
+test("overlapping Knowledge searches keep results local to each invocation", async (t) => {
+  const db = store(t);
+  const knowledge = new PersonalKnowledge(db);
+  const first = knowledge.create({ name: "First" });
+  const second = knowledge.create({ name: "Second" });
+  writeFileSync(join(first.directory, "first.md"), "first invocation\n");
+  writeFileSync(join(second.directory, "second.md"), "second invocation\n");
+
+  const [firstResult, secondResult] = await Promise.all([
+    knowledge.search({ query: "first invocation", limit: 1 }, signal()),
+    knowledge.search({ query: "second invocation", limit: 1 }, signal()),
+  ]);
+
+  assert.deepEqual(
+    firstResult.results.map(({ knowledgeSpaceId, path }) => ({
+      knowledgeSpaceId,
+      path,
+    })),
+    [{ knowledgeSpaceId: first.id, path: "first.md" }],
+  );
+  assert.deepEqual(
+    secondResult.results.map(({ knowledgeSpaceId, path }) => ({
+      knowledgeSpaceId,
+      path,
+    })),
+    [{ knowledgeSpaceId: second.id, path: "second.md" }],
+  );
 });
 
 test("Knowledge denies traversal, symlinks, unknown spaces and invalid UTF-8; failure coverage is explicit", async (t) => {

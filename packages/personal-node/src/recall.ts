@@ -82,7 +82,7 @@ export class ConversationRecall {
     // Always quote the literal query: FTS operators and quotes are data.
     const rows = this.store.db
       .prepare(
-        `SELECT m.seq,m.chat_seq,m.id,m.chat_id,m.body,c.title,r.created_at
+        `SELECT m.seq,m.chat_seq,m.id,m.chat_id,m.body,c.title,m.created_at
       FROM message_search JOIN messages m ON m.seq=message_search.rowid
       JOIN chats c ON c.id=m.chat_id JOIN runs r ON r.id=m.run_id
       WHERE message_search MATCH ? AND m.chat_id<>? ORDER BY rank,m.seq DESC LIMIT ?`,
@@ -159,7 +159,7 @@ export class ConversationRecall {
   ): ConversationReadResult {
     const row = this.store.db
       .prepare(
-        `SELECT m.id,m.body,r.created_at FROM messages m JOIN runs r ON r.id=m.run_id WHERE m.chat_id=? AND m.chat_seq=?`,
+        `SELECT m.id,m.body,m.created_at FROM messages m WHERE m.chat_id=? AND m.chat_seq=?`,
       )
       .get(chatId, seq);
     if (!row)
