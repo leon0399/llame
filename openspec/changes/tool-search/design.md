@@ -174,9 +174,10 @@ the schemas it replaces.
 A tool is loaded only when its full declaration was delivered in a `tool_search` result. The
 executor sizes the result itself, dropping whole declarations that would not fit the tool result
 cap and listing them as `notLoaded`, so the recorded structured result is never truncated and is
-the single record of the loaded set. The worker writes the loaded ids, in load order, onto the Run
-row as each `tool_search` call completes, so a Run that fails or is cancelled afterward still
-carries them.
+the single record of the loaded set. The worker writes the loaded ids onto the Run row as each `tool_search` call completes, ordered
+by the authored tool-call occurrence (step, then position within the step), never by completion
+time, since parallel calls in one step settle in scheduler order (Codex PR finding); a Run that
+fails or is cancelled afterward still carries them.
 
 llame's executor wrapper is the authority on the loaded set under every strategy: a call to a
 discoverable tool that is not in the Run's loaded set is refused with the recorded
@@ -295,7 +296,12 @@ shows the `tool_search` declaration like any other. No new UI component.
 
 Additive: two nullable snapshot fields (discoverable ids, strategy), one nullable Run field for
 loaded ids, one new closed unavailable reason, two optional config keys. Existing snapshots have
-neither field and keep their hashes. Rollback is not free (reviewer C-F8): a queued or retried
+neither field and keep their hashes. Forward rollout (Codex PR finding): a Run bound by a new
+API with a `tool_search` declaration or a `declaration_budget_exceeded` entry is executable only
+by a worker that knows both, so a mixed-version window fails such Runs closed before any
+provider request. The default co-located deployment has no window; a dedicated-worker
+deployment deploys workers before the API, and the loop layer's PR body states that order.
+Rollback is not free (reviewer C-F8): a queued or retried
 Run bound with a `tool_search` declaration needs the synthetic executor, so removing the feature
 means keeping that executor until every such Run is terminal, or accepting that those Runs fail
 closed before the provider request.

@@ -37,8 +37,10 @@ receives for that refusal SHALL name the tools declared on that step, which incl
 A step whose only tool call is `tool_search` SHALL count toward `maxStepsPerRun`, and the step cap
 SHALL take precedence over loading.
 
-Every Run SHALL record the ids it loaded, in load order, as each `tool_search` call completes,
-so a Run that later fails or is cancelled still carries them. At acceptance of a later Run in the
+Every Run SHALL record the ids it loaded as each `tool_search` call completes, ordered by the
+occurrence order of the authored `tool_search` calls rather than by completion time, so parallel
+calls in one step and queue retries yield the same order; a Run that later fails or is cancelled
+still carries what it loaded. At acceptance of a later Run in the
 same disclosure epoch, promotion candidates SHALL be the previous accepted Run's recorded loaded
 ids, most recent first, followed by the previous snapshot's promoted ids (its declared MCP ids,
 present only when that snapshot had discoverable tools). Candidates still bound for the new Run
