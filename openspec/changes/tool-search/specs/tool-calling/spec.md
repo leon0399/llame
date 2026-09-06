@@ -125,3 +125,41 @@ the same loaded set from the bound snapshot and the replayed steps alone.
 - **WHEN** a Run that loaded tools is retried by the queue
 - **THEN** every attempt starts from the bound tiers and re-derives the loaded set from its own replayed steps
 - **AND** no attempt declares a tool the snapshot does not bind
+
+### Requirement: The tool-search transport is a per-model strategy that preserves every invariant
+
+Each Run SHALL bind exactly one tool-search strategy from the model's configuration, defaulting
+to `harness`. Under every strategy the declaration budget, tier partition, bound declaration
+set, allowlist and admission gates, loaded-means-delivered recording, step-cap precedence, and
+receipt SHALL behave identically, and the same deterministic ranking SHALL answer every search
+that llame executes. Strategies SHALL differ only in how discoverable declarations travel to the
+provider and in which wire shape carries the search call and its loaded declarations.
+
+Under `harness`, discoverable declarations SHALL be omitted from provider requests until loaded
+and `tool_search` SHALL be an ordinary function tool whose input schema enumerates the
+discoverable ids. Under `openai`, discoverable declarations SHALL be sent marked as deferred so
+the provider withholds their schemas, `tool_search` SHALL be the provider's client-executed
+tool-search tool answered by llame with the same input shape without the enumeration, loaded
+declarations SHALL enter the model through the provider's tool-search output, and the recorded
+loaded set SHALL equal that output's tools. A Run bound with the `openai` strategy SHALL keep
+its persisted search results in model-visible history at their original position so the
+provider redeclares loaded tools on later Runs of the same disclosure epoch without a new
+search. A strategy that the model's provider cannot carry SHALL be rejected at startup, never
+silently replaced.
+
+#### Scenario: Same catalog binds the same tiers under both strategies
+
+- **WHEN** the same eligible catalog exceeds the budget for a `harness` model and for an `openai` model
+- **THEN** both Runs bind the same declaration set, the same discoverable-id list, and the same availability manifest
+- **AND** only the `tool_search` declaration and the strategy label differ
+
+#### Scenario: OpenAI strategy carries loads through history
+
+- **WHEN** a Run with the `openai` strategy loads a tool and a later Run in the same epoch replays that history
+- **THEN** the model can call the loaded tool without a new search
+- **AND** the tool remains marked deferred in the request while the earlier search result is replayed in place
+
+#### Scenario: Strategy on the wrong provider fails startup
+
+- **WHEN** a model on a non-native OpenAI-compatible provider declares the `openai` strategy
+- **THEN** startup fails naming the model id and `toolSearch`

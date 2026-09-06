@@ -33,15 +33,22 @@ threshold. This proposal is not on the v0.7 critical path.
   returns the loaded declarations, and those tools are declared natively on every following step of
   the Run. Loaded tools stay declared on later Runs in the same disclosure epoch; a compaction
   checkpoint resets the tier to default.
-- Record the tier partition in the immutable effective-context snapshot and expose it in the
-  owner receipt, so the receipt still shows exactly what the model could reach.
+- Make the search **transport a per-model strategy** with one shared executor: `harness` (the
+  function tool above, every OpenAI-compatible endpoint) and `openai` (OpenAI's Responses
+  `tool_search` in client-executed mode with `defer_loading`, for `gpt-5.4`-and-later models on
+  the native OpenAI provider), declared as `models[].toolSearch` and defaulting to `harness`.
+  An Anthropic hosted strategy is an explicit later extension that first needs an Anthropic
+  provider type.
+- Record the tier partition and the strategy in the immutable effective-context snapshot and
+  expose them in the owner receipt, so the receipt still shows exactly what the model could reach.
 - State explicitly that the fixed discovery limits in `mcp-tools` (1,000 tools, byte bounds,
   deadline) are wire-level resource guards that survive independently of the declaration budget.
 
-Not in scope: hosted provider tool-search tools (llame speaks OpenAI-compatible Chat/Responses
-only), embeddings or BM25 over the catalog, a code-mode `execute` tool, per-server deferral
-configuration, a user-facing tool picker, and any change to authorization: a discoverable tool is
-bound, allowlisted, read-only, and executed on the same exact declaration hash as before.
+Not in scope: OpenAI server-executed search (OpenAI's ranking and disclosure, which the receipt
+could not describe), OpenAI tool namespaces, the Anthropic provider itself, embeddings or BM25
+over the catalog, a code-mode `execute` tool, per-server deferral configuration, a user-facing
+tool picker, and any change to authorization: a discoverable tool is bound, allowlisted,
+read-only, and executed on the same exact declaration hash as before.
 
 ## Capabilities
 
@@ -54,20 +61,24 @@ None.
 - `tool-calling`: bound declarations beyond the per-model budget are discoverable through a
   reserved `tool_search` tool; loaded tools are declared on later steps and later Runs in the same
   disclosure epoch; `tool_search` steps count toward `maxStepsPerRun`; the reserved id cannot be
-  registered or allowlisted.
+  registered or allowlisted; the transport strategy is per model and preserves every invariant.
 - `model-system-prompts`: the immutable snapshot binds every eligible declaration plus the tier
-  partition; the content hash covers the partition only when it is non-empty; the receipt shows
-  which bound declarations were discoverable.
+  partition and strategy; the content hash covers the partition only when it is non-empty; the
+  receipt shows which bound declarations were discoverable and which strategy carried them.
 - `instance-config`: optional `models[].toolSearchThresholdTokens`, mirroring
-  `compactionThresholdTokens`; no instance-level knob.
+  `compactionThresholdTokens`, and optional `models[].toolSearch` strategy validated against the
+  model's provider; no instance-level knob.
 - `mcp-tools`: discovery limits are resource guards independent of the declaration budget.
 
 ## Impact
 
 - `apps/api/src/tools`: tier computation next to `composeTurnToolCatalog`; the `tool_search`
   executor; registry refusal of the reserved id.
-- `apps/api/src/runs`: snapshot field for the partition, receipt projection, the loaded-set
-  derivation at accept, `prepareStep` composition with the existing step cap in the model client.
+- `apps/api/src/runs`: snapshot fields for the partition and strategy, receipt projection, the
+  loaded-set derivation at accept, `prepareStep` composition with the existing step cap in the
+  model client.
+- `apps/api/src/models`: the `openai` strategy in `openai-model-client.ts` using the installed
+  `@ai-sdk/openai` `toolSearch` factory and `deferLoading` provider option; no SDK upgrade.
 - `apps/api/src/db`: one nullable field on the effective-context snapshot for the sorted
   discoverable-id list and one on the Run for the ids it loaded; no change to the availability
   manifest version.

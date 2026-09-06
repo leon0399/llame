@@ -12,9 +12,20 @@ See `proposal.md` for motivation. Constraints that shape the design:
   `activeTools`-filtered set, so a call to an inactive tool is a `NoSuchToolError` that reaches
   `experimental_repairToolCall` and llame's `onUnavailableToolCall` refusal. Inactive means
   refused, not silently executed.
-- llame speaks OpenAI-compatible endpoints only (`@ai-sdk/openai`, no Anthropic provider), so the
-  hosted `tool_search_tool_*` (Anthropic) and Responses `tool_search` (OpenAI) tool types are not
-  usable; a client-executed function tool is the only portable shape.
+- llame speaks OpenAI-compatible endpoints only (`@ai-sdk/openai`, no Anthropic provider). The
+  native OpenAI provider (`provider.id === 'openai'`, `model-client-factory.ts:38`) is routed to
+  the Responses API, every other endpoint to Chat Completions (`openai-model-client.ts:240-244`).
+  The installed `@ai-sdk/openai@3.0.97` already ships `openai.tools.toolSearch({ execution,
+description, parameters })` and the `deferLoading` provider option on Responses, and converts a
+  client-executed search result into a `tool_search_output` item with the loaded definitions
+  (`dist/index.mjs:3540-3553`). Anthropic's `tool_search_tool_*` types need an Anthropic
+  provider llame does not have.
+- OpenAI's tool-search guide (read 2026-09-06): for a deferred function "the model still sees
+  the function name and description, so in practice tool search is mostly deferring the
+  parameter schema"; loaded tools persist through history ("you do not need to load the same
+  tool again across turns", "Tools that were not listed as part of this array will not be
+  available"); "Only `gpt-5.4` and later models support `tool_search`". Support is therefore a
+  model property, not a provider property.
 - Chat Completions rejects a function description longer than 1024 characters (moderate
   confidence, provider error `string too long`), so an inventory of hundreds of ids cannot live in
   a description.
@@ -46,24 +57,42 @@ which relies on the Responses API keeping the loaded spec in history.
 - Bind-everything, send-a-subset: the receipt and worker execution contract are unchanged in
   kind; a discoverable tool is as bound, allowlisted, and read-only as a declared one.
 - Deterministic under queue retry and reproducible from the snapshot alone.
-- Provider-neutral: works against any OpenAI-compatible endpoint with function calling.
+- Provider-neutral by default: the `harness` strategy works against any OpenAI-compatible
+  endpoint with function calling; native strategies are per-model opt-ins over one executor.
 
 **Non-Goals:**
 
 - Ranking quality beyond exact ids and simple keyword matching; no BM25, no embeddings.
 - Deferring code-owned tools, per-server tier configuration, or a per-model kill switch.
+- OpenAI server-executed search and OpenAI tool namespaces (D11 explains both).
 - Filling the remaining budget with a subset of MCP tools (see D4).
 - Any change to `tools.allowed` semantics or to the availability manifest version.
 
 ## Decisions
 
-### D1. Client-executed function tool on the existing `prepareStep` seam
+### D1. One search executor, per-model transport strategy
 
-`tool_search` is an ordinary function tool executed by the harness. The per-step tool set is
-`prepareStep → { activeTools }`, composed with the existing step cap in the model client: cap
-reached → `[]`; otherwise `declared ∪ loaded(steps) ∪ { tool_search }`. Alternatives: the hosted
-Anthropic/OpenAI tool-search tools (not reachable from llame's provider surface, and OpenAI's is
-Responses-only); a code-mode `execute` tool (a new execution class, out of scope under §13.5).
+The budget, tiers, bound declarations, loaded-means-delivered recording, promotion, allowlist,
+and receipt are strategy-independent; only how discoverable tools travel and who runs the search
+differ. `models[].toolSearch` selects the strategy, default `harness`:
+
+- `harness`: `tool_search` is an ordinary function tool executed by llame; discoverable
+  declarations are omitted from the request; the per-step tool set is `prepareStep →
+{ activeTools }`, composed with the existing step cap in the model client: cap reached → `[]`,
+  otherwise `declared ∪ loaded(steps) ∪ { tool_search }`. Works on every OpenAI-compatible
+  endpoint.
+- `openai`: the Responses `tool_search` tool type in client-executed mode (D11). Only valid on
+  the native OpenAI provider; boot fails otherwise. The same llame executor answers the search.
+- An Anthropic hosted strategy (`tool_search_tool_bm25`/`regex`, `defer_loading`,
+  server-expanded `tool_reference`) is a named extension point, not shipped: it needs an
+  Anthropic provider type first, and its ranking is Anthropic's, so the receipt would record the
+  strategy label rather than a llame ranking.
+
+Two implementations ship, so the seam is justified. The reason to go native is model
+familiarity, not tokens: under both strategies deferred schemas cost the model nothing and the
+inventory costs about the same; a model trained on its provider's native `tool_search` uses it
+more reliably than a look-alike function tool. Rejected: a code-mode `execute` tool (a new
+execution class, out of scope under §13.5).
 
 ### D2. Bind everything at accept; the snapshot records the partition
 
@@ -88,6 +117,19 @@ computed once at accept from already-canonical declarations. Deferral engages on
 rule against instance-level context-window settings. Rejected: an instance-level percentage
 (contradicts that rule), a flat tool-count cap (#338 explains why the two limits must not be
 conflated).
+
+Why no tokenizer: the estimate feeds a trip-wire at 10% of the window, which tolerates a ±30%
+error, and no local tokenizer can be exact about tool definitions anyway, because each provider
+renders them through its own template (OpenAI compacts JSON Schema into a TypeScript-like
+namespace, Anthropic prepends a tool-use preamble, open models follow their chat template) before
+tokenizing. Measured with `o200k_base` on canonical JSON of three representative declarations
+(`search_conversations`, a GitHub MCP tool, a Playwright MCP tool): 4.2 to 4.7 chars per token,
+4.46 overall, so `chars / 4` overestimates slightly, which errs toward deferring early, the cheap
+direction. A 300-id enum measured ~4.2k tokens. The only exact figure is the provider's reported
+`usage.inputTokens` after the step, which compaction already prefers over its estimate; if a
+second consumer needs sub-10% accuracy, the primitive to add is calibration from reported usage,
+not a tokenizer dependency with per-model vocabularies that an OpenAI-compatible endpoint cannot
+supply.
 
 ### D4. Tier rule: code-owned declared, MCP discoverable, no budget filling
 
@@ -125,7 +167,11 @@ diff availability; promotion reuses them: declared tier = default partition ∪ 
 declared tier ∪ previous Run's recorded loaded ids, each filtered to ids still bound for the new
 Run. Folding the previous declared tier in gives transitive coverage of the epoch without scanning
 message parts. A new compaction checkpoint starts a new disclosure epoch (the same signal the
-availability reminder uses) and resets to D4. Needed because inactive tools are refused (see
+availability reminder uses) and resets to D4. Under the `openai` strategy the provider carries the
+loaded set itself through the replayed `tool_search_output` items, so promotion does not change
+the wire (a promoted tool stays `defer_loading: true`, which also preserves the provider cache);
+the recorded loaded ids still feed the receipt, and compaction resets both strategies the same
+way because the replayed items disappear with the compacted prefix. Needed because inactive tools are refused (see
 Context): without promotion the model would see itself calling a tool in history and be refused
 when it calls it again.
 
@@ -162,11 +208,26 @@ sentence about loading discoverable tools with `tool_search`. Rejected: rewritin
 into `tool_search { select: [id] }` inside `repairToolCall`, which would persist a call the model
 never authored and still costs the same extra step.
 
+### D11. The `openai` strategy: client execution, deferred schemas, no enum
+
+Discoverable declarations are sent with `providerOptions.openai.deferLoading: true` instead of
+omitted, and the bound `tool_search` declaration is `openai.tools.toolSearch({ execution:
+'client', parameters })` with the same `select`/`query`/`limit` shape minus the enum, since the
+model already sees every deferred function's name and description natively. llame's executor
+answers the `tool_search_call` and the SDK returns the loaded declarations as
+`tool_search_output`; from then on OpenAI declares them from history, so no `activeTools`
+bookkeeping is needed and `prepareStep` only enforces the cap. Loaded means delivered holds
+because the `tools` array of that output is exactly the record. Rejected: server execution
+(OpenAI's ranking and inventory, which the receipt cannot describe; revisit as an opt-in if its
+quality proves better) and OpenAI namespaces (one per MCP server would hide member names behind
+a server description llame does not have; the only candidate source is the server's own
+`initialize` text, which is untrusted and needs its own spec).
+
 ### D10. Surfaces stay generic
 
 `tool_search` calls are ordinary durable tool parts rendered by the existing tool part UI. The
-receipt marks each bound declaration as declared or discoverable and shows the `tool_search`
-declaration like any other. No new UI component.
+receipt marks each bound declaration as declared or discoverable, labels the strategy, and
+shows the `tool_search` declaration like any other. No new UI component.
 
 ## Risks / Trade-offs
 
@@ -181,12 +242,19 @@ declaration like any other. No new UI component.
 - [A Run expires before its loaded ids are recorded] → the ids are written per `tool_search`
   completion, not at finish; anything lost costs the model one search, never a wrong tier.
 - [Provider caches] → the declared set changes only when a load happens, so the stable prefix
-  changes at most once per load.
+  changes at most once per load; under `openai` the loaded set lives in history and the
+  deferred set is stable across turns.
+- [`openai` strategy on an unsupported model] → the strategy is a per-model declaration, and the
+  provider's rejection of `tool_search` surfaces as the existing recorded run error rather than
+  a silent fallback; operators declare it only on `gpt-5.4`-and-later models.
+- [Replayed history must keep `tool_search_output` items in place] → llame already preserves
+  `messages.parts` and stored order; the SDK rebuilds the item from the persisted tool-result
+  part, and a compaction prefix removes it together with the loads it carried.
 
 ## Migration Plan
 
-Additive: one nullable snapshot field, one nullable Run field for loaded ids, one optional
-config key. Existing snapshots have no
+Additive: two nullable snapshot fields (discoverable ids, strategy), one nullable Run field for
+loaded ids, two optional config keys. Existing snapshots have no
 `discoverableToolIds` and keep their hashes. Rollback is removing the code; bound snapshots with
 a non-empty list still execute because every listed tool is bound.
 

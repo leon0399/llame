@@ -8,13 +8,15 @@ reviewed and merged before any code builds on it. Every layer is published with
 (master) <- tool-search/proposal
          <- tool-search/budget
          <- tool-search/loop
+         <- tool-search/openai-native
          <- tool-search/finalize
 ```
 
 Every layer leaves the repository shippable: after `budget` merges, Runs bind tiers and receipts
 show them, but nothing is deferred yet because no `tool_search` executor exists and every tool is
-still declared; after `loop` merges, deferral engages only for catalogs beyond the budget. Each
-layer's final task is its exit criterion.
+still declared; after `loop` merges, deferral engages only for catalogs beyond the budget under
+the default `harness` strategy; after `openai-native` merges, operators may opt `gpt-5.4`-and-later
+models into the provider's own search. Each layer's final task is its exit criterion.
 
 ## 1. `tool-search/budget` — threshold, tiers, snapshot, receipt (design D2, D3, D4, D8)
 
@@ -25,8 +27,8 @@ tool is still declared, so the no-op guarantee can be asserted before deferral e
 - [ ] 1.1 Add optional `models[].toolSearchThresholdTokens` (non-negative integer) to `llame-config.ts`, the config loader, and the published JSON Schema; resolve the per-model budget as `override ?? floor(contextWindowTokens / 10)` next to the compaction threshold resolver; verify by unit tests that absent, positive, zero, negative, fractional, and string values behave per the `instance-config` delta and that failures name the model id and the key
 - [ ] 1.2 Reserve `tool_search` in `tools/registry.ts` (registration throws) and in `tools.allowed` validation (boot fails naming `tools.allowed`); verify by unit tests mirroring the existing `mcp__` reservation tests
 - [ ] 1.3 Add `estimateDeclarationTokens(declarations)` reusing the compaction estimator over the canonical JSON of the admitted declarations, and `resolveToolTiers({ admitted, budget, promotedIds })` returning the sorted `discoverableToolIds` (empty when within budget; every MCP id minus promoted when over; code-owned never); verify by unit tests that the partition is independent of candidate order, that a promoted id that is no longer bound is dropped, and that a catalog exactly at the budget is not deferred
-- [ ] 1.4 Add the nullable sorted `discoverable_tool_ids` field to the effective-context snapshot schema and a nullable `loaded_tool_ids` field to the Run row with one generated Drizzle migration; extend `resolveEffectiveContext` to accept the budget and promoted ids, bind the list, and include it in the content hash only when non-empty; verify by unit test that a within-budget turn produces byte-identical `toolHash`, `contentHash`, and `availabilityHash` to the pre-change fixtures, and that an over-budget turn changes only `contentHash` in this layer
-- [ ] 1.5 Extend the receipt DTO and `apps/web` receipt view so every bound declaration carries `tier: "declared" | "discoverable"`; verify by the receipt integration test that a within-budget Run shows every tool as declared with no extra fields, and by a story or component test that the discoverable marker renders
+- [ ] 1.4 Add the nullable sorted `discoverable_tool_ids` and `tool_search_strategy` fields to the effective-context snapshot schema and a nullable `loaded_tool_ids` field to the Run row with one generated Drizzle migration; extend `resolveEffectiveContext` to accept the budget and promoted ids, bind the list, and include it in the content hash only when non-empty; verify by unit test that a within-budget turn produces byte-identical `toolHash`, `contentHash`, and `availabilityHash` to the pre-change fixtures, and that an over-budget turn changes only `contentHash` in this layer
+- [ ] 1.5 Extend the receipt DTO and `apps/web` receipt view so every bound declaration carries `tier: "declared" | "discoverable"` and the receipt carries the strategy label; verify by the receipt integration test that a within-budget Run shows every tool as declared with no extra fields, and by a story or component test that the discoverable marker renders
 - [ ] 1.6 Wire the budget into Run acceptance with `promotedIds` fixed to empty for this layer; verify by integration test that a fake MCP catalog large enough to exceed a tiny `toolSearchThresholdTokens` binds a non-empty `discoverable_tool_ids` while the worker still declares every tool
 - [ ] 1.7 **Exit:** verify `pnpm --filter api typecheck`, `lint`, `test`, and `test:integration` pass, `pnpm --filter web typecheck` and `lint` pass, `pnpm db:generate` reports no schema changes after the migration, and the context-receipt integration suite is green
 
@@ -44,8 +46,21 @@ The model-facing layer. Reviewed alone because it changes what the provider rece
 - [ ] 2.8 Negative tests: a tool refused by admission, a tool matching no allowlist rule, and a tool unavailable for a closed reason are absent from the enum and every result; a queue retry of a Run that loaded tools re-derives the same loaded set and never declares an unbound id; a Run that fails after a `tool_search` completes still has `loaded_tool_ids` recorded
 - [ ] 2.9 **Exit:** verify `pnpm --filter api typecheck`, `lint`, `test`, and `test:integration` pass and that a run with the default fixture catalog produces provider requests byte-identical to `master` for the tools array
 
-## 3. `tool-search/finalize` — docs, sync, archive
+## 3. `tool-search/openai-native` — the `openai` strategy (design D1, D11)
 
-- [ ] 3.1 Document the budget, the per-model override, and the `tool_search` behavior in `docs/mcp-tools.md` and `README.md`, add the dated `CHANGELOG.md` entry, update `SPEC.md` §13; verify `pnpm lint:markdown` and `pnpm format:check` pass
-- [ ] 3.2 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `--all --strict`; verify both pass
-- [ ] 3.3 Confirm `openspec status --change tool-search --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean; this layer closes #338
+Owns only the second transport. Reviewed alone because it is the only layer that changes a
+Responses request shape.
+
+- [ ] 3.1 Add optional `models[].toolSearch` (`harness` | `openai`, default `harness`) to `llame-config.ts`, the loader, and the JSON Schema, boot-failing `openai` on any provider other than the native OpenAI one and on unknown values; verify by unit tests per the `instance-config` delta that failures name the model id and the key
+- [ ] 3.2 Thread the strategy into the snapshot (`tool_search_strategy`), the receipt label, and `ModelStreamInput`; verify by unit test that a `harness` model's snapshot and hashes are byte-identical to layer 2's
+- [ ] 3.3 In `openai-model-client.ts`, when the strategy is `openai`: send discoverable declarations with `providerOptions.openai.deferLoading: true`, bind `openai.tools.toolSearch({ execution: 'client', description, parameters })` with the `select`/`query`/`limit` shape without the enum, route its `execute` to the shared executor, and leave `prepareStep` to the cap only; verify by unit test with the scripted provider that the request carries `defer_loading: true` on exactly the discoverable ids and a `tool_search` tool with `execution: "client"`, and that the search result is emitted as a `tool_search_output` item whose `tools` equal the recorded loaded ids
+- [ ] 3.4 Verify by unit test that replaying a persisted `tool_search` tool-result part rebuilds the `tool_search_output` item in its original position and that a compaction prefix that removes it also removes the loads from the next request
+- [ ] 3.5 Integration test mirroring 2.7 under the `openai` strategy against the scripted Responses provider, including a still-unloaded call being refused; verify the receipt shows the `openai` label and no enum on `tool_search`
+- [ ] 3.6 Live smoke against real OpenAI on a `gpt-5.4`-or-later model with a fake MCP catalog over budget, run by hand and recorded in the PR body: a search, a loaded call, and a second Run that calls the loaded tool without searching
+- [ ] 3.7 **Exit:** verify `pnpm --filter api typecheck`, `lint`, `test`, and `test:integration` pass, and that every `harness` fixture request is byte-identical to layer 2's
+
+## 4. `tool-search/finalize` — docs, sync, archive
+
+- [ ] 4.1 Document the budget, the per-model override, the strategy key, and the `tool_search` behavior in `docs/mcp-tools.md` and `README.md`, add the dated `CHANGELOG.md` entry, update `SPEC.md` §13; verify `pnpm lint:markdown` and `pnpm format:check` pass
+- [ ] 4.2 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `--all --strict`; verify both pass
+- [ ] 4.3 Confirm `openspec status --change tool-search --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean; this layer closes #338

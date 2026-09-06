@@ -29,3 +29,32 @@ the model id and the key.
 
 - **WHEN** a model entry sets `toolSearchThresholdTokens` to a negative number, a fraction, or a string
 - **THEN** startup fails naming the model id and `toolSearchThresholdTokens`
+
+### Requirement: Per-model tool-search strategy
+
+Each `models[]` entry MAY include an optional `toolSearch` string, one of `harness` or `openai`,
+defaulting to `harness`. `openai` SHALL be accepted only when the entry's provider is the native
+OpenAI provider; any other provider SHALL fail startup naming the model id and `toolSearch`. An
+unknown value SHALL fail startup the same way. The published JSON Schema SHALL declare the key
+and its enumeration. The setting SHALL NOT be verified against the provider's model support at
+startup; the operator declares it for models that support the provider's tool search.
+
+#### Scenario: Default strategy
+
+- **WHEN** a model entry omits `toolSearch`
+- **THEN** its Runs use the `harness` strategy
+
+#### Scenario: OpenAI strategy on the native provider
+
+- **WHEN** a model on the native OpenAI provider sets `toolSearch` to `openai`
+- **THEN** startup succeeds and its Runs use the `openai` strategy
+
+#### Scenario: OpenAI strategy on a compatible endpoint
+
+- **WHEN** a model on any other provider sets `toolSearch` to `openai`
+- **THEN** startup fails naming the model id and `toolSearch`
+
+#### Scenario: Unknown strategy
+
+- **WHEN** a model entry sets `toolSearch` to a value outside the enumeration
+- **THEN** startup fails naming the model id and `toolSearch`
