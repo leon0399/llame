@@ -71,13 +71,7 @@ async function collectWindow(
   }
   if (target.offset >= count && (count > 0 || target.offset !== 0))
     throw new NativeFileError("invalid_selector");
-  result.requestedRange =
-    count === 0
-      ? null
-      : {
-          startLine: target.offset + 1,
-          endLine: Math.min(requestedEnd, count),
-        };
+  if (count === 0) result.requestedRange = null;
   return result;
 }
 

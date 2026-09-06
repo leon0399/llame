@@ -189,4 +189,23 @@ describe("native source reads", () => {
       selectSourceLines("\n".repeat(2001), { path, offset: 0, raw: false }),
     ).toMatchObject({ truncated: true, nextOffset: 2000 });
   });
+  it("preserves requested bounds independently of observed EOF in both readers", async () => {
+    const source = "\n".repeat(2002);
+    const target = { path, offset: 0, limit: 10_000, raw: false };
+    await writeFile(path, source);
+    const streamed = await readFile({ path: `${path}:1+10000` });
+    const buffered = selectSourceLines(source, target);
+    expect(streamed).toMatchObject({
+      requestedRange: { startLine: 1, endLine: 10_000 },
+      shownRange: { startLine: 1, endLine: 2001 },
+      truncated: true,
+    });
+    expect(streamed).toEqual(buffered);
+    await writeFile(path, "only\n");
+    expect(await readFile({ path: `${path}:1-10` })).toMatchObject({
+      requestedRange: { startLine: 1, endLine: 10 },
+      shownRange: { startLine: 1, endLine: 1 },
+      truncated: false,
+    });
+  });
 });

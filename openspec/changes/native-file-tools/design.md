@@ -93,7 +93,11 @@ before and after the requested window when those lines exist. The extended
 content is one block, not separate `beforeContext` or `afterContext` fields.
 The result details carry the requested range, shown range, representation,
 logical/absolute path, and common truncation state. `nextOffset` identifies the
-next requested source line, not the trailing context line.
+next requested source line, not the trailing context line. `requestedRange`
+retains the normalized requested bounds; `shownRange` identifies only emitted
+source lines. Reaching EOF does not rewrite the requested end. Empty files
+return null ranges. This keeps streaming and buffered reads consistent without
+scanning the whole file to discover EOF.
 
 Normal display may prefix lines with system-authored one-based line numbers; the
 system prompt must state that prefixes are navigation metadata and are not file

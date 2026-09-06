@@ -37,16 +37,17 @@ export function selectSourceLines(
   ) {
     throw new NativeFileError("invalid_selector");
   }
-  const requestedEnd = Math.min(
+  const requestedEnd = target.offset + (target.limit ?? MAX_READ_LINES);
+  const boundedEnd = Math.min(
     lines.length,
-    target.offset + (target.limit ?? MAX_READ_LINES),
+    requestedEnd,
+    target.offset + MAX_READ_LINES,
   );
-  const boundedEnd = Math.min(requestedEnd, target.offset + MAX_READ_LINES);
   const start = target.raw ? target.offset : Math.max(0, target.offset - 1);
   const end = target.raw ? boundedEnd : Math.min(lines.length, boundedEnd + 1);
-  const result = emptyReadResult(target, requestedEnd);
+  const result = emptyReadResult(target, lines.length === 0 ? 0 : requestedEnd);
   result.truncated =
-    boundedEnd < requestedEnd ||
+    boundedEnd < Math.min(requestedEnd, lines.length) ||
     (target.limit === undefined && boundedEnd < lines.length);
   if (boundedEnd < lines.length) result.nextOffset = boundedEnd;
   return renderSelection(lines, target, result, { start, end });
