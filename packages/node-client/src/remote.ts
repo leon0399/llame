@@ -173,7 +173,7 @@ export class Remote {
       await this.json("/api/v1/models", signal),
       "model catalogue",
     );
-    const id = selected || text(catalogue.defaultModelId, "default model");
+    const id = selected ?? text(catalogue.defaultModelId, "default model");
     if (
       !Array.isArray(catalogue.models) ||
       !catalogue.models.some((model) => isRecord(model) && model.id === id)
@@ -349,16 +349,22 @@ export class Remote {
     signal: AbortSignal,
   ): Promise<PullResult> {
     let done = false;
-    for await (const frame of sse(response)) {
-      if (frame.data === "[DONE]") {
-        done = true;
-        break;
+    try {
+      for await (const frame of sse(response)) {
+        if (frame.data === "[DONE]") {
+          done = true;
+          break;
+        }
+        const next = this.applyEvent(frame, cursor);
+        if (next !== undefined) cursor = next;
       }
-      const next = this.applyEvent(frame, cursor);
-      if (next !== undefined) cursor = next;
+      if (!done) return { kind: "backoff", cursor, notice: false };
+      return await this.finishIfTerminal(cursor, signal);
+    } catch (error) {
+      aborted(signal);
+      if (fatalStreamError(error)) return { kind: "throw", error };
+      return { kind: "backoff", cursor, notice: true };
     }
-    if (!done) return { kind: "backoff", cursor, notice: false };
-    return this.finishIfTerminal(cursor, signal);
   }
 
   private applyEvent(frame: SseFrame, cursor: number): number | undefined {

@@ -39,6 +39,18 @@ async function fixture(t, transform = (value) => value) {
   const dir = mkdtempSync(join(tmpdir(), "node-client-"));
   const server = createServer(async (req, res) => {
     try {
+      if (req.url === "/api/v1/models") {
+        assert.equal(req.method, "GET");
+        assert.equal(req.headers.authorization, `Bearer ${secret}`);
+        res.setHeader("content-type", "application/json");
+        res.end(
+          JSON.stringify({
+            defaultModelId: "default-model",
+            models: [{ id: "default-model" }],
+          }),
+        );
+        return;
+      }
       assert.equal(req.url, NODE_REQUEST_PATH);
       assert.equal(req.method, "POST");
       assert.equal(req.headers.authorization, `Bearer ${secret}`);
@@ -101,6 +113,91 @@ async function fixture(t, transform = (value) => value) {
       principalId: owner,
     }),
     calls,
+  };
+}
+
+const runId = "33333333-3333-4333-8333-333333333333";
+const chatId = "44444444-4444-4444-8444-444444444444";
+
+function eventFrame(sequence, eventType, payload) {
+  return `id: ${sequence}\ndata: ${JSON.stringify({
+    sequence,
+    eventType,
+    payload,
+    createdAt: "2026-09-06T00:00:00.000Z",
+  })}\n\n`;
+}
+
+async function streamFixture(t) {
+  const dir = mkdtempSync(join(tmpdir(), "node-client-stream-"));
+  const eventRequests = [];
+  const visible = { events: [], texts: [], notices: [] };
+  const server = createServer(async (req, res) => {
+    try {
+      assert.equal(req.headers.authorization, `Bearer ${secret}`);
+      const url = new URL(req.url, "http://127.0.0.1");
+      if (url.pathname === `/api/v1/runs/${runId}`) {
+        assert.equal(req.method, "GET");
+        assert.equal(req.headers[NODE_VERSION_HEADER], "1");
+        assert.equal(req.headers[NODE_PRINCIPAL_HEADER], owner);
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ chatId, status: "completed" }));
+        return;
+      }
+      assert.equal(url.pathname, `/api/v1/runs/${runId}/events`);
+      assert.equal(req.method, "GET");
+      eventRequests.push({
+        after: url.searchParams.get("after_sequence"),
+        lastEventId: req.headers["last-event-id"],
+      });
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      if (eventRequests.length === 1) {
+        res.write(eventFrame(1, "model.delta", { text: "private-session-" }));
+        setTimeout(() => res.destroy(), 20);
+        return;
+      }
+      const firstSequence = eventRequests.at(-1).after === "1" ? 2 : 1;
+      if (firstSequence === 1)
+        res.write(eventFrame(1, "model.delta", { text: "private-session-" }));
+      res.write(eventFrame(2, "model.delta", { text: "value-abcdefg" }));
+      res.end("data: [DONE]\n\n");
+    } catch {
+      res.statusCode = 500;
+      res.end();
+    }
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const output = {
+    protect() {},
+    text(value) {
+      if (value) visible.texts.push(value);
+    },
+    notice(value) {
+      visible.notices.push(value);
+    },
+    event(value) {
+      visible.events.push(value);
+    },
+    value() {},
+  };
+  return {
+    remote: new Remote(
+      {
+        authority: `http://127.0.0.1:${server.address().port}`,
+        token: secret,
+        userId: owner,
+        source: "file",
+      },
+      new RemoteCursors(dir),
+      output,
+    ),
+    eventRequests,
+    visible,
   };
 }
 
@@ -192,4 +289,23 @@ test("unavailable capabilities do not trigger a query or silent local fallback",
     { code: "capability_unavailable" },
   );
   assert.equal(calls.length, 1);
+});
+
+test("explicit blank model selection is rejected instead of using the remote default", async (t) => {
+  const { remote } = await fixture(t);
+  await assert.rejects(remote.modelId("", signal()), { code: "unknown_model" });
+});
+
+test("SSE reconnect resumes after the last rendered event without replaying buffered text", async (t) => {
+  const { remote, eventRequests, visible } = await streamFixture(t);
+  await remote.follow(runId, signal());
+  assert.deepEqual(
+    visible.events.map(({ sequence }) => sequence),
+    [1, 2],
+  );
+  assert.deepEqual(visible.texts, ["[REDACTED]", "\n"]);
+  assert.deepEqual(eventRequests, [
+    { after: "0", lastEventId: "0" },
+    { after: "1", lastEventId: "1" },
+  ]);
 });
