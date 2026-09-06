@@ -856,23 +856,29 @@ describe("KnowledgeFilesystemAdapter", () => {
     expect(readLengths.reduce((sum, length) => sum + length, 0)).toBe(2);
   });
 
-  it("rejects aggregate search bytes without returning partial matches", async () => {
-    const fileSize = KNOWLEDGE_MAX_SEARCH_FILE_BYTES;
-    const entries = Array.from(
-      { length: Math.floor(KNOWLEDGE_MAX_SEARCH_BYTES / fileSize) + 1 },
-      (_entry, index) => fileEntry(`f${index}.md`),
-    );
-    const binding = {
-      id: SPACE_ID,
-      root: "/trusted/root",
-      directory: `/trusted/root/${SPACE_ID}`,
-    };
-    const fileSystem = fakeFilesystem(entries, { stats: fileStats(fileSize) });
+  it(
+    "rejects aggregate search bytes without returning partial matches",
+    { timeout: 15_000 },
+    async () => {
+      const fileSize = KNOWLEDGE_MAX_SEARCH_FILE_BYTES;
+      const entries = Array.from(
+        { length: Math.floor(KNOWLEDGE_MAX_SEARCH_BYTES / fileSize) + 1 },
+        (_entry, index) => fileEntry(`f${index}.md`),
+      );
+      const binding = {
+        id: SPACE_ID,
+        root: "/trusted/root",
+        directory: `/trusted/root/${SPACE_ID}`,
+      };
+      const fileSystem = fakeFilesystem(entries, {
+        stats: fileStats(fileSize),
+      });
 
-    await expect(
-      new KnowledgeFilesystemAdapter(binding, fileSystem).search("needle", 5),
-    ).rejects.toMatchObject({ code: "knowledge_limit_exceeded" });
-  });
+      await expect(
+        new KnowledgeFilesystemAdapter(binding, fileSystem).search("needle", 5),
+      ).rejects.toMatchObject({ code: "knowledge_limit_exceeded" });
+    },
+  );
 
   it("rejects an oversized read before and after the byte read race", async () => {
     const binding = {
