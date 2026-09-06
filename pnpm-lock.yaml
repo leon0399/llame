@@ -624,6 +624,10 @@ importers:
   packages/config-typescript: {}
 
   packages/native-file-tools:
+    dependencies:
+      '@workspace/runtime-safety':
+        specifier: workspace:*
+        version: link:../runtime-safety
     devDependencies:
       '@barney-media/crap-typescript':
         specifier: 'catalog:'

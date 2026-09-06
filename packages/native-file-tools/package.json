@@ -23,5 +23,8 @@
     "oxlint-tsgolint": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "dependencies": {
+    "@workspace/runtime-safety": "workspace:*"
   }
 }

@@ -1,5 +1,6 @@
 import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { truncateOversizedResult } from "@workspace/runtime-safety";
 import { join } from "node:path";
 import {
   loadText,
@@ -21,7 +22,7 @@ describe("native source reads", () => {
   });
 
   it("caps an unselected read and continues before trailing context", async () => {
-    await writeFile(path, "x\n".repeat(2002));
+    await writeFile(path, "\n".repeat(2002));
     expect(await readFile({ path })).toMatchObject({
       requestedRange: { startLine: 1, endLine: 2000 },
       shownRange: { startLine: 1, endLine: 2001 },
@@ -29,7 +30,7 @@ describe("native source reads", () => {
       truncated: true,
     });
     expect(await readFile({ path: `${path}:2001-2002` })).toMatchObject({
-      content: "2000: x\n2001: x\n2002: x\n",
+      content: "2000: \n2001: \n2002: \n",
       truncated: false,
     });
   });
@@ -101,6 +102,8 @@ describe("native source reads", () => {
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(
       MAX_RESULT_CODE_UNITS,
     );
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(16_000);
+    expect(truncateOversizedResult(result)).toBe(result);
     expect(result).toMatchObject({ status: "success", truncated: true });
     if (result.status !== "success") throw new Error("Expected source result");
     expect(result.content.endsWith("\n")).toBe(true);
@@ -183,7 +186,7 @@ describe("native source reads", () => {
       selectSourceLines("x".repeat(30_000), { path, offset: 0, raw: false }),
     ).toMatchObject({ content: "", truncated: true });
     expect(
-      selectSourceLines("x\n".repeat(2001), { path, offset: 0, raw: false }),
+      selectSourceLines("\n".repeat(2001), { path, offset: 0, raw: false }),
     ).toMatchObject({ truncated: true, nextOffset: 2000 });
   });
 });

@@ -1,6 +1,7 @@
+import { RESULT_TRUNCATE_CHARS } from "@workspace/runtime-safety";
 import { NativeFileError, type ReadTarget } from "./path";
 export const MAX_READ_LINES = 2000;
-export const MAX_RESULT_CODE_UNITS = 30_000;
+export const MAX_RESULT_CODE_UNITS = RESULT_TRUNCATE_CHARS;
 
 export type LineRange = { startLine: number; endLine: number };
 export type ReadSuccess = {
@@ -108,7 +109,7 @@ export function emptyReadResult(
   target: ReadTarget,
   endLine: number,
 ): ReadSuccess {
-  return {
+  const result: ReadSuccess = {
     status: "success",
     kind: "file",
     path: target.path,
@@ -119,4 +120,10 @@ export function emptyReadResult(
     shownRange: null,
     truncated: false,
   };
+  if (
+    JSON.stringify({ ...result, nextOffset: target.offset }).length >
+    MAX_RESULT_CODE_UNITS
+  )
+    throw new NativeFileError("invalid_path");
+  return result;
 }
