@@ -10,7 +10,7 @@ import {
   normalizeProtectedValues,
   sanitizeProtectedValueJson,
 } from "@workspace/runtime-safety";
-import { PersonalKnowledge } from "./knowledge";
+import { PersonalKnowledge, type Space } from "./knowledge";
 import { rebuildSearch } from "./store-migration";
 import {
   loadConfig,
@@ -19,7 +19,7 @@ import {
   type LocalConfig,
 } from "./config";
 import { commandEnvironment } from "./env";
-import { LocalStore } from "./store";
+import { LocalStore, type RunRecord } from "./store";
 import { runLocal } from "./local-run";
 import { CliError } from "./errors";
 import { executionLock, removeDeadLock } from "./execution-lock";
@@ -27,6 +27,7 @@ import {
   integer,
   jsonValue,
   keys,
+  record,
   text,
   uuid,
   type JsonValue,
@@ -130,7 +131,7 @@ export class NodeService {
       case "realm.models.list":
         return this.models(params);
       case "realm.knowledge.create":
-        return new PersonalKnowledge(this.store).create(params);
+        return this.knowledgeCreate(params);
       case "realm.knowledge.list":
         return this.knowledgeList(params);
       case "realm.knowledge.get":
@@ -174,7 +175,7 @@ export class NodeService {
       return this.store.runs();
     }
     keys(params, ["runId"], method);
-    return this.store.run(uuid(params.runId));
+    return runEgress(this.store.run(uuid(params.runId)));
   }
 
   private status(params: UnknownRecord): JsonValue {
@@ -190,14 +191,22 @@ export class NodeService {
   private knowledgeList(params: UnknownRecord): JsonValue {
     keys(params, [], "realm.knowledge.list");
     return {
-      items: new PersonalKnowledge(this.store).list(),
+      items: new PersonalKnowledge(this.store).list().map(knowledgeSpaceEgress),
       nextCursor: null,
     };
   }
 
+  private knowledgeCreate(params: UnknownRecord): Space {
+    return knowledgeSpaceEgress(
+      new PersonalKnowledge(this.store).create(params),
+    );
+  }
+
   private knowledgeGet(params: UnknownRecord): JsonValue {
     keys(params, ["knowledgeSpaceId"], "realm.knowledge.get");
-    return new PersonalKnowledge(this.store).get(uuid(params.knowledgeSpaceId));
+    return knowledgeSpaceEgress(
+      new PersonalKnowledge(this.store).get(uuid(params.knowledgeSpaceId)),
+    );
   }
 
   private runEvents(params: UnknownRecord): JsonValue {
@@ -379,7 +388,7 @@ export class NodeService {
     return {
       runId: id,
       cancellationRequested: !!controller,
-      run: this.store.run(id),
+      run: runEgress(this.store.run(id)),
     };
   }
 
@@ -441,4 +450,61 @@ export class NodeService {
     await Promise.allSettled(this.jobs);
     this.store.close();
   }
+}
+
+interface KnowledgeSpaceEgress {
+  readonly id: string;
+  readonly name: string;
+  readonly createdAt: string;
+}
+
+function knowledgeSpaceEgress(space: Space): KnowledgeSpaceEgress {
+  return {
+    id: uuid(space.id),
+    name: text(space.name, "Knowledge name", 100),
+    createdAt: text(space.createdAt, "Knowledge creation time", 100),
+  };
+}
+
+interface RunEgress {
+  readonly id: string;
+  readonly chat_id: string;
+  readonly status: string;
+  readonly snapshot: JsonValue;
+  readonly created_at: string;
+  readonly finished_at: string | null;
+}
+
+function runEgress(run: RunRecord): RunEgress {
+  return {
+    id: uuid(run.id),
+    chat_id: uuid(run.chat_id),
+    status: text(run.status, "Run status", 50),
+    snapshot: snapshotEgress(run.snapshot),
+    created_at: text(run.created_at, "Run creation time", 100),
+    finished_at:
+      run.finished_at === null
+        ? null
+        : text(run.finished_at, "Run completion time", 100),
+  };
+}
+
+function snapshotEgress(value: JsonValue): JsonValue {
+  const snapshot = record(value, "Run snapshot");
+  return {
+    mode: snapshot.mode,
+    nodeId: snapshot.nodeId,
+    model: snapshot.model,
+    bounds: snapshot.bounds,
+    workspace:
+      snapshot.workspace === null
+        ? null
+        : { placement: record(snapshot.workspace, "Workspace").placement },
+    tools: snapshot.tools,
+    system: snapshot.system,
+    knowledgeSpaces: snapshot.knowledgeSpaces,
+    recall: snapshot.recall,
+    mcp: snapshot.mcp,
+    toolAvailability: snapshot.toolAvailability,
+  };
 }

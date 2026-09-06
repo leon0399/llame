@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -173,4 +174,51 @@ test("credentials are redacted before crossing any Node output channel", () => {
   output.event({ eventType: "unsafe-key", payload: { [secret]: "blocked" } });
   assert.ok(!JSON.stringify(sent).includes(secret));
   assert.equal(sent.at(-1).value.withheld, true);
+});
+
+test("IPC egress omits host paths and canonicalizes UUID lookups", async (t) => {
+  const s = session(t);
+  s.send("hello", "core.hello", { version: 2 });
+  await delay(0);
+
+  s.send("create", "realm.knowledge.create", { name: "Private notes" });
+  await delay(0);
+  const created = s.frames.find((frame) => frame.id === "create").result;
+  assert.deepEqual(Object.keys(created).sort(), ["createdAt", "id", "name"]);
+  assert.equal("directory" in created, false);
+
+  s.send("get", "realm.knowledge.get", {
+    knowledgeSpaceId: created.id.toUpperCase(),
+  });
+  await delay(0);
+  assert.deepEqual(
+    s.frames.find((frame) => frame.id === "get").result,
+    created,
+  );
+
+  const chatId = randomUUID();
+  const runId = s.service.store.start(chatId, "seed", {
+    workspace: { placement: "native", root: "/private/host/path" },
+  });
+  s.send("chat", "realm.chats.read", { chatId: chatId.toUpperCase() });
+  s.send("run", "execution.runs.get", { runId: runId.toUpperCase() });
+  s.send("cancel", "execution.runs.cancel", {
+    runId: runId.toUpperCase(),
+  });
+  await delay(0);
+
+  assert.equal(
+    s.frames.find((entry) => entry.id === "chat").result[0].content,
+    "seed",
+  );
+
+  for (const frame of [
+    s.frames.find((entry) => entry.id === "run").result,
+    s.frames.find((entry) => entry.id === "cancel").result.run,
+  ]) {
+    assert.equal(frame.id, runId);
+    assert.equal(frame.chat_id, chatId);
+    assert.deepEqual(frame.snapshot.workspace, { placement: "native" });
+    assert.equal(JSON.stringify(frame).includes("/private/host/path"), false);
+  }
 });

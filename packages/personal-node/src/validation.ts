@@ -78,7 +78,7 @@ export function uuid(value: unknown): string {
   ) {
     throw new CliError("invalid_id", "Expected a UUID.");
   }
-  return id;
+  return id.toLowerCase();
 }
 
 export function jsonValue(value: unknown): JsonValue {
