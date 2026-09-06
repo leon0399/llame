@@ -1,5 +1,9 @@
 # Agent instructions - llame
 
+llame is a personal-first **meta-harness**: it owns Chat/Run identity, lifecycle,
+provenance, and isolation; peer coding agents (ACP, A2A, and similar) stay
+executor adapters. See [VISION.md](VISION.md).
+
 [SPEC.md](SPEC.md) indexes cross-cutting architecture; OpenSpec owns capability
 behavior. `CLAUDE.md` and `GEMINI.md` link here.
 
@@ -8,6 +12,8 @@ behavior. `CLAUDE.md` and `GEMINI.md` link here.
 @CONTRIBUTING.md
 
 @CODING_STANDARDS.md
+
+@docs/research/harnesses/REFERENCE-HARNESSES.md
 
 @CLAUDE.local.md
 
@@ -26,6 +32,8 @@ depend on it.
 - [docs/testing.md](docs/testing.md), [docs/scaling.md](docs/scaling.md): test
   placement and runtime topology.
 - [`docs/research`](docs/research): noncanonical evidence.
+- [docs/research/harnesses/REFERENCE-HARNESSES.md](docs/research/harnesses/REFERENCE-HARNESSES.md):
+  prior-art index for peer harnesses and protocols.
 
 Put commands and traps in the closest `AGENTS.md`, capability behavior in
 OpenSpec, architecture in `SPEC.md`, and operator procedures in `docs/`. The

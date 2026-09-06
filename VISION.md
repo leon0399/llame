@@ -131,9 +131,10 @@ open until this slice is planned. Child-agent orchestration is deliberately
 behind the single-agent personal context and knowledge loop; it is not a
 prerequisite for that loop or for a first-party local Node.
 
-External coding agents and protocols such as ACP, A2A, Codex App Server, or
-OpenCode remain executor adapters. llame should keep ownership of Chat and Run
-identity, lifecycle, provenance, cancellation, and published results. Those
+As a meta-harness, llame keeps ownership of Chat and Run identity, lifecycle,
+provenance, cancellation, and published results. External coding agents and
+protocols such as ACP, A2A, Codex App Server, or OpenCode remain executor
+adapters — peer harnesses to dispatch, not a second session system. Those
 adapters remain north-star compatibility work rather than part of the immediate
 product cut.
 
