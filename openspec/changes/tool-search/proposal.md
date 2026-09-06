@@ -21,15 +21,18 @@ threshold. This proposal is not on the v0.7 critical path.
 ## What Changes
 
 - Add a per-Run **declaration budget**: a per-model token threshold (default one tenth of
-  `contextWindowTokens`, overridable per model as `models[].toolSearchThresholdTokens`). When the
-  estimated size of every eligible declaration fits the budget, nothing changes and every snapshot
-  hash is byte-identical to today.
+  `contextWindowTokens`, overridable per model as `models[].toolSearchThresholdTokens`) that
+  governs only the eligible MCP declarations; code-owned tools are always declared and never
+  counted. When the estimated size of the eligible MCP declarations fits the budget, nothing
+  changes and every snapshot hash is byte-identical to today.
 - When the catalog exceeds the budget, the Run still **binds every eligible declaration**, but
-  code-owned tools are declared to the model directly while MCP tools become **discoverable**: not
-  declared on the first step, disclosed only as an inventory of names, and declared on later
-  steps once the model loads them through `tool_search`.
-- Add the reserved, read-only, harness-synthesized `tool_search` tool: exact-id `select` (schema
-  enum of the discoverable ids) plus a small keyword search over ids and descriptions. Its result
+  code-owned tools are declared to the model directly while MCP tools become **discoverable**:
+  their schemas are withheld on the first step (omitted under `harness`, sent as provider-deferred
+  entries under `openai`), disclosed as an inventory of names through provider-native declarations,
+  and declared in full on later steps once the model loads them through `tool_search`.
+- Add the reserved, read-only, harness-synthesized `tool_search` tool: exact-id `select` (a
+  schema enum of the discoverable ids under `harness`; the provider's own deferred entries carry
+  the names under `openai`) plus a small keyword search over ids and descriptions. Its result
   returns the loaded declarations, and those tools are declared natively on every following step of
   the Run. Loaded tools stay declared on later Runs in the same disclosure epoch; a compaction
   checkpoint resets the tier to default.

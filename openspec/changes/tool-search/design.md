@@ -151,9 +151,11 @@ supply.
 ### D4. Tier rule: code-owned declared, MCP discoverable, no budget filling
 
 When deferral engages, every code-owned tool is declared and every MCP tool is discoverable
-unless D6 promotes it. Filling the leftover budget with "the first N MCP tools" would make the
-partition depend on id order and shift as servers reconnect; a stable, explainable rule is worth
-more than a few thousand tokens. Revisit only with a measured case.
+unless D6 promotes it, except ids cut by D3's inventory rule, which are terminal for the Run:
+bound `unavailable`, absent from the inventory, search results, loading, and promotion
+candidates (CodeRabbit finding). Filling the leftover budget with "the first N MCP tools" would
+make the partition depend on id order and shift as servers reconnect; a stable, explainable
+rule is worth more than a few thousand tokens. Revisit only with a measured case.
 
 ### D5. Inventory lives in the `tool_search` input schema
 
@@ -174,10 +176,12 @@ the schemas it replaces.
 A tool is loaded only when its full declaration was delivered in a `tool_search` result. The
 executor sizes the result itself, dropping whole declarations that would not fit the tool result
 cap and listing them as `notLoaded`, so the recorded structured result is never truncated and is
-the single record of the loaded set. The worker writes the loaded ids onto the Run row as each `tool_search` call completes, ordered
-by the authored tool-call occurrence (step, then position within the step), never by completion
-time, since parallel calls in one step settle in scheduler order (Codex PR finding); a Run that
-fails or is cancelled afterward still carries them.
+the single record of the loaded set. The worker persists each completed `tool_search` call as
+an occurrence record `{ step, position, ids }` keyed by `(step, position)` with an atomic,
+idempotent upsert on the Run row, and the ordered loaded set is derived from those records;
+parallel calls in one step settle in scheduler order and a retry replays the same occurrences,
+so neither changes the derived order (Codex and CodeRabbit findings). A Run that fails or is
+cancelled afterward still carries what it recorded.
 
 llame's executor wrapper is the authority on the loaded set under every strategy: a call to a
 discoverable tool that is not in the Run's loaded set is refused with the recorded

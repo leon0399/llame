@@ -21,8 +21,12 @@ prior load in the same disclosure epoch. When at least one tool is discoverable,
 additionally bind and declare the reserved harness tool `tool_search`, whose input accepts an
 exact-id `select` list constrained to the discoverable ids, a keyword `query`, and a result
 `limit` with a default of 5 and a maximum of 20. The discoverable inventory SHALL be disclosed
-to the model only through that declaration's input schema, which counts as the provider-native
-disclosure of those callable tools; no per-turn prose inventory SHALL be persisted.
+to the model only through provider-native tool declarations, never through a persisted per-turn
+prose inventory: under `harness` through that declaration's input schema, and under `openai`
+through the deferred provider tool entries themselves, as the strategy requirement states. That
+disclosure counts as the provider-native disclosure of those callable tools. An id cut by the
+inventory rule below SHALL be terminal for the Run: excluded from the inventory, from every
+search result, from loading, and from promotion candidates.
 
 A `tool_search` call SHALL resolve exact `select` ids and rank keyword matches over each
 discoverable tool's id and its admitted description deterministically, returning the loaded
@@ -39,10 +43,11 @@ receives for that refusal SHALL name the tools declared on that step, which incl
 A step whose only tool call is `tool_search` SHALL count toward `maxStepsPerRun`, and the step cap
 SHALL take precedence over loading.
 
-Every Run SHALL record the ids it loaded as each `tool_search` call completes, ordered by the
-occurrence order of the authored `tool_search` calls rather than by completion time, so parallel
-calls in one step and queue retries yield the same order; a Run that later fails or is cancelled
-still carries what it loaded. At acceptance of a later Run in the
+Every Run SHALL record the ids it loaded as each `tool_search` call completes, through an
+atomic, idempotent update keyed by the authored call's occurrence (step, then position within
+the step), so that out-of-order completion of parallel calls, a cancellation after one
+completion, and queue-retry replay all yield the same occurrence-ordered set; a Run that later
+fails or is cancelled still carries what it loaded. At acceptance of a later Run in the
 same disclosure epoch, promotion candidates SHALL be the previous accepted Run's recorded loaded
 ids, most recent first, followed by the previous snapshot's promoted ids (its declared MCP ids,
 present only when that snapshot had discoverable tools). Candidates still bound for the new Run
@@ -90,14 +95,14 @@ snapshot and the replayed steps alone.
 
 #### Scenario: Catalog beyond budget defers MCP tools
 
-- **WHEN** the estimated size exceeds the budget and the turn is eligible for code-owned and MCP tools
+- **WHEN** the estimated size exceeds the budget, the turn is eligible for code-owned and MCP tools, and no promotion candidate exists
 - **THEN** every eligible declaration is bound and executable on exact hash match
 - **AND** the first step declares only the code-owned tools and `tool_search`
-- **AND** the `tool_search` input schema enumerates exactly the discoverable ids
+- **AND** under `harness` the `tool_search` input schema enumerates exactly the discoverable ids
 
 #### Scenario: Exact select loads and declares tools
 
-- **WHEN** the model calls `tool_search` with `select` naming two discoverable ids
+- **WHEN** the model calls `tool_search` with `select` naming two discoverable ids whose declarations both fit the result size cap
 - **THEN** the result contains those two declarations
 - **AND** the next step declares both tools natively alongside the declared tier
 - **AND** a following call to either tool executes normally
