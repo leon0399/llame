@@ -3,12 +3,20 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
-    alias: {
-      "@workspace/runtime-safety": path.resolve(
-        import.meta.dirname,
-        "../runtime-safety/src/index.ts",
-      ),
-    },
+    // Stryker relocates this package without its sibling source tree. Its task
+    // builds runtime-safety first, so use the workspace export in that sandbox.
+    alias:
+      process.env.STRYKER_MUTATOR_WORKER !== undefined
+        ? []
+        : [
+            {
+              find: "@workspace/runtime-safety",
+              replacement: path.resolve(
+                import.meta.dirname,
+                "../runtime-safety/src/index.ts",
+              ),
+            },
+          ],
   },
   test: {
     globals: true,
