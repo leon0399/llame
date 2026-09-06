@@ -1,6 +1,7 @@
 # Personal Node runtime
 
-Read the repository AGENTS.md and docs/node/local-protocol.md first.
+Read the repository AGENTS.md first. When the Node-server layer is present,
+also read docs/node/local-protocol.md.
 
 - This package owns personal SQLite, provider resolution, execution and tool
   authorization. Terminal prompts and rendering belong to apps/cli. Process composition/launch
@@ -15,5 +16,6 @@ Read the repository AGENTS.md and docs/node/local-protocol.md first.
   replay a tool side effect just because the observer or executor disappeared.
 - Strictly negotiate and bound the private protocol; no unauthenticated TCP
   listener, silent stale-socket fallback, protocol-parity or sync claim.
-- Run package tests plus the CLI process regressions after builds. Production MCP
-  transports must be verified separately; an injected connection is not wire proof.
+- Run package tests after builds. When the CLI layer is present, also run its
+  process regressions. Production MCP transports must be verified separately;
+  an injected connection is not wire proof.
