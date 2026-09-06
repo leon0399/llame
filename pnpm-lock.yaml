@@ -481,6 +481,9 @@ importers:
       '@tanstack/react-query-devtools':
         specifier: ^5.81.5
         version: 5.81.5(@tanstack/react-query@5.81.5(react@19.2.7))(react@19.2.7)
+      '@workspace/runtime-safety':
+        specifier: workspace:*
+        version: link:../../packages/runtime-safety
       '@workspace/ui':
         specifier: workspace:*
         version: link:../../packages/ui

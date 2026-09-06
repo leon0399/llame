@@ -6,6 +6,12 @@
       "env": ["NEXT_PUBLIC_API_URL", "NEXT_RUNTIME"],
       "passThroughEnv": ["SENTRY_AUTH_TOKEN"],
       "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**"]
-    }
+    },
+    // Web resolves the browser-safe runtime-safety export from its built
+    // dist, so cached checks need the upstream workspace build first.
+    "lint": { "dependsOn": ["^build"] },
+    "typecheck": { "dependsOn": ["^build"] },
+    "test": { "dependsOn": ["^build"] },
+    "test:coverage": { "dependsOn": ["^build"] }
   }
 }

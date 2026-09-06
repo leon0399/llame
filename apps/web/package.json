@@ -21,6 +21,7 @@
     "@sentry/nextjs": "^10.63.0",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-query-devtools": "^5.81.5",
+    "@workspace/runtime-safety": "workspace:*",
     "@workspace/ui": "workspace:*",
     "ai": "catalog:",
     "date-fns": "^4.1.0",
