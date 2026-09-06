@@ -16,7 +16,12 @@ export interface SqlRow {
 }
 
 export interface RunRecord {
+  readonly id: string;
+  readonly chat_id: string;
+  readonly status: string;
   readonly snapshot: JsonValue;
+  readonly created_at: string;
+  readonly finished_at: string | null;
 }
 
 export interface EventPage {
@@ -176,8 +181,15 @@ export class LocalStore {
     const row = this.db.prepare("SELECT * FROM runs WHERE id=?").get(uuid(id));
     if (!row) throw new CliError("not_found", "Local run not found.");
     return {
-      ...row,
+      id: uuid(row.id),
+      chat_id: uuid(row.chat_id),
+      status: text(row.status, "run status", 50),
       snapshot: parseJson(text(row.snapshot, "snapshot", 4_194_304)),
+      created_at: text(row.created_at, "run creation time", 100),
+      finished_at:
+        row.finished_at === null
+          ? null
+          : text(row.finished_at, "run completion time", 100),
     };
   }
   runs(): Array<SqlRow> {
