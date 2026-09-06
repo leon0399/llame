@@ -19,8 +19,9 @@ boundaries, and traps. DB work follows [`src/db/AGENTS.md`](src/db/AGENTS.md).
 
 Each feature owns one Nest module and exports services consumers need; never
 re-provide them. `RunExecutionService` stays transport-neutral. The current tool
-gate is exactly `allowlisted intersect read_only`; do not restore removed policy
-or env toggles.
+gate admits allowlisted read-only tools and the exact configured native file
+capability. Native mutations require durable pre-effect fencing. Do not restore
+removed policy or env toggles.
 
 ## Commands
 

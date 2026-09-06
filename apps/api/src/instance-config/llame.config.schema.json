@@ -414,6 +414,11 @@
       "additionalProperties": false,
       "description": "Tool-calling loop availability (openspec/changes/tool-calling-loop). The operator allowlist is the entire availability story this slice — no policy engine exists yet (D3).",
       "properties": {
+        "nativeExecutorId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable operator-owned identity of this alpha native host. Setting it accepts host OS file authority for allowlisted read/edit/write tools. Use a distinct identity on each host."
+        },
         "allowed": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },

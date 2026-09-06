@@ -1,3 +1,4 @@
+import { isNativeFileTool } from './native-files';
 import { Logger } from '@nestjs/common';
 
 import {
@@ -17,8 +18,8 @@ class ToolAbortError extends Error {}
  * Race an execution against the exact signal passed to the tool. Cooperative
  * tools can stop work when it aborts; tools that ignore it still produce a
  * bounded result for the caller. The underlying work cannot be forcibly
- * cancelled, which is safe here because every executable tool is read-only
- * (D6b).
+ * cancelled. Native mutations check the signal before publication, and an
+ * interrupted native mutation returns an unknown outcome rather than retrying.
  */
 function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -109,14 +110,15 @@ export async function runTool(
       Promise.resolve(tool.execute(executionContext, validArgs)),
       composedSignal,
     );
+    if (
+      isNativeFileTool(tool) &&
+      result.status === 'error' &&
+      result.type === 'outcome_unknown'
+    )
+      validContext.onNativeMutationUnknown?.();
     return truncateOversizedResult(result);
   } catch (error) {
-    return classifyToolExecutionError(
-      error,
-      validContext,
-      timeoutSignal,
-      tool.id,
-    );
+    return classifyToolExecutionError(error, validContext, timeoutSignal, tool);
   }
 }
 
@@ -128,8 +130,18 @@ function classifyToolExecutionError(
   error: unknown,
   context: ToolContext,
   timeoutSignal: AbortSignal,
-  toolId: string,
+  tool: Tool,
 ): ToolResult {
+  if (isNativeFileTool(tool) && tool.id !== 'read') {
+    context.onNativeMutationUnknown?.();
+    return {
+      status: 'error',
+      type: 'outcome_unknown',
+      message:
+        'The native mutation did not settle before interruption. Do not repeat it automatically.',
+    };
+  }
+  const toolId = tool.id;
   if (context.abortSignal?.aborted) {
     return {
       status: 'error',

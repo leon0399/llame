@@ -74,7 +74,8 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "zod": "catalog:",
-    "@workspace/runtime-safety": "workspace:*"
+    "@workspace/runtime-safety": "workspace:*",
+    "@workspace/native-file-tools": "workspace:*"
   },
   "devDependencies": {
     "@ai-sdk/provider": "3.0.15",

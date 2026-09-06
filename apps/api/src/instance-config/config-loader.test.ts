@@ -425,6 +425,21 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
 });
 
 describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', () => {
+  it('accepts an explicit native host identity and exact native tool ids', () => {
+    writeConfig(
+      '{ "tools": { "nativeExecutorId": "personal-host-a", "allowed": ["read", "edit", "write"] } }',
+    );
+    expect(loadInstanceConfig().tools).toMatchObject({
+      nativeExecutorId: 'personal-host-a',
+      allowed: ['read', 'edit', 'write'],
+    });
+  });
+
+  it('rejects an empty native host identity', () => {
+    writeConfig('{ "tools": { "nativeExecutorId": "" } }');
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  });
+
   it('defaults to no tools, cap 20, timeout 120 when the file omits tools', () => {
     const config = loadInstanceConfig();
     expect(config.tools).toEqual({

@@ -15,8 +15,10 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
 - Operator-managed providers, models, and per-model system prompts in
   `llame.config.json`, supporting OpenAI-compatible endpoints.
 - Owner-only Projects for organizing chats, with pinning and reversible archive.
-- Bounded read-only tool loop: `search_conversations`, optional line-ranged
+- Bounded tool loop: `search_conversations`, optional line-ranged
   `conversation_read`, and operator-configured Streamable HTTP MCP tools.
+- Optional native host file tools: selector-based `read`, exact `edit`, and
+  create-only `write`, with durable mutation fencing. See [native file setup](docs/native-files.md).
 - Owner-scoped Markdown Knowledge Spaces: `knowledge_search` and
   `knowledge_read` over live files (including uncommitted changes),
   operator-configured and allowlisted.
