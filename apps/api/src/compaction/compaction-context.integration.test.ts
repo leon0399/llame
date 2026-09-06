@@ -135,7 +135,7 @@ function compactionClient(input: {
   return {
     model: input.model,
     provider: 'fake',
-    contextWindowTokens: input.contextWindowTokens ?? 100_000,
+    contextWindowTokens: input.contextWindowTokens ?? 200_000,
     compactionThresholdTokens: 1,
     streamText(request) {
       input.calls.push(request);
@@ -1040,7 +1040,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
-    const targetDelegate = createFakeModelClient(['target response'], 600);
+    const targetDelegate = createFakeModelClient(['target response'], 800);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1092,7 +1092,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     // ~17 tokens to a checkpoint and ~24 to a notice (attributes plus the
     // one-line provenance statement) — the budget was calibrated to the old
     // per-producer delimiters, not to a behaviour change.
-    const targetDelegate = createFakeModelClient(['target response'], 600);
+    const targetDelegate = createFakeModelClient(['target response'], 800);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1218,7 +1218,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         compactionClient({ model: 'source-model', calls: sourceCalls }),
       ),
     });
-    const targetDelegate = createFakeModelClient(['must not run'], 500);
+    const targetDelegate = createFakeModelClient(['must not run'], 700);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1280,7 +1280,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
-    const targetDelegate = createFakeModelClient(['must not run'], 500);
+    const targetDelegate = createFakeModelClient(['must not run'], 700);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1349,7 +1349,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
-    const targetDelegate = createFakeModelClient(['target response'], 500);
+    const targetDelegate = createFakeModelClient(['target response'], 700);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1422,7 +1422,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
-    const targetDelegate = createFakeModelClient(['target response'], 500);
+    const targetDelegate = createFakeModelClient(['target response'], 700);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1522,7 +1522,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     async ({ sourceRun, switchMarker, models }) => {
       const seeded = await seedSwitch({ sourceRun, switchMarker });
       const targetCalls: Array<ModelStreamInput> = [];
-      const target = createFakeModelClient(['must not run'], 500);
+      const target = createFakeModelClient(['must not run'], 700);
       const targetClient: ModelClient = {
         ...target,
         model: 'target-model',

@@ -9,7 +9,7 @@ the chunker-fit layer (#517) are measured against. **Cutoff K = 10.**
 
 | metric           | value |
 | ---------------- | ----- |
-| queries          | 29    |
+| queries          | 32    |
 | Recall@10        | 0.586 |
 | MRR              | 0.586 |
 | nDCG@10          | 0.586 |
@@ -35,6 +35,9 @@ the chunker-fit layer (#517) are measured against. **Cutoff K = 10.**
 | transliteration | 1   | 0.00      | 0.00 | 0.00    | 1.00      | record |
 | hard-negative   | 1   | 0.00      | 0.00 | 0.00    | 1.00      | record |
 | long-chat       | 1   | 0.00      | 0.00 | 0.00    | 1.00      | record |
+| range-required  | 1   | —         | —    | —       | —         | record |
+| range-preferred | 1   | —         | —    | —       | —         | record |
+| timeline        | 1   | —         | —    | —       | —         | record |
 
 ## Reading it
 
@@ -92,10 +95,11 @@ owner-filtered p95 in the latency section below breaches a stated budget.
 ## Fusion constants
 
 Vector weight 1.0 (parity with FTS), candidate cap 100, k=60, weighted top-3
-grouping [1, 0.25, 0.1]. These are the initial constants chosen without a grid
+grouping [1, 0.25, 0.1]. Preferred-range bonus `w_pref = 0.25` (#198 D5,
+hypothesis for #600). These are the initial constants chosen without a grid
 comparison: the constant grid (vector weight ∈ {0.5, 1, 1.5} × grouping ∈
 {top-3 weighted, max-only, capped diminishing}) was not run during the initial implementation; the first run with
-text-embedding-3-large produced Recall@10 = 1.00 on the 29-query dataset,
+text-embedding-3-large produced Recall@10 = 1.00 on the 32-query dataset,
 confirming the initial constants work. The hybrid baseline is recorded in the
 section below. If a semantic category underperforms on a larger dataset, the
 adaptive-weight follow-up is the next step (not a grid re-run).
@@ -104,7 +108,7 @@ adaptive-weight follow-up is the next step (not a grid re-run).
 
 | metric           | lexical | hybrid |
 | ---------------- | ------- | ------ |
-| queries          | 29      | 29     |
+| queries          | 32      | 32     |
 | Recall@10        | 0.586   | 1.000  |
 | MRR              | 0.586   | 0.698  |
 | nDCG@10          | 0.586   | 0.773  |
@@ -131,6 +135,6 @@ adaptive-weight follow-up is the next step (not a grid re-run).
 
 Constants: weight 1, cap 100, k=60, weighted top-3 [1, 0.25, 0.1].
 Grid comparison: not run (single-point result above). The initial constants
-produce Recall@10 = 1.00 on the 29-query dataset; a grid sweep would tune MRR
+produce Recall@10 = 1.00 on the 32-query dataset; a grid sweep would tune MRR
 (ranking position), not recall (hit/miss). Filed as a follow-up only if a
 semantic category underperforms on a larger dataset.

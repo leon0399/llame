@@ -24,17 +24,32 @@ counts only; provisioning and query failures report the operational error.
 
 ## Contract
 
-Search input remains:
+Search uses a two-mode strict schema with `mode: "content" | "timeline"`:
 
 ```json
-{ "query": "deployment decision", "limit": 5 }
+{ "mode": "content", "query": "deployment decision", "limit": 5 }
+{ "mode": "content", "query": "postgres", "after": "2026-02-01T00:00:00Z", "before": "2026-03-01T00:00:00Z", "constraint": "required" }
+{ "mode": "timeline", "after": "2026-09-04T00:00:00Z", "before": "2026-09-06T00:00:00Z" }
 ```
 
-At most one result is returned per Chat. Content results include `chatId`,
-Chat-local `messageSeq`, zero-based `offset`, source-line `limit`, role,
-timestamp, and bounded `excerpt`. Metadata/title matches omit message
-coordinates. Ranked hits that fail current reauthorization/hydration are
-dropped, so fewer than `limit` may return.
+Content mode returns bounded discovery excerpts or title metadata. Optional
+time ranges use `required` (filters) or `preferred` (boosts near-ties).
+Timeline mode returns activity pointers per chat without excerpts.
+
+The result envelope carries `appliedRange` (echoing the bounds received) and
+`truncated` (candidate overflow before hydration). At most one result is
+returned per Chat in content mode. Content results include `chatId`, Chat-local
+`messageSeq`, zero-based `offset`, source-line `limit`, role, timestamp, and
+bounded `excerpt`. Metadata/title matches omit message coordinates. Timeline
+results carry `chatId`, title, `firstActivityAt`, `lastActivityAt`,
+`messageCount`, `firstSeq`, and `lastSeq` as `conversation_read` coordinates.
+
+A recap walks each timeline region from `firstSeq` by `nextMessageSeq` and
+stops at `lastSeq`; `conversation_read` is unaware of the range, so a message
+beyond `lastSeq` is outside the requested period.
+
+Ranked hits that fail current reauthorization/hydration are dropped, so fewer
+than `limit` may return.
 
 Pass content coordinates to read:
 
