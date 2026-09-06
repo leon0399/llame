@@ -1,5 +1,15 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-06
+
+- **Episodic timeline search (#198)**: `search_conversations` gains a two-mode
+  contract. Content mode adds optional time ranges (`required` filters,
+  `preferred` boosts near-ties). Timeline mode returns activity pointers
+  (`firstSeq`/`lastSeq` as `conversation_read` coordinates) for chats with
+  eligible messages in a period, without keyword search. The result envelope
+  carries `appliedRange` and `truncated`. Temporal guidance in the default
+  prompt anchors relative phrases to the system timestamp.
+
 # 2026-09-05
 
 - **Hybrid vector retrieval (#197)**: a vector candidate leg joins the shared

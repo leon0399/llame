@@ -12,7 +12,11 @@
 export interface EvalFixture {
   key: string;
   title: string;
-  messages: Array<{ role: 'user' | 'assistant'; text: string }>;
+  messages: Array<{
+    role: 'user' | 'assistant';
+    text: string;
+    createdAt?: Date;
+  }>;
 }
 
 export type EvalCategory =
@@ -31,7 +35,10 @@ export type EvalCategory =
   | 'cross-es-en'
   | 'transliteration'
   | 'hard-negative'
-  | 'long-chat';
+  | 'long-chat'
+  | 'range-required'
+  | 'range-preferred'
+  | 'timeline';
 
 export interface EvalQuery {
   query: string;
@@ -196,6 +203,38 @@ export const EVAL_FIXTURES: Array<EvalFixture> = [
       },
     ]).flat(),
   },
+  {
+    key: 'range-feb-meeting',
+    title: 'February team standup',
+    messages: [
+      {
+        role: 'user',
+        text: 'notes from the team standup about the zorgblatt deployment timeline',
+        createdAt: new Date('2026-02-15T10:00:00Z'),
+      },
+      {
+        role: 'assistant',
+        text: 'the zorgblatt deployment is on track for March, pending QA sign-off',
+        createdAt: new Date('2026-02-15T10:01:00Z'),
+      },
+    ],
+  },
+  {
+    key: 'range-jan-planning',
+    title: 'January sprint planning',
+    messages: [
+      {
+        role: 'user',
+        text: 'sprint planning for the zorgblatt migration project',
+        createdAt: new Date('2026-01-10T14:00:00Z'),
+      },
+      {
+        role: 'assistant',
+        text: 'planned 3 sprints for the zorgblatt migration with milestones in Feb and Mar',
+        createdAt: new Date('2026-01-10T14:05:00Z'),
+      },
+    ],
+  },
 ];
 
 export const EVAL_QUERIES: Array<EvalQuery> = [
@@ -335,6 +374,24 @@ export const EVAL_QUERIES: Array<EvalQuery> = [
     query: 'pg_dump cron backup',
     category: 'long-chat',
     expect: ['long-chat-target'],
+  },
+  // range-required: exact match inside range returns, outside does not
+  {
+    query: 'zorgblatt',
+    category: 'range-required',
+    expect: ['range-feb-meeting'],
+  },
+  // range-preferred: both return, in-range ranks ahead
+  {
+    query: 'zorgblatt',
+    category: 'range-preferred',
+    expect: ['range-feb-meeting', 'range-jan-planning'],
+  },
+  // timeline: both fixtures have eligible messages in the broad range
+  {
+    query: 'zorgblatt',
+    category: 'timeline',
+    expect: ['range-feb-meeting', 'range-jan-planning'],
   },
 ];
 
