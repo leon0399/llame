@@ -4,11 +4,11 @@ import {
   observe,
   observeResource,
   throwIfAborted,
-} from './knowledge-filesystem-io';
-import { KnowledgeFilesystemError } from './knowledge-filesystem-errors';
+} from "./knowledge-filesystem-io";
+import { KnowledgeFilesystemError } from "./knowledge-filesystem-errors";
 
-describe('Knowledge filesystem I/O helpers', () => {
-  it('throws the typed cancellation error only for an aborted signal', () => {
+describe("Knowledge filesystem I/O helpers", () => {
+  it("throws the typed cancellation error only for an aborted signal", () => {
     expect(() => throwIfAborted(undefined)).not.toThrow();
     expect(() => throwIfAborted(new AbortController().signal)).not.toThrow();
 
@@ -19,22 +19,22 @@ describe('Knowledge filesystem I/O helpers', () => {
     );
   });
 
-  it('observes immediate promises without a signal and propagates values', async () => {
-    const promise = Promise.resolve('value');
+  it("observes immediate promises without a signal and propagates values", async () => {
+    const promise = Promise.resolve("value");
 
-    await expect(observe(promise, undefined)).resolves.toBe('value');
+    await expect(observe(promise, undefined)).resolves.toBe("value");
     await expect(
       observe(Promise.resolve(42), new AbortController().signal),
     ).resolves.toBe(42);
   });
 
-  it('turns pre-aborted and in-flight aborts into cancellation errors', async () => {
+  it("turns pre-aborted and in-flight aborts into cancellation errors", async () => {
     const preAborted = new AbortController();
     preAborted.abort();
     await expect(
-      observe(Promise.resolve('ignored'), preAborted.signal),
+      observe(Promise.resolve("ignored"), preAborted.signal),
     ).rejects.toMatchObject({
-      code: 'knowledge_cancelled',
+      code: "knowledge_cancelled",
     });
 
     const controller = new AbortController();
@@ -45,22 +45,22 @@ describe('Knowledge filesystem I/O helpers', () => {
     const observed = observe(pending, controller.signal);
     controller.abort();
     await expect(observed).rejects.toMatchObject({
-      code: 'knowledge_cancelled',
+      code: "knowledge_cancelled",
     });
-    resolvePending('late');
+    resolvePending("late");
     await pending;
   });
 
-  it('propagates promise rejections', async () => {
+  it("propagates promise rejections", async () => {
     await expect(
       observe(
-        Promise.reject(new Error('failure')),
+        Promise.reject(new Error("failure")),
         new AbortController().signal,
       ),
-    ).rejects.toEqual(new Error('failure'));
+    ).rejects.toEqual(new Error("failure"));
   });
 
-  it('closes a resource that resolves after cancellation', async () => {
+  it("closes a resource that resolves after cancellation", async () => {
     const controller = new AbortController();
     let resolveResource!: (resource: { close(): Promise<void> }) => void;
     const pending = new Promise<{ close(): Promise<void> }>((resolve) => {
@@ -70,7 +70,7 @@ describe('Knowledge filesystem I/O helpers', () => {
     const observed = observeResource(() => pending, controller.signal);
     controller.abort();
     await expect(observed).rejects.toMatchObject({
-      code: 'knowledge_cancelled',
+      code: "knowledge_cancelled",
     });
 
     resolveResource({ close });
@@ -79,32 +79,32 @@ describe('Knowledge filesystem I/O helpers', () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it('propagates resource factory failures and returns resources without a signal', async () => {
+  it("propagates resource factory failures and returns resources without a signal", async () => {
     const resource = { close: vi.fn(() => Promise.resolve()) };
     await expect(
       observeResource(() => Promise.resolve(resource), undefined),
     ).resolves.toBe(resource);
     await expect(
       observeResource(
-        () => Promise.reject(new Error('factory failed')),
+        () => Promise.reject(new Error("factory failed")),
         new AbortController().signal,
       ),
-    ).rejects.toEqual(new Error('factory failed'));
+    ).rejects.toEqual(new Error("factory failed"));
   });
 
-  it('does not invoke a resource factory after cancellation', async () => {
+  it("does not invoke a resource factory after cancellation", async () => {
     const controller = new AbortController();
     const factory = vi.fn(() => Promise.resolve({ close: vi.fn() }));
     controller.abort();
 
     await expect(
       observeResource(factory, controller.signal),
-    ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
+    ).rejects.toMatchObject({ code: "knowledge_cancelled" });
     expect(factory).not.toHaveBeenCalled();
   });
 
-  it('translates close failures and prioritizes cancellation after close', async () => {
-    const failure = new Error('close failed');
+  it("translates close failures and prioritizes cancellation after close", async () => {
+    const failure = new Error("close failed");
     await expect(
       closeResource({ close: vi.fn(() => Promise.reject(failure)) }, undefined),
     ).rejects.toBe(failure);
@@ -117,15 +117,15 @@ describe('Knowledge filesystem I/O helpers', () => {
     await expect(
       closeResource({ close }, controller.signal),
     ).rejects.toMatchObject({
-      code: 'knowledge_cancelled',
+      code: "knowledge_cancelled",
     });
   });
 
-  it('recognizes only a string errno code on a record', () => {
-    expect(isErrno({ code: 'ENOENT' }, 'ENOENT')).toBe(true);
-    expect(isErrno({ code: 'ELOOP' }, 'ENOENT')).toBe(false);
-    expect(isErrno({ code: 404 }, '404')).toBe(false);
-    expect(isErrno(null, 'ENOENT')).toBe(false);
-    expect(isErrno('ENOENT', 'ENOENT')).toBe(false);
+  it("recognizes only a string errno code on a record", () => {
+    expect(isErrno({ code: "ENOENT" }, "ENOENT")).toBe(true);
+    expect(isErrno({ code: "ELOOP" }, "ENOENT")).toBe(false);
+    expect(isErrno({ code: 404 }, "404")).toBe(false);
+    expect(isErrno(null, "ENOENT")).toBe(false);
+    expect(isErrno("ENOENT", "ENOENT")).toBe(false);
   });
 });

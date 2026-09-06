@@ -1,7 +1,7 @@
 import {
   KnowledgeFilesystemAdapter,
   type KnowledgeFilesystemBinding,
-} from './knowledge-filesystem';
+} from '@workspace/knowledge-filesystem/knowledge-filesystem';
 import { KnowledgeToolRuntimeResolver } from './knowledge-tool-runtime-resolver';
 import { type KnowledgeSpaceBindingResolver } from './knowledge-space.service';
 

@@ -86,7 +86,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [config-interpolation, runtime-safety, tool-runtime]
+        package:
+          [
+            config-interpolation,
+            runtime-safety,
+            tool-runtime,
+            knowledge-filesystem,
+          ]
     concurrency:
       group: mutation-trusted-${{ matrix.package }}
       cancel-in-progress: false

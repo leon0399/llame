@@ -9,14 +9,14 @@
 import {
   KNOWLEDGE_MAX_READ_LINES,
   KNOWLEDGE_MAX_SNIPPET_CODE_POINTS,
-} from './knowledge-filesystem-limits';
-import { KnowledgeFilesystemError } from './knowledge-filesystem-errors';
-import { throwIfAborted } from './knowledge-filesystem-io';
+} from "./knowledge-filesystem-limits";
+import { KnowledgeFilesystemError } from "./knowledge-filesystem-errors";
+import { throwIfAborted } from "./knowledge-filesystem-io";
 import type {
   KnowledgeFilesystemPassageOptions,
   KnowledgeFilesystemSearchAfter,
   KnowledgeFilesystemSearchMatch,
-} from './knowledge-filesystem';
+} from "./knowledge-filesystem";
 
 export function compareNames(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -32,9 +32,9 @@ export function compareSearchMatches(
 
 export function decodeUtf8(bytes: Buffer): string {
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    throw new KnowledgeFilesystemError('knowledge_content_invalid');
+    throw new KnowledgeFilesystemError("knowledge_content_invalid");
   }
 }
 
@@ -219,7 +219,7 @@ function appendKnowledgeSearchLine(
 function findLineOccurrence(
   line: string,
   queryFolded: string,
-): Omit<KnowledgeSearchOccurrence, 'line'> | undefined {
+): Omit<KnowledgeSearchOccurrence, "line"> | undefined {
   const folded = line.toLowerCase();
   const matchOffset = folded.indexOf(queryFolded);
   if (matchOffset < 0) return undefined;
@@ -239,7 +239,7 @@ function makePassageExcerpt(
   partitionStart: number,
   occurrence: KnowledgeSearchOccurrence,
 ): string {
-  const source = lines.map((line) => `${line.text}${line.delimiter}`).join('');
+  const source = lines.map((line) => `${line.text}${line.delimiter}`).join("");
   const codePoints = Array.from(source);
   if (codePoints.length <= KNOWLEDGE_MAX_SNIPPET_CODE_POINTS) return source;
 
@@ -260,9 +260,9 @@ function makePassageExcerpt(
   if (windowEnd - windowStart < visibleLength) {
     windowStart = Math.max(0, windowEnd - visibleLength);
   }
-  const prefix = windowStart > 0 ? '…' : '';
-  const suffix = windowEnd < codePoints.length ? '…' : '';
-  return `${prefix}${codePoints.slice(windowStart, windowEnd).join('')}${suffix}`;
+  const prefix = windowStart > 0 ? "…" : "";
+  const suffix = windowEnd < codePoints.length ? "…" : "";
+  return `${prefix}${codePoints.slice(windowStart, windowEnd).join("")}${suffix}`;
 }
 
 /** The search-wide state threaded through partition emission: where matched
@@ -340,7 +340,7 @@ function appendKnowledgeSearchPassage(
   if (
     occurrence === undefined ||
     !isAfterSearchCursor(
-      { path: relativePath, offset, limit: lines.length, excerpt: '' },
+      { path: relativePath, offset, limit: lines.length, excerpt: "" },
       after,
     ) ||
     passages.length >= maxResults
@@ -372,7 +372,7 @@ async function* iterateKnowledgeLogicalLines(
     yield {
       line: line++,
       text: text.slice(lineStart, hasCr ? index - 1 : index),
-      delimiter: hasCr ? '\r\n' : '\n',
+      delimiter: hasCr ? "\r\n" : "\n",
     };
     if (line % 256 === 0) {
       await yieldKnowledgeSearch(signal);
@@ -380,7 +380,7 @@ async function* iterateKnowledgeLogicalLines(
     lineStart = index + 1;
   }
   if (lineStart < text.length) {
-    yield { line, text: text.slice(lineStart), delimiter: '' };
+    yield { line, text: text.slice(lineStart), delimiter: "" };
   }
   throwIfAborted(signal);
 }

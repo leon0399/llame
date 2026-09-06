@@ -20,6 +20,7 @@ const SOURCE_GLOBS = [
   "packages/runtime-safety/src/**/*.ts",
   "packages/tool-runtime/src/**/*.ts",
   "packages/node-protocol/src/**/*.ts",
+  "packages/knowledge-filesystem/src/**/*.ts",
 ];
 
 const EXCLUDE = [

@@ -60,6 +60,13 @@ export default defineConfig({
   resolve: {
     alias: [
       {
+        find: /^@workspace\/knowledge-filesystem\/(.+)$/,
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../../packages/knowledge-filesystem/src/$1.ts',
+        ),
+      },
+      {
         find: /^@workspace\/tool-runtime\/(.+)$/,
         replacement: path.resolve(
           import.meta.dirname,

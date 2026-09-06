@@ -3,7 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   KnowledgeFilesystemAdapter,
   type KnowledgeFilesystemBinding,
-} from './knowledge-filesystem';
+} from '@workspace/knowledge-filesystem/knowledge-filesystem';
 import {
   KnowledgeSpaceService,
   KNOWLEDGE_SPACE_MAX_LIMIT,

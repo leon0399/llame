@@ -6,7 +6,7 @@ import { type KnowledgeSpaceCursor } from '../knowledge/knowledge-space.cursor';
 import {
   type KnowledgeFilesystemAdapterPort,
   type KnowledgeFilesystemBinding,
-} from '../knowledge/knowledge-filesystem';
+} from '@workspace/knowledge-filesystem/knowledge-filesystem';
 import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
 
 /**

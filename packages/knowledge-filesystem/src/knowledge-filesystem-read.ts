@@ -9,21 +9,21 @@
 import {
   KNOWLEDGE_MAX_READ_BYTES,
   KNOWLEDGE_MAX_READ_LINES,
-} from './knowledge-filesystem-limits';
-import { KnowledgeFilesystemError } from './knowledge-filesystem-errors';
+} from "./knowledge-filesystem-limits";
+import { KnowledgeFilesystemError } from "./knowledge-filesystem-errors";
 import {
   closeResource,
   isErrno,
   observe,
   throwIfAborted,
-} from './knowledge-filesystem-io';
+} from "./knowledge-filesystem-io";
 import type {
   KnowledgeFilesystemDirectory,
   KnowledgeFilesystemDirent,
   KnowledgeFilesystemFile,
   KnowledgeFilesystemReadResult,
   KnowledgeFilesystemStats,
-} from './knowledge-filesystem';
+} from "./knowledge-filesystem";
 
 const KNOWLEDGE_MAX_READ_CHUNK_BYTES = 64 * 1024;
 
@@ -40,7 +40,7 @@ export type KnowledgeReadLinesRequest = {
 /** The selection window and response budget a line-read is bounded by. */
 export type KnowledgeLineSelectionBudget = Pick<
   KnowledgeReadLinesRequest,
-  'offset' | 'requestedLimit' | 'maxResultCodeUnits' | 'fixedResultCodeUnits'
+  "offset" | "requestedLimit" | "maxResultCodeUnits" | "fixedResultCodeUnits"
 > & { readonly maxLines: number };
 
 export function resolveLineSelectionBudget(
@@ -115,15 +115,15 @@ function consumeKnowledgeLineText(
 ): void {
   let start = 0;
   while (start < text.length) {
-    const newline = text.indexOf('\n', start);
+    const newline = text.indexOf("\n", start);
     if (newline < 0) {
       state.fragments.push(text.slice(start));
       return;
     }
     state.fragments.push(text.slice(start, newline));
-    let sourceLine = state.fragments.join('');
-    const delimiter = sourceLine.endsWith('\r') ? '\r\n' : '\n';
-    if (delimiter === '\r\n') {
+    let sourceLine = state.fragments.join("");
+    const delimiter = sourceLine.endsWith("\r") ? "\r\n" : "\n";
+    if (delimiter === "\r\n") {
       sourceLine = sourceLine.slice(0, -1);
     }
     appendKnowledgeLine(state, budget, sourceLine, delimiter);
@@ -158,13 +158,13 @@ export async function readWholeFileBytes(
       result.bytesRead < 0 ||
       result.bytesRead > buffer.length
     ) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+      throw new KnowledgeFilesystemError("knowledge_space_unavailable");
     }
     if (result.bytesRead === 0) break;
     chunks.push(buffer.subarray(0, result.bytesRead));
     totalBytes += result.bytesRead;
     if (totalBytes > maxBytes) {
-      throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+      throw new KnowledgeFilesystemError("knowledge_limit_exceeded");
     }
   }
   return Buffer.concat(chunks, totalBytes);
@@ -199,7 +199,7 @@ async function readKnowledgeFileChunk(
     readResult.bytesRead < 0 ||
     readResult.bytesRead > buffer.length
   ) {
-    throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+    throw new KnowledgeFilesystemError("knowledge_space_unavailable");
   }
   return { bytesRead: readResult.bytesRead, buffer };
 }
@@ -215,7 +215,7 @@ export async function readKnowledgeFileLines(
   budget: KnowledgeLineSelectionBudget,
   signal: AbortSignal | undefined,
 ): Promise<KnowledgeLineSelectionState> {
-  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const decoder = new TextDecoder("utf-8", { fatal: true });
   const state = emptyKnowledgeLineSelectionState();
   let totalBytes = 0;
   const hasKnownSize = fileStats.size > 0;
@@ -234,7 +234,7 @@ export async function readKnowledgeFileLines(
     if (bytesRead === 0) break;
     totalBytes += bytesRead;
     if (totalBytes > KNOWLEDGE_MAX_READ_BYTES) {
-      throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+      throw new KnowledgeFilesystemError("knowledge_limit_exceeded");
     }
     const decoded = decodeChunk(decoder, buffer, bytesRead);
     consumeKnowledgeLineText(state, budget, decoded);
@@ -245,7 +245,7 @@ export async function readKnowledgeFileLines(
 
   consumeKnowledgeLineText(state, budget, flushDecoder(decoder));
   if (state.fragments.length > 0) {
-    appendKnowledgeLine(state, budget, state.fragments.join(''), '');
+    appendKnowledgeLine(state, budget, state.fragments.join(""), "");
   }
   return state;
 }
@@ -258,17 +258,17 @@ export function resolveLineSelectionResult(
 ): KnowledgeFilesystemReadResult {
   const { offset, maxLines, maxResultCodeUnits, fixedResultCodeUnits } = budget;
   if (state.lineIndex === 0 && offset === 0) {
-    const emptyResult = { path, offset, lineCount: 0, content: '' };
+    const emptyResult = { path, offset, lineCount: 0, content: "" };
     if (
       measureReadResultCodeUnits(fixedResultCodeUnits, emptyResult) >
       maxResultCodeUnits
     ) {
-      throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+      throw new KnowledgeFilesystemError("knowledge_limit_exceeded");
     }
     return emptyResult;
   }
   if (offset >= state.lineIndex) {
-    throw new KnowledgeFilesystemError('knowledge_range_invalid');
+    throw new KnowledgeFilesystemError("knowledge_range_invalid");
   }
   return selectReadResult({
     path,
@@ -288,7 +288,7 @@ type KnowledgeFilesystemReadResultBuilder = {
   lineCount: number;
   content: string;
   nextOffset?: number;
-  cutReason?: 'line_limit' | 'output_limit';
+  cutReason?: "line_limit" | "output_limit";
 };
 
 type ReadResultSelection = {
@@ -318,17 +318,17 @@ function selectReadResult(
       path: selection.path,
       offset: selection.offset,
       lineCount,
-      content: selection.selectedLines.slice(0, lineCount).join(''),
+      content: selection.selectedLines.slice(0, lineCount).join(""),
     };
     if (hasRemaining) result.nextOffset = selection.offset + lineCount;
     if (hasRemaining && lineCount < requestedLineCount) {
-      result.cutReason = 'output_limit';
+      result.cutReason = "output_limit";
     } else if (
       hasRemaining &&
       selection.requestedLimit === undefined &&
       availableLines > selection.maxLines
     ) {
-      result.cutReason = 'line_limit';
+      result.cutReason = "line_limit";
     }
     if (
       measureReadResultCodeUnits(selection.fixedResultCodeUnits, result) <=
@@ -338,7 +338,7 @@ function selectReadResult(
     }
   }
 
-  throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+  throw new KnowledgeFilesystemError("knowledge_limit_exceeded");
 }
 
 function measureReadResultCodeUnits(
@@ -346,13 +346,13 @@ function measureReadResultCodeUnits(
   result: KnowledgeFilesystemReadResult,
 ): number {
   let codeUnits = fixedResultCodeUnits;
-  codeUnits += serializedPropertyCodeUnits('lineCount', result.lineCount);
-  codeUnits += serializedPropertyCodeUnits('content', result.content);
+  codeUnits += serializedPropertyCodeUnits("lineCount", result.lineCount);
+  codeUnits += serializedPropertyCodeUnits("content", result.content);
   if (result.nextOffset !== undefined) {
-    codeUnits += serializedPropertyCodeUnits('nextOffset', result.nextOffset);
+    codeUnits += serializedPropertyCodeUnits("nextOffset", result.nextOffset);
   }
   if (result.cutReason !== undefined) {
-    codeUnits += serializedPropertyCodeUnits('cutReason', result.cutReason);
+    codeUnits += serializedPropertyCodeUnits("cutReason", result.cutReason);
   }
   return codeUnits;
 }
@@ -365,7 +365,7 @@ function decodeChunk(
   try {
     return decoder.decode(buffer.subarray(0, bytesRead), { stream: true });
   } catch {
-    throw new KnowledgeFilesystemError('knowledge_content_invalid');
+    throw new KnowledgeFilesystemError("knowledge_content_invalid");
   }
 }
 
@@ -373,7 +373,7 @@ function flushDecoder(decoder: TextDecoder): string {
   try {
     return decoder.decode();
   } catch {
-    throw new KnowledgeFilesystemError('knowledge_content_invalid');
+    throw new KnowledgeFilesystemError("knowledge_content_invalid");
   }
 }
 
@@ -420,14 +420,14 @@ export async function closeFileAndTranslateFailure(
   if (error instanceof KnowledgeFilesystemError) {
     throw error;
   }
-  if (isErrno(error, 'ENOENT')) {
-    throw new KnowledgeFilesystemError('knowledge_not_found');
+  if (isErrno(error, "ENOENT")) {
+    throw new KnowledgeFilesystemError("knowledge_not_found");
   }
-  if (isErrno(error, 'ELOOP')) {
-    throw new KnowledgeFilesystemError('knowledge_path_invalid');
+  if (isErrno(error, "ELOOP")) {
+    throw new KnowledgeFilesystemError("knowledge_path_invalid");
   }
   if (error !== undefined) {
-    throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+    throw new KnowledgeFilesystemError("knowledge_space_unavailable");
   }
 }
 
@@ -444,7 +444,7 @@ export async function readAllDirectoryEntries(
     if (entry === null) break;
     entries.push(entry);
     if (entries.length > remainingEntries) {
-      throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+      throw new KnowledgeFilesystemError("knowledge_limit_exceeded");
     }
   }
   return entries;
@@ -471,10 +471,10 @@ export async function closeDirectoryAndTranslateFailure(
   if (error instanceof KnowledgeFilesystemError) {
     throw error;
   }
-  if (isErrno(error, 'ENOENT')) {
-    throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+  if (isErrno(error, "ENOENT")) {
+    throw new KnowledgeFilesystemError("knowledge_space_unavailable");
   }
   if (error !== undefined) {
-    throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+    throw new KnowledgeFilesystemError("knowledge_space_unavailable");
   }
 }
