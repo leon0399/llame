@@ -24,6 +24,7 @@ const SOURCE_GLOBS = [
   "packages/personal-node/src/**/*.ts",
   "apps/node/src/**/*.ts",
   "packages/node-client/src/**/*.ts",
+  "apps/cli/src/**/*.ts",
 ];
 
 const EXCLUDE = [

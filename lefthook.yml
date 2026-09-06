@@ -51,6 +51,10 @@ pre-commit:
       glob: "{packages/node-client/**/*.{ts,js,mjs},packages/node-client/.oxlintrc.json}"
       run: pnpm --filter @workspace/node-client lint
 
+    - name: cli lint
+      glob: "{apps/cli/**/*.{ts,js,mjs,cjs},apps/cli/.oxlintrc.json}"
+      run: pnpm --filter cli lint
+
     - name: code lint
       glob: "{e2e/**/*.{ts,tsx,js,mjs},playwright.config.ts,.oxlintrc.json,turbo.json,package.json}"
       run: pnpm lint:code
