@@ -6,5 +6,9 @@ import { InstanceConfigModule } from '../instance-config/instance-config.module'
 import { HostedNodeAccess } from './hosted-node-access';
 import { NodeController } from './node.controller';
 
-@Module({ imports: [KnowledgeModule, InstanceConfigModule, ChatsModule], controllers: [NodeController, NodeRunsController], providers: [HostedNodeAccess] })
+@Module({
+  imports: [KnowledgeModule, InstanceConfigModule, ChatsModule],
+  controllers: [NodeController, NodeRunsController],
+  providers: [HostedNodeAccess],
+})
 export class NodeModule {}

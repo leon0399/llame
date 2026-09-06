@@ -17,6 +17,11 @@ import {
 } from "@workspace/personal-node/validation";
 import { CliError } from "@workspace/personal-node/errors";
 
+export type AccountCursors = {
+  cursor(run: string): number;
+  save(run: string, chat: string, sequence: number): void;
+};
+
 /** Disposable UI checkpoints, not Node domain state or a database client. */
 export class RemoteCursors {
   private readonly directory: string;
@@ -52,29 +57,28 @@ export class RemoteCursors {
       );
     return integer(row.sequence, "cursor", 0, Number.MAX_SAFE_INTEGER);
   }
-  saveCursor(
-    base: string,
-    user: string,
-    run: string,
-    chat: string,
-    sequence: number,
-  ): void {
-    const path = this.path(base, user, run);
-    withPrivateLock(path, () =>
-      writePrivate(
-        path,
-        JSON.stringify({
-          version: 1,
-          authority: authority(base),
-          userId: uuid(user),
-          runId: uuid(run),
-          chatId: uuid(chat),
-          sequence: Math.max(
-            this.cursor(base, user, run),
-            integer(sequence, "sequence", 0, Number.MAX_SAFE_INTEGER),
+  forAccount(base: string, user: string): AccountCursors {
+    return {
+      cursor: (run) => this.cursor(base, user, run),
+      save: (run, chat, sequence) => {
+        const path = this.path(base, user, run);
+        withPrivateLock(path, () =>
+          writePrivate(
+            path,
+            JSON.stringify({
+              version: 1,
+              authority: authority(base),
+              userId: uuid(user),
+              runId: uuid(run),
+              chatId: uuid(chat),
+              sequence: Math.max(
+                this.cursor(base, user, run),
+                integer(sequence, "sequence", 0, Number.MAX_SAFE_INTEGER),
+              ),
+            }),
           ),
-        }),
-      ),
-    );
+        );
+      },
+    };
   }
 }

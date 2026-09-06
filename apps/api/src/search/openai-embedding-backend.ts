@@ -8,7 +8,11 @@ import {
   type EmbeddingResult,
 } from './core';
 import { DEFAULT_EMBEDDING_BATCH_SIZE } from '../instance-config/llame-config';
-import { isNumber, isRecord, type UnknownRecord } from '@workspace/runtime-safety';
+import {
+  isNumber,
+  isRecord,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 
 export type OpenAIEmbeddingBackendConfig = {
   credential?: string;

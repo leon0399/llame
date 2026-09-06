@@ -29,10 +29,8 @@ import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { TOOL_REGISTRY } from '../tools/registry';
-import {
-  ChatLoopService,
-  isInflightUniqueViolation,
-} from './chat-loop.service';
+import { ChatLoopService } from './chat-loop.service';
+import { isInflightUniqueViolation } from './inflight-unique-violation';
 import {
   ChatsRepository,
   CompactionsRepository,
@@ -365,15 +363,22 @@ describe('ChatLoopService.acceptMessage', () => {
   it('returns durable identities after dispatch without opening a UI stream', async () => {
     const f = makeService();
     const accepted = await f.service.acceptMessage(input);
-    expect(accepted).toEqual({ runId: run.id, chatId: chat.id, messageId: userMessage.id });
+    expect(accepted).toEqual({
+      runId: run.id,
+      chatId: chat.id,
+      messageId: userMessage.id,
+    });
     expect(f.dispatchRun).toHaveBeenCalledTimes(1);
     expect(f.createUiMessageStreamResponse).not.toHaveBeenCalled();
     expect(f.createUserMessageIfAbsent).toHaveBeenCalledTimes(1);
   });
 
   it('does not claim acceptance when dispatch fails and never attaches a stream', async () => {
-    const f = makeService(); f.dispatchRun.mockRejectedValueOnce(new Error('dispatch unavailable'));
-    await expect(f.service.acceptMessage(input)).rejects.toThrow('dispatch unavailable');
+    const f = makeService();
+    f.dispatchRun.mockRejectedValueOnce(new Error('dispatch unavailable'));
+    await expect(f.service.acceptMessage(input)).rejects.toThrow(
+      'dispatch unavailable',
+    );
     expect(f.createUiMessageStreamResponse).not.toHaveBeenCalled();
   });
 });

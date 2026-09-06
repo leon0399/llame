@@ -25,7 +25,7 @@ pre-commit:
 
     - name: code lint
       glob: "{e2e/**/*.{ts,tsx,js,mjs},playwright.config.ts,.oxlintrc.json,turbo.json,package.json}"
-      run: pnpm lint:code
+      run: GIT_WORK_TREE="$PWD" pnpm lint:code
 
     - name: OpenAPI lint
       glob: "{apps/api/openapi.json,apps/api/redocly.yaml}"

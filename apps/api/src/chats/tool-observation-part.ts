@@ -14,9 +14,16 @@ import type {
 } from 'ai';
 
 import { sanitizeAuthoredText } from '@workspace/runtime-safety';
-import { canonicalize, type CanonicalJsonValue } from '@workspace/runtime-safety';
+import {
+  canonicalize,
+  type CanonicalJsonValue,
+} from '@workspace/runtime-safety';
 import type { CompactionReplacementMessage } from '../db/schema/chats';
-import { isRecord, isString, type UnknownRecord } from '@workspace/runtime-safety';
+import {
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 import { type ToolResult } from '../tools/types';
 import type { MessagePart, StoredMessage } from './context-builder';
 import {

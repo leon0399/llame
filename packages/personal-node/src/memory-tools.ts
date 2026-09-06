@@ -5,6 +5,7 @@ import { type LocalStore } from "./store";
 import { PersonalKnowledge } from "./knowledge";
 import { ConversationRecall } from "./recall";
 import { CliError, aborted } from "./errors";
+import { type JsonValue } from "./validation";
 
 const searchProperties = {
   query: { type: "string", minLength: 1, maxLength: 200 },
@@ -23,7 +24,7 @@ function definition(
   name: string,
   description: string,
   properties: UnknownRecord,
-  required: string[],
+  required: Array<string>,
 ): ToolDefinition {
   return {
     type: "function",
@@ -78,7 +79,7 @@ const knowledgeTools = [
 
 /** Read grants are Node-owned and snapshotted, never created by model text. */
 export class MemoryTools {
-  readonly catalog: readonly ToolDefinition[];
+  readonly catalog: ReadonlyArray<ToolDefinition>;
   readonly spaces;
   private readonly knowledge: PersonalKnowledge;
   private readonly recall: ConversationRecall;
@@ -105,8 +106,10 @@ export class MemoryTools {
     input: unknown,
     signal: AbortSignal,
   ): Promise<ToolResult> {
+    if (!isRecord(input))
+      throw new CliError("invalid_data", "tool arguments must be an object.");
     aborted(signal);
-    let result: unknown;
+    let result: JsonValue;
     switch (name) {
       case "search_conversations":
         result = this.recall.search(input, this.currentChat);

@@ -1,5 +1,5 @@
 import { CliError, aborted } from "./errors";
-import { parseJson } from "./validation";
+import { parseJson, type JsonValue } from "./validation";
 
 export interface SseFrame {
   readonly id?: string;
@@ -36,11 +36,11 @@ export async function request(
 export async function readJson(
   response: Response,
   maxBytes = 4_194_304,
-): Promise<unknown> {
+): Promise<JsonValue> {
   if (!response.body)
     throw new CliError("empty_response", "Expected a JSON response.");
   const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
+  const chunks: Array<Uint8Array> = [];
   let size = 0;
   const read = async () => {
     try {
@@ -107,7 +107,7 @@ export async function* sse(response: Response): AsyncGenerator<SseFrame> {
 
 class SseParser {
   private buffer = "";
-  private data: string[] = [];
+  private data: Array<string> = [];
   private id?: string;
   private event?: string;
   private size = 0;

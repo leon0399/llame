@@ -13,7 +13,11 @@ import { isTemporalPayload } from '../chats/context-item-producers';
 import type request from 'supertest';
 import type { ModelMessage } from 'ai';
 
-import { isRecord, isString, type UnknownRecord } from '@workspace/runtime-safety';
+import {
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 
 export {
   FakeStreamingModelClient,

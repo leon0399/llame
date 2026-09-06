@@ -1,5 +1,9 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
-import { ModelConfigurationError, EffortNotAvailableError, ModelNotAvailableError } from '../models/models.service';
+import {
+  ModelConfigurationError,
+  EffortNotAvailableError,
+  ModelNotAvailableError,
+} from '../models/models.service';
 
 /**
  * Same 422 envelope for both `ModelNotAvailableError`/`EffortNotAvailableError`

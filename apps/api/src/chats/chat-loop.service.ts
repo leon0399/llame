@@ -27,7 +27,8 @@ import {
 } from '../models/models.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { type MessagePart } from './context-builder';
-import { isRecord, isString, type UnknownRecord } from '@workspace/runtime-safety';
+import { isRecord } from '@workspace/runtime-safety';
+import { isInflightUniqueViolation } from './inflight-unique-violation';
 import { RunAbortRegistry, type RunAborter } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
 import {
@@ -148,7 +149,9 @@ export type CreateMessageStreamInput = {
 };
 
 export type AcceptedMessageRun = {
-  readonly runId: string; readonly chatId: string; readonly messageId: string;
+  readonly runId: string;
+  readonly chatId: string;
+  readonly messageId: string;
 };
 
 /**
@@ -197,13 +200,17 @@ export class ChatLoopService {
   ): Promise<ChatMessageStream> {
     const accepted = await this.acceptMessage(input);
     const response = this.bridge.createUiMessageStreamResponse({
-      runId: accepted.runId, userId: input.userId, abortSignal: input.abortSignal,
+      runId: accepted.runId,
+      userId: input.userId,
+      abortSignal: input.abortSignal,
     });
     return { toUIMessageStreamResponse: () => response };
   }
 
   /** Admit exactly once; the caller chooses JSON admission or the existing UI bridge. */
-  async acceptMessage(input: CreateMessageStreamInput): Promise<AcceptedMessageRun> {
+  async acceptMessage(
+    input: CreateMessageStreamInput,
+  ): Promise<AcceptedMessageRun> {
     const model = this.models.validateModelSelection(input.modelId);
     // Resolved from the already-validated model, so an unavailable model is
     // reported without the effort ever being considered.
@@ -326,7 +333,6 @@ export class ChatLoopService {
       modelId: input.modelId,
       userMessage: input.userMessage,
     });
-
   }
 
   private async persistUserMessageAndRun(
@@ -629,35 +635,4 @@ export class ChatLoopService {
       });
     }
   }
-}
-
-/**
- * True for any non-null `object` — deliberately NOT `isRecord`, which also
- * excludes arrays: an `Error.cause` chain walk must keep visiting a
- * pathological array-shaped cause exactly as it does today, not stop early.
- */
-function isCauseChainLink(value: unknown): value is UnknownRecord {
-  return typeof value === 'object' && value !== null;
-}
-
-/**
- * Postgres unique_violation on the per-chat single-flight partial index.
- * Walks the cause chain — drizzle wraps the postgres.js error.
- */
-export function isInflightUniqueViolation(error: unknown): boolean {
-  for (
-    let current = error;
-    isCauseChainLink(current);
-    current = current['cause']
-  ) {
-    const mentionsIndex =
-      (isString(current['constraint_name']) &&
-        current['constraint_name'].includes('runs_chat_inflight_unique')) ||
-      (isString(current['message']) &&
-        current['message'].includes('runs_chat_inflight_unique'));
-    if (current['code'] === '23505' && mentionsIndex) {
-      return true;
-    }
-  }
-  return false;
 }

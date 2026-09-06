@@ -171,7 +171,11 @@ change mode. Only the selected config's `remote` fields are inspected for remote
 routing; local provider/MCP secrets are not resolved or transmitted.
 
 ```json
-{ "version": 1, "models": [], "remote": { "enabled": true, "url": "https://api.example.com" } }
+{
+  "version": 1,
+  "models": [],
+  "remote": { "enabled": true, "url": "https://api.example.com" }
+}
 ```
 
 The default data directory is now `$XDG_DATA_HOME/llame` or
@@ -230,7 +234,7 @@ Resolved credentials are protected values, redacted before persistence/rendering
 Do not paste keys into prompts or put bearer secrets in command arguments.
 
 Local inference supports **OpenAI-compatible streaming Chat Completions**.
-The URL is the base *before* `/chat/completions`. Other protocols, the Hub's
+The URL is the base _before_ `/chat/completions`. Other protocols, the Hub's
 Responses SDK options, provider subscription logins and automatic fallback are
 not implemented here. HTTPS is required except literal loopback IPs for local
 development; URL credentials, queries, fragments and redirects are rejected.

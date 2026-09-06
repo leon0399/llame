@@ -1,16 +1,16 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from "vitest";
 
 import {
   McpServerOperationError,
   McpServerClient,
   type McpDiscoveredTool,
-} from './mcp-server-client';
+} from "./mcp-server-client";
 import {
   isNumber,
   isRecord,
   isString,
   type UnknownRecord,
-} from '@workspace/runtime-safety';
+} from "@workspace/runtime-safety";
 
 /**
  * Transport-level protocol behaviour driven by a `fetch` double rather than the
@@ -19,9 +19,9 @@ import {
  */
 
 const textEncoder = new TextEncoder();
-const emptySchema = { type: 'object' as const, properties: {} };
+const emptySchema = { type: "object" as const, properties: {} };
 const executeOptions = {
-  toolCallId: 'call',
+  toolCallId: "call",
   messages: [],
   abortSignal: undefined,
 };
@@ -51,7 +51,7 @@ function parseBody(body: BodyInit | null | undefined): UnknownRecord | null {
 }
 
 function requestId(body: UnknownRecord | null): RequestId {
-  const id = body?.['id'];
+  const id = body?.["id"];
   if (isString(id) || isNumber(id)) return id;
   return undefined;
 }
@@ -61,7 +61,7 @@ function raw(status: number, body: string, contentType?: string): StubHandler {
     new Response(body.length === 0 ? null : body, {
       status,
       ...(contentType !== undefined && {
-        headers: { 'content-type': contentType },
+        headers: { "content-type": contentType },
       }),
     });
 }
@@ -71,17 +71,17 @@ function jsonRpc(
   headers: Readonly<Record<string, string>> = {},
 ): StubHandler {
   return ({ id }) =>
-    new Response(JSON.stringify({ jsonrpc: '2.0', id, result }), {
-      headers: { 'content-type': 'application/json', ...headers },
+    new Response(JSON.stringify({ jsonrpc: "2.0", id, result }), {
+      headers: { "content-type": "application/json", ...headers },
     });
 }
 
 function jsonRpcError(code: number, message: string): StubHandler {
   return ({ id }) =>
     new Response(
-      JSON.stringify({ jsonrpc: '2.0', id, error: { code, message } }),
+      JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } }),
       {
-        headers: { 'content-type': 'application/json' },
+        headers: { "content-type": "application/json" },
       },
     );
 }
@@ -89,15 +89,15 @@ function jsonRpcError(code: number, message: string): StubHandler {
 function sseFrames(build: (id: RequestId) => string): StubHandler {
   return ({ id }) =>
     new Response(build(id), {
-      headers: { 'content-type': 'text/event-stream' },
+      headers: { "content-type": "text/event-stream" },
     });
 }
 
-function initializeResult(protocolVersion = '2025-11-25'): UnknownRecord {
+function initializeResult(protocolVersion = "2025-11-25"): UnknownRecord {
   return {
     protocolVersion,
     capabilities: { tools: {} },
-    serverInfo: { name: 'stub', version: '1.0.0' },
+    serverInfo: { name: "stub", version: "1.0.0" },
   };
 }
 
@@ -117,9 +117,9 @@ function createStubTransport(script: StubScript) {
     _input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> => {
-    const httpMethod = (init?.method ?? 'GET').toUpperCase();
+    const httpMethod = (init?.method ?? "GET").toUpperCase();
     const body = parseBody(init?.body);
-    const rpcMethod = body?.['method'];
+    const rpcMethod = body?.["method"];
     const key = isString(rpcMethod)
       ? rpcMethod
       : `$${httpMethod.toLowerCase()}`;
@@ -135,7 +135,7 @@ function createStubTransport(script: StubScript) {
           ? queue[0]
           : queue.shift();
     if (handler === undefined) {
-      return Promise.resolve(new Response('unscripted', { status: 500 }));
+      return Promise.resolve(new Response("unscripted", { status: 500 }));
     }
     return Promise.resolve(handler(request));
   };
@@ -144,10 +144,10 @@ function createStubTransport(script: StubScript) {
 
 function scriptWithDefaults(overrides: StubScript) {
   return {
-    $get: [raw(405, '')],
+    $get: [raw(405, "")],
     initialize: [jsonRpc(initializeResult())],
-    'notifications/initialized': [raw(202, '')],
-    $delete: [raw(204, '')],
+    "notifications/initialized": [raw(202, "")],
+    $delete: [raw(204, "")],
     ...overrides,
   };
 }
@@ -161,8 +161,8 @@ async function connectStub(
 ) {
   const transport = createStubTransport(scriptWithDefaults(overrides));
   const client = await McpServerClient.connect({
-    serverId: 'web',
-    url: 'https://mcp.test/mcp',
+    serverId: "web",
+    url: "https://mcp.test/mcp",
     fetch: transport.fetchStub,
     ...config,
   });
@@ -174,56 +174,56 @@ function toolIds(tools: ReadonlyArray<McpDiscoveredTool>): Array<string> {
 }
 
 function nestedArrayLeaf(depth: number): Array<unknown> | { type: string } {
-  return depth === 0 ? { type: 'string' } : [nestedArrayLeaf(depth - 1)];
+  return depth === 0 ? { type: "string" } : [nestedArrayLeaf(depth - 1)];
 }
 
 function nestedArraySchema(depth: number) {
   return {
-    type: 'object',
+    type: "object",
     properties: { deep: { enum: nestedArrayLeaf(depth) } },
   };
 }
 
 function names(count: number, offset = 0): Array<UnknownRecord> {
   return Array.from({ length: count }, (_value, index) =>
-    declaration(`t${String(index + offset).padStart(4, '0')}`),
+    declaration(`t${String(index + offset).padStart(4, "0")}`),
   );
 }
 
-describe('McpServerClient transport protocol', () => {
-  it('pages a catalog without a cursor parameter and returns it in id order', async () => {
+describe("McpServerClient transport protocol", () => {
+  it("pages a catalog without a cursor parameter and returns it in id order", async () => {
     const { client, requests } = await connectStub({
-      'tools/list': [
+      "tools/list": [
         jsonRpc({
-          tools: [declaration('zeta'), declaration('alpha')],
-          nextCursor: 'page-2',
+          tools: [declaration("zeta"), declaration("alpha")],
+          nextCursor: "page-2",
         }),
-        jsonRpc({ tools: [declaration('mike'), declaration('bravo')] }),
+        jsonRpc({ tools: [declaration("mike"), declaration("bravo")] }),
       ],
     });
 
     try {
       const catalog = await client.discover();
       expect(toolIds(catalog.tools)).toEqual([
-        'mcp__web__alpha',
-        'mcp__web__bravo',
-        'mcp__web__mike',
-        'mcp__web__zeta',
+        "mcp__web__alpha",
+        "mcp__web__bravo",
+        "mcp__web__mike",
+        "mcp__web__zeta",
       ]);
-      const listRequests = requests.filter(({ key }) => key === 'tools/list');
-      expect(listRequests.map(({ body }) => body?.['params'])).toEqual([
+      const listRequests = requests.filter(({ key }) => key === "tools/list");
+      expect(listRequests.map(({ body }) => body?.["params"])).toEqual([
         undefined,
-        { cursor: 'page-2' },
+        { cursor: "page-2" },
       ]);
     } finally {
       await client.close();
     }
   });
 
-  it('reports refusals in original declaration order across admission phases', async () => {
-    const oversized = declaration('bulky', 'x'.repeat(300 * 1024));
+  it("reports refusals in original declaration order across admission phases", async () => {
+    const oversized = declaration("bulky", "x".repeat(300 * 1024));
     const { client } = await connectStub({
-      'tools/list': [jsonRpc({ tools: [declaration('***'), oversized] })],
+      "tools/list": [jsonRpc({ tools: [declaration("***"), oversized] })],
     });
 
     try {
@@ -231,28 +231,28 @@ describe('McpServerClient transport protocol', () => {
       expect(catalog.tools).toEqual([]);
       expect(catalog.refused.map(({ index }) => index)).toEqual([0, 1]);
       expect(catalog.refused.map(({ reason }) => reason)).toEqual([
-        'invalid_tool_id',
-        'declaration_too_large',
+        "invalid_tool_id",
+        "declaration_too_large",
       ]);
       expect(
-        catalog.refused.map((entry) => Object.hasOwn(entry, 'id')),
+        catalog.refused.map((entry) => Object.hasOwn(entry, "id")),
       ).toEqual([false, true]);
     } finally {
       await client.close();
     }
   });
 
-  it('omits every refusal id that would echo a configured header value', async () => {
-    const secret = 'Bearer sentinel-credential';
+  it("omits every refusal id that would echo a configured header value", async () => {
+    const secret = "Bearer sentinel-credential";
     const { client } = await connectStub(
       {
-        'tools/list': [
+        "tools/list": [
           jsonRpc({
             tools: [
-              declaration(`${secret} large`, 'y'.repeat(300 * 1024)),
+              declaration(`${secret} large`, "y".repeat(300 * 1024)),
               {
                 name: `${secret} deep`,
-                description: 'Deep.',
+                description: "Deep.",
                 inputSchema: nestedArraySchema(70),
               },
             ],
@@ -265,24 +265,24 @@ describe('McpServerClient transport protocol', () => {
     try {
       const catalog = await client.discover();
       expect(catalog.refused.map(({ reason }) => reason)).toEqual([
-        'declaration_too_large',
-        'schema_too_deep',
+        "declaration_too_large",
+        "schema_too_deep",
       ]);
       expect(
-        catalog.refused.map((entry) => Object.hasOwn(entry, 'id')),
+        catalog.refused.map((entry) => Object.hasOwn(entry, "id")),
       ).toEqual([false, false]);
-      expect(JSON.stringify(catalog.refused)).not.toContain('sentinel');
+      expect(JSON.stringify(catalog.refused)).not.toContain("sentinel");
     } finally {
       await client.close();
     }
   });
 
-  it('admits a full page of 256 declarations and a 1,000-tool catalog', async () => {
+  it("admits a full page of 256 declarations and a 1,000-tool catalog", async () => {
     const { client } = await connectStub({
-      'tools/list': [
-        jsonRpc({ tools: names(256), nextCursor: 'p2' }),
-        jsonRpc({ tools: names(256, 256), nextCursor: 'p3' }),
-        jsonRpc({ tools: names(256, 512), nextCursor: 'p4' }),
+      "tools/list": [
+        jsonRpc({ tools: names(256), nextCursor: "p2" }),
+        jsonRpc({ tools: names(256, 256), nextCursor: "p3" }),
+        jsonRpc({ tools: names(256, 512), nextCursor: "p4" }),
         jsonRpc({ tools: names(232, 768) }),
       ],
     });
@@ -298,17 +298,17 @@ describe('McpServerClient transport protocol', () => {
     // costs more than the 5s default this suite runs under outside Stryker.
   }, 30_000);
 
-  it('refuses a schema nested past depth 64 through array branches', async () => {
+  it("refuses a schema nested past depth 64 through array branches", async () => {
     const { client } = await connectStub({
-      'tools/list': [
+      "tools/list": [
         jsonRpc({
           tools: [
             {
-              name: 'deep',
-              description: 'Deep.',
+              name: "deep",
+              description: "Deep.",
               inputSchema: nestedArraySchema(70),
             },
-            declaration('shallow'),
+            declaration("shallow"),
           ],
         }),
       ],
@@ -316,9 +316,9 @@ describe('McpServerClient transport protocol', () => {
 
     try {
       const catalog = await client.discover();
-      expect(toolIds(catalog.tools)).toEqual(['mcp__web__shallow']);
+      expect(toolIds(catalog.tools)).toEqual(["mcp__web__shallow"]);
       expect(catalog.refused).toEqual([
-        { index: 0, reason: 'schema_too_deep', id: 'mcp__web__deep' },
+        { index: 0, reason: "schema_too_deep", id: "mcp__web__deep" },
       ]);
     } finally {
       await client.close();
@@ -327,36 +327,36 @@ describe('McpServerClient transport protocol', () => {
 
   it.each([
     [
-      'a bare event field with no value',
+      "a bare event field with no value",
       (id: RequestId) =>
-        `event\ndata: ${JSON.stringify({ jsonrpc: '2.0', id, result: initializeResult() })}\n\n`,
+        `event\ndata: ${JSON.stringify({ jsonrpc: "2.0", id, result: initializeResult() })}\n\n`,
     ],
     [
-      'an explicit message event type',
+      "an explicit message event type",
       (id: RequestId) =>
-        `event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id, result: initializeResult() })}\n\n`,
+        `event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id, result: initializeResult() })}\n\n`,
     ],
     [
-      'a data field with no leading space and a trailing space',
+      "a data field with no leading space and a trailing space",
       (id: RequestId) =>
-        `data:${JSON.stringify({ jsonrpc: '2.0', id, result: initializeResult() })} \n\n`,
+        `data:${JSON.stringify({ jsonrpc: "2.0", id, result: initializeResult() })} \n\n`,
     ],
     [
-      'an earlier event that carries no data field',
+      "an earlier event that carries no data field",
       (id: RequestId) =>
-        `event: message\n\ndata: ${JSON.stringify({ jsonrpc: '2.0', id, result: initializeResult() })}\n\n`,
+        `event: message\n\ndata: ${JSON.stringify({ jsonrpc: "2.0", id, result: initializeResult() })}\n\n`,
     ],
   ] satisfies ReadonlyArray<[string, (id: RequestId) => string]>)(
-    'accepts a POST-SSE initialize framed with %s',
+    "accepts a POST-SSE initialize framed with %s",
     async (_name, build) => {
       const { client } = await connectStub({
         initialize: [sseFrames(build)],
-        'tools/list': [jsonRpc({ tools: [declaration('lookup')] })],
+        "tools/list": [jsonRpc({ tools: [declaration("lookup")] })],
       });
 
       try {
         const catalog = await client.discover();
-        expect(toolIds(catalog.tools)).toEqual(['mcp__web__lookup']);
+        expect(toolIds(catalog.tools)).toEqual(["mcp__web__lookup"]);
       } finally {
         await client.close();
       }
@@ -365,27 +365,27 @@ describe('McpServerClient transport protocol', () => {
 
   it.each([
     [
-      'a data field with no colon',
+      "a data field with no colon",
       (id: RequestId) =>
-        `data\n\ndata: ${JSON.stringify({ jsonrpc: '2.0', id, result: initializeResult() })}\n\n`,
+        `data\n\ndata: ${JSON.stringify({ jsonrpc: "2.0", id, result: initializeResult() })}\n\n`,
     ],
     [
-      'a data field with an empty value',
+      "a data field with an empty value",
       (id: RequestId) =>
-        `data:\n\ndata: ${JSON.stringify({ jsonrpc: '2.0', id, result: initializeResult() })}\n\n`,
+        `data:\n\ndata: ${JSON.stringify({ jsonrpc: "2.0", id, result: initializeResult() })}\n\n`,
     ],
     [
-      'data fields that only join into JSON without their separator',
+      "data fields that only join into JSON without their separator",
       (id: RequestId) =>
-        `data: [1\ndata: 2]\n\ndata: ${JSON.stringify({ jsonrpc: '2.0', id, result: initializeResult() })}\n\n`,
+        `data: [1\ndata: 2]\n\ndata: ${JSON.stringify({ jsonrpc: "2.0", id, result: initializeResult() })}\n\n`,
     ],
     [
-      'a response id that never matches the request',
+      "a response id that never matches the request",
       () =>
-        `data: ${JSON.stringify({ jsonrpc: '2.0', id: 'unmatched', result: initializeResult() })}\n\n`,
+        `data: ${JSON.stringify({ jsonrpc: "2.0", id: "unmatched", result: initializeResult() })}\n\n`,
     ],
   ] satisfies ReadonlyArray<[string, (id: RequestId) => string]>)(
-    'refuses a POST-SSE initialize whose earlier frame carries %s',
+    "refuses a POST-SSE initialize whose earlier frame carries %s",
     async (_name, build) => {
       const transport = createStubTransport(
         scriptWithDefaults({ initialize: [sseFrames(build)] }),
@@ -393,72 +393,72 @@ describe('McpServerClient transport protocol', () => {
 
       await expect(
         McpServerClient.connect({
-          serverId: 'web',
-          url: 'https://mcp.test/mcp',
+          serverId: "web",
+          url: "https://mcp.test/mcp",
           fetch: transport.fetchStub,
         }),
       ).rejects.toMatchObject({
-        name: 'McpServerOperationError',
-        stage: 'initialize',
-        kind: 'malformed_protocol',
+        name: "McpServerOperationError",
+        stage: "initialize",
+        kind: "malformed_protocol",
       });
     },
   );
 
-  it('accepts a batched initialize response beside an id-matching decoy', async () => {
+  it("accepts a batched initialize response beside an id-matching decoy", async () => {
     const { client } = await connectStub({
       initialize: [
         ({ id }) =>
           new Response(
             JSON.stringify([
-              { jsonrpc: '2.0', id },
-              { jsonrpc: '2.0', id, result: initializeResult() },
+              { jsonrpc: "2.0", id },
+              { jsonrpc: "2.0", id, result: initializeResult() },
             ]),
-            { headers: { 'content-type': 'application/json' } },
+            { headers: { "content-type": "application/json" } },
           ),
       ],
-      'tools/list': [jsonRpc({ tools: [declaration('lookup')] })],
+      "tools/list": [jsonRpc({ tools: [declaration("lookup")] })],
     });
 
     try {
       const catalog = await client.discover();
-      expect(toolIds(catalog.tools)).toEqual(['mcp__web__lookup']);
+      expect(toolIds(catalog.tools)).toEqual(["mcp__web__lookup"]);
     } finally {
       await client.close();
     }
   });
 
   it.each([
-    ['JSON', (result: UnknownRecord) => jsonRpc(result)],
+    ["JSON", (result: UnknownRecord) => jsonRpc(result)],
     [
-      'POST SSE',
+      "POST SSE",
       (result: UnknownRecord) =>
         sseFrames(
-          (id) => `data: ${JSON.stringify({ jsonrpc: '2.0', id, result })}\n\n`,
+          (id) => `data: ${JSON.stringify({ jsonrpc: "2.0", id, result })}\n\n`,
         ),
     ],
   ] satisfies ReadonlyArray<[string, (result: UnknownRecord) => StubHandler]>)(
-    'gates the negotiated revision on initialize only, not on a %s discovery page',
+    "gates the negotiated revision on initialize only, not on a %s discovery page",
     async (_name, respond) => {
       const { client } = await connectStub({
-        'tools/list': [
+        "tools/list": [
           respond({
-            tools: [declaration('lookup')],
-            protocolVersion: '2024-11-05',
+            tools: [declaration("lookup")],
+            protocolVersion: "2024-11-05",
           }),
         ],
       });
 
       try {
         const catalog = await client.discover();
-        expect(toolIds(catalog.tools)).toEqual(['mcp__web__lookup']);
+        expect(toolIds(catalog.tools)).toEqual(["mcp__web__lookup"]);
       } finally {
         await client.close();
       }
     },
   );
 
-  it('monitors an inbound GET stream advertised with an upper-case media type', async () => {
+  it("monitors an inbound GET stream advertised with an upper-case media type", async () => {
     const onDisconnect = vi.fn();
     let inbound: ReadableStreamDefaultController<Uint8Array> | undefined;
     const { client } = await connectStub(
@@ -469,20 +469,20 @@ describe('McpServerClient transport protocol', () => {
               new ReadableStream<Uint8Array>({
                 start(controller) {
                   inbound = controller;
-                  controller.enqueue(textEncoder.encode(': open\n\n'));
+                  controller.enqueue(textEncoder.encode(": open\n\n"));
                 },
               }),
-              { headers: { 'content-type': 'TEXT/EVENT-STREAM' } },
+              { headers: { "content-type": "TEXT/EVENT-STREAM" } },
             ),
         ],
-        'tools/list': [jsonRpc({ tools: [declaration('lookup')] })],
+        "tools/list": [jsonRpc({ tools: [declaration("lookup")] })],
       },
       { onDisconnect },
     );
 
     try {
       const catalog = await client.discover();
-      expect(toolIds(catalog.tools)).toEqual(['mcp__web__lookup']);
+      expect(toolIds(catalog.tools)).toEqual(["mcp__web__lookup"]);
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(onDisconnect).not.toHaveBeenCalled();
     } finally {
@@ -491,7 +491,7 @@ describe('McpServerClient transport protocol', () => {
     }
   });
 
-  it('reports an open inbound GET stream that is not an event stream', async () => {
+  it("reports an open inbound GET stream that is not an event stream", async () => {
     const onDisconnect = vi.fn();
     let inbound: ReadableStreamDefaultController<Uint8Array> | undefined;
     const { client } = await connectStub(
@@ -502,10 +502,10 @@ describe('McpServerClient transport protocol', () => {
               new ReadableStream<Uint8Array>({
                 start(controller) {
                   inbound = controller;
-                  controller.enqueue(textEncoder.encode('{}'));
+                  controller.enqueue(textEncoder.encode("{}"));
                 },
               }),
-              { headers: { 'content-type': 'application/json' } },
+              { headers: { "content-type": "application/json" } },
             ),
         ],
       },
@@ -522,7 +522,7 @@ describe('McpServerClient transport protocol', () => {
     }
   });
 
-  it('reports an inbound GET stream that fails while being read', async () => {
+  it("reports an inbound GET stream that fails while being read", async () => {
     const onDisconnect = vi.fn();
     const { client } = await connectStub(
       {
@@ -531,13 +531,13 @@ describe('McpServerClient transport protocol', () => {
             new Response(
               new ReadableStream<Uint8Array>({
                 start(controller) {
-                  controller.enqueue(textEncoder.encode(': open\n\n'));
+                  controller.enqueue(textEncoder.encode(": open\n\n"));
                 },
                 pull(controller) {
-                  controller.error(new Error('inbound stream failed'));
+                  controller.error(new Error("inbound stream failed"));
                 },
               }),
-              { headers: { 'content-type': 'text/event-stream' } },
+              { headers: { "content-type": "text/event-stream" } },
             ),
         ],
       },
@@ -553,7 +553,7 @@ describe('McpServerClient transport protocol', () => {
     }
   });
 
-  it('keeps a request-scoped transport rejection out of the disconnect callback', async () => {
+  it("keeps a request-scoped transport rejection out of the disconnect callback", async () => {
     const onDisconnect = vi.fn();
     const transport = createStubTransport(scriptWithDefaults({}));
     const failingFetch = (
@@ -561,14 +561,14 @@ describe('McpServerClient transport protocol', () => {
       init?: RequestInit,
     ): Promise<Response> => {
       const body = parseBody(init?.body);
-      if (body?.['method'] === 'tools/list') {
-        return Promise.reject(new Error('socket closed'));
+      if (body?.["method"] === "tools/list") {
+        return Promise.reject(new Error("socket closed"));
       }
       return transport.fetchStub(input, init);
     };
     const client = await McpServerClient.connect({
-      serverId: 'web',
-      url: 'https://mcp.test/mcp',
+      serverId: "web",
+      url: "https://mcp.test/mcp",
       fetch: failingFetch,
       onDisconnect,
     });
@@ -584,33 +584,33 @@ describe('McpServerClient transport protocol', () => {
     }
   });
 
-  it('keeps a mid-session id change out of the disconnect callback', async () => {
+  it("keeps a mid-session id change out of the disconnect callback", async () => {
     const onDisconnect = vi.fn();
     const transport = createStubTransport(
       scriptWithDefaults({
         initialize: [
-          jsonRpc(initializeResult(), { 'mcp-session-id': 'first' }),
+          jsonRpc(initializeResult(), { "mcp-session-id": "first" }),
         ],
-        'tools/list': [
+        "tools/list": [
           jsonRpc(
-            { tools: [declaration('lookup')] },
-            { 'mcp-session-id': 'second' },
+            { tools: [declaration("lookup")] },
+            { "mcp-session-id": "second" },
           ),
         ],
       }),
     );
     const client = await McpServerClient.connect({
-      serverId: 'web',
-      url: 'https://mcp.test/mcp',
+      serverId: "web",
+      url: "https://mcp.test/mcp",
       fetch: transport.fetchStub,
       onDisconnect,
     });
 
     try {
       await expect(client.discover()).rejects.toMatchObject({
-        name: 'McpServerOperationError',
-        stage: 'discovery',
-        kind: 'malformed_protocol',
+        name: "McpServerOperationError",
+        stage: "discovery",
+        kind: "malformed_protocol",
       });
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(onDisconnect).not.toHaveBeenCalled();
@@ -619,24 +619,24 @@ describe('McpServerClient transport protocol', () => {
     }
   });
 
-  it('treats an empty session id header as no session at all', async () => {
+  it("treats an empty session id header as no session at all", async () => {
     const { client } = await connectStub({
-      initialize: [jsonRpc(initializeResult(), { 'mcp-session-id': '' })],
-      'tools/list': [jsonRpc({ tools: [declaration('lookup')] })],
-      'tools/call': [raw(404, 'gone', 'text/plain')],
+      initialize: [jsonRpc(initializeResult(), { "mcp-session-id": "" })],
+      "tools/list": [jsonRpc({ tools: [declaration("lookup")] })],
+      "tools/call": [raw(404, "gone", "text/plain")],
     });
 
     try {
       const catalog = await client.discover();
       const [discovered] = catalog.tools;
       expect(discovered).toBeDefined();
-      const outcome = await discovered?.execute({ query: 'x' }, executeOptions);
+      const outcome = await discovered?.execute({ query: "x" }, executeOptions);
       expect(outcome).toEqual({
-        disposition: 'call_local',
+        disposition: "call_local",
         result: {
-          status: 'error',
-          type: 'execution_failed',
-          message: 'The remote tool failed to execute.',
+          status: "error",
+          type: "execution_failed",
+          message: "The remote tool failed to execute.",
         },
       });
     } finally {
@@ -644,24 +644,24 @@ describe('McpServerClient transport protocol', () => {
     }
   });
 
-  it('protects nothing beyond configuration when the server issues no session', async () => {
+  it("protects nothing beyond configuration when the server issues no session", async () => {
     const { client } = await connectStub({
-      'tools/list': [jsonRpc({ tools: [declaration('lookup')] })],
-      'tools/call': [
-        jsonRpc({ content: [{ type: 'text', text: 'Stryker was here' }] }),
+      "tools/list": [jsonRpc({ tools: [declaration("lookup")] })],
+      "tools/call": [
+        jsonRpc({ content: [{ type: "text", text: "Stryker was here" }] }),
       ],
     });
 
     try {
       const catalog = await client.discover();
       const [discovered] = catalog.tools;
-      const outcome = await discovered?.execute({ query: 'x' }, executeOptions);
+      const outcome = await discovered?.execute({ query: "x" }, executeOptions);
       expect(outcome).toEqual({
-        disposition: 'none',
+        disposition: "none",
         result: {
-          status: 'success',
+          status: "success",
           output: {
-            content: [{ type: 'text', text: 'Stryker was here' }],
+            content: [{ type: "text", text: "Stryker was here" }],
             isError: false,
           },
         },
@@ -671,19 +671,19 @@ describe('McpServerClient transport protocol', () => {
     }
   });
 
-  it('accepts a portable result carried as toolResult without content', async () => {
+  it("accepts a portable result carried as toolResult without content", async () => {
     const { client } = await connectStub({
-      'tools/list': [jsonRpc({ tools: [declaration('lookup')] })],
-      'tools/call': [jsonRpc({ toolResult: { ok: true } })],
+      "tools/list": [jsonRpc({ tools: [declaration("lookup")] })],
+      "tools/call": [jsonRpc({ toolResult: { ok: true } })],
     });
 
     try {
       const catalog = await client.discover();
       const [discovered] = catalog.tools;
-      const outcome = await discovered?.execute({ query: 'x' }, executeOptions);
+      const outcome = await discovered?.execute({ query: "x" }, executeOptions);
       expect(outcome).toEqual({
-        disposition: 'none',
-        result: { status: 'success', output: { toolResult: { ok: true } } },
+        disposition: "none",
+        result: { status: "success", output: { toolResult: { ok: true } } },
       });
     } finally {
       await client.close();
@@ -691,19 +691,19 @@ describe('McpServerClient transport protocol', () => {
   });
 
   it.each([
-    ['a JSON-RPC error code', jsonRpcError(-32_000, 'server refused')],
-    ['a schema-invalid payload', jsonRpc({ tools: 'not-an-array' })],
+    ["a JSON-RPC error code", jsonRpcError(-32_000, "server refused")],
+    ["a schema-invalid payload", jsonRpc({ tools: "not-an-array" })],
   ] satisfies ReadonlyArray<[string, StubHandler]>)(
-    'classifies %s during discovery as malformed protocol',
+    "classifies %s during discovery as malformed protocol",
     async (_name, respond) => {
-      const { client } = await connectStub({ 'tools/list': [respond] });
+      const { client } = await connectStub({ "tools/list": [respond] });
 
       try {
         await expect(client.discover()).rejects.toMatchObject({
-          name: 'McpServerOperationError',
-          stage: 'discovery',
-          kind: 'malformed_protocol',
-          disposition: 'reconnect',
+          name: "McpServerOperationError",
+          stage: "discovery",
+          kind: "malformed_protocol",
+          disposition: "reconnect",
         });
       } finally {
         await client.close();
@@ -711,7 +711,7 @@ describe('McpServerClient transport protocol', () => {
     },
   );
 
-  it('accepts a CRLF POST-SSE initialize split across two data fields', async () => {
+  it("accepts a CRLF POST-SSE initialize split across two data fields", async () => {
     const { client } = await connectStub({
       initialize: [
         sseFrames((id) => {
@@ -720,30 +720,30 @@ describe('McpServerClient transport protocol', () => {
           return `data: ${head}\r\ndata: ${tail}\r\n\r\n`;
         }),
       ],
-      'tools/list': [jsonRpc({ tools: [declaration('lookup')] })],
+      "tools/list": [jsonRpc({ tools: [declaration("lookup")] })],
     });
 
     try {
       const catalog = await client.discover();
-      expect(toolIds(catalog.tools)).toEqual(['mcp__web__lookup']);
+      expect(toolIds(catalog.tools)).toEqual(["mcp__web__lookup"]);
     } finally {
       await client.close();
     }
   });
 
-  it('reports an inbound GET whose transport rejects before any response', async () => {
+  it("reports an inbound GET whose transport rejects before any response", async () => {
     const onDisconnect = vi.fn();
     const transport = createStubTransport(scriptWithDefaults({}));
     const failingGet = (
       input: RequestInfo | URL,
       init?: RequestInit,
     ): Promise<Response> =>
-      (init?.method ?? 'GET').toUpperCase() === 'GET'
-        ? Promise.reject(new Error('inbound socket refused'))
+      (init?.method ?? "GET").toUpperCase() === "GET"
+        ? Promise.reject(new Error("inbound socket refused"))
         : transport.fetchStub(input, init);
     const client = await McpServerClient.connect({
-      serverId: 'web',
-      url: 'https://mcp.test/mcp',
+      serverId: "web",
+      url: "https://mcp.test/mcp",
       fetch: failingGet,
       onDisconnect,
     });
@@ -757,22 +757,22 @@ describe('McpServerClient transport protocol', () => {
     }
   });
 
-  it('reports a remote tool error distinctly from a transport failure', async () => {
+  it("reports a remote tool error distinctly from a transport failure", async () => {
     const { client } = await connectStub({
-      'tools/list': [jsonRpc({ tools: [declaration('lookup')] })],
-      'tools/call': [jsonRpcError(-32_000, 'the tool refused')],
+      "tools/list": [jsonRpc({ tools: [declaration("lookup")] })],
+      "tools/call": [jsonRpcError(-32_000, "the tool refused")],
     });
 
     try {
       const catalog = await client.discover();
       const [discovered] = catalog.tools;
-      const outcome = await discovered?.execute({ query: 'x' }, executeOptions);
+      const outcome = await discovered?.execute({ query: "x" }, executeOptions);
       expect(outcome).toEqual({
-        disposition: 'call_local',
+        disposition: "call_local",
         result: {
-          status: 'error',
-          type: 'remote_error',
-          message: 'The remote tool reported an error.',
+          status: "error",
+          type: "remote_error",
+          message: "The remote tool reported an error.",
         },
       });
     } finally {
@@ -780,13 +780,13 @@ describe('McpServerClient transport protocol', () => {
     }
   });
 
-  it('leaves no connection or shutdown timer pending after close', async () => {
+  it("leaves no connection or shutdown timer pending after close", async () => {
     vi.useFakeTimers();
     try {
       const transport = createStubTransport(scriptWithDefaults({}));
       const client = await McpServerClient.connect({
-        serverId: 'web',
-        url: 'https://mcp.test/mcp',
+        serverId: "web",
+        url: "https://mcp.test/mcp",
         fetch: transport.fetchStub,
       });
       const pendingBeforeClose = vi.getTimerCount();
@@ -800,17 +800,17 @@ describe('McpServerClient transport protocol', () => {
     }
   });
 
-  it('refuses a discovery page delivered without a JSON content type', async () => {
+  it("refuses a discovery page delivered without a JSON content type", async () => {
     const { client } = await connectStub({
-      'tools/list': [
+      "tools/list": [
         ({ id }) =>
           new Response(
             JSON.stringify({
-              jsonrpc: '2.0',
+              jsonrpc: "2.0",
               id,
-              result: { tools: [declaration('lookup')] },
+              result: { tools: [declaration("lookup")] },
             }),
-            { headers: { 'content-type': 'application/octet-stream' } },
+            { headers: { "content-type": "application/octet-stream" } },
           ),
       ],
     });

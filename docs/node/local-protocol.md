@@ -39,7 +39,12 @@ One UTF-8 JSON-RPC 2.0 object per newline, string request IDs, no batches. Requi
 `core.hello` before domain requests:
 
 ```json
-{"jsonrpc":"2.0","id":"hello-1","method":"core.hello","params":{"version":2}}
+{
+  "jsonrpc": "2.0",
+  "id": "hello-1",
+  "method": "core.hello",
+  "params": { "version": 2 }
+}
 ```
 
 The response identifies `version`, `nodeId`, `principal: local-owner`, transport,

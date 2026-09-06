@@ -1,13 +1,8 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
-  "mutate": [
-    "src/**/*.ts",
-    "!src/**/*.test.ts"
-  ],
+  "mutate": ["src/**/*.ts", "!src/**/*.test.ts"],
   "testRunner": "vitest",
-  "checkers": [
-    "typescript"
-  ],
+  "checkers": ["typescript"],
   "plugins": [
     "@stryker-mutator/typescript-checker",
     "@stryker-mutator/vitest-runner"
@@ -18,11 +13,7 @@
   },
   "allowEmpty": false,
   "coverageAnalysis": "perTest",
-  "reporters": [
-    "clear-text",
-    "html",
-    "json"
-  ],
+  "reporters": ["clear-text", "html", "json"],
   "htmlReporter": {
     "fileName": "reports/mutation/mutation.html"
   },

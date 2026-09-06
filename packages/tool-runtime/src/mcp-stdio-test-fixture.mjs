@@ -25,33 +25,34 @@
 //                             startup, to exercise the client's per-message
 //                             byte cap
 
-import { writeFileSync } from 'node:fs';
+import { writeFileSync } from "node:fs";
 
-const config = JSON.parse(process.env.MCP_FIXTURE ?? '{}');
+const config = JSON.parse(process.env.MCP_FIXTURE ?? "{}");
 
-if (config.pidDumpPath) writeFileSync(config.pidDumpPath, String(process.pid), 'utf8');
+if (config.pidDumpPath)
+  writeFileSync(config.pidDumpPath, String(process.pid), "utf8");
 
 if (config.envDumpPath) {
-  writeFileSync(config.envDumpPath, JSON.stringify(process.env), 'utf8');
+  writeFileSync(config.envDumpPath, JSON.stringify(process.env), "utf8");
 }
 if (config.argvDumpPath) {
   writeFileSync(
     config.argvDumpPath,
     JSON.stringify(process.argv.slice(2)),
-    'utf8',
+    "utf8",
   );
 }
 if (config.cwdDumpPath) {
-  writeFileSync(config.cwdDumpPath, process.cwd(), 'utf8');
+  writeFileSync(config.cwdDumpPath, process.cwd(), "utf8");
 }
 if (config.stdoutFloodBytes) {
   await new Promise((resolve) => {
-    process.stdout.write('X'.repeat(config.stdoutFloodBytes), resolve);
+    process.stdout.write("X".repeat(config.stdoutFloodBytes), resolve);
   });
 }
 const STDERR_LINE_WIDTH = 100;
 
-const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
+const send = (message) => process.stdout.write(JSON.stringify(message) + "\n");
 
 async function writeStderrChunks() {
   // Newline-terminated lines rather than one giant unterminated blob: the
@@ -60,7 +61,7 @@ async function writeStderrChunks() {
   // at all.
   const chunks = config.stderrBytes
     ? [
-        ('A'.repeat(STDERR_LINE_WIDTH) + '\n').repeat(
+        ("A".repeat(STDERR_LINE_WIDTH) + "\n").repeat(
           Math.ceil(config.stderrBytes / (STDERR_LINE_WIDTH + 1)),
         ),
       ]
@@ -91,33 +92,33 @@ const methodHandlers = {
   async initialize(message) {
     if (config.stderrPreInit) await writeStderrChunks();
     send({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: message.id,
       result: {
-        protocolVersion: config.protocolVersion ?? '2025-11-25',
+        protocolVersion: config.protocolVersion ?? "2025-11-25",
         capabilities: { tools: {} },
-        serverInfo: { name: 'stdio-fixture', version: '0.0.0' },
+        serverInfo: { name: "stdio-fixture", version: "0.0.0" },
       },
     });
   },
-  async 'notifications/initialized'(_message) {
+  async "notifications/initialized"(_message) {
     if (!config.stderrPreInit) await writeStderrChunks();
     if (config.exitAfterInit) process.exit(4);
   },
-  'tools/list'(message) {
+  "tools/list"(message) {
     send({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: message.id,
       result: toolsListResult(message.params?.cursor),
     });
   },
-  'tools/call'(message) {
+  "tools/call"(message) {
     if (config.exitOnCall) process.exit(5);
     send({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: message.id,
       result: config.callResult ?? {
-        content: [{ type: 'text', text: 'ok' }],
+        content: [{ type: "text", text: "ok" }],
       },
     });
   },
@@ -131,21 +132,21 @@ async function handleMessage(message) {
   }
   if (message.id !== undefined) {
     send({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: message.id,
-      error: { code: -32_601, message: 'Method not found' },
+      error: { code: -32_601, message: "Method not found" },
     });
   }
 }
 
-let buffer = '';
-process.stdin.on('data', async (data) => {
-  buffer += data.toString('utf8');
+let buffer = "";
+process.stdin.on("data", async (data) => {
+  buffer += data.toString("utf8");
   let newline;
-  while ((newline = buffer.indexOf('\n')) !== -1) {
+  while ((newline = buffer.indexOf("\n")) !== -1) {
     const line = buffer.slice(0, newline);
     buffer = buffer.slice(newline + 1);
-    if (line.trim() === '') continue;
+    if (line.trim() === "") continue;
 
     let message;
     try {
@@ -158,4 +159,4 @@ process.stdin.on('data', async (data) => {
   }
 });
 
-process.stdin.on('end', () => process.exit(0));
+process.stdin.on("end", () => process.exit(0));

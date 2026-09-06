@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
 
 import {
   isBoolean,
@@ -6,7 +6,7 @@ import {
   isRecord,
   isString,
   type UnknownRecord,
-} from './unknown-record';
+} from "./unknown-record";
 
 export const compareCodePoints = (left: string, right: string): number => {
   const leftScalars = Array.from(left, (scalar) => scalar.codePointAt(0) ?? 0);
@@ -75,9 +75,9 @@ export function canonicalJson(value: unknown): string {
 }
 
 export function hashWithDomain(domain: string, payload: string): string {
-  return createHash('sha256')
-    .update(domain, 'utf8')
-    .update('\0', 'utf8')
-    .update(payload, 'utf8')
-    .digest('hex');
+  return createHash("sha256")
+    .update(domain, "utf8")
+    .update("\0", "utf8")
+    .update(payload, "utf8")
+    .digest("hex");
 }

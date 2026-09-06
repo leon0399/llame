@@ -1,4 +1,8 @@
-import { nodeOpenApiPaths, nodeAdmissionSchemas, nodeProtocolSchemas } from '@workspace/node-protocol';
+import {
+  nodeOpenApiPaths,
+  nodeAdmissionSchemas,
+  nodeProtocolSchemas,
+} from '@workspace/node-protocol';
 import { ValidationPipe } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
@@ -141,11 +145,16 @@ export function createOpenApiDocument(app: INestApplication): OpenAPIObject {
 
   const document = SwaggerModule.createDocument(app, config);
   const message = document.components?.schemas?.CreateMessageDto;
-  if (!message || !document.components?.schemas) throw new Error('Missing message schema for Node admission.');
+  if (!message || !document.components?.schemas)
+    throw new Error('Missing message schema for Node admission.');
   // Common protocol operations are emitted by the same source for both deployments.
   // Message validation stays with the existing CreateMessageDto-derived controller DTO.
   Object.assign(document.paths, nodeOpenApiPaths());
-  Object.assign(document.components.schemas, nodeAdmissionSchemas({ ...message }), nodeProtocolSchemas());
+  Object.assign(
+    document.components.schemas,
+    nodeAdmissionSchemas({ ...message }),
+    nodeProtocolSchemas(),
+  );
   return document;
 }
 

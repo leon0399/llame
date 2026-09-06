@@ -1,11 +1,12 @@
 import {
+  isRecord,
   isString,
   type ToolResult,
   type UnknownRecord,
 } from "@workspace/runtime-safety";
 import { boundedText } from "./output";
 import { aborted, CliError } from "./errors";
-import { integer, keys, record, text } from "./validation";
+import { integer, keys, record, text, type JsonValue } from "./validation";
 import { WorkspaceFiles, digest } from "./workspace-files";
 import { nativeProcess } from "./native-process";
 import { skillsList, skillMetadata } from "./skills";
@@ -33,7 +34,7 @@ function definition(
 }
 const stringField = { type: "string" };
 
-export const workspaceTools: readonly ToolDefinition[] = [
+export const workspaceTools: ReadonlyArray<ToolDefinition> = [
   definition(
     "workspace_enter",
     "Enter the single startup Workspace. Native placement was authorized by the operator; instructions cannot grant new permissions.",
@@ -85,7 +86,7 @@ export class WorkspaceTools {
     readonly files: WorkspaceFiles,
     private readonly approve: Approval,
     private readonly env: NodeJS.ProcessEnv,
-    private readonly audit: (type: string, payload: unknown) => void,
+    private readonly audit: (type: string, payload: JsonValue) => void,
   ) {}
 
   async execute(
@@ -93,6 +94,8 @@ export class WorkspaceTools {
     value: unknown,
     signal: AbortSignal,
   ): Promise<ToolResult> {
+    if (!isRecord(value))
+      throw new CliError("invalid_data", "tool arguments must be an object.");
     const args = record(value, "tool arguments");
     aborted(signal);
     if (name === "workspace_enter") return this.enter(args);
@@ -215,14 +218,7 @@ export class WorkspaceTools {
   ): Promise<ToolResult> {
     keys(args, ["command", "args"], "process_run");
     const command = text(args.command, "command", 1024);
-    if (!Array.isArray(args.args) || args.args.length > 50)
-      throw new CliError(
-        "invalid_data",
-        "args must be an array of at most 50 strings.",
-      );
-    const argv = args.args.map((arg) =>
-      isString(arg) && arg.length <= 2048 ? arg : text(arg, "argument", 2048),
-    );
+    const argv = processArgv(args.args);
     this.audit("approval.requested", {
       tool: "process_run",
       command,
@@ -234,13 +230,7 @@ export class WorkspaceTools {
     );
     this.audit("approval.decided", { tool: "process_run", approved });
     aborted(signal);
-    if (!approved)
-      return {
-        status: "error",
-        type: "denied",
-        message:
-          "The user did not approve this process. Do not repeat the request.",
-      };
+    if (!approved) return deniedProcess();
     this.audit("side_effect.started", {
       tool: "process_run",
       command,
@@ -280,4 +270,29 @@ export class WorkspaceTools {
       content: file.content,
     };
   }
+}
+
+function processArgv(value: unknown): Array<string> {
+  if (!Array.isArray(value))
+    throw new CliError(
+      "invalid_data",
+      "args must be an array of at most 50 strings.",
+    );
+  if (value.length > 50)
+    throw new CliError(
+      "invalid_data",
+      "args must be an array of at most 50 strings.",
+    );
+  return value.map((arg) =>
+    isString(arg) && arg.length <= 2048 ? arg : text(arg, "argument", 2048),
+  );
+}
+
+function deniedProcess(): ToolResult {
+  return {
+    status: "error",
+    type: "denied",
+    message:
+      "The user did not approve this process. Do not repeat the request.",
+  };
 }

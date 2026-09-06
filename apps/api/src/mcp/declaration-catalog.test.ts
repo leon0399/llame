@@ -2,8 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { composeTurnToolCatalog } from '../tools/turn-tool-catalog';
 import { type Tool } from '../tools/types';
 import { type UnknownRecord } from '@workspace/runtime-safety';
-import { admitMcpToolDefinitions, type AdmittedMcpToolDefinition } from '@workspace/tool-runtime/declaration-admission';
-const definition = (name: string, inputSchema: UnknownRecord) => ({ name, description: `Use ${name}`, inputSchema });
+import {
+  admitMcpToolDefinitions,
+  type AdmittedMcpToolDefinition,
+} from '@workspace/tool-runtime/declaration-admission';
+const definition = (name: string, inputSchema: UnknownRecord) => ({
+  name,
+  description: `Use ${name}`,
+  inputSchema,
+});
 function asTool(admitted: AdmittedMcpToolDefinition): Tool {
   return {
     id: admitted.id,

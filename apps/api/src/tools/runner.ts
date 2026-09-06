@@ -9,7 +9,6 @@ import { safeParseArgs } from '@workspace/tool-runtime/schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 
-
 const logger = new Logger('ToolRunner');
 
 class ToolAbortError extends Error {}

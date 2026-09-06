@@ -33,7 +33,7 @@ function fixture() {
     headers: { [NODE_VERSION_HEADER]: '1', [NODE_PRINCIPAL_HEADER]: owner },
   };
   const body = {
-    jsonrpc: '2.0',
+    jsonrpc: '2.0' as const,
     id: 'request',
     method: 'realm.conversations.search',
     params: { query: 'notes' },

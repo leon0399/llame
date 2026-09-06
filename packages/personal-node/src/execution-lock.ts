@@ -69,30 +69,33 @@ export function removeDeadLock(directory: string): void {
   }
   closeSync(fd);
   try {
-    const path = join(directory, "executor.lock");
-    if (!existsSync(path)) return;
-    const original = readPrivate(path, 4096);
-    const owner = record(parseJson(original), "executor lock");
-    const pid = integer(owner.pid, "executor PID", 1, 2_147_483_647);
-    text(owner.nonce, "executor nonce", 100);
-    try {
-      process.kill(pid, 0);
-    } catch (error) {
-      if (errorCode(error) !== "ESRCH")
-        throw new CliError(
-          "executor_busy",
-          "Cannot prove that the previous executor stopped.",
-        );
-      if (readPrivate(path, 4096) !== original)
-        throw new CliError("executor_busy", "Executor ownership changed.");
-      unlinkSync(path);
-      return;
-    }
-    throw new CliError(
-      "executor_busy",
-      "The recorded executor process is still alive.",
-    );
+    reclaimExecutor(join(directory, "executor.lock"));
   } finally {
     unlinkSync(guard);
   }
+}
+
+function reclaimExecutor(path: string): void {
+  if (!existsSync(path)) return;
+  const original = readPrivate(path, 4096);
+  const owner = record(parseJson(original), "executor lock");
+  const pid = integer(owner.pid, "executor PID", 1, 2_147_483_647);
+  text(owner.nonce, "executor nonce", 100);
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    if (errorCode(error) !== "ESRCH")
+      throw new CliError(
+        "executor_busy",
+        "Cannot prove that the previous executor stopped.",
+      );
+    if (readPrivate(path, 4096) !== original)
+      throw new CliError("executor_busy", "Executor ownership changed.");
+    unlinkSync(path);
+    return;
+  }
+  throw new CliError(
+    "executor_busy",
+    "The recorded executor process is still alive.",
+  );
 }

@@ -9,7 +9,6 @@ import {
 import { runTool } from './runner';
 import { type Tool, type ToolContext } from './types';
 
-
 function fakeContext(userId = 'user-A'): ToolContext {
   const tenantDb: TenantRunner = {
     runAs: <T>() =>

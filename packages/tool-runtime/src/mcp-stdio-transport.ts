@@ -1,18 +1,14 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import { PassThrough, type Readable } from 'node:stream';
+import { spawn, type ChildProcess } from "node:child_process";
+import { PassThrough, type Readable } from "node:stream";
 
-import { getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
 import {
   deserializeMessage,
   serializeMessage,
-} from '@modelcontextprotocol/sdk/shared/stdio.js';
-import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
+} from "@modelcontextprotocol/sdk/shared/stdio.js";
+import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 
-import {
-  isString,
-  redactProtectedString,
-} from '@workspace/runtime-safety';
-
+import { isString, redactProtectedString } from "@workspace/runtime-safety";
 
 /**
  * Upper bound on diagnostic text retained per server, in UTF-16 code units —
@@ -60,8 +56,8 @@ function withLineFragments(
 ): ReadonlyArray<string> {
   const expanded = new Set(protectedValues);
   for (const value of protectedValues) {
-    if (!value.includes('\n')) continue;
-    for (const fragment of value.split('\n')) {
+    if (!value.includes("\n")) continue;
+    for (const fragment of value.split("\n")) {
       const trimmed = fragment.trim();
       if (trimmed.length >= MIN_PROTECTED_FRAGMENT_CHARS) expanded.add(trimmed);
     }
@@ -81,7 +77,7 @@ function withLineFragments(
  * is why the protected set is expanded with its line fragments first.
  */
 export class DiagnosticBuffer {
-  private pending = '';
+  private pending = "";
   private retained = 0;
   private readonly protectedValues: ReadonlyArray<string>;
 
@@ -95,7 +91,7 @@ export class DiagnosticBuffer {
   append(chunk: Buffer | string): void {
     if (this.retained >= MAX_DIAGNOSTIC_CHARS) return;
 
-    const text = isString(chunk) ? chunk : chunk.toString('utf8');
+    const text = isString(chunk) ? chunk : chunk.toString("utf8");
     const room = MAX_DIAGNOSTIC_CHARS - this.retained;
     // When the cap forces truncation, cut at a line boundary rather than mid
     // text. An arbitrary cut can split a protected value in half, and a half
@@ -104,7 +100,7 @@ export class DiagnosticBuffer {
     let accepted = text;
     if (text.length > room) {
       const head = text.slice(0, room);
-      const lastNewline = head.lastIndexOf('\n');
+      const lastNewline = head.lastIndexOf("\n");
       // No safe cut point at all (one chunk with no embedded newline within
       // the remaining room): drop it rather than retain a fragment that might
       // be half of a secret. Crucially, this chunk contributed nothing kept,
@@ -125,11 +121,11 @@ export class DiagnosticBuffer {
     this.pending += accepted;
 
     let start = 0;
-    let newline = this.pending.indexOf('\n', searchFrom);
+    let newline = this.pending.indexOf("\n", searchFrom);
     while (newline !== -1) {
       this.release(this.pending.slice(start, newline));
       start = newline + 1;
-      newline = this.pending.indexOf('\n', start);
+      newline = this.pending.indexOf("\n", start);
     }
     if (start > 0) this.pending = this.pending.slice(start);
   }
@@ -138,7 +134,7 @@ export class DiagnosticBuffer {
   flush(): void {
     if (this.pending.length === 0) return;
     const line = this.pending;
-    this.pending = '';
+    this.pending = "";
     this.release(line);
   }
 
@@ -160,7 +156,7 @@ export const MAX_STDIO_MESSAGE_BYTES = 1024 * 1024;
 export class McpStdioMessageLimitError extends Error {
   constructor(readonly limit: number) {
     super(`MCP stdio message exceeded the ${limit}-byte transport limit.`);
-    this.name = 'McpStdioMessageLimitError';
+    this.name = "McpStdioMessageLimitError";
   }
 }
 
@@ -209,9 +205,9 @@ export class BoundedReadBuffer {
 
   readMessage(): JSONRPCMessage | null {
     if (this.buffer === undefined) return null;
-    const index = this.buffer.indexOf('\n');
+    const index = this.buffer.indexOf("\n");
     if (index === -1) return null;
-    const line = this.buffer.toString('utf8', 0, index).replace(/\r$/u, '');
+    const line = this.buffer.toString("utf8", 0, index).replace(/\r$/u, "");
     this.buffer = this.buffer.subarray(index + 1);
     return deserializeMessage(line);
   }
@@ -272,33 +268,38 @@ export class BoundedStdioTransport {
 
   async start(): Promise<void> {
     if (this.process) {
-      throw new Error('BoundedStdioTransport already started!');
+      throw new Error("BoundedStdioTransport already started!");
     }
     return new Promise((resolve, reject) => {
       const child = spawn(this.config.command, [...(this.config.args ?? [])], {
         // Merged over the base allowlist, matching the pinned SDK's own
         // getDefaultEnvironment() — nothing else of llame's ambient
         // environment is passed through.
-        env: { ...(this.config.inheritEnvironment === false ? {} : getDefaultEnvironment()), ...this.config.env },
-        stdio: ['pipe', 'pipe', 'pipe'],
+        env: {
+          ...(this.config.inheritEnvironment === false
+            ? undefined
+            : getDefaultEnvironment()),
+          ...this.config.env,
+        },
+        stdio: ["pipe", "pipe", "pipe"],
         shell: false,
-        windowsHide: process.platform === 'win32',
+        windowsHide: process.platform === "win32",
         ...(this.config.cwd !== undefined && { cwd: this.config.cwd }),
       });
       this.process = child;
 
-      child.on('error', (error) => {
+      child.on("error", (error) => {
         reject(error);
         this.onerror?.(error);
       });
-      child.on('spawn', () => resolve());
-      child.on('close', () => {
+      child.on("spawn", () => resolve());
+      child.on("close", () => {
         this.process = undefined;
         this.onclose?.();
       });
-      child.stdin?.on('error', (error) => this.onerror?.(error));
-      child.stdout?.on('data', (chunk: Buffer) => this.handleChunk(chunk));
-      child.stdout?.on('error', (error) => this.onerror?.(error));
+      child.stdin?.on("error", (error) => this.onerror?.(error));
+      child.stdout?.on("data", (chunk: Buffer) => this.handleChunk(chunk));
+      child.stdout?.on("error", (error) => this.onerror?.(error));
       child.stderr?.pipe(this.stderrStream);
     });
   }
@@ -312,7 +313,7 @@ export class BoundedStdioTransport {
       // child; its 'close' event fires onclose exactly as any other exit,
       // which is what already drives catalog withdrawal and bounded retry.
       this.onerror?.(error instanceof Error ? error : new Error(String(error)));
-      this.process?.kill('SIGKILL');
+      this.process?.kill("SIGKILL");
       this.readBuffer.clear();
       return;
     }
@@ -345,7 +346,7 @@ export class BoundedStdioTransport {
     }
     this.process = undefined;
     const closed = new Promise<void>((resolve) => {
-      processToClose.once('close', () => resolve());
+      processToClose.once("close", () => resolve());
     });
     try {
       processToClose.stdin?.end();
@@ -355,7 +356,7 @@ export class BoundedStdioTransport {
     await Promise.race([closed, delay(2000)]);
     if (processToClose.exitCode === null) {
       try {
-        processToClose.kill('SIGTERM');
+        processToClose.kill("SIGTERM");
       } catch {
         // ignore
       }
@@ -363,7 +364,7 @@ export class BoundedStdioTransport {
     }
     if (processToClose.exitCode === null) {
       try {
-        processToClose.kill('SIGKILL');
+        processToClose.kill("SIGKILL");
       } catch {
         // ignore
       }
@@ -374,14 +375,14 @@ export class BoundedStdioTransport {
   send(message: JSONRPCMessage): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.process?.stdin) {
-        reject(new Error('Not connected'));
+        reject(new Error("Not connected"));
         return;
       }
       const json = serializeMessage(message);
       if (this.process.stdin.write(json)) {
         resolve();
       } else {
-        this.process.stdin.once('drain', resolve);
+        this.process.stdin.once("drain", resolve);
       }
     });
   }

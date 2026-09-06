@@ -1,12 +1,12 @@
-import { cutStringAtCodePointBoundary } from './code-point-boundary';
+import { cutStringAtCodePointBoundary } from "./code-point-boundary";
 import {
   isBoolean,
   isNumber,
   isRecord,
   isString,
   type UnknownRecord,
-} from './unknown-record';
-import { type ToolResult } from './types';
+} from "./unknown-record";
+import { type ToolResult } from "./types";
 
 /** ~16KB result cap (D5/D6): oversized tool output is truncated, visibly. */
 export const RESULT_TRUNCATE_CHARS = 16_000;
@@ -17,8 +17,8 @@ export const RESULT_TRUNCATE_CHARS = 16_000;
  * findable place, and a tool-declared `truncated` would otherwise be
  * indistinguishable from ours.
  */
-const TRUNCATED_FIELD = 'truncated';
-const NOTICE_FIELD = 'truncationNotice';
+const TRUNCATED_FIELD = "truncated";
+const NOTICE_FIELD = "truncationNotice";
 
 /** A list the shrink shortened, reported by the marker so a count read off a
  * truncated list is not mistaken for the whole list. */
@@ -70,13 +70,13 @@ function capRecord(
     (ctx.keepAllEntries ? entries : entries.slice(0, ctx.limit)).map(
       ([key, entry]) => [
         key,
-        capValues(entry, ctx, path === '' ? key : `${path}.${key}`),
+        capValues(entry, ctx, path === "" ? key : `${path}.${key}`),
       ],
     ),
   );
 }
 
-function capValues(value: unknown, ctx: CapContext, path = ''): CappedValue {
+function capValues(value: unknown, ctx: CapContext, path = ""): CappedValue {
   if (isString(value)) {
     return cutStringAtCodePointBoundary(value, ctx.limit);
   }
@@ -84,7 +84,7 @@ function capValues(value: unknown, ctx: CapContext, path = ''): CappedValue {
     const kept = value.slice(0, ctx.limit);
     if (kept.length < value.length) {
       ctx.lists.push({
-        path: path === '' ? 'the result' : path,
+        path: path === "" ? "the result" : path,
         kept: kept.length,
         total: value.length,
       });
@@ -118,16 +118,16 @@ function capValues(value: unknown, ctx: CapContext, path = ''): CappedValue {
  * many small lists would otherwise spend the whole cap on its own marker.
  */
 function shortenedListPhrase(lists: ReadonlyArray<ShortenedList>): string {
-  if (lists.length === 0) return '';
+  if (lists.length === 0) return "";
   const ranked = [...lists].sort(
     (left, right) => right.total - right.kept - (left.total - left.kept),
   );
   const named = ranked
     .slice(0, NAMED_LIST_LIMIT)
     .map((list) => `${list.path} kept ${list.kept} of ${list.total}`)
-    .join('; ');
+    .join("; ");
   const remaining = ranked.length - Math.min(ranked.length, NAMED_LIST_LIMIT);
-  const more = remaining > 0 ? ` (and ${remaining} more)` : '';
+  const more = remaining > 0 ? ` (and ${remaining} more)` : "";
   return ` Lists shortened: ${named}${more}.`;
 }
 
@@ -137,7 +137,7 @@ function omittedFieldPhrase(
   omittedFields: number,
   totalFields: number,
 ): string {
-  if (omittedFields === 0) return '';
+  if (omittedFields === 0) return "";
   return ` ${omittedFields} of ${totalFields} result fields omitted entirely.`;
 }
 
@@ -167,7 +167,7 @@ function truncationNotice(
  * can only mean a bug elsewhere, not something to silently cap here.
  */
 export function truncateOversizedResult(result: ToolResult): ToolResult {
-  if (result.status !== 'success') return result;
+  if (result.status !== "success") return result;
   const json = JSON.stringify(result);
   if (json.length <= RESULT_TRUNCATE_CHARS) return result;
 
@@ -175,8 +175,8 @@ export function truncateOversizedResult(result: ToolResult): ToolResult {
   // applied `toJSON`, dropped undefined, and fixed every length, so what is
   // measured below is exactly what the model receives.
   const parsed: unknown = JSON.parse(json);
-  if (!isRecord(parsed) || parsed.status !== 'success') {
-    throw new TypeError('Malformed oversized tool result projection.');
+  if (!isRecord(parsed) || parsed.status !== "success") {
+    throw new TypeError("Malformed oversized tool result projection.");
   }
   const { status: _status, ...payload } = parsed;
   const source: TruncationSource = {
@@ -215,13 +215,13 @@ function buildTruncatedResult(
   const capped = capRecord(
     source.payload,
     { limit, lists, keepAllEntries: keepAllFields },
-    '',
+    "",
   );
   const omittedChars =
     source.json.length -
-    JSON.stringify({ status: 'success', ...capped }).length;
+    JSON.stringify({ status: "success", ...capped }).length;
   return {
-    status: 'success',
+    status: "success",
     ...capped,
     [TRUNCATED_FIELD]: true,
     [NOTICE_FIELD]: truncationNotice(

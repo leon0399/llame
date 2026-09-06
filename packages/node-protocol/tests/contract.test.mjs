@@ -96,7 +96,7 @@ test("range, path and multilingual query validation preserve literal source coor
     "../secret",
     "notes/../secret",
     "C:/secret",
-    "a\\b",
+    String.raw`a\b`,
     "a//b",
     ".",
     "a/./b",
@@ -207,7 +207,7 @@ test("cancelled, oversized and exceptional operations never leak private excepti
     req,
     {
       ...port,
-      query: async () => ({ status: "success", text: "x".repeat(131073) }),
+      query: async () => ({ status: "success", text: "x".repeat(131_073) }),
     },
     signal(),
   );

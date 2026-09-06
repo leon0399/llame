@@ -1,3 +1,3 @@
 #!/usr/bin/env node
-'use strict';
-require('../dist/server.js').runMain();
+"use strict";
+require("../dist/server.js").runMain();

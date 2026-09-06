@@ -6,8 +6,24 @@ import { chmodSync, existsSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 import { privateDirectory } from "./private-files";
 import { CliError } from "./errors";
-import { parseJson, text, uuid } from "./validation";
+import { parseJson, text, uuid, type JsonValue } from "./validation";
 import { parseMessage, type Message, type RunEvent } from "./types";
+
+export type SqlValue = string | number | bigint | boolean | null | Uint8Array;
+
+export interface SqlRow {
+  readonly [key: string]: SqlValue;
+}
+
+export interface RunRecord {
+  readonly snapshot: JsonValue;
+}
+
+export interface EventPage {
+  readonly events: Array<RunEvent>;
+  readonly hasMore: boolean;
+  readonly status: SqlValue;
+}
 
 /** Local single-owner state, NOT the Hub's database or a replication mirror. */
 export class LocalStore {
@@ -70,7 +86,7 @@ export class LocalStore {
     this.transaction(() => migrateState(this.db));
   }
 
-  start(chatId: string, prompt: string, snapshot: unknown): string {
+  start(chatId: string, prompt: string, snapshot: JsonValue): string {
     uuid(chatId);
     return this.transaction(() => {
       const runId = randomUUID();
@@ -95,7 +111,7 @@ export class LocalStore {
       .run(randomUUID(), chatId, runId, JSON.stringify(message), chatId);
   }
 
-  history(chatId: string): Message[] {
+  history(chatId: string): Array<Message> {
     const size = this.db
       .prepare(
         "SELECT COALESCE(SUM(length(CAST(body AS BLOB))),0) AS bytes FROM messages WHERE chat_id=?",
@@ -117,7 +133,7 @@ export class LocalStore {
       });
   }
 
-  event(runId: string, eventType: string, payload: unknown): RunEvent {
+  event(runId: string, eventType: string, payload: JsonValue): RunEvent {
     const row = this.db
       .prepare(
         `INSERT INTO events(run_id,sequence,event_type,payload,created_at)
@@ -143,12 +159,12 @@ export class LocalStore {
       .run(status, new Date().toISOString(), runId, "running");
   }
 
-  chats(): unknown {
+  chats(): Array<SqlRow> {
     return this.db
       .prepare("SELECT * FROM chats ORDER BY created_at DESC LIMIT 100")
       .all();
   }
-  run(id: string): unknown {
+  run(id: string): RunRecord {
     const row = this.db.prepare("SELECT * FROM runs WHERE id=?").get(uuid(id));
     if (!row) throw new CliError("not_found", "Local run not found.");
     return {
@@ -156,7 +172,7 @@ export class LocalStore {
       snapshot: parseJson(text(row.snapshot, "snapshot", 4_194_304)),
     };
   }
-  runs(): unknown {
+  runs(): Array<SqlRow> {
     return this.db
       .prepare(
         "SELECT id,chat_id,status,created_at,finished_at FROM runs ORDER BY created_at DESC LIMIT 100",
@@ -164,7 +180,7 @@ export class LocalStore {
       .all();
   }
 
-  eventPage(id: string, after = 0): unknown {
+  eventPage(id: string, after = 0): EventPage {
     const run = this.db
       .prepare("SELECT status FROM runs WHERE id=?")
       .get(uuid(id));
@@ -176,7 +192,7 @@ export class LocalStore {
         "SELECT * FROM events WHERE run_id=? AND sequence>? ORDER BY sequence LIMIT 65",
       )
       .all(id, after);
-    const events: RunEvent[] = [];
+    const events: Array<RunEvent> = [];
     let bytes = 0;
     for (const row of rows.slice(0, 64)) {
       const payload = String(row.payload);
@@ -190,10 +206,14 @@ export class LocalStore {
         payload: parseJson(payload),
       });
     }
-    return { events, hasMore: rows.length > events.length, status: run.status };
+    return {
+      events,
+      hasMore: rows.length > events.length,
+      status: run.status ?? null,
+    };
   }
 
-  events(id: string, after = 0): RunEvent[] {
+  events(id: string, after = 0): Array<RunEvent> {
     return this.db
       .prepare(
         "SELECT * FROM events WHERE run_id=? AND sequence>? ORDER BY sequence",

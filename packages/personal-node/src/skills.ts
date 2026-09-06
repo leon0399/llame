@@ -1,9 +1,38 @@
 import { CliError } from "./errors";
-import { WorkspaceFiles } from "./workspace-files";
+import { WorkspaceFiles, type DirectoryListing } from "./workspace-files";
 
 export interface SkillSummary {
   readonly name: string;
   readonly description: string;
+}
+
+interface FoldedField {
+  readonly value: string;
+  readonly index: number;
+}
+
+function foldedBlock(lines: ReadonlyArray<string>, start: number): FoldedField {
+  const parts: Array<string> = [];
+  let index = start;
+  // A blank line inside a folded block continues it; only a new unindented
+  // line (a sibling key, or the frontmatter's end) stops it.
+  while (
+    lines[index + 1] !== undefined &&
+    (lines[index + 1] === "" || /^\s/.test(lines[index + 1] ?? ""))
+  ) {
+    parts.push((lines[++index] ?? "").trim());
+  }
+  return { value: parts.filter(Boolean).join(" "), index };
+}
+
+function scalarField(raw: string): string {
+  if (
+    (raw.startsWith('"') && raw.endsWith('"')) ||
+    (raw.startsWith("'") && raw.endsWith("'"))
+  ) {
+    return raw.slice(1, -1);
+  }
+  return raw;
 }
 
 /** Instruction-only subset: scalar/folded name and description; no YAML tags. */
@@ -18,21 +47,11 @@ export function skillMetadata(source: string): SkillSummary {
     if (!field?.[1]) continue;
     let value = field[2] || "";
     if (/^[>|][-+]?$/.test(value)) {
-      const parts: string[] = [];
-      // A blank line inside a folded block continues it; only a new unindented
-      // line (a sibling key, or the frontmatter's end) stops it.
-      while (
-        lines[index + 1] !== undefined &&
-        (lines[index + 1] === "" || /^\s/.test(lines[index + 1] ?? ""))
-      ) {
-        parts.push((lines[++index] ?? "").trim());
-      }
-      value = parts.filter(Boolean).join(" ");
-    } else if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
+      const folded = foldedBlock(lines, index);
+      value = folded.value;
+      index = folded.index;
+    } else {
+      value = scalarField(value);
     }
     if (fields.has(field[1]))
       throw new CliError("skill_format", "Duplicate skill metadata.");
@@ -55,21 +74,18 @@ export function skillMetadata(source: string): SkillSummary {
 }
 
 export interface SkillsListing {
-  readonly skills: readonly SkillSummary[];
+  readonly skills: ReadonlyArray<SkillSummary>;
   readonly truncated: boolean;
 }
 
 export function skillsList(files: WorkspaceFiles): SkillsListing {
-  let listing: {
-    entries: { name: string; directory: boolean }[];
-    truncated: boolean;
-  };
+  let listing: DirectoryListing;
   try {
     listing = files.list(".agents/skills");
   } catch {
     return { skills: [], truncated: false };
   }
-  const results: SkillSummary[] = [];
+  const results: Array<SkillSummary> = [];
   for (const item of listing.entries) {
     if (!item.directory || !/^[a-z0-9-]{1,64}$/.test(item.name)) continue;
     try {

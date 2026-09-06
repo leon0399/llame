@@ -1,18 +1,21 @@
-import { isString } from '@workspace/runtime-safety';
-import { parseArgs } from 'node:util';
-import { resolve } from 'node:path';
-import { defaultPaths } from '@workspace/personal-node/env';
-import { configDocument, remoteConfiguration } from '@workspace/personal-node/config';
-import { CliError } from '@workspace/personal-node/errors';
-import { authority, uuid } from '@workspace/personal-node/validation';
+import { isString } from "@workspace/runtime-safety";
+import { parseArgs } from "node:util";
+import { resolve } from "node:path";
+import { defaultPaths } from "@workspace/personal-node/env";
+import {
+  configDocument,
+  remoteConfiguration,
+} from "@workspace/personal-node/config";
+import { CliError } from "@workspace/personal-node/errors";
+import { authority, uuid } from "@workspace/personal-node/validation";
 
 export interface Options {
-  readonly positionals: string[];
+  readonly positionals: Array<string>;
   readonly config: string;
   readonly data: string;
   readonly cwd: string;
   readonly remote?: string;
-  readonly modeSource: 'flag' | 'config' | 'default';
+  readonly modeSource: "flag" | "config" | "default";
   readonly model?: string;
   readonly chat?: string;
   readonly effort?: string;
@@ -25,44 +28,160 @@ export interface Options {
   readonly help: boolean;
 }
 
-export function argumentsFor(argv: string[], env: NodeJS.ProcessEnv): Options {
-  let parsed: ReturnType<typeof parseArgs>;
-  try {
-    parsed = parseArgs({ args: argv, allowPositionals: true, strict: true, options: {
-      config: { type: 'string' }, 'data-dir': { type: 'string' }, cwd: { type: 'string' },
-      remote: { type: 'string' }, local: { type: 'boolean' }, native: { type: 'boolean' },
-      model: { type: 'string' }, chat: { type: 'string' }, effort: { type: 'string' }, after: { type: 'string' },
-      email: { type: 'string' }, 'password-stdin': { type: 'boolean' }, 'token-stdin': { type: 'boolean' },
-      json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean' },
-    } });
-  } catch { throw new CliError('arguments', 'Invalid arguments. Use --help; passwords and tokens are not accepted as command-line values.'); }
-  const value = (name: string) => {
-    const result = parsed.values[name];
-    if (isString(result) && result.length === 0) throw new CliError('arguments', 'Option values must not be empty.');
-    return isString(result) ? result : undefined;
-  };
-  const flag = (name: string) => parsed.values[name] === true;
-  if (flag('local') && value('remote')) throw new CliError('mode_conflict', 'Choose --local or --remote, not both.');
+const CLI_OPTIONS = {
+  config: { type: "string" },
+  "data-dir": { type: "string" },
+  cwd: { type: "string" },
+  remote: { type: "string" },
+  local: { type: "boolean" },
+  native: { type: "boolean" },
+  model: { type: "string" },
+  chat: { type: "string" },
+  effort: { type: "string" },
+  after: { type: "string" },
+  email: { type: "string" },
+  "password-stdin": { type: "boolean" },
+  "token-stdin": { type: "boolean" },
+  json: { type: "boolean" },
+  help: { type: "boolean", short: "h" },
+  version: { type: "boolean" },
+} as const;
 
+type ParsedCli = ReturnType<typeof parseArgs>;
+
+export function argumentsFor(
+  argv: Array<string>,
+  env: NodeJS.ProcessEnv,
+): Options {
+  const parsed = parseCli(argv);
+  const value = (name: string) => optionText(parsed.values, name);
+  const flag = (name: string) => optionOn(parsed.values, name);
+  if (flag("local") && value("remote"))
+    throw new CliError(
+      "mode_conflict",
+      "Choose --local or --remote, not both.",
+    );
   validateCommandFlags(parsed.positionals, value, flag);
+  return assembledOptions(parsed, value, flag, env);
+}
+
+function assembledOptions(
+  parsed: ParsedCli,
+  value: (name: string) => string | undefined,
+  flag: (name: string) => boolean,
+  env: NodeJS.ProcessEnv,
+): Options {
   const defaults = defaultPaths(env);
-  const config = resolve(value('config') || defaults.config);
+  const config = resolve(value("config") || defaults.config);
   // Explicit flags, help and configuration repair do not depend on a readable
   // default configuration. A normal invocation fails closed on malformed config.
-  const direct = flag('local') || value('remote') !== undefined;
-  const bypass = direct || flag('help') || flag('version') || (['config', 'remote'].includes(parsed.positionals[0] ?? '') || (parsed.positionals[0] === 'node' && parsed.positionals[1] !== 'capabilities'));
-  const saved = bypass ? { enabled: false } : remoteConfiguration(configDocument(config));
-  const remote = value('remote') ? authority(value('remote')!) : saved.enabled ? saved.url : undefined;
-  if (remote && (flag('native') || value('cwd'))) throw new CliError('mode_conflict', 'Remote execution cannot receive local Workspace grants. Use --local to override the saved remote.');
-  if (!remote && value('effort')) throw new CliError('mode_conflict', '--effort is supported only by remote execution.');
-  const after = value('after') === undefined ? undefined : Number(value('after'));
-  if (after !== undefined && (!Number.isSafeInteger(after) || after < 0)) throw new CliError('cursor', '--after must be a nonnegative integer.');
-  return { positionals: flag('version') ? ['version'] : parsed.positionals,
-    config, data: resolve(value('data-dir') || defaults.data),
-    cwd: resolve(value('cwd') || process.cwd()), remote, modeSource: direct ? 'flag' : saved.enabled ? 'config' : 'default',
-    model: value('model'), chat: value('chat') ? uuid(value('chat')) : undefined,
-    effort: value('effort'), after, email: value('email'), native: flag('native'), json: flag('json'),
-    passwordStdin: flag('password-stdin'), tokenStdin: flag('token-stdin'), help: flag('help') };
+  const direct = flag("local") || value("remote") !== undefined;
+  const saved = skipsConfig(parsed.positionals, direct, flag)
+    ? { enabled: false }
+    : remoteConfiguration(configDocument(config));
+  const remote = selectedRemote(value("remote"), saved);
+  assertMode(
+    remote,
+    flag("native"),
+    value("cwd") !== undefined,
+    value("effort") !== undefined,
+  );
+  return {
+    positionals: flag("version") ? ["version"] : parsed.positionals,
+    config,
+    data: resolve(value("data-dir") || defaults.data),
+    cwd: resolve(value("cwd") || process.cwd()),
+    remote,
+    modeSource: direct ? "flag" : saved.enabled ? "config" : "default",
+    model: value("model"),
+    chat: value("chat") ? uuid(value("chat")) : undefined,
+    effort: value("effort"),
+    after: afterOption(value("after")),
+    email: value("email"),
+    native: flag("native"),
+    json: flag("json"),
+    passwordStdin: flag("password-stdin"),
+    tokenStdin: flag("token-stdin"),
+    help: flag("help"),
+  };
+}
+
+function parseCli(argv: Array<string>): ParsedCli {
+  try {
+    return parseArgs({
+      args: argv,
+      allowPositionals: true,
+      strict: true,
+      options: CLI_OPTIONS,
+    });
+  } catch {
+    throw new CliError(
+      "arguments",
+      "Invalid arguments. Use --help; passwords and tokens are not accepted as command-line values.",
+    );
+  }
+}
+
+function optionText(
+  values: ParsedCli["values"],
+  name: string,
+): string | undefined {
+  const result = values[name];
+  if (isString(result) && result.length === 0)
+    throw new CliError("arguments", "Option values must not be empty.");
+  return isString(result) ? result : undefined;
+}
+
+function optionOn(values: ParsedCli["values"], name: string): boolean {
+  return values[name] === true;
+}
+
+function skipsConfig(
+  positionals: Array<string>,
+  direct: boolean,
+  flag: (name: string) => boolean,
+): boolean {
+  return (
+    direct ||
+    flag("help") ||
+    flag("version") ||
+    ["config", "remote"].includes(positionals[0] ?? "") ||
+    (positionals[0] === "node" && positionals[1] !== "capabilities")
+  );
+}
+
+function selectedRemote(
+  explicit: string | undefined,
+  saved: { enabled: boolean; url?: string },
+): string | undefined {
+  if (explicit) return authority(explicit);
+  return saved.enabled ? saved.url : undefined;
+}
+
+function assertMode(
+  remote: string | undefined,
+  native: boolean,
+  cwd: boolean,
+  effort: boolean,
+): void {
+  if (remote && (native || cwd))
+    throw new CliError(
+      "mode_conflict",
+      "Remote execution cannot receive local Workspace grants. Use --local to override the saved remote.",
+    );
+  if (!remote && effort)
+    throw new CliError(
+      "mode_conflict",
+      "--effort is supported only by remote execution.",
+    );
+}
+
+function afterOption(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const after = Number(raw);
+  if (!Number.isSafeInteger(after) || after < 0)
+    throw new CliError("cursor", "--after must be a nonnegative integer.");
+  return after;
 }
 
 export const help = `llame — local personal runtime or remote durable-run client
@@ -122,10 +241,29 @@ Remote Ctrl-C only disconnects; use runs cancel for explicit cancellation.
 No provider/model downloads, telemetry, automatic remote fallback, or Node enrollment.
 `;
 
-function validateCommandFlags(positionals: string[], value: (name: string) => string | undefined, flag: (name: string) => boolean): void {
-  const login = positionals[0] === 'auth' && positionals[1] === 'login';
-  const tokenImport = positionals[0] === 'auth' && positionals[1] === 'import';
-  if ((flag('password-stdin') || value('email')) && !login) throw new CliError('arguments', 'Password/email options apply only to auth login.');
-  if (flag('token-stdin') && !tokenImport) throw new CliError('arguments', '--token-stdin applies only to auth import.');
-  if (value('after') && !(positionals[0] === 'runs' && ['events', 'follow'].includes(positionals[1] ?? ''))) throw new CliError('arguments', '--after applies only to runs events.');
+function validateCommandFlags(
+  positionals: Array<string>,
+  value: (name: string) => string | undefined,
+  flag: (name: string) => boolean,
+): void {
+  const login = positionals[0] === "auth" && positionals[1] === "login";
+  const tokenImport = positionals[0] === "auth" && positionals[1] === "import";
+  if ((flag("password-stdin") || value("email")) && !login)
+    throw new CliError(
+      "arguments",
+      "Password/email options apply only to auth login.",
+    );
+  if (flag("token-stdin") && !tokenImport)
+    throw new CliError(
+      "arguments",
+      "--token-stdin applies only to auth import.",
+    );
+  if (
+    value("after") &&
+    !(
+      positionals[0] === "runs" &&
+      ["events", "follow"].includes(positionals[1] ?? "")
+    )
+  )
+    throw new CliError("arguments", "--after applies only to runs events.");
 }

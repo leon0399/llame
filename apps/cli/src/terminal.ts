@@ -5,15 +5,17 @@ import { Output } from "./output";
 import { terminalText } from "@workspace/personal-node/output";
 import { type Approval } from "@workspace/personal-node/types";
 
+function destroyStdinOnAbort(): void {
+  process.stdin.destroy(new CliError("cancelled", "Input cancelled.", 130));
+}
+
 export async function readStdin(
   maxBytes = 80_000,
   signal?: AbortSignal,
 ): Promise<string> {
   if (signal) aborted(signal);
-  const onAbort = () =>
-    process.stdin.destroy(new CliError("cancelled", "Input cancelled.", 130));
-  signal?.addEventListener("abort", onAbort, { once: true });
-  const chunks: Buffer[] = [];
+  signal?.addEventListener("abort", destroyStdinOnAbort, { once: true });
+  const chunks: Array<Buffer> = [];
   let size = 0;
   try {
     for await (const value of process.stdin) {
@@ -30,7 +32,7 @@ export async function readStdin(
       .toString("utf8")
       .replace(/\r?\n$/, "");
   } finally {
-    signal?.removeEventListener("abort", onAbort);
+    signal?.removeEventListener("abort", destroyStdinOnAbort);
   }
 }
 
@@ -75,6 +77,112 @@ export function approvals(output: Output): Approval {
   };
 }
 
+type EscapeState = "none" | "esc" | "csi";
+
+interface PasswordStroke {
+  readonly value: string;
+  readonly escape: EscapeState;
+  readonly done?: "submit" | "cancel";
+}
+
+interface PasswordState {
+  value: string;
+  escape: EscapeState;
+}
+
+// Persists across chunks so a CSI sequence split mid-write (e.g. arrow
+// keys) is still fully consumed instead of leaking its bytes below.
+function nextEscape(escape: EscapeState, char: string): EscapeState {
+  if (escape === "csi") {
+    const code = char.codePointAt(0) ?? 0;
+    return code >= 0x40 && code <= 0x7e ? "none" : "csi";
+  }
+  if (escape === "esc") return char === "[" ? "csi" : "none";
+  return char === "\x1b" ? "esc" : "none";
+}
+
+function applyPasswordChar(value: string, char: string): string {
+  if (char === "\x7f" || char === "\b") return [...value].slice(0, -1).join("");
+  if (char >= " ") return value + char;
+  return value;
+}
+
+function consumePasswordChar(
+  value: string,
+  char: string,
+  escape: EscapeState,
+): PasswordStroke {
+  if (escape !== "none") return { value, escape: nextEscape(escape, char) };
+  if (char === "\x1b") return { value, escape: "esc" };
+  if (char === "\x03") return { value, escape: "none", done: "cancel" };
+  if (char === "\r" || char === "\n")
+    return { value, escape: "none", done: "submit" };
+  return { value: applyPasswordChar(value, char), escape: "none" };
+}
+
+function emptyPasswordState(): PasswordState {
+  return { value: "", escape: "none" };
+}
+
+function attachPasswordInput(
+  signal: AbortSignal,
+  wasRaw: boolean,
+  resolve: (value: string) => void,
+  reject: (error: Error) => void,
+): void {
+  const decoder = new StringDecoder("utf8");
+  const state = emptyPasswordState();
+  const cleanup = () => {
+    process.stdin.removeListener("data", onData);
+    signal.removeEventListener("abort", onAbort);
+    process.stdin.setRawMode(wasRaw);
+    process.stdin.pause();
+    process.stderr.write("\n");
+  };
+  const onAbort = () => {
+    cleanup();
+    reject(new CliError("cancelled", "Login cancelled.", 130));
+  };
+  const onData = passwordDataHandler(decoder, state, (action) => {
+    if (action === "cancel") return onAbort();
+    cleanup();
+    if (action === "limit")
+      reject(
+        new CliError("password_limit", "Password exceeds the server limit."),
+      );
+    else resolve(state.value);
+  });
+  process.stdin.on("data", onData);
+  signal.addEventListener("abort", onAbort, { once: true });
+  if (signal.aborted) onAbort();
+  else {
+    process.stderr.write("Password: ");
+    process.stdin.resume();
+  }
+}
+
+function passwordDataHandler(
+  decoder: StringDecoder,
+  state: PasswordState,
+  finish: (action: "submit" | "cancel" | "limit") => void,
+): (data: Buffer) => void {
+  return (data: Buffer) => {
+    for (const char of decoder.write(data)) {
+      const next = consumePasswordChar(state.value, char, state.escape);
+      state.value = next.value;
+      state.escape = next.escape;
+      if (next.done) {
+        finish(next.done);
+        return;
+      }
+      if (state.value.length > 256) {
+        finish("limit");
+        return;
+      }
+    }
+  };
+}
+
 /** Raw-mode input has no password echo and never puts the secret in argv. */
 export async function password(signal: AbortSignal): Promise<string> {
   aborted(signal);
@@ -88,67 +196,6 @@ export async function password(signal: AbortSignal): Promise<string> {
   // paste) can send the password as soon as the prompt reaches the terminal.
   process.stdin.setRawMode(true);
   return new Promise((resolve, reject) => {
-    let value = "";
-    const decoder = new StringDecoder("utf8");
-    // Persists across chunks so a CSI sequence split mid-write (e.g. arrow
-    // keys) is still fully consumed instead of leaking its bytes below.
-    let escape: "none" | "esc" | "csi" = "none";
-    const cleanup = () => {
-      process.stdin.removeListener("data", onData);
-      signal.removeEventListener("abort", onAbort);
-      process.stdin.setRawMode(wasRaw);
-      process.stdin.pause();
-      process.stderr.write("\n");
-    };
-    const onAbort = () => {
-      cleanup();
-      reject(new CliError("cancelled", "Login cancelled.", 130));
-    };
-    const onData = (data: Buffer) => {
-      for (const char of decoder.write(data)) {
-        if (escape === "csi") {
-          const code = char.codePointAt(0) ?? 0;
-          if (code >= 0x40 && code <= 0x7e) escape = "none";
-          continue;
-        }
-        if (escape === "esc") {
-          escape = char === "[" ? "csi" : "none";
-          continue;
-        }
-        if (char === "\x1b") {
-          escape = "esc";
-          continue;
-        }
-        if (char === "\x03") {
-          onAbort();
-          return;
-        }
-        if (char === "\r" || char === "\n") {
-          cleanup();
-          resolve(value);
-          return;
-        }
-        if (char === "\x7f" || char === "\b")
-          value = [...value].slice(0, -1).join("");
-        else if (char >= " ") value += char;
-        if (value.length > 256) {
-          cleanup();
-          reject(
-            new CliError(
-              "password_limit",
-              "Password exceeds the server limit.",
-            ),
-          );
-          return;
-        }
-      }
-    };
-    process.stdin.on("data", onData);
-    signal.addEventListener("abort", onAbort, { once: true });
-    if (signal.aborted) onAbort();
-    else {
-      process.stderr.write("Password: ");
-      process.stdin.resume();
-    }
+    attachPasswordInput(signal, wasRaw, resolve, reject);
   });
 }
