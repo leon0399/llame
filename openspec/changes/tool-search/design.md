@@ -119,7 +119,9 @@ counted, so the cut below always terminates and a tiny override cannot make a Ru
 every eligible MCP declaration, computed once at accept from already-canonical declarations.
 Deferral engages only when `mcpEstimate > budget` (strict; #338's sketch wrote `>=`, the
 difference is one token). A per-model positive-integer override mirrors
-`compactionThresholdTokens`; a value of `1` is the eval setting that defers everything it can.
+`compactionThresholdTokens`; a threshold below every inventory entry cuts every MCP tool into
+`declaration_budget_exceeded` and binds no `tool_search`, which is the honest outcome rather
+than a special eval mode.
 The inventory is counted against the same budget with one strategy-neutral estimate, ids plus
 admitted descriptions, which is the surface the `openai` strategy keeps visible and a
 conservative over-count for the `harness` enum; charging the two strategies differently would

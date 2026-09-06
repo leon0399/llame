@@ -56,7 +56,8 @@ the inventory would exceed the budget, MCP tools SHALL be cut from the discovera
 descending id order until it fits, and each cut id SHALL be bound as `unavailable` with the
 closed reason `declaration_budget_exceeded`, disclosed through the availability manifest, the
 availability reminder, and the receipt; no bound tool SHALL be silently omitted. Because
-code-owned tools are outside the budget, the cut always terminates.
+code-owned tools are outside the budget, the cut always terminates, and when it cuts every MCP
+tool no tool is discoverable and no `tool_search` is bound.
 
 For availability disclosure, a discoverable tool SHALL count as callable: it is bound,
 allowlisted, and reachable through the inventory, so it belongs in `Added tools` and never in an
@@ -138,11 +139,16 @@ snapshot and the replayed steps alone.
 - **AND** the code-owned tools stay declared regardless of the budget
 - **AND** each cut id is bound as `unavailable` with reason `declaration_budget_exceeded` in the manifest, the reminder, and the receipt
 
-#### Scenario: Threshold crossing emits no availability reminder
+#### Scenario: Threshold crossing without a cut emits no availability reminder
 
-- **WHEN** a chat's catalog crosses the budget between two Runs with no change in eligible ids
+- **WHEN** a chat's catalog crosses the budget between two Runs with no change in eligible ids and no inventory cut
 - **THEN** no availability reminder is emitted
 - **AND** `tool_search` appears in neither Run's availability manifest
+
+#### Scenario: Budget cut is disclosed as an availability change
+
+- **WHEN** a lowered threshold or a grown catalog cuts a previously available MCP tool into `declaration_budget_exceeded`
+- **THEN** the availability reminder reports it under the available-to-unavailable group with that reason
 
 #### Scenario: Compaction resets the tiers
 

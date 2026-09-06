@@ -20,11 +20,11 @@ the model id and the key.
 - **WHEN** a model entry sets `toolSearchThresholdTokens` to a positive integer
 - **THEN** that value is the budget regardless of `contextWindowTokens`
 
-#### Scenario: Tiny threshold defers everything it can
+#### Scenario: Threshold below any inventory entry cuts every MCP tool
 
-- **WHEN** a model entry sets `toolSearchThresholdTokens` to `1` and the model has eligible MCP tools
-- **THEN** every Run on that model defers every MCP tool and binds `tool_search`
-- **AND** MCP tools whose inventory does not fit are bound as `unavailable` with reason `declaration_budget_exceeded`
+- **WHEN** a model entry sets `toolSearchThresholdTokens` below the inventory estimate of every eligible MCP tool
+- **THEN** every MCP tool is bound as `unavailable` with reason `declaration_budget_exceeded`
+- **AND** no tool is discoverable, so no `tool_search` is bound
 - **AND** the code-owned tools remain declared
 
 #### Scenario: Invalid threshold fails startup
