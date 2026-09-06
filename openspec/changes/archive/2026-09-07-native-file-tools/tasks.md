@@ -49,5 +49,5 @@ Markdown, or adds URL loading.
 
 ## 5. finalize
 
-- [ ] 5.1 Sync the `native-file-tools` capability spec and update current Knowledge documentation with the deprecation marker; verify strict OpenSpec validation preserves existing Knowledge requirements.
-- [ ] 5.2 Archive only after every native-file-tools task is checked and the deletion follow-up is recorded; verify strict specs/all validation and final formatting gates.
+- [x] 5.1 Sync the `native-file-tools` capability spec and update current Knowledge documentation with the deprecation marker; verify strict OpenSpec validation preserves existing Knowledge requirements.
+- [x] 5.2 Archive only after every native-file-tools task is checked and the deletion follow-up is recorded; verify strict specs/all validation and final formatting gates.
