@@ -220,14 +220,16 @@ same declaration hash (reviewer C-F6: `resolveBoundExecutableTools` throws for a
 executor, so the seam must know the reserved id). The allowlist half of the reserved-id rule is
 already implied by "unknown allowlist id fails boot"; the registry refusal is the new behavior.
 
-### D9. Refusal text is the SDK's; the prompt carries the guidance
+### D9. Refusal text is the SDK's; the `tool_search` description carries the guidance
 
 llame cannot author the refusal text the model reads: `experimental_repairToolCall` returns
 `null`, so the AI SDK synthesizes the tool error itself, and on `ai@6.0.256` that text is
 `Model tried to call unavailable tool '<id>'. Available tools: <declared ids>.` Since `tool_search`
 is always in the declared set, the model is told where to go without llame adding text. llame's
-recorded `not_available` refusal is unchanged. The packaged prompt's Tools section gains one
-sentence about loading discoverable tools with `tool_search`. Rejected: rewriting an unloaded call
+recorded `not_available` refusal is unchanged. The guidance about loading discoverable tools
+lives in the bound `tool_search` declaration's description, which exists only when deferral is
+active; the packaged prompt is untouched, so a within-budget Run keeps its `promptHash` and
+`contentHash` (Codex PR finding). Rejected: rewriting an unloaded call
 into `tool_search { select: [id] }` inside `repairToolCall`, which would persist a call the model
 never authored and still costs the same extra step.
 
@@ -241,7 +243,9 @@ wire mapping (reviewer C-F1): the SDK hands `execute` `{ arguments, call_id }`, 
 unwraps `arguments` into the shared executor's input and maps each delivered declaration to
 `{ type: 'function', name, description, parameters, defer_loading: true }` in the returned
 `tools` array, which the SDK emits as `tool_search_output` with the echoed `call_id`; `notFound`
-and `notLoaded` cannot cross that output schema and are recorded on llame's side only. Within a
+and `notLoaded` cannot cross that output schema, so under this strategy they are recorded in the
+durable tool observation and the model sees an empty or partial load, a relaxation the spec
+states explicitly (Codex PR finding). Within a
 Run the provider declares the loaded tools from that output; the wrapper in D6 still gates calls.
 
 Across Runs, llame does not rely on provider history: promoted tools (D6) are sent as ordinary

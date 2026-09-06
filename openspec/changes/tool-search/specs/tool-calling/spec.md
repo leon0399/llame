@@ -26,7 +26,9 @@ disclosure of those callable tools; no per-turn prose inventory SHALL be persist
 
 A `tool_search` call SHALL resolve exact `select` ids and rank keyword matches over each
 discoverable tool's id and its admitted description deterministically, returning the loaded
-declarations as a structured success result together with any ids that matched nothing. A tool
+declarations as a structured success result; ids that matched nothing and declarations that
+were dropped SHALL be recorded in the durable tool observation, and SHALL reach the model in the
+result whenever the strategy's result shape can carry them. A tool
 SHALL count as loaded only when its full declaration was delivered in that result: the executor
 SHALL drop whole declarations that would not fit the result size cap and report them as not
 loaded, so the recorded result is never truncated and is the single record of what was loaded.
@@ -164,7 +166,7 @@ snapshot and the replayed steps alone.
 - **WHEN** a tool is refused by admission, matches no allowlist rule, or is unavailable for a closed reason
 - **THEN** it is absent from the `tool_search` enumeration and from every search result
 - **AND** under `harness` selecting it by id is refused by input validation as `invalid_input` before the executor runs
-- **AND** under `openai` selecting it by id returns it under the not-found list
+- **AND** under `openai` the miss is recorded in the durable tool observation while the model receives an empty load, because the provider's output shape carries loaded tools only
 - **AND** nothing is loaded either way
 
 #### Scenario: Tool search counts toward the step cap
