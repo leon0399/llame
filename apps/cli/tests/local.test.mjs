@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { help } from "../dist/arguments.js";
 import {
   invoke,
   server,
@@ -36,6 +37,20 @@ test("help/version and a provider-free local node work without an account", asyn
   const failed = await invoke(["run", "hello"], { dir });
   assert.equal(failed.code, 1);
   assert.match(failed.stderr, /model_required/);
+});
+
+test("--json --help emits one JSONL value", async () => {
+  const result = await invoke(["--json", "--help"], { dir: directory() });
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(result.stdout.trim().split("\n"), [JSON.stringify(help)]);
+});
+
+test("--json --version emits one JSONL value", async () => {
+  const result = await invoke(["--json", "--version"], { dir: directory() });
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(result.stdout.trim().split("\n"), [
+    JSON.stringify("llame 0.0.1"),
+  ]);
 });
 
 test("real local HTTP streaming, durable conversation continuation and structured snapshots", async (t) => {

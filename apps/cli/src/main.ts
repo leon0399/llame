@@ -18,11 +18,13 @@ async function main(): Promise<void> {
     const options = argumentsFor(argv, env);
     output = new Output(options.json);
     if (options.help) {
-      process.stdout.write(help);
+      if (options.json) output.value(help);
+      else process.stdout.write(help);
       return;
     }
     if (options.positionals[0] === "version") {
-      process.stdout.write("llame 0.0.1\n");
+      if (options.json) output.value("llame 0.0.1");
+      else process.stdout.write("llame 0.0.1\n");
       return;
     }
     await new Application(options, env, output, controller.signal).execute();
