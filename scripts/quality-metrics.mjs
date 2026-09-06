@@ -19,6 +19,7 @@ const SOURCE_GLOBS = [
   "packages/config-interpolation/src/**/*.ts",
   "packages/runtime-safety/src/**/*.ts",
   "packages/tool-runtime/src/**/*.ts",
+  "packages/node-protocol/src/**/*.ts",
 ];
 
 const EXCLUDE = [

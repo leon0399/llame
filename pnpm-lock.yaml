@@ -620,6 +620,25 @@ importers:
 
   packages/config-typescript: {}
 
+  packages/node-protocol:
+    dependencies:
+      '@workspace/runtime-safety':
+        specifier: workspace:*
+        version: link:../runtime-safety
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.16.5
+      '@workspace/config-typescript':
+        specifier: workspace:*
+        version: link:../config-typescript
+      oxlint:
+        specifier: 'catalog:'
+        version: 1.78.0(oxlint-tsgolint@7.0.2001)
+      typescript:
+        specifier: 'catalog:'
+        version: 5.7.3
+
   packages/oxlint-plugin-anti-slop:
     devDependencies:
       oxlint:

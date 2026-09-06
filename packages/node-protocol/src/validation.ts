@@ -1,0 +1,56 @@
+import {
+  isNumber,
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from "@workspace/runtime-safety";
+import { NodeProtocolError } from "./errors";
+
+export function object(value: unknown): UnknownRecord {
+  if (!isRecord(value))
+    throw new NodeProtocolError("invalid_params", "Expected an object.");
+  return value;
+}
+export function exactKeys(
+  value: UnknownRecord,
+  allowed: ReadonlyArray<string>,
+): void {
+  if (Object.keys(value).some((key) => !allowed.includes(key))) {
+    throw new NodeProtocolError("invalid_params", "Unknown request field.");
+  }
+}
+export function string(value: unknown, label: string, max = 200): string {
+  if (!isString(value))
+    throw new NodeProtocolError("invalid_params", `Invalid ${label}.`);
+  if (value.length === 0 || [...value].length > max || value.includes("\0")) {
+    throw new NodeProtocolError("invalid_params", `Invalid ${label}.`);
+  }
+  return value;
+}
+export function uuid(value: unknown): string {
+  if (!isString(value))
+    throw new NodeProtocolError("invalid_params", "Invalid resource ID.");
+  const id = string(value, "resource ID", 36);
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+      id,
+    )
+  ) {
+    throw new NodeProtocolError("invalid_params", "Invalid resource ID.");
+  }
+  // Canonical lowercase so SQLite TEXT equality compares match regardless of caller casing.
+  return id.toLowerCase();
+}
+export function integer(
+  value: unknown,
+  label: string,
+  min: number,
+  max: number,
+): number {
+  if (!isNumber(value))
+    throw new NodeProtocolError("invalid_params", `Invalid ${label}.`);
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    throw new NodeProtocolError("invalid_params", `Invalid ${label}.`);
+  }
+  return value;
+}
