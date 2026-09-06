@@ -17,7 +17,7 @@
     "format": "prettier --write --cache .",
     "format:check": "prettier --check .",
     "generate:api-client": "pnpm generate:api-schema && pnpm generate:web-client",
-    "generate:api-schema": "pnpm --filter api build",
+    "generate:api-schema": "pnpm exec turbo run build --filter=api --concurrency=1",
     "generate:web-client": "pnpm --filter web generate:client",
     "lint": "pnpm lint:code && pnpm lint:markdown && pnpm lint:openapi && pnpm lint:dead-code && pnpm lint:duplicates && pnpm lint:complexity",
     "lint:code": "oxlint --deny-warnings --report-unused-disable-directives --threads=1 e2e playwright.config.ts && turbo run lint",

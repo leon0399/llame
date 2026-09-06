@@ -22,6 +22,32 @@ function assertNotCancelled(signal: AbortSignal): void {
     throw new NodeProtocolError("cancelled", "Node request cancelled.");
 }
 
+/** Bound the caller even when a port's underlying I/O ignores the signal. */
+function withCancellation<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () =>
+      reject(new NodeProtocolError("cancelled", "Node request cancelled."));
+    if (signal.aborted) {
+      onAbort();
+    } else {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 function assertRequestSize(
   request: Pick<NodeRequest, "method" | "params">,
 ): void {
@@ -53,7 +79,7 @@ async function queryObservation(
       -32_601,
     );
   }
-  const data = await port.query(query, signal);
+  const data = await withCancellation(port.query(query, signal), signal);
   if (
     !isRecord(data) ||
     (data.status !== "success" && data.status !== "error")

@@ -92,7 +92,7 @@ Persisted event families currently cover Run lifecycle (`run.created`, `run.star
 
 Every chat message executes through pg-boss and `RunExecutionService`; there is no inline request-thread mode. A no-HTTP worker entrypoint ships, and worker profiles support co-located consumers. See [`durable-runs`](openspec/specs/durable-runs/spec.md), [`job-queue`](openspec/specs/job-queue/spec.md), and [docs/scaling.md](docs/scaling.md).
 
-All current workers coordinate through the same installation's queue and database authority. No Node Protocol, user-machine enrollment, direct or tunneled remote executor API, Workspace mount handoff, or cross-node execution-authority transfer ships.
+All current workers coordinate through the same installation's queue and database authority. The hosted Node Protocol exposes authenticated owner-bound discovery, retrieval, and queued Run admission; user-machine enrollment, direct or tunneled remote executor APIs, Workspace mount handoff, and cross-node execution-authority transfer do not ship.
 
 ### 9.6 Queue delivery and recovery
 
