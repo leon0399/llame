@@ -1,0 +1,254 @@
+apps/api/src/testing/support.ts
+  7feee5b9c7e3c914 19-20
+apps/api/src/chats/turn-telemetry.test.ts
+  7feee5b9c7e3c914 9
+apps/api/src/search/openai-embedding-backend.test.ts
+  7feee5b9c7e3c914 17
+apps/api/src/chats/tool-availability-context-item.ts
+  7feee5b9c7e3c914 20
+apps/api/src/tools/conversation-read.test.ts
+  7feee5b9c7e3c914 10
+apps/api/src/tools/registry.ts
+  7feee5b9c7e3c914 13
+packages/runtime-safety/src/code-point-boundary.test.ts
+  7feee5b9c7e3c914 1-73
+apps/api/src/personalization/personalization.integration.test.ts
+  7feee5b9c7e3c914 18
+apps/api/src/queue/queue.ts
+  7feee5b9c7e3c914 22-23
+apps/api/src/instance-config/config-loader.ts
+  7feee5b9c7e3c914 45
+apps/api/src/runs/run-execution.service.test.ts
+  7feee5b9c7e3c914 19
+apps/api/src/instance-config/schema.ts
+  7feee5b9c7e3c914 7
+apps/api/src/queue/pgboss-queue.service.test.ts
+  7feee5b9c7e3c914 28
+apps/api/src/mcp/mcp-test-fixture.ts
+  7feee5b9c7e3c914 9
+packages/runtime-safety/src/result-truncation.test.ts
+  7feee5b9c7e3c914 1,6-8,34-36,40,42-44,51-52,55-56,59-60,63,65-66,69,71,73,77,79-80,82,85,87,100,105,108,110-111,120,122-123,134-135,146,148,163,167,169,185,187,201,205,218-219,223,225-226,232,235,237,239-240,254,258,260-263,267,272,276,280,284,294,297,304,306-307,313,316,322,324-325,332,335-336,338-339,342,347,353,356-357,359,368,370-372,376-378,380,388-389,396,403,411,415,418,423,434,437,442,450,453,455-456,469,475,477,480,483,488,493
+packages/runtime-safety/src/types.ts
+  7feee5b9c7e3c914 1-6
+packages/runtime-safety/package.json
+  7feee5b9c7e3c914 1-33
+apps/api/src/instance-config/prompt-loader.ts
+  7feee5b9c7e3c914 8
+apps/api/src/mcp/declaration-admission.ts
+  7feee5b9c7e3c914 8-9,12-13
+packages/runtime-safety/src/index.ts
+  7feee5b9c7e3c914 1-5
+apps/api/src/db/migration-journal.test.ts
+  7feee5b9c7e3c914 4
+apps/api/src/tools/turn-tool-catalog.ts
+  7feee5b9c7e3c914 13-14
+apps/api/src/chats/reasoning-parts.test.ts
+  7feee5b9c7e3c914 6
+apps/api/src/runs/run-stream-bridge.ts
+  7feee5b9c7e3c914 16
+apps/api/src/canonical-json.ts
+  7feee5b9c7e3c914 9
+apps/api/src/chats/tool-observation-part.test.ts
+  7feee5b9c7e3c914 6-7
+apps/api/src/chats/messages-repository.behavior.test.ts
+  7feee5b9c7e3c914 7
+apps/api/src/chats/messages-repository.ts
+  7feee5b9c7e3c914 29
+apps/api/src/runs/snapshot-tool-execution.ts
+  7feee5b9c7e3c914 2
+apps/api/src/chats/chat-loop.service.ts
+  7feee5b9c7e3c914 30-31
+apps/api/src/mcp/mcp-server-client.test.ts
+  7feee5b9c7e3c914 17
+apps/api/src/mcp/mcp-server-client.ts
+  7feee5b9c7e3c914 9,13-14,16,34
+apps/api/src/instance-config/schema.test.ts
+  7feee5b9c7e3c914 16
+apps/api/vitest.config.mts
+  7feee5b9c7e3c914 63-65
+packages/runtime-safety/src/protected-values.test.ts
+  7feee5b9c7e3c914 1-196
+apps/api/src/chats/chats-messages.integration.test.ts
+  7feee5b9c7e3c914 24
+apps/api/src/knowledge/knowledge-filesystem-io.ts
+  7feee5b9c7e3c914 7
+packages/runtime-safety/turbo.json
+  7feee5b9c7e3c914 1-12
+apps/api/src/identity/identity.service.ts
+  7feee5b9c7e3c914 27
+apps/api/src/chats/dto/chats.dto.ts
+  7feee5b9c7e3c914 32
+apps/api/src/chats/reasoning-loop.integration.test.ts
+  7feee5b9c7e3c914 33
+apps/api/src/runs/run-queues.ts
+  7feee5b9c7e3c914 8
+packages/runtime-safety/tsconfig.build.json
+  7feee5b9c7e3c914 1-9
+apps/api/src/knowledge/dto/knowledge-space.dto.ts
+  7feee5b9c7e3c914 16
+apps/api/vitest.integration.setup.ts
+  7feee5b9c7e3c914 1
+apps/api/src/tools/schema-utils.ts
+  7feee5b9c7e3c914 14
+apps/api/src/tools/runner.test.ts
+  7feee5b9c7e3c914 6-8
+apps/api/src/compaction/compaction.ts
+  7feee5b9c7e3c914 22
+apps/api/src/search/search-reindex.worker.integration.test.ts
+  7feee5b9c7e3c914 30
+apps/api/src/runs/context-receipt.integration.test.ts
+  7feee5b9c7e3c914 11
+apps/api/src/chats/chats-repository.test.ts
+  7feee5b9c7e3c914 21
+apps/api/src/chats/context-builder.test.ts
+  7feee5b9c7e3c914 31
+apps/api/src/identity/identity-repository.ts
+  7feee5b9c7e3c914 23
+apps/api/src/chats/assistant-completion.ts
+  7feee5b9c7e3c914 1
+apps/api/src/tools/runner.ts
+  7feee5b9c7e3c914 4-7
+packages/runtime-safety/tsconfig.json
+  7feee5b9c7e3c914 1-9
+apps/api/src/search/operations/projection-coverage.ts
+  7feee5b9c7e3c914 11-12
+apps/api/src/db/pg-error.ts
+  7feee5b9c7e3c914 1
+apps/api/src/search/core/chunking.ts
+  7feee5b9c7e3c914 1
+apps/api/src/search/operations/operations.integration.test.ts
+  7feee5b9c7e3c914 45
+apps/api/src/chats/context-item-producers.ts
+  7feee5b9c7e3c914 35
+apps/api/src/compaction/compactions.integration.test.ts
+  7feee5b9c7e3c914 32
+apps/api/src/chats/chats-rls.integration.test.ts
+  7feee5b9c7e3c914 46
+apps/api/src/knowledge/knowledge-space-name.ts
+  7feee5b9c7e3c914 1
+packages/runtime-safety/stryker.config.json
+  7feee5b9c7e3c914 1-31
+apps/api/src/chats/shared-chats.integration.test.ts
+  7feee5b9c7e3c914 21
+apps/api/src/tools/search-conversations.test.ts
+  7feee5b9c7e3c914 25
+apps/api/src/compaction/compaction.test.ts
+  7feee5b9c7e3c914 30
+packages/runtime-safety/src/result-truncation.ts
+  7feee5b9c7e3c914 1,8-9,20-21,73,79,87,121,128,130,140,170,178-179,218,222,224
+apps/api/src/knowledge/knowledge-space.integration.test.ts
+  7feee5b9c7e3c914 20-21
+apps/api/src/search/search-embed.worker.integration.test.ts
+  7feee5b9c7e3c914 41
+apps/api/src/compaction/compaction-context.integration.test.ts
+  7feee5b9c7e3c914 76-77
+apps/api/src/search/openai-embedding-backend.ts
+  7feee5b9c7e3c914 14-15
+apps/api/src/identity/dto/identity.dto.ts
+  7feee5b9c7e3c914 21
+apps/api/src/mcp/mcp-test-fixture.test.ts
+  7feee5b9c7e3c914 9
+apps/api/src/chats/context-item-shared.ts
+  7feee5b9c7e3c914 15
+apps/api/src/knowledge/knowledge-space.cursor.ts
+  7feee5b9c7e3c914 1
+apps/api/src/chats/tool-observation-part.behavior.test.ts
+  7feee5b9c7e3c914 16-17
+apps/api/src/runs/effective-context-resolver.test.ts
+  7feee5b9c7e3c914 9
+apps/api/src/search/search-index.integration.test.ts
+  7feee5b9c7e3c914 25
+apps/api/src/runs/snapshot-tool-execution.test.ts
+  7feee5b9c7e3c914 8
+apps/api/src/mcp/mcp-server-client.protocol.test.ts
+  7feee5b9c7e3c914 13
+apps/api/src/mcp/mcp-stdio-server-client.test.ts
+  7feee5b9c7e3c914 16
+apps/api/src/mcp/declaration-admission.test.ts
+  7feee5b9c7e3c914 6
+apps/api/src/instance-config/prompt-loader.test.ts
+  7feee5b9c7e3c914 16
+apps/api/src/db/context-item-cutover.integration.test.ts
+  7feee5b9c7e3c914 21
+apps/api/src/mcp/mcp-stdio-transport.ts
+  7feee5b9c7e3c914 11
+apps/api/src/auth/sessions.repository.test.ts
+  7feee5b9c7e3c914 5
+apps/api/src/mcp/mcp-bounded-fetch.ts
+  7feee5b9c7e3c914 1
+apps/api/src/knowledge/knowledge-space.local-resolver.ts
+  7feee5b9c7e3c914 4
+packages/runtime-safety/src/protected-values.ts
+  7feee5b9c7e3c914 7,9,13,66,93,205
+apps/api/src/knowledge/knowledge-search.cursor.ts
+  7feee5b9c7e3c914 1
+apps/api/src/identity/identity-repository.test.ts
+  7feee5b9c7e3c914 8
+apps/api/src/search/search-index.service.ts
+  7feee5b9c7e3c914 7
+apps/api/src/mcp/mcp-stdio-transport.test.ts
+  7feee5b9c7e3c914 8
+apps/api/src/tools/types.ts
+  7feee5b9c7e3c914 1,88
+apps/api/src/runs/assistant-transcript.ts
+  7feee5b9c7e3c914 20
+apps/api/src/mcp/mcp-operator.integration.test.ts
+  7feee5b9c7e3c914 53
+apps/api/src/knowledge/knowledge-tools.test.ts
+  7feee5b9c7e3c914 17
+apps/api/src/chats/fork-chat.integration.test.ts
+  7feee5b9c7e3c914 27
+apps/api/src/chats/tool-observation-part.ts
+  7feee5b9c7e3c914 22-23
+apps/api/evals/mcp-web-search-eval.test.ts
+  7feee5b9c7e3c914 23
+apps/api/src/chats/context-item.ts
+  7feee5b9c7e3c914 28-29
+apps/api/src/queue/queue.integration.test.ts
+  7feee5b9c7e3c914 36
+apps/api/src/compaction/compaction.service.ts
+  7feee5b9c7e3c914 34
+apps/api/src/runs/worker-liveness.integration.test.ts
+  7feee5b9c7e3c914 37
+apps/api/src/memory/memory.integration.test.ts
+  7feee5b9c7e3c914 11
+packages/runtime-safety/src/unknown-record.test.ts
+  7feee5b9c7e3c914 1-21
+apps/api/src/chats/context-builder.ts
+  7feee5b9c7e3c914 36
+packages/runtime-safety/vitest.config.mts
+  7feee5b9c7e3c914 1-18
+apps/api/src/personalization/dto/personalization.dto.test.ts
+  7feee5b9c7e3c914 5
+packages/runtime-safety/src/unknown-record.ts
+  7feee5b9c7e3c914 17,27,30,33
+apps/api/src/chats/compaction-replacement-history.ts
+  7feee5b9c7e3c914 5-6
+apps/api/package.json
+  7feee5b9c7e3c914 39,42-43,76-77
+apps/api/src/chats/run-execution-tools.integration.test.ts
+  7feee5b9c7e3c914 90
+apps/api/src/auth/auth.service.ts
+  7feee5b9c7e3c914 26
+apps/api/src/chats/turn-telemetry.ts
+  7feee5b9c7e3c914 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "f721195d48ff9d3a59fbd232452c62924d362228",
+  "prompts": {
+    "7feee5b9c7e3c914": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a076b4-927e-7e20-b814-02f32e72a6e0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 1635,
+      "total_deletions": 151,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}
