@@ -20,7 +20,7 @@ import {
   type SearchConversationsContentResult,
 } from './search-conversations';
 import { parseConversationSourceCoordinates } from './conversation-source-coordinates';
-import { isZodSchema } from './schema-utils';
+import { isZodSchema, resolveJsonSchema } from './schema-utils';
 import { type ToolContext, type ToolResult } from './types';
 import { isRecord, isString } from '../unknown-record';
 
@@ -155,13 +155,9 @@ function passage(
 describe('search_conversations', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('is read-only and takes only query/limit from the model', () => {
+  it('is read-only and takes mode + optional fields from the model', () => {
     expect(searchConversationsTool.classification).toBe('read_only');
-    expect(searchConversationsTool.description).toContain(
-      'bounded discovery excerpts',
-    );
     expect(searchConversationsTool.description).toContain('conversation_read');
-    expect(searchConversationsTool.description).toContain('when available');
     expect(searchConversationsTool.description).toContain('untrusted');
     expect(searchConversationsTool.description).not.toMatch(
       /bestDocumentId|hash|partId|projection|version/u,
@@ -170,11 +166,13 @@ describe('search_conversations', () => {
     if (!isZodSchema(schema)) {
       throw new Error('Expected a Zod input schema');
     }
-    expect(schema.parse({ query: 'hi' })).toEqual({
+    expect(schema.parse({ mode: 'content', query: 'hi' })).toEqual({
+      mode: 'content',
       query: 'hi',
-      limit: 5,
     });
-    expect(() => schema.parse({ query: 'hi', userId: 'x' })).toThrow(ZodError);
+    expect(() =>
+      schema.parse({ mode: 'content', query: 'hi', userId: 'x' }),
+    ).toThrow(ZodError);
   });
 
   it('scopes canonical metadata results to the context userId without an activation flag', async () => {
@@ -193,6 +191,7 @@ describe('search_conversations', () => {
     );
 
     const result = await searchConversationsTool.execute(context, {
+      mode: 'content',
       query: 'typescript',
       limit: 5,
     });
@@ -215,6 +214,7 @@ describe('search_conversations', () => {
 
   it('returns success with an empty list when nothing matches', async () => {
     const result = await searchConversationsTool.execute(fakeContext([]), {
+      mode: 'content',
       query: 'nothing',
       limit: 5,
     });
@@ -322,7 +322,7 @@ describe('search_conversations', () => {
         undefined,
         [[hydrationRow(text)], [{ line_id: 0 }]],
       ),
-      { query: 'decided', limit: 5 },
+      { mode: 'content', query: 'decided', limit: 5 },
     );
 
     expect(result).toMatchObject({
@@ -412,7 +412,7 @@ describe('search_conversations', () => {
           [],
         ],
       ),
-      { query: 'canonical', limit: 5 },
+      { mode: 'content', query: 'canonical', limit: 5 },
     );
 
     expect(result.status).toBe('success');
@@ -466,7 +466,7 @@ describe('search_conversations', () => {
         ],
         [], // no lexical line match -> vector-only fallback
       ]),
-      { query: 'unmatched lexically', limit: 5 },
+      { mode: 'content', query: 'unmatched lexically', limit: 5 },
     );
 
     expect(result.status).toBe('success');
@@ -480,6 +480,58 @@ describe('search_conversations', () => {
     expect(content.limit).toBe(expectedLimit);
     expect(content.excerpt.startsWith('line2')).toBe(true);
     expect(content.excerpt).not.toContain('line0');
+  });
+
+  it('omits a vector-only winner whose anchor is outside a required range, and returns it with no range or a satisfied one (task 2.3, task 2.10)', async () => {
+    const text = 'vector-only fallback content';
+    const row: Row = {
+      id: CHAT_ID,
+      title: 'Vector-only source',
+      snippet: null,
+      updatedAt: new Date('2026-08-27T15:00:00.000Z'),
+      bestDocumentId: DOCUMENT_ID,
+    };
+    // hydrationRow's fixed message_created_at is 2026-08-27T10:00:00.000Z.
+    const executeRows: Array<
+      Array<CanonicalHydrationRow | { line_id: number }>
+    > = [[hydrationRow(text)], []]; // no lexical line match -> vector-only fallback
+
+    const outsideRange = await searchConversationsTool.execute(
+      fakeContext([row], undefined, executeRows),
+      {
+        mode: 'content',
+        query: 'unmatched lexically',
+        limit: 5,
+        constraint: 'required',
+        after: '2026-08-28T00:00:00.000Z',
+      },
+    );
+    expect(outsideRange.status).toBe('success');
+    expect(successResults(outsideRange)).toHaveLength(0);
+
+    const insideRange = await searchConversationsTool.execute(
+      fakeContext([row], undefined, executeRows),
+      {
+        mode: 'content',
+        query: 'unmatched lexically',
+        limit: 5,
+        constraint: 'required',
+        before: '2026-08-28T00:00:00.000Z',
+      },
+    );
+    expect(insideRange.status).toBe('success');
+    expect(successResults(insideRange)).toHaveLength(1);
+    expect(successResults(insideRange)[0]).toMatchObject({
+      kind: 'content',
+      chatId: CHAT_ID,
+    });
+
+    const noRange = await searchConversationsTool.execute(
+      fakeContext([row], undefined, executeRows),
+      { mode: 'content', query: 'unmatched lexically', limit: 5 },
+    );
+    expect(noRange.status).toBe('success');
+    expect(successResults(noRange)).toHaveLength(1);
   });
 
   it('keeps search_conversations input and declaration surface strict and vector-free', () => {
@@ -499,13 +551,100 @@ describe('search_conversations', () => {
       'partId',
       'cursor',
     ]) {
-      expect(() => schema.parse({ query: 'x', [field]: 'future' })).toThrow(
-        ZodError,
-      );
+      expect(() =>
+        schema.parse({ mode: 'content', query: 'x', [field]: 'future' }),
+      ).toThrow(ZodError);
     }
-    expect(schema.parse({ query: 'x', limit: 3 })).toEqual({
+    expect(schema.parse({ mode: 'content', query: 'x', limit: 3 })).toEqual({
+      mode: 'content',
       query: 'x',
       limit: 3,
     });
+  });
+
+  it('admitted JSON Schema has root type object with no anyOf/oneOf/allOf/not (task 2.2)', async () => {
+    const jsonSchema = await resolveJsonSchema(
+      searchConversationsTool.inputSchema,
+    );
+    expect(jsonSchema['type']).toBe('object');
+    expect(jsonSchema['additionalProperties']).toBe(false);
+    expect(jsonSchema).not.toHaveProperty('anyOf');
+    expect(jsonSchema).not.toHaveProperty('oneOf');
+    expect(jsonSchema).not.toHaveProperty('allOf');
+    expect(jsonSchema).not.toHaveProperty('not');
+    expect(jsonSchema).not.toHaveProperty('enum');
+    expect(jsonSchema).not.toHaveProperty('const');
+  });
+
+  it('few-shot calls in the tool description parse successfully (task 2.2)', () => {
+    const schema = searchConversationsTool.inputSchema;
+    if (!isZodSchema(schema)) throw new Error('Expected Zod');
+    const desc = searchConversationsTool.description;
+    const examples = [...desc.matchAll(/\{[^}]+\}/g)].map((m) => m[0]);
+    expect(examples.length).toBeGreaterThanOrEqual(2);
+    for (const example of examples) {
+      const parsed = schema.safeParse(JSON.parse(example));
+      expect(parsed.success, `Failed to parse: ${example}`).toBe(true);
+    }
+  });
+
+  it('invalid mode and field combinations are rejected before retrieval (task 2.1)', async () => {
+    const spy = vi.spyOn(ChatsRepository.prototype, 'searchByOwner');
+    const ctx = fakeContext([]);
+    const cases = [
+      { mode: 'timeline', query: 'x' },
+      { mode: 'timeline' },
+      {
+        mode: 'timeline',
+        constraint: 'required',
+        after: '2026-01-01T00:00:00Z',
+      },
+      { mode: 'content' },
+      {
+        mode: 'content',
+        query: 'x',
+        after: '2026-01-01T00:00:00Z',
+      },
+      {
+        mode: 'content',
+        query: 'x',
+        constraint: 'required',
+      },
+      { mode: 'content', query: 'x', limit: 50 },
+    ];
+    for (const input of cases) {
+      const result = await searchConversationsTool.execute(
+        ctx,
+        // SAFETY: intentionally invalid inputs to test superRefine rejection
+        // eslint-disable-next-line typescript/no-unsafe-type-assertion
+        input as never,
+      );
+      expect(
+        result.status,
+        `Expected rejection for ${JSON.stringify(input)}`,
+      ).toBe('error');
+    }
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('success results carry no diagnostic keys (task 2.6)', async () => {
+    const result = await searchConversationsTool.execute(
+      fakeContext([
+        {
+          id: 'c1',
+          title: 'T',
+          snippet: null,
+          updatedAt: new Date(),
+          bestDocumentId: null,
+        },
+      ]),
+      { mode: 'content', query: 'test', limit: 5 },
+    );
+    expect(result.status).toBe('success');
+    const serialized = JSON.stringify(result);
+    for (const key of ['matchedBy', 'score', 'rank', 'omissionReason']) {
+      expect(serialized).not.toContain(`"${key}"`);
+    }
   });
 });

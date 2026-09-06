@@ -37,7 +37,10 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
     vectorParams?: { queryVector: ReadonlyArray<number>; modelKey: string },
   ) =>
     tenantDb.runAs(userId, (tx) =>
-      new ChatsRepository(tx).searchByOwner(userId, q, limit, vectorParams),
+      new ChatsRepository(tx).searchByOwner(userId, q, {
+        limit,
+        vector: vectorParams,
+      }),
     );
 
   async function seedChat(

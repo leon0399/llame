@@ -189,7 +189,11 @@ function conversationRecallParts(
         type: 'tool-call',
         toolCallId: 'conversation-search',
         toolName: 'search_conversations',
-        input: JSON.stringify({ query: behavior.query, limit: 5 }),
+        input: JSON.stringify({
+          mode: 'content',
+          query: behavior.query,
+          limit: 5,
+        }),
       },
     ];
   }

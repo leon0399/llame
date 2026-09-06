@@ -42,6 +42,8 @@ import {
   type HybridSearchResult,
 } from '../search/core';
 import { EMBED_INPUT_VERSION } from '../search/embed-input-version';
+import { resolveSearchScopes } from './chats-search-scope';
+import type { SearchByOwnerOptions } from './chats-search-scope';
 
 export {
   MessagesRepository,
@@ -322,6 +324,55 @@ export class ChatsRepository {
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
   }
 
+  /** Hybrid lexical+vector search query over the projection, scoped to an owner. */
+  private buildChatSearchQuery(
+    ownerUserId: string,
+    normalizedQuery: string,
+    likePattern: string,
+    options: SearchByOwnerOptions,
+  ) {
+    const { scope, rangePreference } = resolveSearchScopes(
+      ownerUserId,
+      options.timeRange,
+    );
+    return buildHybridSearchQuery({
+      query: normalizedQuery,
+      likePattern,
+      document: CHAT_DOCUMENT_COLUMNS,
+      parent: CHAT_PARENT_COLUMNS,
+      scope,
+      vector: options.vector
+        ? {
+            queryVector: options.vector.queryVector,
+            activeModelKey: options.vector.modelKey,
+            currentInputVersion: EMBED_INPUT_VERSION,
+            columns: CHAT_VECTOR_COLUMNS,
+            weight: 1,
+            limit: 100,
+          }
+        : undefined,
+      rangePreference,
+      weights: { fts: 1, trgm: 0.35, title: 1 },
+      limits: { fts: 100, trgm: 40, title: 50 },
+      rrfK: RRF_DEFAULT_K,
+      groupTopNWeights: [1, 0.25, 0.1],
+      limit: options.limit,
+    });
+  }
+
+  private toHybridSearchResult(row: HybridSearchResult): HybridSearchResult {
+    return {
+      id: row.id,
+      title: row.title,
+      snippet:
+        row.snippet === null || row.snippet === undefined
+          ? null
+          : truncateSnippet(row.snippet),
+      updatedAt: row.updatedAt,
+      bestDocumentId: row.bestDocumentId,
+    };
+  }
+
   /**
    * User-facing chat search: the owner's chats matching by TITLE or by message
    * CONTENT (text parts of USER/ASSISTANT turns only — never system prompts or
@@ -339,7 +390,9 @@ export class ChatsRepository {
    * [] (no full-table dump). `title` is nullable (#78) — a still-untitled chat
    * can match by content alone. The internal result also retains
    * `bestDocumentId` for canonical model shaping; public adapters must project
-   * that field explicitly.
+   * that field explicitly. `options.timeRange` (#198) composes an additional
+   * required filter or preferred rank-fusion term via `resolveSearchScopes`;
+   * omitted, the emitted SQL and results are unchanged from before #198.
    *
    * MUST be called with a transaction-scoped `Db` (constructed inside a
    * `TenantDbService.runAs` callback) — `SET LOCAL statement_timeout` reverts at
@@ -347,58 +400,10 @@ export class ChatsRepository {
    * `ChatsService.searchChats` (web chat search) and the `search_conversations`
    * tool, which calls this SAME method (tool-calling D7 — one search path).
    */
-  private buildChatSearchQuery(
-    ownerUserId: string,
-    normalizedQuery: string,
-    likePattern: string,
-    limit: number,
-    vectorParams?: { queryVector: ReadonlyArray<number>; modelKey: string },
-  ) {
-    return buildHybridSearchQuery({
-      query: normalizedQuery,
-      likePattern,
-      document: CHAT_DOCUMENT_COLUMNS,
-      parent: CHAT_PARENT_COLUMNS,
-      scope: {
-        document: sql`d.owner_user_id = ${ownerUserId}`,
-        parent: sql`c.owner_user_id = ${ownerUserId}`,
-      },
-      vector: vectorParams
-        ? {
-            queryVector: vectorParams.queryVector,
-            activeModelKey: vectorParams.modelKey,
-            currentInputVersion: EMBED_INPUT_VERSION,
-            columns: CHAT_VECTOR_COLUMNS,
-            weight: 1,
-            limit: 100,
-          }
-        : undefined,
-      weights: { fts: 1, trgm: 0.35, title: 1 },
-      limits: { fts: 100, trgm: 40, title: 50 },
-      rrfK: RRF_DEFAULT_K,
-      groupTopNWeights: [1, 0.25, 0.1],
-      limit,
-    });
-  }
-
-  private toHybridSearchResult(row: HybridSearchResult): HybridSearchResult {
-    return {
-      id: row.id,
-      title: row.title,
-      snippet:
-        row.snippet === null || row.snippet === undefined
-          ? null
-          : truncateSnippet(row.snippet),
-      updatedAt: row.updatedAt,
-      bestDocumentId: row.bestDocumentId,
-    };
-  }
-
   async searchByOwner(
     ownerUserId: string,
     query: string,
-    limit: number,
-    vectorParams?: { queryVector: ReadonlyArray<number>; modelKey: string },
+    options: SearchByOwnerOptions,
   ): Promise<Array<HybridSearchResult>> {
     const trimmed = query.trim();
     if (trimmed.length === 0) {
@@ -412,8 +417,7 @@ export class ChatsRepository {
       ownerUserId,
       normalizedQuery,
       likePattern,
-      limit,
-      vectorParams,
+      options,
     );
 
     const rows = await this.db.execute<HybridSearchResult>(search);

@@ -1,10 +1,4 @@
-# chat-search
-
-## Purpose
-
-**Chat search** is the user-facing (command palette) and agent-facing (`search_conversations` tool) retrieval over a user's own chats — the single `ChatsRepository.searchByOwner` path both surfaces share. It defines the matching semantics (title + user/assistant text content, case/typo tolerance, language-agnostic behavior for English/Russian/Spanish/mixed content), fused relevance ranking with a stable output contract and snippets, the requirement that clients not re-filter server results (the root of #171), tenant isolation of the search path, index freshness on turn completion, and a versioned relevance eval baseline that later retrieval phases (embeddings) are judged against. Retrieval reads the derived `search-projection`; this capability owns the query-side contract and quality bar.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Search matches titles and conversation text, case- and typo-tolerantly
 
@@ -223,15 +217,6 @@ Every success SHALL carry an envelope with the closed untrusted-history notice, 
 - **THEN** the success carries `truncated: true` and the echoed `appliedRange` even if shaping returned fewer than `limit` rows
 - **AND** no row or envelope field carries a score, rank, leg name, or omission reason
 
-### Requirement: The client does not re-filter server results
-
-Search surfaces SHALL treat the server's ranked results as authoritative. The command palette MUST NOT re-filter or re-rank server search results client-side (the cmdk client filter is disabled for server-result items), so a server-matched chat can never be hidden by client-side string matching.
-
-#### Scenario: Case-insensitive end-to-end (fixes #171)
-
-- **WHEN** a user types the exact title of an existing chat in all-lowercase into the command palette
-- **THEN** the chat appears in the results (both title-match and content-match paths, non-ASCII casing included)
-
 ### Requirement: Search never crosses the tenant boundary
 
 The search path SHALL return only chats owned by the requesting user. Another user's content MUST NOT be reachable through search even when it matches the query exactly, and a `visibility = 'public'` chat of another user MUST NOT surface in search results. System prompts, tool payloads, and model reasoning MUST NOT be matched or surfaced in snippets. Isolation SHALL be enforced by RLS on the underlying tables (owner filters remain as defense-in-depth) and proven by negative tests in the RLS harness. The vector leg SHALL carry the same explicit owner predicate inside its candidate query and SHALL be covered by the same negative tests, including the empty-identity case, so a stored vector is never reachable across a tenant boundary that lexical retrieval already enforces. Every predicate this capability evaluates over canonical messages — timeline discovery and required-range activity checks — SHALL carry the same identity guard as `conversation_read`: it SHALL refuse an empty trusted identity and SHALL require inside the statement that the session identity equals the owner predicate, so the public-read message policy can never satisfy an owner-scoped query. These predicates SHALL be covered by the same negative tests: another owner's activity, another owner's public Chat, and an empty identity combined with a real owner id yield no region, no count, no metadata row, and no title.
@@ -255,15 +240,6 @@ The search path SHALL return only chats owned by the requesting user. Another us
 
 - **WHEN** user B requests a timeline range or required-range search during which only user A had activity, including in a public Chat, or the request runs with an empty identity while naming user A as owner
 - **THEN** the result contains no region, count, metadata row, title, or sequence from user A's Chats
-
-### Requirement: New content is searchable on turn completion
-
-A chat's lexical projection SHALL be rebuilt synchronously when a turn completes — assistant finalization rebuilds the whole chat, including the user message that started the turn, after the user-facing write commits, with no manual reindexing. This is the only inline indexing site: a user message persisted before its turn finalizes is not indexed inline (finalize covers it moments later), and a fork's own content is indexed via the asynchronous reindex queue rather than inline. If the synchronous rebuild fails, the chat SHALL still become searchable via the asynchronous fallback enqueue. Index maintenance SHALL never fail the user-facing write and SHALL never regress search below the previous live-query behavior.
-
-#### Scenario: Fresh turn is findable immediately
-
-- **WHEN** a user's message is answered and the assistant's reply finalizes with a distinctive term
-- **THEN** the chat is returned via search for that term without waiting for any background job
 
 ### Requirement: Retrieval quality is measured against a versioned eval baseline
 
@@ -290,29 +266,7 @@ The repository SHALL contain a small versioned relevance dataset (exact phrases,
 - **WHEN** a change causes a required-range fixture to return its out-of-range match, a preferred-range fixture to drop its out-of-range exact match from the top 10, or a timeline fixture to return a different Chat set or count
 - **THEN** the eval harness fails
 
-### Requirement: Query embedding is bounded per surface and degrades silently
-
-When the corpus has a selected embedding model, search SHALL embed the trimmed raw query — not its lexical normalization — under that model's binding before the tenant transaction opens, and SHALL pass the vector into the shared candidate path. The embedding call SHALL be bounded by a fixed budget per surface: 10 seconds inside `search_conversations` and 1.5 seconds for the web palette. A missing model, provider error, timeout, empty vector, or a vector whose dimension differs from the declared model SHALL cause the search to run without the vector leg — identical results to an unconfigured instance — with no user-facing or model-facing error and no retry. Each fallback SHALL be logged with its reason and never with the query text, the resolved credential, or any tenant content. No search SHALL wait on background embedding, backfill, or the embed worker.
-
-#### Scenario: Provider is down
-
-- **WHEN** the query embedding request fails or exceeds the surface budget
-- **THEN** the search completes with lexical and trigram legs only, returns success, and the fallback is logged with a reason
-
-#### Scenario: No model is selected for the corpus
-
-- **WHEN** `search.chats.embeddingModelId` is unset
-- **THEN** no embedding request is issued and the search is byte-identical to the lexical configuration
-
-#### Scenario: Wrong dimension is treated as absence
-
-- **WHEN** the returned query vector's dimension differs from the declared model's `dimensions`
-- **THEN** the vector leg is skipped, no SQL error occurs, and the fallback is logged
-
-#### Scenario: Embedding never holds a tenant transaction
-
-- **WHEN** a query is embedded
-- **THEN** the provider call completes or fails before the owner-scoped transaction is opened
+## ADDED Requirements
 
 ### Requirement: Timeline discovery returns canonical activity pointers without excerpts
 

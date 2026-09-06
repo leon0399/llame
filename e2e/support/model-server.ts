@@ -581,7 +581,7 @@ function tryConversationSearchTurn(ctx: ChunkContext): boolean {
   writeToolCall(ctx.res, {
     id: "call_conversation_search_e2e",
     name: "search_conversations",
-    arguments: { query: CONVERSATION_SEARCH_QUERY, limit: 5 },
+    arguments: { mode: "content", query: CONVERSATION_SEARCH_QUERY, limit: 5 },
   });
   return true;
 }
@@ -803,7 +803,7 @@ function tryNativeToolLoopFirstTurn(ctx: ChunkContext): boolean {
   writeToolCall(ctx.res, {
     id: "call_search_e2e",
     name: "search_conversations",
-    arguments: { query: "budget" },
+    arguments: { mode: "content", query: "budget" },
   });
   return true;
 }

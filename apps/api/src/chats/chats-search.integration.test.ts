@@ -62,7 +62,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
 
   const search = (userId: string, q: string, limit = 20) =>
     tenantDb.runAs(userId, (tx) =>
-      new ChatsRepository(tx).searchByOwner(userId, q, limit),
+      new ChatsRepository(tx).searchByOwner(userId, q, { limit }),
     );
 
   async function seedChat(
