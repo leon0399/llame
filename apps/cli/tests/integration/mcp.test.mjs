@@ -252,7 +252,14 @@ test("production HTTP MCP refuses credential-bearing redirects before reaching t
     env: { MCP_KEY: mcpKey },
   });
   assert.equal(result.code, 1);
-  assert.equal(source.requests.length, 1);
+  // Streamable HTTP issues POST initialize and a parallel GET SSE. Both carry
+  // Authorization; redirect:error must fail them before the target is reached.
+  assert.ok(source.requests.length >= 1);
+  for (const req of source.requests) {
+    assert.equal(req.path, "/mcp");
+    assert.ok(req.method === "GET" || req.method === "POST", req.method);
+    assert.equal(req.headers.authorization, `Bearer ${mcpKey}`);
+  }
   assert.equal(target.requests.length, 0);
   assert.ok(!result.stderr.includes(mcpKey));
 });
