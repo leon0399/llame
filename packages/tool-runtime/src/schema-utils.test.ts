@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { asSchema } from "ai";
+
 import {
   admitToolInputSchema,
   buildJsonSchemaValidator,
@@ -167,19 +169,33 @@ describe("admitToolInputSchema", () => {
 });
 
 describe("toFlexibleSchema", () => {
-  it("wraps a Zod schema", () => {
+  it("wraps and validates a Zod schema", async () => {
     const schema = z.object({ query: z.string() });
     const result = toFlexibleSchema(schema);
     expect(result).not.toBeNull();
+    if (result === null) return;
+
+    const validate = asSchema(result).validate;
+    expect(validate).toBeDefined();
+    if (validate === undefined) return;
+    expect((await validate({ query: "hello" })).success).toBe(true);
+    expect((await validate({ query: 42 })).success).toBe(false);
   });
 
-  it("wraps a JSON Schema with ajv validation", () => {
+  it("wraps and validates a JSON Schema with ajv", async () => {
     const schema: JsonSchemaDocument = {
       type: "object",
       properties: { query: { type: "string" } },
     };
     const result = toFlexibleSchema(schema);
     expect(result).not.toBeNull();
+    if (result === null) return;
+
+    const validate = asSchema(result).validate;
+    expect(validate).toBeDefined();
+    if (validate === undefined) return;
+    expect((await validate({ query: "hello" })).success).toBe(true);
+    expect((await validate({ query: 42 })).success).toBe(false);
   });
 
   it("returns null for an unsupported dialect", () => {

@@ -291,7 +291,9 @@ describe("MCP Streamable HTTP test fixture", () => {
     const fixture = await createMcpTestFixture({ "tools/call": actions });
 
     try {
+      const startedAt = performance.now();
       const error = await rpc(fixture.url, "tools/call");
+      expect(performance.now() - startedAt).toBeGreaterThanOrEqual(8);
       expect(error.status).toBe(503);
       expect((await error.text()).length).toBe(ONE_MIB + 1);
 
