@@ -15,25 +15,32 @@ When the estimate exceeds the budget, the Run SHALL still bind every eligible ad
 declaration. Each bound tool SHALL belong to exactly one tier for that Run: **declared**, sent as
 a native tool declaration on the first step, or **discoverable**, bound but not declared until
 loaded. Code-owned tools SHALL be declared. MCP tools SHALL be discoverable unless promoted by a
-prior load in the same disclosure epoch. The Run SHALL additionally bind and declare the reserved
-harness tool `tool_search`, whose input accepts an exact-id `select` list constrained to the
-discoverable ids, a keyword `query`, and a result `limit` with a default of 5 and a maximum of 20. The discoverable inventory SHALL be disclosed to the model only through that declaration's
-input schema; no per-turn prose inventory SHALL be persisted.
+prior load in the same disclosure epoch. When at least one tool is discoverable, the Run SHALL
+additionally bind and declare the reserved harness tool `tool_search`, whose input accepts an
+exact-id `select` list constrained to the discoverable ids, a keyword `query`, and a result
+`limit` with a default of 5 and a maximum of 20. The discoverable inventory SHALL be disclosed
+to the model only through that declaration's input schema, which counts as the provider-native
+disclosure of those callable tools; no per-turn prose inventory SHALL be persisted.
 
 A `tool_search` call SHALL resolve exact `select` ids and rank keyword matches over each
 discoverable tool's id and its admitted description deterministically, returning the loaded
-declarations as a structured success result together with any ids that matched nothing. From the
-next step of the same Run onward, every loaded tool SHALL be declared natively in addition to the
-declared tier. A call to a discoverable tool that has not been loaded in the Run SHALL be refused
-with the existing recorded, non-fatal `not_available` error, whose message SHALL state that the
-tool must be loaded with `tool_search` first. A step whose only tool call is `tool_search` SHALL
-count toward `maxStepsPerRun`, and the step cap SHALL take precedence over loading.
+declarations as a structured success result together with any ids that matched nothing. A tool
+SHALL count as loaded only when its full declaration was delivered in that result: the executor
+SHALL drop whole declarations that would not fit the result size cap and report them as not
+loaded, so the recorded result is never truncated and is the single record of what was loaded.
+From the next step of the same Run onward, every loaded tool SHALL be declared natively in
+addition to the declared tier. A call to a discoverable tool that has not been loaded in the Run
+SHALL be refused with the existing recorded, non-fatal `not_available` error; the text the model
+receives for that refusal SHALL name the tools declared on that step, which include `tool_search`.
+A step whose only tool call is `tool_search` SHALL count toward `maxStepsPerRun`, and the step cap
+SHALL take precedence over loading.
 
-At acceptance of a later Run in the same chat, every id that a successful `tool_search` result
-loaded in the model-visible history since the active compaction checkpoint SHALL be placed in the
-declared tier when it is still bound for the new Run. A newly active compaction checkpoint SHALL
-reset the tiers to the default partition. A tool that is not bound for the Run SHALL be neither
-discoverable, loadable, nor callable, regardless of history.
+Every Run SHALL record the ids it loaded as each `tool_search` call completes, so a Run that later
+fails or is cancelled still carries them. At acceptance of a later Run in the same disclosure
+epoch, the declared tier SHALL be the default partition plus the previous accepted Run's declared
+tier and recorded loaded ids, each kept only while still bound for the new Run. A newly active
+compaction checkpoint SHALL reset the tiers to the default partition. A tool that is not bound for
+the Run SHALL be neither discoverable, loadable, nor callable, regardless of history.
 
 `tool_search` SHALL be a reserved id: registration under that id SHALL fail, an allowlist entry
 naming it SHALL fail boot, and it SHALL be synthesized only when deferral engages. It SHALL be
@@ -69,18 +76,26 @@ the same loaded set from the bound snapshot and the replayed steps alone.
 - **THEN** at most `limit` declarations are returned in a deterministic order for that catalog and query
 - **AND** every returned tool is loaded for the rest of the Run
 
-#### Scenario: Unloaded discoverable tool is refused with guidance
+#### Scenario: Unloaded discoverable tool is refused
 
 - **WHEN** the model calls a discoverable tool it has not loaded in the Run
 - **THEN** the call is refused with the recorded, non-fatal `not_available` error
-- **AND** the error message tells the model to load it with `tool_search` first
+- **AND** the text the model receives names the declared tools, including `tool_search`
 - **AND** the Run continues
+
+#### Scenario: Loaded means delivered
+
+- **WHEN** a `tool_search` result would exceed the tool result size cap
+- **THEN** whole declarations are dropped from the result and reported as not loaded
+- **AND** only the delivered declarations are declared on the next step
+- **AND** the recorded result is not truncated
 
 #### Scenario: Loaded tools carry into the next Run of the epoch
 
-- **WHEN** a prior Run in the same disclosure epoch loaded a tool through `tool_search` and that tool is still bound
+- **WHEN** the previous accepted Run in the same disclosure epoch loaded a tool through `tool_search` and that tool is still bound
 - **THEN** the new Run declares it on the first step without a new search
 - **AND** the new Run's snapshot records it outside the discoverable list
+- **AND** a previous Run that failed after loading still contributes its recorded loaded ids
 
 #### Scenario: Compaction resets the tiers
 

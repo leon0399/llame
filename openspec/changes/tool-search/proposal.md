@@ -68,8 +68,9 @@ None.
   executor; registry refusal of the reserved id.
 - `apps/api/src/runs`: snapshot field for the partition, receipt projection, the loaded-set
   derivation at accept, `prepareStep` composition with the existing step cap in the model client.
-- `apps/api/src/db`: one nullable column (or JSON field) on the effective-context snapshot for the
-  sorted discoverable-id list; no change to the availability manifest version.
+- `apps/api/src/db`: one nullable field on the effective-context snapshot for the sorted
+  discoverable-id list and one on the Run for the ids it loaded; no change to the availability
+  manifest version.
 - `apps/api/src/instance-config`: the new optional model key and its JSON Schema entry.
 - `apps/web`: receipt view marks discoverable declarations; `tool_search` calls render through the
   existing generic tool part.

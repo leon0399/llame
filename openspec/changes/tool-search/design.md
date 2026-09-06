@@ -102,23 +102,32 @@ more than a few thousand tokens. Revisit only with a measured case.
 carries a JSON Schema `enum` of the discoverable ids. That gives the model the names (all any
 surveyed harness needed), validates a `select` for free, keeps the inventory inside the bound
 declaration contract (`toolHash`, receipt), and sends it as a stable request prefix rather than a
-persisted part on every turn. Rejected: the tool description (1024-char provider limit); a
+persisted part on every turn. The enum is the provider-native disclosure of those callable tools,
+so the existing reminder rule that callable tools are never listed in prose stays true. Rejected:
+the tool description (1024-char provider limit); a
 per-turn server-authored context item (hundreds of ids re-persisted into history each turn); a
 system-prompt section (moves the inventory into `promptHash` and requires a projection change).
 Worst case at the 1,000-tool guard: ~64k characters of ids, still one order of magnitude below
 the schemas it replaces.
 
-### D6. Loaded set: derived within a Run, promoted across Runs in the same epoch
+### D6. Loaded means delivered; promotion reads the previous Run
 
-Within a Run the loaded set is derived in `prepareStep` from the prior steps' `tool_search` calls
-using the executor's own record of resolved ids (never the possibly truncated result text). A
-queue retry restarts the loop from step one, so the derivation is deterministic. Across Runs, at
-accept time, every id that a successful `tool_search` result loaded in the model-visible history
-since the active compaction checkpoint is placed in the declared tier when it is still bound; the
-snapshot records the outcome, so the receipt is exact. A new compaction checkpoint starts a new
-disclosure epoch and resets the tier to D4, matching the existing epoch semantics for availability
-reminders. Needed because inactive tools are refused (see Context): without promotion the model
-would see itself calling a tool in history and be refused when it calls it again.
+A tool is loaded only when its full declaration was delivered in a `tool_search` result. The
+executor sizes the result itself, dropping whole declarations that would not fit the tool result
+cap and listing them as `notLoaded`, so the recorded structured result is never truncated and is
+the single record of the loaded set. Within a Run, `prepareStep` derives the loaded set from the
+prior steps' delivered `tool_search` results; a queue retry restarts the loop from step one, so the
+derivation is deterministic. The worker also writes the loaded ids onto the Run row as each
+`tool_search` call completes, so a Run that fails or is cancelled afterward still carries them.
+
+Across Runs, acceptance already loads `previousRun` and `previousSnapshot` (`turn-context.ts`) to
+diff availability; promotion reuses them: declared tier = default partition ∪ previous snapshot's
+declared tier ∪ previous Run's recorded loaded ids, each filtered to ids still bound for the new
+Run. Folding the previous declared tier in gives transitive coverage of the epoch without scanning
+message parts. A new compaction checkpoint starts a new disclosure epoch (the same signal the
+availability reminder uses) and resets to D4. Needed because inactive tools are refused (see
+Context): without promotion the model would see itself calling a tool in history and be refused
+when it calls it again.
 
 ### D7. Search is exact ids plus token match, top-N
 
@@ -136,13 +145,22 @@ The registry refuses `tool_search` like it refuses `mcp__*`; it is never a `tool
 and boot fails if listed. It is synthesized only when deferral engages, classified `read_only`,
 needs no tenant database access, appears in the manifest as `available` with its declaration hash,
 and is shown in the receipt. A step that only calls `tool_search` counts toward `maxStepsPerRun`;
-the cap still wins in `prepareStep`.
+the cap still wins in `prepareStep`. Because it is a manifest entry, a catalog crossing the
+threshold between turns yields an `Added tools: tool_search` or `Removed tools: tool_search`
+availability reminder; that is deliberate, since the model's callable surface did change. The
+allowlist half of the reserved-id rule is already implied by "unknown allowlist id fails boot";
+the registry refusal is the new behavior.
 
-### D9. Refusal names the way out
+### D9. Refusal text is the SDK's; the prompt carries the guidance
 
-When the model calls a discoverable tool it has not loaded, the existing `not_available` refusal
-is recorded and its message adds "load it with `tool_search` first" so the model can recover in
-one step. The packaged prompt's Tools section gains one sentence about discoverable tools.
+llame cannot author the refusal text the model reads: `experimental_repairToolCall` returns
+`null`, so the AI SDK synthesizes the tool error itself, and on `ai@6.0.256` that text is
+`Model tried to call unavailable tool '<id>'. Available tools: <declared ids>.` Since `tool_search`
+is always in the declared set, the model is told where to go without llame adding text. llame's
+recorded `not_available` refusal is unchanged. The packaged prompt's Tools section gains one
+sentence about loading discoverable tools with `tool_search`. Rejected: rewriting an unloaded call
+into `tool_search { select: [id] }` inside `repairToolCall`, which would persist a call the model
+never authored and still costs the same extra step.
 
 ### D10. Surfaces stay generic
 
@@ -158,16 +176,17 @@ declaration like any other. No new UI component.
   below the schemas replaced; recorded in the receipt so the cost is visible.
 - [Crude token estimate misjudges the budget] → the estimate errs the same way compaction's does;
   the override exists for a model where 10% is wrong.
-- [Loaded schemas inflate a `tool_search` result] → `limit ≤ 20` and the existing result
-  truncation; activation uses the executor's id record, not the truncated text.
-- [Cross-Run promotion reads history at accept] → same window the reminder logic already reads;
-  bounded by the epoch; falls back to D4 when nothing was loaded.
+- [Loaded schemas inflate a `tool_search` result] → `limit ≤ 20` and the executor drops whole
+  declarations to fit the cap, so the result is never truncated and loaded means delivered.
+- [A Run expires before its loaded ids are recorded] → the ids are written per `tool_search`
+  completion, not at finish; anything lost costs the model one search, never a wrong tier.
 - [Provider caches] → the declared set changes only when a load happens, so the stable prefix
   changes at most once per load.
 
 ## Migration Plan
 
-Additive: one nullable snapshot field, one optional config key. Existing snapshots have no
+Additive: one nullable snapshot field, one nullable Run field for loaded ids, one optional
+config key. Existing snapshots have no
 `discoverableToolIds` and keep their hashes. Rollback is removing the code; bound snapshots with
 a non-empty list still execute because every listed tool is bound.
 
