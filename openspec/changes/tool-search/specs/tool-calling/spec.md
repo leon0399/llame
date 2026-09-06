@@ -19,8 +19,10 @@ a native tool declaration on the first step, or **discoverable**, bound but not 
 loaded. Code-owned tools SHALL be declared. MCP tools SHALL be discoverable unless promoted by a
 prior load in the same disclosure epoch. When at least one tool is discoverable, the Run SHALL
 additionally bind and declare the reserved harness tool `tool_search`, whose input accepts an
-exact-id `select` list constrained to the discoverable ids, a keyword `query`, and a result
-`limit` with a default of 5 and a maximum of 20. The discoverable inventory SHALL be disclosed
+exact-id `select` list of at most 20 ids, a bounded keyword `query`, and a result `limit` with
+a default of 5 and a maximum of 20; under `harness` the `select` items are constrained to the
+discoverable ids. Inputs outside those bounds SHALL be refused as invalid input before the
+executor runs, so a result never exceeds the tool result size cap through its miss lists. The discoverable inventory SHALL be disclosed
 to the model only through provider-native tool declarations, never through a persisted per-turn
 prose inventory: under `harness` through that declaration's input schema, and under `openai`
 through the deferred provider tool entries themselves, as the strategy requirement states. That
@@ -95,7 +97,7 @@ snapshot and the replayed steps alone.
 
 #### Scenario: Catalog beyond budget defers MCP tools
 
-- **WHEN** the estimated size exceeds the budget, the turn is eligible for code-owned and MCP tools, and no promotion candidate exists
+- **WHEN** the estimated size exceeds the budget, the turn is eligible for code-owned and MCP tools, no promotion candidate exists, and the inventory fits the budget
 - **THEN** every eligible declaration is bound and executable on exact hash match
 - **AND** the first step declares only the code-owned tools and `tool_search`
 - **AND** under `harness` the `tool_search` input schema enumerates exactly the discoverable ids
