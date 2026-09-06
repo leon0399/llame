@@ -139,3 +139,8 @@ read-only. See [docs/mcp-tools.md](docs/mcp-tools.md).
 
 TypeScript throughout: Next.js (`apps/web`), NestJS + worker (`apps/api`),
 shared components (`packages/ui`), and the terminal (`apps/cli`).
+
+## License
+
+[MIT](LICENSE). Contributions are welcome; opening a pull request licenses your
+contribution under the same terms.

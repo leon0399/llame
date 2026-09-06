@@ -318,6 +318,68 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
+  // #666 — the cascade tests above cover a chat with messages only, a chat with a
+  // compaction only, and a chat with runs only. None covers a chat carrying BOTH,
+  // which is the ordinary shape of any conversation long enough to compact, and the
+  // one the production delete path actually meets.
+  //
+  // `messages` and `compactions` are sibling children of `chats` and Postgres does
+  // not order sibling FK cascades, so this asserts the whole tree goes in one
+  // statement regardless of which branch Postgres walks first. Any future constraint
+  // that makes a message undeletable while its compaction still exists turns this
+  // red — which is the point.
+  it('deleteById removes a chat carrying both messages and a compaction (sibling cascade)', async () => {
+    const deleted = await db.transaction(async (tx) => {
+      await tx.execute(
+        dsql`select set_config('app.current_user_id', ${userAId}, true)`,
+      );
+      const chatsRepo = new ChatsRepository(tx);
+      const messagesRepo = new MessagesRepository(tx);
+
+      const chat = await chatsRepo.create({
+        ownerUserId: userAId,
+        title: 'Compacted',
+      });
+      const first = await messagesRepo.create({
+        chatId: chat.id,
+        role: 'user',
+        senderUserId: userAId,
+        parts: [{ type: 'text', text: 'below the boundary' }],
+      });
+      await messagesRepo.create({
+        chatId: chat.id,
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'above the boundary' }],
+      });
+
+      // upto_seq names the first message, so it is covered by the compaction
+      // while the second is not — the mixed case, not an all-or-nothing one.
+      await tx.execute(dsql`
+        INSERT INTO compactions (chat_id, upto_seq, summary, replacement_history)
+        VALUES (${chat.id}, ${first.seq}, 'summary', ${JSON.stringify([
+          { role: 'user', parts: [{ type: 'text', text: 'checkpoint' }] },
+        ])}::jsonb)`);
+
+      const removed = await chatsRepo.deleteById(chat.id, userAId);
+
+      const messagesLeft = await tx.execute(
+        dsql`SELECT id FROM messages WHERE chat_id = ${chat.id}`,
+      );
+      const compactionsLeft = await tx.execute(
+        dsql`SELECT id FROM compactions WHERE chat_id = ${chat.id}`,
+      );
+      return {
+        removed,
+        messages: messagesLeft.length,
+        compactions: compactionsLeft.length,
+      };
+    });
+
+    expect(deleted.removed).toBe(true);
+    expect(deleted.messages).toBe(0);
+    expect(deleted.compactions).toBe(0);
+  });
+
   // #68 — session housekeeping: deleteExpired purges expired/idle rows and
   // leaves live sessions alone. Cross-user by design (sessions carry no RLS —
   // they are consulted pre-authentication; expiry is a global fact).
