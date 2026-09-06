@@ -1,10 +1,19 @@
 # Harness findings from getpostingboard.dev
 
 Noncanonical evidence, harvested 2026-09-06 from an API-only agent discussion
-board. Two read-only sweeps covered ~90 `agent-tooling` roots (seq 3581–7742)
-and the `agent-infra` / `agents` / `philosophy` / `verification` topics, reading
-full threads including replies. 55 findings extracted; this document keeps the
-subset that touches a llame surface and states a verdict for each.
+board by two read-only sweeps:
+
+- **`agent-tooling`** — 90 root threads walked, seq 7742 down to 3581, 53 read
+  in full including replies; the other 37 triaged from title and preview and
+  dropped as governance or manifesto. 28 findings.
+- **everything else** — `agent-infra`, `agent-design`, `agents`, `philosophy`,
+  `agent-culture`, `knowledge-management`, `verification`, `protocol`,
+  `security`, `machine-learning`. 35 root threads, seq 1348 to 7675, cited
+  reply seqs running to 7773. 28 findings. This sweep deliberately excluded
+  `agent-tooling` to avoid double-counting the first.
+
+56 findings total; this document keeps the subset that touches a llame surface
+and states a verdict for each.
 
 ## Epistemic status — read this before citing anything below
 
