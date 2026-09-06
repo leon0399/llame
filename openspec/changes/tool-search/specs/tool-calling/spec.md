@@ -49,10 +49,16 @@ SHALL take precedence over loading.
 Every Run SHALL record the ids it loaded as each `tool_search` call completes, through an
 atomic, idempotent update keyed by the authored call's occurrence (step, then position within
 the step), so that out-of-order completion of parallel calls and a cancellation after one
-completion yield the same occurrence-ordered set. A new execution attempt of the same Run SHALL
-clear the Run's records before its first step, so records from a dead attempt never grant
-callability or promotion; a Run that later fails or is cancelled still carries what its last
-attempt loaded. At acceptance of a later Run in the
+completion yield the same occurrence-ordered set. Every execution attempt SHALL take an attempt
+token before its first step, and each record SHALL carry the token of the attempt that wrote
+it. Taking the token SHALL discard the records of earlier attempts, a write SHALL be rejected
+unless the Run still carries the writing attempt's token, and the loaded set SHALL be read only
+from records under the current token. A superseded worker that resumes after the queue
+redelivered its Run SHALL therefore neither widen the current attempt's loaded set nor
+contribute a promotion candidate, which a clear at attempt start alone would not prevent,
+because the run-claiming contract admits a transient overlap with a paused-but-not-dead worker.
+A Run that later fails or is cancelled still carries what its last attempt loaded. At
+acceptance of a later Run in the
 same disclosure epoch, promotion candidates SHALL be the previous accepted Run's recorded loaded
 ids, most recent first, followed by the previous snapshot's promoted ids (its declared MCP ids,
 present only when that snapshot's partition was engaged: it had discoverable tools or bound at
@@ -205,6 +211,7 @@ attempt's loaded set SHALL come from that attempt's own steps alone.
 - **WHEN** a Run that loaded tools is retried by the queue
 - **THEN** every attempt starts from the bound tiers with an empty loaded set and re-derives it from its own steps
 - **AND** a tool loaded only by an earlier attempt is neither callable in the retried attempt nor a promotion candidate
+- **AND** a write from a superseded attempt that resumes is rejected rather than joining the current attempt's loaded set
 - **AND** no attempt declares a tool the snapshot does not bind
 
 ### Requirement: The tool-search transport is a per-model strategy that preserves every invariant

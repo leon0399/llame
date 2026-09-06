@@ -181,9 +181,14 @@ an occurrence record `{ step, position, ids }` keyed by `(step, position)` with 
 idempotent upsert on the Run row, and the ordered loaded set is derived from those records;
 parallel calls in one step settle in scheduler order, so completion order does not change the
 derived order (Codex and CodeRabbit findings). A queue retry re-executes the loop from the
-first step and the model may search differently, so an attempt clears the Run's records before
-its first step; a stale record from a dead attempt would otherwise make a tool the current
-attempt never received callable under `openai` (Codex finding). A Run that fails or is
+first step and the model may search differently, so a record is fenced by an attempt token
+taken before the first step: taking it discards earlier attempts' records, a write is rejected
+unless the Run still holds the writer's token, and the loaded set is read only under the
+current token. A stale record would otherwise make a tool the current attempt never received
+callable under `openai` (Codex finding), and a clear alone would not close it, because
+`durable-runs` keeps two-worker overlap safe by first-writer-wins at completion rather than by
+stopping a paused-but-not-dead worker from writing, so that worker can resume and re-upsert
+after the clear (second Codex finding). A Run that fails or is
 cancelled afterward still carries what its last attempt recorded.
 
 llame's executor wrapper is the authority on the loaded set under every strategy: a call to a
