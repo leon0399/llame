@@ -22,6 +22,8 @@ import {
 import type { ChatListItemResponse } from "@/lib/api/generated/models";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
 
+let reducedMotion = true;
+
 const { usePathnameMock } = vi.hoisted(() => ({
   usePathnameMock: vi.fn<() => string>(),
 }));
@@ -103,11 +105,12 @@ function renderHeader(
 
 beforeEach(() => {
   document.title = "llame";
+  reducedMotion = true;
   // jsdom doesn't implement matchMedia (SidebarProvider's useIsMobile and
   // useTypewriter's reduced-motion check both read it). Force reduced motion
   // on so the typewriter settles synchronously rather than animating.
   window.matchMedia = (query: string) => ({
-    matches: query.includes("prefers-reduced-motion"),
+    matches: query.includes("prefers-reduced-motion") && reducedMotion,
     media: query,
     onchange: null,
     addEventListener: () => {},
@@ -191,10 +194,11 @@ describe("ChatHeader", () => {
   });
 
   it("snaps the title when switching chats instead of retyping", async () => {
-    // `ChatHeaderTitle` remounts per chatId. With reduced motion on, that
-    // means the new title appears in full immediately — no leftover glyphs
-    // from the previous chat (the bug when one typewriter instance spanned
-    // chat switches).
+    // Exercise useTypewriter's animated mode: each chat's first value still
+    // appears in full because `ChatHeaderTitle` remounts per chatId. Without
+    // that remount, the switch would synchronously show a glyph from the old
+    // title while the replacement animation starts.
+    reducedMotion = false;
     usePathnameMock.mockReturnValue("/chat/chat-1");
     const { rerender, queryClient } = renderHeader(
       {

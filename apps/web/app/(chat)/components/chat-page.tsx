@@ -6,9 +6,11 @@ import type { UIMessage } from "ai";
 
 import {
   Alert,
+  AlertAction,
   AlertDescription,
   AlertTitle,
 } from "@workspace/ui/components/alert";
+import { Button } from "@workspace/ui/components/button";
 
 import { useActiveRuns } from "@/contexts/active-runs-context";
 import { useMessageTarget } from "@/lib/services/chat/message-target";
@@ -25,7 +27,7 @@ import { useChatSessionState } from "./use-chat-session-state";
 import { useChatConversation } from "./use-chat-conversation";
 import {
   ChatMarkdownProvider,
-  useChatMarkdownRenderers,
+  useChatMarkdownReady,
 } from "./use-chat-markdown-ready";
 import { ChatTranscript } from "./chat-transcript";
 import { ChatComposer } from "./chat-composer";
@@ -214,8 +216,26 @@ function ChatMarkdownLoading() {
   );
 }
 
+function ChatMarkdownUnavailable({ retry }: { retry: () => void }) {
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-1 items-center px-5 py-12">
+      <Alert variant="destructive">
+        <AlertTitle>Messages unavailable</AlertTitle>
+        <AlertDescription>
+          Message rendering could not be loaded.
+        </AlertDescription>
+        <AlertAction>
+          <Button type="button" variant="outline" size="sm" onClick={retry}>
+            Try again
+          </Button>
+        </AlertAction>
+      </Alert>
+    </div>
+  );
+}
+
 type ChatSessionMainProps = {
-  ready: boolean;
+  markdown: ReturnType<typeof useChatMarkdownReady>;
   chatId: string;
   compaction: Compaction | null;
   hasOlderMessages: boolean;
@@ -227,7 +247,7 @@ type ChatSessionMainProps = {
 };
 
 function ChatSessionMain({
-  ready,
+  markdown,
   chatId,
   compaction,
   hasOlderMessages,
@@ -237,7 +257,10 @@ function ChatSessionMain({
   status,
   onInspectContext,
 }: ChatSessionMainProps) {
-  if (!ready) return <ChatMarkdownLoading />;
+  if (markdown.error !== null) {
+    return <ChatMarkdownUnavailable retry={markdown.retry} />;
+  }
+  if (markdown.renderers === null) return <ChatMarkdownLoading />;
   return (
     <ChatTranscript
       chatId={chatId}
@@ -256,13 +279,13 @@ function ChatSessionMain({
 }
 
 type ChatSessionBodyProps = ChatSessionContentProps & {
-  ready: boolean;
+  markdown: ReturnType<typeof useChatMarkdownReady>;
   conversation: ReturnType<typeof useChatConversation>;
 };
 
 /** Transcript-or-spinner + composer + inspector for one ready session. */
 function ChatSessionBody({
-  ready,
+  markdown,
   conversation,
   chatId,
   compaction,
@@ -274,7 +297,7 @@ function ChatSessionBody({
   return (
     <>
       <ChatSessionMain
-        ready={ready}
+        markdown={markdown}
         chatId={chatId}
         compaction={compaction}
         hasOlderMessages={hasOlderMessages}
@@ -292,7 +315,7 @@ function ChatSessionBody({
         onStop={composer.handleStop}
         modelReadyForSend={composer.modelReadyForSend}
         modelSendUnavailableReason={composer.modelSendUnavailableReason}
-        disabled={!ready}
+        disabled={markdown.renderers === null}
       />
       <ChatSessionDialog dialog={dialog} />
     </>
@@ -301,13 +324,13 @@ function ChatSessionBody({
 
 function ChatSessionContent(props: ChatSessionContentProps) {
   const conversation = useChatConversation(props);
-  const renderers = useChatMarkdownRenderers();
+  const markdown = useChatMarkdownReady();
   // Always wait for real Streamdown handles — never mount empty bubbles, and
   // never tear down a draft's first message behind a late spinner.
   return (
     <ChatSessionBody
       {...props}
-      ready={renderers !== null}
+      markdown={markdown}
       conversation={conversation}
     />
   );

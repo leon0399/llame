@@ -84,24 +84,28 @@ function fireContentResize(content: HTMLElement, height: number) {
 function renderTranscript() {
   const contextRef = createRef<StickToBottomContext>();
   const view = render(
-    <Conversation initial="instant" resize="instant" contextRef={contextRef}>
-      <ConversationContent>
-        <ChatLoadOlder
-          hasOlder={false}
-          isLoading={false}
-          onLoadOlder={() => {}}
-          oldestMessageKey="m-1"
-        />
-        <div data-message-key="m-1">hello</div>
-      </ConversationContent>
-    </Conversation>,
+    <>
+      <Conversation initial="instant" resize="instant" contextRef={contextRef}>
+        <ConversationContent>
+          <ChatLoadOlder
+            hasOlder={false}
+            isLoading={false}
+            onLoadOlder={() => {}}
+            oldestMessageKey="m-1"
+          />
+          <div data-message-key="m-1">hello</div>
+        </ConversationContent>
+      </Conversation>
+      <div data-testid="after-transcript">outside</div>
+    </>,
   );
   const scroller =
     view.container.querySelector<HTMLElement>('[role="log"] > div');
   if (!scroller) throw new Error("scroller not rendered");
   const content = scroller.firstElementChild;
   if (!(content instanceof HTMLElement)) throw new Error("content missing");
-  return { scroller, content, contextRef };
+  const outside = view.getByTestId("after-transcript");
+  return { scroller, content, contextRef, outside };
 }
 
 describe("ChatLoadOlder stick-on-resize", () => {
@@ -150,6 +154,27 @@ describe("ChatLoadOlder stick-on-resize", () => {
     setGeometry(scroller, 2300);
     fireContentResize(content, 2300);
 
+    expect(scroller.scrollTop).toBe(1400);
+    selection.removeAllRanges();
+  });
+
+  it("does not yank a reverse selection from outside into the transcript", () => {
+    const { scroller, content, outside } = renderTranscript();
+    setGeometry(scroller, 2000);
+    scroller.scrollTop = 1400;
+    const insideText = content.querySelector("[data-message-key]")?.firstChild;
+    const outsideText = outside.firstChild;
+    if (!insideText || !outsideText) throw new Error("selection text missing");
+    const selection = document.getSelection();
+    if (!selection) throw new Error("jsdom selection missing");
+    selection.removeAllRanges();
+    selection.setBaseAndExtent(outsideText, 7, insideText, 2);
+
+    setGeometry(scroller, 2300);
+    fireContentResize(content, 2300);
+
+    expect(selection.anchorNode).toBe(outsideText);
+    expect(content.contains(selection.focusNode)).toBe(true);
     expect(scroller.scrollTop).toBe(1400);
     selection.removeAllRanges();
   });

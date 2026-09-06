@@ -123,7 +123,9 @@ function useSyncStickOnResize(
       if (
         selection &&
         !selection.isCollapsed &&
-        content.contains(selection.anchorNode)
+        [...Array(selection.rangeCount).keys()].some((index) =>
+          selection.getRangeAt(index).intersectsNode(content),
+        )
       ) {
         return;
       }

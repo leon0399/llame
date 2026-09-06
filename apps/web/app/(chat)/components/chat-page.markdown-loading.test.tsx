@@ -16,7 +16,14 @@ import {
   it,
   vi,
 } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
@@ -66,6 +73,7 @@ const STUB_RENDERERS: ChatMarkdownRenderers = {
 
 let resolveRenderers: ((renderers: ChatMarkdownRenderers) => void) | null =
   null;
+let rejectRenderers: ((error: unknown) => void) | null = null;
 
 beforeAll(() => {
   if (!Element.prototype.scrollIntoView) {
@@ -86,10 +94,12 @@ beforeAll(() => {
 
 beforeEach(() => {
   resolveRenderers = null;
+  rejectRenderers = null;
   setChatMarkdownLoadForTests(
     () =>
-      new Promise<ChatMarkdownRenderers>((resolve) => {
+      new Promise<ChatMarkdownRenderers>((resolve, reject) => {
         resolveRenderers = resolve;
+        rejectRenderers = reject;
       }),
   );
   useChatMessages = [];
@@ -206,6 +216,34 @@ describe("ChatPage markdown loading shell", () => {
     const input = screen.getByPlaceholderText("What would you like to know?");
     // SAFETY: placeholder uniquely identifies the composer textarea.
     expect((input as HTMLTextAreaElement).disabled).toBe(false);
+  });
+
+  it("shows an unavailable state after a renderer failure and retries", async () => {
+    renderSeededChat([
+      rawChatMessage({
+        id: "m1",
+        role: "user",
+        seq: 1,
+        parts: [{ type: "text", text: "Hello from history" }],
+      }),
+    ]);
+
+    await waitFor(() => {
+      expect(screen.getByRole("status", { name: "Loading" })).toBeTruthy();
+    });
+    act(() => rejectRenderers?.(new Error("chunk failed")));
+
+    await waitFor(() => {
+      expect(screen.getByText("Messages unavailable")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(screen.getByRole("status", { name: "Loading" })).toBeTruthy();
+
+    unlockRenderers();
+    await waitFor(() => {
+      expect(screen.queryByText("Messages unavailable")).toBeNull();
+      expect(screen.getByText("Hello from history")).toBeTruthy();
+    });
   });
 
   it("shows the spinner for an empty draft until markdown chunks load", async () => {

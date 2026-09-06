@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
@@ -17,7 +18,17 @@ export type ChatMarkdownRenderers = {
   ReasoningContent: ComponentType<ReasoningContentProps>;
 };
 
-const ChatMarkdownContext = createContext<ChatMarkdownRenderers | null>(null);
+type ChatMarkdownLoadState = {
+  renderers: ChatMarkdownRenderers | null;
+  error: Error | null;
+  retry: () => void;
+};
+
+const ChatMarkdownContext = createContext<ChatMarkdownLoadState>({
+  renderers: null,
+  error: null,
+  retry: () => {},
+});
 
 // Tab-lifetime cache so Strict Mode's effect remount and chat switches do not
 // drop back to the spinner after the chunks have already loaded once.
@@ -26,19 +37,20 @@ let loadPromise: Promise<ChatMarkdownRenderers> | null = null;
 let loadOverride: (() => Promise<ChatMarkdownRenderers>) | null = null;
 
 function loadChatMarkdownRenderers(): Promise<ChatMarkdownRenderers> {
-  if (loadOverride) return loadOverride();
   if (cachedRenderers) return Promise.resolve(cachedRenderers);
-  loadPromise ??= Promise.all([
-    import("@workspace/ui/components/ai-elements/message-response"),
-    import("@workspace/ui/components/ai-elements/reasoning-content"),
-  ]).then(([messageResponse, reasoningContent]) => {
-    const loaded: ChatMarkdownRenderers = {
-      MessageResponse: messageResponse.MessageResponse,
-      ReasoningContent: reasoningContent.ReasoningContent,
-    };
-    cachedRenderers = loaded;
-    return loaded;
-  });
+  loadPromise ??= loadOverride
+    ? loadOverride()
+    : Promise.all([
+        import("@workspace/ui/components/ai-elements/message-response"),
+        import("@workspace/ui/components/ai-elements/reasoning-content"),
+      ]).then(([messageResponse, reasoningContent]) => {
+        const loaded: ChatMarkdownRenderers = {
+          MessageResponse: messageResponse.MessageResponse,
+          ReasoningContent: reasoningContent.ReasoningContent,
+        };
+        cachedRenderers = loaded;
+        return loaded;
+      });
   return loadPromise;
 }
 
@@ -52,6 +64,14 @@ export function ChatMarkdownProvider({ children }: { children: ReactNode }) {
   const [renderers, setRenderers] = useState<ChatMarkdownRenderers | null>(
     () => (loadOverride ? null : cachedRenderers),
   );
+  const [error, setError] = useState<Error | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+
+  const retry = useCallback(() => {
+    loadPromise = null;
+    setError(null);
+    setLoadAttempt((attempt) => attempt + 1);
+  }, []);
 
   useEffect(() => {
     if (!loadOverride && cachedRenderers) {
@@ -59,16 +79,28 @@ export function ChatMarkdownProvider({ children }: { children: ReactNode }) {
       return;
     }
     let cancelled = false;
-    void loadChatMarkdownRenderers().then((loaded) => {
-      if (!cancelled) setRenderers(loaded);
-    });
+    void loadChatMarkdownRenderers()
+      .then((loaded) => {
+        if (!cancelled) setRenderers(loaded);
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) {
+          setError(
+            loadError instanceof Error
+              ? loadError
+              : new Error("Markdown renderer loading failed", {
+                  cause: loadError,
+                }),
+          );
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadAttempt]);
 
   return (
-    <ChatMarkdownContext.Provider value={renderers}>
+    <ChatMarkdownContext.Provider value={{ renderers, error, retry }}>
       {children}
     </ChatMarkdownContext.Provider>
   );
@@ -76,6 +108,11 @@ export function ChatMarkdownProvider({ children }: { children: ReactNode }) {
 
 /** `null` until both renderer chunks have loaded in this tab. */
 export function useChatMarkdownRenderers(): ChatMarkdownRenderers | null {
+  return useContext(ChatMarkdownContext).renderers;
+}
+
+/** Renderer availability plus a retry that starts a fresh dynamic import. */
+export function useChatMarkdownReady(): ChatMarkdownLoadState {
   return useContext(ChatMarkdownContext);
 }
 
