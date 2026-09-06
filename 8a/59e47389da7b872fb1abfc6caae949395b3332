@@ -1,0 +1,34 @@
+openspec/changes/tool-search/proposal.md
+  963503d03653724f 1-15,17-23,28,36-38,47-49,55-66,68,71,74-79,89-93
+openspec/changes/tool-search/design.md
+  963503d03653724f 1-14,29-38,47-59,62-66,68-72,96-99,112-114,134-137,151-153,159-165,169-173,203-208,211-218,274-277,280-288,302-304,316-319
+openspec/changes/tool-search/tasks.md
+  963503d03653724f 1-10,12-14,21-27,29,33-38
+openspec/changes/tool-search/specs/tool-calling/spec.md
+  963503d03653724f 1-6,15-19,20,32-34,38-40,43-44,78-80,89-95,97-99,101-102,104-106,108-117,118,119-120,123-124,125-131,132-133,134,135-136,137,163-168,170-174,178-194
+openspec/changes/tool-search/specs/mcp-tools/spec.md
+  963503d03653724f 1-20,22
+openspec/changes/tool-search/specs/instance-config/spec.md
+  963503d03653724f 1-4,11-22,24,29-31,33
+openspec/changes/tool-search/specs/model-system-prompts/spec.md
+  963503d03653724f 1-4,6-65,67-82,86-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "8a59e47389da7b872fb1abfc6caae949395b3332",
+  "prompts": {
+    "963503d03653724f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "44cdb90c-55d0-469e-baee-bb2c81b869af",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 580,
+      "total_deletions": 0,
+      "accepted_lines": 570,
+      "overriden_lines": 3
+    }
+  }
+}
