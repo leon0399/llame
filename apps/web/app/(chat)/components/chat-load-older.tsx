@@ -95,6 +95,46 @@ function usePrePaintBottomPin(oldestMessageKey: string | null) {
   }, [oldestMessageKey]);
 }
 
+/**
+ * Re-pins to the bottom synchronously when the content resizes while stuck.
+ * The library chases growth from its own ResizeObserver via a
+ * requestAnimationFrame-deferred scrollToBottom, so every growth at the
+ * bottom paints ONE frame off-bottom first — the flash seen right after
+ * mount, when async code highlighting and collapsibles settle their heights.
+ * ResizeObserver callbacks run before paint, so this write lands in the same
+ * frame as the growth. The library's `scrollTop` setter records the write as
+ * programmatic (`ignoreScrollToTop`), so its scroll handler cannot misread
+ * it as reader input; a reader who scrolled away is left alone via the same
+ * gate the library uses, and a reader selecting text in the transcript is
+ * not yanked mid-drag (the library's own loop pauses for that too — its
+ * mouse-down check is module-private, so this checks the selection alone
+ * and degrades to the library's one-frame-late catch-up while it lingers).
+ */
+function useSyncStickOnResize(
+  contentRef: RefObject<HTMLElement | null>,
+  state: StickToBottomState,
+) {
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const observer = new ResizeObserver(() => {
+      if (!state.isAtBottom || state.escapedFromLock) return;
+      const selection = document.getSelection();
+      if (
+        selection &&
+        !selection.isCollapsed &&
+        selection.rangeCount > 0 &&
+        selection.getRangeAt(0).intersectsNode(content)
+      ) {
+        return;
+      }
+      state.scrollTop = state.targetScrollTop;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [contentRef, state]);
+}
+
 // dataset comparison instead of an attribute selector: keys need no escaping,
 // and jsdom lacks CSS.escape.
 function findMessageElement(
@@ -231,13 +271,17 @@ function useLoadOlderOnScroll({
  * `Conversation` — it reads the scroller and stick-to-bottom state from
  * use-stick-to-bottom's context.
  *
- * Three scroll-physics duties beyond triggering the fetch:
+ * Four scroll-physics duties beyond triggering the fetch:
  *
  * - The mount layout effect pins the scroller to the bottom BEFORE the first
  *   paint. The library's own initial scroll runs from its ResizeObserver
  *   callback via a deferred scrollToBottom, which paints at least one frame
  *   at the TOP of the loaded window first — visible as a flash on
  *   client-side navigation, where the whole transcript mounts in one commit.
+ * - A ResizeObserver re-pins synchronously on every later content growth
+ *   while stuck to the bottom: the library's catch-up is rAF-deferred, so
+ *   without it each growth (async code highlighting settling right after
+ *   mount, streaming) paints one off-bottom frame first.
  * - The `escapedFromLock` gate ensures only a reader who DELIBERATELY
  *   scrolled up can trigger a load: the library sets it exclusively from
  *   user input (an upward wheel/scroll or a text selection), never from
@@ -274,6 +318,7 @@ export const ChatLoadOlder = memo(function ChatLoadOlder({
 
   useDisableScrollAnchoring(scrollRef);
   usePrePaintBottomPin(oldestMessageKey);
+  useSyncStickOnResize(contentRef, state);
   usePrependScrollAnchor({ contentRef, oldestMessageKey, isAtBottom, state });
   useLoadOlderOnScroll({
     sentinelRef,

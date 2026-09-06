@@ -225,13 +225,10 @@ export function ChatTranscript(props: ChatTranscriptProps) {
           watch the page scroll from the top to it — with SSR-rendered
           history the smooth initial animation reads as a jump to the top
           and back down once hydration finishes.
-          resize="instant": the markdown/reasoning renderers are deliberate
-          client-only dynamic chunks (chat-bundle-boundary.test.ts), so on a
-          hard reload the transcript mounts as short shells and grows by
-          thousands of px when they arrive. A smooth resize animates that
-          catch-up as a visible scroll down the page; instant keeps the view
-          pinned to the bottom within the same frame. Streaming growth gets
-          the same instant follow, which reads as steady, not animated. */}
+          resize="instant": markdown/reasoning bodies are client-loaded
+          through ChatMarkdownProvider before the transcript mounts, so on a
+          hard reload growth should not come from empty shells filling in.
+          Instant still covers streaming growth and older-page prepends. */}
       <Conversation className="h-full" initial="instant" resize="instant">
         {/* TODO(#187): a reader who walks a several-thousand-message chat
             to the top accumulates the whole transcript in the DOM. If that

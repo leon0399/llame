@@ -22,6 +22,8 @@ import {
 import type { ChatListItemResponse } from "@/lib/api/generated/models";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
 
+let reducedMotion = true;
+
 const { usePathnameMock } = vi.hoisted(() => ({
   usePathnameMock: vi.fn<() => string>(),
 }));
@@ -98,16 +100,17 @@ function renderHeader(
       </SidebarProvider>
     </QueryClientProvider>,
   );
-  return { fetchMock, ...view };
+  return { fetchMock, queryClient, ...view };
 }
 
 beforeEach(() => {
   document.title = "llame";
+  reducedMotion = true;
   // jsdom doesn't implement matchMedia (SidebarProvider's useIsMobile and
   // useTypewriter's reduced-motion check both read it). Force reduced motion
   // on so the typewriter settles synchronously rather than animating.
   window.matchMedia = (query: string) => ({
-    matches: query.includes("prefers-reduced-motion"),
+    matches: query.includes("prefers-reduced-motion") && reducedMotion,
     media: query,
     onchange: null,
     addEventListener: () => {},
@@ -188,5 +191,40 @@ describe("ChatHeader", () => {
 
     unmount();
     expect(document.title).toBe("llame");
+  });
+
+  it("snaps the title when switching chats instead of retyping", async () => {
+    // Exercise useTypewriter's animated mode: each chat's first value still
+    // appears in full because `ChatHeaderTitle` remounts per chatId. Without
+    // that remount, the switch would synchronously show a glyph from the old
+    // title while the replacement animation starts.
+    reducedMotion = false;
+    usePathnameMock.mockReturnValue("/chat/chat-1");
+    const { rerender, queryClient } = renderHeader(
+      {
+        all: [
+          chatRow({ id: "chat-1", title: "First chat title" }),
+          chatRow({ id: "chat-2", title: "Second chat title" }),
+        ],
+      },
+      { seedAllCache: true },
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("First chat title")).toBeTruthy(),
+    );
+
+    usePathnameMock.mockReturnValue("/chat/chat-2");
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <SidebarProvider>
+          <ChatHeader />
+        </SidebarProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Second chat title")).toBeTruthy();
+    expect(screen.queryByText("First chat title")).toBeNull();
+    expect(document.title).toBe("Second chat title");
   });
 });

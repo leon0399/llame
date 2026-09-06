@@ -18,12 +18,16 @@ function parse(relativePath: string): ts.SourceFile {
 }
 
 function staticImports(source: ts.SourceFile): Array<string> {
-  return source.statements.flatMap((statement) =>
-    ts.isImportDeclaration(statement) &&
-    ts.isStringLiteral(statement.moduleSpecifier)
-      ? [statement.moduleSpecifier.text]
-      : [],
-  );
+  return source.statements.flatMap((statement) => {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.importClause?.isTypeOnly
+    ) {
+      return [];
+    }
+    return [statement.moduleSpecifier.text];
+  });
 }
 
 function dynamicImports(source: ts.SourceFile): Array<string> {
@@ -95,19 +99,21 @@ describe("chat bundle boundary", () => {
     expect(heavyImports).toEqual([]);
   });
 
-  test("loads markdown renderers dynamically from the chat message row", () => {
-    const source = parse("apps/web/app/(chat)/components/chat-message-row.tsx");
+  test("loads markdown renderers from ChatMarkdownProvider, not the message row", () => {
+    const row = parse("apps/web/app/(chat)/components/chat-message-row.tsx");
+    const ready = parse(
+      "apps/web/app/(chat)/components/use-chat-markdown-ready.tsx",
+    );
     const renderers = [
       "@workspace/ui/components/ai-elements/message-response",
       "@workspace/ui/components/ai-elements/reasoning-content",
     ];
 
-    expect(staticImports(source)).not.toEqual(
-      expect.arrayContaining(renderers),
-    );
-    expect(dynamicImports(source)).toEqual(expect.arrayContaining(renderers));
-    expect(clientOnlyDynamicImports(source)).toEqual(
-      expect.arrayContaining(renderers),
-    );
+    expect(staticImports(row)).not.toEqual(expect.arrayContaining(renderers));
+    expect(dynamicImports(row)).not.toEqual(expect.arrayContaining(renderers));
+    expect(clientOnlyDynamicImports(row)).toEqual([]);
+
+    expect(staticImports(ready)).not.toEqual(expect.arrayContaining(renderers));
+    expect(dynamicImports(ready)).toEqual(expect.arrayContaining(renderers));
   });
 });
