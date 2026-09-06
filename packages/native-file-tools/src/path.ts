@@ -8,7 +8,6 @@ export class NativeFileError extends Error {
       | "invalid_selector"
       | "not_found"
       | "not_regular_file"
-      | "file_too_large"
       | "invalid_utf8"
       | "invalid_input"
       | "file_exists"

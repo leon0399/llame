@@ -112,8 +112,9 @@ is required in this iteration.
 
 `write` SHALL create a new regular file when the absolute target is absent. It
 SHALL fail with `file_exists` when the target already exists, regardless of the
-provided content. It SHALL enforce the shared file-size, UTF-8, and output
-limits and SHALL leave the existing file unchanged on every failure.
+provided content. It SHALL validate UTF-8 content and enforce shared output limits. Native file size
+SHALL NOT be restricted by the legacy Knowledge byte limit. It SHALL leave the
+existing file unchanged on every failure.
 
 #### Scenario: New file is created
 

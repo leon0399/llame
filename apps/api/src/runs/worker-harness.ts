@@ -63,6 +63,7 @@ export type WorkerHarness = {
 type DrizzleWithClient = Db & { $client: Sql };
 
 type HarnessOverrides = {
+  nativeExecutorId?: string;
   runsConcurrency?: number;
   timeoutSeconds?: number;
   heartbeatSeconds?: number;
@@ -77,6 +78,7 @@ function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
     tools: {
       ...BUILT_IN_DEFAULTS.tools,
       allowed: [...(overrides?.allowedTools ?? [])],
+      nativeExecutorId: overrides?.nativeExecutorId,
     },
     runs: {
       ...BUILT_IN_DEFAULTS.runs,

@@ -1,3 +1,4 @@
+import { type UnknownRecord } from '@workspace/runtime-safety';
 /**
  * The scripted model client backing `worker-harness.ts`: a `ModelClient`
  * double whose behavior is chosen per run (immediate completion, a delay, a
@@ -58,6 +59,11 @@ export type ScriptedBehavior =
   | { kind: 'infra-throw'; message?: string }
   | { kind: 'hang' }
   | {
+      kind: 'tool-script';
+      calls: ReadonlyArray<{ id: string; name: string; input: UnknownRecord }>;
+      finalText: string;
+    }
+  | {
       kind: 'conversation-recall';
       query: string;
       continueRead?: boolean;
@@ -65,13 +71,7 @@ export type ScriptedBehavior =
     };
 
 /** The subset `HarnessModelClient` actually streams; `infra-throw` never reaches it. */
-type HarnessBehavior = Extract<
-  ScriptedBehavior,
-  | { kind: 'complete' }
-  | { kind: 'provider-error' }
-  | { kind: 'hang' }
-  | { kind: 'conversation-recall' }
->;
+type HarnessBehavior = Exclude<ScriptedBehavior, { kind: 'infra-throw' }>;
 
 type ConversationRecallBehavior = Extract<
   ScriptedBehavior,
@@ -340,12 +340,44 @@ function enqueueScriptedCompletion(
   text: string,
 ): void {
   controller.enqueue({ type: 'stream-start', warnings: [] });
-  if (behavior.kind === 'conversation-recall') {
+  if (behavior.kind === 'tool-script') {
+    enqueueToolScript(controller, prompt, behavior);
+  } else if (behavior.kind === 'conversation-recall') {
     enqueueRecallParts(controller, prompt, behavior);
   } else {
     enqueueAnswerParts(controller, text);
   }
   controller.close();
+}
+
+function enqueueToolScript(
+  controller: ReadableStreamDefaultController<LanguageModelV3StreamPart>,
+  prompt: LanguageModelV3CallOptions['prompt'],
+  behavior: Extract<ScriptedBehavior, { kind: 'tool-script' }>,
+): void {
+  const completed = new Set<string>();
+  for (const message of prompt) {
+    if (message.role !== 'tool') continue;
+    for (const part of message.content) {
+      if (part.type === 'tool-result') completed.add(part.toolCallId);
+    }
+  }
+  const next = behavior.calls.find((call) => !completed.has(call.id));
+  if (!next) {
+    enqueueAnswerParts(controller, behavior.finalText);
+    return;
+  }
+  controller.enqueue({
+    type: 'tool-call',
+    toolCallId: next.id,
+    toolName: next.name,
+    input: JSON.stringify(next.input),
+  });
+  controller.enqueue({
+    type: 'finish',
+    finishReason: { unified: 'tool-calls', raw: undefined },
+    usage: PROVIDER_ZERO_USAGE,
+  });
 }
 
 /**
@@ -404,7 +436,8 @@ function resolveHarnessStreamOptions(
   return {
     tools: input.tools,
     ...(input.toolChoice !== undefined && { toolChoice: input.toolChoice }),
-    ...(behavior.kind === 'conversation-recall' && {
+    ...((behavior.kind === 'conversation-recall' ||
+      behavior.kind === 'tool-script') && {
       stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
     }),
   };

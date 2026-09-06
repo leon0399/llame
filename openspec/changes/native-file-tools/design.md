@@ -128,7 +128,7 @@ The tagged result shapes are:
 Every failure uses the bounded shape
 `{ "status": "error", "type": <closed-code>, "message": <safe-text> }`.
 The initial closed codes are `invalid_path`, `invalid_selector`, `not_found`,
-`not_regular_file`, `file_too_large`, `invalid_utf8`, `file_exists`,
+`not_regular_file`, `invalid_utf8`, `file_exists`,
 `old_text_not_found`, `old_text_ambiguous`, `executor_unavailable`, and
 `outcome_unknown`.
 
