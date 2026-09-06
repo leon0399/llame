@@ -42,7 +42,7 @@ export function selectSourceLines(
   const boundedEnd = Math.min(
     lines.length,
     requestedEnd,
-    target.offset + MAX_READ_LINES,
+    target.offset + boundedReadLineCount(target.limit),
   );
   const start = target.raw ? target.offset : Math.max(0, target.offset - 1);
   const end = target.raw ? boundedEnd : Math.min(lines.length, boundedEnd + 1);
@@ -72,10 +72,7 @@ function renderSelection(
 function retryOffset(target: ReadTarget, index: number): number {
   return Math.max(
     target.offset,
-    Math.min(
-      index,
-      target.offset + Math.min(target.limit ?? MAX_READ_LINES, MAX_READ_LINES),
-    ),
+    Math.min(index, target.offset + boundedReadLineCount(target.limit)),
   );
 }
 
@@ -86,11 +83,7 @@ export function appendReadLine(
   target: ReadTarget,
 ): boolean {
   const line =
-    text === undefined
-      ? undefined
-      : target.raw
-        ? text
-        : `${index + 1}: ${text}`;
+    text === undefined ? undefined : renderSourceLine(text, index, target.raw);
   const candidate: ReadSuccess = {
     ...result,
     content: result.content + (line ?? ""),
@@ -145,4 +138,24 @@ export function emptyReadResult(
   )
     throw new NativeFileError("invalid_path");
   return result;
+}
+
+export function boundedReadLineCount(
+  requested: number | undefined,
+  maximum = MAX_READ_LINES,
+): number {
+  return Math.min(requested ?? maximum, maximum);
+}
+
+export function renderSourceLine(
+  source: string,
+  index: number,
+  raw = false,
+): string {
+  return raw ? source : `${index + 1}: ${source}`;
+}
+
+/** Escaped source cost inside a JSON string, excluding its enclosing quotes. */
+export function serializedContentLength(content: string): number {
+  return JSON.stringify(content).length - 2;
 }

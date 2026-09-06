@@ -14,3 +14,9 @@ export {
   measureNativeModelOutput,
   serializeNativeModelOutput,
 } from "./serialization";
+
+export {
+  boundedReadLineCount,
+  renderSourceLine,
+  serializedContentLength,
+} from "./source-lines";

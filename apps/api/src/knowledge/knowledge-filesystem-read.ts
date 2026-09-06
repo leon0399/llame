@@ -1,3 +1,9 @@
+import {
+  boundedReadLineCount,
+  renderSourceLine,
+  serializedContentLength,
+  splitSourceLines,
+} from '@workspace/native-file-tools';
 /**
  * Byte- and line-level reading of one already-open, already-validated
  * Knowledge file or directory: the streaming line-selection accumulator
@@ -53,10 +59,7 @@ export function resolveLineSelectionBudget(
     requestedLimit,
     maxResultCodeUnits,
     fixedResultCodeUnits,
-    maxLines: Math.min(
-      requestedLimit ?? KNOWLEDGE_MAX_READ_LINES,
-      KNOWLEDGE_MAX_READ_LINES,
-    ),
+    maxLines: boundedReadLineCount(requestedLimit, KNOWLEDGE_MAX_READ_LINES),
   };
 }
 
@@ -84,15 +87,14 @@ function appendKnowledgeLine(
   state: KnowledgeLineSelectionState,
   budget: KnowledgeLineSelectionBudget,
   sourceLine: string,
-  delimiter: string,
 ): void {
   if (
     state.lineIndex >= budget.offset &&
     state.lineIndex < budget.offset + budget.maxLines &&
     !state.selectionStorageFull
   ) {
-    const rendered = `${state.lineIndex + 1}: ${sourceLine}${delimiter}`;
-    const renderedCodeUnits = serializedStringLength(rendered);
+    const rendered = renderSourceLine(sourceLine, state.lineIndex);
+    const renderedCodeUnits = serializedContentLength(rendered);
     if (
       state.serializedContentCodeUnits + renderedCodeUnits >
       budget.maxResultCodeUnits - budget.fixedResultCodeUnits
@@ -113,22 +115,11 @@ function consumeKnowledgeLineText(
   budget: KnowledgeLineSelectionBudget,
   text: string,
 ): void {
-  let start = 0;
-  while (start < text.length) {
-    const newline = text.indexOf('\n', start);
-    if (newline < 0) {
-      state.fragments.push(text.slice(start));
-      return;
-    }
-    state.fragments.push(text.slice(start, newline));
-    let sourceLine = state.fragments.join('');
-    const delimiter = sourceLine.endsWith('\r') ? '\r\n' : '\n';
-    if (delimiter === '\r\n') {
-      sourceLine = sourceLine.slice(0, -1);
-    }
-    appendKnowledgeLine(state, budget, sourceLine, delimiter);
+  for (const fragment of splitSourceLines(text)) {
+    state.fragments.push(fragment);
+    if (!fragment.endsWith('\n')) continue;
+    appendKnowledgeLine(state, budget, state.fragments.join(''));
     state.fragments.length = 0;
-    start = newline + 1;
   }
 }
 
@@ -245,7 +236,7 @@ export async function readKnowledgeFileLines(
 
   consumeKnowledgeLineText(state, budget, flushDecoder(decoder));
   if (state.fragments.length > 0) {
-    appendKnowledgeLine(state, budget, state.fragments.join(''), '');
+    appendKnowledgeLine(state, budget, state.fragments.join(''));
   }
   return state;
 }
@@ -375,10 +366,6 @@ function flushDecoder(decoder: TextDecoder): string {
   } catch {
     throw new KnowledgeFilesystemError('knowledge_content_invalid');
   }
-}
-
-function serializedStringLength(value: string): number {
-  return JSON.stringify(value).length - 2;
 }
 
 export function serializedFixedReadResultLength(value: {
