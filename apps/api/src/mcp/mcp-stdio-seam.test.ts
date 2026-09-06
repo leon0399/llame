@@ -1,13 +1,22 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
 
 import { describe, expect, it } from 'vitest';
 
-import { McpServerClient } from './mcp-server-client';
+import { McpServerClient } from '@workspace/tool-runtime/mcp-server-client';
 import { loadInstanceConfig } from '../instance-config/config-loader';
 
-const FIXTURE = join(__dirname, 'mcp-stdio-test-fixture.mjs');
+// Stryker relocates the API test; the installed package still owns this fixture.
+const FIXTURE = join(
+  dirname(
+    createRequire(__filename).resolve(
+      '@workspace/tool-runtime/mcp-server-client',
+    ),
+  ),
+  '../src/mcp-stdio-test-fixture.mjs',
+);
 
 /**
  * Spans the seam this stack deliberately split: the config layer derives

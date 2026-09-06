@@ -1,7 +1,7 @@
-import { canonicalize } from '../canonical-json';
-import { sanitizeAuthoredText } from '../instance-config/authored-text';
-import { admitToolInputSchema } from '../tools/schema-utils';
-import { type JsonSchemaDocument } from '../tools/types';
+import { canonicalize } from "@workspace/runtime-safety";
+import { sanitizeAuthoredText } from "@workspace/runtime-safety";
+import { admitToolInputSchema } from "./schema-utils";
+import { type JsonSchemaDocument } from "./types";
 import {
   PROTECTED_VALUE_REDACTION_MARKER,
   containsProtectedValueJson,
@@ -9,11 +9,11 @@ import {
   isString,
   normalizeProtectedValues,
   sanitizeProtectedValueJson,
-} from '@workspace/runtime-safety';
+} from "@workspace/runtime-safety";
 import {
   createMcpToolId,
   findAsciiCaseFoldedCollisionIndexes,
-} from './tool-id';
+} from "./tool-id";
 
 export const MCP_REDACTION_MARKER = PROTECTED_VALUE_REDACTION_MARKER;
 
@@ -25,12 +25,12 @@ export type AdmittedMcpToolDefinition = {
 };
 
 export type McpDeclarationRefusalReason =
-  | 'invalid_declaration'
-  | 'invalid_tool_id'
-  | 'invalid_schema'
-  | 'unsupported_dialect'
-  | 'protected_value'
-  | 'name_collision';
+  | "invalid_declaration"
+  | "invalid_tool_id"
+  | "invalid_schema"
+  | "unsupported_dialect"
+  | "protected_value"
+  | "name_collision";
 
 export type McpDeclarationAdmissionResult = {
   readonly admitted: ReadonlyArray<AdmittedMcpToolDefinition>;
@@ -75,55 +75,55 @@ function sanitizeDescription(
 
 type SafeValueResult = { success: true; value: unknown } | { success: false };
 
-type SupportedSchemaDialect = 'draft-07' | '2019-09' | '2020-12';
+type SupportedSchemaDialect = "draft-07" | "2019-09" | "2020-12";
 
 const COMMON_SINGLE_SUBSCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
-  'additionalProperties',
-  'contains',
-  'else',
-  'if',
-  'not',
-  'propertyNames',
-  'then',
+  "additionalProperties",
+  "contains",
+  "else",
+  "if",
+  "not",
+  "propertyNames",
+  "then",
 ]);
 
 const COMMON_SUBSCHEMA_ARRAY_KEYWORDS: ReadonlySet<string> = new Set([
-  'allOf',
-  'anyOf',
-  'oneOf',
+  "allOf",
+  "anyOf",
+  "oneOf",
 ]);
 
 const COMMON_SUBSCHEMA_MAP_KEYWORDS: ReadonlySet<string> = new Set([
-  'definitions',
-  'patternProperties',
-  'properties',
+  "definitions",
+  "patternProperties",
+  "properties",
 ]);
 
 const MODERN_SINGLE_SUBSCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
-  'contentSchema',
-  'unevaluatedItems',
-  'unevaluatedProperties',
+  "contentSchema",
+  "unevaluatedItems",
+  "unevaluatedProperties",
 ]);
 
 const MODERN_SUBSCHEMA_MAP_KEYWORDS: ReadonlySet<string> = new Set([
-  '$defs',
-  'dependentSchemas',
+  "$defs",
+  "dependentSchemas",
 ]);
 
 function resolveSupportedSchemaDialect(
   schema: JsonSchemaDocument,
 ): SupportedSchemaDialect | undefined {
   const declared = schema.$schema;
-  if (!isString(declared)) return 'draft-07';
-  const normalized = declared.endsWith('#') ? declared.slice(0, -1) : declared;
+  if (!isString(declared)) return "draft-07";
+  const normalized = declared.endsWith("#") ? declared.slice(0, -1) : declared;
   switch (normalized) {
-    case 'http://json-schema.org/draft-07/schema':
-    case 'https://json-schema.org/draft-07/schema':
-      return 'draft-07';
-    case 'https://json-schema.org/draft/2019-09/schema':
-      return '2019-09';
-    case 'https://json-schema.org/draft/2020-12/schema':
-      return '2020-12';
+    case "http://json-schema.org/draft-07/schema":
+    case "https://json-schema.org/draft-07/schema":
+      return "draft-07";
+    case "https://json-schema.org/draft/2019-09/schema":
+      return "2019-09";
+    case "https://json-schema.org/draft/2020-12/schema":
+      return "2020-12";
     default:
       return undefined;
   }
@@ -223,24 +223,24 @@ function safeSchemaKeywordValue(
   if (COMMON_SUBSCHEMA_MAP_KEYWORDS.has(key)) {
     return safeSubschemaMap(item, dialect, protectedValues);
   }
-  if (key === 'dependencies') {
+  if (key === "dependencies") {
     return safeDependencies(item, dialect, protectedValues);
   }
-  if (key === 'items') {
-    return Array.isArray(item) && dialect !== '2020-12'
+  if (key === "items") {
+    return Array.isArray(item) && dialect !== "2020-12"
       ? safeSubschemaArray(item, dialect, protectedValues)
       : safeSchemaNode(item, dialect, protectedValues);
   }
-  if (key === 'additionalItems' && dialect !== '2020-12') {
+  if (key === "additionalItems" && dialect !== "2020-12") {
     return safeSchemaNode(item, dialect, protectedValues);
   }
-  if (dialect !== 'draft-07' && MODERN_SINGLE_SUBSCHEMA_KEYWORDS.has(key)) {
+  if (dialect !== "draft-07" && MODERN_SINGLE_SUBSCHEMA_KEYWORDS.has(key)) {
     return safeSchemaNode(item, dialect, protectedValues);
   }
-  if (dialect !== 'draft-07' && MODERN_SUBSCHEMA_MAP_KEYWORDS.has(key)) {
+  if (dialect !== "draft-07" && MODERN_SUBSCHEMA_MAP_KEYWORDS.has(key)) {
     return safeSubschemaMap(item, dialect, protectedValues);
   }
-  if (dialect === '2020-12' && key === 'prefixItems') {
+  if (dialect === "2020-12" && key === "prefixItems") {
     return safeSubschemaArray(item, dialect, protectedValues);
   }
   return safeInstanceValue(item, protectedValues);
@@ -258,7 +258,7 @@ function safeSchemaNode(
     if (containsProtectedValueJson(key, protectedValues)) {
       return { success: false };
     }
-    if (key === 'description' && isString(item)) {
+    if (key === "description" && isString(item)) {
       safeEntries.push([key, sanitizeDescription(item, protectedValues)]);
       continue;
     }
@@ -311,19 +311,19 @@ function admitDefinitionIdentity(
       !isString(definition.description)) ||
     !isRecord(definition.inputSchema)
   ) {
-    return { success: false, reason: 'invalid_declaration' };
+    return { success: false, reason: "invalid_declaration" };
   }
   assertActive?.();
   if (containsProtectedValueJson(definition.name, protectedValues)) {
-    return { success: false, reason: 'protected_value' };
+    return { success: false, reason: "protected_value" };
   }
 
   const toolId = createMcpToolId(serverId, definition.name);
   if (!toolId.success) {
-    return { success: false, reason: 'invalid_tool_id' };
+    return { success: false, reason: "invalid_tool_id" };
   }
   if (containsProtectedValueJson(toolId.id, protectedValues)) {
-    return { success: false, reason: 'protected_value' };
+    return { success: false, reason: "protected_value" };
   }
   assertActive?.();
   return {
@@ -357,7 +357,7 @@ async function admitDefinitionSchema(
       : safeSchemaNode(inputSchema, dialect, protectedValues);
   assertActive?.();
   if (!safeSchema.success || !isRecord(safeSchema.value)) {
-    return { success: false, reason: 'protected_value' };
+    return { success: false, reason: "protected_value" };
   }
   assertActive?.();
   const schemaAdmission = await admitToolInputSchema(safeSchema.value);
@@ -436,7 +436,7 @@ async function admitOneMcpToolDefinition(
     id: identity.toolId,
     remoteName: identity.name,
     description: sanitizeDescription(
-      identity.description ?? '',
+      identity.description ?? "",
       protectedValues,
     ),
     inputSchema: schemaAdmission.inputSchema,
@@ -473,7 +473,7 @@ function resolveNameCollisions(
   for (const [provisionalIndex, { index, tool }] of provisional.entries()) {
     assertActive?.();
     if (collisionIndexes.has(provisionalIndex)) {
-      refused.push({ index, id: tool.id, reason: 'name_collision' });
+      refused.push({ index, id: tool.id, reason: "name_collision" });
     } else {
       admitted.push(tool);
     }

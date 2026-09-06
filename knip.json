@@ -52,6 +52,14 @@
       "entry": ["src/index.ts", "src/**/*.test.ts"],
       "project": ["src/**/*.ts"]
     },
+    "packages/tool-runtime": {
+      "entry": [
+        "src/index.ts",
+        "src/**/*.test.ts",
+        "src/mcp-stdio-test-fixture.mjs"
+      ],
+      "project": ["src/**/*.ts", "src/**/*.mjs"]
+    },
     "packages/oxlint-plugin-anti-slop": {
       "entry": ["rules/**/*.test.ts"],
       "project": ["**/*.ts", "**/*.mjs"],

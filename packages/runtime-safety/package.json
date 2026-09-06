@@ -4,7 +4,8 @@
   "private": true,
   "description": "Shared secret redaction, structured tool-result bounds and Unicode-safe clipping for llame runtimes.",
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/index.js",
+    "./authored-text": "./src/authored-text.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

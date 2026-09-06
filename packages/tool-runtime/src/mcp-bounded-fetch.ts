@@ -1,16 +1,16 @@
-import { isRecord, isString } from '@workspace/runtime-safety';
+import { isRecord, isString } from "@workspace/runtime-safety";
 
 export class McpBodyLimitError extends Error {
   constructor(limit: number) {
     super(`MCP response exceeded the ${limit}-byte transport limit.`);
-    this.name = 'McpBodyLimitError';
+    this.name = "McpBodyLimitError";
   }
 }
 
 export class McpRequestLimitError extends Error {
   constructor() {
-    super('MCP request exceeded the transport limit.');
-    this.name = 'McpRequestLimitError';
+    super("MCP request exceeded the transport limit.");
+    this.name = "McpRequestLimitError";
   }
 }
 
@@ -29,7 +29,7 @@ function requestContext(
   init: RequestInit | undefined,
 ): McpFetchRequestContext {
   const httpMethod = (
-    init?.method ?? (request instanceof Request ? request.method : 'GET')
+    init?.method ?? (request instanceof Request ? request.method : "GET")
   ).toUpperCase();
   if (!isString(init?.body)) {
     return { httpMethod, rpcMethod: null };
@@ -41,7 +41,7 @@ function requestContext(
     if (!isRecord(body)) {
       return { httpMethod, rpcMethod: null };
     }
-    const method = body['method'];
+    const method = body["method"];
     return {
       httpMethod,
       rpcMethod: isString(method) ? method : null,
@@ -178,7 +178,7 @@ async function rejectIfContentLengthExceeds(
   isEventStream: boolean | undefined,
   maxResponseBytes: number,
 ): Promise<void> {
-  const contentLength = response.headers.get('content-length');
+  const contentLength = response.headers.get("content-length");
   if (
     isEventStream ||
     contentLength === null ||
@@ -207,17 +207,17 @@ export function createMcpBoundedFetch(input: {
 
     const response = await input.fetch(request, {
       ...init,
-      redirect: 'error',
+      redirect: "error",
     });
-    const sessionId = response.headers.get('mcp-session-id');
+    const sessionId = response.headers.get("mcp-session-id");
     if (sessionId) input.onSessionId?.(sessionId);
 
     const isEventStream =
       response.ok &&
       response.headers
-        .get('content-type')
+        .get("content-type")
         ?.toLowerCase()
-        .startsWith('text/event-stream');
+        .startsWith("text/event-stream");
     await rejectIfContentLengthExceeds(
       response,
       isEventStream,

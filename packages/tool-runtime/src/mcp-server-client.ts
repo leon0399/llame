@@ -2,9 +2,9 @@ import {
   createMCPClient,
   type ListToolsResult,
   type MCPClient,
-} from '@ai-sdk/mcp';
+} from "@ai-sdk/mcp";
 
-import { type ToolResult } from '../tools/types';
+import { type ToolResult } from "@workspace/runtime-safety";
 import {
   containsProtectedValueJson,
   isNumber,
@@ -13,32 +13,32 @@ import {
   normalizeProtectedValues,
   sanitizeProtectedValueJson,
   type UnknownRecord,
-} from '@workspace/runtime-safety';
+} from "@workspace/runtime-safety";
 import {
   admitMcpToolDefinitions,
   type AdmittedMcpToolDefinition,
   type McpDeclarationAdmissionResult,
   type McpDeclarationRefusalReason,
-} from './declaration-admission';
+} from "./declaration-admission";
 import {
   McpBodyLimitError,
   McpRequestLimitError,
   createMcpBoundedFetch,
-} from './mcp-bounded-fetch';
+} from "./mcp-bounded-fetch";
 import {
   classifyMcpFailure,
   type McpFailureDisposition,
   type McpFailureKind,
   type McpFailureStage,
-} from './mcp-failure-policy';
+} from "./mcp-failure-policy";
 
 import {
   type BoundedStdioTransport,
   DiagnosticBuffer,
   createStdioTransport,
   type McpStdioTransportConfig,
-} from './mcp-stdio-transport';
-import { createMcpToolId } from './tool-id';
+} from "./mcp-stdio-transport";
+import { createMcpToolId } from "./tool-id";
 
 const ONE_MIB = 1024 * 1024;
 const MAX_TOOLS_PER_PAGE = 256;
@@ -52,37 +52,37 @@ const MAX_DISCOVERY_RESPONSE_BYTES = 8 * ONE_MIB;
 const MAX_RETAINED_CATALOG_BYTES = 4 * ONE_MIB;
 
 export type McpDiscoveryLimit =
-  | 'deadline'
-  | 'response_bytes'
-  | 'tools_per_page'
-  | 'tools_total'
-  | 'retained_catalog_bytes'
-  | 'pages'
-  | 'repeated_cursor';
+  | "deadline"
+  | "response_bytes"
+  | "tools_per_page"
+  | "tools_total"
+  | "retained_catalog_bytes"
+  | "pages"
+  | "repeated_cursor";
 
 export class McpDiscoveryLimitError extends Error {
-  readonly disposition = 'reconnect' as const;
-  readonly stage = 'discovery' as const;
+  readonly disposition = "reconnect" as const;
+  readonly stage = "discovery" as const;
 
   constructor(readonly limit: McpDiscoveryLimit) {
-    super('MCP discovery exceeded a fixed resource limit.');
-    this.name = 'McpDiscoveryLimitError';
+    super("MCP discovery exceeded a fixed resource limit.");
+    this.name = "McpDiscoveryLimitError";
   }
 }
 
 export const MCP_SERVER_CLIENT_PROTOCOL_VERSIONS = [
-  '2025-03-26',
-  '2025-06-18',
-  '2025-11-25',
+  "2025-03-26",
+  "2025-06-18",
+  "2025-11-25",
 ] as const;
 
 export class McpProtocolUnsupportedError extends Error {
-  readonly disposition = 'reconnect' as const;
-  readonly stage = 'initialize' as const;
+  readonly disposition = "reconnect" as const;
+  readonly stage = "initialize" as const;
 
   constructor() {
-    super('The MCP server negotiated an unsupported protocol version.');
-    this.name = 'McpProtocolUnsupportedError';
+    super("The MCP server negotiated an unsupported protocol version.");
+    this.name = "McpProtocolUnsupportedError";
   }
 }
 
@@ -94,17 +94,17 @@ export class McpServerOperationError extends Error {
     readonly kind: McpFailureKind,
   ) {
     super(`MCP ${stage} failed.`);
-    this.name = 'McpServerOperationError';
+    this.name = "McpServerOperationError";
     this.disposition = classifyMcpFailure({ stage, kind });
   }
 }
 
-type PackageTool = ReturnType<MCPClient['toolsFromDefinitions']>[string];
-type PackageToolExecutor = NonNullable<PackageTool['execute']>;
+type PackageTool = ReturnType<MCPClient["toolsFromDefinitions"]>[string];
+type PackageToolExecutor = NonNullable<PackageTool["execute"]>;
 export type McpToolExecutionOptions = Parameters<PackageToolExecutor>[1];
 
 export type McpCallOutcome = {
-  readonly disposition: 'none' | 'call_local' | 'reconnect';
+  readonly disposition: "none" | "call_local" | "reconnect";
   readonly result: ToolResult;
 };
 
@@ -126,8 +126,8 @@ export type McpDiscoveryResult = {
     readonly id?: string;
     readonly reason:
       | McpDeclarationRefusalReason
-      | 'declaration_too_large'
-      | 'schema_too_deep';
+      | "declaration_too_large"
+      | "schema_too_deep";
   }>;
 };
 
@@ -171,15 +171,15 @@ type DisconnectState = {
 
 class McpSessionChangedError extends Error {
   constructor() {
-    super('The MCP server changed its active session id.');
-    this.name = 'McpSessionChangedError';
+    super("The MCP server changed its active session id.");
+    this.name = "McpSessionChangedError";
   }
 }
 
 class McpMatchingResponseError extends Error {
   constructor() {
-    super('The MCP server did not return the matching response.');
-    this.name = 'McpMatchingResponseError';
+    super("The MCP server did not return the matching response.");
+    this.name = "McpMatchingResponseError";
   }
 }
 
@@ -195,8 +195,8 @@ function rpcRequest(init: RequestInit | undefined): RpcRequestSummary {
     // check below rather than silently inheriting any.
     const body = JSON.parse(init.body) as unknown;
     if (!isRecord(body)) return {};
-    const method = body['method'];
-    const id = body['id'];
+    const method = body["method"];
+    const id = body["id"];
     const summary: RpcRequestSummary = {};
     if (isString(method)) summary.method = method;
     if (isString(id) || isNumber(id)) summary.id = id;
@@ -214,7 +214,7 @@ function serializedBytes(value: unknown): number {
 function assertDiscoveryActive(signal: AbortSignal, startedAt: number): void {
   signal.throwIfAborted();
   if (performance.now() - startedAt >= DISCOVERY_DEADLINE_MS) {
-    throw new McpDiscoveryLimitError('deadline');
+    throw new McpDiscoveryLimitError("deadline");
   }
 }
 
@@ -273,7 +273,7 @@ function findCause<T>(
   for (let depth = 0; depth < 8 && !seen.has(candidate); depth += 1) {
     if (predicate(candidate)) return candidate;
     seen.add(candidate);
-    candidate = errorRecord(candidate)?.['cause'];
+    candidate = errorRecord(candidate)?.["cause"];
   }
   return undefined;
 }
@@ -289,7 +289,7 @@ const FAILURE_CAUSE_CLASSIFICATION_RULES: ReadonlyArray<{
   readonly matchesCause: (error: unknown) => boolean;
 }> = [
   {
-    kind: 'body_limit',
+    kind: "body_limit",
     matchesCause: (error) =>
       findCause(
         error,
@@ -298,7 +298,7 @@ const FAILURE_CAUSE_CLASSIFICATION_RULES: ReadonlyArray<{
       ) !== undefined,
   },
   {
-    kind: 'malformed_protocol',
+    kind: "malformed_protocol",
     matchesCause: (error) =>
       findCause(
         error,
@@ -307,7 +307,7 @@ const FAILURE_CAUSE_CLASSIFICATION_RULES: ReadonlyArray<{
       ) !== undefined,
   },
   {
-    kind: 'malformed_protocol',
+    kind: "malformed_protocol",
     matchesCause: (error) =>
       findCause(
         error,
@@ -319,34 +319,34 @@ const FAILURE_CAUSE_CLASSIFICATION_RULES: ReadonlyArray<{
       ) !== undefined,
   },
   {
-    kind: 'http',
+    kind: "http",
     matchesCause: (error) => failureHttpStatus(error) !== undefined,
   },
   {
-    kind: 'invalid_output',
+    kind: "invalid_output",
     matchesCause: (error) =>
       findCause(
         error,
         (candidate): candidate is UnknownRecord =>
-          errorRecord(candidate)?.['name'] === 'ZodError',
+          errorRecord(candidate)?.["name"] === "ZodError",
       ) !== undefined,
   },
   {
-    kind: 'malformed_protocol',
+    kind: "malformed_protocol",
     matchesCause: (error) =>
       findCause(
         error,
         (candidate): candidate is UnknownRecord =>
-          errorRecord(candidate)?.['name'] === 'SyntaxError',
+          errorRecord(candidate)?.["name"] === "SyntaxError",
       ) !== undefined,
   },
   {
-    kind: 'tool_error',
+    kind: "tool_error",
     matchesCause: (error) =>
       findCause(
         error,
         (candidate): candidate is UnknownRecord =>
-          typeof errorRecord(candidate)?.['code'] === 'number',
+          typeof errorRecord(candidate)?.["code"] === "number",
       ) !== undefined,
   },
 ];
@@ -357,64 +357,64 @@ function failureKind(
 ): McpFailureKind {
   if (callerSignal?.aborted) {
     const reason = errorRecord(callerSignal.reason);
-    return reason?.['name'] === 'TimeoutError' ? 'timeout' : 'cancelled';
+    return reason?.["name"] === "TimeoutError" ? "timeout" : "cancelled";
   }
   const rule = FAILURE_CAUSE_CLASSIFICATION_RULES.find((candidate) =>
     candidate.matchesCause(error),
   );
-  return rule?.kind ?? 'network';
+  return rule?.kind ?? "network";
 }
 
 function failureHttpStatus(error: unknown): number | undefined {
   const failure = findCause(
     error,
     (candidate): candidate is UnknownRecord =>
-      typeof errorRecord(candidate)?.['statusCode'] === 'number',
+      typeof errorRecord(candidate)?.["statusCode"] === "number",
   );
-  const status = failure?.['statusCode'];
+  const status = failure?.["statusCode"];
   return isNumber(status) ? status : undefined;
 }
 
 function safeOperationError(
-  stage: Exclude<McpFailureStage, 'call'>,
+  stage: Exclude<McpFailureStage, "call">,
   error: unknown,
   callerSignal?: AbortSignal,
 ): McpServerOperationError {
   const kind = failureKind(error, callerSignal);
   return new McpServerOperationError(
     stage,
-    kind === 'tool_error' || kind === 'is_error' || kind === 'invalid_output'
-      ? 'malformed_protocol'
+    kind === "tool_error" || kind === "is_error" || kind === "invalid_output"
+      ? "malformed_protocol"
       : kind,
   );
 }
 
 function safeFailureResult(kind: McpFailureKind): ToolResult {
   switch (kind) {
-    case 'cancelled':
+    case "cancelled":
       return {
-        status: 'error',
-        type: 'cancelled',
-        message: 'The remote tool call was cancelled.',
+        status: "error",
+        type: "cancelled",
+        message: "The remote tool call was cancelled.",
       };
-    case 'timeout':
+    case "timeout":
       return {
-        status: 'error',
-        type: 'timeout',
-        message: 'The remote tool call timed out.',
+        status: "error",
+        type: "timeout",
+        message: "The remote tool call timed out.",
       };
-    case 'tool_error':
-    case 'is_error':
+    case "tool_error":
+    case "is_error":
       return {
-        status: 'error',
-        type: 'remote_error',
-        message: 'The remote tool reported an error.',
+        status: "error",
+        type: "remote_error",
+        message: "The remote tool reported an error.",
       };
     default:
       return {
-        status: 'error',
-        type: 'execution_failed',
-        message: 'The remote tool failed to execute.',
+        status: "error",
+        type: "execution_failed",
+        message: "The remote tool failed to execute.",
       };
   }
 }
@@ -423,8 +423,8 @@ function safeFailureResult(kind: McpFailureKind): ToolResult {
 function hasPortableMcpResultPayload(value: unknown): boolean {
   return (
     isRecord(value) &&
-    (Array.isArray(value['content']) ||
-      (Object.hasOwn(value, 'toolResult') && value['toolResult'] !== undefined))
+    (Array.isArray(value["content"]) ||
+      (Object.hasOwn(value, "toolResult") && value["toolResult"] !== undefined))
   );
 }
 
@@ -438,14 +438,14 @@ function hasProtectedKeyInErrorData(
     seen.add(candidate);
     const record = errorRecord(candidate);
     if (record === undefined) return false;
-    if (Object.hasOwn(record, 'data')) {
+    if (Object.hasOwn(record, "data")) {
       const sanitized = sanitizeProtectedValueJson(
-        record['data'],
+        record["data"],
         protectedValues,
       );
       if (!sanitized.success) return true;
     }
-    candidate = record['cause'];
+    candidate = record["cause"];
   }
   return false;
 }
@@ -459,15 +459,15 @@ function matchingRpcResponse(
   return messages.find(
     (message): message is UnknownRecord =>
       isRecord(message) &&
-      message['id'] === requestId &&
-      (Object.hasOwn(message, 'result') || Object.hasOwn(message, 'error')),
+      message["id"] === requestId &&
+      (Object.hasOwn(message, "result") || Object.hasOwn(message, "error")),
   );
 }
 
 function assertSupportedInitializeResponse(message: UnknownRecord): void {
-  const result = message['result'];
+  const result = message["result"];
   if (!isRecord(result)) return;
-  const protocolVersion = result['protocolVersion'];
+  const protocolVersion = result["protocolVersion"];
   if (
     isString(protocolVersion) &&
     !isSupportedMcpProtocolVersion(protocolVersion)
@@ -481,9 +481,9 @@ function jsonResponse(
   message: UnknownRecord | null,
 ): Response {
   const headers = new Headers(response.headers);
-  headers.set('content-type', 'application/json');
-  headers.delete('content-encoding');
-  headers.delete('content-length');
+  headers.set("content-type", "application/json");
+  headers.delete("content-encoding");
+  headers.delete("content-length");
   return new Response(JSON.stringify(message), {
     status: response.status,
     statusText: response.statusText,
@@ -539,16 +539,16 @@ function sseData(event: string): string | undefined {
   const data: Array<string> = [];
   let eventType: string | undefined;
   for (const line of event.split(/\r\n|\r|\n/u)) {
-    if (line.startsWith(':')) continue;
-    const separator = line.indexOf(':');
+    if (line.startsWith(":")) continue;
+    const separator = line.indexOf(":");
     const field = separator === -1 ? line : line.slice(0, separator);
-    const rawValue = separator === -1 ? '' : line.slice(separator + 1);
-    const value = rawValue.startsWith(' ') ? rawValue.slice(1) : rawValue;
-    if (field === 'event') eventType = value.length === 0 ? undefined : value;
-    if (field === 'data') data.push(value);
+    const rawValue = separator === -1 ? "" : line.slice(separator + 1);
+    const value = rawValue.startsWith(" ") ? rawValue.slice(1) : rawValue;
+    if (field === "event") eventType = value.length === 0 ? undefined : value;
+    if (field === "data") data.push(value);
   }
-  if (eventType !== undefined && eventType !== 'message') return undefined;
-  return data.length === 0 ? undefined : data.join('\n');
+  if (eventType !== undefined && eventType !== "message") return undefined;
+  return data.length === 0 ? undefined : data.join("\n");
 }
 
 function sseEventBoundary(
@@ -558,12 +558,12 @@ function sseEventBoundary(
   let cursor = 0;
   while (cursor < input.length) {
     const character = input[cursor];
-    if (character !== '\r' && character !== '\n') {
+    if (character !== "\r" && character !== "\n") {
       cursor += 1;
       continue;
     }
     const terminatorLength =
-      character === '\r' && input[cursor + 1] === '\n' ? 2 : 1;
+      character === "\r" && input[cursor + 1] === "\n" ? 2 : 1;
     if (cursor === lineStart) {
       return { eventEnd: lineStart, consumed: cursor + terminatorLength };
     }
@@ -609,7 +609,7 @@ async function readMatchingSseResponse(
 ): Promise<UnknownRecord> {
   if (response.body === null) throw new McpMatchingResponseError();
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-  let pending = '';
+  let pending = "";
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -725,7 +725,7 @@ function withCloseAbortSignal(
   init: RequestInit | undefined,
   closeController: AbortController,
 ): RequestInit | undefined {
-  if (init?.method !== 'DELETE') return init;
+  if (init?.method !== "DELETE") return init;
   return {
     ...init,
     signal:
@@ -743,11 +743,11 @@ function handleGetProtocolResponse(
   notifyDisconnect: () => void,
 ): Response {
   if (response.status === 405) return response;
-  const contentType = response.headers.get('content-type')?.toLowerCase();
+  const contentType = response.headers.get("content-type")?.toLowerCase();
   if (
     !response.ok ||
     response.body === null ||
-    contentType?.includes('text/event-stream') !== true
+    contentType?.includes("text/event-stream") !== true
   ) {
     notifyDisconnect();
     return response;
@@ -764,10 +764,10 @@ async function normalizeRpcResponse(
   init: RequestInit | undefined,
 ): Promise<Response> {
   const rpc = rpcRequest(init);
-  const contentType = response.headers.get('content-type')?.toLowerCase();
+  const contentType = response.headers.get("content-type")?.toLowerCase();
   if (
-    init?.method?.toUpperCase() === 'POST' &&
-    contentType?.includes('text/event-stream') === true
+    init?.method?.toUpperCase() === "POST" &&
+    contentType?.includes("text/event-stream") === true
   ) {
     if (rpc.id === undefined) {
       await response.body?.cancel().catch(() => undefined);
@@ -776,17 +776,17 @@ async function normalizeRpcResponse(
     return normalizePostSseResponse(
       response,
       rpc.id,
-      rpc.method === 'initialize',
+      rpc.method === "initialize",
     );
   }
   if (
     rpc.id !== undefined &&
-    contentType?.includes('application/json') === true
+    contentType?.includes("application/json") === true
   ) {
     return normalizeJsonRpcResponse(
       response,
       rpc.id,
-      rpc.method === 'initialize',
+      rpc.method === "initialize",
     );
   }
   return response;
@@ -812,20 +812,20 @@ function createProtocolGuardedFetch(
     try {
       response = await boundedFetch(request, boundedInit);
     } catch (error) {
-      if (method === 'GET') notifyDisconnect();
+      if (method === "GET") notifyDisconnect();
       throw error;
     }
-    const sessionId = response.headers.get('mcp-session-id');
+    const sessionId = response.headers.get("mcp-session-id");
     if (sessionId !== null && sessionId.length > 0) {
       if (protectedValueState.sessionId === undefined) {
         protectedValueState.sessionId = sessionId;
       } else if (protectedValueState.sessionId !== sessionId) {
-        if (method === 'GET') notifyDisconnect();
+        if (method === "GET") notifyDisconnect();
         await response.body?.cancel().catch(() => undefined);
         throw new McpSessionChangedError();
       }
     }
-    if (method === 'GET')
+    if (method === "GET")
       return handleGetProtocolResponse(response, notifyDisconnect);
     if (!response.ok) return response;
     return normalizeRpcResponse(response, init);
@@ -848,7 +848,7 @@ function resolveTransportHeaders(config: McpServerClientConfig) {
     ]);
     return { transportHeaders, configuredProtectedValues };
   } catch (error) {
-    throw safeOperationError('initialize', error);
+    throw safeOperationError("initialize", error);
   }
 }
 
@@ -866,10 +866,10 @@ function createDiscoveryBoundedFetch(
     maxResponseBytes: ONE_MIB,
     onBytes: (count, request) => {
       const active = discoveryByteState.active;
-      if (active === undefined || request.rpcMethod !== 'tools/list') return;
+      if (active === undefined || request.rpcMethod !== "tools/list") return;
       active.bytes += count;
       if (active.bytes > MAX_DISCOVERY_RESPONSE_BYTES) {
-        throw new McpDiscoveryLimitError('response_bytes');
+        throw new McpDiscoveryLimitError("response_bytes");
       }
     },
   });
@@ -893,10 +893,10 @@ function findUnsupportedProtocolCause(
  * else goes through the general classifier.
  */
 async function createMcpClientOrThrow(
-  httpTransport: Parameters<typeof createMCPClient>[0]['transport'],
+  httpTransport: Parameters<typeof createMCPClient>[0]["transport"],
   connectionState: Pick<
     ConnectionState,
-    'initializationSignal' | 'deadlineController' | 'deadlineTimer'
+    "initializationSignal" | "deadlineController" | "deadlineTimer"
   >,
   callerSignal: AbortSignal | undefined,
 ): Promise<MCPClient> {
@@ -913,7 +913,7 @@ async function createMcpClientOrThrow(
     const unsupportedProtocol = findUnsupportedProtocolCause(error);
     if (unsupportedProtocol !== undefined) throw unsupportedProtocol;
     if (deadlineController.signal.aborted) {
-      throw new McpServerOperationError('initialize', 'timeout');
+      throw new McpServerOperationError("initialize", "timeout");
     }
     const trustedError: unknown = error;
     const trustedUnsupportedProtocol =
@@ -921,7 +921,7 @@ async function createMcpClientOrThrow(
     if (trustedUnsupportedProtocol !== undefined) {
       throw trustedUnsupportedProtocol;
     }
-    throw safeOperationError('initialize', trustedError, callerSignal);
+    throw safeOperationError("initialize", trustedError, callerSignal);
   } finally {
     clearTimeout(deadlineTimer);
   }
@@ -939,7 +939,7 @@ async function createStdioMcpClientOrThrow(
   diagnostics: DiagnosticBuffer,
   connectionState: Pick<
     ConnectionState,
-    'initializationSignal' | 'deadlineController' | 'deadlineTimer'
+    "initializationSignal" | "deadlineController" | "deadlineTimer"
   >,
   callerSignal: AbortSignal | undefined,
 ): Promise<MCPClient> {
@@ -956,9 +956,9 @@ async function createStdioMcpClientOrThrow(
     diagnostics.flush();
     await transport.close().catch(() => undefined);
     if (deadlineController.signal.aborted) {
-      throw new McpServerOperationError('initialize', 'timeout');
+      throw new McpServerOperationError("initialize", "timeout");
     }
-    throw safeOperationError('initialize', error, callerSignal);
+    throw safeOperationError("initialize", error, callerSignal);
   } finally {
     clearTimeout(deadlineTimer);
   }
@@ -996,10 +996,10 @@ export class McpServerClient {
     private readonly configuredProtectedValues: ReadonlyArray<string>,
     connectionState: Pick<
       ConnectionState,
-      | 'protectedValueState'
-      | 'discoveryByteState'
-      | 'disconnectState'
-      | 'closeController'
+      | "protectedValueState"
+      | "discoveryByteState"
+      | "disconnectState"
+      | "closeController"
     >,
     private readonly client: MCPClient,
   ) {
@@ -1045,10 +1045,10 @@ export class McpServerClient {
       protectedValueState,
       state.notifyDisconnect,
     );
-    const httpTransport: Parameters<typeof createMCPClient>[0]['transport'] = {
-      type: 'http',
+    const httpTransport: Parameters<typeof createMCPClient>[0]["transport"] = {
+      type: "http",
       url: config.url,
-      redirect: 'error',
+      redirect: "error",
       fetch: protocolGuardedFetch,
     };
     if (transportHeaders !== undefined)
@@ -1094,7 +1094,7 @@ export class McpServerClient {
       configuredProtectedValues,
       (text) => config.onDiagnostic?.(text),
     );
-    transport.stderr?.on('data', (chunk: Buffer) => diagnostics.append(chunk));
+    transport.stderr?.on("data", (chunk: Buffer) => diagnostics.append(chunk));
 
     const client = await createStdioMcpClientOrThrow(
       transport,
@@ -1128,12 +1128,12 @@ export class McpServerClient {
     options: { readonly signal?: AbortSignal } = {},
   ): Promise<McpDiscoveryResult> {
     if (this.discoveryByteState.active !== undefined) {
-      throw new Error('MCP discovery is already in progress.');
+      throw new Error("MCP discovery is already in progress.");
     }
     const byteBudget = { bytes: 0 };
     const startedAt = performance.now();
     const deadlineController = new AbortController();
-    const deadlineError = new McpDiscoveryLimitError('deadline');
+    const deadlineError = new McpDiscoveryLimitError("deadline");
     const deadlineTimer = setTimeout(
       () => deadlineController.abort(deadlineError),
       DISCOVERY_DEADLINE_MS,
@@ -1154,7 +1154,7 @@ export class McpServerClient {
           candidate instanceof McpDiscoveryLimitError,
       );
       if (limitError !== undefined) throw limitError;
-      throw safeOperationError('discovery', trustedError, options.signal);
+      throw safeOperationError("discovery", trustedError, options.signal);
     } finally {
       clearTimeout(deadlineTimer);
       if (this.discoveryByteState.active === byteBudget) {
@@ -1178,34 +1178,34 @@ export class McpServerClient {
   private async fetchAllToolPages(
     signal: AbortSignal,
     startedAt: number,
-  ): Promise<ListToolsResult['tools']> {
-    const rawTools: ListToolsResult['tools'] = [];
+  ): Promise<ListToolsResult["tools"]> {
+    const rawTools: ListToolsResult["tools"] = [];
     const seenCursors = new Set<string>();
     let pageCount = 0;
     let cursor: string | undefined;
     do {
       assertDiscoveryActive(signal, startedAt);
       if (pageCount >= MAX_DISCOVERY_PAGES) {
-        throw new McpDiscoveryLimitError('pages');
+        throw new McpDiscoveryLimitError("pages");
       }
       pageCount += 1;
-      const listToolsOptions: Parameters<MCPClient['listTools']>[0] = {
+      const listToolsOptions: Parameters<MCPClient["listTools"]>[0] = {
         options: { signal },
       };
       if (cursor !== undefined) listToolsOptions.params = { cursor };
       const page = await this.client.listTools(listToolsOptions);
       assertDiscoveryActive(signal, startedAt);
       if (page.tools.length > MAX_TOOLS_PER_PAGE) {
-        throw new McpDiscoveryLimitError('tools_per_page');
+        throw new McpDiscoveryLimitError("tools_per_page");
       }
       if (rawTools.length + page.tools.length > MAX_TOOLS_TOTAL) {
-        throw new McpDiscoveryLimitError('tools_total');
+        throw new McpDiscoveryLimitError("tools_total");
       }
       rawTools.push(...page.tools);
       cursor = page.nextCursor;
       if (cursor !== undefined) {
         if (seenCursors.has(cursor)) {
-          throw new McpDiscoveryLimitError('repeated_cursor');
+          throw new McpDiscoveryLimitError("repeated_cursor");
         }
         seenCursors.add(cursor);
       }
@@ -1215,14 +1215,14 @@ export class McpServerClient {
   }
 
   private boundToolsBySize(
-    rawTools: ListToolsResult['tools'],
+    rawTools: ListToolsResult["tools"],
     protectedValues: ReadonlyArray<string>,
     attempt: DiscoveryAttempt,
   ) {
     const { signal, startedAt } = attempt;
-    const boundedTools: ListToolsResult['tools'] = [];
+    const boundedTools: ListToolsResult["tools"] = [];
     const originalIndexes: Array<number> = [];
-    const refused: Array<McpDiscoveryResult['refused'][number]> = [];
+    const refused: Array<McpDiscoveryResult["refused"][number]> = [];
     assertDiscoveryActive(signal, startedAt);
     for (const [index, rawTool] of rawTools.entries()) {
       assertDiscoveryActive(signal, startedAt);
@@ -1234,13 +1234,13 @@ export class McpServerClient {
       if (serializedBytes(rawTool) > MAX_DECLARATION_BYTES) {
         refused.push({
           index,
-          reason: 'declaration_too_large',
+          reason: "declaration_too_large",
           ...(id !== undefined && { id }),
         });
       } else if (exceedsDepth(rawTool.inputSchema, MAX_SCHEMA_DEPTH)) {
         refused.push({
           index,
-          reason: 'schema_too_deep',
+          reason: "schema_too_deep",
           ...(id !== undefined && { id }),
         });
       } else {
@@ -1252,7 +1252,7 @@ export class McpServerClient {
   }
 
   private async admitBoundedTools(
-    boundedTools: ListToolsResult['tools'],
+    boundedTools: ListToolsResult["tools"],
     protectedValues: ReadonlyArray<string>,
     originalIndexes: Array<number>,
     attempt: DiscoveryAttempt,
@@ -1276,7 +1276,7 @@ export class McpServerClient {
       assertDiscoveryActive(signal, startedAt);
       retainedCatalogBytes += serializedBytes(definition);
       if (retainedCatalogBytes > MAX_RETAINED_CATALOG_BYTES) {
-        throw new McpDiscoveryLimitError('retained_catalog_bytes');
+        throw new McpDiscoveryLimitError("retained_catalog_bytes");
       }
     }
     assertDiscoveryActive(signal, startedAt);
@@ -1288,17 +1288,17 @@ export class McpServerClient {
    *  `admitMcpToolDefinitions` refuses anything else invalid; otherwise it's
    *  a tool, wrapped through this server's own executor guard. */
   private admitExecutableEntry(
-    packageTools: ReturnType<MCPClient['toolsFromDefinitions']>,
+    packageTools: ReturnType<MCPClient["toolsFromDefinitions"]>,
     admission: McpDeclarationAdmissionResult,
     originalIndexes: Array<number>,
     entry: { readonly admittedIndex: number; readonly boundedIndex: number },
   ):
     | { readonly tool: McpDiscoveredTool }
-    | { readonly refusal: McpDiscoveryResult['refused'][number] } {
+    | { readonly refusal: McpDiscoveryResult["refused"][number] } {
     const { admittedIndex, boundedIndex } = entry;
     const definition = admission.admitted[admittedIndex];
     if (definition === undefined) {
-      throw new Error('MCP declaration admission lost index alignment.');
+      throw new Error("MCP declaration admission lost index alignment.");
     }
     const descriptor = Object.getOwnPropertyDescriptor(
       packageTools,
@@ -1308,7 +1308,7 @@ export class McpServerClient {
       refusal: {
         index: originalIndexes[boundedIndex],
         id: definition.id,
-        reason: 'invalid_declaration' as const,
+        reason: "invalid_declaration" as const,
       },
     });
     if (
@@ -1329,7 +1329,7 @@ export class McpServerClient {
    *  tool map for exactly that set — the two things `buildExecutableTools`'s
    *  loop below needs together. */
   private resolveExecutableCandidates(
-    boundedTools: ListToolsResult['tools'],
+    boundedTools: ListToolsResult["tools"],
     admission: McpDeclarationAdmissionResult,
     attempt: DiscoveryAttempt,
   ) {
@@ -1351,7 +1351,7 @@ export class McpServerClient {
   }
 
   private buildExecutableTools(
-    boundedTools: ListToolsResult['tools'],
+    boundedTools: ListToolsResult["tools"],
     admission: McpDeclarationAdmissionResult,
     originalIndexes: Array<number>,
     attempt: DiscoveryAttempt,
@@ -1359,7 +1359,7 @@ export class McpServerClient {
     const { executableEntries, packageTools } =
       this.resolveExecutableCandidates(boundedTools, admission, attempt);
     const tools: Array<McpDiscoveredTool> = [];
-    const refused: Array<McpDiscoveryResult['refused'][number]> = [];
+    const refused: Array<McpDiscoveryResult["refused"][number]> = [];
     for (const [
       admittedIndex,
       { boundedIndex },
@@ -1371,7 +1371,7 @@ export class McpServerClient {
         originalIndexes,
         { admittedIndex, boundedIndex },
       );
-      if ('tool' in result) {
+      if ("tool" in result) {
         tools.push(result.tool);
       } else {
         refused.push(result.refusal);
@@ -1435,11 +1435,11 @@ export class McpServerClient {
     if (!hasPortableMcpResultPayload(rawResult)) {
       return {
         disposition: classifyMcpFailure({
-          stage: 'call',
-          kind: 'invalid_output',
+          stage: "call",
+          kind: "invalid_output",
           hasSession: this.protectedValueState.sessionId !== undefined,
         }),
-        result: safeFailureResult('invalid_output'),
+        result: safeFailureResult("invalid_output"),
       };
     }
     const safeResult = sanitizeProtectedValueJson(
@@ -1448,23 +1448,23 @@ export class McpServerClient {
     );
     if (!safeResult.success) {
       return {
-        disposition: 'call_local',
+        disposition: "call_local",
         result: {
-          status: 'error',
-          type: 'execution_failed',
-          message: 'The remote tool returned an unsafe result.',
+          status: "error",
+          type: "execution_failed",
+          message: "The remote tool returned an unsafe result.",
         },
       };
     }
-    if (isRecord(rawResult) && rawResult['isError'] === true) {
+    if (isRecord(rawResult) && rawResult["isError"] === true) {
       return {
-        disposition: 'call_local',
-        result: safeFailureResult('is_error'),
+        disposition: "call_local",
+        result: safeFailureResult("is_error"),
       };
     }
     return {
-      disposition: 'none',
-      result: { status: 'success', output: safeResult.value },
+      disposition: "none",
+      result: { status: "success", output: safeResult.value },
     };
   }
 
@@ -1480,19 +1480,19 @@ export class McpServerClient {
     if (hasProtectedKeyInErrorData(error, protectedValues)) {
       return {
         disposition: classifyMcpFailure({
-          stage: 'call',
+          stage: "call",
           kind,
-          ...(kind === 'http' && { status: failureHttpStatus(error) }),
+          ...(kind === "http" && { status: failureHttpStatus(error) }),
           hasSession: this.protectedValueState.sessionId !== undefined,
         }),
-        result: safeFailureResult('invalid_output'),
+        result: safeFailureResult("invalid_output"),
       };
     }
     return {
       disposition: classifyMcpFailure({
-        stage: 'call',
+        stage: "call",
         kind,
-        ...(kind === 'http' && { status: failureHttpStatus(error) }),
+        ...(kind === "http" && { status: failureHttpStatus(error) }),
         hasSession: this.protectedValueState.sessionId !== undefined,
       }),
       result: safeFailureResult(kind),
@@ -1504,11 +1504,11 @@ export class McpServerClient {
       const protectedValues = this.protectedValues();
       if (containsProtectedValueJson(args, protectedValues)) {
         return {
-          disposition: 'call_local',
+          disposition: "call_local",
           result: {
-            status: 'error',
-            type: 'invalid_input',
-            message: 'MCP tool arguments contain a protected value.',
+            status: "error",
+            type: "invalid_input",
+            message: "MCP tool arguments contain a protected value.",
           },
         };
       }

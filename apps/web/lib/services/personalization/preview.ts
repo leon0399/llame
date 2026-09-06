@@ -1,4 +1,4 @@
-import { sanitizeAuthoredText } from "./sanitize";
+import { sanitizeAuthoredText } from "@workspace/runtime-safety/authored-text";
 import type { Personalization } from "./types";
 
 /**
@@ -12,7 +12,7 @@ import type { Personalization } from "./types";
  * 1. a value empty after trimming is absent, not blank — no orphaned label;
  * 2. account identity renders only when BOTH toggles are on;
  * 3. when nothing survives, the whole block including its framing is omitted;
- * 4. authored fields pass through the tag-balance sanitizer (`sanitize.ts`),
+ * 4. authored fields pass through the tag-balance sanitizer,
  *    so self-contained markup shows verbatim while a closer for a tag the
  *    value did not open shows escaped — the truth of how the fence stays
  *    unforgeable; account identity keeps the strict `&<>` escape;

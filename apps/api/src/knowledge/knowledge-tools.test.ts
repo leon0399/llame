@@ -13,7 +13,7 @@ import {
   type KnowledgeFilesystemSearchOptions,
 } from './knowledge-filesystem';
 import { runTool } from '../tools/runner';
-import { isZodSchema } from '../tools/schema-utils';
+import { isZodSchema } from '@workspace/tool-runtime/schema-utils';
 import { isString } from '@workspace/runtime-safety';
 import { type KnowledgeSpaceCursor } from './knowledge-space.cursor';
 import { encodeKnowledgeSearchCursor } from './knowledge-search.cursor';

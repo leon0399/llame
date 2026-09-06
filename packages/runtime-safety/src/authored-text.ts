@@ -1,34 +1,45 @@
 /**
- * Mirror of `apps/api/src/instance-config/authored-text.ts` — keep the two
- * byte-identical in behavior; the parity tests in `sanitize.test.ts` carry
- * real weight because this is a tokenizer, not a character map.
+ * Sanitizes owner-authored personalization text for inclusion in a rendered
+ * prompt.
  *
  * Two rules, and nothing else:
  *
- * 1. **A value can never close a tag it did not open within that same value**
- *    — template-agnostic, so no wrapper can be terminated early.
+ * 1. **A value can never close a tag it did not open within that same value.**
+ *    This is template-agnostic — it keeps whatever wrapper the surrounding
+ *    template uses from being terminated early, without this module knowing
+ *    the wrapper's name.
  * 2. **A reserved tag name is never emitted as a tag at all**, opener or
- *    closer, matched or not. Rule 1 alone would let a value that both opens
- *    and closes a packaged fence render a forged copy inside the real one.
+ *    closer, matched or not. Rule 1 alone is not enough: a value that both
+ *    opens AND closes a packaged fence satisfies it while rendering a complete
+ *    forged copy inside the real one, so each fence's own name has to be
+ *    spelled out here.
  *
- * Everything else passes byte-for-byte — owners legitimately author structured
+ * Everything else passes byte-for-byte: owners legitimately author structured
  * text (`<instructions>…</instructions>`), and entity-mangling every angle
- * bracket destroys exactly the structure that text exists to convey.
+ * bracket destroys exactly the structure that text exists to convey. `&` is
+ * left alone for the same reason.
  *
  * Mechanics: a stack matcher over tag-shaped tokens.
  *
  * - A closer whose name matches ANY still-open in-value opener pops through to
- *   it and passes — HTML-style recovery, not strict XML, so prose mentions
- *   like "follow <answering_rules>" cannot get a legitimate outer closer
- *   escaped.
+ *   it and passes — HTML-style recovery, not strict XML. Strictness would
+ *   betray real data: prose like "ALWAYS follow <answering_rules>" reads as an
+ *   opener, and requiring the innermost match would then escape the legitimate
+ *   outer closer. Popping through phantoms keeps the invariant intact: the
+ *   closer still names a tag this value opened earlier.
  * - A closer naming no in-value opener is entity-escaped. A counter is not
  *   enough: `</x>text<x>` is count-balanced yet its closer precedes its
- *   opener — matching must be positional.
- * - Closer-shaped text that does not parse cleanly fails CLOSED and is escaped
- *   regardless of stack state: a model may still read it as a closer. `CLOSER`
- *   therefore tolerates no padding.
- * - Unmatched openers and non-tag prose (`a < b`, `<3`, `R&D`) pass through
- *   untouched.
+ *   opener, so it would close the ENCLOSING tag — matching must be positional.
+ * - Closer-shaped text that does not parse cleanly (`</ user_personalization >`,
+ *   `</tag junk>`, an unterminated trailing `</tag`) fails CLOSED and is
+ *   escaped regardless of stack state: a model may still read it as a closer
+ *   even though a strict parser would not. `CLOSER` therefore tolerates no
+ *   padding — a padded spelling must reach the escape branch, not match and
+ *   pop a legitimate opener.
+ * - Unmatched openers pass through. They cannot break out of the fence — at
+ *   worst they nest a phantom block inside it.
+ * - Non-tag text involving `<` (`a < b`, `<3`, `i<10`) passes through
+ *   untouched; only name-initiated tag shapes are considered at all.
  */
 
 /**
@@ -125,8 +136,8 @@ function emitToken(
   if (CLOSER_INTENT.test(token)) {
     return escapeAngles(token);
   }
-  // Prose or an unterminated opener fragment, neither of which can close
-  // anything.
+  // Prose (`a < b`, `<3`) or an unterminated opener fragment, neither of
+  // which can close anything.
   return token;
 }
 

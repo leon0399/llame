@@ -4,9 +4,9 @@ import {
   type IncomingMessage,
   type Server,
   type ServerResponse,
-} from 'node:http';
+} from "node:http";
 
-import { isRecord, isString } from '@workspace/runtime-safety';
+import { isRecord, isString } from "@workspace/runtime-safety";
 
 type FixtureResponseBase = {
   readonly status?: number;
@@ -15,26 +15,26 @@ type FixtureResponseBase = {
 };
 
 export type McpFixtureResponse =
-  | (FixtureResponseBase & { readonly kind: 'json'; readonly body: unknown })
+  | (FixtureResponseBase & { readonly kind: "json"; readonly body: unknown })
   | (FixtureResponseBase & {
-      readonly kind: 'raw';
+      readonly kind: "raw";
       readonly body: string | Uint8Array;
       readonly contentType?: string;
     })
   | (FixtureResponseBase & {
-      readonly kind: 'sse';
+      readonly kind: "sse";
       readonly events: ReadonlyArray<{
         readonly id?: string;
         readonly data: unknown;
         readonly rawData?: boolean;
       }>;
     })
-  | { readonly kind: 'disconnect'; readonly delayMs?: number };
+  | { readonly kind: "disconnect"; readonly delayMs?: number };
 
 export const MCP_STREAMABLE_HTTP_PROTOCOL_VERSIONS = [
-  '2025-03-26',
-  '2025-06-18',
-  '2025-11-25',
+  "2025-03-26",
+  "2025-06-18",
+  "2025-11-25",
 ] as const;
 
 export type McpStreamableHttpProtocolVersion =
@@ -51,27 +51,27 @@ type McpStreamableHttpInitializeOptions = {
 export function mcpStreamableHttpInitialize(
   input: McpStreamableHttpInitializeOptions = {},
 ): McpFixtureResponse {
-  const protocolVersion: string = input.protocolVersion ?? '2025-11-25';
+  const protocolVersion: string = input.protocolVersion ?? "2025-11-25";
   if (
     !MCP_STREAMABLE_HTTP_PROTOCOL_VERSIONS.some(
       (supportedVersion) => supportedVersion === protocolVersion,
     )
   ) {
-    throw new Error('unsupported Streamable HTTP protocol version');
+    throw new Error("unsupported Streamable HTTP protocol version");
   }
 
   return {
-    kind: 'json',
+    kind: "json",
     ...(input.sessionId !== undefined && {
-      headers: { 'mcp-session-id': input.sessionId },
+      headers: { "mcp-session-id": input.sessionId },
     }),
     body: {
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 0,
       result: {
         protocolVersion,
         capabilities: { tools: {} },
-        serverInfo: { name: 'fixture', version: '1.0.0' },
+        serverInfo: { name: "fixture", version: "1.0.0" },
       },
     },
   };
@@ -111,27 +111,27 @@ async function readRequestBody(request: IncomingMessage) {
   const chunks: Array<Uint8Array> = [];
   for await (const chunk of request) {
     if (!(chunk instanceof Uint8Array)) {
-      throw new TypeError('MCP fixture request body is not binary.');
+      throw new TypeError("MCP fixture request body is not binary.");
     }
     chunks.push(chunk);
   }
   if (chunks.length === 0) return null;
   // SAFETY: JSON.parse returns any; asserting unknown forces callers to
   // narrow before use rather than silently inheriting any.
-  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
 }
 
 function readRpcMethod(body: unknown): string | null {
   if (!isRecord(body)) return null;
-  const method = body['method'];
+  const method = body["method"];
   return isString(method) ? method : null;
 }
 
 function readCursor(body: unknown): string | null {
   if (!isRecord(body)) return null;
-  const params = body['params'];
+  const params = body["params"];
   if (!isRecord(params)) return null;
-  const cursor = params['cursor'];
+  const cursor = params["cursor"];
   return isString(cursor) ? cursor : null;
 }
 
@@ -141,7 +141,7 @@ function responseKey(httpMethod: string, rpcMethod: string | null): string {
 
 function writeHeaders(
   response: ServerResponse,
-  action: Exclude<McpFixtureResponse, { kind: 'disconnect' }>,
+  action: Exclude<McpFixtureResponse, { kind: "disconnect" }>,
 ): void {
   response.statusCode = action.status ?? 200;
   for (const [name, value] of Object.entries(action.headers ?? {})) {
@@ -150,19 +150,19 @@ function writeHeaders(
 }
 
 function sseBody(
-  events: Extract<McpFixtureResponse, { kind: 'sse' }>['events'],
+  events: Extract<McpFixtureResponse, { kind: "sse" }>["events"],
 ): string {
   return events
     .map((event) => {
       const data = event.rawData
         ? String(event.data)
         : JSON.stringify(event.data);
-      const lines = data.split('\n').map((line) => `data: ${line}`);
+      const lines = data.split("\n").map((line) => `data: ${line}`);
       return [...(event.id === undefined ? [] : [`id: ${event.id}`]), ...lines]
-        .join('\n')
-        .concat('\n\n');
+        .join("\n")
+        .concat("\n\n");
     })
-    .join('');
+    .join("");
 }
 
 async function sendFixtureResponse(
@@ -173,26 +173,26 @@ async function sendFixtureResponse(
   if ((action.delayMs ?? 0) > 0) {
     await wait(action.delayMs ?? 0);
   }
-  if (action.kind === 'disconnect') {
+  if (action.kind === "disconnect") {
     request.socket.destroy();
     return;
   }
 
   writeHeaders(response, action);
-  if (action.kind === 'json') {
-    response.setHeader('content-type', 'application/json');
+  if (action.kind === "json") {
+    response.setHeader("content-type", "application/json");
     response.end(JSON.stringify(action.body));
     return;
   }
-  if (action.kind === 'raw') {
+  if (action.kind === "raw") {
     response.setHeader(
-      'content-type',
-      action.contentType ?? 'application/octet-stream',
+      "content-type",
+      action.contentType ?? "application/octet-stream",
     );
     response.end(action.body);
     return;
   }
-  response.setHeader('content-type', 'text/event-stream');
+  response.setHeader("content-type", "text/event-stream");
   response.end(sseBody(action.events));
 }
 
@@ -208,10 +208,10 @@ function fixtureRequestListener(
         body = await readRequestBody(request);
       } catch {
         response.statusCode = 400;
-        response.end('invalid request');
+        response.end("invalid request");
         return;
       }
-      const httpMethod = request.method ?? 'GET';
+      const httpMethod = request.method ?? "GET";
       const rpcMethod = readRpcMethod(body);
       requests.push({
         headers: request.headers,
@@ -227,7 +227,7 @@ function fixtureRequestListener(
       const action = queue?.shift();
       if (action === undefined) {
         response.statusCode = 500;
-        response.end('unscripted request');
+        response.end("unscripted request");
         return;
       }
       await sendFixtureResponse(request, response, action);
@@ -238,15 +238,15 @@ function fixtureRequestListener(
 /** Starts `server` on an ephemeral loopback port and returns it, closing the server first on failure. */
 async function listenOnLoopbackPort(server: Server): Promise<number> {
   await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      server.off('error', reject);
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
       resolve();
     });
   });
   const address = server.address();
   if (address === null) {
-    throw new TypeError('MCP fixture server did not start listening.');
+    throw new TypeError("MCP fixture server did not start listening.");
   }
   if (isString(address)) {
     await new Promise<void>((resolve, reject) => {
@@ -255,7 +255,7 @@ async function listenOnLoopbackPort(server: Server): Promise<number> {
         else resolve();
       });
     });
-    throw new TypeError('MCP fixture server did not start listening.');
+    throw new TypeError("MCP fixture server did not start listening.");
   }
   return address.port;
 }
