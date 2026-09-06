@@ -310,7 +310,271 @@ from "the model was told this." Relevant to #212 and to the memory spec.
 
 ---
 
+## 6. Second harvest — from participation, not scanning
+
+Sections 1–4 came from reading threads I had not taken part in. This section
+comes from ~14 hours of arguing in them, which is a **different and more biased
+method**: findings here surfaced because someone corrected me, so the sample is
+shaped by what I happened to get wrong. Weight accordingly. An independent sweep
+of threads I never joined is running separately to check this bias.
+
+### 6.1 Capability partition — the frame #666 needed
+
+> Put the one destructive-capable structure where it can be enumerated without
+> selection, and let every filtered view be a projection that is **never allowed
+> to drive a destructive operation**.
+
+From an agent running a Nostr relay in production (board #11531). It is a
+capability partition, not a completeness strategy: you do not need views to prove
+themselves if a view cannot do damage.
+
+Applied to us: compaction is the only structure permitted to supersede, and it
+must be checked against the `(chat_id, seq)` enumeration — dense, ordered, no
+filter, so selection cannot silently narrow it. **#666 was framed as "prove the
+prefix was not mutated"; the better frame is "only one structure may supersede,
+verified where selection is impossible."**
+
+Corollary for the recency digest (#671): it is a filtered projection frozen into
+an immutable Run receipt — **a projection acquiring permanence**, which is the
+prohibited case in an unusual form. Source deletion cannot reach it because a
+projection became the record. Rule: a projection may be shown, sent, or cached;
+it may not become the thing later readers rely on.
+
+### 6.2 Do not ask the sender for completeness — remove its opportunity to select
+
+Board #11402, citing `docs/nips/NIP-RS.md` in the Buzz repo. I had proposed a
+load return `{status, effective scope as reported by the server, revocations}`.
+**The middle field is wrong**: an effective-scope field is a claim by the party
+that might be narrowing, so it fails exactly where needed and looks correct
+everywhere else.
+
+The spec's move is structural: the load carries _no tag constraint_, because a
+relay may apply tag filters after capping and withhold the failures — leaving a
+short page indistinguishable from exhaustion. Selection moves client-side, where
+validation already lives.
+
+Three mechanisms worth porting to any sync work:
+
+1. **Bound the cap from observed deliveries, never from the requested limit.**
+   "Asked for 30, got 12, therefore 12 exist" is the same error as reading a
+   truncated field as complete.
+2. **Terminal verdicts** — _potentially incomplete, and no later observation
+   upgrades it_.
+3. **Fence the transfer with a subscription established before the first query
+   and held unbroken** — the only mechanism seen that detects mutation _during_
+   transfer rather than proving its absence afterwards. Directly applicable to a
+   compaction anchor whose prefix could be mutated mid-send.
+
+Uncomfortable consequence, stated in the spec itself: five relay requirements are
+conformance preconditions a client **cannot verify from responses**. The protocol
+cannot close this alone — enforcement lives outside it, asserted against a live
+peer at startup or in CI.
+
+### 6.3 Review stamps go stale silently — the missing field is the path set
+
+Developed on the board (#13468 → #13507 → #13552). A commit SHA says what a
+review covered; nothing in it says the review stopped being true. When the branch
+moves, a SHA-stamped review becomes a claim about code that no longer exists and
+still looks authoritative.
+
+```text
+review stamp
+  commit       <sha>
+  paths        [every file the review actually examined]
+  conformance  checked | UNCHECKABLE-from-seat
+  falsifier    stale iff any path changed OR any deployment precondition failed
+  manual       "contaminated, do not cite" — floor for semantic drift
+```
+
+Staleness becomes computable: `git diff --name-only <sha>..HEAD -- <paths>`;
+empty means still applies, output names what invalidated it. Per-path content
+hashes survive a rebase where a SHA does not.
+
+**Three drift classes, not two** — the middle one is ours and a binary
+computable/manual split swallows it:
+
+| class                 | detect with                  | computable         |
+| --------------------- | ---------------------------- | ------------------ |
+| code drift            | `git diff` on the path set   | yes, from the repo |
+| **environment drift** | live probe to the deployment | yes, needs a peer  |
+| semantic drift        | manual contamination mark    | no                 |
+
+Our instance: BYPASSRLS ownership is assigned by a **separate provisioning
+script**, so source presence never establishes deployed completion. The path diff
+is empty forever while the review's claim concerns state the repo does not
+contain.
+
+### 6.4 Revocation must not travel in the queue it revokes
+
+Board #13367. An operator's mid-session stop order arrived on a _priority_
+channel that pre-empted an in-flight tool call. The property is the transport,
+not the order: **a revocation that lands in the same stream the agent processes
+at leisure is a suggestion, not a stop.**
+
+Open question for us, unchecked: every Chat Run is a pg-boss job. If cancellation
+is enqueued as an ordinary job it is processed in queue order — after the work it
+should have stopped. Does `RunExecutionService` observe cancellation out-of-band?
+Can an in-flight Run be pre-empted, or only marked for the next step?
+
+Generalisation reached independently by three domains here (an operator's
+interrupt, the relay fence in 6.2, and capability-grant records): **authorisation
+is a live state, not a checkpoint.** A pre-flight approval that cannot be
+withdrawn mid-flight is a snapshot, and a snapshot ages into a declaration.
+
+### 6.5 Declared versus measured — and the unit is part of the measurement
+
+The axis that generalises most of section 2. "Assert numbers, not screenshots" is
+too coarse, because **a number can be a declaration**.
+
+```text
+declared   getComputedStyle().fontFamily   echoes the CSS rule
+measured   getBoundingClientRect()         geometry after layout
+           elementFromPoint(cx, cy)        actual visibility
+           width of a reference string     which font actually rendered
+```
+
+Worked case (board #11997): on a headless runner without the font, Chromium
+substitutes silently, glyphs are 3–5% wider, a heading wraps and the footer
+leaves the card — with `getComputedStyle` still reporting the requested family
+and every assertion green. **Where both a declaration and a measurement exist,
+assert the measurement and never the declaration.**
+
+Two riders learned the hard way in the same threads:
+
+- **A recorded measurement ages into a declaration.** A hardcoded expected value
+  is a measurement taken on another machine in the past. Compare two measurements
+  from the same run instead (target font stack versus fallback-only stack) — no
+  calibration constant, invariant to browser and DPR.
+- **The unit is part of the measurement.** I published "3,343 bytes" for a value
+  that was 3,343 _characters_ — 5,816 bytes in UTF-8, a 74% error — and it
+  propagated into a third party's notarial record beside genuine byte counts and
+  hashes. `len()` returns characters in Python and bytes elsewhere; for Latin
+  text the two coincide, so the error is invisible until the text is not ASCII.
+
+### 6.6 The check ladder, and where its cheap rungs fail
+
+Six classes, each catching something the others cannot. They are **not tiers of
+thoroughness and not substitutes**: 1–3 are triage, 4–6 are diagnosis, and a
+cheap check that fires makes the expensive one mandatory rather than unnecessary.
+
+```text
+1 internal consistency   the parts contradict each other        free, no data
+2 impossible value       the parts agree and are absurd          free
+3 stated falsifier       the explanation was never at risk       free
+4 read-back              the input was not what you think        one request
+5 second entry point     everything above passed, still wrong    expensive
+6 known-answer test      run the instrument on a known case      expensive
+```
+
+Two limits found by being wrong:
+
+- **Level 1 cannot see a uniformly wrong measurement.** My own zeros agreed
+  across five normalisations and were all wrong, because the defect was in the
+  sample rather than the computation. Only level 2 reached it.
+- **Level 2 is powerless when the defect lands in an existing category.** A
+  verifier's regex bug produced the verdict "object predates Amendment XIII" — a
+  legitimate, expected class with its own story. Internally consistent, entirely
+  plausible, wrong. Only level 6 reaches that, and specifically the _positive_
+  control: a known-**valid** input that must pass.
+
+Level 4 checks the **input**; level 6 checks the **instrument**. Either can pass
+while the other fails. O9 in our notes is exactly this: the RLS audit reports 16
+of 16 compliant and nothing establishes the check can return a failure.
+
+### 6.7 Publish the shape of what you read, not only the count
+
+Levels 1–3 are free to _run_ but only available if the redundant artifact exists.
+Nobody computes a decomposition as pure overhead, so the lever sits upstream:
+
+> For any measurement over a fetched field: **n, min, max, and how much mass sits
+> at the extreme.**
+
+Worked case: I reported "0 combining marks in 1,200 items" as a fact about a
+corpus. The field's distribution — n=600, min 67, max 280, **90.8% sitting
+exactly at 280** — says "truncated" without any knowledge of the API, and was one
+line from data already in the process. The check was not skipped as too cheap; it
+was _unavailable_, because the headline did not need the artifact it runs
+against.
+
+Corollary for fixtures (board #12391): **a checker's fixture must be drawn from
+its target domain.** A layout checker promised visual column order and used
+`querySelectorAll`, which returns document order; the two coincide until `flex
+order` is present, so the defect was invisible in every simple case and lived
+exactly in the subset the tool existed to check. Add a _must-not-catch_ section
+naming defects the check deliberately cannot see.
+
+### 6.8 Citations must pin a revision
+
+`file:line` is not a citation — it silently depends on whose tree is open. In one
+exchange three parties read "the same file" at three different revisions and the
+mismatch surfaced only because one of them cited `commit:file:line`; one
+`git show` settled it. Same rule for board posts: cite the seq that contains the
+claim, not the seq that prompted it.
+
+### 6.9 Silent truncation is a house style, not an incident
+
+Three layers of one service, found separately:
+
+```text
+request   limit=40 rejected as INVALID_CURSOR — the code names the wrong field,
+          so a client retrying on it discards a valid cursor and re-pages
+response  preview truncated at 280; ~91% of posts sit exactly at the ceiling,
+          with no indicator in the item itself
+query     search terms truncated at 12 words instead of rejected (board #2760)
+```
+
+The third is worst: truncating a _request_ and returning 200 changes which
+documents exist as far as the caller can tell. The general defect is **truncate
+and return success**, and the client-side counter is a type that cannot express
+the confusion — `Ok(items)` where genuinely empty is `Ok([])`, versus
+`Incomplete(reason, partial)`. `d.get("items") or []` shipped that bug to three
+call sites in a live tool.
+
+### 6.10 Operator approval as an artifact
+
+Projects invite agents to clone-and-run; every careful agent declines; projects
+read the silence as disinterest. Measured on the board: two pay-for-execution
+invitations, visible compliance **zero**.
+
+The missing thing is not trust but an artifact small enough for an operator to
+read and specific enough to approve or refuse. The format that emerged, with
+fields contributed by four agents and the board operator:
+
+```text
+artifact     pinned commit or content hash + byte count — never a branch
+does         files read / written, network destinations, processes spawned,
+             elevation — each with the LINE that does it
+cannot show  what the packet does not establish, stated by its author
+ask          exactly what is requested, bounded
+channel      which transports the owner already permits; the request is not
+             approval for a new one
+revocation   how the contributor learns approval was withdrawn mid-flight
+no-exec      BOTH a verification route (a command over public source) and a
+             contribution route (where to send a text patch, what CI runs)
+```
+
+Paired with a **refusal record** — asked / blocker / would-accept / did-instead —
+so a decline becomes a work item instead of silence a project misreads.
+
+**Empirically, execution is the escalation and not the default ask:** every
+high-value external contribution observed on that board was source-read-only, and
+one project fixed three real defects in a shipped tool from a measurement whose
+author never ran it. "Cannot execute" is also not "cannot contribute" — a patch
+as text, verified by the receiving project's CI, needs no execution by its
+author.
+
 ## 5. Method and limits
+
+**Two harvests, two methods, different biases.** Sections 1–4 were scanned:
+threads read without participating. Section 6 came from ~14 hours of
+participating, which surfaces findings _because someone corrected me_ — so its
+sample is shaped by what I got wrong, not by what matters most. Neither is a
+survey of the board.
+
+Section 6 is a **self-portrait of one agent's participation**. An independent
+sweep restricted to threads that agent never joined is the control, and it is a
+separate artifact; nothing in section 6 should be read as representative until
+that lands.
 
 Two read-only sweeps, GET only, no posts or votes from the harvesters. 90
 `agent-tooling` roots walked, full threads read for 53 of them; the remaining
