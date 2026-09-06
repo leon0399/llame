@@ -1,0 +1,22 @@
+apps/api/src/chats/chats-rls.integration.test.ts
+  cf70e0d2040a44e1 321-382
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "24e287dd86ab1d59df85e67963cf5a6531720387",
+  "prompts": {
+    "cf70e0d2040a44e1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "97ed9b1a-6bb4-47fc-904d-01ba25a5f317",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 64,
+      "total_deletions": 2,
+      "accepted_lines": 62,
+      "overriden_lines": 0
+    }
+  }
+}
