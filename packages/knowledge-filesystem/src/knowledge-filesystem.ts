@@ -1,4 +1,4 @@
-import path from 'node:path';
+import path from "node:path";
 
 import {
   KNOWLEDGE_MAX_ENTRIES,
@@ -6,23 +6,23 @@ import {
   KNOWLEDGE_MAX_READ_BYTES,
   KNOWLEDGE_MAX_SEARCH_BYTES,
   KNOWLEDGE_MAX_SEARCH_FILE_BYTES,
-} from './knowledge-filesystem-limits';
+} from "./knowledge-filesystem-limits";
 import {
   KnowledgeFilesystemError,
   type KnowledgeFilesystemErrorCode,
-} from './knowledge-filesystem-errors';
+} from "./knowledge-filesystem-errors";
 import {
   isErrno,
   observe,
   observeResource,
   throwIfAborted,
-} from './knowledge-filesystem-io';
+} from "./knowledge-filesystem-io";
 import {
   compareNames,
   compareSearchMatches,
   collectKnowledgePassages,
   decodeUtf8,
-} from './knowledge-filesystem-search';
+} from "./knowledge-filesystem-search";
 import {
   closeDirectoryAndTranslateFailure,
   closeFileAndTranslateFailure,
@@ -33,7 +33,7 @@ import {
   resolveLineSelectionResult,
   serializedFixedReadResultLength,
   type KnowledgeReadLinesRequest,
-} from './knowledge-filesystem-read';
+} from "./knowledge-filesystem-read";
 import {
   isMarkdownPath,
   joinRelativePath,
@@ -41,15 +41,15 @@ import {
   validatePath,
   validateReadRange,
   validateSearchInput,
-} from './knowledge-filesystem-validation';
-import { NODE_FILESYSTEM } from './knowledge-filesystem-node-port';
+} from "./knowledge-filesystem-validation";
+import { NODE_FILESYSTEM } from "./knowledge-filesystem-node-port";
 
-export * from './knowledge-filesystem-limits';
+export * from "./knowledge-filesystem-limits";
 export {
   KnowledgeFilesystemError,
   type KnowledgeFilesystemErrorCode,
-} from './knowledge-filesystem-errors';
-export { collectKnowledgePassages } from './knowledge-filesystem-search';
+} from "./knowledge-filesystem-errors";
+export { collectKnowledgePassages } from "./knowledge-filesystem-search";
 
 export type KnowledgeFilesystemBinding = {
   readonly id: string;
@@ -81,7 +81,7 @@ function assertWithinSearchByteBudget(
   budget: KnowledgeFilesystemSearchBudget,
 ): void {
   if (size > KNOWLEDGE_MAX_SEARCH_FILE_BYTES || size > budget.remainingBytes) {
-    throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+    throw new KnowledgeFilesystemError("knowledge_limit_exceeded");
   }
 }
 
@@ -135,12 +135,12 @@ export type KnowledgeFilesystemReadResult = {
   readonly lineCount: number;
   readonly content: string;
   readonly nextOffset?: number;
-  readonly cutReason?: 'line_limit' | 'output_limit';
+  readonly cutReason?: "line_limit" | "output_limit";
 };
 
 export type KnowledgeFilesystemAdapterPort = Pick<
   KnowledgeFilesystemAdapter,
-  'search' | 'read'
+  "search" | "read"
 >;
 
 export type KnowledgeFilesystemSearchOptions = {
@@ -190,8 +190,8 @@ type KnowledgeSearchWalkContext = {
 /** What one directory entry contributes to the walk: a subdirectory to
  * enqueue, or nothing further (rejected, skipped, or already searched). */
 type KnowledgeSearchEntryOutcome =
-  | { kind: 'descend'; item: { absolutePath: string; relativePath: string } }
-  | { kind: 'none' };
+  | { kind: "descend"; item: { absolutePath: string; relativePath: string } }
+  | { kind: "none" };
 
 /** Shared by `readFile` and `readFileLines`: the already-open file must be a
  *  regular, non-symlink file within its own caller's byte budget. */
@@ -200,10 +200,10 @@ function assertReadableFileStats(
   maxBytes: number,
 ): void {
   if (fileStats.isSymbolicLink() || !fileStats.isFile()) {
-    throw new KnowledgeFilesystemError('knowledge_path_invalid');
+    throw new KnowledgeFilesystemError("knowledge_path_invalid");
   }
   if (fileStats.size > maxBytes) {
-    throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+    throw new KnowledgeFilesystemError("knowledge_limit_exceeded");
   }
 }
 
@@ -233,7 +233,7 @@ export class KnowledgeFilesystemAdapter {
       after: options.after,
       signal: options.signal,
     };
-    const pending = [{ absolutePath: directory, relativePath: '' }];
+    const pending = [{ absolutePath: directory, relativePath: "" }];
 
     while (pending.length > 0) {
       throwIfAborted(ctx.signal);
@@ -255,7 +255,7 @@ export class KnowledgeFilesystemAdapter {
           directory,
           ctx,
         );
-        if (outcome.kind === 'descend') pending.push(outcome.item);
+        if (outcome.kind === "descend") pending.push(outcome.item);
       }
     }
 
@@ -278,19 +278,19 @@ export class KnowledgeFilesystemAdapter {
     const absolutePath = path.join(directory, ...components);
     const stats = await this.lstat(
       absolutePath,
-      'knowledge_space_unavailable',
+      "knowledge_space_unavailable",
       ctx.signal,
     );
     if (stats.isSymbolicLink() || entry.isSymbolicLink()) {
-      throw new KnowledgeFilesystemError('knowledge_path_invalid');
+      throw new KnowledgeFilesystemError("knowledge_path_invalid");
     }
     if (stats.isDirectory()) {
-      return { kind: 'descend', item: { absolutePath, relativePath } };
+      return { kind: "descend", item: { absolutePath, relativePath } };
     }
     if (stats.isFile() && isMarkdownPath(relativePath)) {
       await this.searchMarkdownFile(absolutePath, relativePath, stats, ctx);
     }
-    return { kind: 'none' };
+    return { kind: "none" };
   }
 
   /** Read, budget-check, and search one already-identified markdown file,
@@ -303,7 +303,7 @@ export class KnowledgeFilesystemAdapter {
   ): Promise<void> {
     const { budget, query, maxResults, after, signal } = ctx;
     if (budget.remainingFiles <= 0) {
-      throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+      throw new KnowledgeFilesystemError("knowledge_limit_exceeded");
     }
     budget.remainingFiles -= 1;
     assertWithinSearchByteBudget(stats.size, budget);
@@ -349,9 +349,9 @@ export class KnowledgeFilesystemAdapter {
       remainingEntries -= step.count;
     }
 
-    const stats = await this.lstat(current, 'knowledge_not_found', signal);
+    const stats = await this.lstat(current, "knowledge_not_found", signal);
     if (stats.size > KNOWLEDGE_MAX_READ_BYTES) {
-      throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
+      throw new KnowledgeFilesystemError("knowledge_limit_exceeded");
     }
     const offset = options.offset ?? 0;
     return this.readFileLines(
@@ -389,18 +389,18 @@ export class KnowledgeFilesystemAdapter {
       (candidate) => candidate.name === step.component,
     );
     if (entry === undefined) {
-      throw new KnowledgeFilesystemError('knowledge_not_found');
+      throw new KnowledgeFilesystemError("knowledge_not_found");
     }
     const next = path.join(step.current, step.component);
-    const stats = await this.lstat(next, 'knowledge_not_found', signal);
+    const stats = await this.lstat(next, "knowledge_not_found", signal);
     if (stats.isSymbolicLink() || entry.isSymbolicLink()) {
-      throw new KnowledgeFilesystemError('knowledge_path_invalid');
+      throw new KnowledgeFilesystemError("knowledge_path_invalid");
     }
     if (!step.isFinal && !stats.isDirectory()) {
-      throw new KnowledgeFilesystemError('knowledge_not_found');
+      throw new KnowledgeFilesystemError("knowledge_not_found");
     }
     if (step.isFinal && !stats.isFile()) {
-      throw new KnowledgeFilesystemError('knowledge_not_found');
+      throw new KnowledgeFilesystemError("knowledge_not_found");
     }
     return { current: next, count: directoryResult.count };
   }
@@ -413,33 +413,33 @@ export class KnowledgeFilesystemAdapter {
     const directory = path.resolve(this.binding.directory);
     const expectedDirectory = path.join(root, this.binding.id);
     if (directory !== expectedDirectory) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+      throw new KnowledgeFilesystemError("knowledge_space_unavailable");
     }
 
     const rootStats = await this.lstat(
       root,
-      'knowledge_space_unavailable',
+      "knowledge_space_unavailable",
       signal,
     );
     if (rootStats.isSymbolicLink() || !rootStats.isDirectory()) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+      throw new KnowledgeFilesystemError("knowledge_space_unavailable");
     }
     const canonicalRoot = await this.realpath(root, signal);
     if (canonicalRoot !== root) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+      throw new KnowledgeFilesystemError("knowledge_space_unavailable");
     }
 
     const childStats = await this.lstat(
       directory,
-      'knowledge_space_unavailable',
+      "knowledge_space_unavailable",
       signal,
     );
     if (childStats.isSymbolicLink() || !childStats.isDirectory()) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+      throw new KnowledgeFilesystemError("knowledge_space_unavailable");
     }
     const canonicalDirectory = await this.realpath(directory, signal);
     if (canonicalDirectory !== directory) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+      throw new KnowledgeFilesystemError("knowledge_space_unavailable");
     }
     return directory;
   }
@@ -451,11 +451,11 @@ export class KnowledgeFilesystemAdapter {
   ): Promise<DirectoryReadResult> {
     const stats = await this.lstat(
       directoryPath,
-      'knowledge_space_unavailable',
+      "knowledge_space_unavailable",
       signal,
     );
     if (stats.isSymbolicLink() || !stats.isDirectory()) {
-      throw new KnowledgeFilesystemError('knowledge_path_invalid');
+      throw new KnowledgeFilesystemError("knowledge_path_invalid");
     }
     let directory: KnowledgeFilesystemDirectory | undefined;
     let failure: unknown;
@@ -486,10 +486,10 @@ export class KnowledgeFilesystemAdapter {
       return await observe(this.fileSystem.lstat(filePath), signal);
     } catch (error) {
       if (error instanceof KnowledgeFilesystemError) throw error;
-      if (isErrno(error, 'ENOENT')) {
+      if (isErrno(error, "ENOENT")) {
         throw new KnowledgeFilesystemError(missingCode);
       }
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+      throw new KnowledgeFilesystemError("knowledge_space_unavailable");
     }
   }
 
@@ -549,7 +549,7 @@ export class KnowledgeFilesystemAdapter {
         path: relativePath,
         offset,
         lineCount: 0,
-        content: '',
+        content: "",
       }
     );
   }
@@ -562,7 +562,7 @@ export class KnowledgeFilesystemAdapter {
       return await observe(this.fileSystem.realpath(filePath), signal);
     } catch (error) {
       if (error instanceof KnowledgeFilesystemError) throw error;
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+      throw new KnowledgeFilesystemError("knowledge_space_unavailable");
     }
   }
 }

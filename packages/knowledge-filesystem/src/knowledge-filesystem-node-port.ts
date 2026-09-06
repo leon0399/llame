@@ -2,9 +2,9 @@
  * a symlinked target fails at the syscall rather than relying solely on the
  * adapter's own `lstat` checks. */
 
-import { constants, promises as fs } from 'node:fs';
+import { constants, promises as fs } from "node:fs";
 
-import type { KnowledgeFilesystemPort } from './knowledge-filesystem';
+import type { KnowledgeFilesystemPort } from "./knowledge-filesystem";
 
 export const NODE_FILESYSTEM: KnowledgeFilesystemPort = {
   lstat: (filePath) => fs.lstat(filePath),

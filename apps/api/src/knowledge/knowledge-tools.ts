@@ -8,7 +8,7 @@ import {
   type KnowledgeFilesystemSearchAfter,
   type KnowledgeFilesystemSearchBudget,
   type KnowledgeFilesystemSearchMatch,
-} from './knowledge-filesystem';
+} from '@workspace/knowledge-filesystem/knowledge-filesystem';
 import {
   assertKnowledgeSearchCursorBinding,
   decodeKnowledgeSearchCursor,

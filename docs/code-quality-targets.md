@@ -21,7 +21,7 @@ map a function unambiguously; ten API functions currently report that visible
 Halstead and duplication cover product source and exclude tests, stories,
 generated clients, migrations, support, and vendored code. Oxlint also checks
 tests, stories, and E2E; only their size limits are relaxed. Coverage and CRAP
-cover API, web, config-interpolation, runtime-safety and tool-runtime, including unimported product files.
+cover API, web, config-interpolation, runtime-safety, tool-runtime and knowledge-filesystem, including unimported product files.
 Storybook gates UI behavior until browser coverage is available.
 
 | Workspace            |   Lines | Statements |
@@ -31,11 +31,12 @@ Storybook gates UI behavior until browser coverage is available.
 | Config interpolation | `>=96%` |    `>=93%` |
 | Runtime safety       | `>=90%` |    `>=88%` |
 | Tool runtime         | `>=90%` |    `>=88%` |
+| Knowledge filesystem | `>=90%` |    `>=88%` |
 
 Coverage commands regenerate Istanbul data and run function-level CRAP over the
 same paths. API currently peaks at CRAP 42 with seven functions above 25. Web
 and config interpolation are below 25; the coverage scripts enforce 42 until the
-shared ceiling can move down. Stryker covers API, config interpolation, runtime safety and tool runtime
+shared ceiling can move down. Stryker covers API, config interpolation, runtime safety, tool runtime and knowledge filesystem
 through package-owned tasks, with weekly baseline refreshes.
 
 ```bash

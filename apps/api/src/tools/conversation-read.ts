@@ -11,7 +11,7 @@ import {
 import {
   scanConversationLogicalLines,
   type ConversationLogicalLine,
-} from '../chats/conversation-logical-lines';
+} from '@workspace/runtime-safety';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { type Db } from '../db/tenant-db.service';
 import {

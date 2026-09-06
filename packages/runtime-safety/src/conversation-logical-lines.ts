@@ -29,7 +29,7 @@ export function scanConversationLogicalLines(
     lines.push({
       line,
       text: text.slice(lineStart, endOffsetExclusive),
-      delimiter: hasCr ? '\r\n' : '\n',
+      delimiter: hasCr ? "\r\n" : "\n",
       startOffset: lineStart,
       endOffsetExclusive,
     });
@@ -41,7 +41,7 @@ export function scanConversationLogicalLines(
     lines.push({
       line,
       text: text.slice(lineStart),
-      delimiter: '',
+      delimiter: "",
       startOffset: lineStart,
       endOffsetExclusive: text.length,
     });

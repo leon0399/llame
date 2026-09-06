@@ -35,6 +35,10 @@ pre-commit:
       glob: "{packages/node-protocol/**/*.{ts,js,mjs},packages/node-protocol/.oxlintrc.json}"
       run: pnpm --filter @workspace/node-protocol lint
 
+    - name: knowledge filesystem lint
+      glob: "{packages/knowledge-filesystem/**/*.{ts,js,mjs},packages/knowledge-filesystem/.oxlintrc.json}"
+      run: pnpm --filter @workspace/knowledge-filesystem lint
+
     - name: code lint
       glob: "{e2e/**/*.{ts,tsx,js,mjs},playwright.config.ts,.oxlintrc.json,turbo.json,package.json}"
       run: pnpm lint:code
