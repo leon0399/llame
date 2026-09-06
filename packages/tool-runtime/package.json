@@ -28,7 +28,12 @@
   "description": "Framework-independent MCP transport, declaration admission, and tool schema validation shared by node and CLI.",
   "exports": {
     ".": "./dist/index.js",
-    "./*": "./dist/*.js"
+    "./declaration-admission": "./dist/declaration-admission.js",
+    "./mcp-server-client": "./dist/mcp-server-client.js",
+    "./mcp-test-fixture": "./dist/mcp-test-fixture.js",
+    "./schema-utils": "./dist/schema-utils.js",
+    "./tool-id": "./dist/tool-id.js",
+    "./types": "./dist/types.js"
   },
   "dependencies": {
     "@ai-sdk/mcp": "catalog:",
