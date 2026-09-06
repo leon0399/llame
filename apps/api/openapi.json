@@ -4589,6 +4589,7 @@
       },
       "NodeDescription": {
         "type": "object",
+        "additionalProperties": false,
         "required": [
           "version",
           "kind",
@@ -4633,6 +4634,7 @@
           },
           "modules": {
             "type": "object",
+            "additionalProperties": false,
             "required": ["core", "realm"],
             "properties": {
               "core": {
@@ -4673,6 +4675,7 @@
           },
           "recall": {
             "type": "object",
+            "additionalProperties": false,
             "required": ["strategy", "minimumQueryCharacters"],
             "properties": {
               "strategy": {
