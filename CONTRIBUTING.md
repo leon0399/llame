@@ -3,6 +3,11 @@
 This file owns delivery from issue through merge. The closest `AGENTS.md` owns
 implementation details.
 
+`$name` below names an agent skill vendored in
+[`.agents/skills`](.agents/skills). Each harness directory —
+`.claude/skills`, `.opencode/skills`, `.codex/skills` — symlinks the skills it
+loads, so a clone carries every skill this file asks you to run.
+
 ## Gates
 
 1. Features start with an issue and OpenSpec proposal.
