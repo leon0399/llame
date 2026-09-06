@@ -2,6 +2,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-06
 
+- Add the independently launchable personal Node over private stdio or an
+  owner-controlled Unix socket, without a CLI or hosted account dependency.
 - Add private personal-node IPC with strict version negotiation, bounded frames,
   connection-bound approvals and explicit cancellation/disconnect behavior.
 - Add personal model/MCP execution, durable execution locks and explicit native

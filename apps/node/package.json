@@ -1,0 +1,31 @@
+{
+  "name": "@workspace/node",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Independently launchable personal llame Node; no CLI or hosted database required.",
+  "exports": {
+    "./server": "./dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "lint": "oxlint --deny-warnings --report-unused-disable-directives",
+    "start": "node bin/llame-node.cjs"
+  },
+  "dependencies": {
+    "@workspace/personal-node": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@workspace/config-typescript": "workspace:*",
+    "oxlint": "catalog:",
+    "typescript": "catalog:"
+  },
+  "bin": {
+    "llame-node": "bin/llame-node.cjs"
+  },
+  "engines": {
+    "node": ">=22.19"
+  }
+}

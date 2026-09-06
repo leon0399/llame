@@ -22,6 +22,7 @@ const SOURCE_GLOBS = [
   "packages/node-protocol/src/**/*.ts",
   "packages/knowledge-filesystem/src/**/*.ts",
   "packages/personal-node/src/**/*.ts",
+  "apps/node/src/**/*.ts",
 ];
 
 const EXCLUDE = [

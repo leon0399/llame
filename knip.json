@@ -72,6 +72,10 @@
       "entry": ["src/**/*.ts", "tests/**/*.test.mjs"],
       "project": ["src/**/*.ts", "tests/**/*.mjs"]
     },
+    "apps/node": {
+      "entry": ["bin/*.cjs", "src/server.ts", "tests/*.test.mjs"],
+      "project": ["src/**/*.ts", "tests/**/*.mjs", "bin/*.cjs"]
+    },
     "packages/oxlint-plugin-anti-slop": {
       "entry": ["rules/**/*.test.ts"],
       "project": ["**/*.ts", "**/*.mjs"],
