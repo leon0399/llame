@@ -216,17 +216,19 @@ export class McpHost {
       );
     const parsed = jsonValue(args);
     this.guardArgs(entry, parsed);
-    const callSignal = AbortSignal.any([
-      rest[0],
-      AbortSignal.timeout(entry.server.callTimeoutSeconds * 1000),
-    ]);
-    aborted(callSignal);
+    const approvalSignal = rest[0];
+    aborted(approvalSignal);
     if (this.disconnected.has(entry.server.id))
       throw new CliError(
         "mcp_disconnected",
         "MCP server disconnected. This Run will not reconnect or replay calls.",
       );
-    await this.confirm(name, parsed, callId, [entry, callSignal, rest]);
+    await this.confirm(name, parsed, callId, [entry, approvalSignal, rest]);
+    const callSignal = AbortSignal.any([
+      rest[0],
+      AbortSignal.timeout(entry.server.callTimeoutSeconds * 1000),
+    ]);
+    aborted(callSignal);
     return this.callTool(name, parsed, callId, [entry, callSignal, rest[2]]);
   }
 

@@ -1,6 +1,7 @@
 import {
   closeSync,
   existsSync,
+  fsyncSync,
   openSync,
   readFileSync,
   unlinkSync,
@@ -11,6 +12,11 @@ import { randomUUID } from "node:crypto";
 import { CliError, errorCode } from "./errors";
 import { privateDirectory, readPrivate } from "./private-files";
 import { integer, parseJson, record, text } from "./validation";
+
+interface OwnedLock {
+  readonly raw: string;
+  readonly pid: number;
+}
 
 /** Exclusive personal executor. Kernel PID liveness is conservative on reuse. */
 export function executionLock(directory: string): () => void {
@@ -58,20 +64,101 @@ export function executionLock(directory: string): () => void {
 export function removeDeadLock(directory: string): void {
   privateDirectory(directory);
   const guard = join(directory, "recovery.lock");
-  let fd: number;
-  try {
-    fd = openSync(guard, "wx", 0o600);
-  } catch {
-    throw new CliError(
-      "recovery_busy",
-      "Recovery lock exists; another recovery may be active.",
-    );
-  }
-  closeSync(fd);
+  const releaseGuard = acquireRecoveryGuard(guard);
   try {
     reclaimExecutor(join(directory, "executor.lock"));
   } finally {
-    unlinkSync(guard);
+    releaseGuard();
+  }
+}
+
+function acquireRecoveryGuard(path: string): () => void {
+  const owner = JSON.stringify({ pid: process.pid, nonce: randomUUID() });
+  for (;;) {
+    try {
+      createOwnedLock(path, owner);
+      return () => releaseOwnedLock(path, owner);
+    } catch (error) {
+      if (errorCode(error) !== "EEXIST") throw error;
+      const existing = readRecoveryOwner(path);
+      if (processAlive(existing.pid))
+        throw new CliError(
+          "recovery_busy",
+          "Recovery lock exists; another recovery may be active.",
+        );
+      if (readPrivate(path, 4096) !== existing.raw) continue;
+      removeIfPresent(path);
+    }
+  }
+}
+
+function createOwnedLock(path: string, owner: string): void {
+  let fd: number;
+  try {
+    fd = openSync(path, "wx", 0o600);
+  } catch (error) {
+    if (errorCode(error) === "EEXIST") throw error;
+    throw error;
+  }
+  try {
+    writeFileSync(fd, owner);
+    fsyncSync(fd);
+  } catch (error) {
+    try {
+      closeSync(fd);
+    } catch {
+      /* Already closed, or never opened past the write failure. */
+    }
+    try {
+      unlinkSync(path);
+    } catch {
+      /* Best-effort cleanup of the lock we just created. */
+    }
+    throw error;
+  }
+  closeSync(fd);
+}
+
+function releaseOwnedLock(path: string, owner: string): void {
+  if (!existsSync(path)) return;
+  if (readPrivate(path, 4096) === owner) unlinkSync(path);
+}
+
+function readRecoveryOwner(path: string): OwnedLock {
+  const raw = readPrivate(path, 4096);
+  try {
+    const owner = record(parseJson(raw), "recovery lock");
+    text(owner.nonce, "recovery nonce", 100);
+    return {
+      raw,
+      pid: integer(owner.pid, "recovery PID", 1, 2_147_483_647),
+    };
+  } catch {
+    throw new CliError(
+      "recovery_busy",
+      "Recovery lock has no recoverable owner; inspect it before removing it.",
+    );
+  }
+}
+
+function removeIfPresent(path: string): void {
+  try {
+    unlinkSync(path);
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT") throw error;
+  }
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (errorCode(error) === "ESRCH") return false;
+    throw new CliError(
+      "recovery_busy",
+      "Cannot prove that the previous recovery stopped.",
+    );
   }
 }
 

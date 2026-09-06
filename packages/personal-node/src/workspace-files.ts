@@ -23,11 +23,19 @@ import {
   sep,
 } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { CliError } from "./errors";
+import { CliError, errorCode } from "./errors";
+import { readPrivate } from "./private-files";
+import { integer, parseJson, record, text } from "./validation";
 
 const forbidden =
-  /^(?:\.git|\.env(?:\..*)?|\.ssh|\.aws|\.azure|\.npmrc|\.netrc|\.pypirc|credentials(?:\..*)?|id_rsa|id_ed25519|node_modules)$/i;
+  /^(?:\.git|\.env(?:\..*)?|\.envrc(?:\..*)?|\.ssh|\.aws|\.azure|\.npmrc|\.netrc|\.pypirc|credentials(?:\..*)?|id_rsa|id_ed25519|node_modules|.+\.(?:pem|key|p12|pfx)|.+\.llame-write-lock)$/iu;
 const maxFileBytes = 262_144;
+const writeLockSuffix = ".llame-write-lock";
+
+interface OwnedLock {
+  readonly raw: string;
+  readonly pid: number;
+}
 
 export interface FileContents {
   readonly content: string;
@@ -180,33 +188,119 @@ export class WorkspaceFiles {
   write(input: string, content: string, expected: string): FileWriteResult {
     if (Buffer.byteLength(content) > maxFileBytes)
       throw new CliError("file_limit", "Write exceeds 256 KiB.");
-    const path = this.verify(input, expected);
-    const oldMode = existsSync(path) ? lstatSync(path).mode & 0o777 : 0o644;
-    const temporary = join(
-      dirname(path),
-      `.${basename(path)}.llame-${randomUUID()}`,
-    );
-    const fd = openSync(temporary, "wx", oldMode);
+    const path = this.path(input, true);
+    const release = acquireWriteLock(path);
     try {
-      writeFileSync(fd, content);
+      const verifiedPath = this.verify(input, expected);
+      const oldMode = existsSync(verifiedPath)
+        ? lstatSync(verifiedPath).mode & 0o777
+        : 0o644;
+      const temporary = createTemporary(verifiedPath, content, oldMode);
+      try {
+        this.verify(input, expected);
+        renameSync(temporary, verifiedPath);
+        syncDirectory(dirname(verifiedPath));
+      } finally {
+        removeTemporary(temporary);
+      }
+    } finally {
+      release();
+    }
+    return { sha256: digest(content), bytes: Buffer.byteLength(content) };
+  }
+}
+
+function createTemporary(path: string, content: string, mode: number): string {
+  const temporary = join(
+    dirname(path),
+    `.${basename(path)}.llame-${randomUUID()}`,
+  );
+  const fd = openSync(temporary, "wx", mode);
+  try {
+    writeFileSync(fd, content);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  return temporary;
+}
+
+function removeTemporary(path: string): void {
+  if (existsSync(path)) unlinkSync(path);
+}
+
+function syncDirectory(path: string): void {
+  if (process.platform === "win32") return;
+  const fd = openSync(path, "r");
+  try {
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function acquireWriteLock(path: string): () => void {
+  const lock = path + writeLockSuffix;
+  const owner = JSON.stringify({ pid: process.pid, nonce: randomUUID() });
+  try {
+    const fd = openSync(lock, "wx", 0o600);
+    try {
+      writeFileSync(fd, owner);
       fsyncSync(fd);
     } finally {
       closeSync(fd);
     }
-    try {
-      this.verify(input, expected);
-      renameSync(temporary, path);
-      if (process.platform !== "win32") {
-        const directory = openSync(dirname(path), "r");
-        try {
-          fsyncSync(directory);
-        } finally {
-          closeSync(directory);
-        }
-      }
-    } finally {
-      if (existsSync(temporary)) unlinkSync(temporary);
-    }
-    return { sha256: digest(content), bytes: Buffer.byteLength(content) };
+    return () => releaseWriteLock(lock, owner);
+  } catch (error) {
+    if (errorCode(error) !== "EEXIST") throw error;
+  }
+  const existing = readWriteLock(lock);
+  if (processAlive(existing.pid))
+    throw new CliError(
+      "stale_file",
+      "File is being edited. Read it again before proposing an edit.",
+    );
+  if (readPrivate(lock) !== existing.raw) {
+    return acquireWriteLock(path);
+  }
+  try {
+    unlinkSync(lock);
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT") throw error;
+  }
+  return acquireWriteLock(path);
+}
+
+function releaseWriteLock(path: string, owner: string): void {
+  if (existsSync(path) && readPrivate(path) === owner) unlinkSync(path);
+}
+
+function readWriteLock(path: string): OwnedLock {
+  const raw = readPrivate(path);
+  try {
+    const owner = record(parseJson(raw), "Workspace write lock");
+    text(owner.nonce, "Workspace write nonce", 100);
+    return {
+      raw,
+      pid: integer(owner.pid, "Workspace write PID", 1, 2_147_483_647),
+    };
+  } catch {
+    throw new CliError(
+      "stale_file",
+      "File has an unrecoverable write lock. Inspect it before continuing.",
+    );
+  }
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (errorCode(error) === "ESRCH") return false;
+    throw new CliError(
+      "stale_file",
+      "Cannot prove that another Workspace writer stopped.",
+    );
   }
 }
