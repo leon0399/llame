@@ -60,6 +60,10 @@ export default defineConfig({
   resolve: {
     alias: [
       {
+        find: /^@workspace\/node-protocol$/,
+        replacement: pkgSrc('node-protocol'),
+      },
+      {
         find: /^@workspace\/knowledge-filesystem\/(.+)$/,
         replacement: path.resolve(
           import.meta.dirname,

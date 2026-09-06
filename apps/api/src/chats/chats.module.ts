@@ -41,6 +41,6 @@ import { SharedChatsController } from './shared-chats.controller';
   ],
   controllers: [ChatsController, MeRunsController, SharedChatsController],
   providers: [ChatsService, ChatLoopService],
-  exports: [ChatsService],
+  exports: [ChatsService, ChatLoopService],
 })
 export class ChatsModule {}

@@ -224,6 +224,9 @@ importers:
       '@workspace/knowledge-filesystem':
         specifier: workspace:*
         version: link:../../packages/knowledge-filesystem
+      '@workspace/node-protocol':
+        specifier: workspace:*
+        version: link:../../packages/node-protocol
       '@workspace/runtime-safety':
         specifier: workspace:*
         version: link:../../packages/runtime-safety

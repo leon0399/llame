@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
+import {
+  nodeOpenApiPaths,
+  nodeAdmissionSchemas,
+  nodeProtocolSchemas,
+} from '@workspace/node-protocol';
 
 const HTTP_METHODS = ['delete', 'get', 'patch', 'post', 'put'] as const;
 
@@ -76,11 +81,25 @@ const rawDocument: unknown = JSON.parse(
 );
 const document = openApiObjectSchema.parse(rawDocument);
 
+it('Node operations and admission schemas match their shared generator', () => {
+  for (const [path, value] of Object.entries(nodeOpenApiPaths())) {
+    expect(document.paths[path]).toEqual(value);
+  }
+  const schemas = document.components?.schemas;
+  for (const [name, value] of Object.entries({
+    ...nodeAdmissionSchemas(schemas?.CreateMessageDto ?? {}),
+    ...nodeProtocolSchemas(),
+  })) {
+    expect(schemas?.[name]).toEqual(value);
+  }
+});
+
 const EXPECTED_OPERATION_IDS = [
   'changeOrgUnitMembershipRole',
   'createChatMessage',
   'createChildOrgUnit',
   'createKnowledgeSpace',
+  'createNodeRun',
   'createProject',
   'createRootOrgUnit',
   'deleteChat',
@@ -114,6 +133,7 @@ const EXPECTED_OPERATION_IDS = [
   'listSessions',
   'loginUser',
   'logoutUser',
+  'nodeOwnerRequest',
   'pinItem',
   'registerUser',
   'renameKnowledgeSpace',
